@@ -44,6 +44,7 @@ export default function AdminPayments() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>💳 PAYMENTS</Text>
+      <Text style={st.notice}>Payment approval is manual. Withdrawal approval does not send money automatically; arrange the payout separately.</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
@@ -54,6 +55,7 @@ export default function AdminPayments() {
           <Text style={st.pName}>{p.kind === 'withdrawal' ? '↩ WITHDRAW' : '🪙 ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount)}</Text>
           <Text style={st.sub}>👤 {p.userName || p.userId}</Text>
           <Text style={st.sub}>{p.kind === 'withdrawal' ? `🏦 ${p.method} • ${p.account || '—'}` : `💳 ${p.method} • Ref: ${p.reference || '—'}`}</Text>
+          {p.kind === 'payment' && <Text style={st.sub}>🧾 Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
           {tab === 'pending' && (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -70,6 +72,7 @@ export default function AdminPayments() {
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
   h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
 });

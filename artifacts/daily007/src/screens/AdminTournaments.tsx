@@ -20,9 +20,17 @@ export default function AdminTournaments() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
-    try { setList(await Api.tournaments(true)); } catch { setList([]); }
+    try {
+      const response = await Api.tournaments(true);
+      setList(Array.isArray(response) ? response : []);
+      setLoadError('');
+    } catch (e: any) {
+      setList([]);
+      setLoadError(apiError(e));
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -64,6 +72,7 @@ export default function AdminTournaments() {
         <Btn title={showForm ? '✕ CLOSE' : '＋ NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
       </View>
       <Msg kind="err" text={err} />
+      {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
       <Msg kind="ok" text={okMsg} />
 
       {showForm && (

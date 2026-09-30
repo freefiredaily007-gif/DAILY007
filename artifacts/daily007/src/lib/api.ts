@@ -8,6 +8,7 @@ export type User = {
   gameUid?: string; coins?: number; role?: string; status?: string;
   createdAt?: string; $createdAt?: string;
   matches?: number; wins?: number; kills?: number; prizeCoins?: number; token?: string;
+  statsError?: string;
 };
 
 export type Tournament = {
@@ -24,12 +25,13 @@ export type AdminRegistration = {
 
 export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Type': 'application/json' } });
 
-const KEY = 'ffd007_session';
+// Deliberately distinct from the legacy hosted app's AsyncStorage keys.
+const KEY = 'daily007_v2_session';
 let current: User | null = null;
 
 export function setSession(u: User | null) {
   current = u;
-  if (u) AsyncStorage.setItem(KEY, JSON.stringify(u)).catch(() => {});
+  if (u?.token) AsyncStorage.setItem(KEY, JSON.stringify(u)).catch(() => {});
   else AsyncStorage.removeItem(KEY).catch(() => {});
   if (u?.token) http.defaults.headers.common['Authorization'] = 'Bearer ' + u.token;
   else delete http.defaults.headers.common['Authorization'];
@@ -39,9 +41,21 @@ export async function getSession(): Promise<User | null> {
   if (current) return current;
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    if (raw) { const u = JSON.parse(raw); setSession(u); return u; }
+    if (raw) {
+      const u = JSON.parse(raw) as User;
+      if (typeof u?.token !== 'string' || !u.token) {
+        await AsyncStorage.removeItem(KEY);
+        return null;
+      }
+      setSession(u);
+      return u;
+    }
   } catch {}
   return null;
+}
+
+export function currentUser(): User | null {
+  return current;
 }
 
 export function errMessage(e: any): string {
@@ -57,19 +71,85 @@ const unwrap = (p: Promise<any>) =>
     return d;
   });
 
+function normalizeUser(value: any, token?: string): User {
+  const account = value?.account ?? value?.user ?? value?.player ?? value;
+  if (!account || typeof account !== 'object') throw new Error('The server returned an invalid account.');
+  return {
+    ...account,
+    id: account.id ?? account.$id,
+    gameUid: account.gameUid ?? account.game_uid,
+    coins: Number(account.coins ?? account.wallet_coins ?? value?.wallet_coins ?? 0),
+    token: token ?? value?.token ?? account.token,
+  };
+}
+
+async function authenticate(path: string, body: object): Promise<{ user: User; token: string }> {
+  const result = await unwrap(http.post(path, body));
+  const token = result?.token ?? result?.accessToken;
+  if (typeof token !== 'string' || !token) throw new Error('The server did not return an authentication token.');
+  return { user: normalizeUser(result, token), token };
+}
+
 export const Api = {
   // auth
   register: (b: { name: string; email: string; phone: string; password: string; gameUid?: string; referralCode?: string }) =>
-    unwrap(http.post('/auth/register', b)),
-  login: (b: { email: string; password: string }) => unwrap(http.post('/auth/login', b)),
-  me: () => unwrap(http.get('/auth/me')),
+    authenticate('/auth/register', b),
+  login: (b: { email: string; password: string }) => authenticate('/auth/login', b),
+  me: async () => {
+    const savedSession = current ?? await getSession();
+    const user = normalizeUser(await unwrap(http.get('/auth/me')), savedSession?.token);
+    try {
+      const response = await unwrap(http.get('/me/stats'));
+      const stats = response?.stats ?? response;
+      const counters = {
+        matches: Number(stats?.matches),
+        wins: Number(stats?.wins),
+        kills: Number(stats?.kills),
+        prizeCoins: Number(stats?.prizeCoins ?? stats?.prize_coins),
+      };
+      if (Object.values(counters).some((value) => !Number.isFinite(value))) {
+        throw new Error('Profile statistics response is incomplete.');
+      }
+      return { ...user, ...counters, statsError: undefined };
+    } catch (e: any) {
+      if (e?.response?.status === 401 || e?.response?.status === 403) throw e;
+      return {
+        ...user,
+        matches: undefined,
+        wins: undefined,
+        kills: undefined,
+        prizeCoins: undefined,
+        statsError: errMessage(e),
+      };
+    }
+  },
   updateProfile: (b: Partial<User>) => unwrap(http.patch('/auth/me', b)),
   // tournaments
   tournaments: (qs: string | boolean = '') => unwrap(http.get('/tournaments' + (qs === true ? '?enabled=true' : qs || ''))),
   tournament: (id: string) => unwrap(http.get('/tournaments/' + id)),
   // registrations / join
   myRegistrations: () => unwrap(http.get('/my/registrations')),
-  join: (id: string, b: object) => unwrap(http.post('/tournaments/' + id + '/join', b)),
+  join: (id: string, b: object) => {
+    const payload = b as { playerName?: string; gameUid?: string; teamMembers?: string };
+    let members: { name?: string; uid?: string }[] = [];
+    try {
+      members = payload.teamMembers ? JSON.parse(payload.teamMembers) : [];
+    } catch {
+      throw new Error('The registration form data could not be read. Please try again.');
+    }
+    const captain = members[0] ?? { name: payload.playerName, uid: payload.gameUid };
+    const isTeam = members.length > 1;
+    return unwrap(http.post(`/daily007/v2/matches/${encodeURIComponent(id)}/register`, {
+      captainName: String(captain.name ?? payload.playerName ?? '').trim(),
+      captainGameUid: String(captain.uid ?? payload.gameUid ?? '').trim(),
+      ...(isTeam ? {
+        teammates: members.slice(1, 4).map((member) => ({
+          name: String(member.name ?? '').trim(),
+          ...(String(member.uid ?? '').trim() ? { uid: String(member.uid).trim() } : {}),
+        })),
+      } : {}),
+    }));
+  },
   // wallet
   transactions: () => unwrap(http.get('/wallet/transactions')),
   // payments
@@ -86,6 +166,9 @@ export const Api = {
   leaderboard: () => unwrap(http.get('/leaderboard')),
   settings: () => unwrap(http.get('/settings')),
   // admin
+  adminBootstrapStatus: () => unwrap(http.get('/daily007/v2/admin/bootstrap-status')),
+  adminBootstrap: (bootstrapToken: string) =>
+    unwrap(http.post('/daily007/v2/admin/bootstrap', { bootstrapToken })),
   adminStats: () => unwrap(http.get('/admin/stats')),
   adminDeletePayment: (id: string) => unwrap(http.delete('/admin/payments/' + id)),
   adminDeleteWithdrawal: (id: string) => unwrap(http.delete('/admin/withdrawals/' + id)),

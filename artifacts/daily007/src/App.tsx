@@ -24,7 +24,7 @@ import { ProfileIconActive, ProfileIconInactive } from './components/ProfileIcon
 import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 
-export type Ctx = { user: User; refresh: () => void; logout: () => void };
+export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
 const Ctx = React.createContext<Ctx>(null as any);
 export const useApp = () => React.useContext(Ctx);
 
@@ -88,14 +88,32 @@ export default function App() {
     (async () => {
       try {
         const u = await getSession();
-        if (u) setUser(u);
+        if (u) {
+          try {
+            const verified = await Api.me();
+            const session = { ...verified, token: u.token };
+            setSession(session);
+            setUser(session);
+          } catch {
+            setSession(null);
+          }
+        }
       } catch {}
       setBooting(false);
     })();
   }, []);
 
   const refresh = useCallback(async () => {
-    try { const u = await Api.me(); if (u) { setSession(u); setUser(u); } } catch {}
+    try {
+      const u = await Api.me();
+      if (u) { setSession(u); setUser(u); return u; }
+    } catch (e: any) {
+      if (e?.response?.status === 401 || e?.response?.status === 403) {
+        setSession(null);
+        setUser(null);
+      }
+    }
+    return null;
   }, []);
 
   const logout = useCallback(() => { setSession(null); setUser(null); }, []);

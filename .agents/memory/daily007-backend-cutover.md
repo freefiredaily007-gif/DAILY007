@@ -1,10 +1,16 @@
 ---
-name: Daily007 backend cutover
-description: Why the new Replit registration backend must remain isolated until account and wallet data can be migrated safely.
+name: Daily007 fresh-start cutover
+description: User-approved reset of unpublished Daily007 data, with a full feature-parity requirement before switching backends.
 ---
 
-Build replacement registration rules alongside the hosted Daily007 service, but do not switch existing players to the replacement before an audited data export, account mapping, and wallet reconciliation.
+The user approved a fresh start: old accounts, passwords, wallet balances, and registrations from the unpublished hosted app do not need to be imported. Keep the hosted API untouched as a fallback during development, but switch the mobile client to Replit only when all visible features have working replacements, not merely the new registration flow.
 
-**Why:** The hosted service owns existing identities and coin balances. Its server code and export mechanism were not available when the replacement was started. A premature switch would make accounts appear missing or coins disappear; dual writes could charge or award coins twice. The user approved building a new backend with a migration plan, not losing existing data.
+**Why:** The user explicitly accepted losing the old unpublished data to avoid a provider export, but also explicitly requested that *all* existing app features remain (payments, withdrawals, videos, referrals, notifications, results) alongside the new tournament modes. A partial API switch would silently break the rest of the app. Hosted data does not need to be remotely deleted.
 
-**How to apply:** Keep production login and wallet traffic on the hosted service until import and complete API compatibility are verified. Do not treat local seed users as real accounts. Coordinate a write freeze, final delta, and rollback reconciliation before cutover.
+**How to apply:** Start new Replit accounts at zero, invalidate old stored mobile sessions, never seed sample users/coins as real data, and test monetary actions and admin onboarding before claiming readiness. Manual payment requests need admin verification; submitting a reference cannot itself mint coins. Do not delete the hosted provider's data unless separately authorized and directly accessible.
+
+Keep video coin rewards paused until playback can be verified against a server-controlled catalog or trusted provider.
+
+**Why:** The inherited video screen simulates playback and can send arbitrary video IDs and completion percentages. Crediting spendable coins from those claims lets anyone mint coins repeatedly.
+
+**How to apply:** Keep the video tab honest about reward availability. Do not reinstate the award endpoint merely by rate-limiting client-provided IDs; add trustworthy video identity and completion verification first.

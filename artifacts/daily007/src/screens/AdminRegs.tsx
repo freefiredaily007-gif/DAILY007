@@ -41,18 +41,29 @@ export default function AdminRegs() {
       paidRoster.filter((r) => String(r.tournamentId) === selectedTournament.id).forEach((r) => {
         let members: any[] = [];
         try {
-          const parsed = typeof r.teamMembers === 'string' ? JSON.parse(r.teamMembers) : r.teamMembers;
+          const source = r.teamMembers ?? r.teammates;
+          const parsed = typeof source === 'string' ? JSON.parse(source) : source;
           if (Array.isArray(parsed)) members = parsed;
         } catch {}
+        if (r.teammates && !members.length) {
+          try {
+            const parsed = typeof r.teammates === 'string' ? JSON.parse(r.teammates) : r.teammates;
+            if (Array.isArray(parsed)) members = parsed;
+          } catch {}
+        }
         if (members.length) {
+          const captainName = r.captainName || r.playerName;
+          if (captainName && !members.some((m) => m?.name === captainName)) {
+            rows.push([String(captainName), String(r.captainGameUid || r.gameUid || ''), String(r.teamName || ''), String(r.status || '')]);
+          }
           members.forEach((member) => rows.push([
             String(member?.name || ''),
-            String(member?.uid || member?.gameUid || ''),
+            String(member?.uid || member?.gameUid || member?.captainGameUid || ''),
             String(r.teamName || ''),
             String(r.status || ''),
           ]));
         } else {
-          rows.push([String(r.playerName || ''), String(r.gameUid || ''), String(r.teamName || ''), String(r.status || '')]);
+          rows.push([String(r.playerName || r.captainName || ''), String(r.gameUid || r.captainGameUid || ''), String(r.teamName || ''), String(r.status || '')]);
         }
       });
       const quote = (value: string) => {

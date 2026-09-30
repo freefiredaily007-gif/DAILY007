@@ -12,7 +12,10 @@ const CAPACITY: Record<string, number> = { solo: 48, squad: 12, clash: 2 };
 const PASSWORD_BYTES = 64;
 const TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 14;
 
-type Account = { id: string; name: string; email: string; role: "user" | "admin"; wallet_coins: number };
+export type Account = {
+  id: string; name: string; email: string; role: "user" | "admin"; wallet_coins: number;
+  phone?: string | null; game_uid?: string | null; status?: "active" | "blocked";
+};
 type SqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
   release(): void;
@@ -50,7 +53,7 @@ function tokenSecret(): string | null {
   return secret && secret.length >= 32 ? secret : null;
 }
 
-function makeToken(userId: string): string | null {
+export function makeToken(userId: string): string | null {
   const secret = tokenSecret();
   if (!secret) return null;
   const payload = Buffer.from(JSON.stringify({
@@ -85,7 +88,7 @@ function readToken(token: string): string | null {
   }
 }
 
-async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!tokenSecret()) {
     fail(res, 503, "Daily007 v2 authentication needs DAILY007_AUTH_SECRET or SESSION_SECRET (at least 32 characters).");
     return;
@@ -98,18 +101,22 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
     return;
   }
   const result = await pool.query<Account>(
-    "SELECT id, name, email, role, wallet_coins FROM daily007_v2_users WHERE id = $1",
+    "SELECT id, name, email, role, wallet_coins, phone, game_uid, status FROM daily007_v2_users WHERE id = $1",
     [userId],
   );
   if (!result.rows[0]) {
     fail(res, 401, "Account not found.");
     return;
   }
+  if (result.rows[0].status === "blocked") {
+    fail(res, 403, "This account is blocked.");
+    return;
+  }
   req.daily007Account = result.rows[0];
   next();
 }
 
-function requireAdmin(req: Request, res: Response): boolean {
+export function requireAdmin(req: Request, res: Response): boolean {
   if (req.daily007Account?.role !== "admin") {
     fail(res, 403, "Administrator access is required.");
     return false;
@@ -117,7 +124,7 @@ function requireAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
-async function hashPassword(password: string, salt?: Buffer): Promise<{ salt: string; hash: string }> {
+export async function hashPassword(password: string, salt?: Buffer): Promise<{ salt: string; hash: string }> {
   const actualSalt = salt ?? randomBytes(16);
   const hash = await scrypt(password, actualSalt, PASSWORD_BYTES) as Buffer;
   return { salt: actualSalt.toString("hex"), hash: hash.toString("hex") };
@@ -155,12 +162,21 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
   const name = cleanName(body.name, "name");
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = body.password;
+  const phone = body.phone === undefined ? null : cleanName(body.phone, "phone");
+  const gameUid = body.gameUid === undefined ? null : cleanName(body.gameUid, "gameUid");
+  const referralCode = body.referralCode === undefined ? null : cleanName(body.referralCode, "referralCode");
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     fail(res, 400, "Name must be 1–100 characters and email must be valid.");
     return;
   }
   if (typeof password !== "string" || password.length < 12 || password.length > 200) {
     fail(res, 400, "Password must contain 12–200 characters.");
+    return;
+  }
+  if ((body.phone !== undefined && (!phone || phone.length > 40)) ||
+      (body.gameUid !== undefined && (!gameUid || gameUid.length > 128)) ||
+      (body.referralCode !== undefined && (!referralCode || referralCode.length > 64))) {
+    fail(res, 400, "Optional phone, gameUid, and referralCode must be valid strings within supported lengths.");
     return;
   }
   if (!tokenSecret()) {
@@ -170,10 +186,10 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
   const credentials = await hashPassword(password);
   try {
     const result = await pool.query<Account>(
-      `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, email, role, wallet_coins`,
-      [name, email, credentials.salt, credentials.hash],
+      `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash, phone, game_uid, referral_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, email, role, wallet_coins, phone, game_uid, status`,
+      [name, email, credentials.salt, credentials.hash, phone, gameUid, referralCode],
     );
     const account = result.rows[0];
     const token = makeToken(account.id);
@@ -199,13 +215,17 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
   }
   const email = body.email.trim().toLowerCase();
   const result = await pool.query<Account & { password_salt: string; password_hash: string }>(
-    `SELECT id, name, email, role, wallet_coins, password_salt, password_hash
+    `SELECT id, name, email, role, wallet_coins, phone, game_uid, status, password_salt, password_hash
      FROM daily007_v2_users WHERE email = $1`,
     [email],
   );
   const user = result.rows[0];
   if (!user || body.password.length > 200) {
     fail(res, 401, "Email or password is incorrect.");
+    return;
+  }
+  if (user.status === "blocked") {
+    fail(res, 403, "This account is blocked.");
     return;
   }
   const candidate = await hashPassword(body.password, Buffer.from(user.password_salt, "hex"));
@@ -218,7 +238,10 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
   const token = makeToken(user.id);
   res.json({
     token,
-    account: { id: user.id, name: user.name, email: user.email, role: user.role, wallet_coins: user.wallet_coins },
+    account: {
+      id: user.id, name: user.name, email: user.email, role: user.role, wallet_coins: user.wallet_coins,
+      phone: user.phone, game_uid: user.game_uid, status: user.status,
+    },
   });
 });
 
@@ -228,7 +251,18 @@ router.get("/daily007/v2/auth/me", authenticate, (req, res): void => {
     fail(res, 401, "A valid Daily007 v2 bearer token is required.");
     return;
   }
-  res.json({ id: account.id, name: account.name, email: account.email, role: account.role, walletCoins: account.wallet_coins });
+  res.json({
+    id: account.id, name: account.name, email: account.email, phone: account.phone,
+    gameUid: account.game_uid, role: account.role, status: account.status,
+    coins: account.wallet_coins, walletCoins: account.wallet_coins,
+  });
+});
+
+router.get("/daily007/v2/admin/bootstrap-status", authenticate, async (_req, res): Promise<void> => {
+  const admins = await pool.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM daily007_v2_users WHERE role = 'admin'",
+  );
+  res.json({ available: Number(admins.rows[0]?.count ?? 0) === 0 });
 });
 
 router.post("/daily007/v2/admin/bootstrap", authenticate, async (req, res): Promise<void> => {
@@ -267,7 +301,7 @@ router.get("/daily007/v2/matches", async (_req, res): Promise<void> => {
   const result = await pool.query(
     `SELECT m.id, m.title, m.mode, m.capacity, m.entry_coins AS "entryCoins",
             m.starts_at AS "startsAt", m.status, m.is_full AS "isFull",
-            count(r.id)::integer AS "registeredCount"
+            count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS "registeredCount"
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id
       GROUP BY m.id
@@ -347,7 +381,7 @@ router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): P
   res.json({ match: result.rows[0] });
 });
 
-router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res): Promise<void> => {
+router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], authenticate, async (req, res): Promise<void> => {
   const matchId = requestId(req);
   if (!matchId) {
     fail(res, 400, "Match id must be a UUID.");
@@ -363,13 +397,14 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
     fail(res, 401, "A valid Daily007 v2 bearer token is required.");
     return;
   }
-  const captainName = cleanName(body.captainName, "captainName");
+  const legacy = req.path.startsWith("/tournaments/");
+  const captainName = cleanName(legacy ? body.playerName : body.captainName, "captainName");
   if (!captainName) {
     fail(res, 400, "captainName must be 1–100 characters.");
     return;
   }
-  const captainGameUid = typeof body.captainGameUid === "string"
-    ? body.captainGameUid.trim()
+  const captainGameUid = typeof (legacy ? body.gameUid : body.captainGameUid) === "string"
+    ? String(legacy ? body.gameUid : body.captainGameUid).trim()
     : "";
   if (!captainGameUid || captainGameUid.length > 128) {
     fail(res, 400, "captainGameUid is required and must contain 1–128 characters.");
@@ -378,9 +413,9 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
   try {
     const registered = await withTransaction(async (client) => {
       const matchResult = await client.query<{
-        id: string; mode: string; capacity: number; status: string; entry_coins: number; starts_at: Date;
+        id: string; mode: string; capacity: number; status: string; entry_coins: number; starts_at: Date; enabled: boolean;
       }>(
-        "SELECT id, mode, capacity, status, entry_coins, starts_at FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        "SELECT id, mode, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
         [matchId],
       );
       const match = matchResult.rows[0];
@@ -389,10 +424,10 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
       // Match row serialization makes this lookup race-safe for simultaneous retries.
       const existing = await client.query<{
         id: string; captain_game_uid: string; entry_coins_paid: number;
-        balance_after: number; capacity: number; status: string; is_full: boolean;
+        balance_after: number; capacity: number; status: string; is_full: boolean; registration_status: string;
       }>(
         `SELECT r.id, r.captain_game_uid, r.entry_coins_paid, l.balance_after,
-                m.capacity, m.status, m.is_full
+                m.capacity, m.status, m.is_full, r.status AS registration_status
            FROM daily007_v2_registrations r
            JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
            JOIN daily007_v2_matches m ON m.id = r.match_id
@@ -400,8 +435,11 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
         [matchId, account.id],
       );
       if (existing.rows[0]) {
+        if (existing.rows[0].registration_status === "rejected") {
+          throw Object.assign(new Error("This registration was rejected and refunded; contact an administrator before trying again."), { status: 409 });
+        }
         const countResult = await client.query<{ count: string }>(
-          "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1",
+          "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
           [matchId],
         );
         const prior = existing.rows[0];
@@ -425,12 +463,32 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
       if (!upcoming.rows[0]?.upcoming) {
         throw Object.assign(new Error("Registration is closed because the match has started."), { status: 409 });
       }
+      if (!match.enabled) {
+        throw Object.assign(new Error("This tournament is disabled and is not accepting registrations."), { status: 409 });
+      }
       if (match.status !== "open") {
         throw Object.assign(new Error("This match is already full and is not accepting registrations."), { status: 409 });
       }
       let teammates: { name: string; uid: string | null }[] = [];
+      let submittedTeamName = "";
       if (TEAM_MODES.has(match.mode)) {
-        const parsedTeammates = parseTeamMembers(body.teammates);
+        let teammateInput = body.teammates;
+        if (legacy) {
+          submittedTeamName = typeof body.teamName === "string" ? body.teamName.trim() : "";
+          let members: unknown = body.teamMembers;
+          if (typeof members === "string") {
+            try { members = JSON.parse(members) as unknown; } catch { members = null; }
+          }
+          if (!submittedTeamName || submittedTeamName.length > 100 || !Array.isArray(members) ||
+              members.length !== 4 || !isRecord(members[0]) ||
+              members[0].name !== captainName || members[0].uid !== captainGameUid) {
+            throw Object.assign(new Error("Team registrations require a team name and four members with the captain listed first."), { status: 400 });
+          }
+          teammateInput = members.slice(1).map((member) => isRecord(member)
+            ? { name: member.name, uid: member.uid || null }
+            : null);
+        }
+        const parsedTeammates = parseTeamMembers(teammateInput);
         if (!parsedTeammates) {
           throw Object.assign(new Error("Squad and clash registrations require exactly three teammate names; each optional uid must contain at most 128 characters and be unique."), { status: 400 });
         }
@@ -442,7 +500,7 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
         throw Object.assign(new Error("Solo registrations do not accept teammates."), { status: 400 });
       }
       const countResult = await client.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1",
+        "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
         [matchId],
       );
       const currentCount = Number(countResult.rows[0].count);
@@ -455,9 +513,9 @@ router.post("/daily007/v2/matches/:id/register", authenticate, async (req, res):
       if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 401 });
       if (balance < match.entry_coins) throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), { status: 409 });
       const registrationResult = await client.query<{ id: string }>(
-        `INSERT INTO daily007_v2_registrations (match_id, captain_user_id, captain_name, captain_game_uid, entry_coins_paid)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [matchId, account.id, captainName, captainGameUid, match.entry_coins],
+        `INSERT INTO daily007_v2_registrations (match_id, captain_user_id, captain_name, captain_game_uid, team_name, entry_coins_paid)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [matchId, account.id, captainName, captainGameUid, submittedTeamName, match.entry_coins],
       );
       const registrationId = registrationResult.rows[0].id;
       if (TEAM_MODES.has(match.mode)) {
@@ -608,7 +666,8 @@ router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Prom
     starts_at: Date; registered: boolean;
   }>(
     `SELECT m.room_id, m.room_password, m.room_published, m.starts_at,
-            EXISTS(SELECT 1 FROM daily007_v2_registrations r WHERE r.match_id = m.id AND r.captain_user_id = $2) AS registered
+             EXISTS(SELECT 1 FROM daily007_v2_registrations r
+                     WHERE r.match_id = m.id AND r.captain_user_id = $2 AND r.status = 'approved') AS registered
        FROM daily007_v2_matches m WHERE m.id = $1`,
     [matchId, account.id],
   );
@@ -654,7 +713,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
        FROM daily007_v2_registrations r
        JOIN daily007_v2_users u ON u.id = r.captain_user_id
        LEFT JOIN daily007_v2_roster ro ON ro.registration_id = r.id
-      WHERE r.match_id = $1
+       WHERE r.match_id = $1 AND r.status = 'approved'
       ORDER BY r.created_at, r.id, ro.position`,
     [id],
   );

@@ -8,8 +8,8 @@ const FIELDS: [string, string, string][] = [
   ['whatsappLink', 'WhatsApp Group URL', 'https://chat.whatsapp.com/...'],
   ['instagramLink', 'Instagram URL', 'https://instagram.com/...'],
   ['youtubeLink', 'YouTube URL', 'https://youtube.com/...'],
-  ['upiId', 'Payment UPI ID', 'daily007@upi'],
-  ['paymentNote', 'Payment Instructions', 'Pay via UPI and enter reference ID'],
+  ['upiId', 'Payment UPI ID', 'UPI ID for manual coin payments'],
+  ['paymentNote', 'Payment Instructions', 'Manual payment verification instructions'],
   ['supportContact', 'Support Contact', 'WhatsApp: +91-...'],
   ['minPurchase', 'Min coin purchase', '100'],
   ['maxPurchase', 'Max coin purchase', '5000'],
@@ -24,7 +24,8 @@ export default function AdminSettings() {
 
   const load = useCallback(async () => {
     try {
-      const s = await Api.adminSettings();
+      const response = await Api.adminSettings();
+      const s = response?.settings ?? response ?? {};
       const map: Record<string, string> = {};
       for (const [k] of FIELDS) map[k] = s[k] ?? '';
       setVals(map);
@@ -46,6 +47,7 @@ export default function AdminSettings() {
       <Text style={st.h}>⚙️ SETTINGS</Text>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
+      <Text style={st.notice}>Coin payments and withdrawal requests require manual review. Payouts are not automatic.</Text>
       <Card>
         {FIELDS.map(([k, label, ph]) => (
           <Input key={k} placeholder={`${label} — ${ph}`} value={vals[k] ?? ''} onChangeText={(v) => setVals((s) => ({ ...s, [k]: v }))} />
@@ -59,4 +61,5 @@ export default function AdminSettings() {
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
   h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
 });

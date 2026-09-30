@@ -118,7 +118,7 @@ export default function AdminNotifications() {
       {[
         { t: 'Tournament Announcement', b: 'A new tournament is live! Register now — limited slots.' },
         { t: 'Room Published', b: 'Room ID & password are now visible in My Matches. Join on time!' },
-        { t: 'Winner Announcement', b: 'Congratulations to our BOOYAH winner! Prize coins credited.' },
+        { t: 'Winner Announcement', b: 'Congratulations to our BOOYAH winner! Please check the announced results and reward status.' },
       ].map((tpl) => (
         <Card key={tpl.t}>
           <Text style={st.tplT} onPress={() => { setTitle(tpl.t); setBody(tpl.b); }}>{tpl.t} ›</Text>

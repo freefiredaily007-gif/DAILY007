@@ -29,11 +29,18 @@ function fmtDate(d?: string) {
   return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase();
 }
 function statusOf(t: any) {
-  const filled = t.filledSlots ?? t.filled ?? 0;
-  if (t.status === 'live') return { key: 'LIVE', color: C.red };
-  if (t.status === 'completed') return { key: 'COMPLETED', color: C.dim };
-  if (filled >= (t.totalSlots ?? 48)) return { key: 'FULL', color: C.orange };
+  const filled = Number(t.filledSlots ?? t.filled ?? 0);
+  const total = Number(t.totalSlots ?? (String(t.mode || '').toLowerCase().includes('clash') ? 2 : String(t.teamType || '').toLowerCase() === 'squad' ? 12 : 48));
+  const status = String(t.status ?? '').toLowerCase();
+  if (status === 'live') return { key: 'LIVE', color: C.red };
+  if (status === 'completed' || status === 'cancelled') return { key: 'COMPLETED', color: C.dim };
+  if (status === 'full' || (total > 0 && filled >= total)) return { key: 'FULL', color: C.orange };
   return { key: 'UPCOMING', color: C.green };
+}
+function tournamentModeFallback(t: any): number {
+  if (String(t?.mode || '').toLowerCase().includes('clash')) return 2;
+  if (String(t?.teamType || '').toLowerCase() === 'squad') return 12;
+  return 48;
 }
 function startAt(t: any): number | null {
   const datePart = String(t.date || '').slice(0, 10);
@@ -57,6 +64,7 @@ export default function Home() {
   const { user } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [links, setLinks] = useState<any>({});
   const [page, setPage] = useState(0);
@@ -83,13 +91,13 @@ export default function Home() {
           : target === 'battleroyalesquad'
             ? teamType === 'squad' && tournamentMode === 'battleroyale'
             : teamType === 'squad' && tournamentMode === 'clashsquad';
-        const total = Number(t.totalSlots ?? 0);
+        const total = Number(t.totalSlots ?? (tournamentModeFallback(t)));
         const filled = Number(t.filledSlots ?? t.filled ?? 0);
         const remaining = Number(t.availableSlots ?? total - filled);
         const status = String(t.status || 'upcoming').toLowerCase();
         const kickoff = startAt(t);
-        return matches && t.enabled !== false && !['completed', 'live', 'closed', 'full'].includes(status)
-          && total > 0 && filled < total && remaining > 0 && kickoff !== null && kickoff > now;
+        return matches && t.enabled !== false && !['completed', 'cancelled', 'live', 'closed', 'full'].includes(status)
+          && total > 0 && filled < total && remaining > 0 && (kickoff === null || kickoff > now);
       }).sort((a: any, b: any) => {
         const timeDifference = (startAt(a) ?? Number.MAX_SAFE_INTEGER) - (startAt(b) ?? Number.MAX_SAFE_INTEGER);
         return timeDifference || String(a.id || '').localeCompare(String(b.id || ''));
@@ -109,11 +117,14 @@ export default function Home() {
       const r = await api.tournaments('?enabled=true');
       const list = Array.isArray(r) ? r : r?.tournaments || [];
       setItems(Array.isArray(list) ? list : []);
-    } catch {}
+      setLoadError('');
+    } catch (e: any) {
+      setLoadError(e?.message || 'Could not load tournaments.');
+    }
     setLoading(false);
   }, []);
 
-  React.useEffect(() => { load(); Api.settings().then((st: any) => setLinks(st || {})).catch(() => {}); }, [load]);
+  React.useEffect(() => { load(); Api.settings().then((st: any) => setLinks(st?.settings ?? st ?? {})).catch(() => {}); }, [load]);
 
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
@@ -153,7 +164,12 @@ export default function Home() {
           </View>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Pressable style={[s.bellBtn, glow(C.neon, 8)]} onPress={() => goTab('profile')}>
+          <Pressable
+            style={[s.bellBtn, glow(C.neon, 8)]}
+            onPress={() => nav.navigate('Notifications')}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+          >
             <Text style={{ fontSize: 16 }}>🔔</Text>
             <View style={s.bellDot} />
           </Pressable>
@@ -166,6 +182,15 @@ export default function Home() {
       <View style={s.headLine} pointerEvents="none" />
 
       {/* ===== LIVE / UPCOMING MATCHES — auto carousel ===== */}
+      <Pressable
+        style={({ pressed }) => [s.myMatchesButton, pressed && { opacity: 0.8 }]}
+        onPress={() => goTab('mymatches')}
+        accessibilityRole="button"
+        accessibilityLabel="Open My Matches for your room details and results"
+      >
+        <Text style={s.myMatchesButtonText}>🎮 MY MATCHES</Text>
+        <Text style={s.myMatchesButtonHint}>ROOM DETAILS & RESULTS →</Text>
+      </Pressable>
       <View style={s.secRow}>
         <Text style={s.secTitle}>🔥 LIVE & UPCOMING MATCHES</Text>
         <Pressable onPress={() => goTab('tournaments')} hitSlop={8}>
@@ -173,7 +198,7 @@ export default function Home() {
         </Pressable>
       </View>
       {loading ? <Loading /> : items.length === 0 ? (
-        <Empty icon="🎮" text="New tournaments are coming soon." actionLabel="CHECK MATCHES" onAction={() => goTab('tournaments')} />
+        <Empty icon="🎮" text={loadError ? `Tournament data is unavailable: ${loadError}` : 'No tournaments are available right now.'} actionLabel="CHECK MATCHES" onAction={() => goTab('tournaments')} />
       ) : (
         <>
           <ScrollView
@@ -184,7 +209,7 @@ export default function Home() {
             decelerationRate="fast">
             {items.slice(0, 8).map((t) => {
         const filled = t.filledSlots ?? t.filled ?? 0;
-        const total = t.totalSlots ?? 48;
+        const total = t.totalSlots ?? tournamentModeFallback(t);
         const stt = statusOf(t);
         const br = t.mode === 'Battle Royale';
         const live = stt.key === 'LIVE';
@@ -304,6 +329,13 @@ const s = StyleSheet.create({
     width: 38, height: 38, borderRadius: 12, backgroundColor: '#ffffff0a', borderWidth: 1,
     borderColor: C.border, alignItems: 'center', justifyContent: 'center',
   },
+  myMatchesButton: {
+    marginHorizontal: 16, marginTop: 12, marginBottom: 2, minHeight: 48, borderRadius: 12,
+    paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#10162b', borderWidth: 1, borderColor: C.neon + '66',
+  },
+  myMatchesButtonText: { color: C.text, fontWeight: '900', fontSize: 12, letterSpacing: 1 },
+  myMatchesButtonHint: { color: C.neon, fontWeight: '800', fontSize: 9, letterSpacing: 0.7 },
   bellDot: { position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: 4, backgroundColor: C.red, shadowColor: C.red, shadowOpacity: 1, shadowRadius: 4 },
   avatarBtn: {
     width: 38, height: 38, borderRadius: 19, backgroundColor: '#241533', borderWidth: 1.5,

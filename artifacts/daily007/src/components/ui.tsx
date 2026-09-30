@@ -75,6 +75,8 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityLabel={title}
       style={({ pressed }) => [
         st.btn,
         { backgroundColor: k.bg, opacity: disabled ? 0.4 : pressed ? 0.8 : 1 },
@@ -219,11 +221,12 @@ export function fmtDate(d?: string) {
 }
 
 export function statusOf(t: any): { key: string; label: string; color: string } {
-  const st = (t?.status || 'upcoming').toLowerCase();
+  const st = String(t?.status || 'upcoming').toLowerCase();
   if (st === 'live') return { key: 'live', label: '🔴 LIVE', color: C.neon };
-  if (st === 'completed') return { key: 'completed', label: 'COMPLETED', color: C.dim };
-  const filled = (t?.filledSlots ?? 0) >= (t?.totalSlots ?? 0);
-  if (filled) return { key: 'full', label: 'FULL', color: C.orange };
+  if (st === 'completed' || st === 'cancelled') return { key: 'completed', label: st.toUpperCase(), color: C.dim };
+  const filled = Number(t?.filledSlots ?? t?.filled ?? 0);
+  const total = Number(t?.totalSlots ?? 0);
+  if (st === 'full' || (total > 0 && filled >= total)) return { key: 'full', label: 'FULL', color: C.orange };
   return { key: 'upcoming', label: 'UPCOMING', color: C.green };
 }
 

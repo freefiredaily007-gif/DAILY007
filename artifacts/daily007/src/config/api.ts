@@ -1,4 +1,5 @@
-// App configuration. Change these if you host the API or the realtime relay yourself.
-export const API_BASE_URL = "https://appbuilderagent.com/app-api/app486d41dec36ef0a9698d05cc26eac68e/api";
+// Build-time Expo domain is injected by the Replit mobile workflow. Keep all API
+// traffic on this artifact's proxied API route for web and Expo Go clients.
+export const API_BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 export const REALTIME_URL = "";
 export const REALTIME_APP_ID = "";

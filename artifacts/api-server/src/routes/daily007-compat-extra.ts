@@ -1,0 +1,590 @@
+import { Router, type IRouter, type Request, type Response } from "express";
+import { pool } from "@workspace/db";
+import { authenticate, requireAdmin } from "./daily007-v2";
+import {
+  normalizePaymentReference,
+  pausedVideoRewardResponse,
+  referralCodeForUserId,
+} from "../lib/daily007-compat-extra-validation";
+
+const router: IRouter = Router();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_INT = 2_147_483_647;
+const SETTINGS_DEFAULTS = {
+  appName: "Daily007", whatsappLink: "", instagramLink: "", youtubeLink: "",
+  upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
+};
+type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
+const userId = (req: Request) => req.daily007Account?.id;
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+function error(res: Response, status: number, message: string) { res.status(status).json({ error: message }); }
+function validId(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
+function text(value: unknown, min = 1, max = 200): string | null {
+  return typeof value === "string" && value.trim().length >= min && value.trim().length <= max ? value.trim() : null;
+}
+function integer(value: unknown, min = 0, max = MAX_INT): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= min && value <= max;
+}
+async function transaction<T>(work: (client: Client) => Promise<T>): Promise<T> {
+  const client = await pool.connect() as unknown as Client;
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+function respondFailure(res: Response, e: unknown) {
+  const status = (e as { status?: number })?.status;
+  if (status) error(res, status, (e as Error).message);
+  else throw e;
+}
+function privateAccount(req: Request, res: Response): string | null {
+  const id = userId(req);
+  if (!id) { error(res, 401, "A valid Daily007 bearer token is required."); return null; }
+  return id;
+}
+
+async function settings(): Promise<Record<string, unknown>> {
+  const result = await pool.query<{ settings: Record<string, unknown> }>(
+    "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+  );
+  return { ...SETTINGS_DEFAULTS, ...(result.rows[0]?.settings ?? {}) };
+}
+
+router.get("/wallet/transactions", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const result = await pool.query(
+    `SELECT id, amount, balance_after AS "balanceAfter", reason, created_at AS "createdAt"
+       FROM daily007_v2_wallet_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500`, [id],
+  );
+  res.json(result.rows.map((row: any) => ({
+    ...row, description: String(row.reason).replaceAll("_", " "),
+  })));
+});
+
+router.post("/payments", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const body = req.body as unknown;
+  if (!isObject(body)) { error(res, 400, "Expected coins and a payment transaction reference."); return; }
+  const coins = body.coins;
+  const amount = body.amount === undefined ? coins : body.amount;
+  const reference = text(body.txnId ?? body.reference, 1, 200);
+  if (!integer(coins, 1) || !integer(amount, 1) || amount !== coins || !reference) {
+    error(res, 400, "coins and amount must be the same positive integer, and txnId/reference must contain 1–200 characters.");
+    return;
+  }
+  const config = await settings();
+  const minimum = Number(config.minPurchase);
+  const maximum = Number(config.maxPurchase);
+  if (!text(config.upiId, 1, 200)) { error(res, 409, "Payment requests are unavailable until an administrator configures the UPI ID."); return; }
+  if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || coins < minimum || coins > maximum) {
+    error(res, 400, `Payment request must be between ${minimum} and ${maximum} coins.`);
+    return;
+  }
+  const normalized = normalizePaymentReference(reference);
+  try {
+    const result = await pool.query(
+      `INSERT INTO daily007_v2_payments (user_id, coins, amount, reference, reference_normalized)
+       VALUES ($1, $2, $2, $3, $4)
+       RETURNING id, coins, amount, reference AS "txnId", status, created_at AS "createdAt"`,
+      [id, coins, reference, normalized],
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") { error(res, 409, "This payment reference has already been submitted."); return; }
+    throw e;
+  }
+});
+
+router.get("/my/payments", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const result = await pool.query(
+    `SELECT id, coins, amount, reference AS "txnId", status, created_at AS "createdAt"
+       FROM daily007_v2_payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
+  );
+  res.json(result.rows);
+});
+
+router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const body = req.body as unknown;
+  const coins = isObject(body) ? body.coins : undefined;
+  const method = isObject(body) ? text(body.method, 1, 40) : null;
+  const account = isObject(body) ? text(body.account, 1, 200) : null;
+  if (!integer(coins, 100) || !method || !account) {
+    error(res, 400, "coins must be an integer of at least 100, with a method and payout account.");
+    return;
+  }
+  try {
+    const withdrawal = await transaction(async (client) => {
+      const user = await client.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [id],
+      );
+      const balance = user.rows[0]?.wallet_coins;
+      if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 404 });
+      const pending = await client.query(
+        "SELECT 1 FROM daily007_v2_withdrawals WHERE user_id = $1 AND status = 'pending' LIMIT 1",
+        [id],
+      );
+      if (pending.rows[0]) {
+        throw Object.assign(new Error("You already have a pending withdrawal request."), { status: 409 });
+      }
+      if (balance < coins) throw Object.assign(new Error("Insufficient wallet balance."), { status: 409 });
+      const nextBalance = balance - coins;
+      const saved = await client.query<Record<string, unknown>>(
+        `INSERT INTO daily007_v2_withdrawals (user_id, coins, method, account)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, coins, method, account, status, payout_status AS "payoutStatus", created_at AS "createdAt"`,
+        [id, coins, method, account],
+      );
+      await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [id, nextBalance]);
+      await client.query(
+        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+         VALUES ($1, $2, $3, 'withdrawal_reserved')`, [id, -coins, nextBalance],
+      );
+      return { ...saved.rows[0], walletCoins: nextBalance };
+    });
+    res.status(201).json(withdrawal);
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") {
+      error(res, 409, "You already have a pending withdrawal request.");
+      return;
+    }
+    respondFailure(res, e);
+  }
+});
+
+router.get("/my/withdrawals", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const result = await pool.query(
+    `SELECT id, coins, method, account, status, payout_status AS "payoutStatus",
+            created_at AS "createdAt", reviewed_at AS "reviewedAt"
+       FROM daily007_v2_withdrawals WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
+  );
+  res.json(result.rows);
+});
+
+router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const result = await pool.query(
+    `SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email,
+            p.coins, p.amount, p.reference AS "reference", p.reference AS "txnId", p.status,
+            p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
+       FROM daily007_v2_payments p JOIN daily007_v2_users u ON u.id = p.user_id
+      WHERE p.status <> 'deleted'
+      ORDER BY p.created_at DESC LIMIT 500`,
+  );
+  res.json(result.rows);
+});
+
+router.get("/admin/withdrawals", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const result = await pool.query(
+    `SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email,
+            w.coins, w.method, w.account, w.status, w.payout_status AS "payoutStatus",
+            w.created_at AS "createdAt", w.reviewed_at AS "reviewedAt"
+       FROM daily007_v2_withdrawals w JOIN daily007_v2_users u ON u.id = w.user_id
+      WHERE w.status <> 'deleted'
+      ORDER BY w.created_at DESC LIMIT 500`,
+  );
+  res.json(result.rows);
+});
+
+for (const kind of ["payments", "withdrawals"] as const) {
+  const table = kind === "payments" ? "daily007_v2_payments" : "daily007_v2_withdrawals";
+  router.post(`/admin/${kind}/:id/:action`, authenticate, async (req, res): Promise<void> => {
+    if (!requireAdmin(req, res)) return;
+    const id = req.params.id;
+    const action = req.params.action;
+    const adminId = privateAccount(req, res);
+    if (!adminId) return;
+    if (!validId(id) || (action !== "approve" && action !== "reject")) {
+      error(res, 400, "A valid request UUID and approve/reject action are required."); return;
+    }
+    try {
+      const result = await transaction(async (client) => {
+        const locked = await client.query<any>(`SELECT * FROM ${table} WHERE id = $1 FOR UPDATE`, [id]);
+        const request = locked.rows[0];
+        if (!request) throw Object.assign(new Error("Request not found."), { status: 404 });
+        if (request.status !== "pending") {
+          if ((action === "approve" && request.status === "approved") ||
+              (action === "reject" && request.status === "rejected")) return { ...request, alreadyReviewed: true };
+          throw Object.assign(new Error("This request has already been reviewed with a different outcome."), { status: 409 });
+        }
+        if (kind === "payments" && action === "approve") {
+          const account = await client.query<{ wallet_coins: number }>(
+            "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [request.user_id],
+          );
+          const balance = account.rows[0]?.wallet_coins;
+          if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 404 });
+          const next = balance + request.coins;
+          if (!Number.isSafeInteger(next) || next > MAX_INT) throw Object.assign(new Error("Wallet balance would exceed the supported range."), { status: 409 });
+          await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [request.user_id, next]);
+          await client.query(
+            `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+             VALUES ($1, $2, $3, 'payment_approved')`, [request.user_id, request.coins, next],
+          );
+        }
+        if (kind === "withdrawals" && action === "reject") {
+          const account = await client.query<{ wallet_coins: number }>(
+            "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [request.user_id],
+          );
+          const balance = account.rows[0]?.wallet_coins;
+          if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 404 });
+          const next = balance + request.coins;
+          if (next > MAX_INT) throw Object.assign(new Error("Refund would exceed the supported wallet range."), { status: 409 });
+          await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [request.user_id, next]);
+          await client.query(
+            `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+             VALUES ($1, $2, $3, 'withdrawal_rejected_refund')`, [request.user_id, request.coins, next],
+          );
+        }
+        const payoutStatus = kind === "withdrawals" && action === "approve" ? "manual_payout_required" : request.payout_status;
+        const saved = await client.query(
+          `UPDATE ${table} SET status = $2, reviewed_by = $3, reviewed_at = now()
+               ${kind === "withdrawals" ? ", payout_status = $4" : ""}
+            WHERE id = $1 RETURNING *`,
+          kind === "withdrawals" ? [id, action === "approve" ? "approved" : "rejected", adminId, payoutStatus] :
+            [id, action === "approve" ? "approved" : "rejected", adminId],
+        );
+        return saved.rows[0];
+      });
+      res.json(result);
+    } catch (e) { respondFailure(res, e); }
+  });
+
+  router.delete(`/admin/${kind}/:id`, authenticate, async (req, res): Promise<void> => {
+    if (!requireAdmin(req, res)) return;
+    if (!validId(req.params.id)) { error(res, 400, "Request id must be a UUID."); return; }
+    try {
+      const result = await transaction(async (client) => {
+        const locked = await client.query<any>(`SELECT * FROM ${table} WHERE id = $1 FOR UPDATE`, [req.params.id]);
+        const request = locked.rows[0];
+        if (!request || request.status === "deleted") return false;
+        if (request.status === "approved") throw Object.assign(new Error("Approved financial records cannot be deleted."), { status: 409 });
+        if (kind === "withdrawals" && request.status === "pending") {
+          const account = await client.query<{ wallet_coins: number }>(
+            "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [request.user_id],
+          );
+          const next = (account.rows[0]?.wallet_coins ?? 0) + request.coins;
+          if (next > MAX_INT) throw Object.assign(new Error("Refund would exceed the supported wallet range."), { status: 409 });
+          await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [request.user_id, next]);
+          await client.query(
+            `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+             VALUES ($1, $2, $3, 'withdrawal_deleted_refund')`, [request.user_id, request.coins, next],
+          );
+        }
+        await client.query(`UPDATE ${table} SET status = 'deleted' WHERE id = $1`, [req.params.id]);
+        return true;
+      });
+      if (!result) { error(res, 404, "Request not found."); return; }
+      res.json({ id: req.params.id, deleted: true });
+    } catch (e) { respondFailure(res, e); }
+  });
+}
+
+router.get("/admin/users", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const result = await pool.query(
+    `SELECT id, id AS "$id", name, email, phone, game_uid AS "gameUid", role,
+            status, wallet_coins AS coins, created_at AS "createdAt"
+       FROM daily007_v2_users ORDER BY created_at DESC LIMIT 1000`,
+  );
+  res.json(result.rows);
+});
+
+router.patch("/admin/users/:id", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const id = req.params.id;
+  const body = req.body as unknown;
+  if (!validId(id) || !isObject(body)) { error(res, 400, "A valid user UUID and JSON object are required."); return; }
+  const setStatus = Object.hasOwn(body, "status");
+  const setCoins = Object.hasOwn(body, "coinsDelta");
+  if ((!setStatus && !setCoins) ||
+      (setStatus && body.status !== "active" && body.status !== "blocked") ||
+      (setCoins && (!integer(body.coinsDelta, -MAX_INT, MAX_INT) || body.coinsDelta === 0))) {
+    error(res, 400, "Provide status active/blocked and/or a nonzero signed integer coinsDelta within 32-bit range."); return;
+  }
+  const reason = setCoins ? text(body.note ?? body.reason, 1, 100) : null;
+  if (setCoins && !reason) { error(res, 400, "A 1–100 character reason is required for coin adjustments."); return; }
+  try {
+    const user = await transaction(async (client) => {
+      const locked = await client.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [id],
+      );
+      const balance = locked.rows[0]?.wallet_coins;
+      if (balance === undefined) return null;
+      const next = setCoins ? balance + (body.coinsDelta as number) : balance;
+      if (!Number.isSafeInteger(next) || next < 0 || next > MAX_INT) {
+        throw Object.assign(new Error("Adjustment would make the wallet negative or exceed its supported range."), { status: 409 });
+      }
+      const update = await client.query(
+        `UPDATE daily007_v2_users SET status = COALESCE($2, status), wallet_coins = $3
+          WHERE id = $1 RETURNING id, name, email, status, wallet_coins AS "coins"`,
+        [id, setStatus ? body.status : null, next],
+      );
+      if (setCoins) await client.query(
+        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+         VALUES ($1, $2, $3, $4)`, [id, body.coinsDelta, next, `admin_adjustment:${reason}`],
+      );
+      return update.rows[0];
+    });
+    if (!user) { error(res, 404, "User not found."); return; }
+    res.json(user);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.get("/admin/transactions", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const result = await pool.query(
+    `SELECT l.id, l.user_id AS "userId", u.name AS "userName", u.email, l.amount,
+            l.balance_after AS "balanceAfter", l.reason, l.created_at AS "createdAt"
+       FROM daily007_v2_wallet_ledger l JOIN daily007_v2_users u ON u.id = l.user_id
+      ORDER BY l.created_at DESC LIMIT 1000`,
+  );
+  res.json(result.rows);
+});
+
+router.get("/admin/stats", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const result = await pool.query(
+    `SELECT
+       (SELECT count(*)::int FROM daily007_v2_users) AS "totalUsers",
+       (SELECT count(*)::int FROM daily007_v2_matches
+         WHERE enabled = true AND starts_at > now()) AS "activeTournaments",
+       (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'pending') AS "pendingRegistrations",
+       (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'approved') AS "approvedRegistrations",
+       (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'rejected') AS "rejectedRegistrations",
+       (SELECT count(*)::int FROM daily007_v2_payments WHERE status = 'pending') AS "pendingPayments",
+       (SELECT count(DISTINCT match_id)::int FROM daily007_v2_result_awards) AS "completedTournaments",
+       (SELECT COALESCE(sum(amount) FILTER (WHERE amount > 0), 0)::int FROM daily007_v2_wallet_ledger) AS "coinsDistributed",
+       (SELECT COALESCE(sum(wallet_coins), 0)::int FROM daily007_v2_users) AS "coinsInWallets",
+       (SELECT COALESCE(sum(prize_coins), 0)::int FROM daily007_v2_result_awards) AS "prizeDistributed",
+       (SELECT count(*)::int FROM daily007_v2_registrations
+         WHERE created_at >= date_trunc('day', now())) AS "todayRegistrations",
+       (SELECT COALESCE(sum(amount), 0)::int FROM daily007_v2_payments
+         WHERE status = 'approved' AND created_at >= date_trunc('day', now())) AS "todayRevenue"`,
+  );
+  const activity = await pool.query(
+    `SELECT text, icon, time FROM (
+       SELECT '🪙'::text AS icon,
+              u.name || ' · ' || replace(l.reason, '_', ' ') AS text,
+              l.created_at AS time
+         FROM daily007_v2_wallet_ledger l
+         JOIN daily007_v2_users u ON u.id = l.user_id
+       UNION ALL
+       SELECT '💳'::text AS icon,
+              u.name || ' · payment ' || p.status AS text,
+              p.created_at AS time
+         FROM daily007_v2_payments p
+         JOIN daily007_v2_users u ON u.id = p.user_id
+       UNION ALL
+       SELECT '📝'::text AS icon,
+              r.captain_name || ' · registration ' || r.status AS text,
+              r.created_at AS time
+         FROM daily007_v2_registrations r
+     ) recent ORDER BY time DESC LIMIT 8`,
+  );
+  res.json({ stats: result.rows[0], activity: activity.rows });
+});
+
+router.get("/me/stats", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const result = await pool.query(
+    `SELECT
+       (SELECT count(DISTINCT r.match_id)::int FROM daily007_v2_registrations r
+         WHERE r.captain_user_id = $1 AND r.status = 'approved') AS matches,
+       (SELECT count(*)::int FROM daily007_v2_result_awards a
+         WHERE a.user_id = $1 AND a.rank = 1) AS wins,
+       (SELECT COALESCE(sum(a.kills), 0)::int FROM daily007_v2_result_awards a
+         WHERE a.user_id = $1) AS kills,
+       (SELECT COALESCE(sum(a.prize_coins), 0)::int FROM daily007_v2_result_awards a
+         WHERE a.user_id = $1) AS "prizeCoins"`,
+    [id],
+  );
+  res.json(result.rows[0]);
+});
+
+router.get("/settings", async (_req, res): Promise<void> => { res.json(await settings()); });
+router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const body = req.body as unknown;
+  if (!isObject(body) || Object.keys(body).some((key) => !Object.hasOwn(SETTINGS_DEFAULTS, key))) {
+    error(res, 400, "Settings must be an object containing only supported settings fields."); return;
+  }
+  const next: Record<string, string> = {};
+  for (const [key, fallback] of Object.entries(SETTINGS_DEFAULTS)) {
+    const value = body[key] === undefined ? fallback : body[key];
+    if (typeof value !== "string" || value.length > (key === "paymentNote" ? 1000 : 300)) {
+      error(res, 400, `${key} must be a string within the allowed length.`); return;
+    }
+    next[key] = value.trim();
+  }
+  const min = Number(next.minPurchase), max = Number(next.maxPurchase);
+  if (!Number.isSafeInteger(min) || min < 1 || !Number.isSafeInteger(max) || max < min || max > MAX_INT) {
+    error(res, 400, "minPurchase and maxPurchase must be valid positive coin limits, with maxPurchase >= minPurchase."); return;
+  }
+  await pool.query(
+    `INSERT INTO daily007_v2_settings (id, settings, updated_by, updated_at) VALUES (1, $1, $2, now())
+     ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    [JSON.stringify(next), userId(req)],
+  );
+  res.json(next);
+});
+
+router.get("/notifications", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const result = await pool.query(
+    `SELECT id, title, body, type, (read_at IS NOT NULL) AS read,
+            created_at AS "createdAt" FROM daily007_v2_notifications
+      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
+  );
+  res.json(result.rows);
+});
+router.patch("/notifications/:id/read", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  if (!validId(req.params.id)) { error(res, 400, "Notification id must be a UUID."); return; }
+  const result = await pool.query(
+    `UPDATE daily007_v2_notifications SET read_at = COALESCE(read_at, now())
+      WHERE id = $1 AND user_id = $2 RETURNING id, (read_at IS NOT NULL) AS read`, [req.params.id, id],
+  );
+  if (!result.rows[0]) { error(res, 404, "Notification not found."); return; }
+  res.json(result.rows[0]);
+});
+router.post("/admin/notifications", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const body = req.body as unknown;
+  if (!isObject(body)) { error(res, 400, "Expected title, body, type, and optional userIds."); return; }
+  const title = text(body.title, 1, 120), message = text(body.body, 1, 2000);
+  const type = body.type;
+  const types = new Set(["all", "tournament", "room", "winner", "payment", "selected"]);
+  if (!title || !message || typeof type !== "string" || !types.has(type)) {
+    error(res, 400, "title/body are required and type must be a supported notification type."); return;
+  }
+  if (type === "selected") {
+    if (!Array.isArray(body.userIds) || body.userIds.length < 1 || body.userIds.length > 500 ||
+        !body.userIds.every(validId) || new Set(body.userIds).size !== body.userIds.length) {
+      error(res, 400, "Selected notifications require 1–500 unique valid user UUIDs."); return;
+    }
+  } else if (body.userIds !== undefined) { error(res, 400, "userIds may only be supplied for selected notifications."); return; }
+  const sent = await transaction(async (client) => {
+    const targets = type === "selected"
+      ? await client.query<{ id: string }>("SELECT id FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [body.userIds])
+      : await client.query<{ id: string }>("SELECT id FROM daily007_v2_users");
+    if (type === "selected" && targets.rows.length !== (body.userIds as string[]).length) {
+      throw Object.assign(new Error("One or more selected users do not exist."), { status: 400 });
+    }
+    for (const target of targets.rows) {
+      await client.query(
+        `INSERT INTO daily007_v2_notifications (user_id, title, body, type) VALUES ($1, $2, $3, $4)`,
+        [target.id, title, message, type],
+      );
+    }
+    return targets.rows.length;
+  }).catch((e) => {
+    const status = (e as { status?: number }).status;
+    if (status) { error(res, status, (e as Error).message); return null; }
+    throw e;
+  });
+  if (sent !== null) res.status(201).json({ sent });
+});
+
+router.get("/leaderboard", async (_req, res): Promise<void> => {
+  const result = await pool.query(
+    `SELECT u.id, u.name, COALESCE(s.wins, 0)::int AS wins,
+            COALESCE(s.kills, 0)::int AS kills, COALESCE(s.prize_coins, 0)::int AS "prizeCoins"
+       FROM daily007_v2_users u LEFT JOIN daily007_v2_user_stats s ON s.user_id = u.id
+      WHERE u.status IS DISTINCT FROM 'blocked'
+      ORDER BY COALESCE(s.wins, 0) DESC, COALESCE(s.kills, 0) DESC LIMIT 100`,
+  );
+  res.json(result.rows);
+});
+
+router.get("/referrals", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const code = referralCodeForUserId(id);
+  await pool.query(
+    `INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)
+     ON CONFLICT (user_id) DO NOTHING`, [id, code],
+  );
+  const savedCode = await pool.query<{ code: string }>(
+    "SELECT code FROM daily007_v2_referral_codes WHERE user_id = $1", [id],
+  );
+  const referrals = await pool.query(
+    `SELECT r.id, u.name AS "referredName", 'Pending' AS status,
+            r.created_at AS "createdAt"
+       FROM daily007_v2_referrals r JOIN daily007_v2_users u ON u.id = r.referred_user_id
+      WHERE r.referrer_user_id = $1 ORDER BY r.created_at DESC`, [id],
+  );
+  res.json({ code: savedCode.rows[0].code, referrals: referrals.rows });
+});
+
+router.post("/videos/watch", authenticate, (_req, res): void => {
+  res.json(pausedVideoRewardResponse());
+});
+
+router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const body = req.body as unknown;
+  if (!isObject(body) || !validId(body.tournamentId) || !validId(body.registrationId) ||
+      !integer(body.rank, 1) || !integer(body.kills, 0) || !integer(body.prizeCoins, 0)) {
+    error(res, 400, "tournamentId/match id and registrationId UUIDs, positive rank, nonnegative kills and prizeCoins are required."); return;
+  }
+  const tournamentId = body.tournamentId as string;
+  const registrationId = body.registrationId as string;
+  const rank = body.rank as number;
+  const kills = body.kills as number;
+  const prizeCoins = body.prizeCoins as number;
+  try {
+    const result = await transaction(async (client) => {
+      const registration = await client.query<{
+        id: string; match_id: string; captain_user_id: string;
+      }>(
+        `SELECT id, match_id, captain_user_id FROM daily007_v2_registrations
+          WHERE id = $1 AND status = 'approved' FOR UPDATE`, [registrationId],
+      );
+      const row = registration.rows[0];
+      if (!row || row.match_id !== tournamentId) throw Object.assign(new Error("Registration was not found for this tournament/match."), { status: 404 });
+      const account = await client.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [row.captain_user_id],
+      );
+      const balance = account.rows[0]?.wallet_coins;
+      if (balance === undefined) throw Object.assign(new Error("Player account not found."), { status: 404 });
+      const next = balance + prizeCoins;
+      if (next > MAX_INT) throw Object.assign(new Error("Prize would exceed the supported wallet range."), { status: 409 });
+      const award = await client.query(
+        `INSERT INTO daily007_v2_result_awards (match_id, registration_id, user_id, rank, kills, prize_coins)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`, [row.match_id, row.id, row.captain_user_id, rank, kills, prizeCoins],
+      );
+      await client.query(
+        `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
+         VALUES ($1, 1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET
+           matches = daily007_v2_user_stats.matches + 1,
+           wins = daily007_v2_user_stats.wins + EXCLUDED.wins,
+           kills = daily007_v2_user_stats.kills + EXCLUDED.kills,
+           prize_coins = daily007_v2_user_stats.prize_coins + EXCLUDED.prize_coins`,
+        [row.captain_user_id, rank === 1 ? 1 : 0, kills, prizeCoins],
+      );
+      await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [row.captain_user_id, next]);
+      if (prizeCoins > 0) await client.query(
+        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+         VALUES ($1, $2, $3, 'match_prize')`, [row.captain_user_id, prizeCoins, next],
+      );
+      return { id: (award.rows[0] as { id: string }).id, registrationId: row.id, userId: row.captain_user_id, walletCoins: next };
+    });
+    res.status(201).json(result);
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") { error(res, 409, "A result has already been published for this registration."); return; }
+    respondFailure(res, e);
+  }
+});
+
+export default router;

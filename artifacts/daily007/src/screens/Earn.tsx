@@ -1,21 +1,29 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Share, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { useApp } from '../App';
-import { Api } from '../lib/api';
+import { Api, apiError } from '../lib/api';
 
 export default function Earn() {
-  const { user, refresh } = useApp();
   const [copied, setCopied] = useState(false);
   const [refs, setRefs] = useState<any[]>([]);
+  const [code, setCode] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   React.useEffect(() => {
-    Api.myReferrals().then((d: any) => setRefs(Array.isArray(d) ? d : [])).catch(() => {});
+    Api.myReferrals()
+      .then((response: any) => {
+        setCode(typeof response?.code === 'string' ? response.code : '');
+        setRefs(Array.isArray(response?.referrals) ? response.referrals : []);
+        setMessage(typeof response?.message === 'string' ? response.message : '');
+      })
+      .catch((e) => setError(apiError(e)))
+      .finally(() => setLoading(false));
   }, []);
-  const code = (user?.name || 'GAMER').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) + '007';
-  const link = 'https://freefire-daily007.app/invite/' + code;
 
   const copy = async () => {
+    if (!code) return;
     try {
       await Clipboard.setStringAsync(code);
       setCopied(true);
@@ -27,62 +35,43 @@ export default function Earn() {
     }
   };
 
-  const tasks = [
-    { id: 't1', emoji: '📺', title: 'Watch a Video and Earn', desc: 'Watch 60%+ of any video in the Video tab', reward: 1, done: false },
-    { id: 't3', emoji: '👥', title: 'Invite Friends', desc: 'Friend signs up with your code + adds 50 coins', reward: 5, done: false },
-  ];
-
   return (
     <ScrollView style={s.root} contentContainerStyle={{ padding: 14, paddingBottom: 90 }}>
       <Text style={s.hTitle}>💰 EARN COINS</Text>
       <Text style={s.hSub}>Refer friends & complete tasks</Text>
 
       <View style={s.referCard}>
-        <Text style={s.referTitle}>REFER & EARN</Text>
-        <Text style={s.referDesc}>Invite friends &amp; earn 5 coins! Your friends get 10 coins on sign up.</Text>
+        <Text style={s.referTitle}>REFERRAL CODE</Text>
+        <Text style={s.referDesc}>This code is provided by the server. Referral rewards are currently unavailable.</Text>
         <View style={s.codeRow}>
-          <Text style={s.code}>{code}</Text>
-          <Pressable onPress={copy} style={s.shareBtn}><Text style={s.shareTxt}>{copied ? '✓ COPIED' : 'COPY ⧉'}</Text></Pressable>
+          <Text style={s.code}>{loading ? 'Loading…' : code || 'Not available'}</Text>
+          {!!code && <Pressable onPress={copy} style={s.shareBtn}><Text style={s.shareTxt}>{copied ? '✓ COPIED' : 'COPY ⧉'}</Text></Pressable>}
         </View>
+        {!!message && <Text style={s.referDesc}>{message}</Text>}
+        {!!error && <Text style={s.error}>{`Referral data unavailable: ${error}`}</Text>}
       </View>
 
-      <Text style={s.secTitle}>YOUR INVITES ({refs.length})</Text>
-      {refs.length === 0 && (
+      <Text style={s.secTitle}>REFERRAL TRACKING ({refs.length})</Text>
+      {!loading && !error && refs.length === 0 && (
         <View style={s.task}><Text style={{ fontSize: 22 }}>🫥</Text><View style={{ flex: 1 }}>
-          <Text style={s.taskTitle}>No invites yet</Text>
-          <Text style={s.taskDesc}>Share your code above — friends appear here.</Text>
+          <Text style={s.taskTitle}>No referral activity</Text>
+          <Text style={s.taskDesc}>No referred accounts are currently reported by the server.</Text>
         </View></View>
       )}
       {refs.map((r) => {
-        const done = r.status === 'Rewarded' || r.status === 'Completed';
         return (
           <View key={r.id} style={s.task}>
-            <Text style={{ fontSize: 22 }}>{done ? '✅' : '⏳'}</Text>
+            <Text style={{ fontSize: 22 }}>⏳</Text>
             <View style={{ flex: 1 }}>
-              <Text style={s.taskTitle}>{r.referredName || 'Friend'}</Text>
-              <Text style={[s.taskDesc, done && { color: '#3ddc97' }]}>{done ? 'Completed — +5 coins credited' : 'First recharge pending'}</Text>
-            </View>
-            <View style={[s.reward, !done && { backgroundColor: '#ffd16622', borderColor: '#ffd16655' }]}>
-              <Text style={[s.rewardTxt, !done && { color: '#ffd166' }]}>{done ? '+5' : '+5'}</Text>
+              <Text style={s.taskTitle}>{r.referredName || 'Referral'}</Text>
+              <Text style={s.taskDesc}>{String(r.status || 'Pending')} tracking · no bonus claim available</Text>
             </View>
           </View>
         );
       })}
 
-      <Text style={s.secTitle}>DAILY TASKS</Text>
-      {tasks.map((t) => (
-        <View key={t.id} style={s.task}>
-          <Text style={{ fontSize: 22 }}>{t.emoji}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={s.taskTitle}>{t.title}</Text>
-            <Text style={s.taskDesc}>{t.desc}</Text>
-          </View>
-          <View style={s.reward}><Text style={s.rewardTxt}>+{t.reward}</Text></View>
-        </View>
-      ))}
-
       <View style={s.note}>
-        <Text style={s.noteTxt}>Task rewards are credited to your Wallet automatically after verification.</Text>
+        <Text style={s.noteTxt}>No referral bonus is currently claimable. The server reports referral tracking only.</Text>
       </View>
     </ScrollView>
   );
@@ -103,8 +92,7 @@ const s = StyleSheet.create({
   task: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#10162b', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#1c2440' },
   taskTitle: { color: '#eef1f8', fontWeight: '800', fontSize: 13.5 },
   taskDesc: { color: '#8a93a8', fontSize: 11.5, marginTop: 2 },
-  reward: { backgroundColor: '#3ddc9722', borderWidth: 1, borderColor: '#3ddc9755', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
-  rewardTxt: { color: '#3ddc97', fontWeight: '900', fontSize: 13 },
   note: { marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: '#141b30' },
   noteTxt: { color: '#8a93a8', fontSize: 11, lineHeight: 16 },
+  error: { color: '#ff6b78', fontSize: 12, marginTop: 8 },
 });

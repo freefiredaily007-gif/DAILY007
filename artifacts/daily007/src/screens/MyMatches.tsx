@@ -26,8 +26,8 @@ export default function MyMatches() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const filtered = regs.filter((r) => {
-    const st = r.tournament?.status ?? 'upcoming';
-    if (tab === 'upcoming') return st === 'upcoming' || st === 'open' || st === 'full';
+    const st = String(r.tournament?.status ?? 'upcoming').toLowerCase();
+    if (tab === 'upcoming') return ['upcoming', 'open', 'full', 'setup_needed'].includes(st);
     if (tab === 'live') return st === 'live';
     return st === 'completed' || st === 'cancelled';
   });
@@ -52,7 +52,17 @@ export default function MyMatches() {
           contentContainerStyle={{ padding: 14, gap: 12 }}
           renderItem={({ item }) => {
             const t = item.tournament ?? {};
-            const roomReady = item.status === 'approved' && t.roomPublished;
+            const status = String(item.status ?? '').toLowerCase();
+            const roomId = item.roomId ?? t.roomId;
+            const roomPassword = item.roomPassword ?? t.roomPassword;
+            const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
+            const startsAt = t.startsAt ?? item.startsAt;
+            const startMs = startsAt ? new Date(startsAt).getTime() : Number.NaN;
+            const roomWindowOpen = Number.isFinite(startMs) && Date.now() >= startMs - 15 * 60 * 1000;
+            const roomReady = status === 'approved' && published && !!roomId && !!roomPassword && roomWindowOpen;
+            const result = typeof item.result === 'string'
+              ? item.result
+              : item.result?.description ?? item.result?.result ?? item.result?.placement;
             return (
               <GCard glowColor={roomReady ? C.green : undefined}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -60,25 +70,31 @@ export default function MyMatches() {
                     <Text style={s.mode}>{String(t.mode ?? '').toUpperCase()} • {String(t.teamType ?? '').toUpperCase()}</Text>
                     <Text style={s.tName}>{t.name ?? 'Tournament'}</Text>
                   </View>
-                  <Badge text={String(item.status ?? '').toUpperCase()} color={item.status === 'approved' ? C.green : item.status === 'rejected' ? C.red : C.gold} />
+                   <Badge text={status.toUpperCase()} color={status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold} />
                 </View>
                 <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
                 <View style={s.room}>
                   {roomReady ? (
                     <>
-                      <Text style={s.roomLine}>ROOM ID: <Text style={s.roomVal}>{t.roomId}</Text></Text>
-                      <Text style={s.roomLine}>PASSWORD: <Text style={s.roomVal}>{t.roomPassword}</Text></Text>
+                       <Text style={s.roomLine}>ROOM ID: <Text style={s.roomVal}>{roomId}</Text></Text>
+                       <Text style={s.roomLine}>PASSWORD: <Text style={s.roomVal}>{roomPassword}</Text></Text>
                     </>
                   ) : (
                     <Text style={s.roomLocked}>
-                      {item.status === 'approved'
-                        ? '🔒 Room details will be available after the admin publishes the room.'
+                       {status === 'approved'
+                         ? !published
+                           ? '🔒 Room details have not been published yet.'
+                           : !Number.isFinite(startMs)
+                             ? '🔒 Match start time is unavailable; room details remain hidden.'
+                             : !roomWindowOpen
+                               ? '🔒 Room details are hidden until 15 minutes before match start.'
+                               : '🔒 Room credentials are not available.'
                         : '⏳ Waiting for admin approval.'}
                     </Text>
                   )}
                 </View>
-                {item.result ? <Text style={s.result}>🏆 {item.result}</Text> : null}
+                 {result ? <Text style={s.result}>🏆 {String(result)}</Text> : null}
               </GCard>
             );
           }}

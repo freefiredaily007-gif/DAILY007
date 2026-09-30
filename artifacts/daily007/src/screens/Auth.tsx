@@ -1,9 +1,9 @@
 // Login / Signup screen
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ActivityIndicator, Alert, Image } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Image } from 'react-native';
 import logoImg from '../assets/logo.jpg';
 import { Api, apiError, setSession, User } from '../lib/api';
-import { Btn, C, Input, Msg, glow } from '../components/ui';
+import { Btn, C, Input, Msg } from '../components/ui';
 
 
 export default function Auth({ onDone }: { onDone: (u: User) => void }) {
@@ -21,6 +21,7 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
     setErr('');
     if (!email.trim() || !password) { setErr('Email and password are required.'); return; }
     if (mode === 'signup' && (!name.trim() || !phone.trim())) { setErr('Name and phone are required.'); return; }
+    if (mode === 'signup' && password.length < 12) { setErr('Password must be at least 12 characters long.'); return; }
     setBusy(true);
     try {
       const r: any = mode === 'login'
@@ -64,7 +65,7 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
           </>
         )}
         <Input placeholder="Enter Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-        <Input placeholder="Enter Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <Input placeholder={mode === 'signup' ? 'Password (at least 12 characters)' : 'Enter Password'} value={password} onChangeText={setPassword} secureTextEntry />
 
         <Btn title={mode === 'login' ? 'LOGIN' : 'CREATE ACCOUNT'} onPress={submit} loading={busy} />
 

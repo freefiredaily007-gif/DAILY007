@@ -4,8 +4,11 @@ info:
   title: Api
   version: 0.1.0
   description: |
-    API specification. Daily007 v2 is an isolated backend under /daily007/v2;
-    existing API routes and clients are unchanged. The daily007_v2_*
+    API specification. Daily007 v2 owns fresh accounts, wallets, and
+    transactional game registration under /daily007/v2. The mobile client
+    also uses Replit-backed compatibility routes under /auth, /tournaments,
+    /wallet, /payments, /withdrawals, and /admin. Old unpublished hosted
+    accounts and balances are intentionally not imported. The daily007_v2_*
     PostgreSQL schema is defined in lib/db/src/schema and is applied to
     development through the standard Drizzle push; managed production
     schema changes follow Replit Publish. Authentication uses
@@ -16,8 +19,8 @@ info:
     /daily007/v2/admin/bootstrap with that account's bearer token and the
     configured bootstrapToken, then remove the bootstrap secret. There is no
     default or auto-created administrator. Mobile clients must use this
-    project's /api path and pass v2 bearer tokens after data migration;
-    the current mobile client remains connected to its hosted API.
+    project's /api path and pass bearer tokens; the current mobile client
+    now uses a fresh Replit session rather than the former hosted API.
 servers:
   - url: /api
     description: Base API path

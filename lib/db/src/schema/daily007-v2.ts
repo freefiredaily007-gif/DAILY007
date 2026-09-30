@@ -7,6 +7,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -19,12 +20,17 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   email: text("email").notNull().unique(),
   passwordSalt: text("password_salt").notNull(),
   passwordHash: text("password_hash").notNull(),
+  phone: text("phone"),
+  gameUid: text("game_uid"),
+  referralCode: text("referral_code"),
+  status: text("status").notNull().default("active"),
   role: text("role").notNull().default("user"),
   walletCoins: integer("wallet_coins").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_users_wallet_nonnegative", sql`${table.walletCoins} >= 0`),
   check("daily007_v2_users_role_valid", sql`${table.role} IN ('user', 'admin')`),
+  check("daily007_v2_users_status_valid", sql`${table.status} IN ('active', 'blocked')`),
 ]);
 
 export const daily007MatchesTable = pgTable("daily007_v2_matches", {
@@ -33,11 +39,17 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   mode: text("mode").notNull(),
   capacity: integer("capacity").notNull(),
   entryCoins: integer("entry_coins").notNull().default(0),
+  prizePool: integer("prize_pool").notNull().default(0),
+  rules: text("rules").notNull().default(""),
+  banner: text("banner").notNull().default("br"),
+  prizeDistribution: text("prize_distribution").notNull().default(""),
+  enabled: boolean("enabled").notNull().default(true),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   status: text("status").notNull().default("open"),
   isFull: boolean("is_full").notNull().default(false),
   roomId: text("room_id"),
   roomPassword: text("room_password"),
+  roomTime: text("room_time").notNull().default("08:00 PM"),
   roomPublished: boolean("room_published").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -62,11 +74,14 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   captainUserId: uuid("captain_user_id").notNull().references(() => daily007UsersTable.id),
   captainName: text("captain_name").notNull(),
   captainGameUid: text("captain_game_uid").notNull(),
+  teamName: text("team_name").notNull().default(""),
   entryCoinsPaid: integer("entry_coins_paid").notNull(),
+  status: text("status").notNull().default("approved"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   unique("daily007_v2_registration_once_per_account").on(table.matchId, table.captainUserId),
   check("daily007_v2_registration_paid_nonnegative", sql`${table.entryCoinsPaid} >= 0`),
+  check("daily007_v2_registration_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
   check("daily007_v2_registration_game_uid_nonempty", sql`length(btrim(${table.captainGameUid})) > 0`),
   index("daily007_v2_registrations_match_idx").on(table.matchId),
 ]);
@@ -94,7 +109,10 @@ export const daily007WalletLedgerTable = pgTable("daily007_v2_wallet_ledger", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_ledger_balance_nonnegative", sql`${table.balanceAfter} >= 0`),
-  unique("daily007_v2_ledger_registration_once").on(table.registrationId),
+  uniqueIndex("daily007_v2_ledger_registration_debit_once").on(table.registrationId)
+    .where(sql`${table.reason} = 'match_entry'`),
+  uniqueIndex("daily007_v2_ledger_registration_refund_once").on(table.registrationId)
+    .where(sql`${table.reason} = 'registration_refund'`),
   index("daily007_v2_wallet_ledger_user_idx").on(table.userId, table.createdAt),
 ]);
 

@@ -1,12 +1,11 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl, Modal, Pressable, Image } from 'react-native';
+import { View, Text, FlatList, StyleSheet, RefreshControl, Modal, Pressable } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { COIN_RATE_TEXT, inr } from '../lib/coins';
-import upiQr from '../assets/upi-qr.jpg';
 
 const MIN_WITHDRAW = 100;
 
@@ -24,11 +23,18 @@ export default function Wallet() {
   const [submitting, setSubmitting] = useState(false);
   const [hasPending, setHasPending] = useState(false);
   const [hasPendingWithdraw, setHasPendingWithdraw] = useState(false);
+  const [paymentUpi, setPaymentUpi] = useState('');
 
   const load = useCallback(async () => {
     try {
       setError('');
-      const [data, pays, wds] = await Promise.all([Api.transactions(), Api.myPayments().catch(() => []), Api.myWithdrawals().catch(() => [])]);
+      const [data, pays, wds, settings] = await Promise.all([
+        Api.transactions(),
+        Api.myPayments().catch(() => []),
+        Api.myWithdrawals().catch(() => []),
+        Api.settings().catch(() => null),
+      ]);
+      setPaymentUpi(String(settings?.settings?.upiId ?? settings?.upiId ?? settings?.upi_id ?? '').trim());
       const paysArr = Array.isArray(pays) ? pays : [];
       const wdsArr = Array.isArray(wds) ? wds : [];
       setHasPending(paysArr.some((p: any) => p.status === 'pending'));
@@ -51,6 +57,10 @@ export default function Wallet() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const openSheet = (t: 'add' | 'withdraw') => {
+    if (t === 'add' && !paymentUpi) {
+      setError('Coin purchases are unavailable: the administrator has not configured a payment UPI ID yet.');
+      return;
+    }
     setOk(''); setError(''); setAmount(''); setTxnId(''); setAccount('');
     setTab(t); setShowSheet(true);
   };
@@ -58,6 +68,7 @@ export default function Wallet() {
   const coins = Math.floor(Number(amount) || 0);
 
   const submitAdd = async () => {
+    if (!paymentUpi) { setError('Coin purchases are unavailable until the administrator configures a payment UPI ID.'); return; }
     if (!coins || coins <= 0) { setError('Enter the number of coins you want to add.'); return; }
     if (!txnId.trim()) { setError('Please enter the transaction ID of your payment.'); return; }
     setSubmitting(true); setError('');
@@ -81,7 +92,7 @@ export default function Wallet() {
     setSubmitting(true); setError('');
     try {
       await Api.withdrawCoins({ coins, method: 'upi', account: account.trim() });
-      setOk('Withdrawal request submitted! Coins will be paid after admin approval.');
+      setOk('Withdrawal request submitted for manual admin review. Payout is not automatic.');
       setShowSheet(false); setAmount(''); setAccount('');
       load(); refresh();
     } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
@@ -108,9 +119,10 @@ export default function Wallet() {
                 <View style={s.stat}><Text style={s.statV}>-{spent}</Text><Text style={s.statL}>SPENT</Text></View>
               </View>
               <View style={s.btnRow}>
-                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" onPress={() => openSheet('add')} /></View>
+                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" onPress={() => openSheet('add')} disabled={!paymentUpi} /></View>
                 <View style={{ flex: 1 }}><Btn title="↩ WITHDRAW" kind="gold" onPress={() => openSheet('withdraw')} /></View>
               </View>
+              {!paymentUpi && <Text style={s.minWarn}>Coin purchases are disabled until an administrator configures a payment UPI ID.</Text>}
             </GCard>
             <Msg kind="ok" text={ok} />
             <Msg kind="err" text={error} />
@@ -147,26 +159,28 @@ export default function Wallet() {
 
             {tab === 'add' ? (
               <>
-                <Text style={s.mSub}>Enter the number of coins to add (1 Coin = ₹1), pay via UPI, then enter your transaction ID.</Text>
-                <View style={s.qrBox}>
-                  <Image source={upiQr} style={s.qrImg} resizeMode="contain" />
-                  <Text style={s.qrHint}>Scan to pay via any UPI app</Text>
-                </View>
-                <Text style={s.mUpi}>UPI ID: <Text style={s.mUpiV}>9904894082@cred</Text></Text>
-                <Input placeholder="Enter coins (e.g. 250)" value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
-                {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins)} for {coins} coins</Text>}
-                <Input placeholder="Transaction ID" value={txnId} onChangeText={setTxnId} />
+                {!paymentUpi ? (
+                  <Text style={s.minWarn}>Coin purchases are disabled because no payment UPI ID is configured. Contact the administrator.</Text>
+                ) : (
+                  <>
+                    <Text style={s.mSub}>Pay manually using the configured UPI ID, then submit your transaction reference. Coin credit requires admin review.</Text>
+                    <Text style={s.mUpi}>UPI ID: <Text style={s.mUpiV}>{paymentUpi}</Text></Text>
+                    <Input placeholder="Enter coins (e.g. 250)" value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
+                    {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins)} for {coins} coins</Text>}
+                    <Input placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
+                  </>
+                )}
                 <Btn
                   title={hasPending ? 'PENDING' : `ADD COINS${coins > 0 ? ` (${inr(coins)})` : ''}`}
                   onPress={submitAdd}
                   loading={submitting}
-                  disabled={hasPending}
+                  disabled={hasPending || !paymentUpi}
                 />
                 {hasPending && <Text style={s.pendingNote}>A previous request is under verification. Coins will be credited once approved by the admin.</Text>}
               </>
             ) : (
               <>
-                <Text style={s.mSub}>Minimum withdrawal is {MIN_WITHDRAW} coins. Enter your payout details below.</Text>
+                <Text style={s.mSub}>Minimum withdrawal is {MIN_WITHDRAW} coins. Enter your payout details below. Requests are manually reviewed; payouts are not automatic.</Text>
                 <Input placeholder={`Enter coins (min ${MIN_WITHDRAW})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                 {belowMinBalance && <Text style={s.minWarn}>Minimum balance required to withdraw is 100 coins.</Text>}
                 {coins > 0 && coins < MIN_WITHDRAW && <Text style={s.minWarn}>Minimum withdrawal amount is 100 coins.</Text>}
@@ -180,7 +194,7 @@ export default function Wallet() {
                   loading={submitting}
                   disabled={hasPendingWithdraw || belowMinBalance}
                 />
-                {hasPendingWithdraw && <Text style={s.pendingNote}>Your withdrawal request is under verification. Coins will be paid once approved by the admin.</Text>}
+                {hasPendingWithdraw && <Text style={s.pendingNote}>Your withdrawal request is pending manual review. Approval does not mean an automatic payout.</Text>}
               </>
             )}
             <View style={{ height: 8 }} />
@@ -226,9 +240,6 @@ const s = StyleSheet.create({
   amountHint: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
   minWarn: { color: C.red, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
   rateNote: { color: C.sub, fontSize: 11, marginBottom: 10, letterSpacing: 0.5 },
-  qrBox: { alignItems: 'center', backgroundColor: C.bg, borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 12, marginBottom: 12 },
-  qrImg: { width: 150, height: 150 },
-  qrHint: { color: C.sub, fontSize: 11, marginTop: 6 },
   pendingTag: { backgroundColor: C.gold + '22', borderColor: C.gold, borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   pendingTagText: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   pendingNote: { color: C.gold, fontSize: 11, marginTop: 8, lineHeight: 15, textAlign: 'center' },

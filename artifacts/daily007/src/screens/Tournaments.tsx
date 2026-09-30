@@ -2,7 +2,8 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
-import { C, Loading, Empty, GCard, MatchCard, SectionTitle } from '../components/ui';
+import { C, Loading, Empty, GCard, MatchCard, SectionTitle, Msg } from '../components/ui';
+import { apiError } from '../lib/api';
 import { useApp } from '../App';
 
 export default function Tournaments() {
@@ -12,19 +13,28 @@ export default function Tournaments() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
   const mode = route?.params?.mode as string | undefined;
 
   const load = useCallback(async () => {
     try {
       const list = await api.tournaments('?enabled=true');
       setItems(Array.isArray(list) ? list : []);
-    } catch { setItems([]); }
+      setError('');
+    } catch (e) { setError(apiError(e)); }
     setLoading(false);
   }, []);
   React.useEffect(() => { load(); }, [load, mode]);
 
-  const filtered = mode ? items.filter((t) => t.mode === mode) : items;
-  const upcoming = filtered.filter((t) => (t.status || 'upcoming') !== 'completed');
+  const filtered = mode ? items.filter((t) => {
+    const matchMode = String(t.mode || '').toLowerCase();
+    const teamType = String(t.teamType || '').toLowerCase();
+    const requested = mode.toLowerCase();
+    if (requested === 'battle royale solo') return matchMode.includes('battle royale') && teamType === 'solo';
+    if (requested === 'battle royale squad') return matchMode.includes('battle royale') && teamType === 'squad';
+    return matchMode === requested;
+  }) : items;
+  const upcoming = filtered.filter((t) => !['completed', 'cancelled'].includes(String(t.status || 'upcoming').toLowerCase()));
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
@@ -40,6 +50,7 @@ export default function Tournaments() {
         ListHeaderComponent={
           <View>
             <SectionTitle accent={C.neon}>{mode ? `${mode.toUpperCase()} MATCHES` : 'ALL UPCOMING MATCHES'}</SectionTitle>
+            {!!error && <Msg kind="err" text={`Could not load tournaments: ${error}`} />}
             {!mode && (
               <View style={s.modeRow}>
                 {['Battle Royale Solo', 'Battle Royale', 'Clash Squad'].map((m) => (
@@ -49,9 +60,7 @@ export default function Tournaments() {
             )}
           </View>
         }
-        ListEmptyComponent={
-          <Empty icon="🎮" text="NO MATCHES LIVE — New tournaments are coming soon." />
-        }
+        ListEmptyComponent={<Empty icon="🎮" text={error ? 'Tournament data is unavailable right now. Pull to refresh and try again.' : 'No upcoming tournaments are available right now.'} />}
         renderItem={({ item }) => (
           <MatchCard
             t={item}

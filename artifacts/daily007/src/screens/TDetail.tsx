@@ -29,7 +29,12 @@ export default function TDetail() {
 
   const st = statusOf(t);
   const joined = !!t?.joined;
-  const full = (t.filledSlots ?? 0) >= (t.totalSlots ?? 0);
+  const teamType = String(t.teamType || '').toLowerCase();
+  const mode = String(t.mode || '').toLowerCase();
+  const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
+  const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
+  const tournamentStatus = String(t.status || '').toLowerCase();
+  const full = tournamentStatus === 'full' || (totalSlots > 0 && filledSlots >= totalSlots);
   const coins = user?.coins ?? 0;
   const short = coins < (t.entryCoins ?? 0);
 
@@ -66,7 +71,7 @@ export default function TDetail() {
         </View>
         <View style={s.stat}>
           <Text style={s.statK}>SLOTS</Text>
-          <Text style={[s.statV, { color: C.blue }]}>{t.filledSlots ?? 0}/{t.totalSlots ?? 0}</Text>
+          <Text style={[s.statV, { color: C.blue }]}>{filledSlots}/{totalSlots}</Text>
           <Text style={s.statSub}>{COIN_RATE_TEXT}</Text>
         </View>
       </View>
@@ -96,7 +101,7 @@ export default function TDetail() {
       <View style={{ marginTop: 16 }}>
         {joined ? (
           <Btn title="✓ ALREADY REGISTERED" kind="ghost" disabled />
-        ) : st.key === 'completed' ? (
+        ) : st.key === 'completed' || ['closed', 'cancelled'].includes(tournamentStatus) ? (
           <Btn title="MATCH ENDED" kind="ghost" disabled />
         ) : full ? (
           <Btn title="MATCH FULL" kind="ghost" disabled />

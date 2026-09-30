@@ -3,12 +3,12 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
 
-type Member = { name: string; uid: string; ign: string };
+type Member = { name: string; uid: string };
 
 export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
   tournament: any; user: User; onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
 }) {
-  const squad = t.teamType === 'Squad';
+  const squad = String(t.teamType || '').toLowerCase() === 'squad';
   const clash = String(t.mode || '').toLowerCase().includes('clash');
   const isTeam = squad || clash;
   const teamSize = 4;
@@ -16,14 +16,13 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const remainingSlots = Math.max(0, Number(t.availableSlots ?? totalSlots - filledSlots));
   const status = String(t.status || '').toLowerCase();
-  const closed = t.enabled === false || ['completed', 'live', 'closed'].includes(status);
+  const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'closed'].includes(status);
   const full = remainingSlots <= 0 || filledSlots >= totalSlots || status === 'full';
   const unavailable = full || closed;
-  const [teamName, setTeamName] = useState('');
   const [members, setMembers] = useState<Member[]>(
     isTeam
-      ? [{ name: user.name, uid: user.gameUid || '', ign: '' }, { name: '', uid: '', ign: '' }, { name: '', uid: '', ign: '' }, { name: '', uid: '', ign: '' }]
-      : [{ name: user.name, uid: user.gameUid || '', ign: '' }]
+      ? [{ name: user.name, uid: user.gameUid || '' }, { name: '', uid: '' }, { name: '', uid: '' }, { name: '', uid: '' }]
+      : [{ name: user.name, uid: user.gameUid || '' }]
   );
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,21 +35,12 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
     setErr('');
     if (closed) return setErr('This tournament is no longer open for registration.');
     if (full) return setErr('This tournament is full. Please choose another match.');
-    if (members.some((member) => !member.name.trim())) return setErr(isTeam ? 'Enter all four player names.' : 'Player game name is required.');
-    for (const member of members) {
-      if (!member.uid.trim()) return setErr(`Free Fire UID missing for ${member.name || 'a player'}`);
-      if (!member.ign.trim()) return setErr(`In-game name missing for ${member.name}`);
-    }
-    if (isTeam && !teamName.trim()) return setErr('Team/Squad name is required by the current registration service.');
+    if (members.some((member) => !member.name.trim())) return setErr(isTeam ? 'Enter the captain and all three teammate names.' : 'Captain name is required.');
+    if (!members[0]?.uid.trim()) return setErr('Captain Free Fire UID is required.');
     setBusy(true);
     try {
-      const players = members.map((member) => ({
-        name: member.name.trim(),
-        uid: member.uid.trim(),
-        ign: member.ign.trim(),
-      }));
+      const players = members.map((member) => ({ name: member.name.trim(), uid: member.uid.trim() }));
       await onSubmit({
-        teamName: isTeam ? teamName.trim() : '',
         teamMembers: JSON.stringify(players),
         playerName: players[0].name,
         gameUid: players[0].uid,
@@ -84,34 +74,22 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
 
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>
-          The currently connected registration service requires a UID and IGN for every player{isTeam ? ', plus a team name' : ''}.
+          Enter the captain's name and Free Fire UID{isTeam ? ' plus all three teammate names. Teammate UIDs are optional.' : '.'}
         </Text>
-        {isTeam && (
-          <>
-            <Text style={st.pLabel}>TEAM DETAILS</Text>
-            <Input placeholder="Team / Squad name (required by current service)" value={teamName} onChangeText={setTeamName} autoCapitalize="words" />
-          </>
-        )}
         {members.map((member, i) => (
           <View key={i} style={{ marginBottom: 4 }}>
             <Text style={st.pLabel}>{i === 0 ? (isTeam ? 'TEAM CAPTAIN' : 'PLAYER') : `PLAYER ${i + 1}`}</Text>
             <Input
-              placeholder={i === 0 ? (isTeam ? 'Captain game name' : 'Player game name') : `Player ${i + 1} name`}
+              placeholder={i === 0 ? 'Captain name' : `Teammate ${i} name`}
               value={member.name}
               onChangeText={(v) => setMember(i, 'name', v)}
               autoCapitalize="words"
             />
             <Input
-              placeholder={`${i === 0 ? 'Captain' : `Player ${i + 1}`} Free Fire UID`}
+              placeholder={`${i === 0 ? 'Captain' : `Teammate ${i}`} Free Fire UID (optional for teammates)`}
               value={member.uid}
               onChangeText={(v) => setMember(i, 'uid', v)}
               keyboardType="number-pad"
-            />
-            <Input
-              placeholder={`${i === 0 ? 'Captain' : `Player ${i + 1}`} in-game name (IGN)`}
-              value={member.ign}
-              onChangeText={(v) => setMember(i, 'ign', v)}
-              autoCapitalize="words"
             />
           </View>
         ))}
