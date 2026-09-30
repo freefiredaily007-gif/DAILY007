@@ -14,31 +14,37 @@ export default function AdminRegs() {
   const [all, setAll] = useState<any[] | null>(null);
 
   const load = useCallback(async () => {
-    try { setAll(await Api.adminRegistrations()); }
-    catch (e: any) { setErr(apiError(e)); setAll([]); }
+    setAll(await Api.adminRegistrations());
   }, []);
-  useEffect(() => { setAll(null); load(); }, [load]);
+  useEffect(() => {
+    setAll(null);
+    load().catch((e) => { setErr(apiError(e)); setAll([]); });
+  }, [load]);
 
   const list = (all ?? []).filter((x) => x.status === tab);
 
   const act = async (id: string, action: 'approve' | 'reject') => {
+    if (busyId) return;
     setErr(''); setOkMsg(''); setBusyId(id);
     try {
-      const r = await Api.adminRegAction(id, action);
+      await Api.adminRegAction(id, action);
       setOkMsg(action === 'approve' ? 'Registration approved' : 'Registration rejected — coins refunded');
-      await load();
       setTimeout(() => setOkMsg(''), 2500);
+      try { await load(); }
+      catch (e: any) { setErr(`Could not refresh registrations: ${apiError(e)}`); }
     } catch (e: any) { setErr(apiError(e)); }
     finally { setBusyId(null); }
   };
 
   const del = async (id: string) => {
+    if (busyId) return;
     setErr(''); setOkMsg(''); setBusyId(id);
     try {
-      await Api.adminRegDelete(id);
+      await Api.adminDeleteRegistration(id);
       setOkMsg('Registration deleted');
-      await load();
       setTimeout(() => setOkMsg(''), 2500);
+      try { await load(); }
+      catch (e: any) { setErr(`Could not refresh registrations: ${apiError(e)}`); }
     } catch (e: any) { setErr(apiError(e)); }
     finally { setBusyId(null); }
   };
@@ -51,7 +57,7 @@ export default function AdminRegs() {
       </View>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
-      {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
+      {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
         <Card key={r.id} style={{ marginBottom: 10 }}>
           <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
           <Text style={st.sub}>🎮 UID: {r.gameUid}</Text>
@@ -63,12 +69,12 @@ export default function AdminRegs() {
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             {tab === 'pending' && (
               <>
-                <View style={{ flex: 1 }}><Btn title="✅ APPROVE" small loading={busyId === r.id} onPress={() => act(r.id, 'approve')} /></View>
-                <View style={{ flex: 1 }}><Btn title="❌ REJECT" small kind="danger" loading={busyId === r.id} onPress={() => act(r.id, 'reject')} /></View>
+                <View style={{ flex: 1 }}><Btn title="✅ APPROVE" small loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'approve')} /></View>
+                <View style={{ flex: 1 }}><Btn title="❌ REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'reject')} /></View>
               </>
             )}
             {tab !== 'pending' && (
-              <View style={{ flex: 1 }}><Btn title="🗑 DELETE" small kind="danger" loading={busyId === r.id} onPress={() => del(r.id)} /></View>
+              <View style={{ flex: 1 }}><Btn title="🗑 DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => del(r.id)} /></View>
             )}
           </View>
         </Card>

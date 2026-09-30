@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, ActivityIndicator } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, TextInput } from 'react-native';
 import { Api, errMessage } from '../lib/api';
 import { Card, Btn, ScreenWrap, useToast, SectionTitle } from '../components/adminKit';
 
@@ -13,24 +13,21 @@ const TYPES = [
 
 export default function AdminNotifications() {
   const toast = useToast();
-  const [users, setUsers] = useState<any[] | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [type, setType] = useState('all');
-  const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { Api.adminUsers().then((u) => setUsers(u ?? [])).catch(() => setUsers([])); }, []);
-
   const send = async () => {
+    if (busy) return;
     if (!title.trim() || !body.trim()) return toast('Title and message required', 'error');
     setBusy(true);
     try {
-      await Api.adminNotify({ title: title.trim(), body: body.trim(), type, userIds: type === 'selected' ? selected : undefined });
+      await Api.adminSendNotification({ title: title.trim(), body: body.trim(), type });
       toast('Notification sent', 'success');
-      setTitle(''); setBody(''); setSelected([]);
+      setTitle(''); setBody('');
     } catch (e) { toast(errMessage(e), 'error'); }
-    setBusy(false);
+    finally { setBusy(false); }
   };
 
   return (
@@ -44,18 +41,6 @@ export default function AdminNotifications() {
         </View>
         <TextInput placeholder="Title (e.g. Tournament Announcement)" placeholderTextColor="#5b6478" value={title} onChangeText={setTitle} style={st.input} />
         <TextInput placeholder="Message…" placeholderTextColor="#5b6478" value={body} onChangeText={setBody} multiline style={[st.input, { height: 90, textAlignVertical: 'top' }]} />
-        {type === 'selected' && (
-          <View style={{ marginTop: 8 }}>
-            {(users ?? []).map((u) => {
-              const on = selected.includes(u.$id);
-              return (
-                <Text key={u.$id} onPress={() => setSelected(on ? selected.filter((x) => x !== u.$id) : [...selected, u.$id])} style={[st.user, on && st.userOn]}>
-                  {on ? '☑' : '☐'} {u.name}
-                </Text>
-              );
-            })}
-          </View>
-        )}
         <View style={{ marginTop: 12 }}>
           <Btn title="🚀 SEND NOTIFICATION" onPress={send} loading={busy} />
         </View>
@@ -79,8 +64,6 @@ const st = StyleSheet.create({
   chip: { color: '#9aa3b2', fontSize: 10, fontWeight: '900', letterSpacing: 0.5, backgroundColor: '#0d1326', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, overflow: 'hidden', borderWidth: 1, borderColor: '#232c47' },
   chipOn: { color: '#fff', backgroundColor: '#ff3d3d', borderColor: '#ff3d3d' },
   input: { backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47', marginBottom: 10 },
-  user: { color: '#9aa3b2', fontSize: 12.5, paddingVertical: 5, fontWeight: '700' },
-  userOn: { color: '#FFC107' },
   tplT: { color: '#ff6b6b', fontWeight: '900', fontSize: 13 },
   tplB: { color: '#5b6478', fontSize: 11.5, marginTop: 3 },
 });

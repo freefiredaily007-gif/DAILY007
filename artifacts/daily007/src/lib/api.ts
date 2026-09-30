@@ -85,7 +85,6 @@ export const Api = {
   adminDeletePayment: (id: string) => unwrap(http.delete('/admin/payments/' + id)),
   adminDeleteWithdrawal: (id: string) => unwrap(http.delete('/admin/withdrawals/' + id)),
   adminDeleteRegistration: (id: string) => unwrap(http.delete('/admin/registrations/' + id)),
-  adminRegDelete: (id: string) => unwrap(http.delete('/admin/registrations/' + id)),
   adminRegistrations: () => unwrap(http.get('/admin/registrations')),
   adminRegAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/registrations/' + id + '/' + action, {})),
   createTournament: (b: object) => unwrap(http.post('/tournaments', b)),
@@ -107,7 +106,6 @@ export const Api = {
   adminSaveSettings: (b: object) => unwrap(http.put('/admin/settings', b)),
   adminTransactions: () => unwrap(http.get('/admin/transactions')),
   adminSendNotification: (b: object) => unwrap(http.post('/admin/notifications', b)),
-  adminNotify: (b: object) => unwrap(http.post('/admin/notifications', b)),
 };
 
 export const api = Api;
