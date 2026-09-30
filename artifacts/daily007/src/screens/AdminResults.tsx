@@ -1,13 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { Api, apiError, Tournament } from '../lib/api';
+import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 
 export default function AdminResults() {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [sel, setSel] = useState<Tournament | null>(null);
-  const [regs, setRegs] = useState<any[] | null>(null);
+  const [regs, setRegs] = useState<AdminRegistration[] | null>(null);
+  const requestId = useRef(0);
   const [regId, setRegId] = useState('');
   const [rank, setRank] = useState('');
   const [kills, setKills] = useState('');
@@ -19,14 +20,24 @@ export default function AdminResults() {
   useEffect(() => { Api.tournaments(true).then(setList).catch(() => setList([])); }, []);
 
   const open = async (t: Tournament) => {
+    const currentRequest = ++requestId.current;
     setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegId(''); setRank(''); setKills(''); setPrizeCoins('');
-    try { setRegs(await Api.adminApprovedRegs(t.id)); } catch (e: any) { setErr(apiError(e)); setRegs([]); }
+    try {
+      const approved = await Api.adminApprovedRegs(t.id);
+      if (requestId.current === currentRequest) setRegs(approved);
+    } catch (e: any) {
+      if (requestId.current === currentRequest) { setErr(apiError(e)); setRegs([]); }
+    }
   };
+
+  const back = () => { requestId.current++; setSel(null); setRegs(null); setRegId(''); };
 
   const publish = async () => {
     if (!sel) return;
     setErr(''); setOkMsg('');
-    if (!regId) return setErr('Select a player.');
+    if (!regId || !regs?.some((r) => r.id === regId && r.tournamentId === sel.id && r.status === 'approved')) {
+      return setErr('Select an approved player for this tournament.');
+    }
     if (!rank || !prizeCoins) return setErr('Rank and prize coins are required.');
     setBusy(true);
     try {
@@ -54,7 +65,7 @@ export default function AdminResults() {
         </Card>
       )) : (
         <Card>
-          <Text onPress={() => setSel(null)} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
+          <Text onPress={back} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
           {!regs ? <Loading /> : regs.length === 0 ? <Empty text="No approved registrations." /> : (
             <View style={{ marginBottom: 10 }}>

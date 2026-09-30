@@ -17,6 +17,11 @@ export type Tournament = {
   filledSlots?: number; availableSlots?: number; roomId?: string; roomPassword?: string; roomTime?: string; roomPublished?: boolean;
 };
 
+export type AdminRegistration = {
+  id: string; tournamentId: string; status: string;
+  playerName: string; teamName?: string; gameUid?: string;
+};
+
 export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Type': 'application/json' } });
 
 const KEY = 'ffd007_session';
@@ -97,7 +102,12 @@ export const Api = {
   adminWithdrawals: () => unwrap(http.get('/admin/withdrawals')),
   adminWithdrawalAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/withdrawals/' + id + '/' + action, {})),
   adminPaymentAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/payments/' + id + '/' + action, {})),
-  adminApprovedRegs: (tid: string) => unwrap(http.get('/admin/registrations')),
+  adminApprovedRegs: async (tid: string): Promise<AdminRegistration[]> => {
+    const registrations: unknown = await unwrap(http.get('/admin/registrations'));
+    if (!Array.isArray(registrations)) throw new Error('Invalid registrations response.');
+    return registrations.filter((r): r is AdminRegistration =>
+      r != null && r.tournamentId === tid && r.status === 'approved');
+  },
   adminPublishResult: (b: object) => unwrap(http.post('/admin/results', b)),
   adminAdjustCoins: (id: string, coinsDelta: number, note: string) => unwrap(http.patch('/admin/users/' + id, { coinsDelta, note })),
   adminSetUser: (id: string, b: object) => unwrap(http.patch('/admin/users/' + id, b)),
