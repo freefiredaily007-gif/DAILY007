@@ -1,0 +1,7 @@
+{
+  "name": "Daily007",
+  "displayName": "Daily007",
+  "plugins": [
+    "expo-asset"
+  ]
+}
