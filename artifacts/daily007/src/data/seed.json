@@ -1,0 +1,141 @@
+{
+  "users": [
+    {
+      "id": "users_1",
+      "name": "Rahul",
+      "email": "rahul@mail.com",
+      "phone": "9876500001",
+      "password": "rahul123",
+      "gameUid": "28374615",
+      "coins": 500,
+      "role": "user",
+      "status": "active",
+      "matches": 12,
+      "wins": 3,
+      "kills": 21,
+      "prizeCoins": 450
+    },
+    {
+      "id": "users_2",
+      "name": "Admin",
+      "email": "admin@daily007.gg",
+      "phone": "",
+      "password": "admin123",
+      "gameUid": "",
+      "coins": 0,
+      "role": "admin",
+      "status": "active",
+      "matches": 0,
+      "wins": 0,
+      "kills": 0,
+      "prizeCoins": 0
+    }
+  ],
+  "tournaments": [
+    {
+      "id": "tournaments_1",
+      "name": "Daily BR Solo #101",
+      "mode": "Battle Royale",
+      "teamType": "Solo",
+      "date": "2026-02-20",
+      "time": "08:30 PM",
+      "entryCoins": 50,
+      "prizePool": 1000,
+      "totalSlots": 48,
+      "rules": "1. No hacks or cheats\n2. Join room 10 min early\n3. Emulator banned",
+      "status": "upcoming",
+      "enabled": true,
+      "createdBy": ""
+    },
+    {
+      "id": "tournaments_2",
+      "name": "Clash Squad Cup #55",
+      "mode": "Clash Squad",
+      "teamType": "Squad",
+      "date": "2026-02-20",
+      "time": "09:30 PM",
+      "entryCoins": 100,
+      "prizePool": 2000,
+      "totalSlots": 12,
+      "rules": "1. Squad of 4 required\n2. No teaming",
+      "status": "upcoming",
+      "enabled": true,
+      "createdBy": ""
+    }
+  ],
+  "tournament_meta": [
+    {
+      "id": "tournament_meta_1",
+      "tournamentId": "t1",
+      "roomId": "",
+      "roomPassword": "",
+      "roomTime": "",
+      "roomPublished": false,
+      "banner": "br",
+      "prizeDist": "1st: 500 coins\n2nd: 250 coins\n3rd: 100 coins"
+    },
+    {
+      "id": "tournament_meta_2",
+      "tournamentId": "t2",
+      "roomId": "",
+      "roomPassword": "",
+      "roomTime": "",
+      "roomPublished": false,
+      "banner": "cs",
+      "prizeDist": "1st: 1200 coins\n2nd: 600 coins"
+    }
+  ],
+  "registrations": [
+    {
+      "id": "registrations_1",
+      "tournamentId": "t1",
+      "userId": "u1",
+      "playerName": "Rahul",
+      "gameUid": "28374615",
+      "teamName": "",
+      "teamMembers": "[]",
+      "entryCoins": 50,
+      "status": "pending",
+      "result": ""
+    }
+  ],
+  "transactions": [
+    {
+      "id": "transactions_1",
+      "userId": "u1",
+      "tournamentId": "",
+      "type": "wallet_credit",
+      "amount": 100,
+      "balanceBefore": 0,
+      "balanceAfter": 100,
+      "reference": "seed-1",
+      "status": "completed",
+      "description": "Welcome bonus"
+    }
+  ],
+  "payments": [
+    {
+      "id": "payments_1",
+      "userId": "u1",
+      "amount": 49,
+      "method": "UPI",
+      "reference": "UTR123456",
+      "screenshot": "",
+      "status": "pending",
+      "adminNote": "",
+      "approvedBy": ""
+    }
+  ],
+  "results": [],
+  "notifications": [
+    {
+      "id": "notifications_1",
+      "userId": "all",
+      "title": "Welcome",
+      "message": "Welcome to Free Fire Daily007!",
+      "type": "system",
+      "tournamentId": "",
+      "isRead": false
+    }
+  ]
+}

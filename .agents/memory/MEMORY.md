@@ -1,1 +1,1 @@
-- [Npm lockfiles on Replit](npm-lockfile-firewall.md) — npm-prefixed tarball URLs can be misrewritten by the package firewall; let npm resolve affected entries through its configured registry.
+- [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.

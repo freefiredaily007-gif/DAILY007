@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Daily007"
+description = "The original Daily007 mobile app for players to join tournaments, view matches, earn rewards and manage their wallet, with admin management screens."
+version = "1.0.0"
+id = "artifacts/daily007"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 25190
+
+[services.development]
+run = "pnpm --filter @workspace/daily007 run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/daily007", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/daily007", "run", "serve" ]
+
+[services.env]
+PORT = "25190"
+BASE_PATH = "/"

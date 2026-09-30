@@ -1,0 +1,358 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "label": "Users",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "phone",
+          "type": "string"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "gameUid",
+          "type": "string"
+        },
+        {
+          "name": "coins",
+          "type": "number"
+        },
+        {
+          "name": "role",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "matches",
+          "type": "number"
+        },
+        {
+          "name": "wins",
+          "type": "number"
+        },
+        {
+          "name": "kills",
+          "type": "number"
+        },
+        {
+          "name": "prizeCoins",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "name": "tournaments",
+      "label": "Tournaments",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "teamType",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "time",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "entryCoins",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "prizePool",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "totalSlots",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "rules",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "enabled",
+          "type": "boolean"
+        },
+        {
+          "name": "createdBy",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "tournament_meta",
+      "label": "Tournament Meta",
+      "fields": [
+        {
+          "name": "tournamentId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "roomId",
+          "type": "string"
+        },
+        {
+          "name": "roomPassword",
+          "type": "string"
+        },
+        {
+          "name": "roomTime",
+          "type": "string"
+        },
+        {
+          "name": "roomPublished",
+          "type": "boolean"
+        },
+        {
+          "name": "banner",
+          "type": "string"
+        },
+        {
+          "name": "prizeDist",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "name": "registrations",
+      "label": "Registrations",
+      "fields": [
+        {
+          "name": "tournamentId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "playerName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "gameUid",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "teamName",
+          "type": "string"
+        },
+        {
+          "name": "teamMembers",
+          "type": "text"
+        },
+        {
+          "name": "entryCoins",
+          "type": "number"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "result",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "transactions",
+      "label": "Transactions",
+      "fields": [
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "tournamentId",
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "balanceBefore",
+          "type": "number"
+        },
+        {
+          "name": "balanceAfter",
+          "type": "number"
+        },
+        {
+          "name": "reference",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "payments",
+      "label": "Payments",
+      "fields": [
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "method",
+          "type": "string"
+        },
+        {
+          "name": "reference",
+          "type": "string"
+        },
+        {
+          "name": "screenshot",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "adminNote",
+          "type": "string"
+        },
+        {
+          "name": "approvedBy",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "results",
+      "label": "Results",
+      "fields": [
+        {
+          "name": "tournamentId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "registrationId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "rank",
+          "type": "number"
+        },
+        {
+          "name": "kills",
+          "type": "number"
+        },
+        {
+          "name": "prizeCoins",
+          "type": "number"
+        },
+        {
+          "name": "resultStatus",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "notifications",
+      "label": "Notifications",
+      "fields": [
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "text"
+        },
+        {
+          "name": "type",
+          "type": "string"
+        },
+        {
+          "name": "tournamentId",
+          "type": "string"
+        },
+        {
+          "name": "isRead",
+          "type": "boolean"
+        }
+      ]
+    }
+  ]
+}

@@ -1,16 +1,45 @@
-# Running Daily007 on Replit
+# [Project name]
 
-This is the imported React Native CLI project (React Native 0.76 / Expo SDK 52), not a Replit mobile artifact. Keep the existing `android/`, `ios/`, and `src/` structure.
+_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
 
-## Start the development server
+## Run & Operate
 
-1. Run `npm ci` if dependencies are not installed.
-2. Press **Run**, or start the **Start mobile bundler** workflow. It runs:
-   `EXPO_PACKAGER_PROXY_URL=https://$REPLIT_DEV_DOMAIN npx expo start --lan --port 8080`
-3. Metro listens on port 8080, which `.replit` exposes through the Replit development domain. `/status` should return `packager-status:running`. The workflow console displays an Expo QR code.
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm run typecheck` — full typecheck across all packages
+- `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- Required env: `DATABASE_URL` — Postgres connection string
 
-The Replit browser Preview shows the Metro/Expo server, **not** the native app screen. This imported CLI project does not automatically attach to Replit's built-in mobile simulator. To try it on a phone, scan the QR code with Expo Go; if the HTTPS proxy prevents the `exp://` link from opening, enter `exps://<your Replit development domain>` in Expo Go instead. Expo Go may not include every native module used by this project, so a custom native development build may be necessary. A native device run has not been verified here.
+## Stack
 
-For a native build using the existing projects, follow `README.md`: Android needs JDK 17, Android Studio/SDK and a device or emulator; iOS needs macOS, Xcode and CocoaPods. Those toolchains are not provided by this Replit workflow.
+- pnpm workspaces, Node.js 24, TypeScript 5.9
+- API: Express 5
+- DB: PostgreSQL + Drizzle ORM
+- Validation: Zod (`zod/v4`), `drizzle-zod`
+- API codegen: Orval (from OpenAPI spec)
+- Build: esbuild (CJS bundle)
 
-The API URL is already set in `src/config/api.ts`; the Metro workflow does not need additional secrets. The imported lockfile was reconciled for `npm ci`, with patched transitive dependencies to meet Replit's package security policy.
+## Where things live
+
+_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+
+## Architecture decisions
+
+_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+
+## Product
+
+_Describe the high-level user-facing capabilities of this app once they exist._
+
+## User preferences
+
+_Populate as you build — explicit user instructions worth remembering across sessions._
+
+## Gotchas
+
+_Populate as you build — sharp edges, "always run X before Y" rules._
+
+## Pointers
+
+- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
