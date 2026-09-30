@@ -1,1 +1,2 @@
 - [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.
+- [Daily007 backend cutover](daily007-backend-cutover.md) — keep the hosted account/wallet service active until an audited export and reconciliation make a safe switch possible.

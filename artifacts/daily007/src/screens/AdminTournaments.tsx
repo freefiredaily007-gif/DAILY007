@@ -4,7 +4,13 @@ import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 
-const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '', rules: '', banner: 'br', prizeDist: '' };
+const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
+
+function capacityFor(mode: string, teamType: string) {
+  if (mode === 'Clash Squad') return { slots: 2, label: '2 teams · 8 players' };
+  if (teamType === 'Squad') return { slots: 12, label: '12 teams · 48 players' };
+  return { slots: 48, label: '48 individual players' };
+}
 
 export default function AdminTournaments() {
   const [list, setList] = useState<Tournament[] | null>(null);
@@ -24,14 +30,14 @@ export default function AdminTournaments() {
 
   const save = async () => {
     setErr(''); setOkMsg('');
-    if (!form.name.trim() || !form.date.trim() || !form.entryCoins || !form.totalSlots) {
-      return setErr('Name, date, entry coins and total slots are required.');
+    if (!form.name.trim() || !form.date.trim() || form.entryCoins === '') {
+      return setErr('Name, date and entry coins are required.');
     }
     setBusy(true);
     try {
       const payload = {
         name: form.name.trim(), mode: form.mode, teamType: form.teamType, date: form.date.trim(), time: form.time,
-        entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), totalSlots: Number(form.totalSlots),
+        entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), totalSlots: capacityFor(form.mode, form.teamType).slots,
         rules: form.rules, banner: form.banner, prizeDist: form.prizeDist,
       };
       if (editId) { await Api.updateTournament(editId, payload); setOkMsg('Tournament updated successfully'); }
@@ -64,14 +70,24 @@ export default function AdminTournaments() {
         <Card style={{ marginBottom: 14 }}>
           <Text style={st.formH}>{editId ? 'EDIT TOURNAMENT' : 'CREATE TOURNAMENT'}</Text>
           <Input placeholder="Tournament name *" value={form.name} onChangeText={(v) => set('name', v)} />
+          <Text style={st.lbl}>GAME MODE</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
             {['Battle Royale', 'Clash Squad'].map((m) => (
-              <Chip key={m} label={m} color={form.mode === m ? C.neon : C.sub} onPress={() => set('mode', m)} />
-            ))}
-            {['Solo', 'Squad'].map((m) => (
-              <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
+              <Chip key={m} label={m} color={form.mode === m ? C.neon : C.sub} onPress={() => {
+                setForm((f: any) => ({ ...f, mode: m, teamType: m === 'Clash Squad' ? 'Squad' : f.teamType }));
+              }} />
             ))}
           </View>
+          {form.mode === 'Battle Royale' && (
+            <>
+              <Text style={st.lbl}>TEAM TYPE</Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+                {['Solo', 'Squad'].map((m) => (
+                  <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
+                ))}
+              </View>
+            </>
+          )}
           <Input placeholder="Date (YYYY-MM-DD) *" value={form.date} onChangeText={(v) => set('date', v)} />
           <Text style={st.lbl}>TIME (12-HOUR)</Text>
           <TimePicker value={form.time} onChange={(v) => set('time', v)} />
@@ -82,7 +98,9 @@ export default function AdminTournaments() {
           </View>
           {!!form.entryCoins && <Text style={st.inrNote}>Entry fee: {form.entryCoins} coins = {inr(Number(form.entryCoins))} INR</Text>}
           {!!form.prizePool && <Text style={st.inrNote}>Prize pool: {form.prizePool} coins = {inr(Number(form.prizePool))} INR</Text>}
-          <Input placeholder="Total slots *" value={form.totalSlots} onChangeText={(v) => set('totalSlots', v)} keyboardType="number-pad" />
+          <Text style={st.lbl}>CANONICAL CAPACITY</Text>
+          <Text style={st.capacity}>{capacityFor(form.mode, form.teamType).label}</Text>
+          <Text style={st.capacityNote}>Capacity follows the selected mode and team type; team entry fees are charged once to the captain.</Text>
           <TextInput style={st.area} placeholder="Rules (one per line)" placeholderTextColor={C.sub} value={form.rules} onChangeText={(v) => set('rules', v)} multiline />
           <TextInput style={st.area} placeholder="Prize distribution (e.g. 1st: 500 coins)" placeholderTextColor={C.sub} value={form.prizeDist} onChangeText={(v) => set('prizeDist', v)} multiline />
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
@@ -122,4 +140,6 @@ const st = StyleSheet.create({
   tName: { color: C.text, fontWeight: '900', flex: 1, fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
   inrNote: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  capacity: { color: C.text, fontSize: 14, fontWeight: '900', marginBottom: 3 },
+  capacityNote: { color: C.dim, fontSize: 11, marginBottom: 10 },
 });

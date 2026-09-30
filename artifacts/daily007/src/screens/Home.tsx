@@ -1,6 +1,6 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, Alert } from 'react-native';
 import bannerSolo from '../assets/banner-solo.jpg';
 import bannerSquad from '../assets/banner-squad.jpg';
 import bannerClash from '../assets/banner-clash.jpg';
@@ -35,6 +35,23 @@ function statusOf(t: any) {
   if (filled >= (t.totalSlots ?? 48)) return { key: 'FULL', color: C.orange };
   return { key: 'UPCOMING', color: C.green };
 }
+function startAt(t: any): number | null {
+  const datePart = String(t.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+  const match = String(t.time || '').trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] || 0);
+  const suffix = match[4]?.toUpperCase();
+  if (minutes > 59 || seconds > 59 || (suffix ? hours < 1 || hours > 12 : hours > 23)) return null;
+  if (suffix) hours = (hours % 12) + (suffix === 'PM' ? 12 : 0);
+  const dt = new Date(`${datePart}T00:00:00`);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (Number.isNaN(dt.getTime()) || dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return null;
+  dt.setHours(hours, minutes, seconds, 0);
+  return dt.getTime();
+}
 
 export default function Home() {
   const { user } = useApp();
@@ -50,6 +67,41 @@ export default function Home() {
   const goStack = (k: string) => {
     if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
     else if (k.startsWith('mode:')) nav.navigate('Tournaments', { mode: k.slice(5) });
+  };
+  const joinPosterMode = async (mode: string) => {
+    try {
+      const response = await api.tournaments('?enabled=true');
+      const enabled = Array.isArray(response) ? response : response?.tournaments || [];
+      const normalize = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z]/g, '');
+      const target = normalize(mode);
+      const now = Date.now();
+      const tournament = enabled.filter((t: any) => {
+        const tournamentMode = normalize(t.mode);
+        const teamType = normalize(t.teamType);
+        const matches = target === 'battleroyalesolo'
+          ? teamType === 'solo' && (tournamentMode === 'battleroyale' || tournamentMode === 'battleroyalesolo')
+          : target === 'battleroyalesquad'
+            ? teamType === 'squad' && tournamentMode === 'battleroyale'
+            : teamType === 'squad' && tournamentMode === 'clashsquad';
+        const total = Number(t.totalSlots ?? 0);
+        const filled = Number(t.filledSlots ?? t.filled ?? 0);
+        const remaining = Number(t.availableSlots ?? total - filled);
+        const status = String(t.status || 'upcoming').toLowerCase();
+        const kickoff = startAt(t);
+        return matches && t.enabled !== false && !['completed', 'live', 'closed', 'full'].includes(status)
+          && total > 0 && filled < total && remaining > 0 && kickoff !== null && kickoff > now;
+      }).sort((a: any, b: any) => {
+        const timeDifference = (startAt(a) ?? Number.MAX_SAFE_INTEGER) - (startAt(b) ?? Number.MAX_SAFE_INTEGER);
+        return timeDifference || String(a.id || '').localeCompare(String(b.id || ''));
+      })[0];
+      if (!tournament) {
+        Alert.alert('No open tournament', 'There is no enabled, open tournament for this mode right now. Please check back soon.');
+        return;
+      }
+      nav.navigate('JoinForm', { id: tournament.id });
+    } catch (e: any) {
+      Alert.alert('Could not load tournaments', e?.message || 'Please try again.');
+    }
   };
 
   const load = useCallback(async () => {
@@ -190,18 +242,17 @@ export default function Home() {
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
         { img: bannerSolo, title: 'BATTLE ROYALE SOLO', tag: '1 Player | All Alone | Survive & Win', btn: 'PLAY SOLO', mode: 'Battle Royale Solo', accent: C.gold },
-        { img: bannerSquad, title: 'BATTLE ROYALE SQUAD', tag: '4 Players | Team Up | Play Together', btn: 'REGISTER NOW', mode: 'Battle Royale', accent: C.neon },
+        { img: bannerSquad, title: 'BATTLE ROYALE SQUAD', tag: '4 Players | Team Up | Play Together', btn: 'REGISTER NOW', mode: 'Battle Royale Squad', accent: C.neon },
         { img: bannerClash, title: 'CLASH SQUAD', tag: '4 Players | Skill Based | Fast Match', btn: 'REGISTER NOW', mode: 'Clash Squad', accent: C.purple },
       ].map((m) => (
-        <GCard key={m.mode} onPress={() => goStack('mode:' + m.mode)} glowColor={m.accent} style={s.modeCard}>
+        <GCard key={m.mode} onPress={() => joinPosterMode(m.mode)} glowColor={m.accent} style={s.modeCard}>
           <Image source={m.img} style={s.modeBanner} resizeMode="cover" />
           <View style={s.modeBody}>
             <Text style={[s.modeTitle, { color: m.accent }]}>{m.title}</Text>
             <Text style={s.modeDesc}>{m.tag}</Text>
-            <Pressable style={({ pressed }) => [s.modeBtn, { borderColor: m.accent }, glow(m.accent, 8), pressed && { opacity: 0.85 }]}
-              onPress={() => goStack('mode:' + m.mode)}>
+            <View style={[s.modeBtn, { borderColor: m.accent }, glow(m.accent, 8)]}>
               <Text style={[s.modeBtnT, { color: m.accent }]}>{m.btn} ›</Text>
-            </Pressable>
+            </View>
           </View>
         </GCard>
       ))}

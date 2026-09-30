@@ -66,14 +66,13 @@ function JoinFormRoute() {
   if (!tournament) return <View style={s.boot}><ActivityIndicator color="#ff4655" /></View>;
   return <JoinForm tournament={tournament} user={user} onCancel={() => navigation.goBack()}
     onSubmit={async (payload) => {
-      try {
-        await Api.join(tournament.id, payload);
-        await refresh();
-        Alert.alert('Registered', 'Check MY MATCHES for room details.');
-        navigation.goBack();
-      } catch (e: any) {
-        Alert.alert('Registration failed', e?.response?.data?.error || e?.message || 'Please try again.');
+      const result = await Api.join(tournament.id, payload);
+      if (result?.success === false || result?.ok === false) {
+        throw new Error(result?.error || result?.message || 'The server did not confirm this registration.');
       }
+      await refresh();
+      Alert.alert('Registration confirmed', 'Check MY MATCHES for room details.');
+      navigation.goBack();
     }} />;
 }
 
@@ -122,7 +121,7 @@ export default function App() {
               <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: 'MATCHES' }} />
               <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: 'MY MATCHES' }} />
               <Stack.Screen name="TDetail" component={TDetail} options={{ title: 'TOURNAMENT' }} />
-              <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: 'REGISTER' }} />
+              <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: 'REGISTER', presentation: 'modal' }} />
               <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: 'LEADERBOARD' }} />
               <Stack.Screen name="Notifications" component={Notifications} options={{ title: 'NOTIFICATIONS' }} />
               <Stack.Screen name="EditProfile" component={EditProfile} options={{ title: 'EDIT PROFILE' }} />

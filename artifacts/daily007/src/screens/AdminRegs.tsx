@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 
@@ -12,6 +14,8 @@ export default function AdminRegs() {
   const [okMsg, setOkMsg] = useState('');
 
   const [all, setAll] = useState<any[] | null>(null);
+  const [exportTournamentId, setExportTournamentId] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
 
   const load = useCallback(async () => {
     setAll(await Api.adminRegistrations());
@@ -22,6 +26,70 @@ export default function AdminRegs() {
   }, [load]);
 
   const list = (all ?? []).filter((x) => x.status === tab);
+  const paidRoster = (all ?? []).filter((x) => x.status === 'pending' || x.status === 'approved');
+  const tournaments = Array.from(new Map(paidRoster.map((r) => [
+    String(r.tournamentId || ''),
+    { id: String(r.tournamentId || ''), name: String(r.tournamentName || r.tournamentId || 'Tournament') },
+  ])).values()).filter((t) => t.id);
+  const selectedTournament = tournaments.find((t) => t.id === exportTournamentId) || tournaments[0];
+
+  const exportCsv = async () => {
+    if (!selectedTournament) return;
+    setErr(''); setOkMsg(''); setExportBusy(true);
+    try {
+      const rows: string[][] = [['Player Name', 'Game UID', 'Team Name', 'Registration Status']];
+      paidRoster.filter((r) => String(r.tournamentId) === selectedTournament.id).forEach((r) => {
+        let members: any[] = [];
+        try {
+          const parsed = typeof r.teamMembers === 'string' ? JSON.parse(r.teamMembers) : r.teamMembers;
+          if (Array.isArray(parsed)) members = parsed;
+        } catch {}
+        if (members.length) {
+          members.forEach((member) => rows.push([
+            String(member?.name || ''),
+            String(member?.uid || member?.gameUid || ''),
+            String(r.teamName || ''),
+            String(r.status || ''),
+          ]));
+        } else {
+          rows.push([String(r.playerName || ''), String(r.gameUid || ''), String(r.teamName || ''), String(r.status || '')]);
+        }
+      });
+      const quote = (value: string) => {
+        const safe = /^[\t\r\n ]*[=+\-@]/.test(value) ? `'${value}` : value;
+        return `"${safe.replace(/"/g, '""')}"`;
+      };
+      const csv = rows.map((row) => row.map(quote).join(',')).join('\r\n');
+      if (Platform.OS === 'web') {
+        const browser = globalThis as any;
+        const blob = new browser.Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = browser.URL.createObjectURL(blob);
+        const link = browser.document.createElement('a');
+        link.href = url;
+        const safeId = selectedTournament.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        link.download = `daily007-${safeId}-players.csv`;
+        link.click();
+        browser.URL.revokeObjectURL(url);
+        setOkMsg('Player list CSV downloaded.');
+      } else {
+        if (!(await Sharing.isAvailableAsync())) {
+          throw new Error('Native file sharing is unavailable on this device.');
+        }
+        const safeId = selectedTournament.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const file = new File(Paths.cache, `daily007-${safeId}-players.csv`);
+        if (file.exists) file.delete();
+        file.create();
+        file.write(csv);
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'text/csv',
+          UTI: 'public.comma-separated-values-text',
+          dialogTitle: `${selectedTournament.name} player list`,
+        });
+        setOkMsg('CSV file opened in the native share sheet. Choose an app or save destination.');
+      }
+    } catch (e: any) { setErr(e?.message || 'Could not export the player list.'); }
+    finally { setExportBusy(false); }
+  };
 
   const act = async (id: string, action: 'approve' | 'reject') => {
     if (busyId) return;
@@ -55,6 +123,24 @@ export default function AdminRegs() {
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
+      {tournaments.length > 0 && (
+        <Card style={{ marginBottom: 12 }}>
+          <Text style={st.exportTitle}>PLAYER LIST EXPORT</Text>
+          <Text style={st.sub}>Pending and approved paid registrations · names and game UIDs as CSV (rejected/refunded entries excluded)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 10 }}>
+            {tournaments.map((t) => (
+              <Chip
+                key={t.id}
+                label={t.name}
+                color={(selectedTournament?.id === t.id) ? C.neon : C.sub}
+                onPress={() => setExportTournamentId(t.id)}
+              />
+            ))}
+          </ScrollView>
+          <Btn title={Platform.OS === 'web' ? 'DOWNLOAD CSV' : 'DOWNLOAD PLAYER LIST'} small onPress={exportCsv} loading={exportBusy} />
+          {Platform.OS !== 'web' && <Text style={st.sub}>Creates a CSV file in app cache, then opens the system share/save sheet.</Text>}
+        </Card>
+      )}
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
       {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
@@ -87,5 +173,6 @@ const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
   h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
+  exportTitle: { color: C.neon, fontWeight: '900', fontSize: 13, letterSpacing: 1 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
 });

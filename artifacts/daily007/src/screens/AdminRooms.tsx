@@ -57,6 +57,7 @@ export default function AdminRooms() {
           <Text onPress={() => setSel(null)} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
           <Text style={st.sub}>Status: {meta?.roomPublished ? 'PUBLISHED ✅' : 'HIDDEN (not published)'}</Text>
+          <Text style={st.sub}>Enter credentials and publish about 10–15 minutes before match start. Published details are visible only to registered players.</Text>
           <Input placeholder="Room ID" value={roomId} onChangeText={setRoomId} />
           <Input placeholder="Room Password" value={roomPassword} onChangeText={setRoomPassword} />
           <Text style={st.lbl}>ROOM TIME (12-HOUR)</Text>

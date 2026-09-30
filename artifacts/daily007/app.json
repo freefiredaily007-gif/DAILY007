@@ -18,7 +18,12 @@
     "web": {
       "favicon": "./assets/images/icon.png"
     },
-    "plugins": ["expo-router", "expo-font", "expo-asset"],
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-asset",
+      "expo-sharing"
+    ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
