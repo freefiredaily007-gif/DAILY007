@@ -6,6 +6,12 @@ The original mobile app used a hosted Daily007 API for login, balances, tourname
 
 The v2 schema is maintained in `lib/db/src/schema` and is applied to the development database with the workspace's normal Drizzle push. For a Replit-managed production database, schema changes are applied through Replit Publish, not a custom production migration script.
 
+## Google sign-in
+
+Google is an additional sign-in option, not a replacement for Daily007 email/password accounts. Replit-managed Clerk handles the Google OAuth session; the server verifies that session and a verified Google identity before issuing the same Daily007 bearer token used by the wallet and tournament APIs. New Google accounts start with zero coins and no usable password. A Google email that already belongs to a password account is **not** linked automatically: sign in with the password first and use **Profile → Connect Google**. Referral codes entered on a new Google signup are tracked as pending without crediting coins.
+
+The web preview was checked through the Google sign-in page and password-login fallback; a full Google callback and native-device sign-in still require a real Google account and device/build verification. Do not store Google access tokens in the Daily007 database or treat a client-supplied email as proof of identity.
+
 ## Fresh-start decision and consequences
 
 - New and old accounts are separate. Old passwords and sessions will not work; everyone signs up again. The mobile client must use a new local session key so an old hosted token is never sent to Replit.

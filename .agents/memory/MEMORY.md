@@ -1,2 +1,3 @@
 - [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
+- [Daily007 Google auth bridge](google-auth-bridge.md) — Clerk proves Google identity; keep Daily007 wallet accounts and require explicit linking to password accounts.

@@ -23,6 +23,7 @@ import { VideoIconActive, VideoIconInactive } from './components/VideoIcon';
 import { ProfileIconActive, ProfileIconInactive } from './components/ProfileIcon';
 import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
+import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
 const Ctx = React.createContext<Ctx>(null as any);
@@ -80,7 +81,7 @@ const navTheme = {
   ...DarkTheme, colors: { ...DarkTheme.colors, background: '#070a12', card: '#10162b', border: '#1e2745', primary: '#ff3d3d', text: '#eef1f8' },
 };
 
-export default function App() {
+function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
@@ -116,7 +117,16 @@ export default function App() {
     return null;
   }, []);
 
-  const logout = useCallback(() => { setSession(null); setUser(null); }, []);
+  const logout = useCallback(async () => {
+    try {
+      await signOutClerk?.();
+    } catch {
+      Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
+    } finally {
+      setSession(null);
+      setUser(null);
+    }
+  }, [signOutClerk]);
 
   if (booting) return (
     <View style={s.boot}>
@@ -149,6 +159,17 @@ export default function App() {
       </NavigationContainer>
     </Ctx.Provider>
   );
+}
+
+function ClerkAwareApp() {
+  const { signOut } = useClerk();
+  return <DailyApp signOutClerk={signOut} />;
+}
+
+export default function App() {
+  return process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
+    ? <ClerkAwareApp />
+    : <DailyApp />;
 }
 
 const s = StyleSheet.create({

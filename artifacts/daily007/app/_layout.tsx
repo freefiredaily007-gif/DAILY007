@@ -14,9 +14,13 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { setBaseUrl } from '@workspace/api-client-react';
+import { ClerkLoaded, ClerkProvider } from '@clerk/expo';
+import { tokenCache } from '@clerk/expo/token-cache';
 
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
 if (domain) setBaseUrl(`https://${domain}`);
+const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkProxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -53,7 +57,19 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView>
             <KeyboardProvider>
-              <RootLayoutNav />
+              {clerkPublishableKey ? (
+                <ClerkProvider
+                  publishableKey={clerkPublishableKey}
+                  tokenCache={tokenCache}
+                  proxyUrl={clerkProxyUrl}
+                >
+                  <ClerkLoaded>
+                    <RootLayoutNav />
+                  </ClerkLoaded>
+                </ClerkProvider>
+              ) : (
+                <RootLayoutNav />
+              )}
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

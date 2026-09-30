@@ -4,6 +4,7 @@ import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pre
 import logoImg from '../assets/logo.jpg';
 import { Api, apiError, setSession, User } from '../lib/api';
 import { Btn, C, Input, Msg } from '../components/ui';
+import GoogleSSOButton from '../components/GoogleSSOButton';
 
 
 export default function Auth({ onDone }: { onDone: (u: User) => void }) {
@@ -69,6 +70,17 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
 
         <Btn title={mode === 'login' ? 'LOGIN' : 'CREATE ACCOUNT'} onPress={submit} loading={busy} />
 
+        <View style={s.googleArea}>
+          <Text style={s.or}>OR CONTINUE WITH</Text>
+          <GoogleSSOButton
+            label="Continue with Google"
+            disabled={busy}
+            referralCode={mode === 'signup' ? refCode : undefined}
+            onError={setErr}
+            onSuccess={onDone}
+          />
+        </View>
+
         <Text style={s.foot}>Join tournaments, win prize coins and top the leaderboard 🏆</Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -86,5 +98,7 @@ const s = StyleSheet.create({
   tabOn: { backgroundColor: C.neon },
   tabText: { color: C.sub, fontWeight: '800', letterSpacing: 1 },
   tabTextOn: { color: '#fff' },
+  googleArea: { marginTop: 4 },
+  or: { color: C.dim, textAlign: 'center', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 16 },
   foot: { color: C.dim, textAlign: 'center', marginTop: 18, fontSize: 12 },
 });

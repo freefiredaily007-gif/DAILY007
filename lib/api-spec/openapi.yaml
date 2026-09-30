@@ -57,6 +57,45 @@ paths:
       responses:
         "200": { description: Bearer token and account }
         "401": { description: Invalid credentials }
+  /auth/google:
+    post:
+      operationId: daily007GoogleSignIn
+      summary: Sign in or link a Daily007 account with a verified Clerk Google identity
+      description: |
+        Requires a Clerk session bearer token. The server fetches the Clerk user
+        and accepts only a Google external account with a verified email; client
+        email and provider identity values are never trusted. Existing local
+        accounts are not auto-linked: sign in with the password and retry with
+        X-Daily007-Token to connect Google. A referral code is only recorded as
+        pending on first signup and does not grant coins.
+      security: [{ clerkBearerAuth: [] }]
+      parameters:
+        - name: X-Daily007-Token
+          in: header
+          required: false
+          description: Existing Daily007 token for explicit account linking. Clerk authorization is still required.
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007GoogleSignInBody" }
+      responses:
+        "200":
+          description: Existing Google account or linked local account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007GoogleSignInResponse" }
+        "201":
+          description: Google-only account created with a zero-coin wallet and user role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007GoogleSignInResponse" }
+        "400": { description: Invalid request or unrecognized referral code }
+        "401": { description: Missing/invalid Clerk session or invalid Daily007 link token }
+        "403": { description: Google email is not verified or Daily007 account is blocked }
+        "409": { description: Email or Google identity conflict; existing local accounts require password sign-in before linking }
+        "503": { description: Clerk or Daily007 auth configuration unavailable }
   /daily007/v2/auth/me:
     get:
       operationId: daily007V2Me
@@ -182,6 +221,9 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+    clerkBearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     Daily007V2CreateMatchBody:
       type: object
@@ -225,6 +267,22 @@ components:
                   - { type: "null" }
             required: [name]
       required: [captainName, captainGameUid]
+    Daily007GoogleSignInBody:
+      type: object
+      additionalProperties: false
+      properties:
+        referralCode: { type: string, maxLength: 64 }
+    Daily007GoogleSignInResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        coins: { type: integer, minimum: 0 }
+        role: { type: string, enum: [user, admin] }
+        token: { type: string }
+      required: [id, name, email, coins, role, token]
     HealthStatus:
       type: object
       properties:

@@ -64,7 +64,7 @@ export function makeToken(userId: string): string | null {
   return `${payload}.${signature}`;
 }
 
-function readToken(token: string): string | null {
+export function readToken(token: string): string | null {
   const secret = tokenSecret();
   if (!secret) return null;
   const parts = token.split(".");

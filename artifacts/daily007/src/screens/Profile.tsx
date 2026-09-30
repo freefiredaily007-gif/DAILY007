@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../App';
 import { Api, apiError } from '../lib/api';
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
+import GoogleSSOButton from '../components/GoogleSSOButton';
 
 export default function Profile() {
   const { user, logout, refresh } = useApp();
@@ -16,6 +17,8 @@ export default function Profile() {
   const [bootstrapError, setBootstrapError] = React.useState('');
   const [setupError, setSetupError] = React.useState('');
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
+  const [googleConnectError, setGoogleConnectError] = React.useState('');
+  const [googleConnected, setGoogleConnected] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -93,6 +96,23 @@ export default function Profile() {
         <KV k="Member since" v={String(user?.$createdAt ?? user?.createdAt ?? '—').slice(0, 10)} />
       </Card>
 
+      <Card>
+        <Text style={s.connectTitle}>CONNECT GOOGLE</Text>
+        <Text style={s.connectDescription}>Link Google to this password account for quicker sign-in. Your Daily007 account and token stay the same.</Text>
+        <GoogleSSOButton
+          label="Connect Google"
+          dailyToken={user.token}
+          onError={setGoogleConnectError}
+          onSuccess={async () => {
+            setGoogleConnectError('');
+            setGoogleConnected(true);
+            await refresh();
+          }}
+        />
+        {!!googleConnectError && <Text style={s.statsError}>{googleConnectError}</Text>}
+        {googleConnected && <Text style={s.connected}>Google connection confirmed.</Text>}
+      </Card>
+
       <Btn title="🎮 MY MATCHES" kind="ghost" onPress={() => nav.navigate('MyMatches')} />
       <Btn title="✏️ EDIT PROFILE" kind="ghost" onPress={() => nav.navigate('EditProfile')} />
       <Btn title="🔔 NOTIFICATIONS" kind="ghost" onPress={() => nav.navigate('Notifications')} />
@@ -146,6 +166,9 @@ const s = StyleSheet.create({
   name: { color: C.text, fontSize: 20, fontWeight: '900', marginTop: 10 },
   email: { color: C.sub, fontSize: 13, marginTop: 2 },
   uid: { color: C.gold, fontSize: 12, marginTop: 6, fontWeight: '700' },
+  connectTitle: { color: C.text, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  connectDescription: { color: C.sub, fontSize: 12, lineHeight: 17, marginTop: 5 },
+  connected: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: 8 },
   stats: { flexDirection: 'row', gap: 8 },
   stat: { flex: 1, backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: 'center' },
   statV: { color: C.text, fontWeight: '900', fontSize: 16 },

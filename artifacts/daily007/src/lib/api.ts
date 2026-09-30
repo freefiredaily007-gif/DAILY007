@@ -95,6 +95,27 @@ export const Api = {
   register: (b: { name: string; email: string; phone: string; password: string; gameUid?: string; referralCode?: string }) =>
     authenticate('/auth/register', b),
   login: (b: { email: string; password: string }) => authenticate('/auth/login', b),
+  googleAuth: async (clerkJwt: string, options: { dailyToken?: string; referralCode?: string } = {}) => {
+    if (!clerkJwt) throw new Error('Google sign-in did not return a verified Clerk session.');
+    const result = await unwrap(http.post('/auth/google',
+      options.referralCode ? { referralCode: options.referralCode } : {},
+      {
+        headers: {
+          Authorization: `Bearer ${clerkJwt}`,
+          ...(options.dailyToken ? { 'X-Daily007-Token': options.dailyToken } : {}),
+        },
+      },
+    ));
+    const token = result?.token;
+    if (typeof token !== 'string' || !token) {
+      throw new Error('The server did not return a Daily007 authentication token.');
+    }
+    const user = normalizeUser(result, token);
+    if (!user.id || !user.email) {
+      throw new Error('The server returned an incomplete Daily007 account.');
+    }
+    return { user, token };
+  },
   me: async () => {
     const savedSession = current ?? await getSession();
     const user = normalizeUser(await unwrap(http.get('/auth/me')), savedSession?.token);

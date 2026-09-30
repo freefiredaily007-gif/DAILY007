@@ -18,6 +18,7 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  clerkUserId: text("clerk_user_id").unique(),
   passwordSalt: text("password_salt").notNull(),
   passwordHash: text("password_hash").notNull(),
   phone: text("phone"),
