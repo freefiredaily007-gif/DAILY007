@@ -12,6 +12,11 @@ import {
   classifyReferralRechargeStatus,
 } from "../lib/daily007-referrals";
 import {
+  reviewYoutubeSubscribeClaim,
+  submitYoutubeSubscribeClaim,
+  youtubeClaimResponse,
+} from "../lib/daily007-youtube-subscribe";
+import {
   createWalletImageReadUrl,
   createWalletImageUpload,
   isWalletObjectPath,
@@ -680,6 +685,90 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
     [JSON.stringify(next), userId(req)],
   );
   res.json(await clientSettings(true));
+});
+
+router.get("/earn/youtube-subscribe", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const current = await settings();
+  const rewardCoins = Number(current.youtubeTaskReward);
+  const channelUrl = String(current.youtubeTaskUrl ?? "");
+  if (!integer(rewardCoins, 1) || !isYoutubeChannelUrl(channelUrl)) {
+    error(res, 503, "The YouTube task is not configured correctly."); return;
+  }
+  const claimResult = await pool.query<any>(
+    `SELECT * FROM daily007_v2_youtube_subscribe_claims
+      WHERE user_id = $1 AND task_key = 'youtube_subscribe'
+      ORDER BY (status = 'approved') DESC, created_at DESC LIMIT 1`,
+    [id],
+  );
+  const row = claimResult.rows[0] ?? null;
+  res.json({
+    enabled: current.youtubeTaskEnabled === "true",
+    rewardCoins,
+    channelUrl,
+    completed: row?.status === "approved",
+    claim: row ? youtubeClaimResponse(row) : null,
+  });
+});
+
+router.post("/earn/youtube-subscribe/claims", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const current = await settings();
+  if (current.youtubeTaskEnabled !== "true") {
+    error(res, 409, "The YouTube task is currently disabled."); return;
+  }
+  const rewardCoins = Number(current.youtubeTaskReward);
+  if (!integer(rewardCoins, 1)) {
+    error(res, 503, "The YouTube task reward is not configured correctly."); return;
+  }
+  try {
+    const result = await transaction((client) => submitYoutubeSubscribeClaim(client, id, rewardCoins));
+    res.status(result.created ? 201 : 200).json(result.claim);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.get("/admin/earn/youtube-subscribe/claims", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const [countResult, claimsResult] = await Promise.all([
+    pool.query<{ total: string | number }>(
+      `SELECT COUNT(*) AS total FROM daily007_v2_youtube_subscribe_claims
+        WHERE task_key = 'youtube_subscribe' AND status = 'approved'`,
+    ),
+    pool.query(
+      `SELECT c.id, c.user_id AS "userId", COALESCE(u.name, 'Player') AS "userName",
+              COALESCE(u.email, '') AS email, c.status, c.reward_coins AS "rewardCoins",
+              c.created_at AS "createdAt", c.reviewed_at AS "reviewedAt",
+              c.review_reason AS "reviewReason", c.reward_ledger_id AS "transactionId"
+         FROM daily007_v2_youtube_subscribe_claims c
+         JOIN daily007_v2_users u ON u.id = c.user_id
+        WHERE c.task_key = 'youtube_subscribe'
+        ORDER BY CASE c.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+                 c.created_at DESC
+        LIMIT 500`,
+    ),
+  ]);
+  res.json({ totalCompleted: Number(countResult.rows[0]?.total ?? 0), claims: claimsResult.rows });
+});
+
+router.post("/admin/earn/youtube-subscribe/claims/:id/:action", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const adminId = privateAccount(req, res); if (!adminId) return;
+  const claimId = req.params.id;
+  const action = req.params.action;
+  if (!validId(claimId) || (action !== "approve" && action !== "reject")) {
+    error(res, 400, "A valid claim UUID and approve/reject action are required."); return;
+  }
+  const body = req.body as unknown;
+  const reasonProvided = isObject(body) && body.reason !== undefined;
+  const reason = isObject(body) ? text(body.reason, 1, 500) : null;
+  if (action === "reject" && reasonProvided && !reason) {
+    error(res, 400, "Rejection reason must be 1–500 characters."); return;
+  }
+  try {
+    const reviewed = await transaction((client) =>
+      reviewYoutubeSubscribeClaim(client, claimId, adminId, action, reason));
+    res.json(reviewed);
+  } catch (e) { respondFailure(res, e); }
 });
 
 router.get("/notifications", authenticate, async (req, res): Promise<void> => {
