@@ -1,9 +1,9 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing } from 'react-native';
-import bannerSolo from '../assets/banner-solo.jpg';
-import bannerSquad from '../assets/banner-squad.jpg';
-import bannerClash from '../assets/banner-clash.jpg';
+import modeSoloLogo from '../assets/mode-solo-logo.jpg';
+import modeSquadLogo from '../assets/mode-squad-logo.jpg';
+import modeClashLogo from '../assets/mode-clash-logo.jpg';
 import { useNavigation } from '@react-navigation/native';
 import { api, Api } from '../lib/api';
 import { useApp } from '../App';
@@ -212,9 +212,9 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
-        { img: bannerSolo, title: '🔥 BATTLE ROYALE SOLO', capacity: '48 PLAYER SLOTS', mode: 'Battle Royale Solo', accent: C.gold },
-        { img: bannerSquad, title: '⚔️ BATTLE ROYALE SQUAD', capacity: '12 TEAMS × 4 PLAYERS', mode: 'Battle Royale Squad', accent: C.neon },
-        { img: bannerClash, title: '💥 CLASH SQUAD', capacity: '4V4', mode: 'Clash Squad', accent: C.purple },
+        { img: modeSoloLogo, title: '🔥 BATTLE ROYALE SOLO', capacity: '48 PLAYER SLOTS', mode: 'Battle Royale Solo', accent: C.gold },
+        { img: modeSquadLogo, title: '⚔️ BATTLE ROYALE SQUAD', capacity: '12 TEAMS × 4 PLAYERS', mode: 'Battle Royale Squad', accent: C.neon },
+        { img: modeClashLogo, title: '💥 CLASH SQUAD', capacity: '4V4', mode: 'Clash Squad', accent: C.purple },
       ].map((m) => (
         <GCard
           key={m.mode}
@@ -226,8 +226,7 @@ export default function Home() {
           style={s.modeCard}
         >
           <View style={s.modeArtWrap}>
-            <Image source={m.img} style={s.modeBanner} resizeMode="cover" />
-            <View style={s.modeArtShade} />
+            <Image source={m.img} style={s.modeBanner} resizeMode="contain" />
           </View>
           <View style={s.modeBody}>
             <Text style={[s.modeTitle, { color: m.accent }]}>{m.title}</Text>
@@ -347,14 +346,9 @@ const s = StyleSheet.create({
   },
   modeArtWrap: {
     width: 98, height: 106, borderRadius: 11, overflow: 'hidden',
-    backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border,
+    backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
   },
   modeBanner: { width: '100%', height: '100%', minHeight: 106 },
-  modeArtShade: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: '#00000026',
-    pointerEvents: 'none',
-  },
   modeBody: { flex: 1, minWidth: 0, justifyContent: 'center', paddingLeft: 12, paddingRight: 3, paddingVertical: 3 },
   modeTitle: { fontWeight: '900', fontSize: 13, letterSpacing: 0.35, lineHeight: 17 },
   modeCapacity: { fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 5 },

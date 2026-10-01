@@ -2,7 +2,7 @@ import './_group.css';
 
 const modes = [
   {
-    image: '/__mockup/images/daily007/banner-solo.jpg',
+    image: '/__mockup/images/daily007/mode-solo-logo.jpg',
     title: '🔥 BATTLE ROYALE SOLO',
     capacity: '48 PLAYER SLOTS',
     tag: 'Solo tournament',
@@ -10,7 +10,7 @@ const modes = [
     accent: '#ffb020',
   },
   {
-    image: '/__mockup/images/daily007/banner-squad.jpg',
+    image: '/__mockup/images/daily007/mode-squad-logo.jpg',
     title: '⚔️ BATTLE ROYALE SQUAD',
     capacity: '12 TEAMS × 4 PLAYERS',
     tag: 'Squad tournament',
@@ -18,7 +18,7 @@ const modes = [
     accent: '#ff3d3d',
   },
   {
-    image: '/__mockup/images/daily007/banner-clash.jpg',
+    image: '/__mockup/images/daily007/mode-clash-logo.jpg',
     title: '💥 CLASH SQUAD',
     capacity: '4V4',
     tag: 'Team tournament',
@@ -47,8 +47,6 @@ export function ModeRefresh() {
           >
             <div className="d7-mode-art">
               <img className="d7-mode-art-image" src={mode.image} alt="" />
-              <span className="d7-mode-art-shade" />
-              <span className="d7-mode-index">{String(index + 1).padStart(2, '0')}</span>
             </div>
             <div className="d7-mode-info">
               <span className="d7-mode-kicker">{mode.capacity}</span>
