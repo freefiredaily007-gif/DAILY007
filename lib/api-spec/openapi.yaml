@@ -535,6 +535,9 @@ components:
         txnId: { type: string, minLength: 1, maxLength: 200 }
         reference: { type: string, minLength: 1, maxLength: 200 }
         proofObjectPath: { type: string, minLength: 1, maxLength: 500 }
+      anyOf:
+        - required: [txnId]
+        - required: [reference]
       required: [coins, proofObjectPath]
     Daily007WithdrawalRequestBody:
       type: object
