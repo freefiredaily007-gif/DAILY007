@@ -267,9 +267,9 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007PaymentRequest" }
-        "400": { description: Invalid amount, reference, proof, or configured limits }
+        "400": { description: "Invalid amount, reference, proof, or configured limits" }
         "401": { description: Missing or invalid bearer token }
-        "409": { description: Recharge is disabled, a request is already pending, or the UTR was already used }
+        "409": { description: "Recharge is disabled, a request is already pending, or the UTR was already used" }
   /my/payments:
     get:
       operationId: daily007GetMyRechargeRequests
@@ -303,7 +303,7 @@ paths:
               schema: { $ref: "#/components/schemas/Daily007WithdrawalRequest" }
         "400": { description: Invalid amount or payout details }
         "401": { description: Missing or invalid bearer token }
-        "409": { description: Withdrawals are disabled, insufficient balance, or another request is pending }
+        "409": { description: "Withdrawals are disabled, insufficient balance, or another request is pending" }
   /my/withdrawals:
     get:
       operationId: daily007GetMyWithdrawalRequests
@@ -360,7 +360,7 @@ paths:
             schema: { $ref: "#/components/schemas/Daily007ReviewRequestBody" }
       responses:
         "200": { description: Request reviewed and user notified }
-        "400": { description: Invalid request id, action, or missing rejection reason }
+        "400": { description: "Invalid request id, action, or missing rejection reason" }
         "403": { description: Administrator required }
         "404": { description: Request not found }
         "409": { description: Request has already been reviewed or wallet limit would be exceeded }
@@ -388,7 +388,7 @@ paths:
             schema: { $ref: "#/components/schemas/Daily007ReviewRequestBody" }
       responses:
         "200": { description: Request reviewed and user notified }
-        "400": { description: Invalid request id, action, or missing rejection reason }
+        "400": { description: "Invalid request id, action, or missing rejection reason" }
         "403": { description: Administrator required }
         "404": { description: Request not found }
         "409": { description: Request has already been reviewed }
@@ -592,7 +592,7 @@ components:
         minPurchase: { type: string }
         maxPurchase: { type: string }
         minWithdrawal: { type: string }
-        coinPackages: { type: string, description: Comma-separated administrator-configured coin package amounts }
+        coinPackages: { type: string, description: "Comma-separated administrator-configured coin package amounts" }
         rechargeEnabled: { type: boolean }
         withdrawalEnabled: { type: boolean }
         upiQrUrl: { type: string, format: uri }
