@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isValidYoutubeChannelUrl,
   normalizePaymentReference,
   parseCoinPackages,
   pausedVideoRewardResponse,
@@ -17,6 +18,14 @@ import {
   reviewYoutubeSubscribeClaim,
   submitYoutubeSubscribeClaim,
 } from "../src/lib/daily007-youtube-subscribe.ts";
+
+test("YouTube task URLs only accept secure YouTube hosts with a channel path", () => {
+  assert.equal(isValidYoutubeChannelUrl("https://youtube.com/@freefiredaily007?si=abc"), true);
+  assert.equal(isValidYoutubeChannelUrl("https://www.youtube.com/@freefiredaily007"), true);
+  assert.equal(isValidYoutubeChannelUrl("http://youtube.com/@freefiredaily007"), false);
+  assert.equal(isValidYoutubeChannelUrl("https://youtube.example/@freefiredaily007"), false);
+  assert.equal(isValidYoutubeChannelUrl("https://youtube.com"), false);
+});
 
 test("payment reference normalization is trim-, case-, and Unicode-width-insensitive", () => {
   assert.equal(normalizePaymentReference("  abc-123  "), "ABC-123");

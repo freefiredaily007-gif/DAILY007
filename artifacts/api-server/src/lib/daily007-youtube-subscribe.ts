@@ -98,6 +98,7 @@ export async function reviewYoutubeSubscribeClaim(
   );
   const claim = locked.rows[0];
   if (!claim) throw httpError(404, "YouTube task claim not found.");
+  if (claim.task_key !== "youtube_subscribe") throw httpError(404, "YouTube task claim not found.");
 
   if (claim.status !== "pending") {
     if ((action === "approve" && claim.status === "approved") ||
