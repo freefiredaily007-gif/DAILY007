@@ -1,6 +1,6 @@
 // Login / Signup screen
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Image } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Image, Linking } from 'react-native';
 import logoImg from '../assets/logo.jpg';
 import { Api, apiError, setSession, User } from '../lib/api';
 import { Btn, C, Input, Msg } from '../components/ui';
@@ -17,6 +17,25 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
   const [refCode, setRefCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  React.useEffect(() => {
+    const applyReferralUrl = (url: string | null) => {
+      if (!url) return;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'daily007:') return;
+        const code = parsed.searchParams.get('ref') ?? parsed.searchParams.get('referralCode');
+        if (!code?.trim()) return;
+        setRefCode((current) => current || code.trim().toUpperCase());
+        setMode('signup');
+      } catch {
+        // Ignore malformed or unrelated incoming links.
+      }
+    };
+    Linking.getInitialURL().then(applyReferralUrl).catch(() => {});
+    const subscription = Linking.addEventListener('url', ({ url }) => applyReferralUrl(url));
+    return () => subscription.remove();
+  }, []);
 
   const submit = async () => {
     setErr('');

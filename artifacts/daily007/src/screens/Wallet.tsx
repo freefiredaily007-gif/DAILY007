@@ -231,6 +231,14 @@ export default function Wallet() {
                 <Text style={s.txDate}>{String(item.createdAt ?? '').slice(0, 16).replace('T', ' ')}</Text>
                 {!item.isRequest && item.balanceAfter !== undefined &&
                   <Text style={s.txDate}>Balance after: {item.balanceAfter} coins</Text>}
+                {!item.isRequest && item.details?.referredUserName && (
+                  <Text style={s.txDate}>
+                    Referred player: {item.details.referredUserName} · ID {item.details.referredUserId}
+                  </Text>
+                )}
+                {!item.isRequest && item.details?.qualifyingPaymentId && (
+                  <Text selectable style={s.txDate}>Qualifying recharge ID: {item.details.qualifyingPaymentId}</Text>
+                )}
                 {item.isRequest && item.reference && <Text style={s.txDate}>UTR: {item.reference}</Text>}
                 {item.isRequest && item.requestType === 'withdrawal' && item.payoutStatus === 'paid' &&
                   <Text style={s.reviewText}>Manual payout recorded</Text>}
