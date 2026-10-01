@@ -8,9 +8,10 @@ import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
-import { COIN_RATE_TEXT, inr } from '../lib/coins';
+import { inr } from '../lib/coins';
 
 const DEFAULT_MIN_WITHDRAW = 100;
+const DEFAULT_MAX_WITHDRAW = 5000;
 
 export default function Wallet() {
   const { user, refresh } = useApp();
@@ -26,6 +27,9 @@ export default function Wallet() {
   const [submitting, setSubmitting] = useState(false);
   const [hasPending, setHasPending] = useState(false);
   const [hasPendingWithdraw, setHasPendingWithdraw] = useState(false);
+  const [pendingDepositCoins, setPendingDepositCoins] = useState(0);
+  const [totalDeposited, setTotalDeposited] = useState(0);
+  const [totalWithdrawn, setTotalWithdrawn] = useState(0);
   const [paymentUpi, setPaymentUpi] = useState('');
   const [paymentQr, setPaymentQr] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
@@ -35,17 +39,24 @@ export default function Wallet() {
   const [maxPurchase, setMaxPurchase] = useState(5000);
   const [coinPackages, setCoinPackages] = useState<number[]>([]);
   const [minWithdraw, setMinWithdraw] = useState(DEFAULT_MIN_WITHDRAW);
+  const [maxWithdraw, setMaxWithdraw] = useState(DEFAULT_MAX_WITHDRAW);
+  const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
   const [proof, setProof] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError('');
-      const [data, pays, wds, settings] = await Promise.all([
+      setLoading(true);
+      const [, data, pays, wds, settings] = await Promise.all([
+        refresh(),
         Api.transactions(),
-        Api.myPayments().catch(() => []),
-        Api.myWithdrawals().catch(() => []),
-        Api.settings().catch(() => null),
+        Api.myPayments(),
+        Api.myWithdrawals(),
+        Api.settings(),
       ]);
+      if (!Array.isArray(data) || !Array.isArray(pays) || !Array.isArray(wds)) {
+        throw new Error('The wallet server returned an invalid response.');
+      }
       const config = settings?.settings ?? settings ?? {};
       setPaymentUpi(String(config?.upiId ?? config?.upi_id ?? '').trim());
       setPaymentQr(String(config?.upiQrUrl ?? '').trim());
@@ -54,16 +65,25 @@ export default function Wallet() {
       setWithdrawalEnabled(config?.withdrawalEnabled === true || config?.withdrawalEnabled === 'true');
       setMinPurchase(Math.max(1, Number(config?.minPurchase) || 1));
       setMaxPurchase(Math.max(1, Number(config?.maxPurchase) || 5000));
+      setCoinToMoneyRate(Number(config?.coinToMoneyRate) > 0 ? Number(config.coinToMoneyRate) : 1);
       const configuredPackages = String(config?.coinPackages ?? '').split(',')
         .map((value: string) => Number(value.trim()))
         .filter((value: number) => Number.isSafeInteger(value) && value > 0);
       setCoinPackages([...new Set(configuredPackages)]);
-      setMinWithdraw(Math.max(1, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW));
-      const paysArr = Array.isArray(pays) ? pays : [];
-      const wdsArr = Array.isArray(wds) ? wds : [];
-      setHasPending(paysArr.some((p: any) => p.status === 'pending'));
-      setHasPendingWithdraw(wdsArr.some((w: any) => w.status === 'pending'));
-      const pendingPays = paysArr
+      setMinWithdraw(Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW));
+      setMaxWithdraw(Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.maxWithdrawal) || DEFAULT_MAX_WITHDRAW));
+      setHasPending(pays.some((p: any) => p.status === 'pending'));
+      setHasPendingWithdraw(wds.some((w: any) => w.status === 'pending'));
+      setPendingDepositCoins(pays
+        .filter((p: any) => p.status === 'pending')
+        .reduce((sum: number, p: any) => sum + Number(p.coins ?? 0), 0));
+      setTotalDeposited(pays
+        .filter((p: any) => p.status === 'approved')
+        .reduce((sum: number, p: any) => sum + Number(p.coins ?? 0), 0));
+      setTotalWithdrawn(wds
+        .filter((w: any) => w.status === 'approved' && w.payoutStatus === 'paid')
+        .reduce((sum: number, w: any) => sum + Number(w.coins ?? 0), 0));
+      const pendingPays = pays
         .filter((p: any) => p.status !== 'deleted')
         .map((p: any) => ({
           id: 'pay-' + p.id, description: 'Coin recharge request', reference: p.txnId,
@@ -71,7 +91,7 @@ export default function Wallet() {
           createdAt: p.createdAt, status: p.status, reviewReason: p.reviewReason,
           isRequest: true, requestType: 'payment',
         }));
-      const pendingWds = wdsArr
+      const pendingWds = wds
         .filter((w: any) => w.status !== 'deleted')
         .map((w: any) => ({
           id: 'wd-' + w.id, description: 'Withdrawal request', coins: Number(w.coins || 0),
@@ -79,14 +99,14 @@ export default function Wallet() {
           reviewReason: w.reviewReason, payoutStatus: w.payoutStatus,
           isRequest: true, requestType: 'withdrawal',
         }));
-      const merged = [...pendingPays, ...pendingWds, ...(Array.isArray(data) ? data : [])];
+      const merged = [...pendingPays, ...pendingWds, ...data];
       setTxns(merged);
     } catch (e) {
       setError(apiError(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refresh]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -138,6 +158,7 @@ export default function Wallet() {
     if (belowMinBalance) { setError(`Minimum balance required to withdraw is ${minWithdraw} coins.`); return; }
     if (!coins || coins <= 0) { setError('Enter the number of coins you want to withdraw.'); return; }
     if (coins < minWithdraw) { setError(`Minimum withdrawal amount is ${minWithdraw} coins.`); return; }
+    if (coins > maxWithdraw) { setError(`Maximum withdrawal amount is ${maxWithdraw} coins.`); return; }
     if (coins > balance) { setError('You cannot withdraw more than your available balance.'); return; }
     if (!account.trim()) { setError('Enter your UPI ID / account details for the payout.'); return; }
     setSubmitting(true); setError('');
@@ -149,10 +170,6 @@ export default function Wallet() {
     } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
   };
 
-  const ledgerTxns = txns.filter((t) => !t.isRequest);
-  const earned = ledgerTxns.filter((t) => t.amount > 0).reduce((a, t) => a + t.amount, 0);
-  const spent = ledgerTxns.filter((t) => t.amount < 0).reduce((a, t) => a + Math.abs(t.amount), 0);
-
   return (
     <View style={s.wrap}>
       <FlatList
@@ -163,12 +180,13 @@ export default function Wallet() {
         ListHeaderComponent={
           <>
             <GCard glowColor={C.gold} style={s.balCard}>
-              <Text style={s.balLabel}>TOTAL BALANCE</Text>
+              <Text style={s.balLabel}>AVAILABLE COINS</Text>
               <Text style={[s.bal, glow(C.gold, 12)]}>🪙 {user?.coins ?? 0}</Text>
-              <Text style={s.rateNote}>{COIN_RATE_TEXT}</Text>
+              <Text style={s.rateNote}>1 coin = {inr(1, coinToMoneyRate)}</Text>
               <View style={s.row}>
-                <View style={s.stat}><Text style={s.statV}>+{earned}</Text><Text style={s.statL}>EARNED</Text></View>
-                <View style={s.stat}><Text style={s.statV}>-{spent}</Text><Text style={s.statL}>SPENT</Text></View>
+                <View style={s.stat}><Text style={s.statV}>{pendingDepositCoins}</Text><Text style={s.statL}>PENDING DEPOSITS</Text></View>
+                <View style={s.stat}><Text style={s.statV}>{totalDeposited}</Text><Text style={s.statL}>TOTAL DEPOSITED</Text></View>
+                <View style={s.stat}><Text style={s.statV}>{totalWithdrawn}</Text><Text style={s.statL}>TOTAL WITHDRAWN</Text></View>
               </View>
               <View style={s.btnRow}>
                 <View style={{ flex: 1 }}><Btn title="+ ADD COINS" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
@@ -236,7 +254,8 @@ export default function Wallet() {
                   <Text style={s.minWarn}>Coin recharge is unavailable because the administrator has not enabled and configured manual UPI payments.</Text>
                 ) : (
                   <>
-                    <Text style={s.mSub}>{paymentNote || 'Scan this QR with any UPI app or copy the UPI ID. Pay first, then attach your payment screenshot and enter the UTR. Coins are added only after admin approval.'}</Text>
+                <Text style={s.mSub}>Copy the UPI ID or scan the QR code and make the payment using your preferred UPI application. After completing the payment, return to this app and submit your Transaction ID and Coin Amount. Coins will be added only after Admin manually verifies and approves your payment.</Text>
+                {!!paymentNote && <Text style={s.mSub}>{paymentNote}</Text>}
                     <Image source={{ uri: paymentQr }} resizeMode="contain" style={s.qr} accessibilityLabel="Administrator UPI payment QR code" />
                     <View style={s.upiRow}>
                       <Text style={[s.mUpi, { flex: 1 }]}>UPI ID: <Text style={s.mUpiV}>{paymentUpi}</Text></Text>
@@ -250,21 +269,21 @@ export default function Wallet() {
                           <Pressable
                             key={value}
                             accessibilityRole="button"
-                            accessibilityLabel={`Choose ${value} coins for ${inr(value)}`}
+                                accessibilityLabel={`Choose ${value} coins for ${inr(value, coinToMoneyRate)}`}
                             onPress={() => setAmount(String(value))}
                             style={[s.packageOption, coins === value && s.packageOptionActive]}
                           >
                             <Text style={[s.packageText, coins === value && s.packageTextActive]}>
-                              {value} coins · {inr(value)}
+                              {value} coins · {inr(value, coinToMoneyRate)}
                             </Text>
                           </Pressable>
                         ))}
                       </View>
                     )}
                     <Input placeholder={`Enter coins (${minPurchase}–${maxPurchase})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
-                    {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins)} for {coins} coins</Text>}
+                    {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins, coinToMoneyRate)} for {coins} coins</Text>}
                     <Input placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
-                    <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT'} kind="ghost" onPress={pickProof} />
+                    <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT (OPTIONAL)'} kind="ghost" onPress={pickProof} />
                     {proof && (
                       <View style={s.proofPreview}>
                         <Image source={{ uri: proof.uri }} resizeMode="cover" style={s.proofImage} />
@@ -283,19 +302,20 @@ export default function Wallet() {
               </>
             ) : (
               <>
-                <Text style={s.mSub}>Minimum withdrawal is {minWithdraw} coins. Enter your payout details below. Requests are manually reviewed; payouts are sent separately by the administrator.</Text>
-                <Input placeholder={`Enter coins (min ${minWithdraw})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
+                <Text style={s.mSub}>Withdraw between {minWithdraw} and {maxWithdraw} coins. Enter the UPI ID where you want to receive the payout. Requests are manually reviewed; the administrator sends payments separately.</Text>
+                <Input placeholder={`Enter coins (${minWithdraw}–${maxWithdraw})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                 {belowMinBalance && <Text style={s.minWarn}>Minimum balance required to withdraw is {minWithdraw} coins.</Text>}
                 {coins > 0 && coins < minWithdraw && <Text style={s.minWarn}>Minimum withdrawal amount is {minWithdraw} coins.</Text>}
+                {coins > maxWithdraw && <Text style={s.minWarn}>Maximum withdrawal amount is {maxWithdraw} coins.</Text>}
                 {coins > balance && <Text style={s.minWarn}>You cannot withdraw more than your available balance.</Text>}
-                {coins >= minWithdraw && coins <= balance && <Text style={s.amountHint}>You receive {inr(coins)}</Text>}
+                {coins >= minWithdraw && coins <= maxWithdraw && coins <= balance && <Text style={s.amountHint}>You receive {inr(coins, coinToMoneyRate)}</Text>}
                 <Input placeholder="UPI ID" value={account} onChangeText={setAccount} />
                 <Btn
                   title={hasPendingWithdraw ? 'PENDING' : `WITHDRAW${coins >= minWithdraw && coins <= balance ? ` (${coins} 🪙)` : ''}`}
                   kind="gold"
                   onPress={submitWithdraw}
                   loading={submitting}
-                  disabled={hasPendingWithdraw || belowMinBalance || !withdrawalEnabled || submitting}
+                  disabled={hasPendingWithdraw || belowMinBalance || !withdrawalEnabled || submitting || coins > maxWithdraw}
                 />
                 {hasPendingWithdraw && <Text style={s.pendingNote}>Your withdrawal request is pending manual review. Approval does not mean an automatic payout.</Text>}
               </>
