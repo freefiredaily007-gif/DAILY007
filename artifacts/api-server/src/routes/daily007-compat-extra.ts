@@ -8,6 +8,10 @@ import {
   referralCodeForUserId,
 } from "../lib/daily007-compat-extra-validation";
 import {
+  awardReferrerForApprovedRecharge,
+  classifyReferralRechargeStatus,
+} from "../lib/daily007-referrals";
+import {
   createWalletImageReadUrl,
   createWalletImageUpload,
   isWalletObjectPath,
@@ -106,7 +110,8 @@ router.post("/wallet/uploads/request-url", authenticate, async (req, res): Promi
 router.get("/wallet/transactions", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
   const result = await pool.query(
-    `SELECT id, amount, balance_after AS "balanceAfter", reason, created_at AS "createdAt"
+    `SELECT id, amount, balance_after AS "balanceAfter", reason, details,
+            created_at AS "createdAt"
        FROM daily007_v2_wallet_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500`, [id],
   );
   res.json(result.rows.map((row: any) => ({
@@ -377,6 +382,12 @@ for (const kind of ["payments", "withdrawals"] as const) {
           await client.query(
             `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
              VALUES ($1, $2, $3, 'payment_approved')`, [request.user_id, request.coins, next],
+          );
+          await awardReferrerForApprovedRecharge(
+            client,
+            request.user_id,
+            request.id,
+            request.coins,
           );
         }
         if (kind === "withdrawals" && action === "reject") {
@@ -727,13 +738,79 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
   const savedCode = await pool.query<{ code: string }>(
     "SELECT code FROM daily007_v2_referral_codes WHERE user_id = $1", [id],
   );
-  const referrals = await pool.query(
-    `SELECT r.id, u.name AS "referredName", 'Pending' AS status,
-            r.created_at AS "createdAt"
-       FROM daily007_v2_referrals r JOIN daily007_v2_users u ON u.id = r.referred_user_id
-      WHERE r.referrer_user_id = $1 ORDER BY r.created_at DESC`, [id],
-  );
-  res.json({ code: savedCode.rows[0].code, referrals: referrals.rows });
+  if (!savedCode.rows[0]) {
+    error(res, 500, "A referral code could not be created for this account.");
+    return;
+  }
+  const [referrals, totals] = await Promise.all([
+    pool.query(
+      `SELECT r.id, u.id AS "referredUserId", u.name AS "referredName",
+              'complete' AS "signupStatus",
+              CASE WHEN EXISTS (
+                SELECT 1 FROM daily007_v2_wallet_ledger signup_bonus
+                 WHERE signup_bonus.idempotency_key = 'daily007-referral-signup:' || u.id::text
+              ) THEN 'credited' ELSE 'not_credited' END AS "signupBonusStatus",
+              CASE
+                WHEN r.rewarded_at IS NOT NULL THEN 'rewarded'
+                WHEN EXISTS (
+                  SELECT 1 FROM daily007_v2_payments p
+                   WHERE p.user_id = u.id AND p.status = 'approved' AND p.coins >= 50
+                ) THEN 'eligible_unrewarded'
+                WHEN EXISTS (
+                  SELECT 1 FROM daily007_v2_payments p
+                   WHERE p.user_id = u.id AND p.status = 'pending' AND p.coins >= 50
+                ) THEN 'awaiting_approval'
+                WHEN EXISTS (
+                  SELECT 1 FROM daily007_v2_payments p
+                   WHERE p.user_id = u.id AND p.status IN ('approved', 'pending')
+                ) THEN 'below_minimum'
+                ELSE 'not_started'
+              END AS "firstRechargeStatus",
+              CASE WHEN r.rewarded_at IS NOT NULL THEN 'credited' ELSE 'pending' END
+                AS "referrerRewardStatus",
+              (
+                SELECT reward.details ->> 'qualifyingPaymentId'
+                  FROM daily007_v2_wallet_ledger reward
+                 WHERE reward.idempotency_key = 'daily007-referral-recharge:' || r.id::text
+                 LIMIT 1
+              ) AS "qualifyingPaymentId",
+              r.created_at AS "createdAt"
+         FROM daily007_v2_referrals r
+         JOIN daily007_v2_users u ON u.id = r.referred_user_id
+        WHERE r.referrer_user_id = $1
+        ORDER BY r.created_at DESC`,
+      [id],
+    ),
+    pool.query<{ total: number }>(
+      `SELECT COALESCE(sum(amount), 0)::int AS total
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND reason IN ('Referral Signup Bonus', 'Referral Recharge Bonus')`,
+      [id],
+    ),
+  ]);
+  const successfulReferrals = referrals.rows.filter(
+    (referral: any) => referral.referrerRewardStatus === "credited",
+  ).length;
+  const referralList = referrals.rows.map((referral: any) => ({
+    ...referral,
+    firstRechargeStatus: classifyReferralRechargeStatus({
+      rewarded: referral.firstRechargeStatus === "rewarded",
+      approvedAtLeastMinimum: referral.firstRechargeStatus === "eligible_unrewarded",
+      pendingAtLeastMinimum: referral.firstRechargeStatus === "awaiting_approval",
+      hasOtherRecharge: referral.firstRechargeStatus === "below_minimum",
+    }),
+  }));
+  const totalPeopleReferred = referralList.length;
+  const referralLink = `daily007://?ref=${encodeURIComponent(savedCode.rows[0].code)}`;
+  res.json({
+    code: savedCode.rows[0].code,
+    referralLink,
+    totalPeopleReferred,
+    successfulReferrals,
+    pendingReferrals: totalPeopleReferred - successfulReferrals,
+    totalReferralCoinsEarned: totals.rows[0]?.total ?? 0,
+    referrals: referralList,
+  });
 });
 
 router.post("/videos/watch", authenticate, (_req, res): void => {
