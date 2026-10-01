@@ -227,7 +227,7 @@ export default function Home() {
         >
           <View style={s.modeArtWrap}>
             <Image source={m.img} style={s.modeBanner} resizeMode="cover" />
-            <View style={s.modeArtShade} pointerEvents="none" />
+            <View style={s.modeArtShade} />
           </View>
           <View style={s.modeBody}>
             <Text style={[s.modeTitle, { color: m.accent }]}>{m.title}</Text>
@@ -351,8 +351,9 @@ const s = StyleSheet.create({
   },
   modeBanner: { width: '100%', height: '100%', minHeight: 106 },
   modeArtShade: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: '#00000026',
+    pointerEvents: 'none',
   },
   modeBody: { flex: 1, minWidth: 0, justifyContent: 'center', paddingLeft: 12, paddingRight: 3, paddingVertical: 3 },
   modeTitle: { fontWeight: '900', fontSize: 13, letterSpacing: 0.35, lineHeight: 17 },
