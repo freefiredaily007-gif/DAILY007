@@ -188,7 +188,7 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
   }
   const credentials = await hashPassword(password);
   try {
-    const account = await transaction(async (client) => {
+    const account = await withTransaction(async (client) => {
       const result = await client.query<Account>(
         `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash, phone, game_uid, referral_code)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
