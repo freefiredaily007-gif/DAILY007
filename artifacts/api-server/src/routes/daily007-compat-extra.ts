@@ -28,7 +28,10 @@ const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_INT = 2_147_483_647;
 const SETTINGS_DEFAULTS = {
-  appName: "Daily007", whatsappLink: "", instagramLink: "", youtubeLink: "",
+  appName: "Daily007",
+  whatsappLink: "https://chat.whatsapp.com/F86q8n8R6cT2e0oiYDldGc?s=cl&p=a&mlu=4&ilr=4",
+  instagramLink: "https://www.instagram.com/freefiredaily007?stkn=MWYyeHJncGRpYzA1cQ==",
+  youtubeLink: "https://youtube.com/@freefiredaily007?si=JDNGf0Tgc8hi0me0",
   upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
   minWithdrawal: "100", maxWithdrawal: "5000", coinToMoneyRate: "1",
   coinPackages: "", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",

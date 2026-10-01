@@ -244,12 +244,12 @@ export default function Home() {
       {/* ===== SOCIAL ===== */}
       <SectionTitle accent={C.blue}>JOIN THE COMMUNITY</SectionTitle>
       {[
-        { Icon: WhatsAppIcon, label: 'WHATSAPP', action: 'JOIN', color: '#25D366', bg: '#0b2e1a', key: 'whatsapp' },
-        { Icon: InstagramIcon, label: 'INSTAGRAM', action: 'FOLLOW', color: '#ff4d8d', bg: '#2a0f1e', key: 'instagram' },
-        { Icon: YouTubeIcon, label: 'YOUTUBE', action: 'SUBSCRIBE', color: C.red, bg: '#2a0d0d', key: 'youtube' },
+        { Icon: WhatsAppIcon, label: 'WHATSAPP', action: 'JOIN', color: '#25D366', bg: '#0b2e1a', key: 'whatsapp', settingKey: 'whatsappLink' },
+        { Icon: InstagramIcon, label: 'INSTAGRAM', action: 'FOLLOW', color: '#ff4d8d', bg: '#2a0f1e', key: 'instagram', settingKey: 'instagramLink' },
+        { Icon: YouTubeIcon, label: 'YOUTUBE', action: 'SUBSCRIBE', color: C.red, bg: '#2a0d0d', key: 'youtube', settingKey: 'youtubeLink' },
       ].map((sc) => (
         <Pressable key={sc.key} style={({ pressed }) => [s.socialBtn, { backgroundColor: sc.bg, borderColor: sc.color + '66' }, glow(sc.color, 10), pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 }]}
-          onPress={() => social(links?.[sc.key] || links?.social?.[sc.key])}>
+          onPress={() => social(links?.[sc.settingKey] || links?.[sc.key] || links?.social?.[sc.key])}>
           <View style={[s.socialIconWrap, { borderColor: sc.color + '55' }, glow(sc.color, 8)]}>
             <sc.Icon size={26} />
           </View>
