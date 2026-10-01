@@ -175,8 +175,9 @@ export default function Wallet() {
     } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
   };
 
-  const earned = txns.filter((t) => t.amount > 0).reduce((a, t) => a + t.amount, 0);
-  const spent = txns.filter((t) => t.amount < 0).reduce((a, t) => a + Math.abs(t.amount), 0);
+  const ledgerTxns = txns.filter((t) => !t.isRequest);
+  const earned = ledgerTxns.filter((t) => t.amount > 0).reduce((a, t) => a + t.amount, 0);
+  const spent = ledgerTxns.filter((t) => t.amount < 0).reduce((a, t) => a + Math.abs(t.amount), 0);
 
   return (
     <View style={s.wrap}>
@@ -196,10 +197,13 @@ export default function Wallet() {
                 <View style={s.stat}><Text style={s.statV}>-{spent}</Text><Text style={s.statL}>SPENT</Text></View>
               </View>
               <View style={s.btnRow}>
-                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" onPress={() => openSheet('add')} disabled={!paymentUpi} /></View>
-                <View style={{ flex: 1 }}><Btn title="↩ WITHDRAW" kind="gold" onPress={() => openSheet('withdraw')} /></View>
+                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
+                <View style={{ flex: 1 }}><Btn title="↩ WITHDRAW" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
               </View>
-              {!paymentUpi && <Text style={s.minWarn}>Coin purchases are disabled until an administrator configures a payment UPI ID.</Text>}
+              {!rechargeEnabled || !paymentUpi || !paymentQr
+                ? <Text style={s.minWarn}>Coin recharge is unavailable until an administrator enables it and configures a UPI ID and QR.</Text>
+                : null}
+              {!withdrawalEnabled && <Text style={s.minWarn}>Withdrawals are currently disabled by the administrator.</Text>}
             </GCard>
             <Msg kind="ok" text={ok} />
             <Msg kind="err" text={error} />
@@ -214,12 +218,28 @@ export default function Wallet() {
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={s.txTitle}>{item.description ?? (pos ? 'Coins added' : 'Tournament entry')}</Text>
-                  {item.pending && <View style={s.pendingTag}><Text style={s.pendingTagText}>PENDING</Text></View>}
+                  {item.isRequest && (
+                    <View style={[
+                      s.pendingTag,
+                      item.status === 'approved' && s.approvedTag,
+                      item.status === 'rejected' && s.rejectedTag,
+                    ]}>
+                      <Text style={[
+                        s.pendingTagText,
+                        item.status === 'approved' && { color: C.green },
+                        item.status === 'rejected' && { color: C.red },
+                      ]}>{String(item.status ?? 'pending').toUpperCase()}</Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={s.txDate}>{String(item.createdAt ?? '').slice(0, 16).replace('T', ' ')}</Text>
+                {item.isRequest && item.reference && <Text style={s.txDate}>UTR: {item.reference}</Text>}
+                {item.isRequest && item.requestType === 'withdrawal' && item.payoutStatus === 'paid' &&
+                  <Text style={s.reviewText}>Manual payout recorded</Text>}
+                {item.isRequest && item.reviewReason && <Text style={s.reviewText}>Reason: {item.reviewReason}</Text>}
               </View>
               <Text style={[s.txAmount, { color: pos ? C.green : C.red }]}>
-                {pos ? '+' : ''}{item.amount}
+                {item.isRequest ? `${item.coins} 🪙` : `${pos ? '+' : ''}${item.amount}`}
               </Text>
             </Card>
           );
@@ -228,7 +248,7 @@ export default function Wallet() {
 
       <Modal visible={showSheet} animationType="slide" transparent>
         <View style={s.modalBg}>
-          <View style={s.modal}>
+          <ScrollView style={s.modal} contentContainerStyle={{ padding: 18 }} keyboardShouldPersistTaps="handled">
             <View style={s.tabs}>
               <PressableTab label="ADD COINS" active={tab === 'add'} onPress={() => { setTab('add'); setError(''); }} />
               <PressableTab label="WITHDRAW" active={tab === 'withdraw'} onPress={() => { setTab('withdraw'); setError(''); }} />
@@ -236,47 +256,60 @@ export default function Wallet() {
 
             {tab === 'add' ? (
               <>
-                {!paymentUpi ? (
-                  <Text style={s.minWarn}>Coin purchases are disabled because no payment UPI ID is configured. Contact the administrator.</Text>
+                {!rechargeEnabled || !paymentUpi || !paymentQr ? (
+                  <Text style={s.minWarn}>Coin recharge is unavailable because the administrator has not enabled and configured manual UPI payments.</Text>
                 ) : (
                   <>
-                    <Text style={s.mSub}>Pay manually using the configured UPI ID, then submit your transaction reference. Coin credit requires admin review.</Text>
-                    <Text style={s.mUpi}>UPI ID: <Text style={s.mUpiV}>{paymentUpi}</Text></Text>
-                    <Input placeholder="Enter coins (e.g. 250)" value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
+                    <Text style={s.mSub}>{paymentNote || 'Scan this QR with any UPI app or copy the UPI ID. Pay first, then attach your payment screenshot and enter the UTR. Coins are added only after admin approval.'}</Text>
+                    <Image source={{ uri: paymentQr }} resizeMode="contain" style={s.qr} accessibilityLabel="Administrator UPI payment QR code" />
+                    <View style={s.upiRow}>
+                      <Text style={[s.mUpi, { flex: 1 }]}>UPI ID: <Text style={s.mUpiV}>{paymentUpi}</Text></Text>
+                      <Btn title="COPY" small kind="ghost" onPress={() => {
+                        Clipboard.setStringAsync(paymentUpi).then(() => setOk('UPI ID copied.')).catch(() => setError('Could not copy the UPI ID.'));
+                      }} />
+                    </View>
+                    <Input placeholder={`Enter coins (${minPurchase}–${maxPurchase})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                     {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins)} for {coins} coins</Text>}
                     <Input placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
+                    <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT'} kind="ghost" onPress={pickProof} />
+                    {proof && (
+                      <View style={s.proofPreview}>
+                        <Image source={{ uri: proof.uri }} resizeMode="cover" style={s.proofImage} />
+                        <Text style={s.proofName} numberOfLines={1}>{proof.fileName || 'Payment screenshot attached'}</Text>
+                      </View>
+                    )}
                   </>
                 )}
                 <Btn
                   title={hasPending ? 'PENDING' : `ADD COINS${coins > 0 ? ` (${inr(coins)})` : ''}`}
                   onPress={submitAdd}
                   loading={submitting}
-                  disabled={hasPending || !paymentUpi}
+                  disabled={hasPending || !rechargeEnabled || !paymentUpi || !paymentQr || submitting}
                 />
                 {hasPending && <Text style={s.pendingNote}>A previous request is under verification. Coins will be credited once approved by the admin.</Text>}
               </>
             ) : (
               <>
-                <Text style={s.mSub}>Minimum withdrawal is {MIN_WITHDRAW} coins. Enter your payout details below. Requests are manually reviewed; payouts are not automatic.</Text>
-                <Input placeholder={`Enter coins (min ${MIN_WITHDRAW})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
-                {belowMinBalance && <Text style={s.minWarn}>Minimum balance required to withdraw is 100 coins.</Text>}
-                {coins > 0 && coins < MIN_WITHDRAW && <Text style={s.minWarn}>Minimum withdrawal amount is 100 coins.</Text>}
+                <Text style={s.mSub}>Minimum withdrawal is {minWithdraw} coins. Enter your payout details below. Requests are manually reviewed; payouts are sent separately by the administrator.</Text>
+                <Input placeholder={`Enter coins (min ${minWithdraw})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
+                {belowMinBalance && <Text style={s.minWarn}>Minimum balance required to withdraw is {minWithdraw} coins.</Text>}
+                {coins > 0 && coins < minWithdraw && <Text style={s.minWarn}>Minimum withdrawal amount is {minWithdraw} coins.</Text>}
                 {coins > balance && <Text style={s.minWarn}>You cannot withdraw more than your available balance.</Text>}
-                {coins >= MIN_WITHDRAW && coins <= balance && <Text style={s.amountHint}>You receive {inr(coins)}</Text>}
+                {coins >= minWithdraw && coins <= balance && <Text style={s.amountHint}>You receive {inr(coins)}</Text>}
                 <Input placeholder="UPI ID" value={account} onChangeText={setAccount} />
                 <Btn
-                  title={hasPendingWithdraw ? 'PENDING' : `WITHDRAW${coins >= MIN_WITHDRAW && coins <= balance ? ` (${coins} 🪙)` : ''}`}
+                  title={hasPendingWithdraw ? 'PENDING' : `WITHDRAW${coins >= minWithdraw && coins <= balance ? ` (${coins} 🪙)` : ''}`}
                   kind="gold"
                   onPress={submitWithdraw}
                   loading={submitting}
-                  disabled={hasPendingWithdraw || belowMinBalance}
+                  disabled={hasPendingWithdraw || belowMinBalance || !withdrawalEnabled || submitting}
                 />
                 {hasPendingWithdraw && <Text style={s.pendingNote}>Your withdrawal request is pending manual review. Approval does not mean an automatic payout.</Text>}
               </>
             )}
             <View style={{ height: 8 }} />
             <Btn title="CLOSE" kind="ghost" onPress={() => { setShowSheet(false); setError(''); }} />
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -319,5 +352,13 @@ const s = StyleSheet.create({
   rateNote: { color: C.sub, fontSize: 11, marginBottom: 10, letterSpacing: 0.5 },
   pendingTag: { backgroundColor: C.gold + '22', borderColor: C.gold, borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   pendingTagText: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+  approvedTag: { backgroundColor: C.green + '22', borderColor: C.green },
+  rejectedTag: { backgroundColor: C.red + '22', borderColor: C.red },
+  reviewText: { color: C.red, fontSize: 11, marginTop: 3, lineHeight: 15 },
   pendingNote: { color: C.gold, fontSize: 11, marginTop: 8, lineHeight: 15, textAlign: 'center' },
+  qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#fff', borderRadius: 10, marginBottom: 10 },
+  upiRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  proofPreview: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, marginTop: 8, backgroundColor: C.bg, borderRadius: 10 },
+  proofImage: { width: 58, height: 58, borderRadius: 7 },
+  proofName: { color: C.sub, flex: 1, fontSize: 11 },
 });
