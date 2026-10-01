@@ -146,7 +146,7 @@ export const Daily007V2ConfigureMatchResponse = zod.unknown()
 
 
 /**
- * Requires captainName and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
+ * Requires captainName (real name), captainGameName (Free Fire in-game name), and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty in-game name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
  * @summary Register the authenticated account for a match
  */
 export const Daily007V2RegisterMatchParams = zod.object({
@@ -154,6 +154,8 @@ export const Daily007V2RegisterMatchParams = zod.object({
 })
 
 export const daily007V2RegisterMatchBodyCaptainNameMax = 100;
+
+export const daily007V2RegisterMatchBodyCaptainGameNameMax = 100;
 
 export const daily007V2RegisterMatchBodyCaptainGameUidMax = 128;
 
@@ -168,6 +170,7 @@ export const daily007V2RegisterMatchBodyTeammatesMax = 3;
 
 export const Daily007V2RegisterMatchBody = zod.object({
   "captainName": zod.string().min(1).max(daily007V2RegisterMatchBodyCaptainNameMax),
+  "captainGameName": zod.string().min(1).max(daily007V2RegisterMatchBodyCaptainGameNameMax),
   "captainGameUid": zod.string().min(1).max(daily007V2RegisterMatchBodyCaptainGameUidMax),
   "teammates": zod.array(zod.object({
   "name": zod.string().min(1).max(daily007V2RegisterMatchBodyTeammatesItemNameMax),
@@ -211,7 +214,7 @@ export const Daily007V2GetRoomResponse = zod.unknown()
 
 
 /**
- * Admin only. CSV cells are formula-neutralized, escaped, and quoted; captain_game_uid is the submitted game UID, never the internal account UUID. Teammate game UIDs are optional.
+ * Admin only. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
  * @summary Export a match registration roster as CSV
  */
 export const Daily007V2ExportRegistrationsParams = zod.object({

@@ -37,7 +37,7 @@ export default function AdminRegs() {
     if (!selectedTournament) return;
     setErr(''); setOkMsg(''); setExportBusy(true);
     try {
-      const rows: string[][] = [['Player Name', 'Game UID', 'Team Name', 'Registration Status']];
+      const rows: string[][] = [['Real Name', 'In-Game Name', 'Game UID', 'Team Name', 'Registration Status']];
       paidRoster.filter((r) => String(r.tournamentId) === selectedTournament.id).forEach((r) => {
         let members: any[] = [];
         try {
@@ -51,20 +51,27 @@ export default function AdminRegs() {
             if (Array.isArray(parsed)) members = parsed;
           } catch {}
         }
-        if (members.length) {
-          const captainName = r.captainName || r.playerName;
-          if (captainName && !members.some((m) => m?.name === captainName)) {
-            rows.push([String(captainName), String(r.captainGameUid || r.gameUid || ''), String(r.teamName || ''), String(r.status || '')]);
-          }
-          members.forEach((member) => rows.push([
-            String(member?.name || ''),
-            String(member?.uid || member?.gameUid || member?.captainGameUid || ''),
-            String(r.teamName || ''),
-            String(r.status || ''),
-          ]));
-        } else {
-          rows.push([String(r.playerName || r.captainName || ''), String(r.gameUid || r.captainGameUid || ''), String(r.teamName || ''), String(r.status || '')]);
-        }
+        const captainName = String(r.captainName || r.playerName || '');
+        const captainGameName = String(r.captainGameName || '');
+        const captainUid = String(r.captainGameUid || r.gameUid || '');
+        rows.push([
+          captainName,
+          captainGameName,
+          captainUid,
+          String(r.teamName || ''),
+          String(r.status || ''),
+        ]);
+        const teammates = members.filter((member, index) => !(
+          index === 0 &&
+          String(member?.uid || member?.gameUid || member?.captainGameUid || '') === captainUid
+        ));
+        teammates.forEach((member) => rows.push([
+          '',
+          String(member?.name || member?.ign || ''),
+          String(member?.uid || member?.gameUid || member?.captainGameUid || ''),
+          String(r.teamName || ''),
+          String(r.status || ''),
+        ]));
       });
       const quote = (value: string) => {
         const safe = /^[\t\r\n ]*[=+\-@]/.test(value) ? `'${value}` : value;
@@ -157,7 +164,7 @@ export default function AdminRegs() {
       {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
         <Card key={r.id} style={{ marginBottom: 10 }}>
           <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
-          <Text style={st.sub}>🎮 UID: {r.gameUid}</Text>
+          <Text style={st.sub}>🎮 In-game name: {r.captainGameName || '—'} · UID: {r.gameUid || r.captainGameUid || '—'}</Text>
           <Text style={st.sub}>🎯 {r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
           <Text style={st.sub}>🪙 Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
           {r.teamMembers && r.teamMembers !== '[]' && (

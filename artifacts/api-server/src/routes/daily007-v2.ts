@@ -403,7 +403,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   }
   const body = req.body as unknown;
   if (!isRecord(body)) {
-    fail(res, 400, "Expected captainName and, for team modes, exactly three teammates.");
+    fail(res, 400, "Expected captainName, captainGameName, captainGameUid and, for team modes, exactly three teammates.");
     return;
   }
   const account = req.daily007Account;
@@ -415,6 +415,11 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   const captainName = cleanName(legacy ? body.playerName : body.captainName, "captainName");
   if (!captainName) {
     fail(res, 400, "captainName must be 1–100 characters.");
+    return;
+  }
+  const captainGameName = cleanName(body.captainGameName, "captainGameName");
+  if (!captainGameName) {
+    fail(res, 400, "captainGameName must be 1–100 characters.");
     return;
   }
   const captainGameUid = typeof (legacy ? body.gameUid : body.captainGameUid) === "string"
@@ -437,10 +442,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
 
       // Match row serialization makes this lookup race-safe for simultaneous retries.
       const existing = await client.query<{
-        id: string; captain_game_uid: string; entry_coins_paid: number;
+        id: string; captain_game_name: string; captain_game_uid: string; entry_coins_paid: number;
         balance_after: number; capacity: number; status: string; is_full: boolean; registration_status: string;
       }>(
-        `SELECT r.id, r.captain_game_uid, r.entry_coins_paid, l.balance_after,
+        `SELECT r.id, r.captain_game_name, r.captain_game_uid, r.entry_coins_paid, l.balance_after,
                 m.capacity, m.status, m.is_full, r.status AS registration_status
            FROM daily007_v2_registrations r
            JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
@@ -459,6 +464,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         const prior = existing.rows[0];
         return {
           registrationId: prior.id,
+          captainGameName: prior.captain_game_name,
           captainGameUid: prior.captain_game_uid,
           entryCoinsPaid: prior.entry_coins_paid,
           walletCoins: prior.balance_after,
@@ -495,7 +501,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           }
           if (!submittedTeamName || submittedTeamName.length > 100 || !Array.isArray(members) ||
               members.length !== 4 || !isRecord(members[0]) ||
-              members[0].name !== captainName || members[0].uid !== captainGameUid) {
+               members[0].name !== captainGameName || members[0].uid !== captainGameUid) {
             throw Object.assign(new Error("Team registrations require a team name and four members with the captain listed first."), { status: 400 });
           }
           teammateInput = members.slice(1).map((member) => isRecord(member)
@@ -527,9 +533,9 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 401 });
       if (balance < match.entry_coins) throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), { status: 409 });
       const registrationResult = await client.query<{ id: string }>(
-        `INSERT INTO daily007_v2_registrations (match_id, captain_user_id, captain_name, captain_game_uid, team_name, entry_coins_paid)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [matchId, account.id, captainName, captainGameUid, submittedTeamName, match.entry_coins],
+        `INSERT INTO daily007_v2_registrations (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name, entry_coins_paid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [matchId, account.id, captainName, captainGameName, captainGameUid, submittedTeamName, match.entry_coins],
       );
       const registrationId = registrationResult.rows[0].id;
       if (TEAM_MODES.has(match.mode)) {
@@ -558,6 +564,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       }
       return {
         registrationId,
+        captainGameName,
         captainGameUid,
         entryCoinsPaid: match.entry_coins,
         walletCoins: newBalance,
@@ -718,11 +725,11 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
     return;
   }
   const registrations = await pool.query<{
-    registration_id: string; captain_name: string; captain_game_uid: string;
+    registration_id: string; captain_name: string; captain_game_name: string; captain_game_uid: string;
     email: string; created_at: Date; position: number | null;
     member_name: string | null; member_uid: string | null;
   }>(
-    `SELECT r.id AS registration_id, r.captain_name, r.captain_game_uid, u.email, r.created_at,
+    `SELECT r.id AS registration_id, r.captain_name, r.captain_game_name, r.captain_game_uid, u.email, r.created_at,
             ro.position, ro.member_name, ro.member_uid
        FROM daily007_v2_registrations r
        JOIN daily007_v2_users u ON u.id = r.captain_user_id
@@ -732,7 +739,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
     [id],
   );
   const rosterRows: {
-    captainName: string; captainGameUid: string; email: string; registeredAt: string;
+    captainName: string; captainGameName: string; captainGameUid: string; email: string; registeredAt: string;
     teammates: ({ name: string; uid: string | null } | null)[];
   }[] = [];
   let currentRegistrationId: string | null = null;
@@ -740,6 +747,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
     if (row.registration_id !== currentRegistrationId) {
       rosterRows.push({
         captainName: row.captain_name,
+        captainGameName: row.captain_game_name,
         captainGameUid: row.captain_game_uid,
         email: row.email,
         registeredAt: row.created_at.toISOString(),
@@ -754,7 +762,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
   }
   const lines = [
     [
-      "captain_name", "captain_game_uid", "captain_email",
+      "captain_real_name", "captain_game_name", "captain_game_uid", "captain_email",
       "teammate_1_name", "teammate_1_game_uid",
       "teammate_2_name", "teammate_2_game_uid",
       "teammate_3_name", "teammate_3_game_uid",
@@ -762,6 +770,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
     ].map(csvCell).join(","),
     ...rosterRows.map((row) => [
       row.captainName,
+      row.captainGameName,
       row.captainGameUid,
       row.email,
       ...row.teammates.flatMap((teammate) => [teammate?.name ?? "", teammate?.uid ?? ""]),

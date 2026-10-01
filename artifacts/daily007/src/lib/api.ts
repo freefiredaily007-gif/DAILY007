@@ -151,7 +151,7 @@ export const Api = {
   // registrations / join
   myRegistrations: () => unwrap(http.get('/my/registrations')),
   join: (id: string, b: object) => {
-    const payload = b as { playerName?: string; gameUid?: string; teamMembers?: string };
+    const payload = b as { playerName?: string; captainGameName?: string; gameUid?: string; teamMembers?: string };
     let members: { name?: string; uid?: string }[] = [];
     try {
       members = payload.teamMembers ? JSON.parse(payload.teamMembers) : [];
@@ -161,8 +161,9 @@ export const Api = {
     const captain = members[0] ?? { name: payload.playerName, uid: payload.gameUid };
     const isTeam = members.length > 1;
     return unwrap(http.post(`/daily007/v2/matches/${encodeURIComponent(id)}/register`, {
-      captainName: String(captain.name ?? payload.playerName ?? '').trim(),
-      captainGameUid: String(captain.uid ?? payload.gameUid ?? '').trim(),
+      captainName: String(payload.playerName ?? '').trim(),
+      captainGameName: String(payload.captainGameName ?? '').trim(),
+      captainGameUid: String(payload.gameUid ?? captain.uid ?? '').trim(),
       ...(isTeam ? {
         teammates: members.slice(1, 4).map((member) => ({
           name: String(member.name ?? '').trim(),

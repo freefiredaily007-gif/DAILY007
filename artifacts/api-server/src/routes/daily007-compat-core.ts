@@ -20,7 +20,8 @@ type MatchRow = {
   registered_count: number;
 };
 type RegistrationRow = {
-  id: string; match_id: string; captain_user_id: string; captain_name: string; captain_game_uid: string;
+  id: string; match_id: string; captain_user_id: string; captain_name: string;
+  captain_game_name: string; captain_game_uid: string;
   team_name: string; entry_coins_paid: number; status: string; created_at: Date | string;
   name?: string; email?: string; mode?: string; capacity?: number; starts_at?: Date | string;
   match_entry_coins?: number;
@@ -446,7 +447,7 @@ async function getRoster(registrationId: string) {
 
 function asTeamMembers(row: RegistrationRow, roster: { position: number; member_name: string; member_uid: string | null }[]) {
   return JSON.stringify([
-    { name: row.captain_name, uid: row.captain_game_uid, ign: "" },
+    { name: row.captain_game_name, uid: row.captain_game_uid, ign: row.captain_game_name },
     ...roster.map((member) => ({ name: member.member_name, uid: member.member_uid ?? "", ign: "" })),
   ]);
 }
@@ -460,7 +461,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
   const account = req.daily007Account;
   if (!account) return fail(res, 401, "Authentication is required.");
   const result = await pool.query<RegistrationRow>(
-    `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_uid, r.team_name,
+    `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
             r.entry_coins_paid, r.status, r.created_at, m.title, m.mode, m.capacity, m.starts_at,
             m.entry_coins AS match_entry_coins, m.status AS match_status,
             m.prize_pool, m.rules, m.banner, m.prize_distribution, m.enabled, m.is_full,
@@ -488,7 +489,8 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
     const roster = await getRoster(row.id);
     return {
       id: row.id, tournamentId: row.match_id, status: "approved",
-      playerName: row.captain_name, gameUid: row.captain_game_uid, teamName: row.team_name,
+      playerName: row.captain_name, captainGameName: row.captain_game_name,
+      gameUid: row.captain_game_uid, teamName: row.team_name,
       teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",
       entryCoins: row.entry_coins_paid, createdAt: new Date(row.created_at).toISOString(),
       result: row.result_rank === null || row.result_rank === undefined
@@ -507,7 +509,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
 router.get("/admin/registrations", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   const result = await pool.query<RegistrationRow>(
-    `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_uid, r.team_name,
+    `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
             r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode
        FROM daily007_v2_registrations r
        JOIN daily007_v2_users u ON u.id = r.captain_user_id
@@ -520,7 +522,8 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
       id: row.id, tournamentId: row.match_id, tournamentName: row.title,
       mode: MODES[row.mode ?? "solo"]?.legacyMode ?? row.mode,
       teamType: MODES[row.mode ?? "solo"]?.teamType,
-      status: row.status, playerName: row.captain_name, gameUid: row.captain_game_uid,
+      status: row.status, playerName: row.captain_name, captainGameName: row.captain_game_name,
+      gameUid: row.captain_game_uid,
       teamName: row.team_name, teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",
       entryCoins: row.entry_coins_paid, createdAt: new Date(row.created_at).toISOString(),
       userId: row.captain_user_id, userName: row.name, email: row.email,

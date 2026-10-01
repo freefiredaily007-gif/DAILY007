@@ -158,7 +158,7 @@ paths:
     post:
       operationId: daily007V2RegisterMatch
       summary: Register the authenticated account for a match
-      description: Requires captainName and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
+      description: Requires captainName (real name), captainGameName (Free Fire in-game name), and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty in-game name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -210,7 +210,7 @@ paths:
     get:
       operationId: daily007V2ExportRegistrations
       summary: Export a match registration roster as CSV
-      description: Admin only. CSV cells are formula-neutralized, escaped, and quoted; captain_game_uid is the submitted game UID, never the internal account UUID. Teammate game UIDs are optional.
+      description: Admin only. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -688,6 +688,7 @@ components:
       additionalProperties: false
       properties:
         captainName: { type: string, minLength: 1, maxLength: 100 }
+        captainGameName: { type: string, minLength: 1, maxLength: 100 }
         captainGameUid: { type: string, minLength: 1, maxLength: 128 }
         teammates:
           type: array
@@ -704,7 +705,7 @@ components:
                   - { type: string, minLength: 1, maxLength: 128 }
                   - { type: "null" }
             required: [name]
-      required: [captainName, captainGameUid]
+      required: [captainName, captainGameName, captainGameUid]
     Daily007GoogleSignInBody:
       type: object
       additionalProperties: false

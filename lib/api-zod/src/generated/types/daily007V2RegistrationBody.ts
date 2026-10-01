@@ -32,6 +32,11 @@ export interface Daily007V2RegistrationBody {
   captainName: string;
   /**
      * @minLength 1
+     * @maxLength 100
+     */
+  captainGameName: string;
+  /**
+     * @minLength 1
      * @maxLength 128
      */
   captainGameUid: string;

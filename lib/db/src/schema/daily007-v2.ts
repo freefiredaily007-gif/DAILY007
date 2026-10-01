@@ -75,6 +75,7 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id, { onDelete: "cascade" }),
   captainUserId: uuid("captain_user_id").notNull().references(() => daily007UsersTable.id),
   captainName: text("captain_name").notNull(),
+  captainGameName: text("captain_game_name").notNull().default(""),
   captainGameUid: text("captain_game_uid").notNull(),
   teamName: text("team_name").notNull().default(""),
   entryCoinsPaid: integer("entry_coins_paid").notNull(),

@@ -832,7 +832,7 @@ export const getDaily007V2RegisterMatchUrl = (id: string,) => {
 }
 
 /**
- * Requires captainName and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
+ * Requires captainName (real name), captainGameName (Free Fire in-game name), and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty in-game name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
  * @summary Register the authenticated account for a match
  */
 export const daily007V2RegisterMatch = async (id: string,
@@ -1149,7 +1149,7 @@ export const getDaily007V2ExportRegistrationsUrl = (id: string,) => {
 }
 
 /**
- * Admin only. CSV cells are formula-neutralized, escaped, and quoted; captain_game_uid is the submitted game UID, never the internal account UUID. Teammate game UIDs are optional.
+ * Admin only. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
  * @summary Export a match registration roster as CSV
  */
 export const daily007V2ExportRegistrations = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {

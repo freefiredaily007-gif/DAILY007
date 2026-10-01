@@ -19,10 +19,11 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
   const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'closed'].includes(status);
   const full = remainingSlots <= 0 || filledSlots >= totalSlots || status === 'full';
   const unavailable = full || closed;
+  const [captainRealName, setCaptainRealName] = useState(user.name);
+  const [captainGameName, setCaptainGameName] = useState('');
+  const [captainGameUid, setCaptainGameUid] = useState(user.gameUid || '');
   const [members, setMembers] = useState<Member[]>(
-    isTeam
-      ? [{ name: user.name, uid: user.gameUid || '' }, { name: '', uid: '' }, { name: '', uid: '' }, { name: '', uid: '' }]
-      : [{ name: user.name, uid: user.gameUid || '' }]
+    isTeam ? [{ name: '', uid: '' }, { name: '', uid: '' }, { name: '', uid: '' }] : []
   );
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,15 +36,21 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
     setErr('');
     if (closed) return setErr('This tournament is no longer open for registration.');
     if (full) return setErr('This tournament is full. Please choose another match.');
-    if (members.some((member) => !member.name.trim())) return setErr(isTeam ? 'Enter the captain and all three teammate names.' : 'Captain name is required.');
-    if (!members[0]?.uid.trim()) return setErr('Captain Free Fire UID is required.');
+    if (!captainRealName.trim()) return setErr('Captain real name is required.');
+    if (!captainGameName.trim()) return setErr('Captain Free Fire in-game name is required.');
+    if (!captainGameUid.trim()) return setErr('Captain Free Fire UID is required.');
+    if (members.some((member) => !member.name.trim())) return setErr('Enter all three teammate in-game names.');
     setBusy(true);
     try {
-      const players = members.map((member) => ({ name: member.name.trim(), uid: member.uid.trim() }));
+      const players = [
+        { name: captainGameName.trim(), uid: captainGameUid.trim() },
+        ...members.map((member) => ({ name: member.name.trim(), uid: member.uid.trim() })),
+      ];
       await onSubmit({
         teamMembers: JSON.stringify(players),
-        playerName: players[0].name,
-        gameUid: players[0].uid,
+        playerName: captainRealName.trim(),
+        captainGameName: captainGameName.trim(),
+        gameUid: captainGameUid.trim(),
       });
     } catch (e: any) {
       setErr(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Registration could not be confirmed. Please try again.');
@@ -74,19 +81,39 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
 
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>
-          Enter the captain's name and Free Fire UID{isTeam ? ' plus all three teammate names. Teammate UIDs are optional.' : '.'}
+          Captain real name, Free Fire in-game name, and UID are required.
+          {isTeam ? ' Enter all three teammate in-game names; teammate UIDs are optional.' : ''}
         </Text>
+        <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
+        <Input
+          placeholder="Captain real name"
+          value={captainRealName}
+          onChangeText={setCaptainRealName}
+          autoCapitalize="words"
+        />
+        <Input
+          placeholder="Captain Free Fire in-game name"
+          value={captainGameName}
+          onChangeText={setCaptainGameName}
+          autoCapitalize="words"
+        />
+        <Input
+          placeholder="Captain Free Fire UID"
+          value={captainGameUid}
+          onChangeText={setCaptainGameUid}
+          keyboardType="number-pad"
+        />
         {members.map((member, i) => (
           <View key={i} style={{ marginBottom: 4 }}>
-            <Text style={st.pLabel}>{i === 0 ? (isTeam ? 'TEAM CAPTAIN' : 'PLAYER') : `PLAYER ${i + 1}`}</Text>
+            <Text style={st.pLabel}>TEAMMATE {i + 1}</Text>
             <Input
-              placeholder={i === 0 ? 'Captain name' : `Teammate ${i} name`}
+              placeholder={`Teammate ${i + 1} Free Fire in-game name`}
               value={member.name}
               onChangeText={(v) => setMember(i, 'name', v)}
               autoCapitalize="words"
             />
             <Input
-              placeholder={`${i === 0 ? 'Captain' : `Teammate ${i}`} Free Fire UID (optional for teammates)`}
+              placeholder={`Teammate ${i + 1} Free Fire UID (optional)`}
               value={member.uid}
               onChangeText={(v) => setMember(i, 'uid', v)}
               keyboardType="number-pad"
