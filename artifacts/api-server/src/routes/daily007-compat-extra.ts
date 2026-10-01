@@ -78,7 +78,13 @@ async function settings(): Promise<Record<string, unknown>> {
   const result = await pool.query<{ settings: Record<string, unknown> }>(
     "SELECT settings FROM daily007_v2_settings WHERE id = 1",
   );
-  return { ...SETTINGS_DEFAULTS, ...(result.rows[0]?.settings ?? {}) };
+  const current = { ...SETTINGS_DEFAULTS, ...(result.rows[0]?.settings ?? {}) };
+  for (const key of ["whatsappLink", "instagramLink", "youtubeLink"] as const) {
+    if (typeof current[key] !== "string" || !current[key].trim()) {
+      current[key] = SETTINGS_DEFAULTS[key];
+    }
+  }
+  return current;
 }
 
 async function clientSettings(admin = false): Promise<Record<string, unknown>> {
