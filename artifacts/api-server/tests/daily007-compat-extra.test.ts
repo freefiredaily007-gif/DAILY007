@@ -13,6 +13,10 @@ import {
   isQualifyingReferralRecharge,
   recordReferralSignup,
 } from "../src/lib/daily007-referrals.ts";
+import {
+  reviewYoutubeSubscribeClaim,
+  submitYoutubeSubscribeClaim,
+} from "../src/lib/daily007-youtube-subscribe.ts";
 
 test("payment reference normalization is trim-, case-, and Unicode-width-insensitive", () => {
   assert.equal(normalizePaymentReference("  abc-123  "), "ABC-123");
@@ -162,4 +166,102 @@ test("video rewards explicitly return paused without awarding coins", () => {
     coins: 0,
     message: "Video rewards are paused until verified playback is available.",
   });
+});
+
+test("YouTube task submission returns an existing pending claim instead of duplicating it", async () => {
+  const row = {
+    id: "claim-id",
+    user_id: "user-id",
+    task_key: "youtube_subscribe",
+    reward_coins: 2,
+    status: "pending",
+    review_reason: null,
+    reviewed_by: null,
+    reward_ledger_id: null,
+    created_at: new Date("2026-10-01T12:00:00.000Z"),
+    reviewed_at: null,
+  };
+  const queries: string[] = [];
+  const client = {
+    async query<T = unknown>(sql: string) {
+      queries.push(sql);
+      if (sql.includes("status = 'approved'")) return { rows: [] as T[] };
+      if (sql.includes("status = 'pending'")) return { rows: [row] as T[] };
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+
+  const result = await submitYoutubeSubscribeClaim(client, "user-id", 2);
+  assert.equal(result.created, false);
+  assert.equal(result.claim.id, "claim-id");
+  assert.equal(result.claim.status, "pending");
+  assert.equal(queries.some((sql) => sql.includes("INSERT INTO")), false);
+});
+
+test("admin approval adds the configured coins and records one idempotent wallet transaction", async () => {
+  const row: any = {
+    id: "claim-id",
+    user_id: "user-id",
+    task_key: "youtube_subscribe",
+    reward_coins: 2,
+    status: "pending",
+    review_reason: null,
+    reviewed_by: null,
+    reward_ledger_id: null,
+    created_at: new Date("2026-10-01T12:00:00.000Z"),
+    reviewed_at: null,
+  };
+  let balance = 7;
+  let ledgerWrites = 0;
+  let balanceWrites = 0;
+  const client = {
+    async query<T = unknown>(sql: string, values: any[] = []) {
+      if (sql.includes("SELECT * FROM daily007_v2_youtube_subscribe_claims WHERE id")) {
+        return { rows: [{ ...row }] as T[] };
+      }
+      if (sql.includes("SELECT id FROM daily007_v2_youtube_subscribe_claims")) {
+        return { rows: [] as T[] };
+      }
+      if (sql.includes("SELECT wallet_coins FROM daily007_v2_users")) {
+        return { rows: [{ wallet_coins: balance }] as T[] };
+      }
+      if (sql.includes("SELECT id FROM daily007_v2_wallet_ledger")) {
+        return { rows: [] as T[] };
+      }
+      if (sql.includes("UPDATE daily007_v2_users SET wallet_coins")) {
+        balance = values[1];
+        balanceWrites += 1;
+        return { rows: [] as T[] };
+      }
+      if (sql.includes("INSERT INTO daily007_v2_wallet_ledger")) {
+        ledgerWrites += 1;
+        return { rows: [{ id: "ledger-id" }] as T[] };
+      }
+      if (sql.includes("UPDATE daily007_v2_youtube_subscribe_claims")) {
+        Object.assign(row, {
+          status: "approved",
+          reviewed_by: values[1],
+          reviewed_at: new Date("2026-10-01T12:05:00.000Z"),
+          review_reason: null,
+          reward_ledger_id: values[2],
+        });
+        return { rows: [{ ...row }] as T[] };
+      }
+      return { rows: [] as T[] };
+    },
+  };
+
+  const result = await reviewYoutubeSubscribeClaim(client, "claim-id", "admin-id", "approve", null);
+  assert.equal(result.status, "approved");
+  assert.equal(result.rewardCoins, 2);
+  assert.equal(result.transactionId, "ledger-id");
+  assert.equal(result.walletCoins, 9);
+  assert.equal(balance, 9);
+  assert.equal(balanceWrites, 1);
+  assert.equal(ledgerWrites, 1);
+
+  const repeated = await reviewYoutubeSubscribeClaim(client, "claim-id", "admin-id", "approve", null);
+  assert.equal(repeated.status, "approved");
+  assert.equal(balanceWrites, 1);
+  assert.equal(ledgerWrites, 1);
 });

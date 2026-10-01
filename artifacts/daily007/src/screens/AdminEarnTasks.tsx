@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import {
-  Daily007AdminYoutubeSubscribeClaim,
   useDaily007AdminListYoutubeSubscribeClaims,
   useDaily007AdminReviewYoutubeSubscribeClaim,
 } from '@workspace/api-client-react';
+import type { Daily007AdminYoutubeSubscribeClaim } from '@workspace/api-client-react';
 import { A, Btn, Card, ConfirmDialog, ScreenWrap, SectionTitle, StatusTag, useToast } from '../components/adminKit';
 import { apiError } from '../lib/api';
 
