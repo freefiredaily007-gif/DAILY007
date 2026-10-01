@@ -261,25 +261,57 @@ export const Daily007GetWalletTransactionsResponse = zod.array(Daily007GetWallet
  * Submitting a request never credits coins. An administrator must verify the UTR and proof before approval.
  * @summary Submit a manual UPI recharge for admin review
  */
-export const daily007SubmitRechargeRequestBodyCoinsMax = 2147483647;
+export const daily007SubmitRechargeRequestBodyOneCoinsMax = 2147483647;
 
-export const daily007SubmitRechargeRequestBodyAmountMax = 2147483647;
+export const daily007SubmitRechargeRequestBodyOneAmountMax = 2147483647;
 
-export const daily007SubmitRechargeRequestBodyTxnIdMax = 200;
+export const daily007SubmitRechargeRequestBodyOneTxnIdMax = 200;
 
-export const daily007SubmitRechargeRequestBodyReferenceMax = 200;
+export const daily007SubmitRechargeRequestBodyOneReferenceMax = 200;
 
-export const daily007SubmitRechargeRequestBodyProofObjectPathMax = 500;
+export const daily007SubmitRechargeRequestBodyOneProofObjectPathMax = 500;
+
+export const daily007SubmitRechargeRequestBodyTwoCoinsMax = 2147483647;
+
+export const daily007SubmitRechargeRequestBodyTwoAmountMax = 2147483647;
+
+export const daily007SubmitRechargeRequestBodyTwoTxnIdMax = 200;
+
+export const daily007SubmitRechargeRequestBodyTwoReferenceMax = 200;
+
+export const daily007SubmitRechargeRequestBodyTwoProofObjectPathMax = 500;
+
+export const daily007SubmitRechargeRequestBodyThreeCoinsMax = 2147483647;
+
+export const daily007SubmitRechargeRequestBodyThreeAmountMax = 2147483647;
+
+export const daily007SubmitRechargeRequestBodyThreeTxnIdMax = 200;
+
+export const daily007SubmitRechargeRequestBodyThreeReferenceMax = 200;
+
+export const daily007SubmitRechargeRequestBodyThreeProofObjectPathMax = 500;
 
 
 
-export const Daily007SubmitRechargeRequestBody = zod.object({
-  "coins": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyCoinsMax),
-  "amount": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyAmountMax).optional(),
-  "txnId": zod.string().min(1).max(daily007SubmitRechargeRequestBodyTxnIdMax).optional(),
-  "reference": zod.string().min(1).max(daily007SubmitRechargeRequestBodyReferenceMax).optional(),
-  "proofObjectPath": zod.string().min(1).max(daily007SubmitRechargeRequestBodyProofObjectPathMax)
-}).describe('Amount must equal coins. Supply txnId or reference with a private uploaded proof object path.')
+export const Daily007SubmitRechargeRequestBody = zod.union([zod.object({
+  "coins": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyOneCoinsMax).optional(),
+  "amount": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyOneAmountMax).optional(),
+  "txnId": zod.string().min(1).max(daily007SubmitRechargeRequestBodyOneTxnIdMax),
+  "reference": zod.string().min(1).max(daily007SubmitRechargeRequestBodyOneReferenceMax).optional(),
+  "proofObjectPath": zod.string().min(1).max(daily007SubmitRechargeRequestBodyOneProofObjectPathMax).optional()
+}),zod.object({
+  "coins": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyTwoCoinsMax).optional(),
+  "amount": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyTwoAmountMax).optional(),
+  "txnId": zod.string().min(1).max(daily007SubmitRechargeRequestBodyTwoTxnIdMax).optional(),
+  "reference": zod.string().min(1).max(daily007SubmitRechargeRequestBodyTwoReferenceMax),
+  "proofObjectPath": zod.string().min(1).max(daily007SubmitRechargeRequestBodyTwoProofObjectPathMax).optional()
+})]).and(zod.object({
+  "coins": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyThreeCoinsMax),
+  "amount": zod.number().int().min(1).max(daily007SubmitRechargeRequestBodyThreeAmountMax).optional(),
+  "txnId": zod.string().min(1).max(daily007SubmitRechargeRequestBodyThreeTxnIdMax).optional(),
+  "reference": zod.string().min(1).max(daily007SubmitRechargeRequestBodyThreeReferenceMax).optional(),
+  "proofObjectPath": zod.string().min(1).max(daily007SubmitRechargeRequestBodyThreeProofObjectPathMax)
+})).describe('Amount must equal coins. Supply txnId or reference with a private uploaded proof object path.')
 
 export const Daily007SubmitRechargeRequestResponse = zod.object({
   "id": zod.string().uuid(),

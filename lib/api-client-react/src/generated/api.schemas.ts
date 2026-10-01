@@ -151,7 +151,7 @@ export interface Daily007WalletImageUploadResponse {
 /**
  * Amount must equal coins. Supply txnId or reference with a private uploaded proof object path.
  */
-export interface Daily007RechargeRequestBody {
+export type Daily007RechargeRequestBody = (unknown & {
   /**
      * @minimum 1
      * @maximum 2147483647
@@ -177,7 +177,7 @@ export interface Daily007RechargeRequestBody {
      * @maxLength 500
      */
   proofObjectPath: string;
-}
+});
 
 export interface Daily007WithdrawalRequestBody {
   /**
