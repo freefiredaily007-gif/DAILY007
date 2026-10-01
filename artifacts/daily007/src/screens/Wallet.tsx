@@ -1,17 +1,16 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useState } from 'react';
-import { View, Text, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, ScrollView, Platform } from 'react-native';
+import { View, Text, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, ScrollView } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { Api, apiError } from '../lib/api';
+import { uploadWalletImage } from '../lib/walletImages';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { COIN_RATE_TEXT, inr } from '../lib/coins';
 
 const DEFAULT_MIN_WITHDRAW = 100;
-const MAX_PROOF_SIZE = 6 * 1024 * 1024;
 
 export default function Wallet() {
   const { user, refresh } = useApp();
@@ -111,36 +110,6 @@ export default function Wallet() {
     if (!result.canceled && result.assets[0]) setProof(result.assets[0]);
   };
 
-  const uploadImage = async (
-    asset: ImagePicker.ImagePickerAsset,
-    purpose: 'payment-proof' | 'wallet-qr',
-  ): Promise<string> => {
-    const contentType = String(asset.mimeType || 'image/jpeg').toLowerCase();
-    const size = Number(asset.fileSize || 0);
-    if (!size || size > MAX_PROOF_SIZE) throw new Error('Choose an image smaller than 6 MB.');
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
-      throw new Error('Choose a JPG, PNG, or WebP image.');
-    }
-    const upload = await Api.walletUploadUrl({ purpose, contentType, size });
-    if (Platform.OS === 'web') {
-      const blob = await (await fetch(asset.uri)).blob();
-      const response = await fetch(upload.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': contentType },
-        body: blob,
-      });
-      if (!response.ok) throw new Error('Image upload failed. Please try again.');
-    } else {
-      const response = await FileSystem.uploadAsync(upload.uploadUrl, asset.uri, {
-        httpMethod: 'PUT',
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: { 'Content-Type': contentType },
-      });
-      if (response.status < 200 || response.status >= 300) throw new Error('Image upload failed. Please try again.');
-    }
-    return String(upload.objectPath);
-  };
-
   const submitAdd = async () => {
     if (!rechargeEnabled || !paymentUpi || !paymentQr) { setError('Coin recharge is unavailable until an administrator configures it.'); return; }
     if (!coins || coins < minPurchase || coins > maxPurchase) { setError(`Enter an amount between ${minPurchase} and ${maxPurchase} coins.`); return; }
@@ -148,7 +117,7 @@ export default function Wallet() {
     if (!proof) { setError('Attach a screenshot of your completed UPI payment.'); return; }
     setSubmitting(true); setError('');
     try {
-      const proofObjectPath = await uploadImage(proof, 'payment-proof');
+      const proofObjectPath = await uploadWalletImage(proof, 'payment-proof');
       await Api.createPayment({ coins, amount: coins, txnId: txnId.trim(), reference: txnId.trim(), proofObjectPath });
       setOk('Payment request submitted! Your request is currently under verification. Coins will be credited once approved by the admin.');
       setShowSheet(false); setAmount(''); setTxnId(''); setProof(null);
