@@ -16,3 +16,9 @@ For Expo Google SSO, treat the returned session ID and the active Clerk session 
 **Why:** `startSSOFlow` can return a completed session without making it the active session automatically. Reading the active session first can produce an intermittent missing or stale session.
 
 **How to apply:** In native Expo SSO flows, activate the returned session before exchanging its token with the Daily007 backend; do not infer activation from the OAuth callback alone.
+
+Expo Go's StoreClient environment ignores app-defined redirect schemes that it does not support and falls back to `exp://`, while retaining the development host and callback path. The `sso-callback` path is also used by the web popup return flow, so avoid removing it globally.
+
+**Why:** Expo Go and standalone builds resolve deep links differently. A global redirect change can break web or installed-app callbacks without fixing an Expo Go runtime error.
+
+**How to apply:** When Google SSO fails in Expo Go, capture the generated redirect or the phone's error log before changing callback paths. Keep web and standalone redirect behavior intact unless the exact failure points to them.
