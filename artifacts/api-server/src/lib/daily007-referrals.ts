@@ -1,4 +1,4 @@
-import { referralCodeForUserId } from "./daily007-compat-extra-validation";
+import { referralCodeForUserId } from "./daily007-compat-extra-validation.ts";
 
 export const REFERRAL_SIGNUP_BONUS_COINS = 10;
 export const REFERRER_RECHARGE_BONUS_COINS = 5;
