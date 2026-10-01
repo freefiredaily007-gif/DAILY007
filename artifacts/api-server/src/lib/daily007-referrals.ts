@@ -1,6 +1,8 @@
 import { referralCodeForUserId } from "./daily007-compat-extra-validation";
 
-export const REFERRAL_SIGNUP_BONUS_COINS = 10;
+export const SIGNUP_BONUS_COINS = 10;
+export const REFERRAL_SIGNUP_BONUS_COINS = SIGNUP_BONUS_COINS;
+export const WELCOME_SIGNUP_BONUS_COINS = SIGNUP_BONUS_COINS;
 export const REFERRER_RECHARGE_BONUS_COINS = 5;
 export const MIN_REFERRAL_RECHARGE_COINS = 50;
 
@@ -107,6 +109,59 @@ export async function recordReferralSignup(
   );
 
   return { walletCoins, referralId };
+}
+
+export async function awardWelcomeSignupBonus(
+  client: ReferralTransactionClient,
+  newUserId: string,
+): Promise<number> {
+  const account = await client.query<{ wallet_coins: number }>(
+    "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+    [newUserId],
+  );
+  const balance = account.rows[0]?.wallet_coins;
+  if (!Number.isSafeInteger(balance) || balance! < 0) {
+    throw requestError(409, "The account wallet balance is invalid.");
+  }
+
+  const idempotencyKey = `daily007-welcome-signup:${newUserId}`;
+  const previous = await client.query<{ id: string }>(
+    "SELECT id FROM daily007_v2_wallet_ledger WHERE idempotency_key = $1",
+    [idempotencyKey],
+  );
+  if (previous.rows[0]) return balance!;
+  if (balance! > MAX_WALLET_COINS - WELCOME_SIGNUP_BONUS_COINS) {
+    throw requestError(409, "Welcome bonus would exceed the supported wallet balance.");
+  }
+
+  const walletCoins = balance! + WELCOME_SIGNUP_BONUS_COINS;
+  await client.query(
+    "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+    [newUserId, walletCoins],
+  );
+  await client.query(
+    `INSERT INTO daily007_v2_wallet_ledger
+       (user_id, amount, balance_after, reason, idempotency_key, details)
+     VALUES ($1, $2, $3, 'Welcome Signup Bonus', $4, $5)`,
+    [
+      newUserId,
+      WELCOME_SIGNUP_BONUS_COINS,
+      walletCoins,
+      idempotencyKey,
+      { signupBonus: true },
+    ],
+  );
+  return walletCoins;
+}
+
+export async function awardDaily007SignupBonus(
+  client: ReferralTransactionClient,
+  referralCodeInput: string | null,
+  newUserId: string,
+): Promise<number> {
+  const referral = await recordReferralSignup(client, referralCodeInput, newUserId);
+  if (referral) return referral.walletCoins;
+  return awardWelcomeSignupBonus(client, newUserId);
 }
 
 export async function awardReferrerForApprovedRecharge(

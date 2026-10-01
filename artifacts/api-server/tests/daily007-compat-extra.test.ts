@@ -9,10 +9,10 @@ import {
   referralCodeForUserId,
 } from "../src/lib/daily007-compat-extra-validation.ts";
 import {
+  awardDaily007SignupBonus,
   awardReferrerForApprovedRecharge,
   classifyReferralRechargeStatus,
   isQualifyingReferralRecharge,
-  recordReferralSignup,
 } from "../src/lib/daily007-referrals.ts";
 import {
   reviewYoutubeSubscribeClaim,
@@ -108,8 +108,8 @@ test("new referred accounts receive the 10-coin bonus with an idempotency key", 
     },
   };
 
-  const result = await recordReferralSignup(client, " d7-referrer ", "referred-id");
-  assert.deepEqual(result, { walletCoins: 13, referralId: "referral-id" });
+  const result = await awardDaily007SignupBonus(client, " d7-referrer ", "referred-id");
+  assert.equal(result, 13);
   assert.ok(queries.some(({ sql, values }) =>
     sql.includes("UPDATE daily007_v2_users SET wallet_coins") &&
     values[0] === "referred-id" && values[1] === 13,
@@ -119,6 +119,44 @@ test("new referred accounts receive the 10-coin bonus with an idempotency key", 
   assert.equal(bonus.values[1], 10);
   assert.equal(bonus.values[3], "daily007-referral-signup:referred-id");
   assert.equal(bonus.values[4].referrerUserId, "referrer-id");
+});
+
+test("new accounts without a referral receive one idempotent 10-coin welcome bonus", async () => {
+  const queries: Array<{ sql: string; values: any[] }> = [];
+  const bonuses: any[][] = [];
+  let balance = 3;
+  let bonusRecorded = false;
+  const client = {
+    async query<T = Record<string, unknown>>(sql: string, values: any[] = []) {
+      queries.push({ sql, values });
+      if (sql.includes("SELECT wallet_coins FROM daily007_v2_users")) {
+        return { rows: [{ wallet_coins: balance }] as T[] };
+      }
+      if (sql.includes("SELECT id FROM daily007_v2_wallet_ledger WHERE idempotency_key")) {
+        return { rows: bonusRecorded ? [{ id: "welcome-bonus-id" }] as T[] : [] as T[] };
+      }
+      if (sql.includes("UPDATE daily007_v2_users SET wallet_coins")) {
+        balance = values[1] as number;
+        return { rows: [] as T[] };
+      }
+      if (sql.includes("INSERT INTO daily007_v2_wallet_ledger")) {
+        bonuses.push(values);
+        bonusRecorded = true;
+      }
+      return { rows: [] as T[] };
+    },
+  };
+
+  const firstAward = await awardDaily007SignupBonus(client, null, "new-user-id");
+  const retryAward = await awardDaily007SignupBonus(client, null, "new-user-id");
+  assert.equal(firstAward, 13);
+  assert.equal(retryAward, 13);
+  assert.equal(balance, 13);
+  assert.equal(bonuses.length, 1);
+  assert.equal(bonuses[0][1], 10);
+  assert.equal(bonuses[0][2], 13);
+  assert.equal(bonuses[0][3], "daily007-welcome-signup:new-user-id");
+  assert.ok(queries.some(({ sql }) => sql.includes("'Welcome Signup Bonus'")));
 });
 
 test("an approved qualifying recharge credits the referrer once with payment details", async () => {

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
-import { ensureDaily007ReferralCode, recordReferralSignup } from "../lib/daily007-referrals";
+import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { authenticate, hashPassword, makeToken, requireAdmin } from "./daily007-v2";
 
 const router: IRouter = Router();
@@ -217,8 +217,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       );
       const user = result.rows[0];
       await ensureDaily007ReferralCode(client, user.id);
-      const referralReward = await recordReferralSignup(client, referralCode, user.id);
-      if (referralReward) user.wallet_coins = referralReward.walletCoins;
+      user.wallet_coins = await awardDaily007SignupBonus(client, referralCode, user.id);
       return { user, referralStatus: referralSignupStatus(referralCode) };
     });
     const { user, referralStatus } = signup;

@@ -3,7 +3,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { clerkClient, getAuth } from "@clerk/express";
 import { pool } from "@workspace/db";
 import { hashPassword, makeToken, readToken } from "./daily007-v2";
-import { ensureDaily007ReferralCode, recordReferralSignup } from "../lib/daily007-referrals";
+import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import {
   chooseGoogleAccountAction,
   verifiedGoogleIdentity,
@@ -193,8 +193,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
         );
         account = inserted.rows[0];
         await ensureDaily007ReferralCode(client, account.id);
-        const referralReward = await recordReferralSignup(client, referralCode, account.id);
-        if (referralReward) account.wallet_coins = referralReward.walletCoins;
+        account.wallet_coins = await awardDaily007SignupBonus(client, referralCode, account.id);
         created = true;
       }
 

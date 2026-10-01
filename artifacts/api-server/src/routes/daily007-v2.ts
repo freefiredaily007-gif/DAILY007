@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { pool } from "@workspace/db";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007-v2-validation";
-import { ensureDaily007ReferralCode, recordReferralSignup } from "../lib/daily007-referrals";
+import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 
 const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
@@ -197,8 +197,7 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
       );
       const created = result.rows[0];
       await ensureDaily007ReferralCode(client, created.id);
-      const referralReward = await recordReferralSignup(client, referralCode, created.id);
-      if (referralReward) created.wallet_coins = referralReward.walletCoins;
+      created.wallet_coins = await awardDaily007SignupBonus(client, referralCode, created.id);
       return created;
     });
     const token = makeToken(account.id);
