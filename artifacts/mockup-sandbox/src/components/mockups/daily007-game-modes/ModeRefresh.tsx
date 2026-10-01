@@ -39,7 +39,7 @@ export function ModeRefresh() {
         <p className="d7-refresh-copy">Choose a mode to find its next open tournament.</p>
       </header>
       <div className="d7-mode-list">
-        {modes.map((mode, index) => (
+        {modes.map((mode) => (
           <article
             className="d7-mode-choice"
             key={mode.title}
