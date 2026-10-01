@@ -97,9 +97,7 @@ function ConfiguredGoogleButton({
         redirectUrl: AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' }),
       });
 
-      const expectedSessionId = sso.createdSessionId
-        ?? sso.signIn?.existingSession?.sessionId
-        ?? sso.signUp?.existingSession?.sessionId;
+      const expectedSessionId = sso.createdSessionId;
       if (!expectedSessionId) {
         const resultType = sso.authSessionResult?.type;
         if (resultType === 'cancel' || resultType === 'dismiss') return;
