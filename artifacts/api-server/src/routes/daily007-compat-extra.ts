@@ -20,8 +20,8 @@ const MAX_INT = 2_147_483_647;
 const SETTINGS_DEFAULTS = {
   appName: "Daily007", whatsappLink: "", instagramLink: "", youtubeLink: "",
   upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
-  minWithdrawal: "100", coinPackages: "", rechargeEnabled: "false",
-  withdrawalEnabled: "false", upiQrObjectPath: "",
+  minWithdrawal: "100", maxWithdrawal: "5000", coinToMoneyRate: "1",
+  coinPackages: "", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",
 };
 type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
 const userId = (req: Request) => req.daily007Account?.id;
@@ -119,10 +119,9 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   const body = req.body as unknown;
   if (!isObject(body)) { error(res, 400, "Expected coins and a payment transaction reference."); return; }
   const coins = body.coins;
-  const amount = body.amount === undefined ? coins : body.amount;
   const reference = text(body.txnId ?? body.reference, 1, 200);
-  if (!integer(coins, 1) || !integer(amount, 1) || amount !== coins || !reference) {
-    error(res, 400, "coins and amount must be the same positive integer, and txnId/reference must contain 1–200 characters.");
+  if (!integer(coins, 1) || !reference) {
+    error(res, 400, "coins must be a positive whole number and txnId/reference must contain 1–200 characters.");
     return;
   }
   const config = await settings();
@@ -136,14 +135,24 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
     error(res, 400, `Payment request must be between ${minimum} and ${maximum} coins.`);
     return;
   }
-  const proofObjectPath = isObject(body) ? text(body.proofObjectPath, 1, 500) : null;
-  if (!proofObjectPath || !proofObjectPath.startsWith(`/objects/uploads/daily007/payment-proofs/${id}/`)) {
-    error(res, 400, "Upload a payment screenshot before submitting the request."); return;
+  const rate = Number(config.coinToMoneyRate);
+  const amount = Math.round(coins * rate);
+  if (!Number.isFinite(rate) || rate <= 0 || !integer(amount, 1)) {
+    error(res, 400, "The configured coin conversion rate produces an unsupported payment amount.");
+    return;
   }
-  try {
-    await validateUploadedWalletImage(proofObjectPath, id);
-  } catch (e) {
-    error(res, 400, e instanceof Error ? e.message : "The payment screenshot could not be verified."); return;
+  const rawProof = body.proofObjectPath;
+  let proofObjectPath: string | null = null;
+  if (rawProof !== undefined && rawProof !== null && rawProof !== "") {
+    proofObjectPath = text(rawProof, 1, 500);
+    if (!proofObjectPath || !proofObjectPath.startsWith(`/objects/uploads/daily007/payment-proofs/${id}/`)) {
+      error(res, 400, "The payment screenshot must be uploaded to your account before submitting the request."); return;
+    }
+    try {
+      await validateUploadedWalletImage(proofObjectPath, id);
+    } catch (e) {
+      error(res, 400, e instanceof Error ? e.message : "The payment screenshot could not be verified."); return;
+    }
   }
   const normalized = normalizePaymentReference(reference);
   try {
@@ -187,11 +196,17 @@ router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {
   const account = isObject(body) ? text(body.account, 1, 200) : null;
   const config = await settings();
   const minimum = Number(config.minWithdrawal);
+  const maximum = Number(config.maxWithdrawal);
   if (config.withdrawalEnabled !== "true") {
     error(res, 409, "Withdrawals are currently disabled by the administrator."); return;
   }
-  if (!Number.isSafeInteger(minimum) || minimum < 1 || !integer(coins, minimum) || !method || !account) {
-    error(res, 400, `coins must be an integer of at least ${Number.isSafeInteger(minimum) && minimum > 0 ? minimum : 100}, with a method and payout account.`);
+  if (!Number.isSafeInteger(minimum) || minimum < 1 ||
+      !Number.isSafeInteger(maximum) || maximum < minimum || maximum > MAX_INT) {
+    error(res, 503, "Withdrawal limits are not configured correctly.");
+    return;
+  }
+  if (!integer(coins, minimum, maximum) || !method || !account) {
+    error(res, 400, `coins must be an integer between ${minimum} and ${maximum}, with a method and payout account.`);
     return;
   }
   try {
@@ -592,6 +607,15 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   const minWithdrawal = Number(next.minWithdrawal);
   if (!Number.isSafeInteger(minWithdrawal) || minWithdrawal < 1 || minWithdrawal > MAX_INT) {
     error(res, 400, "minWithdrawal must be a positive whole number."); return;
+  }
+  const maxWithdrawal = Number(next.maxWithdrawal);
+  if (!Number.isSafeInteger(maxWithdrawal) || maxWithdrawal < minWithdrawal || maxWithdrawal > MAX_INT) {
+    error(res, 400, "maxWithdrawal must be a whole number at least as large as minWithdrawal."); return;
+  }
+  const coinToMoneyRate = Number(next.coinToMoneyRate);
+  if (!Number.isFinite(coinToMoneyRate) || coinToMoneyRate <= 0 ||
+      coinToMoneyRate > 1_000_000 || Math.round(coinToMoneyRate * 10_000) !== coinToMoneyRate * 10_000) {
+    error(res, 400, "coinToMoneyRate must be a positive rate with no more than four decimal places."); return;
   }
   if (!["true", "false"].includes(next.rechargeEnabled) ||
       !["true", "false"].includes(next.withdrawalEnabled)) {

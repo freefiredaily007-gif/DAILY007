@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { getClerkInstance } from '@clerk/expo';
-import { useSSO } from '@clerk/expo/experimental';
+import { useSSO } from '@clerk/expo';
 import { Api, apiError, setSession, User } from '../lib/api';
 import { C, Msg } from './ui';
 
@@ -104,15 +104,24 @@ function ConfiguredGoogleButton({
         const resultType = sso.authSessionResult?.type;
         if (resultType === 'cancel' || resultType === 'dismiss') return;
         if (sso.signUp?.status === 'missing_requirements') {
-          showError('Google sign-up needs additional account details. Please use email and password sign-up or contact support.');
+          const fields = sso.signUp.missingFields?.join(', ');
+          showError(fields
+            ? `Google sign-up needs more information: ${fields}. Please complete those account details and try again.`
+            : 'Google sign-up needs additional account details. Please complete them and try again.');
           return;
         }
         showError('Google sign-in did not complete. Please try again.');
         return;
       }
 
+      if (!sso.setActive) {
+        showError('Google sign-in completed, but the session could not be activated. Please try again.');
+        return;
+      }
+      await sso.setActive({ session: expectedSessionId });
+
       const activeSession = getClerkInstance().session;
-      if (!expectedSessionId || !activeSession || activeSession.id !== expectedSessionId) {
+      if (!activeSession || activeSession.id !== expectedSessionId) {
         showError('Google sign-in finished, but Clerk did not activate the expected session. Please try again.');
         return;
       }

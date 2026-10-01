@@ -12,6 +12,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 
 const app: Express = express();
+app.set("etag", false);
 
 app.use(
   pinoHttp({
@@ -36,6 +37,10 @@ app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
 
 // Keep Clerk session parsing isolated to the Google bridge. Existing Daily007
 // endpoints continue to use their own bearer tokens without Clerk middleware.
