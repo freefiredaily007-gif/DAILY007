@@ -33,6 +33,7 @@ export default function Wallet() {
   const [withdrawalEnabled, setWithdrawalEnabled] = useState(false);
   const [minPurchase, setMinPurchase] = useState(1);
   const [maxPurchase, setMaxPurchase] = useState(5000);
+  const [coinPackages, setCoinPackages] = useState<number[]>([]);
   const [minWithdraw, setMinWithdraw] = useState(DEFAULT_MIN_WITHDRAW);
   const [proof, setProof] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
@@ -53,6 +54,10 @@ export default function Wallet() {
       setWithdrawalEnabled(config?.withdrawalEnabled === true || config?.withdrawalEnabled === 'true');
       setMinPurchase(Math.max(1, Number(config?.minPurchase) || 1));
       setMaxPurchase(Math.max(1, Number(config?.maxPurchase) || 5000));
+      const configuredPackages = String(config?.coinPackages ?? '').split(',')
+        .map((value: string) => Number(value.trim()))
+        .filter((value: number) => Number.isSafeInteger(value) && value > 0);
+      setCoinPackages([...new Set(configuredPackages)]);
       setMinWithdraw(Math.max(1, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW));
       const paysArr = Array.isArray(pays) ? pays : [];
       const wdsArr = Array.isArray(wds) ? wds : [];
@@ -119,7 +124,7 @@ export default function Wallet() {
     try {
       const proofObjectPath = await uploadWalletImage(proof, 'payment-proof');
       await Api.createPayment({ coins, amount: coins, txnId: txnId.trim(), reference: txnId.trim(), proofObjectPath });
-      setOk('Payment request submitted! Your request is currently under verification. Coins will be credited once approved by the admin.');
+      setOk('Your recharge request is waiting for Admin verification. Coins will be credited only after approval.');
       setShowSheet(false); setAmount(''); setTxnId(''); setProof(null);
       load();
     } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
@@ -236,9 +241,26 @@ export default function Wallet() {
                     <View style={s.upiRow}>
                       <Text style={[s.mUpi, { flex: 1 }]}>UPI ID: <Text style={s.mUpiV}>{paymentUpi}</Text></Text>
                       <Btn title="COPY" small kind="ghost" onPress={() => {
-                        Clipboard.setStringAsync(paymentUpi).then(() => setOk('UPI ID copied.')).catch(() => setError('Could not copy the UPI ID.'));
+                        Clipboard.setStringAsync(paymentUpi).then(() => setOk('UPI ID Copied')).catch(() => setError('Could not copy the UPI ID.'));
                       }} />
                     </View>
+                    {coinPackages.length > 0 && (
+                      <View style={s.packageRow}>
+                        {coinPackages.map((value) => (
+                          <Pressable
+                            key={value}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Choose ${value} coins for ${inr(value)}`}
+                            onPress={() => setAmount(String(value))}
+                            style={[s.packageOption, coins === value && s.packageOptionActive]}
+                          >
+                            <Text style={[s.packageText, coins === value && s.packageTextActive]}>
+                              {value} coins · {inr(value)}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
                     <Input placeholder={`Enter coins (${minPurchase}–${maxPurchase})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                     {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins)} for {coins} coins</Text>}
                     <Input placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
@@ -318,6 +340,11 @@ const s = StyleSheet.create({
   mSub: { color: C.sub, fontSize: 13, marginBottom: 10, lineHeight: 19 },
   mUpi: { color: C.text, fontWeight: '800', marginBottom: 12 },
   mUpiV: { color: C.gold },
+  packageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  packageOption: { borderColor: C.line, borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: C.bg },
+  packageOptionActive: { borderColor: C.gold, backgroundColor: C.gold + '22' },
+  packageText: { color: C.sub, fontSize: 11, fontWeight: '800' },
+  packageTextActive: { color: C.gold },
   amountHint: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
   minWarn: { color: C.red, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
   rateNote: { color: C.sub, fontSize: 11, marginBottom: 10, letterSpacing: 0.5 },

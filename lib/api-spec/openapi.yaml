@@ -216,6 +216,226 @@ paths:
         "200": { description: text/csv roster export }
         "403": { description: Administrator required }
         "404": { description: Match not found }
+  /wallet/uploads/request-url:
+    post:
+      operationId: daily007RequestWalletImageUpload
+      summary: Request a private upload URL for a wallet image
+      description: Payment proofs are scoped to the signed-in user; payment QR uploads require an administrator.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007WalletImageUploadBody" }
+      responses:
+        "200":
+          description: Short-lived upload URL and private object path
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007WalletImageUploadResponse" }
+        "400": { description: Invalid image type or size }
+        "401": { description: Missing or invalid bearer token }
+        "403": { description: Administrator required for QR uploads }
+  /wallet/transactions:
+    get:
+      operationId: daily007GetWalletTransactions
+      summary: List the authenticated user's wallet ledger
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Wallet ledger entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Daily007WalletLedgerEntry" }
+        "401": { description: Missing or invalid bearer token }
+  /payments:
+    post:
+      operationId: daily007SubmitRechargeRequest
+      summary: Submit a manual UPI recharge for admin review
+      description: Submitting a request never credits coins. An administrator must verify the UTR and proof before approval.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007RechargeRequestBody" }
+      responses:
+        "201":
+          description: Recharge request saved as pending
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007PaymentRequest" }
+        "400": { description: Invalid amount, reference, proof, or configured limits }
+        "401": { description: Missing or invalid bearer token }
+        "409": { description: Recharge is disabled, a request is already pending, or the UTR was already used }
+  /my/payments:
+    get:
+      operationId: daily007GetMyRechargeRequests
+      summary: List the authenticated user's recharge requests and review reasons
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Recharge requests, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Daily007PaymentRequest" }
+        "401": { description: Missing or invalid bearer token }
+  /withdrawals:
+    post:
+      operationId: daily007SubmitWithdrawalRequest
+      summary: Reserve wallet coins for a manual withdrawal request
+      description: Coins are reserved atomically. Approval does not send money; the payout is handled and recorded manually.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007WithdrawalRequestBody" }
+      responses:
+        "201":
+          description: Withdrawal request saved as pending
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007WithdrawalRequest" }
+        "400": { description: Invalid amount or payout details }
+        "401": { description: Missing or invalid bearer token }
+        "409": { description: Withdrawals are disabled, insufficient balance, or another request is pending }
+  /my/withdrawals:
+    get:
+      operationId: daily007GetMyWithdrawalRequests
+      summary: List the authenticated user's withdrawal requests and payout status
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Withdrawal requests, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Daily007WithdrawalRequest" }
+        "401": { description: Missing or invalid bearer token }
+  /admin/payments:
+    get:
+      operationId: daily007AdminListRechargeRequests
+      summary: List recharge requests for admin review
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Recharge requests with player identity and proof availability }
+        "403": { description: Administrator required }
+  /admin/payments/{id}/proof-url:
+    get:
+      operationId: daily007AdminGetRechargeProofUrl
+      summary: Get a short-lived private URL for a recharge screenshot
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Short-lived screenshot URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { url: { type: string, format: uri } }
+                required: [url]
+        "403": { description: Administrator required }
+        "404": { description: Proof is unavailable }
+  /admin/payments/{id}/{action}:
+    post:
+      operationId: daily007AdminReviewRechargeRequest
+      summary: Approve or reject a pending recharge
+      description: Approval credits the wallet exactly once in a database transaction. Rejection requires a player-visible reason.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007ReviewRequestBody" }
+      responses:
+        "200": { description: Request reviewed and user notified }
+        "400": { description: Invalid request id, action, or missing rejection reason }
+        "403": { description: Administrator required }
+        "404": { description: Request not found }
+        "409": { description: Request has already been reviewed or wallet limit would be exceeded }
+  /admin/withdrawals:
+    get:
+      operationId: daily007AdminListWithdrawalRequests
+      summary: List withdrawal requests for admin review
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Withdrawal requests with player identity and payout status }
+        "403": { description: Administrator required }
+  /admin/withdrawals/{id}/{action}:
+    post:
+      operationId: daily007AdminReviewWithdrawalRequest
+      summary: Approve or reject a pending withdrawal
+      description: Rejection refunds reserved coins atomically and requires a player-visible reason. Approval requires a separate manual payout.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007ReviewRequestBody" }
+      responses:
+        "200": { description: Request reviewed and user notified }
+        "400": { description: Invalid request id, action, or missing rejection reason }
+        "403": { description: Administrator required }
+        "404": { description: Request not found }
+        "409": { description: Request has already been reviewed }
+  /admin/withdrawals/{id}/payout:
+    post:
+      operationId: daily007AdminRecordManualWithdrawalPayout
+      summary: Record that an approved withdrawal was paid manually
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Manual payout recorded and user notified }
+        "403": { description: Administrator required }
+        "404": { description: Withdrawal not found }
+        "409": { description: Withdrawal is not awaiting manual payout }
+  /settings:
+    get:
+      operationId: daily007GetPublicWalletSettings
+      summary: Get public payment instructions and wallet limits
+      responses:
+        "200":
+          description: Public settings; private QR storage path is omitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007PublicSettings" }
+  /admin/settings:
+    get:
+      operationId: daily007AdminGetWalletSettings
+      summary: Get wallet settings for administrators
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Settings including the private QR object path }
+        "403": { description: Administrator required }
+    put:
+      operationId: daily007AdminSaveWalletSettings
+      summary: Save wallet payment details, coin packages, limits, and enablement
+      description: Recharge must remain disabled until an administrator configures the UPI ID and QR image, verifies they match, and explicitly enables it.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminSettingsBody" }
+      responses:
+        "200": { description: Saved settings }
+        "400": { description: Invalid settings or unverified QR upload }
+        "403": { description: Administrator required }
 components:
   securitySchemes:
     bearerAuth:
