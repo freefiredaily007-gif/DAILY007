@@ -16,7 +16,9 @@ const FIELDS: [string, string, string][] = [
   ['minPurchase', 'Min coin purchase', '100'],
   ['maxPurchase', 'Max coin purchase', '5000'],
   ['coinPackages', 'Coin packages', '100, 250, 500, 1000'],
-  ['minWithdrawal', 'Minimum withdrawal coins', '100'],
+  ['minWithdrawal', 'Minimum withdrawal coins', '100 minimum'],
+  ['maxWithdrawal', 'Maximum withdrawal coins', '5000'],
+  ['coinToMoneyRate', 'Rupees per coin', '1'],
 ];
 
 export default function AdminSettings() {
@@ -83,7 +85,13 @@ export default function AdminSettings() {
       <Text style={st.notice}>Coin payments and withdrawals require manual review. Recharge approval is the only way coins are credited; payouts are sent separately.</Text>
       <Card>
         {FIELDS.map(([k, label, ph]) => (
-          <Input key={k} placeholder={`${label} — ${ph}`} value={vals[k] ?? ''} onChangeText={(v) => setVals((s) => ({ ...s, [k]: v }))} />
+          <Input
+            key={k}
+            placeholder={`${label} — ${ph}`}
+            value={vals[k] ?? ''}
+            keyboardType={k === 'coinToMoneyRate' ? 'decimal-pad' : ['minPurchase', 'maxPurchase', 'minWithdrawal', 'maxWithdrawal'].includes(k) ? 'number-pad' : 'default'}
+            onChangeText={(v) => setVals((s) => ({ ...s, [k]: v }))}
+          />
         ))}
         <View style={st.switchRow}>
           <View style={{ flex: 1 }}>

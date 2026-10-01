@@ -200,7 +200,7 @@ router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {
   if (config.withdrawalEnabled !== "true") {
     error(res, 409, "Withdrawals are currently disabled by the administrator."); return;
   }
-  if (!Number.isSafeInteger(minimum) || minimum < 1 ||
+  if (!Number.isSafeInteger(minimum) || minimum < 100 ||
       !Number.isSafeInteger(maximum) || maximum < minimum || maximum > MAX_INT) {
     error(res, 503, "Withdrawal limits are not configured correctly.");
     return;
@@ -605,8 +605,8 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   }
   next.coinPackages = coinPackages.join(",");
   const minWithdrawal = Number(next.minWithdrawal);
-  if (!Number.isSafeInteger(minWithdrawal) || minWithdrawal < 1 || minWithdrawal > MAX_INT) {
-    error(res, 400, "minWithdrawal must be a positive whole number."); return;
+  if (!Number.isSafeInteger(minWithdrawal) || minWithdrawal < 100 || minWithdrawal > MAX_INT) {
+    error(res, 400, "minWithdrawal must be a whole number of at least 100 coins."); return;
   }
   const maxWithdrawal = Number(next.maxWithdrawal);
   if (!Number.isSafeInteger(maxWithdrawal) || maxWithdrawal < minWithdrawal || maxWithdrawal > MAX_INT) {
@@ -614,7 +614,8 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   }
   const coinToMoneyRate = Number(next.coinToMoneyRate);
   if (!Number.isFinite(coinToMoneyRate) || coinToMoneyRate <= 0 ||
-      coinToMoneyRate > 1_000_000 || Math.round(coinToMoneyRate * 10_000) !== coinToMoneyRate * 10_000) {
+      coinToMoneyRate > 1_000_000 ||
+      Math.abs(coinToMoneyRate * 10_000 - Math.round(coinToMoneyRate * 10_000)) > 1e-8) {
     error(res, 400, "coinToMoneyRate must be a positive rate with no more than four decimal places."); return;
   }
   if (!["true", "false"].includes(next.rechargeEnabled) ||

@@ -139,11 +139,13 @@ export default function Wallet() {
     if (!rechargeEnabled || !paymentUpi || !paymentQr) { setError('Coin recharge is unavailable until an administrator configures it.'); return; }
     if (!coins || coins < minPurchase || coins > maxPurchase) { setError(`Enter an amount between ${minPurchase} and ${maxPurchase} coins.`); return; }
     if (!txnId.trim()) { setError('Please enter the transaction ID of your payment.'); return; }
-    if (!proof) { setError('Attach a screenshot of your completed UPI payment.'); return; }
     setSubmitting(true); setError('');
     try {
-      const proofObjectPath = await uploadWalletImage(proof, 'payment-proof');
-      await Api.createPayment({ coins, amount: coins, txnId: txnId.trim(), reference: txnId.trim(), proofObjectPath });
+      const proofObjectPath = proof ? await uploadWalletImage(proof, 'payment-proof') : undefined;
+      await Api.createPayment({
+        coins, txnId: txnId.trim(), reference: txnId.trim(),
+        ...(proofObjectPath ? { proofObjectPath } : {}),
+      });
       setOk('Your recharge request is waiting for Admin verification. Coins will be credited only after approval.');
       setShowSheet(false); setAmount(''); setTxnId(''); setProof(null);
       load();
@@ -205,6 +207,7 @@ export default function Wallet() {
         ListEmptyComponent={loading ? <Loading /> : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />}
         renderItem={({ item }) => {
           const pos = item.amount > 0;
+          const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
             <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
@@ -220,7 +223,7 @@ export default function Wallet() {
                         s.pendingTagText,
                         item.status === 'approved' && { color: C.green },
                         item.status === 'rejected' && { color: C.red },
-                      ]}>{String(item.status ?? 'pending').toUpperCase()}</Text>
+                      ]}>{statusLabel}</Text>
                     </View>
                   )}
                 </View>
