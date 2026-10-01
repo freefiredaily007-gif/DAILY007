@@ -14,6 +14,7 @@ import AdminResults from './AdminResults';
 import AdminUsers from './AdminUsers';
 import AdminNotifications from './AdminNotifications';
 import AdminSettings from './AdminSettings';
+import AdminEarnTasks from './AdminEarnTasks';
 import logoImg from '../assets/logo.jpg';
 
 const NAV = [
@@ -22,6 +23,7 @@ const NAV = [
   { key: 'registrations', label: 'Regs', icon: '📝' },
   { key: 'payments', label: 'Payments', icon: '💳' },
   { key: 'wallet', label: 'Wallet', icon: '🪙' },
+  { key: 'earnTasks', label: 'Earn', icon: 'YT' },
   { key: 'rooms', label: 'Rooms', icon: '🚪' },
   { key: 'results', label: 'Results', icon: '🥇' },
   { key: 'users', label: 'Users', icon: '👥' },
@@ -44,7 +46,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
 
   const Screen: any = {
     dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
-    payments: AdminPayments, wallet: AdminWallet, rooms: AdminRooms, results: AdminResults,
+    payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, rooms: AdminRooms, results: AdminResults,
     users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
   }[screen] || AdminDashboard;
 
