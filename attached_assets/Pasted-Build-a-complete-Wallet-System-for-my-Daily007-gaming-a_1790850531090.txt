@@ -1,0 +1,452 @@
+Build a complete Wallet System for my Daily007 gaming application.
+
+The Wallet must contain two main functions:
+
+1. ADD COINS
+2. WITHDRAW COINS
+
+Use a secure backend/database-based wallet system. Never trust or modify the wallet balance directly from the frontend.
+
+---
+
+1. WALLET HOME
+
+Create a premium gaming-style Wallet page.
+
+Show prominently:
+
+MY WALLET
+
+Available Coins: 250
+
+Buttons:
+
+[ + ADD COINS ]
+
+[ WITHDRAW ]
+
+Below that show:
+
+TRANSACTION HISTORY
+
+Every wallet balance change must create a transaction record.
+
+Transaction types:
+
+- Welcome Bonus
+- Recharge
+- Tournament Entry
+- Tournament Refund
+- Tournament Prize
+- Referral Bonus
+- Withdrawal
+- Admin Adjustment
+
+---
+
+2. ADD COINS
+
+When user clicks:
+
+ADD COINS
+
+open the recharge/payment page.
+
+Show Admin's payment details:
+
+UPI PAYMENT
+
+UPI ID:
+[Admin UPI ID]
+
+[ COPY UPI ID ]
+
+When user taps Copy, copy the UPI ID to clipboard and show:
+
+UPI ID Copied
+
+Also display:
+
+Admin UPI QR / Scanner
+
+The QR image must be uploaded and managed by Admin.
+
+---
+
+3. PAYMENT PROCESS
+
+Show instructions:
+
+1. Copy the UPI ID or scan the QR.
+2. Make the payment using any UPI application.
+3. Enter the payment details below.
+4. Submit the recharge request.
+5. Coins will be added only after Admin approval.
+
+Do NOT automatically credit coins when the user submits the request.
+
+---
+
+4. RECHARGE FORM
+
+Create:
+
+Coin Value
+
+[ Enter Coins ]
+
+Example:
+50
+
+Create:
+
+Transaction ID / UTR
+
+[ Enter Transaction ID ]
+
+Create:
+
+Payment Screenshot
+
+[ Upload Screenshot ]
+
+Button:
+
+SUBMIT RECHARGE
+
+---
+
+5. RECHARGE STATUS
+
+After submission:
+
+PENDING APPROVAL
+
+The requested coins must NOT be added to the wallet.
+
+Show:
+
+“Your recharge request is waiting for Admin verification.”
+
+Admin must verify and approve the payment.
+
+---
+
+6. ADMIN APPROVAL
+
+Admin Panel → Wallet → Recharge Requests
+
+Admin can see:
+
+- User
+- Coin value
+- Transaction ID / UTR
+- Payment screenshot
+- Date/time
+- Status
+
+Buttons:
+
+APPROVE
+
+REJECT
+
+When Admin approves:
+
+1. Verify request is still pending.
+2. Verify transaction ID has not already been used.
+3. Credit coins to user's wallet.
+4. Create wallet transaction.
+5. Change status to Approved.
+6. Notify user.
+
+Example:
+
+Recharge:
++50 Coins
+
+Wallet:
+
+200 → 250 Coins
+
+Notification:
+
+“Recharge Approved – 50 Coins have been added to your wallet.”
+
+---
+
+7. REJECT RECHARGE
+
+If Admin rejects:
+
+Status:
+
+REJECTED
+
+Do not add any coins.
+
+Admin can enter rejection reason.
+
+Example:
+
+“Invalid transaction ID”
+
+User can see the rejection reason in Recharge History.
+
+---
+
+8. DUPLICATE PROTECTION
+
+Transaction ID / UTR must be unique.
+
+If the same transaction ID is submitted again:
+
+Show:
+
+“This transaction ID has already been used.”
+
+Do not credit coins twice.
+
+Admin also must not be able to approve the same recharge request twice.
+
+Use backend/database atomic transactions.
+
+---
+
+9. WITHDRAW COINS
+
+Create:
+
+WITHDRAW COINS
+
+page.
+
+Show:
+
+Available Coins: 500
+
+Input:
+
+Coins to Withdraw
+
+[ Enter Coin Amount ]
+
+Input:
+
+UPI ID
+
+[ Enter UPI ID ]
+
+Button:
+
+SUBMIT WITHDRAWAL
+
+---
+
+10. WITHDRAW VALIDATION
+
+Before submitting withdrawal:
+
+Check:
+
+- User is logged in
+- Coin amount is valid
+- User has sufficient available coins
+- Minimum withdrawal amount configured by Admin is satisfied
+- No duplicate pending withdrawal exists if such restriction is enabled
+
+If insufficient coins:
+
+“Insufficient coins.”
+
+Do not allow withdrawal.
+
+---
+
+11. WITHDRAWAL REQUEST
+
+When user submits a valid withdrawal:
+
+Create a withdrawal request with:
+
+- User ID
+- User name
+- Coin amount
+- UPI ID
+- Request date/time
+- Status
+- Admin review information
+
+Status:
+
+PENDING
+
+Important:
+
+The withdrawal amount must be securely reserved/deducted from the user's available balance when the request is created, so the same coins cannot be withdrawn or spent twice.
+
+Show:
+
+Withdrawal Pending
+
+---
+
+12. ADMIN WITHDRAWAL PANEL
+
+Admin Panel → Wallet → Withdrawal Requests
+
+Show:
+
+- User
+- Coins
+- UPI ID
+- Request date/time
+- Status
+
+Buttons:
+
+APPROVE
+
+REJECT
+
+---
+
+13. WITHDRAW APPROVAL
+
+When Admin approves:
+
+Status:
+
+APPROVED / PAID
+
+Create a wallet transaction:
+
+Withdrawal -X Coins
+
+Notify user:
+
+“Your withdrawal request has been approved.”
+
+---
+
+14. WITHDRAW REJECTION
+
+If Admin rejects:
+
+Status:
+
+REJECTED
+
+Automatically return the reserved coins to the user's available wallet balance.
+
+Create a wallet transaction:
+
+Withdrawal Refund +X Coins
+
+Notify user:
+
+“Your withdrawal request was rejected and your coins have been returned to your wallet.”
+
+Admin can enter a rejection reason.
+
+---
+
+15. ADMIN SETTINGS
+
+Create:
+
+Admin Panel → Wallet Settings
+
+Admin can configure:
+
+- UPI ID
+- QR/Scanner image
+- Minimum recharge
+- Minimum withdrawal
+- Coin packages
+- Withdrawal enabled/disabled
+- Recharge enabled/disabled
+
+Do not hard-code these values.
+
+---
+
+16. TRANSACTION HISTORY
+
+Create a complete transaction history page.
+
+Each transaction should show:
+
+- Date/time
+- Type
+- Coins
+- Status
+- Description
+
+Examples:
+
+Welcome Bonus
++10 Coins
+Completed
+
+Recharge
++50 Coins
+Completed
+
+Tournament Entry
+-10 Coins
+Completed
+
+Withdrawal
+-100 Coins
+Pending
+
+Withdrawal Refund
++100 Coins
+Completed
+
+---
+
+17. SECURITY
+
+All wallet operations must be processed server-side.
+
+Prevent:
+
+- Negative balance
+- Client-side balance manipulation
+- Duplicate recharge approval
+- Duplicate withdrawal
+- Duplicate transaction ID
+- Spending coins that are already reserved for withdrawal
+- Withdrawing more coins than available
+- Double crediting coins
+
+Every wallet change must have an immutable transaction record and timestamp.
+
+Use database transactions/atomic operations for:
+
+- Recharge approval
+- Withdrawal creation
+- Withdrawal approval
+- Withdrawal rejection/refund
+- Coin deduction
+- Coin credit
+
+---
+
+18. FINAL USER FLOW
+
+ADD COINS:
+
+Wallet → Add Coins → UPI ID + Copy → QR Scanner → Make Payment → Enter Coins + Transaction ID + Screenshot → Submit → Pending → Admin Approves → Coins Added.
+
+WITHDRAW:
+
+Wallet → Withdraw → Enter Coins + UPI ID → Submit → Coins Reserved → Pending → Admin Approves → Withdrawal Completed.
+
+If rejected:
+
+Withdrawal → Rejected → Coins Automatically Returned.
+
+Make the entire Wallet, Add Coins and Withdraw system fully functional with frontend + backend + database + admin approval workflow.
