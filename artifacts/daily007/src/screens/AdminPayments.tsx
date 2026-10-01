@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Image, ScrollView, StyleSheet } from 'react-native';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 import { inr } from '../lib/coins';
+import { ConfirmDialog, PromptDialog } from '../components/adminKit';
 
 const TABS = ['pending', 'approved', 'rejected'] as const;
 
@@ -11,6 +12,12 @@ export default function AdminPayments() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; kind: string } | null>(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
+  const [proofUrls, setProofUrls] = useState<Record<string, string>>({});
+  const [proofLoading, setProofLoading] = useState<string | null>(null);
+  const [payoutTarget, setPayoutTarget] = useState<string | null>(null);
+  const [payoutBusy, setPayoutBusy] = useState(false);
 
   const [all, setAll] = useState<any[] | null>(null);
 
@@ -28,6 +35,10 @@ export default function AdminPayments() {
   const list = (all ?? []).filter((x) => x.status === tab);
 
   const act = async (id: string, kind: string, action: 'approve' | 'reject') => {
+    if (action === 'reject') {
+      setRejectTarget({ id, kind });
+      return;
+    }
     setErr(''); setOkMsg(''); setBusyId(id);
     try {
       if (kind === 'withdrawal') await Api.adminWithdrawalAction(id, action);
@@ -39,6 +50,42 @@ export default function AdminPayments() {
       setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) { setErr(apiError(e)); }
     finally { setBusyId(null); }
+  };
+
+  const reject = async (reason: string) => {
+    const target = rejectTarget;
+    if (!target) return;
+    if (!reason.trim()) { setErr('A rejection reason is required.'); return; }
+    setRejectBusy(true); setErr(''); setOkMsg('');
+    try {
+      if (target.kind === 'withdrawal') await Api.adminWithdrawalAction(target.id, 'reject', reason.trim());
+      else await Api.adminPaymentAction(target.id, 'reject', reason.trim());
+      setRejectTarget(null);
+      setOkMsg(target.kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected');
+      await load();
+    } catch (e: any) { setErr(apiError(e)); }
+    finally { setRejectBusy(false); }
+  };
+
+  const showProof = async (id: string) => {
+    setProofLoading(id); setErr('');
+    try {
+      const result = await Api.adminPaymentProofUrl(id);
+      setProofUrls((current) => ({ ...current, [id]: String(result?.url ?? '') }));
+    } catch (e: any) { setErr(apiError(e)); }
+    finally { setProofLoading(null); }
+  };
+
+  const markPaid = async () => {
+    if (!payoutTarget) return;
+    setPayoutBusy(true); setErr(''); setOkMsg('');
+    try {
+      await Api.adminMarkWithdrawalPaid(payoutTarget);
+      setPayoutTarget(null);
+      setOkMsg('Manual payout recorded');
+      await load();
+    } catch (e: any) { setErr(apiError(e)); }
+    finally { setPayoutBusy(false); }
   };
 
   return (
@@ -57,6 +104,17 @@ export default function AdminPayments() {
           <Text style={st.sub}>{p.kind === 'withdrawal' ? `🏦 ${p.method} • ${p.account || '—'}` : `💳 ${p.method} • Ref: ${p.reference || '—'}`}</Text>
           {p.kind === 'payment' && <Text style={st.sub}>🧾 Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
+          {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}
+          {p.kind === 'payment' && p.proofAvailable && (
+            <View style={{ marginTop: 8 }}>
+              {proofUrls[p.id]
+                ? <Image source={{ uri: proofUrls[p.id] }} resizeMode="contain" style={st.proof} />
+                : <Btn title="VIEW PAYMENT SCREENSHOT" small kind="ghost" loading={proofLoading === p.id} onPress={() => showProof(p.id)} />}
+            </View>
+          )}
+          {p.kind === 'withdrawal' && p.status === 'approved' && p.payoutStatus === 'manual_payout_required' && (
+            <Btn title="RECORD MANUAL PAYOUT SENT" small kind="gold" loading={payoutBusy && payoutTarget === p.id} onPress={() => setPayoutTarget(p.id)} style={{ marginTop: 10 }} />
+          )}
           {tab === 'pending' && (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               <View style={{ flex: 1 }}><Btn title="✅ APPROVE" small loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'approve')} /></View>
@@ -66,6 +124,22 @@ export default function AdminPayments() {
         </Card>
       ))}
       <View style={{ height: 30 }} />
+      <PromptDialog
+        visible={!!rejectTarget}
+        title="Reject request"
+        message="Enter a reason the player can see. This is required."
+        confirmTitle={rejectBusy ? 'SAVING…' : 'REJECT'}
+        onCancel={() => setRejectTarget(null)}
+        onSubmit={(reason) => { void reject(reason); }}
+      />
+      <ConfirmDialog
+        visible={!!payoutTarget}
+        title="Record manual payout"
+        message="Only confirm after the money has actually been sent. This action records the payout in the request history."
+        confirmTitle={payoutBusy ? 'SAVING…' : 'MARK PAID'}
+        onCancel={() => setPayoutTarget(null)}
+        onConfirm={() => { void markPaid(); }}
+      />
     </ScrollView>
   );
 }
@@ -75,4 +149,6 @@ const st = StyleSheet.create({
   notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  reason: { color: C.red, fontSize: 11, marginTop: 5, lineHeight: 15 },
+  proof: { width: '100%', height: 240, borderRadius: 10, backgroundColor: '#fff' },
 });
