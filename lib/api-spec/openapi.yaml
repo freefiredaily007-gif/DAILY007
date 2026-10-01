@@ -45,7 +45,7 @@ paths:
     post:
       operationId: daily007V2RegisterAccount
       summary: Create an isolated Daily007 v2 account
-      description: Passwords are stored as salted scrypt hashes. New accounts are users with a zero-coin wallet.
+      description: Passwords are stored as salted scrypt hashes. A valid referral code links the account and credits a one-time 10-coin signup bonus.
       responses:
         "201": { description: Account created; returns bearer token and account }
         "400": { description: Invalid input }
@@ -66,8 +66,10 @@ paths:
         and accepts only a Google external account with a verified email; client
         email and provider identity values are never trusted. Existing local
         accounts are not auto-linked: sign in with the password and retry with
-        X-Daily007-Token to connect Google. A referral code is only recorded as
-        pending on first signup and does not grant coins.
+        X-Daily007-Token to connect Google. A new account created with a valid
+        referral code receives a one-time 10-coin signup bonus. The referrer
+        receives 5 coins once after an admin-approved recharge of at least 50
+        coins.
       security: [{ clerkBearerAuth: [] }]
       parameters:
         - name: X-Daily007-Token
@@ -249,6 +251,18 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Daily007WalletLedgerEntry" }
+        "401": { description: Missing or invalid bearer token }
+  /referrals:
+    get:
+      operationId: daily007GetMyReferrals
+      summary: Get referral code, sharing link, reward totals, and referral statuses
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Referral dashboard for the authenticated account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007ReferralDashboard" }
         "401": { description: Missing or invalid bearer token }
   /payments:
     post:
@@ -722,8 +736,43 @@ components:
         balanceAfter: { type: integer }
         reason: { type: string }
         description: { type: string }
+        details:
+          anyOf:
+            - { type: object, additionalProperties: true }
+            - { type: "null" }
         createdAt: { type: string, format: date-time }
       required: [id, amount, balanceAfter, reason, description, createdAt]
+    Daily007ReferralDashboard:
+      type: object
+      properties:
+        code: { type: string }
+        referralLink: { type: string, format: uri }
+        totalPeopleReferred: { type: integer, minimum: 0 }
+        successfulReferrals: { type: integer, minimum: 0 }
+        pendingReferrals: { type: integer, minimum: 0 }
+        totalReferralCoinsEarned: { type: integer, minimum: 0 }
+        referrals:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007ReferralStatus" }
+      required: [code, referralLink, totalPeopleReferred, successfulReferrals, pendingReferrals, totalReferralCoinsEarned, referrals]
+    Daily007ReferralStatus:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        referredUserId: { type: string, format: uuid }
+        referredName: { type: string }
+        signupStatus: { type: string, enum: [complete] }
+        signupBonusStatus: { type: string, enum: [credited, not_credited] }
+        firstRechargeStatus:
+          type: string
+          enum: [rewarded, awaiting_approval, eligible_unrewarded, below_minimum, not_started]
+        referrerRewardStatus: { type: string, enum: [credited, pending] }
+        qualifyingPaymentId:
+          anyOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+        createdAt: { type: string, format: date-time }
+      required: [id, referredUserId, referredName, signupStatus, signupBonusStatus, firstRechargeStatus, referrerRewardStatus, qualifyingPaymentId, createdAt]
     Daily007PublicSettings:
       type: object
       properties:
