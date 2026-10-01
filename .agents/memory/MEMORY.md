@@ -3,4 +3,5 @@
 - [Daily007 Google auth bridge](google-auth-bridge.md) — Clerk proves Google identity; keep Daily007 wallet accounts and require explicit linking to password accounts.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
-- [API test execution](api-test-execution.md) — bundle TypeScript test entry points with the existing esbuild before running Node tests; keep source imports extensionless.
+- [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
+- [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
