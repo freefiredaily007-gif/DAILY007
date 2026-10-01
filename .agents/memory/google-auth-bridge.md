@@ -17,6 +17,12 @@ For Expo Google SSO, treat the returned session ID and the active Clerk session 
 
 **How to apply:** In native Expo SSO flows, activate the returned session before exchanging its token with the Daily007 backend; do not infer activation from the OAuth callback alone.
 
+After a Daily007 account reset, the phone can still have a signed-in Clerk session because Clerk's token cache is separate from Daily007's local session and database. When the user explicitly chooses Google sign-in, reuse that active Clerk session and pass its token through the backend's Google-identity verification instead of starting a second OAuth flow.
+
+**Why:** Starting another OAuth flow while Clerk is already signed in can fail with an “already signed in” message, even though the existing Google identity is usable to recreate the local Daily007 account.
+
+**How to apply:** When local Daily007 auth is missing but Clerk has an active mobile session, exchange that session through the Google bridge. Keep server-side provider and verified-email checks, and do not auto-link an existing password account by matching email.
+
 Expo Go's StoreClient environment ignores app-defined redirect schemes that it does not support and falls back to `exp://`, while retaining the development host and callback path. The `sso-callback` path is also used by the web popup return flow, so avoid removing it globally.
 
 **Why:** Expo Go and standalone builds resolve deep links differently. A global redirect change can break web or installed-app callbacks without fixing an Expo Go runtime error.
