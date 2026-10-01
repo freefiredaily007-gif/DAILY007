@@ -26,6 +26,8 @@ const SETTINGS_DEFAULTS = {
   upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
   minWithdrawal: "100", maxWithdrawal: "5000", coinToMoneyRate: "1",
   coinPackages: "", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",
+  youtubeTaskEnabled: "true", youtubeTaskReward: "2",
+  youtubeTaskUrl: "https://youtube.com/@freefiredaily007?si=xWEYS3ViPlDz7Em3",
 };
 type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
 const userId = (req: Request) => req.daily007Account?.id;
@@ -37,6 +39,16 @@ function text(value: unknown, min = 1, max = 200): string | null {
 }
 function integer(value: unknown, min = 0, max = MAX_INT): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= min && value <= max;
+}
+function isYoutubeChannelUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"].includes(url.hostname) &&
+      !url.username && !url.password && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
 }
 async function transaction<T>(work: (client: Client) => Promise<T>): Promise<T> {
   const client = await pool.connect() as unknown as Client;
@@ -78,6 +90,7 @@ async function clientSettings(admin = false): Promise<Record<string, unknown>> {
     ...visible,
     rechargeEnabled: current.rechargeEnabled === "true",
     withdrawalEnabled: current.withdrawalEnabled === "true",
+    youtubeTaskEnabled: current.youtubeTaskEnabled === "true",
     upiQrUrl: qrObjectPath ? await createWalletImageReadUrl(qrObjectPath, 60 * 60) : "",
     ...(admin ? { upiQrObjectPath: qrObjectPath } : {}),
   };
