@@ -261,12 +261,15 @@ export default function Video() {
         style={styles.progressTrack}
       >
         <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-        <View testID="video-progress-threshold" style={styles.thresholdMarker} />
+        <View
+          testID="video-progress-threshold"
+          style={[styles.thresholdMarker, { left: `${WATCH_MARK_PERCENT}%` }]}
+        />
       </View>
       <Text style={styles.progressCaption}>
         {reachedWatchMark
-          ? '70% watch marker reached for this session.'
-          : 'Continuous playback counts toward the 70% marker. Seeking ahead does not count.'}
+          ? `${WATCH_MARK_PERCENT}% watch marker reached for this session.`
+          : `Continuous playback builds an estimate. Large seeks are ignored for the ${WATCH_MARK_PERCENT}% marker.`}
       </Text>
 
       <View style={styles.notice}>
@@ -369,7 +372,6 @@ function createStyles(colors: ReturnType<typeof useColors>) {
     },
     thresholdMarker: {
       position: 'absolute',
-      left: '70%',
       top: -3,
       height: 15,
       width: 2,
