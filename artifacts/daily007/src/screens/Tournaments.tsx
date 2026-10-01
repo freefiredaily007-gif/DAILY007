@@ -2,14 +2,12 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
-import { C, Loading, Empty, GCard, MatchCard, SectionTitle, Msg } from '../components/ui';
+import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
-import { useApp } from '../App';
 
 export default function Tournaments() {
   const nav: any = useNavigation();
   const route: any = useRoute();
-  const { user } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -26,13 +24,19 @@ export default function Tournaments() {
   }, []);
   React.useEffect(() => { load(); }, [load, mode]);
 
+  const normalize = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z]/g, '');
   const filtered = mode ? items.filter((t) => {
-    const matchMode = String(t.mode || '').toLowerCase();
-    const teamType = String(t.teamType || '').toLowerCase();
-    const requested = mode.toLowerCase();
-    if (requested === 'battle royale solo') return matchMode.includes('battle royale') && teamType === 'solo';
-    if (requested === 'battle royale squad') return matchMode.includes('battle royale') && teamType === 'squad';
-    return matchMode === requested;
+    const tournamentMode = normalize(t.mode);
+    const teamType = normalize(t.teamType);
+    const requestedMode = normalize(mode);
+    if (requestedMode === 'battleroyalesolo') {
+      return teamType === 'solo' && ['battleroyale', 'battleroyalesolo'].includes(tournamentMode);
+    }
+    if (requestedMode === 'battleroyalesquad') {
+      return teamType === 'squad' && ['battleroyale', 'battleroyalesquad'].includes(tournamentMode);
+    }
+    if (requestedMode === 'clashsquad') return tournamentMode === 'clashsquad';
+    return tournamentMode === requestedMode;
   }) : items;
   const upcoming = filtered.filter((t) => !['completed', 'cancelled'].includes(String(t.status || 'upcoming').toLowerCase()));
 
@@ -51,13 +55,6 @@ export default function Tournaments() {
           <View>
             <SectionTitle accent={C.neon}>{mode ? `${mode.toUpperCase()} MATCHES` : 'ALL UPCOMING MATCHES'}</SectionTitle>
             {!!error && <Msg kind="err" text={`Could not load tournaments: ${error}`} />}
-            {!mode && (
-              <View style={s.modeRow}>
-                {['Battle Royale Solo', 'Battle Royale', 'Clash Squad'].map((m) => (
-                  <Text key={m} style={[s.modeChip, { borderColor: mode === m ? C.neon : C.border, color: mode === m ? C.neon : C.sub }]}>{m}</Text>
-                ))}
-              </View>
-            )}
           </View>
         }
         ListEmptyComponent={<Empty icon="🎮" text={error ? 'Tournament data is unavailable right now. Pull to refresh and try again.' : 'No upcoming tournaments are available right now.'} />}
@@ -74,6 +71,4 @@ export default function Tournaments() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  modeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-  modeChip: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, fontSize: 11, fontWeight: '800', overflow: 'hidden' },
 });

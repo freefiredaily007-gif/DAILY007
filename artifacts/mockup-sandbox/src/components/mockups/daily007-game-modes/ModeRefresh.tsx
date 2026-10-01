@@ -3,26 +3,26 @@ import './_group.css';
 const modes = [
   {
     image: '/__mockup/images/daily007/banner-solo.jpg',
-    title: 'BATTLE ROYALE SOLO',
-    type: 'BATTLE ROYALE · SOLO',
-    tag: '1 Player · All alone · Survive & win',
-    button: 'PLAY SOLO',
+    title: '🔥 BATTLE ROYALE SOLO',
+    capacity: '48 PLAYER SLOTS',
+    tag: 'Solo tournament',
+    button: 'VIEW TOURNAMENTS',
     accent: '#ffb020',
   },
   {
     image: '/__mockup/images/daily007/banner-squad.jpg',
-    title: 'BATTLE ROYALE SQUAD',
-    type: 'BATTLE ROYALE · SQUAD',
-    tag: '4 Players · Team up · Play together',
-    button: 'REGISTER NOW',
+    title: '⚔️ BATTLE ROYALE SQUAD',
+    capacity: '12 TEAMS × 4 PLAYERS',
+    tag: 'Squad tournament',
+    button: 'VIEW TOURNAMENTS',
     accent: '#ff3d3d',
   },
   {
     image: '/__mockup/images/daily007/banner-clash.jpg',
-    title: 'CLASH SQUAD',
-    type: 'CLASH SQUAD',
-    tag: '4 Players · Skill based · Fast match',
-    button: 'REGISTER NOW',
+    title: '💥 CLASH SQUAD',
+    capacity: '4V4',
+    tag: 'Team tournament',
+    button: 'VIEW TOURNAMENTS',
     accent: '#a05cff',
   },
 ];
@@ -51,7 +51,7 @@ export function ModeRefresh() {
               <span className="d7-mode-index">{String(index + 1).padStart(2, '0')}</span>
             </div>
             <div className="d7-mode-info">
-              <span className="d7-mode-kicker">{mode.type}</span>
+              <span className="d7-mode-kicker">{mode.capacity}</span>
               <h2 className="d7-mode-title">{mode.title}</h2>
               <p className="d7-mode-description">{mode.tag}</p>
               <button className="d7-mode-cta" type="button">

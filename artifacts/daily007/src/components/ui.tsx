@@ -102,8 +102,17 @@ export function Card({ children, style, glowColor }: { children: React.ReactNode
 }
 
 // ---------- pressable gaming card (scale press animation) ----------
-export function GCard({ children, onPress, style, glowColor }: {
+export function GCard({
+  children,
+  onPress,
+  style,
+  glowColor,
+  accessibilityLabel,
+  accessibilityHint,
+  testID,
+}: {
   children: React.ReactNode; onPress?: () => void; style?: any; glowColor?: string;
+  accessibilityLabel?: string; accessibilityHint?: string; testID?: string;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const press = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
@@ -114,7 +123,19 @@ export function GCard({ children, onPress, style, glowColor }: {
     </Animated.View>
   );
   if (!onPress) return Body;
-  return <Pressable onPressIn={press} onPressOut={release} onPress={onPress}>{Body}</Pressable>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      testID={testID}
+      onPressIn={press}
+      onPressOut={release}
+      onPress={onPress}
+    >
+      {Body}
+    </Pressable>
+  );
 }
 
 export function Input(props: React.ComponentProps<typeof TextInput>) {

@@ -1,6 +1,6 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing } from 'react-native';
 import bannerSolo from '../assets/banner-solo.jpg';
 import bannerSquad from '../assets/banner-squad.jpg';
 import bannerClash from '../assets/banner-clash.jpg';
@@ -76,42 +76,6 @@ export default function Home() {
     if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
     else if (k.startsWith('mode:')) nav.navigate('Tournaments', { mode: k.slice(5) });
   };
-  const joinPosterMode = async (mode: string) => {
-    try {
-      const response = await api.tournaments('?enabled=true');
-      const enabled = Array.isArray(response) ? response : response?.tournaments || [];
-      const normalize = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z]/g, '');
-      const target = normalize(mode);
-      const now = Date.now();
-      const tournament = enabled.filter((t: any) => {
-        const tournamentMode = normalize(t.mode);
-        const teamType = normalize(t.teamType);
-        const matches = target === 'battleroyalesolo'
-          ? teamType === 'solo' && (tournamentMode === 'battleroyale' || tournamentMode === 'battleroyalesolo')
-          : target === 'battleroyalesquad'
-            ? teamType === 'squad' && tournamentMode === 'battleroyale'
-            : teamType === 'squad' && tournamentMode === 'clashsquad';
-        const total = Number(t.totalSlots ?? (tournamentModeFallback(t)));
-        const filled = Number(t.filledSlots ?? t.filled ?? 0);
-        const remaining = Number(t.availableSlots ?? total - filled);
-        const status = String(t.status || 'upcoming').toLowerCase();
-        const kickoff = startAt(t);
-        return matches && t.enabled !== false && !['completed', 'cancelled', 'live', 'closed', 'full'].includes(status)
-          && total > 0 && filled < total && remaining > 0 && (kickoff === null || kickoff > now);
-      }).sort((a: any, b: any) => {
-        const timeDifference = (startAt(a) ?? Number.MAX_SAFE_INTEGER) - (startAt(b) ?? Number.MAX_SAFE_INTEGER);
-        return timeDifference || String(a.id || '').localeCompare(String(b.id || ''));
-      })[0];
-      if (!tournament) {
-        Alert.alert('No open tournament', 'There is no enabled, open tournament for this mode right now. Please check back soon.');
-        return;
-      }
-      nav.navigate('JoinForm', { id: tournament.id });
-    } catch (e: any) {
-      Alert.alert('Could not load tournaments', e?.message || 'Please try again.');
-    }
-  };
-
   const load = useCallback(async () => {
     try {
       const r = await api.tournaments('?enabled=true');
@@ -266,17 +230,29 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
-        { img: bannerSolo, title: 'BATTLE ROYALE SOLO', tag: '1 Player | All Alone | Survive & Win', btn: 'PLAY SOLO', mode: 'Battle Royale Solo', accent: C.gold },
-        { img: bannerSquad, title: 'BATTLE ROYALE SQUAD', tag: '4 Players | Team Up | Play Together', btn: 'REGISTER NOW', mode: 'Battle Royale Squad', accent: C.neon },
-        { img: bannerClash, title: 'CLASH SQUAD', tag: '4 Players | Skill Based | Fast Match', btn: 'REGISTER NOW', mode: 'Clash Squad', accent: C.purple },
+        { img: bannerSolo, title: '🔥 BATTLE ROYALE SOLO', capacity: '48 PLAYER SLOTS', mode: 'Battle Royale Solo', accent: C.gold },
+        { img: bannerSquad, title: '⚔️ BATTLE ROYALE SQUAD', capacity: '12 TEAMS × 4 PLAYERS', mode: 'Battle Royale Squad', accent: C.neon },
+        { img: bannerClash, title: '💥 CLASH SQUAD', capacity: '4V4', mode: 'Clash Squad', accent: C.purple },
       ].map((m) => (
-        <GCard key={m.mode} onPress={() => joinPosterMode(m.mode)} glowColor={m.accent} style={s.modeCard}>
-          <Image source={m.img} style={s.modeBanner} resizeMode="cover" />
+        <GCard
+          key={m.mode}
+          onPress={() => nav.navigate('Tournaments', { mode: m.mode })}
+          accessibilityLabel={`View ${m.mode} tournaments`}
+          accessibilityHint="Opens the tournament list for this game mode"
+          testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
+          glowColor={m.accent}
+          style={s.modeCard}
+        >
+          <View style={s.modeArtWrap}>
+            <Image source={m.img} style={s.modeBanner} resizeMode="cover" />
+            <View style={s.modeArtShade} pointerEvents="none" />
+          </View>
           <View style={s.modeBody}>
             <Text style={[s.modeTitle, { color: m.accent }]}>{m.title}</Text>
-            <Text style={s.modeDesc}>{m.tag}</Text>
-            <View style={[s.modeBtn, { borderColor: m.accent }, glow(m.accent, 8)]}>
-              <Text style={[s.modeBtnT, { color: m.accent }]}>{m.btn} ›</Text>
+            <Text style={[s.modeCapacity, { color: m.accent }]}>{m.capacity}</Text>
+            <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
+              <Text style={s.modeBtnT}>VIEW TOURNAMENTS</Text>
+              <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
             </View>
           </View>
         </GCard>
@@ -382,15 +358,31 @@ const s = StyleSheet.create({
   mStatV: { color: C.text, fontWeight: '900', fontSize: 14, marginTop: 3 },
   slotBar: { height: 4, backgroundColor: '#1a2136', borderRadius: 2, marginTop: 10, overflow: 'hidden' },
   slotFill: { height: 4, backgroundColor: C.neon, borderRadius: 2 },
-  modeCard: { marginHorizontal: 16, marginBottom: 12, padding: 0, overflow: 'hidden' },
-  modeBanner: { width: '100%', height: 130 },
-  modeBody: { padding: 14 },
-  modeTitle: { fontWeight: '900', fontSize: 16, letterSpacing: 1 },
-  modeDesc: { color: C.sub, fontSize: 12, marginTop: 4 },
+  modeCard: {
+    marginHorizontal: 16, marginBottom: 12, padding: 9, overflow: 'hidden',
+    flexDirection: 'row', alignItems: 'stretch', minHeight: 124,
+    backgroundColor: '#10162b',
+  },
+  modeArtWrap: {
+    width: 98, minHeight: 106, borderRadius: 11, overflow: 'hidden',
+    backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border,
+  },
+  modeBanner: { width: '100%', height: '100%', minHeight: 106 },
+  modeArtShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#00000026',
+  },
+  modeBody: { flex: 1, minWidth: 0, justifyContent: 'center', paddingLeft: 12, paddingRight: 3, paddingVertical: 3 },
+  modeTitle: { fontWeight: '900', fontSize: 13, letterSpacing: 0.35, lineHeight: 17 },
+  modeCapacity: { fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 5 },
   modeChip: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#ffffff08' },
   modeChipT: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  modeBtn: { marginTop: 12, borderWidth: 1.5, borderRadius: 10, paddingVertical: 9, alignItems: 'center', backgroundColor: '#ffffff06' },
-  modeBtnT: { fontWeight: '900', letterSpacing: 1.5, fontSize: 12 },
+  modeBtn: {
+    marginTop: 10, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 10,
+    alignItems: 'center', justifyContent: 'space-between', flexDirection: 'row',
+  },
+  modeBtnT: { color: '#090b12', fontWeight: '900', letterSpacing: 0.9, fontSize: 9.5 },
+  modeBtnArrow: { color: '#090b12', fontSize: 17, fontWeight: '900', lineHeight: 17 },
   socialBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12,
     borderRadius: 16, borderWidth: 1.2, paddingVertical: 12, paddingHorizontal: 14,
