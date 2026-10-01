@@ -189,8 +189,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return fail(res, 400, "Name and a valid email address are required.");
   }
-  if (typeof body.password !== "string" || body.password.length < 12 || body.password.length > 200) {
-    return fail(res, 400, "Password must contain 12–200 characters.");
+  if (typeof body.password !== "string" || body.password.length < 8 || body.password.length > 200) {
+    return fail(res, 400, "Password must contain 8–200 characters.");
   }
   if ((body.phone !== undefined && body.phone !== "" && !phone) ||
       (body.gameUid !== undefined && body.gameUid !== "" && !gameUid) ||

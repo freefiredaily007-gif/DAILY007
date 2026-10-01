@@ -22,7 +22,7 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
     setErr('');
     if (!email.trim() || !password) { setErr('Email and password are required.'); return; }
     if (mode === 'signup' && (!name.trim() || !phone.trim())) { setErr('Name and phone are required.'); return; }
-    if (mode === 'signup' && password.length < 12) { setErr('Password must be at least 12 characters long.'); return; }
+    if (mode === 'signup' && password.length < 8) { setErr('Password must be at least 8 characters long.'); return; }
     setBusy(true);
     try {
       const r: any = mode === 'login'
@@ -66,7 +66,7 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
           </>
         )}
         <Input placeholder="Enter Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-        <Input placeholder={mode === 'signup' ? 'Password (at least 12 characters)' : 'Enter Password'} value={password} onChangeText={setPassword} secureTextEntry />
+        <Input placeholder={mode === 'signup' ? 'Password (at least 8 characters)' : 'Enter Password'} value={password} onChangeText={setPassword} secureTextEntry />
 
         <Btn title={mode === 'login' ? 'LOGIN' : 'CREATE ACCOUNT'} onPress={submit} loading={busy} />
 

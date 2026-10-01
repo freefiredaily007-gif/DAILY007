@@ -169,8 +169,8 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
     fail(res, 400, "Name must be 1–100 characters and email must be valid.");
     return;
   }
-  if (typeof password !== "string" || password.length < 12 || password.length > 200) {
-    fail(res, 400, "Password must contain 12–200 characters.");
+  if (typeof password !== "string" || password.length < 8 || password.length > 200) {
+    fail(res, 400, "Password must contain 8–200 characters.");
     return;
   }
   if ((body.phone !== undefined && (!phone || phone.length > 40)) ||
