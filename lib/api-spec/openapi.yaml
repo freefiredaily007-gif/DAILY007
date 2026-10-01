@@ -436,6 +436,90 @@ paths:
         "200": { description: Saved settings }
         "400": { description: Invalid settings or unverified QR upload }
         "403": { description: Administrator required }
+  /tournaments/{id}/slots:
+    get:
+      operationId: getTournamentSlots
+      summary: List public slot or team occupancy without exposing room credentials
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Numbered slots with available, taken, or locked state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TournamentSlotsResponse" }
+        "404": { description: Tournament not found }
+  /tournaments/{id}/results:
+    get:
+      operationId: getTournamentResults
+      summary: Get finalized public tournament results
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Finalized tournament results; draft data is never public
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TournamentResultsView" }
+        "404": { description: Tournament not found }
+  /admin/tournaments/{id}/lifecycle:
+    post:
+      operationId: updateTournamentLifecycle
+      summary: Open or close registration, mark live/completed, or cancel with refunds
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TournamentLifecycleUpdate" }
+      responses:
+        "200": { description: Tournament lifecycle updated }
+        "400": { description: Invalid or disallowed transition }
+        "403": { description: Administrator required }
+        "404": { description: Tournament not found }
+  /admin/tournaments/{id}/results:
+    get:
+      operationId: getAdminTournamentResults
+      summary: Get an administrator's saved draft or finalized results
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Draft/finalized result state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TournamentResultsView" }
+        "403": { description: Administrator required }
+        "404": { description: Tournament not found }
+  /admin/results:
+    post:
+      operationId: saveTournamentResultDraft
+      summary: Save one result entry as a draft without distributing rewards
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TournamentResultDraft" }
+      responses:
+        "200": { description: Draft saved; no wallet credits are made }
+        "400": { description: Invalid result entry }
+        "403": { description: Administrator required }
+  /admin/tournaments/{id}/confirm-results:
+    post:
+      operationId: confirmTournamentResults
+      summary: Finalize saved results and distribute each reward exactly once
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Results finalized and rewards processed }
+        "409": { description: Draft is missing, already finalized, or invalid }
+        "403": { description: Administrator required }
+        "404": { description: Tournament not found }
 components:
   securitySchemes:
     bearerAuth:
@@ -445,6 +529,59 @@ components:
       type: http
       scheme: bearer
   schemas:
+    TournamentLifecycleUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [open, closed, live, completed, cancelled] }
+      required: [status]
+    TournamentResultDraft:
+      type: object
+      additionalProperties: false
+      properties:
+        tournamentId: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        rank: { type: integer, minimum: 1, maximum: 2147483647 }
+        kills: { type: integer, minimum: 0, maximum: 2147483647 }
+        prizeCoins: { type: integer, minimum: 0, maximum: 2147483647 }
+      required: [tournamentId, registrationId, rank, kills, prizeCoins]
+    TournamentResultEntry:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid }
+        rank: { type: integer }
+        kills: { type: integer }
+        prizeCoins: { type: integer }
+      required: [registrationId, rank, kills, prizeCoins]
+    TournamentResultsView:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid }
+        status: { type: string, enum: [draft, finalized] }
+        finalizedAt: { type: ["string", "null"], format: date-time }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/TournamentResultEntry" }
+      required: [tournamentId, entries]
+    TournamentSlot:
+      type: object
+      properties:
+        number: { type: integer, minimum: 1 }
+        status: { type: string, enum: [available, taken, locked] }
+        teamName: { type: ["string", "null"] }
+      required: [number, status]
+    TournamentSlotsResponse:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid }
+        mode: { type: string, enum: [solo, squad, clash] }
+        capacity: { type: integer }
+        filledCount: { type: integer }
+        playersCount: { type: integer }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/TournamentSlot" }
+      required: [tournamentId, mode, capacity, filledCount, playersCount, slots]
     Daily007V2CreateMatchBody:
       type: object
       additionalProperties: false
