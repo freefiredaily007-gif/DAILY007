@@ -3,6 +3,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { clerkClient, getAuth } from "@clerk/express";
 import { pool } from "@workspace/db";
 import { hashPassword, makeToken, readToken } from "./daily007-v2";
+import { ensureDaily007ReferralCode, recordReferralSignup } from "../lib/daily007-referrals";
 import {
   chooseGoogleAccountAction,
   verifiedGoogleIdentity,
@@ -183,16 +184,6 @@ router.post("/auth/google", async (req, res): Promise<void> => {
         if (!updated.rows[0]) throw httpError(409, "This account could not be linked because its identity changed concurrently.");
         account = updated.rows[0];
       } else {
-        let referrerUserId: string | null = null;
-        if (referralCode) {
-          const referrer = await client.query<{ user_id: string }>(
-            "SELECT user_id FROM daily007_v2_referral_codes WHERE code = $1 FOR KEY SHARE",
-            [referralCode],
-          );
-          if (!referrer.rows[0]) throw httpError(400, "Referral code is not recognized.");
-          referrerUserId = referrer.rows[0].user_id;
-        }
-
         const inserted = await client.query<Account>(
           `INSERT INTO daily007_v2_users
              (name, email, password_salt, password_hash, referral_code, clerk_user_id)
@@ -201,13 +192,9 @@ router.post("/auth/google", async (req, res): Promise<void> => {
           [identity.name, identity.email, credentials.salt, credentials.hash, referralCode, identity.clerkUserId],
         );
         account = inserted.rows[0];
-        if (referrerUserId) {
-          await client.query(
-            `INSERT INTO daily007_v2_referrals (referrer_user_id, referred_user_id, code)
-             VALUES ($1, $2, $3)`,
-            [referrerUserId, account.id, referralCode],
-          );
-        }
+        await ensureDaily007ReferralCode(client, account.id);
+        const referralReward = await recordReferralSignup(client, referralCode, account.id);
+        if (referralReward) account.wallet_coins = referralReward.walletCoins;
         created = true;
       }
 

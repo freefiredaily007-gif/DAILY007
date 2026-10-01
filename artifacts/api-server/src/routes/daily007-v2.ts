@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { pool } from "@workspace/db";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007-v2-validation";
+import { ensureDaily007ReferralCode, recordReferralSignup } from "../lib/daily007-referrals";
 
 const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
@@ -164,7 +165,9 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
   const password = body.password;
   const phone = body.phone === undefined ? null : cleanName(body.phone, "phone");
   const gameUid = body.gameUid === undefined ? null : cleanName(body.gameUid, "gameUid");
-  const referralCode = body.referralCode === undefined ? null : cleanName(body.referralCode, "referralCode");
+  const referralCode = body.referralCode === undefined
+    ? null
+    : cleanName(body.referralCode, "referralCode")?.toUpperCase() ?? null;
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     fail(res, 400, "Name must be 1–100 characters and email must be valid.");
     return;
@@ -185,16 +188,27 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
   }
   const credentials = await hashPassword(password);
   try {
-    const result = await pool.query<Account>(
-      `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash, phone, game_uid, referral_code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, email, role, wallet_coins, phone, game_uid, status`,
-      [name, email, credentials.salt, credentials.hash, phone, gameUid, referralCode],
-    );
-    const account = result.rows[0];
+    const account = await transaction(async (client) => {
+      const result = await client.query<Account>(
+        `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash, phone, game_uid, referral_code)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, name, email, role, wallet_coins, phone, game_uid, status`,
+        [name, email, credentials.salt, credentials.hash, phone, gameUid, referralCode],
+      );
+      const created = result.rows[0];
+      await ensureDaily007ReferralCode(client, created.id);
+      const referralReward = await recordReferralSignup(client, referralCode, created.id);
+      if (referralReward) created.wallet_coins = referralReward.walletCoins;
+      return created;
+    });
     const token = makeToken(account.id);
     res.status(201).json({ token, account });
   } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status) {
+      fail(res, status, error instanceof Error ? error.message : "Signup could not be completed.");
+      return;
+    }
     if ((error as { code?: string }).code === "23505") {
       fail(res, 409, "An account with this email already exists.");
       return;

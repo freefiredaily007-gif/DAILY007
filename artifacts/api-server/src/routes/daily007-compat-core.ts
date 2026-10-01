@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
+import { ensureDaily007ReferralCode, recordReferralSignup } from "../lib/daily007-referrals";
 import { authenticate, hashPassword, makeToken, requireAdmin } from "./daily007-v2";
 
 const router: IRouter = Router();
@@ -204,17 +205,6 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const credentials = await hashPassword(body.password);
   try {
     const signup = await transaction(async (client) => {
-      let referrerUserId: string | null = null;
-      if (referralCode) {
-        const referral = await client.query<{ user_id: string }>(
-          "SELECT user_id FROM daily007_v2_referral_codes WHERE code = $1 FOR KEY SHARE",
-          [referralCode],
-        );
-        if (!referral.rows[0]) {
-          throw Object.assign(new Error("Referral code is not recognized."), { status: 400 });
-        }
-        referrerUserId = referral.rows[0].user_id;
-      }
       const result = await client.query<{
         id: string; name: string; email: string; phone: string | null; game_uid: string | null;
         role: string; status: string; wallet_coins: number;
@@ -225,16 +215,9 @@ router.post("/auth/register", async (req, res): Promise<void> => {
         [name, email, phone, gameUid, referralCode, credentials.salt, credentials.hash],
       );
       const user = result.rows[0];
-      if (referrerUserId) {
-        if (referrerUserId === user.id) {
-          throw Object.assign(new Error("You cannot use your own referral code."), { status: 400 });
-        }
-        await client.query(
-          `INSERT INTO daily007_v2_referrals (referrer_user_id, referred_user_id, code)
-           VALUES ($1, $2, $3)`,
-          [referrerUserId, user.id, referralCode],
-        );
-      }
+      await ensureDaily007ReferralCode(client, user.id);
+      const referralReward = await recordReferralSignup(client, referralCode, user.id);
+      if (referralReward) user.wallet_coins = referralReward.walletCoins;
       return { user, referralStatus: referralSignupStatus(referralCode) };
     });
     const { user, referralStatus } = signup;
