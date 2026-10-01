@@ -10,8 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@clerk/express": "^2.1.72",
-    "@clerk/shared": "^4.36.0",
+    "@clerk/express": "^2.1.73",
+    "@clerk/shared": "^4.37.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
