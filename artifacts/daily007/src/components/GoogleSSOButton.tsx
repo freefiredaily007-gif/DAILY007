@@ -92,34 +92,41 @@ function ConfiguredGoogleButton({
     setError('');
     setBusy(true);
     try {
-      const sso = await startSSOFlow({
-        strategy: 'oauth_google',
-        redirectUrl: AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' }),
-      });
+      // A saved Clerk session can outlive the Daily007 account session. Reuse
+      // it rather than starting a second OAuth flow, which Clerk rejects.
+      const existingSession = getClerkInstance().session;
+      let expectedSessionId = existingSession?.id;
 
-      const expectedSessionId = sso.createdSessionId;
-      if (!expectedSessionId) {
-        const resultType = sso.authSessionResult?.type;
-        if (resultType === 'cancel' || resultType === 'dismiss') return;
-        if (sso.signUp?.status === 'missing_requirements') {
-          const fields = sso.signUp.missingFields?.join(', ');
-          showError(fields
-            ? `Google sign-up needs more information: ${fields}. Please complete those account details and try again.`
-            : 'Google sign-up needs additional account details. Please complete them and try again.');
+      if (!existingSession) {
+        const sso = await startSSOFlow({
+          strategy: 'oauth_google',
+          redirectUrl: AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' }),
+        });
+
+        expectedSessionId = sso.createdSessionId;
+        if (!expectedSessionId) {
+          const resultType = sso.authSessionResult?.type;
+          if (resultType === 'cancel' || resultType === 'dismiss') return;
+          if (sso.signUp?.status === 'missing_requirements') {
+            const fields = sso.signUp.missingFields?.join(', ');
+            showError(fields
+              ? `Google sign-up needs more information: ${fields}. Please complete those account details and try again.`
+              : 'Google sign-up needs additional account details. Please complete them and try again.');
+            return;
+          }
+          showError('Google sign-in did not complete. Please try again.');
           return;
         }
-        showError('Google sign-in did not complete. Please try again.');
-        return;
-      }
 
-      if (!sso.setActive) {
-        showError('Google sign-in completed, but the session could not be activated. Please try again.');
-        return;
+        if (!sso.setActive) {
+          showError('Google sign-in completed, but the session could not be activated. Please try again.');
+          return;
+        }
+        await sso.setActive({ session: expectedSessionId });
       }
-      await sso.setActive({ session: expectedSessionId });
 
       const activeSession = getClerkInstance().session;
-      if (!activeSession || activeSession.id !== expectedSessionId) {
+      if (!expectedSessionId || !activeSession || activeSession.id !== expectedSessionId) {
         showError('Google sign-in finished, but Clerk did not activate the expected session. Please try again.');
         return;
       }
