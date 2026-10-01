@@ -531,7 +531,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         "200": { description: Results finalized and rewards processed }
-        "409": { description: Draft is missing, already finalized, or invalid }
+        "409": { description: "Draft is missing, already finalized, or invalid" }
         "403": { description: Administrator required }
         "404": { description: Tournament not found }
 components:
