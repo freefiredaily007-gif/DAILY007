@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -107,6 +108,8 @@ export const daily007WalletLedgerTable = pgTable("daily007_v2_wallet_ledger", {
   reason: text("reason").notNull(),
   matchId: uuid("match_id").references(() => daily007MatchesTable.id),
   registrationId: uuid("registration_id").references(() => daily007RegistrationsTable.id),
+  idempotencyKey: text("idempotency_key"),
+  details: jsonb("details"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_ledger_balance_nonnegative", sql`${table.balanceAfter} >= 0`),
@@ -114,6 +117,7 @@ export const daily007WalletLedgerTable = pgTable("daily007_v2_wallet_ledger", {
     .where(sql`${table.reason} = 'match_entry'`),
   uniqueIndex("daily007_v2_ledger_registration_refund_once").on(table.registrationId)
     .where(sql`${table.reason} = 'registration_refund'`),
+  uniqueIndex("daily007_v2_ledger_idempotency_key_unique").on(table.idempotencyKey),
   index("daily007_v2_wallet_ledger_user_idx").on(table.userId, table.createdAt),
 ]);
 
