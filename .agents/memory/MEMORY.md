@@ -2,4 +2,5 @@
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
 - [Daily007 Google auth bridge](google-auth-bridge.md) — Clerk proves Google identity; keep Daily007 wallet accounts and require explicit linking to password accounts.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
+- [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle TypeScript test entry points with the existing esbuild before running Node tests; keep source imports extensionless.
