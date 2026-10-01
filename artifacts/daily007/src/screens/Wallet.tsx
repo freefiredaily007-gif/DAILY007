@@ -1,13 +1,17 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl, Modal, Pressable } from 'react-native';
+import { View, Text, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, ScrollView, Platform } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Api, apiError } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { COIN_RATE_TEXT, inr } from '../lib/coins';
 
-const MIN_WITHDRAW = 100;
+const DEFAULT_MIN_WITHDRAW = 100;
+const MAX_PROOF_SIZE = 6 * 1024 * 1024;
 
 export default function Wallet() {
   const { user, refresh } = useApp();
@@ -24,6 +28,14 @@ export default function Wallet() {
   const [hasPending, setHasPending] = useState(false);
   const [hasPendingWithdraw, setHasPendingWithdraw] = useState(false);
   const [paymentUpi, setPaymentUpi] = useState('');
+  const [paymentQr, setPaymentQr] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [rechargeEnabled, setRechargeEnabled] = useState(false);
+  const [withdrawalEnabled, setWithdrawalEnabled] = useState(false);
+  const [minPurchase, setMinPurchase] = useState(1);
+  const [maxPurchase, setMaxPurchase] = useState(5000);
+  const [minWithdraw, setMinWithdraw] = useState(DEFAULT_MIN_WITHDRAW);
+  const [proof, setProof] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -34,17 +46,35 @@ export default function Wallet() {
         Api.myWithdrawals().catch(() => []),
         Api.settings().catch(() => null),
       ]);
-      setPaymentUpi(String(settings?.settings?.upiId ?? settings?.upiId ?? settings?.upi_id ?? '').trim());
+      const config = settings?.settings ?? settings ?? {};
+      setPaymentUpi(String(config?.upiId ?? config?.upi_id ?? '').trim());
+      setPaymentQr(String(config?.upiQrUrl ?? '').trim());
+      setPaymentNote(String(config?.paymentNote ?? '').trim());
+      setRechargeEnabled(config?.rechargeEnabled === true || config?.rechargeEnabled === 'true');
+      setWithdrawalEnabled(config?.withdrawalEnabled === true || config?.withdrawalEnabled === 'true');
+      setMinPurchase(Math.max(1, Number(config?.minPurchase) || 1));
+      setMaxPurchase(Math.max(1, Number(config?.maxPurchase) || 5000));
+      setMinWithdraw(Math.max(1, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW));
       const paysArr = Array.isArray(pays) ? pays : [];
       const wdsArr = Array.isArray(wds) ? wds : [];
       setHasPending(paysArr.some((p: any) => p.status === 'pending'));
       setHasPendingWithdraw(wdsArr.some((w: any) => w.status === 'pending'));
       const pendingPays = paysArr
-        .filter((p: any) => p.status === 'pending')
-        .map((p: any) => ({ id: 'pay-' + p.id, description: 'Add coins — under verification', amount: Number(p.amount || 0), createdAt: p.createdAt, pending: true }));
+        .filter((p: any) => p.status !== 'deleted')
+        .map((p: any) => ({
+          id: 'pay-' + p.id, description: 'Coin recharge request', reference: p.txnId,
+          coins: Number(p.coins || p.amount || 0), amount: Number(p.amount || 0),
+          createdAt: p.createdAt, status: p.status, reviewReason: p.reviewReason,
+          isRequest: true, requestType: 'payment',
+        }));
       const pendingWds = wdsArr
-        .filter((w: any) => w.status === 'pending')
-        .map((w: any) => ({ id: 'wd-' + w.id, description: 'Withdrawal — under verification', amount: -Number(w.coins || 0), createdAt: w.createdAt, pending: true }));
+        .filter((w: any) => w.status !== 'deleted')
+        .map((w: any) => ({
+          id: 'wd-' + w.id, description: 'Withdrawal request', coins: Number(w.coins || 0),
+          amount: -Number(w.coins || 0), createdAt: w.createdAt, status: w.status,
+          reviewReason: w.reviewReason, payoutStatus: w.payoutStatus,
+          isRequest: true, requestType: 'withdrawal',
+        }));
       const merged = [...pendingPays, ...pendingWds, ...(Array.isArray(data) ? data : [])];
       setTxns(merged);
     } catch (e) {
@@ -57,36 +87,83 @@ export default function Wallet() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const openSheet = (t: 'add' | 'withdraw') => {
-    if (t === 'add' && !paymentUpi) {
-      setError('Coin purchases are unavailable: the administrator has not configured a payment UPI ID yet.');
+    if (t === 'add' && (!rechargeEnabled || !paymentUpi || !paymentQr)) {
+      setError('Coin recharge is unavailable until an administrator enables it and configures the UPI ID and QR.');
       return;
     }
-    setOk(''); setError(''); setAmount(''); setTxnId(''); setAccount('');
+    if (t === 'withdraw' && !withdrawalEnabled) {
+      setError('Withdrawals are currently disabled by the administrator.');
+      return;
+    }
+    setOk(''); setError(''); setAmount(''); setTxnId(''); setAccount(''); setProof(null);
     setTab(t); setShowSheet(true);
   };
 
   const coins = Math.floor(Number(amount) || 0);
 
+  const pickProof = async () => {
+    setError('');
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets[0]) setProof(result.assets[0]);
+  };
+
+  const uploadImage = async (
+    asset: ImagePicker.ImagePickerAsset,
+    purpose: 'payment-proof' | 'wallet-qr',
+  ): Promise<string> => {
+    const contentType = String(asset.mimeType || 'image/jpeg').toLowerCase();
+    const size = Number(asset.fileSize || 0);
+    if (!size || size > MAX_PROOF_SIZE) throw new Error('Choose an image smaller than 6 MB.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
+      throw new Error('Choose a JPG, PNG, or WebP image.');
+    }
+    const upload = await Api.walletUploadUrl({ purpose, contentType, size });
+    if (Platform.OS === 'web') {
+      const blob = await (await fetch(asset.uri)).blob();
+      const response = await fetch(upload.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: blob,
+      });
+      if (!response.ok) throw new Error('Image upload failed. Please try again.');
+    } else {
+      const response = await FileSystem.uploadAsync(upload.uploadUrl, asset.uri, {
+        httpMethod: 'PUT',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: { 'Content-Type': contentType },
+      });
+      if (response.status < 200 || response.status >= 300) throw new Error('Image upload failed. Please try again.');
+    }
+    return String(upload.objectPath);
+  };
+
   const submitAdd = async () => {
-    if (!paymentUpi) { setError('Coin purchases are unavailable until the administrator configures a payment UPI ID.'); return; }
-    if (!coins || coins <= 0) { setError('Enter the number of coins you want to add.'); return; }
+    if (!rechargeEnabled || !paymentUpi || !paymentQr) { setError('Coin recharge is unavailable until an administrator configures it.'); return; }
+    if (!coins || coins < minPurchase || coins > maxPurchase) { setError(`Enter an amount between ${minPurchase} and ${maxPurchase} coins.`); return; }
     if (!txnId.trim()) { setError('Please enter the transaction ID of your payment.'); return; }
+    if (!proof) { setError('Attach a screenshot of your completed UPI payment.'); return; }
     setSubmitting(true); setError('');
     try {
-      await Api.createPayment({ coins, amount: coins, txnId: txnId.trim(), reference: txnId.trim() } as any);
+      const proofObjectPath = await uploadImage(proof, 'payment-proof');
+      await Api.createPayment({ coins, amount: coins, txnId: txnId.trim(), reference: txnId.trim(), proofObjectPath });
       setOk('Payment request submitted! Your request is currently under verification. Coins will be credited once approved by the admin.');
-      setShowSheet(false); setAmount(''); setTxnId('');
+      setShowSheet(false); setAmount(''); setTxnId(''); setProof(null);
       load();
     } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
   };
 
   const balance = Number(user?.coins ?? 0);
-  const belowMinBalance = balance < MIN_WITHDRAW;
+  const belowMinBalance = balance < minWithdraw;
 
   const submitWithdraw = async () => {
-    if (belowMinBalance) { setError('Minimum balance required to withdraw is 100 coins.'); return; }
+    if (!withdrawalEnabled) { setError('Withdrawals are currently disabled by the administrator.'); return; }
+    if (belowMinBalance) { setError(`Minimum balance required to withdraw is ${minWithdraw} coins.`); return; }
     if (!coins || coins <= 0) { setError('Enter the number of coins you want to withdraw.'); return; }
-    if (coins < MIN_WITHDRAW) { setError('Minimum withdrawal amount is 100 coins.'); return; }
+    if (coins < minWithdraw) { setError(`Minimum withdrawal amount is ${minWithdraw} coins.`); return; }
     if (coins > balance) { setError('You cannot withdraw more than your available balance.'); return; }
     if (!account.trim()) { setError('Enter your UPI ID / account details for the payout.'); return; }
     setSubmitting(true); setError('');
