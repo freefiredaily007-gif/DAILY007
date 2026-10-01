@@ -510,4 +510,108 @@ components:
           type: string
       required:
         - status
+    Daily007WalletImageUploadBody:
+      type: object
+      additionalProperties: false
+      properties:
+        purpose: { type: string, enum: [payment-proof, wallet-qr] }
+        contentType: { type: string, enum: [image/jpeg, image/png, image/webp] }
+        size: { type: integer, minimum: 1, maximum: 6291456 }
+      required: [purpose, contentType, size]
+    Daily007WalletImageUploadResponse:
+      type: object
+      properties:
+        uploadUrl: { type: string, format: uri }
+        objectPath: { type: string }
+        expiresInSeconds: { type: integer, minimum: 1 }
+      required: [uploadUrl, objectPath, expiresInSeconds]
+    Daily007RechargeRequestBody:
+      type: object
+      additionalProperties: false
+      description: Amount must equal coins. Supply txnId or reference with a private uploaded proof object path.
+      properties:
+        coins: { type: integer, minimum: 1, maximum: 2147483647 }
+        amount: { type: integer, minimum: 1, maximum: 2147483647 }
+        txnId: { type: string, minLength: 1, maxLength: 200 }
+        reference: { type: string, minLength: 1, maxLength: 200 }
+        proofObjectPath: { type: string, minLength: 1, maxLength: 500 }
+      required: [coins, proofObjectPath]
+    Daily007WithdrawalRequestBody:
+      type: object
+      additionalProperties: false
+      properties:
+        coins: { type: integer, minimum: 1, maximum: 2147483647 }
+        method: { type: string, minLength: 1, maxLength: 40 }
+        account: { type: string, minLength: 1, maxLength: 200 }
+      required: [coins, method, account]
+    Daily007ReviewRequestBody:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    Daily007PaymentRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        coins: { type: integer }
+        amount: { type: integer }
+        txnId: { type: string }
+        status: { type: string, enum: [pending, approved, rejected, deleted] }
+        reviewReason: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, "null"], format: date-time }
+      required: [id, coins, amount, status, createdAt]
+    Daily007WithdrawalRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        coins: { type: integer }
+        method: { type: string }
+        account: { type: string }
+        status: { type: string, enum: [pending, approved, rejected, deleted] }
+        payoutStatus: { type: string, enum: [not_paid, manual_payout_required, paid] }
+        reviewReason: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, "null"], format: date-time }
+      required: [id, coins, method, account, status, payoutStatus, createdAt]
+    Daily007WalletLedgerEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        amount: { type: integer }
+        balanceAfter: { type: integer }
+        reason: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, amount, balanceAfter, reason, description, createdAt]
+    Daily007PublicSettings:
+      type: object
+      properties:
+        upiId: { type: string }
+        paymentNote: { type: string }
+        minPurchase: { type: string }
+        maxPurchase: { type: string }
+        minWithdrawal: { type: string }
+        coinPackages: { type: string, description: Comma-separated administrator-configured coin package amounts }
+        rechargeEnabled: { type: boolean }
+        withdrawalEnabled: { type: boolean }
+        upiQrUrl: { type: string, format: uri }
+    Daily007AdminSettingsBody:
+      type: object
+      additionalProperties: false
+      properties:
+        appName: { type: string, maxLength: 300 }
+        whatsappLink: { type: string, maxLength: 300 }
+        instagramLink: { type: string, maxLength: 300 }
+        youtubeLink: { type: string, maxLength: 300 }
+        upiId: { type: string, maxLength: 300 }
+        paymentNote: { type: string, maxLength: 1000 }
+        supportContact: { type: string, maxLength: 300 }
+        minPurchase: { type: string, maxLength: 300 }
+        maxPurchase: { type: string, maxLength: 300 }
+        minWithdrawal: { type: string, maxLength: 300 }
+        coinPackages: { type: string, maxLength: 300 }
+        rechargeEnabled: { type: string, enum: ["true", "false"] }
+        withdrawalEnabled: { type: string, enum: ["true", "false"] }
+        upiQrObjectPath: { type: string, maxLength: 500 }
 
