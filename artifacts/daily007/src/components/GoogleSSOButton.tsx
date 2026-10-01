@@ -99,9 +99,12 @@ function ConfiguredGoogleButton({
       let isNewSignup = false;
 
       if (!existingSession) {
+        const redirectUrl = Platform.OS === 'web'
+          ? AuthSession.makeRedirectUri()
+          : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
         const sso = await startSSOFlow({
           strategy: 'oauth_google',
-          redirectUrl: AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' }),
+          redirectUrl,
         });
 
         expectedSessionId = sso.createdSessionId;
