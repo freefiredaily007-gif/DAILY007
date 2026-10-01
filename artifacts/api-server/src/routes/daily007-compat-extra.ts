@@ -246,6 +246,8 @@ router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
   const result = await pool.query(
     `SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email,
             p.coins, p.amount, p.reference AS "reference", p.reference AS "txnId", p.status,
+            p.proof_object_path IS NOT NULL AS "proofAvailable",
+            p.review_reason AS "reviewReason",
             p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
        FROM daily007_v2_payments p JOIN daily007_v2_users u ON u.id = p.user_id
       WHERE p.status <> 'deleted'
@@ -254,17 +256,66 @@ router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
   res.json(result.rows);
 });
 
+router.get("/admin/payments/:id/proof-url", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  if (!validId(req.params.id)) { error(res, 400, "Payment request id must be a UUID."); return; }
+  const result = await pool.query<{ proof_object_path: string | null }>(
+    "SELECT proof_object_path FROM daily007_v2_payments WHERE id = $1 AND status <> 'deleted'",
+    [req.params.id],
+  );
+  const objectPath = result.rows[0]?.proof_object_path;
+  if (!objectPath || !isWalletObjectPath(objectPath)) { error(res, 404, "Payment proof is unavailable."); return; }
+  try {
+    res.json({ url: await createWalletImageReadUrl(objectPath) });
+  } catch {
+    error(res, 404, "Payment proof is unavailable.");
+  }
+});
+
 router.get("/admin/withdrawals", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   const result = await pool.query(
     `SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email,
             w.coins, w.method, w.account, w.status, w.payout_status AS "payoutStatus",
+            w.review_reason AS "reviewReason",
             w.created_at AS "createdAt", w.reviewed_at AS "reviewedAt"
        FROM daily007_v2_withdrawals w JOIN daily007_v2_users u ON u.id = w.user_id
       WHERE w.status <> 'deleted'
       ORDER BY w.created_at DESC LIMIT 500`,
   );
   res.json(result.rows);
+});
+
+router.post("/admin/withdrawals/:id/payout", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  if (!validId(req.params.id)) { error(res, 400, "Withdrawal id must be a UUID."); return; }
+  const adminId = privateAccount(req, res); if (!adminId) return;
+  try {
+    const result = await transaction(async (client) => {
+      const locked = await client.query<any>(
+        "SELECT * FROM daily007_v2_withdrawals WHERE id = $1 FOR UPDATE", [req.params.id],
+      );
+      const request = locked.rows[0];
+      if (!request) throw Object.assign(new Error("Withdrawal not found."), { status: 404 });
+      if (request.status !== "approved") {
+        throw Object.assign(new Error("Approve the withdrawal before recording its manual payout."), { status: 409 });
+      }
+      if (request.payout_status === "paid") return { id: request.id, payoutStatus: "paid", alreadyRecorded: true };
+      if (request.payout_status !== "manual_payout_required") {
+        throw Object.assign(new Error("This withdrawal is not awaiting a manual payout."), { status: 409 });
+      }
+      await client.query(
+        "UPDATE daily007_v2_withdrawals SET payout_status = 'paid' WHERE id = $1", [req.params.id],
+      );
+      await client.query(
+        `INSERT INTO daily007_v2_notifications (user_id, title, body, type)
+         VALUES ($1, 'Withdrawal paid', 'Your withdrawal has been paid manually by the administrator.', 'payment')`,
+        [request.user_id],
+      );
+      return { id: request.id, payoutStatus: "paid" };
+    });
+    res.json(result);
+  } catch (e) { respondFailure(res, e); }
 });
 
 for (const kind of ["payments", "withdrawals"] as const) {
@@ -277,6 +328,11 @@ for (const kind of ["payments", "withdrawals"] as const) {
     if (!adminId) return;
     if (!validId(id) || (action !== "approve" && action !== "reject")) {
       error(res, 400, "A valid request UUID and approve/reject action are required."); return;
+    }
+    const body = req.body as unknown;
+    const reviewReason = isObject(body) ? text(body.reason, 1, 500) : null;
+    if (action === "reject" && !reviewReason) {
+      error(res, 400, "Provide a rejection reason of 1–500 characters."); return;
     }
     try {
       const result = await transaction(async (client) => {
@@ -318,11 +374,28 @@ for (const kind of ["payments", "withdrawals"] as const) {
         }
         const payoutStatus = kind === "withdrawals" && action === "approve" ? "manual_payout_required" : request.payout_status;
         const saved = await client.query(
-          `UPDATE ${table} SET status = $2, reviewed_by = $3, reviewed_at = now()
-               ${kind === "withdrawals" ? ", payout_status = $4" : ""}
+          `UPDATE ${table} SET status = $2, reviewed_by = $3, reviewed_at = now(),
+                               review_reason = $4
+               ${kind === "withdrawals" ? ", payout_status = $5" : ""}
             WHERE id = $1 RETURNING *`,
-          kind === "withdrawals" ? [id, action === "approve" ? "approved" : "rejected", adminId, payoutStatus] :
-            [id, action === "approve" ? "approved" : "rejected", adminId],
+          kind === "withdrawals"
+            ? [id, action === "approve" ? "approved" : "rejected", adminId, reviewReason, payoutStatus]
+            : [id, action === "approve" ? "approved" : "rejected", adminId, reviewReason],
+        );
+        const title = kind === "payments"
+          ? (action === "approve" ? "Coin recharge approved" : "Coin recharge rejected")
+          : (action === "approve" ? "Withdrawal approved" : "Withdrawal rejected");
+        const message = kind === "payments"
+          ? (action === "approve"
+            ? `${request.coins} coins have been credited to your wallet.`
+            : `Your ${request.coins}-coin recharge was rejected. Reason: ${reviewReason}`)
+          : (action === "approve"
+            ? "Your withdrawal request was approved. The payout is manual and will be recorded when sent."
+            : `Your ${request.coins}-coin withdrawal was rejected and the coins were refunded. Reason: ${reviewReason}`);
+        await client.query(
+          `INSERT INTO daily007_v2_notifications (user_id, title, body, type)
+           VALUES ($1, $2, $3, 'payment')`,
+          [request.user_id, title, message],
         );
         return saved.rows[0];
       });
