@@ -6,6 +6,12 @@ import {
   pausedVideoRewardResponse,
   referralCodeForUserId,
 } from "../lib/daily007-compat-extra-validation";
+import {
+  createWalletImageReadUrl,
+  createWalletImageUpload,
+  isWalletObjectPath,
+  validateUploadedWalletImage,
+} from "../lib/daily007-wallet-storage";
 
 const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,6 +19,7 @@ const MAX_INT = 2_147_483_647;
 const SETTINGS_DEFAULTS = {
   appName: "Daily007", whatsappLink: "", instagramLink: "", youtubeLink: "",
   upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
+  minWithdrawal: "100", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",
 };
 type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
 const userId = (req: Request) => req.daily007Account?.id;
@@ -57,6 +64,43 @@ async function settings(): Promise<Record<string, unknown>> {
   return { ...SETTINGS_DEFAULTS, ...(result.rows[0]?.settings ?? {}) };
 }
 
+async function clientSettings(admin = false): Promise<Record<string, unknown>> {
+  const current = await settings();
+  const qrObjectPath = String(current.upiQrObjectPath ?? "");
+  const { upiQrObjectPath: _privatePath, ...visible } = current;
+  return {
+    ...visible,
+    rechargeEnabled: current.rechargeEnabled === "true",
+    withdrawalEnabled: current.withdrawalEnabled === "true",
+    upiQrUrl: qrObjectPath ? await createWalletImageReadUrl(qrObjectPath, 60 * 60) : "",
+    ...(admin ? { upiQrObjectPath: qrObjectPath } : {}),
+  };
+}
+
+router.post("/wallet/uploads/request-url", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const body = req.body as unknown;
+  if (!isObject(body) ||
+      (body.purpose !== "payment-proof" && body.purpose !== "wallet-qr") ||
+      typeof body.contentType !== "string" ||
+      typeof body.size !== "number") {
+    error(res, 400, "Expected an image purpose, MIME type, and file size."); return;
+  }
+  if (body.purpose === "wallet-qr" && !requireAdmin(req, res)) return;
+  try {
+    const upload = await createWalletImageUpload({
+      userId: id,
+      purpose: body.purpose,
+      contentType: body.contentType,
+      size: body.size,
+    });
+    res.json({ ...upload, expiresInSeconds: 900 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not create an upload URL.";
+    error(res, 400, message);
+  }
+});
+
 router.get("/wallet/transactions", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
   const result = await pool.query(
@@ -82,22 +126,41 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   const config = await settings();
   const minimum = Number(config.minPurchase);
   const maximum = Number(config.maxPurchase);
-  if (!text(config.upiId, 1, 200)) { error(res, 409, "Payment requests are unavailable until an administrator configures the UPI ID."); return; }
+  if (config.rechargeEnabled !== "true" || !text(config.upiId, 1, 200) || !text(config.upiQrObjectPath, 1, 500)) {
+    error(res, 409, "Payment requests are unavailable until an administrator enables recharge and configures the UPI ID and QR."); return;
+  }
   if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || coins < minimum || coins > maximum) {
     error(res, 400, `Payment request must be between ${minimum} and ${maximum} coins.`);
     return;
   }
+  const proofObjectPath = isObject(body) ? text(body.proofObjectPath, 1, 500) : null;
+  if (!proofObjectPath || !proofObjectPath.startsWith(`/objects/uploads/daily007/payment-proofs/${id}/`)) {
+    error(res, 400, "Upload a payment screenshot before submitting the request."); return;
+  }
+  try {
+    await validateUploadedWalletImage(proofObjectPath, id);
+  } catch (e) {
+    error(res, 400, e instanceof Error ? e.message : "The payment screenshot could not be verified."); return;
+  }
   const normalized = normalizePaymentReference(reference);
   try {
     const result = await pool.query(
-      `INSERT INTO daily007_v2_payments (user_id, coins, amount, reference, reference_normalized)
-       VALUES ($1, $2, $2, $3, $4)
-       RETURNING id, coins, amount, reference AS "txnId", status, created_at AS "createdAt"`,
-      [id, coins, reference, normalized],
+      `INSERT INTO daily007_v2_payments
+         (user_id, coins, amount, reference, reference_normalized, proof_object_path)
+       VALUES ($1, $2, $2, $3, $4, $5)
+       RETURNING id, coins, amount, reference AS "txnId", status,
+                 created_at AS "createdAt"`,
+      [id, coins, reference, normalized, proofObjectPath],
     );
     res.status(201).json(result.rows[0]);
   } catch (e) {
-    if ((e as { code?: string }).code === "23505") { error(res, 409, "This payment reference has already been submitted."); return; }
+    if ((e as { code?: string }).code === "23505") {
+      const constraint = (e as { constraint?: string }).constraint;
+      error(res, 409, constraint === "daily007_one_pending_payment_per_user"
+        ? "You already have a pending coin recharge request."
+        : "This payment reference has already been submitted.");
+      return;
+    }
     throw e;
   }
 });
@@ -105,7 +168,9 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
 router.get("/my/payments", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
   const result = await pool.query(
-    `SELECT id, coins, amount, reference AS "txnId", status, created_at AS "createdAt"
+    `SELECT id, coins, amount, reference AS "txnId", status,
+            review_reason AS "reviewReason", created_at AS "createdAt",
+            reviewed_at AS "reviewedAt"
        FROM daily007_v2_payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
   );
   res.json(result.rows);
@@ -117,8 +182,13 @@ router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {
   const coins = isObject(body) ? body.coins : undefined;
   const method = isObject(body) ? text(body.method, 1, 40) : null;
   const account = isObject(body) ? text(body.account, 1, 200) : null;
-  if (!integer(coins, 100) || !method || !account) {
-    error(res, 400, "coins must be an integer of at least 100, with a method and payout account.");
+  const config = await settings();
+  const minimum = Number(config.minWithdrawal);
+  if (config.withdrawalEnabled !== "true") {
+    error(res, 409, "Withdrawals are currently disabled by the administrator."); return;
+  }
+  if (!Number.isSafeInteger(minimum) || minimum < 1 || !integer(coins, minimum) || !method || !account) {
+    error(res, 400, `coins must be an integer of at least ${Number.isSafeInteger(minimum) && minimum > 0 ? minimum : 100}, with a method and payout account.`);
     return;
   }
   try {
@@ -164,7 +234,8 @@ router.get("/my/withdrawals", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
   const result = await pool.query(
     `SELECT id, coins, method, account, status, payout_status AS "payoutStatus",
-            created_at AS "createdAt", reviewed_at AS "reviewedAt"
+            review_reason AS "reviewReason", created_at AS "createdAt",
+            reviewed_at AS "reviewedAt"
        FROM daily007_v2_withdrawals WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
   );
   res.json(result.rows);

@@ -38,7 +38,7 @@ export const daily007WithdrawalsTable = pgTable("daily007_v2_withdrawals", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 }, (table) => [
-  check("daily007_withdrawal_coins_valid", sql`${table.coins} BETWEEN 100 AND 2147483647`),
+  check("daily007_withdrawal_coins_valid", sql`${table.coins} BETWEEN 1 AND 2147483647`),
   check("daily007_withdrawal_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected', 'deleted')`),
   check("daily007_withdrawal_payout_status_valid", sql`${table.payoutStatus} IN ('not_paid', 'manual_payout_required', 'paid')`),
   index("daily007_withdrawal_user_idx").on(table.userId, table.createdAt),
