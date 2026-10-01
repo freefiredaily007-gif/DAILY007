@@ -16,6 +16,8 @@ const FIELDS: [string, string, string][] = [
   ['minPurchase', 'Min coin purchase', '100'],
   ['maxPurchase', 'Max coin purchase', '5000'],
   ['coinPackages', 'Coin packages', '100, 250, 500, 1000'],
+  ['youtubeTaskReward', 'YouTube task reward (coins)', '2'],
+  ['youtubeTaskUrl', 'YouTube task channel URL', 'https://youtube.com/@freefiredaily007'],
   ['minWithdrawal', 'Minimum withdrawal coins', '100 minimum'],
   ['maxWithdrawal', 'Maximum withdrawal coins', '5000'],
   ['coinToMoneyRate', 'Rupees per coin', '1'],
@@ -40,6 +42,7 @@ export default function AdminSettings() {
       map.maxWithdrawal = String(Math.max(Number(map.minWithdrawal), Number(s.maxWithdrawal) || 5000));
       map.rechargeEnabled = String(s.rechargeEnabled === true || s.rechargeEnabled === 'true');
       map.withdrawalEnabled = String(s.withdrawalEnabled === true || s.withdrawalEnabled === 'true');
+      map.youtubeTaskEnabled = String(s.youtubeTaskEnabled === true || s.youtubeTaskEnabled === 'true');
       map.upiQrObjectPath = String(s.upiQrObjectPath ?? '');
       setQrUrl(String(s.upiQrUrl ?? ''));
       setVals(map);
@@ -91,7 +94,7 @@ export default function AdminSettings() {
             key={k}
             placeholder={`${label} — ${ph}`}
             value={vals[k] ?? ''}
-            keyboardType={k === 'coinToMoneyRate' ? 'decimal-pad' : ['minPurchase', 'maxPurchase', 'minWithdrawal', 'maxWithdrawal'].includes(k) ? 'number-pad' : 'default'}
+            keyboardType={k === 'coinToMoneyRate' ? 'decimal-pad' : ['minPurchase', 'maxPurchase', 'minWithdrawal', 'maxWithdrawal', 'youtubeTaskReward'].includes(k) ? 'number-pad' : 'default'}
             onChangeText={(v) => setVals((s) => ({ ...s, [k]: v }))}
           />
         ))}
@@ -119,6 +122,22 @@ export default function AdminSettings() {
             thumbColor={vals.withdrawalEnabled === 'true' ? C.green : C.sub}
           />
         </View>
+        <View style={st.taskSettings}>
+          <Text style={st.fieldTitle}>YouTube Subscribe &amp; Earn task</Text>
+          <Text style={st.switchNote}>Claims stay pending until an administrator verifies the subscription and approves the reward.</Text>
+          <View style={st.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={st.switchTitle}>Enable YouTube task</Text>
+              <Text style={st.switchNote}>Disabled tasks cannot receive new claims.</Text>
+            </View>
+            <Switch
+              value={vals.youtubeTaskEnabled === 'true'}
+              onValueChange={(value) => setVals((s) => ({ ...s, youtubeTaskEnabled: String(value) }))}
+              trackColor={{ false: C.line, true: C.green + '99' }}
+              thumbColor={vals.youtubeTaskEnabled === 'true' ? C.green : C.sub}
+            />
+          </View>
+        </View>
         <Text style={st.fieldTitle}>UPI payment QR</Text>
         <Text style={st.switchNote}>Upload the QR that matches the UPI ID above. Confirm the recipient details before enabling payments.</Text>
         {qrUrl ? <Image source={{ uri: qrUrl }} resizeMode="contain" style={st.qr} /> : null}
@@ -137,5 +156,6 @@ const st = StyleSheet.create({
   switchTitle: { color: C.text, fontWeight: '800', fontSize: 13 },
   switchNote: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 3, marginBottom: 8 },
   fieldTitle: { color: C.text, fontWeight: '800', fontSize: 13, marginTop: 14, marginBottom: 4 },
+  taskSettings: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: C.line },
   qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#fff', borderRadius: 10, marginVertical: 8 },
 });

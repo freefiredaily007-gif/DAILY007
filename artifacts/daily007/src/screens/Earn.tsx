@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,7 +13,11 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useDaily007GetMyReferrals } from '@workspace/api-client-react';
+import {
+  useDaily007GetMyReferrals,
+  useDaily007GetYoutubeSubscribeTask,
+  useDaily007SubmitYoutubeSubscribeClaim,
+} from '@workspace/api-client-react';
 import { C } from '../components/ui';
 import { apiError } from '../lib/api';
 
@@ -27,9 +32,14 @@ const rechargeStatusLabel: Record<string, string> = {
 export default function Earn() {
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [taskError, setTaskError] = useState('');
+  const [hasOpenedChannel, setHasOpenedChannel] = useState(false);
   const referralsQuery = useDaily007GetMyReferrals();
+  const youtubeTaskQuery = useDaily007GetYoutubeSubscribeTask();
+  const submitYoutubeClaim = useDaily007SubmitYoutubeSubscribeClaim();
   const dashboard = referralsQuery.data;
   const referrals = dashboard?.referrals ?? [];
+  const youtubeTask = youtubeTaskQuery.data;
 
   const copyCode = async () => {
     if (!dashboard?.code) return;
@@ -55,14 +65,37 @@ export default function Earn() {
     }
   };
 
+  const openYoutubeChannel = async () => {
+    if (!youtubeTask?.channelUrl) return;
+    setTaskError('');
+    try {
+      await Linking.openURL(youtubeTask.channelUrl);
+      setHasOpenedChannel(true);
+    } catch {
+      setTaskError('Could not open YouTube. Try again or open the channel in your browser.');
+    }
+  };
+
+  const submitYoutubeTask = async () => {
+    setTaskError('');
+    try {
+      await submitYoutubeClaim.mutateAsync(undefined);
+      setHasOpenedChannel(false);
+      await youtubeTaskQuery.refetch();
+      Alert.alert('Claim submitted', 'An administrator will review your YouTube subscription before adding the coins.');
+    } catch (e) {
+      setTaskError(`Could not submit your claim: ${apiError(e)}`);
+    }
+  };
+
   return (
     <ScrollView
       style={s.root}
       contentContainerStyle={s.content}
       refreshControl={
         <RefreshControl
-          refreshing={referralsQuery.isRefetching}
-          onRefresh={() => { void referralsQuery.refetch(); }}
+          refreshing={referralsQuery.isRefetching || youtubeTaskQuery.isRefetching}
+          onRefresh={() => { void Promise.all([referralsQuery.refetch(), youtubeTaskQuery.refetch()]); }}
           tintColor={C.gold}
         />
       }
@@ -89,6 +122,86 @@ export default function Earn() {
         <Text style={s.error}>{`Referral data unavailable: ${apiError(referralsQuery.error)}`}</Text>
       )}
       {!!actionError && <Text style={s.error}>{actionError}</Text>}
+      {!!youtubeTaskQuery.error && (
+        <Text style={s.error}>{`YouTube task unavailable: ${apiError(youtubeTaskQuery.error)}`}</Text>
+      )}
+      {!!taskError && <Text style={s.error}>{taskError}</Text>}
+
+      <View style={s.youtubeCard}>
+        <View style={s.youtubeHeading}>
+          <Feather name="youtube" size={21} color={C.red} />
+          <Text style={s.youtubeTitle}>
+            Subscribe to YouTube &amp; Earn {youtubeTask?.rewardCoins ?? 2} Coins
+          </Text>
+        </View>
+        <Text style={s.youtubeCopy}>
+          Subscribe to the Daily007 channel, then submit your claim. An administrator will verify it before crediting your wallet.
+        </Text>
+        {youtubeTaskQuery.isPending && !youtubeTask ? (
+          <View style={s.taskLoading}>
+            <ActivityIndicator color={C.gold} />
+            <Text style={s.muted}>Loading YouTube task…</Text>
+          </View>
+        ) : null}
+        {youtubeTask?.completed ? (
+          <View style={s.taskStatus}>
+            <Feather name="check-circle" size={16} color={C.green} />
+            <View style={s.taskStatusText}>
+              <Text style={s.taskStatusTitle}>TASK COMPLETED · {youtubeTask.claim?.rewardCoins ?? youtubeTask.rewardCoins} COINS CREDITED</Text>
+              <Text selectable style={s.detailText}>Transaction ID: {youtubeTask.claim?.transactionId ?? 'Recorded'}</Text>
+            </View>
+          </View>
+        ) : youtubeTask?.claim?.status === 'pending' ? (
+          <View style={s.taskStatus}>
+            <Feather name="clock" size={16} color={C.gold} />
+            <View style={s.taskStatusText}>
+              <Text style={[s.taskStatusTitle, { color: C.gold }]}>CLAIM SUBMITTED · AWAITING REVIEW</Text>
+              <Text style={s.detailText}>{youtubeTask.claim.rewardCoins} coins will be credited if approved.</Text>
+            </View>
+          </View>
+        ) : youtubeTask?.claim?.status === 'rejected' ? (
+          <View style={s.taskRejected}>
+            <Text style={s.taskStatusTitle}>CLAIM NOT APPROVED</Text>
+            <Text style={s.detailText}>{youtubeTask.claim.reviewReason || 'Please subscribe to the channel and submit again.'}</Text>
+          </View>
+        ) : null}
+        {youtubeTask && !youtubeTask.completed && youtubeTask.claim?.status !== 'pending' ? (
+          youtubeTask.enabled ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open the Daily007 YouTube channel"
+                testID="youtube-task-open-channel"
+                onPress={openYoutubeChannel}
+                style={s.youtubeButton}
+              >
+                <Feather name="external-link" size={16} color={C.text} />
+                <Text style={s.youtubeButtonText}>SUBSCRIBE ON YOUTUBE</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Submit YouTube subscription for administrator review"
+                testID="youtube-task-submit-claim"
+                disabled={!hasOpenedChannel || submitYoutubeClaim.isPending}
+                onPress={submitYoutubeTask}
+                style={[s.claimButton, (!hasOpenedChannel || submitYoutubeClaim.isPending) && s.claimButtonDisabled]}
+              >
+                {submitYoutubeClaim.isPending
+                  ? <ActivityIndicator color={C.bg} />
+                  : <Feather name="send" size={15} color={C.bg} />}
+                <Text style={s.claimButtonText}>
+                  {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
+                </Text>
+              </Pressable>
+              {!hasOpenedChannel ? (
+                <Text style={s.taskHint}>Open the channel first. Coins are added only after admin approval.</Text>
+              ) : null}
+            </>
+          ) : (
+            <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
+          )
+        ) : null}
+      </View>
 
       {!!dashboard && (
         <>
@@ -188,6 +301,21 @@ const s = StyleSheet.create({
   ruleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   ruleTitle: { color: C.gold, fontSize: 13, fontWeight: '800', flex: 1 },
   ruleText: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 7 },
+  youtubeCard: { backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: `${C.red}66` },
+  youtubeHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  youtubeTitle: { color: C.text, fontSize: 14, fontWeight: '900', flex: 1 },
+  youtubeCopy: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 8, marginBottom: 10 },
+  taskLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  taskStatus: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.green}55` },
+  taskStatusText: { flex: 1 },
+  taskStatusTitle: { color: C.green, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  taskRejected: { backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.red}55` },
+  taskHint: { color: C.dim, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 8 },
+  youtubeButton: { minHeight: 44, backgroundColor: `${C.red}22`, borderColor: `${C.red}88`, borderWidth: 1, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
+  youtubeButtonText: { color: C.text, fontWeight: '900', fontSize: 11, letterSpacing: 0.4 },
+  claimButton: { minHeight: 44, backgroundColor: C.gold, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8, paddingHorizontal: 8 },
+  claimButtonDisabled: { opacity: 0.45 },
+  claimButtonText: { color: C.bg, fontWeight: '900', fontSize: 10, letterSpacing: 0.25 },
   loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 18 },
   muted: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 4 },
   error: { color: C.red, fontSize: 12, lineHeight: 18, marginBottom: 10 },
