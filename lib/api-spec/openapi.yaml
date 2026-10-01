@@ -327,10 +327,10 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeClaim" }
-        "400": { description: Invalid request id, action, or rejection reason }
+        "400": { description: "Invalid request id, action, or rejection reason" }
         "403": { description: Administrator required }
         "404": { description: Claim not found }
-        "409": { description: Claim already reviewed, already rewarded, or wallet limit would be exceeded }
+        "409": { description: "Claim already reviewed, already rewarded, or wallet limit would be exceeded" }
   /payments:
     post:
       operationId: daily007SubmitRechargeRequest
