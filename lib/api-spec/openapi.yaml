@@ -264,6 +264,73 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007ReferralDashboard" }
         "401": { description: Missing or invalid bearer token }
+  /earn/youtube-subscribe:
+    get:
+      operationId: daily007GetYoutubeSubscribeTask
+      summary: Get the YouTube subscribe task settings and the current user's claim status
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Task configuration and the authenticated user's latest claim
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeTaskStatus" }
+        "401": { description: Missing or invalid bearer token }
+  /earn/youtube-subscribe/claims:
+    post:
+      operationId: daily007SubmitYoutubeSubscribeClaim
+      summary: Submit a YouTube subscription claim for administrator review
+      description: This endpoint creates a pending claim only. It never credits coins; an administrator must verify and approve it.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "201":
+          description: New claim submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeClaim" }
+        "200":
+          description: Existing pending or completed claim returned without a second claim
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeClaim" }
+        "401": { description: Missing or invalid bearer token }
+        "409": { description: Task is disabled or the user already completed it }
+  /admin/earn/youtube-subscribe/claims:
+    get:
+      operationId: daily007AdminListYoutubeSubscribeClaims
+      summary: List YouTube subscription claims and completion totals for administrators
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Claim history with user identity and total completed rewards
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminYoutubeSubscribeClaims" }
+        "403": { description: Administrator required }
+  /admin/earn/youtube-subscribe/claims/{id}/{action}:
+    post:
+      operationId: daily007AdminReviewYoutubeSubscribeClaim
+      summary: Approve or reject a pending YouTube subscription claim
+      description: Approval credits the configured reward exactly once in the same transaction as the completion record.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeReviewBody" }
+      responses:
+        "200":
+          description: Claim reviewed; approved claims include their wallet transaction id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeClaim" }
+        "400": { description: Invalid request id, action, or rejection reason }
+        "403": { description: Administrator required }
+        "404": { description: Claim not found }
+        "409": { description: Claim already reviewed, already rewarded, or wallet limit would be exceeded }
   /payments:
     post:
       operationId: daily007SubmitRechargeRequest
@@ -785,6 +852,9 @@ components:
         rechargeEnabled: { type: boolean }
         withdrawalEnabled: { type: boolean }
         upiQrUrl: { type: string, format: uri }
+        youtubeTaskEnabled: { type: boolean }
+        youtubeTaskReward: { type: string }
+        youtubeTaskUrl: { type: string, format: uri }
     Daily007AdminSettingsBody:
       type: object
       additionalProperties: false
@@ -803,4 +873,79 @@ components:
         rechargeEnabled: { type: string, enum: ["true", "false"] }
         withdrawalEnabled: { type: string, enum: ["true", "false"] }
         upiQrObjectPath: { type: string, maxLength: 500 }
+        youtubeTaskEnabled: { type: string, enum: ["true", "false"] }
+        youtubeTaskReward: { type: string, maxLength: 20 }
+        youtubeTaskUrl: { type: string, maxLength: 300, format: uri }
+    Daily007YoutubeSubscribeClaim:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, approved, rejected] }
+        rewardCoins: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        reviewedAt:
+          anyOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
+        reviewReason:
+          anyOf:
+            - { type: string }
+            - { type: "null" }
+        transactionId:
+          anyOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+        walletCoins:
+          anyOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+      required: [id, status, rewardCoins, createdAt, reviewedAt, reviewReason, transactionId, walletCoins]
+    Daily007YoutubeSubscribeTaskStatus:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        rewardCoins: { type: integer, minimum: 1 }
+        channelUrl: { type: string, format: uri }
+        completed: { type: boolean }
+        claim:
+          anyOf:
+            - { $ref: "#/components/schemas/Daily007YoutubeSubscribeClaim" }
+            - { type: "null" }
+      required: [enabled, rewardCoins, channelUrl, completed, claim]
+    Daily007AdminYoutubeSubscribeClaim:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        userName: { type: string }
+        email: { type: string, format: email }
+        status: { type: string, enum: [pending, approved, rejected] }
+        rewardCoins: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        reviewedAt:
+          anyOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
+        reviewReason:
+          anyOf:
+            - { type: string }
+            - { type: "null" }
+        transactionId:
+          anyOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+      required: [id, userId, userName, email, status, rewardCoins, createdAt, reviewedAt, reviewReason, transactionId]
+    Daily007AdminYoutubeSubscribeClaims:
+      type: object
+      properties:
+        totalCompleted: { type: integer, minimum: 0 }
+        claims:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007AdminYoutubeSubscribeClaim" }
+      required: [totalCompleted, claims]
+    Daily007YoutubeSubscribeReviewBody:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: { type: string, maxLength: 500 }
 

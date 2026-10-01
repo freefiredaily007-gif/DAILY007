@@ -2,7 +2,12 @@ import {
   check, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { daily007UsersTable, daily007MatchesTable, daily007RegistrationsTable } from "./daily007-v2";
+import {
+  daily007UsersTable,
+  daily007MatchesTable,
+  daily007RegistrationsTable,
+  daily007WalletLedgerTable,
+} from "./daily007-v2";
 
 export const daily007PaymentsTable = pgTable("daily007_v2_payments", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -100,3 +105,25 @@ export const daily007UserStatsTable = pgTable("daily007_v2_user_stats", {
   kills: integer("kills").notNull().default(0),
   prizeCoins: integer("prize_coins").notNull().default(0),
 });
+
+export const daily007YoutubeSubscribeClaimsTable = pgTable("daily007_v2_youtube_subscribe_claims", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
+  taskKey: text("task_key").notNull().default("youtube_subscribe"),
+  rewardCoins: integer("reward_coins").notNull(),
+  status: text("status").notNull().default("pending"),
+  reviewReason: text("review_reason"),
+  reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
+  rewardLedgerId: uuid("reward_ledger_id").references(() => daily007WalletLedgerTable.id).unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+}, (table) => [
+  check("daily007_youtube_claim_reward_valid", sql`${table.rewardCoins} BETWEEN 1 AND 2147483647`),
+  check("daily007_youtube_claim_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  index("daily007_youtube_claim_user_idx").on(table.userId, table.taskKey, table.createdAt),
+  index("daily007_youtube_claim_status_idx").on(table.status, table.createdAt),
+  uniqueIndex("daily007_youtube_one_pending_claim_per_user").on(table.userId, table.taskKey)
+    .where(sql`${table.status} = 'pending'`),
+  uniqueIndex("daily007_youtube_one_completion_per_user").on(table.userId, table.taskKey)
+    .where(sql`${table.status} = 'approved'`),
+]);
