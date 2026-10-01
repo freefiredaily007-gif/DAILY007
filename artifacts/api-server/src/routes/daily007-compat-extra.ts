@@ -616,7 +616,7 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   for (const [key, fallback] of Object.entries(SETTINGS_DEFAULTS)) {
     const value = body[key] === undefined ? (current[key] ?? fallback) : body[key];
     const maxLength = key === "paymentNote" ? 1000 : key === "upiQrObjectPath" ? 500 :
-      key === "coinPackages" ? 300 : 300;
+      key === "youtubeTaskReward" ? 20 : key === "coinPackages" ? 300 : 300;
     if (typeof value !== "string" || value.length > maxLength) {
       error(res, 400, `${key} must be a string within the allowed length.`); return;
     }
@@ -646,8 +646,17 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
     error(res, 400, "coinToMoneyRate must be a positive rate with no more than four decimal places."); return;
   }
   if (!["true", "false"].includes(next.rechargeEnabled) ||
-      !["true", "false"].includes(next.withdrawalEnabled)) {
-    error(res, 400, "Recharge and withdrawal enablement must be true or false."); return;
+      !["true", "false"].includes(next.withdrawalEnabled) ||
+      !["true", "false"].includes(next.youtubeTaskEnabled)) {
+    error(res, 400, "Recharge, withdrawal, and YouTube task enablement must be true or false."); return;
+  }
+  if (!/^[1-9]\d*$/.test(next.youtubeTaskReward) ||
+      !Number.isSafeInteger(Number(next.youtubeTaskReward)) ||
+      Number(next.youtubeTaskReward) > MAX_INT) {
+    error(res, 400, "youtubeTaskReward must be a positive whole-number coin amount."); return;
+  }
+  if (!isYoutubeChannelUrl(next.youtubeTaskUrl)) {
+    error(res, 400, "youtubeTaskUrl must be a valid HTTPS YouTube channel URL."); return;
   }
   if (next.upiId && !/^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/.test(next.upiId)) {
     error(res, 400, "Enter a valid UPI ID."); return;
