@@ -70,8 +70,9 @@ export default function Wallet() {
         .map((value: string) => Number(value.trim()))
         .filter((value: number) => Number.isSafeInteger(value) && value > 0);
       setCoinPackages([...new Set(configuredPackages)]);
-      setMinWithdraw(Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW));
-      setMaxWithdraw(Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.maxWithdrawal) || DEFAULT_MAX_WITHDRAW));
+      const configuredMinWithdraw = Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW);
+      setMinWithdraw(configuredMinWithdraw);
+      setMaxWithdraw(Math.max(configuredMinWithdraw, Number(config?.maxWithdrawal) || DEFAULT_MAX_WITHDRAW));
       setHasPending(pays.some((p: any) => p.status === 'pending'));
       setHasPendingWithdraw(wds.some((w: any) => w.status === 'pending'));
       setPendingDepositCoins(pays

@@ -195,8 +195,11 @@ router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {
   const method = isObject(body) ? text(body.method, 1, 40) : null;
   const account = isObject(body) ? text(body.account, 1, 200) : null;
   const config = await settings();
-  const minimum = Number(config.minWithdrawal);
-  const maximum = Number(config.maxWithdrawal);
+  const configuredMinimum = Number(config.minWithdrawal);
+  const minimum = Number.isSafeInteger(configuredMinimum)
+    ? Math.max(100, configuredMinimum)
+    : 100;
+  const maximum = Math.max(minimum, Number(config.maxWithdrawal));
   if (config.withdrawalEnabled !== "true") {
     error(res, 409, "Withdrawals are currently disabled by the administrator."); return;
   }
@@ -401,12 +404,12 @@ for (const kind of ["payments", "withdrawals"] as const) {
             : [id, action === "approve" ? "approved" : "rejected", adminId, reviewReason],
         );
         const title = kind === "payments"
-          ? (action === "approve" ? "Coin recharge approved" : "Coin recharge rejected")
+          ? (action === "approve" ? "Coin deposit approved" : "Coin deposit rejected")
           : (action === "approve" ? "Withdrawal approved" : "Withdrawal rejected");
         const message = kind === "payments"
           ? (action === "approve"
-            ? `${request.coins} coins have been credited to your wallet.`
-            : `Your ${request.coins}-coin recharge was rejected. Reason: ${reviewReason}`)
+            ? `Your coin deposit has been approved. ${request.coins} coins have been added to your wallet.`
+            : `Your coin deposit request was rejected. Reason: ${reviewReason}`)
           : (action === "approve"
             ? "Your withdrawal request was approved. The payout is manual and will be recorded when sent."
             : `Your ${request.coins}-coin withdrawal was rejected and the coins were refunded. Reason: ${reviewReason}`);

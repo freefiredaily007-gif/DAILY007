@@ -36,6 +36,8 @@ export default function AdminSettings() {
       const s = response?.settings ?? response ?? {};
       const map: Record<string, string> = {};
       for (const [k] of FIELDS) map[k] = String(s[k] ?? '');
+      map.minWithdrawal = String(Math.max(100, Number(s.minWithdrawal) || 100));
+      map.maxWithdrawal = String(Math.max(Number(map.minWithdrawal), Number(s.maxWithdrawal) || 5000));
       map.rechargeEnabled = String(s.rechargeEnabled === true || s.rechargeEnabled === 'true');
       map.withdrawalEnabled = String(s.withdrawalEnabled === true || s.withdrawalEnabled === 'true');
       map.upiQrObjectPath = String(s.upiQrObjectPath ?? '');

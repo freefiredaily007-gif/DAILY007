@@ -18,12 +18,17 @@ export default function AdminPayments() {
   const [proofLoading, setProofLoading] = useState<string | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<string | null>(null);
   const [payoutBusy, setPayoutBusy] = useState(false);
+  const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
 
   const [all, setAll] = useState<any[] | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [pays, ws] = await Promise.all([Api.adminPayments(), Api.adminWithdrawals()]);
+      const [pays, ws, settings] = await Promise.all([
+        Api.adminPayments(), Api.adminWithdrawals(), Api.adminSettings(),
+      ]);
+      const config = settings?.settings ?? settings ?? {};
+      setCoinToMoneyRate(Number(config.coinToMoneyRate) > 0 ? Number(config.coinToMoneyRate) : 1);
       setAll([
         ...(Array.isArray(pays) ? pays : []).map((p: any) => ({ ...p, kind: 'payment' })),
         ...(Array.isArray(ws) ? ws : []).map((w: any) => ({ ...w, kind: 'withdrawal' })),
@@ -90,7 +95,7 @@ export default function AdminPayments() {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
-      <Text style={st.h}>💳 PAYMENTS</Text>
+      <Text style={st.h}>💳 COIN DEPOSITS & WITHDRAWALS</Text>
       <Text style={st.notice}>Payment approval is manual. Withdrawal approval does not send money automatically; arrange the payout separately.</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
@@ -99,8 +104,9 @@ export default function AdminPayments() {
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} requests.`} /> : list.map((p) => (
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>
-          <Text style={st.pName}>{p.kind === 'withdrawal' ? '↩ WITHDRAW' : '🪙 ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount)}</Text>
-          <Text style={st.sub}>👤 {p.userName || p.userId}</Text>
+          <Text style={st.pName}>{p.kind === 'withdrawal' ? '↩ WITHDRAW' : '🪙 ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount, coinToMoneyRate)}</Text>
+          <Text style={st.sub}>👤 {p.userName || 'Player'} · User ID: {p.userId}</Text>
+          {p.kind === 'withdrawal' && <Text style={st.sub}>Estimated manual payout: {inr(p.coins, coinToMoneyRate)}</Text>}
           <Text style={st.sub}>{p.kind === 'withdrawal'
             ? `🏦 ${p.method} • ${p.account || '—'}`
             : `💳 UPI • Ref: ${p.reference || '—'}`}</Text>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TextInput, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { Api, errMessage } from '../lib/api';
 import { Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, PromptDialog } from '../components/adminKit';
+import { inr } from '../lib/coins';
 
 export default function AdminWallet() {
   const toast = useToast();
@@ -10,10 +11,15 @@ export default function AdminWallet() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<{ u: any; sign: 1 | -1 } | null>(null);
+  const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
 
   const load = async () => {
     try {
-      const [u, t] = await Promise.all([Api.adminUsers(), Api.adminTransactions()]);
+      const [u, t, settings] = await Promise.all([
+        Api.adminUsers(), Api.adminTransactions(), Api.adminSettings(),
+      ]);
+      const config = settings?.settings ?? settings ?? {};
+      setCoinToMoneyRate(Number(config.coinToMoneyRate) > 0 ? Number(config.coinToMoneyRate) : 1);
       setUsers(u ?? []);
       setTxns(t ?? []);
     } catch (e) { toast(errMessage(e), 'error'); setUsers([]); setTxns([]); }
@@ -44,7 +50,7 @@ export default function AdminWallet() {
   return (
     <View style={{ flex: 1 }}>
     <ScreenWrap onRefresh={load}>
-      <SectionTitle title="WALLET MANAGEMENT" sub="1 coin = ₹1 · add or deduct coins" />
+      <SectionTitle title="WALLET MANAGEMENT" sub={`1 coin = ${inr(1, coinToMoneyRate)} · add or deduct coins`} />
       <Card>
         <TextInput placeholder="Search user…" placeholderTextColor="#5b6478" value={q} onChangeText={setQ} style={st.search} />
       </Card>
@@ -83,7 +89,7 @@ export default function AdminWallet() {
       <PromptDialog
         visible={!!prompt}
         title={prompt?.sign === 1 ? 'Add coins' : 'Deduct coins'}
-        message={`Enter amount for ${prompt?.u?.name || ''} (1 coin = ₹1)`}
+        message={`Enter amount for ${prompt?.u?.name || ''} (1 coin = ${inr(1, coinToMoneyRate)})`}
         keyboardType="number-pad"
         confirmTitle={prompt?.sign === 1 ? 'ADD' : 'DEDUCT'}
         onCancel={() => setPrompt(null)}
