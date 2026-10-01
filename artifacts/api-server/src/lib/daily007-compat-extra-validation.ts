@@ -19,6 +19,18 @@ export function parseCoinPackages(value: string, minimum: number, maximum: numbe
   return packages as number[];
 }
 
+export function isValidYoutubeChannelUrl(value: string): boolean {
+  if (!value || value.length > 300) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"].includes(url.hostname) &&
+      !url.username && !url.password && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 export function referralCodeForUserId(userId: string): string {
   return `D7${userId.replaceAll("-", "").toUpperCase()}`;
 }

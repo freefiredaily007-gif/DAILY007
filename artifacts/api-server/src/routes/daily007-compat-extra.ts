@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { authenticate, requireAdmin } from "./daily007-v2";
 import {
+  isValidYoutubeChannelUrl,
   normalizePaymentReference,
   parseCoinPackages,
   pausedVideoRewardResponse,
@@ -44,16 +45,6 @@ function text(value: unknown, min = 1, max = 200): string | null {
 }
 function integer(value: unknown, min = 0, max = MAX_INT): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= min && value <= max;
-}
-function isYoutubeChannelUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" &&
-      ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"].includes(url.hostname) &&
-      !url.username && !url.password && url.pathname.length > 1;
-  } catch {
-    return false;
-  }
 }
 async function transaction<T>(work: (client: Client) => Promise<T>): Promise<T> {
   const client = await pool.connect() as unknown as Client;
@@ -660,7 +651,7 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
       Number(next.youtubeTaskReward) > MAX_INT) {
     error(res, 400, "youtubeTaskReward must be a positive whole-number coin amount."); return;
   }
-  if (!isYoutubeChannelUrl(next.youtubeTaskUrl)) {
+  if (!isValidYoutubeChannelUrl(next.youtubeTaskUrl)) {
     error(res, 400, "youtubeTaskUrl must be a valid HTTPS YouTube channel URL."); return;
   }
   if (next.upiId && !/^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/.test(next.upiId)) {
@@ -692,7 +683,7 @@ router.get("/earn/youtube-subscribe", authenticate, async (req, res): Promise<vo
   const current = await settings();
   const rewardCoins = Number(current.youtubeTaskReward);
   const channelUrl = String(current.youtubeTaskUrl ?? "");
-  if (!integer(rewardCoins, 1) || !isYoutubeChannelUrl(channelUrl)) {
+  if (!integer(rewardCoins, 1) || !isValidYoutubeChannelUrl(channelUrl)) {
     error(res, 503, "The YouTube task is not configured correctly."); return;
   }
   const claimResult = await pool.query<any>(
