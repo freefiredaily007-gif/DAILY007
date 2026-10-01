@@ -42,24 +42,6 @@ function tournamentModeFallback(t: any): number {
   if (String(t?.teamType || '').toLowerCase() === 'squad') return 12;
   return 48;
 }
-function startAt(t: any): number | null {
-  const datePart = String(t.date || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
-  const match = String(t.time || '').trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i);
-  if (!match) return null;
-  let hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const seconds = Number(match[3] || 0);
-  const suffix = match[4]?.toUpperCase();
-  if (minutes > 59 || seconds > 59 || (suffix ? hours < 1 || hours > 12 : hours > 23)) return null;
-  if (suffix) hours = (hours % 12) + (suffix === 'PM' ? 12 : 0);
-  const dt = new Date(`${datePart}T00:00:00`);
-  const [year, month, day] = datePart.split('-').map(Number);
-  if (Number.isNaN(dt.getTime()) || dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return null;
-  dt.setHours(hours, minutes, seconds, 0);
-  return dt.getTime();
-}
-
 export default function Home() {
   const { user } = useApp();
   const [items, setItems] = useState<any[]>([]);
@@ -364,7 +346,7 @@ const s = StyleSheet.create({
     backgroundColor: '#10162b',
   },
   modeArtWrap: {
-    width: 98, minHeight: 106, borderRadius: 11, overflow: 'hidden',
+    width: 98, height: 106, borderRadius: 11, overflow: 'hidden',
     backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border,
   },
   modeBanner: { width: '100%', height: '100%', minHeight: 106 },
