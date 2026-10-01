@@ -11,7 +11,9 @@ export const daily007PaymentsTable = pgTable("daily007_v2_payments", {
   amount: integer("amount").notNull(),
   referenceNormalized: text("reference_normalized").notNull().unique(),
   reference: text("reference").notNull(),
+  proofObjectPath: text("proof_object_path"),
   status: text("status").notNull().default("pending"),
+  reviewReason: text("review_reason"),
   reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
@@ -19,6 +21,8 @@ export const daily007PaymentsTable = pgTable("daily007_v2_payments", {
   check("daily007_payment_coins_valid", sql`${table.coins} BETWEEN 1 AND 2147483647`),
   check("daily007_payment_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected', 'deleted')`),
   index("daily007_payment_user_idx").on(table.userId, table.createdAt),
+  uniqueIndex("daily007_one_pending_payment_per_user").on(table.userId)
+    .where(sql`${table.status} = 'pending'`),
 ]);
 
 export const daily007WithdrawalsTable = pgTable("daily007_v2_withdrawals", {
@@ -29,13 +33,14 @@ export const daily007WithdrawalsTable = pgTable("daily007_v2_withdrawals", {
   account: text("account").notNull(),
   status: text("status").notNull().default("pending"),
   payoutStatus: text("payout_status").notNull().default("not_paid"),
+  reviewReason: text("review_reason"),
   reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 }, (table) => [
   check("daily007_withdrawal_coins_valid", sql`${table.coins} BETWEEN 100 AND 2147483647`),
   check("daily007_withdrawal_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected', 'deleted')`),
-  check("daily007_withdrawal_payout_status_valid", sql`${table.payoutStatus} IN ('not_paid', 'manual_payout_required')`),
+  check("daily007_withdrawal_payout_status_valid", sql`${table.payoutStatus} IN ('not_paid', 'manual_payout_required', 'paid')`),
   index("daily007_withdrawal_user_idx").on(table.userId, table.createdAt),
   uniqueIndex("daily007_one_pending_withdrawal_per_user").on(table.userId)
     .where(sql`${table.status} = 'pending'`),
