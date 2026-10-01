@@ -15,6 +15,7 @@ const FIELDS: [string, string, string][] = [
   ['supportContact', 'Support Contact', 'WhatsApp: +91-...'],
   ['minPurchase', 'Min coin purchase', '100'],
   ['maxPurchase', 'Max coin purchase', '5000'],
+  ['coinPackages', 'Coin packages', '100, 250, 500, 1000'],
   ['minWithdrawal', 'Minimum withdrawal coins', '100'],
 ];
 
@@ -109,7 +110,7 @@ export default function AdminSettings() {
           />
         </View>
         <Text style={st.fieldTitle}>UPI payment QR</Text>
-        <Text style={st.switchNote}>Upload the QR that matches the UPI ID above. Payments stay disabled until both are configured.</Text>
+        <Text style={st.switchNote}>Upload the QR that matches the UPI ID above. Confirm the recipient details before enabling payments.</Text>
         {qrUrl ? <Image source={{ uri: qrUrl }} resizeMode="contain" style={st.qr} /> : null}
         <Btn title={qrBusy ? 'UPLOADING QR…' : qrUrl ? 'CHANGE PAYMENT QR' : 'UPLOAD PAYMENT QR'} kind="ghost" onPress={chooseQr} loading={qrBusy} />
         <Btn title="💾 SAVE SETTINGS" onPress={save} loading={busy} />

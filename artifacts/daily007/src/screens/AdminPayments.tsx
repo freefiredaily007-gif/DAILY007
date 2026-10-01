@@ -101,7 +101,9 @@ export default function AdminPayments() {
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>
           <Text style={st.pName}>{p.kind === 'withdrawal' ? '↩ WITHDRAW' : '🪙 ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount)}</Text>
           <Text style={st.sub}>👤 {p.userName || p.userId}</Text>
-          <Text style={st.sub}>{p.kind === 'withdrawal' ? `🏦 ${p.method} • ${p.account || '—'}` : `💳 ${p.method} • Ref: ${p.reference || '—'}`}</Text>
+          <Text style={st.sub}>{p.kind === 'withdrawal'
+            ? `🏦 ${p.method} • ${p.account || '—'}`
+            : `💳 UPI • Ref: ${p.reference || '—'}`}</Text>
           {p.kind === 'payment' && <Text style={st.sub}>🧾 Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
           {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}

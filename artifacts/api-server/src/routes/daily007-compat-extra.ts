@@ -3,6 +3,7 @@ import { pool } from "@workspace/db";
 import { authenticate, requireAdmin } from "./daily007-v2";
 import {
   normalizePaymentReference,
+  parseCoinPackages,
   pausedVideoRewardResponse,
   referralCodeForUserId,
 } from "../lib/daily007-compat-extra-validation";
@@ -19,7 +20,8 @@ const MAX_INT = 2_147_483_647;
 const SETTINGS_DEFAULTS = {
   appName: "Daily007", whatsappLink: "", instagramLink: "", youtubeLink: "",
   upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
-  minWithdrawal: "100", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",
+  minWithdrawal: "100", coinPackages: "", rechargeEnabled: "false",
+  withdrawalEnabled: "false", upiQrObjectPath: "",
 };
 type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
 const userId = (req: Request) => req.daily007Account?.id;
@@ -129,7 +131,8 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   if (config.rechargeEnabled !== "true" || !text(config.upiId, 1, 200) || !text(config.upiQrObjectPath, 1, 500)) {
     error(res, 409, "Payment requests are unavailable until an administrator enables recharge and configures the UPI ID and QR."); return;
   }
-  if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || coins < minimum || coins > maximum) {
+  if (!Number.isSafeInteger(minimum) || minimum < 1 ||
+      !Number.isSafeInteger(maximum) || maximum < minimum || coins < minimum || coins > maximum) {
     error(res, 400, `Payment request must be between ${minimum} and ${maximum} coins.`);
     return;
   }
@@ -567,9 +570,11 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
     error(res, 400, "Settings must be an object containing only supported settings fields."); return;
   }
   const next: Record<string, string> = {};
+  const current = await settings();
   for (const [key, fallback] of Object.entries(SETTINGS_DEFAULTS)) {
-    const value = body[key] === undefined ? fallback : body[key];
-    const maxLength = key === "paymentNote" ? 1000 : key === "upiQrObjectPath" ? 500 : 300;
+    const value = body[key] === undefined ? (current[key] ?? fallback) : body[key];
+    const maxLength = key === "paymentNote" ? 1000 : key === "upiQrObjectPath" ? 500 :
+      key === "coinPackages" ? 300 : 300;
     if (typeof value !== "string" || value.length > maxLength) {
       error(res, 400, `${key} must be a string within the allowed length.`); return;
     }
@@ -579,6 +584,11 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   if (!Number.isSafeInteger(min) || min < 1 || !Number.isSafeInteger(max) || max < min || max > MAX_INT) {
     error(res, 400, "minPurchase and maxPurchase must be valid positive coin limits, with maxPurchase >= minPurchase."); return;
   }
+  const coinPackages = parseCoinPackages(next.coinPackages, min, max);
+  if (!coinPackages) {
+    error(res, 400, "coinPackages must contain up to 20 unique whole-number amounts within the minimum and maximum purchase limits."); return;
+  }
+  next.coinPackages = coinPackages.join(",");
   const minWithdrawal = Number(next.minWithdrawal);
   if (!Number.isSafeInteger(minWithdrawal) || minWithdrawal < 1 || minWithdrawal > MAX_INT) {
     error(res, 400, "minWithdrawal must be a positive whole number."); return;
