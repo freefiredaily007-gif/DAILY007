@@ -555,7 +555,11 @@ router.get("/me/stats", authenticate, async (req, res): Promise<void> => {
   res.json(result.rows[0]);
 });
 
-router.get("/settings", async (_req, res): Promise<void> => { res.json(await settings()); });
+router.get("/settings", async (_req, res): Promise<void> => { res.json(await clientSettings()); });
+router.get("/admin/settings", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  res.json(await clientSettings(true));
+});
 router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   const body = req.body as unknown;
@@ -565,7 +569,8 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   const next: Record<string, string> = {};
   for (const [key, fallback] of Object.entries(SETTINGS_DEFAULTS)) {
     const value = body[key] === undefined ? fallback : body[key];
-    if (typeof value !== "string" || value.length > (key === "paymentNote" ? 1000 : 300)) {
+    const maxLength = key === "paymentNote" ? 1000 : key === "upiQrObjectPath" ? 500 : 300;
+    if (typeof value !== "string" || value.length > maxLength) {
       error(res, 400, `${key} must be a string within the allowed length.`); return;
     }
     next[key] = value.trim();
@@ -574,12 +579,36 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   if (!Number.isSafeInteger(min) || min < 1 || !Number.isSafeInteger(max) || max < min || max > MAX_INT) {
     error(res, 400, "minPurchase and maxPurchase must be valid positive coin limits, with maxPurchase >= minPurchase."); return;
   }
+  const minWithdrawal = Number(next.minWithdrawal);
+  if (!Number.isSafeInteger(minWithdrawal) || minWithdrawal < 1 || minWithdrawal > MAX_INT) {
+    error(res, 400, "minWithdrawal must be a positive whole number."); return;
+  }
+  if (!["true", "false"].includes(next.rechargeEnabled) ||
+      !["true", "false"].includes(next.withdrawalEnabled)) {
+    error(res, 400, "Recharge and withdrawal enablement must be true or false."); return;
+  }
+  if (next.upiId && !/^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/.test(next.upiId)) {
+    error(res, 400, "Enter a valid UPI ID."); return;
+  }
+  if (next.upiQrObjectPath) {
+    if (!next.upiQrObjectPath.startsWith("/objects/uploads/daily007/wallet-qr/") ||
+        !isWalletObjectPath(next.upiQrObjectPath)) {
+      error(res, 400, "Upload the QR image through the wallet settings before saving it."); return;
+    }
+    try { await validateUploadedWalletImage(next.upiQrObjectPath); }
+    catch (e) {
+      error(res, 400, e instanceof Error ? e.message : "The QR image could not be verified."); return;
+    }
+  }
+  if (next.rechargeEnabled === "true" && (!next.upiId || !next.upiQrObjectPath)) {
+    error(res, 400, "Configure both a UPI ID and a QR image before enabling recharge."); return;
+  }
   await pool.query(
     `INSERT INTO daily007_v2_settings (id, settings, updated_by, updated_at) VALUES (1, $1, $2, now())
      ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_by = EXCLUDED.updated_by, updated_at = now()`,
     [JSON.stringify(next), userId(req)],
   );
-  res.json(next);
+  res.json(await clientSettings(true));
 });
 
 router.get("/notifications", authenticate, async (req, res): Promise<void> => {

@@ -176,6 +176,8 @@ export const Api = {
   // payments
   createPayment: (b: object) => unwrap(http.post('/payments', b)),
   myPayments: () => unwrap(http.get('/my/payments')),
+  walletUploadUrl: (b: { purpose: 'payment-proof' | 'wallet-qr'; contentType: string; size: number }) =>
+    unwrap(http.post('/wallet/uploads/request-url', b)),
   withdrawCoins: (b: { coins: number; method: string; account: string }) => unwrap(http.post('/withdrawals', b)),
   myWithdrawals: () => unwrap(http.get('/my/withdrawals')),
   videoWatch: (b: { videoId: string; percentWatched: number }) => unwrap(http.post('/videos/watch', b)),
@@ -203,9 +205,13 @@ export const Api = {
   adminSaveRoom: (id: string, b: object) => unwrap(http.put('/admin/tournaments/' + id + '/room', b)),
   adminPublishRoom: (id: string) => unwrap(http.post('/admin/tournaments/' + id + '/publish-room', {})),
   adminPayments: () => unwrap(http.get('/admin/payments')),
+  adminPaymentProofUrl: (id: string) => unwrap(http.get('/admin/payments/' + encodeURIComponent(id) + '/proof-url')),
   adminWithdrawals: () => unwrap(http.get('/admin/withdrawals')),
-  adminWithdrawalAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/withdrawals/' + id + '/' + action, {})),
-  adminPaymentAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/payments/' + id + '/' + action, {})),
+  adminMarkWithdrawalPaid: (id: string) => unwrap(http.post('/admin/withdrawals/' + encodeURIComponent(id) + '/payout', {})),
+  adminWithdrawalAction: (id: string, action: 'approve' | 'reject', reason?: string) =>
+    unwrap(http.post('/admin/withdrawals/' + encodeURIComponent(id) + '/' + action, { reason })),
+  adminPaymentAction: (id: string, action: 'approve' | 'reject', reason?: string) =>
+    unwrap(http.post('/admin/payments/' + encodeURIComponent(id) + '/' + action, { reason })),
   adminApprovedRegs: async (tid: string): Promise<AdminRegistration[]> => {
     const registrations: unknown = await unwrap(http.get('/admin/registrations'));
     if (!Array.isArray(registrations)) throw new Error('Invalid registrations response.');
@@ -216,7 +222,7 @@ export const Api = {
   adminAdjustCoins: (id: string, coinsDelta: number, note: string) => unwrap(http.patch('/admin/users/' + id, { coinsDelta, note })),
   adminSetUser: (id: string, b: object) => unwrap(http.patch('/admin/users/' + id, b)),
   adminUsers: () => unwrap(http.get('/admin/users')),
-  adminSettings: () => unwrap(http.get('/settings')),
+  adminSettings: () => unwrap(http.get('/admin/settings')),
   adminSaveSettings: (b: object) => unwrap(http.put('/admin/settings', b)),
   adminTransactions: () => unwrap(http.get('/admin/transactions')),
   adminSendNotification: (b: object) => unwrap(http.post('/admin/notifications', b)),
