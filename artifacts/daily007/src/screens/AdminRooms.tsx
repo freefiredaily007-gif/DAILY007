@@ -43,7 +43,7 @@ export default function AdminRooms() {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
-      <Text style={st.h}>🚪 ROOM MANAGEMENT</Text>
+      <Text style={st.h}>ROOM MANAGEMENT</Text>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : !sel ? list.map((t) => (
@@ -56,15 +56,15 @@ export default function AdminRooms() {
         <Card>
           <Text onPress={() => setSel(null)} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
-          <Text style={st.sub}>Status: {meta?.roomPublished ? 'PUBLISHED ✅' : 'HIDDEN (not published)'}</Text>
+          <Text style={st.sub}>Status: {meta?.roomPublished ? 'PUBLISHED' : 'HIDDEN (not published)'}</Text>
           <Text style={st.sub}>Enter credentials and publish about 10–15 minutes before match start. Published details are visible only to registered players.</Text>
           <Input placeholder="Room ID" value={roomId} onChangeText={setRoomId} />
           <Input placeholder="Room Password" value={roomPassword} onChangeText={setRoomPassword} />
           <Text style={st.lbl}>ROOM TIME (12-HOUR)</Text>
-          <TimePicker value={roomTime} onChange={setRoomTime} />
+          <TimePicker variant="admin" value={roomTime} onChange={setRoomTime} />
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-            <View style={{ flex: 1 }}><Btn title="💾 SAVE" small kind="ghost" onPress={() => save(false)} loading={busy} /></View>
-            <View style={{ flex: 1 }}><Btn title="📢 PUBLISH" small onPress={() => save(true)} loading={busy} /></View>
+            <View style={{ flex: 1 }}><Btn title="SAVE" small kind="ghost" onPress={() => save(false)} loading={busy} /></View>
+            <View style={{ flex: 1 }}><Btn title="PUBLISH" small onPress={() => save(true)} loading={busy} /></View>
           </View>
         </Card>
       )}
@@ -74,7 +74,7 @@ export default function AdminRooms() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   tName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },

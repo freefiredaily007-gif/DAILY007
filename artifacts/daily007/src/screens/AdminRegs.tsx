@@ -156,7 +156,7 @@ export default function AdminRegs() {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
-      <Text style={st.h}>📝 REGISTRATIONS</Text>
+      <Text style={st.h}>REGISTRATIONS</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
@@ -199,21 +199,21 @@ export default function AdminRegs() {
       {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
         <Card key={r.id} style={{ marginBottom: 10 }}>
           <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
-          <Text style={st.sub}>🎮 In-game name: {r.captainGameName || '—'} · UID: {r.gameUid || r.captainGameUid || '—'}</Text>
-          <Text style={st.sub}>🎯 {r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
-          <Text style={st.sub}>🪙 Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
+          <Text style={st.sub}>In-game name: {r.captainGameName || '—'} · UID: {r.gameUid || r.captainGameUid || '—'}</Text>
+          <Text style={st.sub}>{r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
+          <Text style={st.sub}>Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
           {r.teamMembers && r.teamMembers !== '[]' && (
             <Text style={st.sub}>ROSTER{'\n'}{rosterText(r.teamMembers)}</Text>
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             {tab === 'pending' && (
               <>
-                <View style={{ flex: 1 }}><Btn title="✅ APPROVE" small loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'approve')} /></View>
-                <View style={{ flex: 1 }}><Btn title="❌ REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'reject')} /></View>
+                <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'approve')} /></View>
+                <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'reject')} /></View>
               </>
             )}
             {tab !== 'pending' && (
-              <View style={{ flex: 1 }}><Btn title="🗑 DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => del(r.id)} /></View>
+              <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => del(r.id)} /></View>
             )}
           </View>
         </Card>
@@ -224,7 +224,7 @@ export default function AdminRegs() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   exportTitle: { color: C.neon, fontWeight: '900', fontSize: 13, letterSpacing: 1 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },

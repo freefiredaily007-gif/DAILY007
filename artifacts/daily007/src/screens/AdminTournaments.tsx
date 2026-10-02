@@ -74,8 +74,8 @@ export default function AdminTournaments() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={st.h}>🎯 TOURNAMENTS</Text>
-        <Btn title={showForm ? '✕ CLOSE' : '＋ NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
+        <Text style={st.h}>TOURNAMENTS</Text>
+        <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
       </View>
       <Msg kind="err" text={err} />
       {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
@@ -105,7 +105,7 @@ export default function AdminTournaments() {
           </View>
           <Input placeholder="Date (YYYY-MM-DD) *" value={form.date} onChangeText={(v) => set('date', v)} />
           <Text style={st.lbl}>TIME (12-HOUR)</Text>
-          <TimePicker value={form.time} onChange={(v) => set('time', v)} />
+          <TimePicker variant="admin" value={form.time} onChange={(v) => set('time', v)} />
           <Text style={st.lbl}>ENTRY FEE & PRIZE ({COIN_RATE_TEXT})</Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}><Input placeholder="Entry coins *" value={form.entryCoins} onChangeText={(v) => set('entryCoins', v)} keyboardType="number-pad" /></View>
@@ -123,7 +123,7 @@ export default function AdminTournaments() {
               <Chip key={b} label={`${b.toUpperCase()} banner`} color={form.banner === b ? C.orange : C.sub} onPress={() => set('banner', b)} />
             ))}
           </View>
-          <Btn title={editId ? '💾 SAVE CHANGES' : '＋ CREATE'} onPress={save} loading={busy} />
+          <Btn title={editId ? 'SAVE CHANGES' : 'CREATE'} onPress={save} loading={busy} />
         </Card>
       )}
 
@@ -134,11 +134,11 @@ export default function AdminTournaments() {
             <Chip label={t.enabled ? 'ENABLED' : 'DISABLED'} color={t.enabled ? C.green : C.red} />
           </View>
           <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time}</Text>
-          <Text style={st.sub}>🪙 {t.entryCoins} ({inr(t.entryCoins)}) entry • 🏆 {t.prizePool} ({inr(t.prizePool)}) pool • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
+          <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <View style={{ flex: 1 }}><Btn title="✏️ EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
+            <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
             <View style={{ flex: 1 }}><Btn title={t.enabled ? 'DISABLE' : 'ENABLE'} small kind="ghost" onPress={() => toggle(t)} /></View>
-            <View style={{ flex: 1 }}><Btn title="🗑 DELETE" small kind="danger" onPress={() => remove(t)} /></View>
+            <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" onPress={() => remove(t)} /></View>
           </View>
         </Card>
       ))}
@@ -148,7 +148,7 @@ export default function AdminTournaments() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 1 },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   formH: { color: C.neon, fontWeight: '900', letterSpacing: 1, marginBottom: 10 },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   area: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, padding: 12, minHeight: 60, marginBottom: 10, fontSize: 14 },

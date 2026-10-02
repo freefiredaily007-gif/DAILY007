@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Input, Loading, Msg } from '../components/ui';
@@ -84,7 +85,7 @@ export default function AdminSettings() {
   if (!loaded) return <Loading />;
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
-      <Text style={st.h}>⚙️ SETTINGS</Text>
+      <View style={st.titleRow}><Feather name="sliders" size={16} color={C.orange} /><Text style={st.h}>SETTINGS</Text></View>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
       <Text style={st.notice}>Coin payments and withdrawals require manual review. Recharge approval is the only way coins are credited; payouts are sent separately.</Text>
@@ -142,7 +143,7 @@ export default function AdminSettings() {
         <Text style={st.switchNote}>Upload the QR that matches the UPI ID above. Confirm the recipient details before enabling payments.</Text>
         {qrUrl ? <Image source={{ uri: qrUrl }} resizeMode="contain" style={st.qr} /> : null}
         <Btn title={qrBusy ? 'UPLOADING QR…' : qrUrl ? 'CHANGE PAYMENT QR' : 'UPLOAD PAYMENT QR'} kind="ghost" onPress={chooseQr} loading={qrBusy} />
-        <Btn title="💾 SAVE SETTINGS" onPress={save} loading={busy} />
+        <Btn title="SAVE SETTINGS" onPress={save} loading={busy} />
       </Card>
       <View style={{ height: 30 }} />
     </ScrollView>
@@ -150,7 +151,8 @@ export default function AdminSettings() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderColor: C.line },
   switchTitle: { color: C.text, fontWeight: '800', fontSize: 13 },

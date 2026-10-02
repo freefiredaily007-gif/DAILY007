@@ -65,10 +65,10 @@ export default function AdminUsers() {
                 <Text style={st.sub}>{u.email}</Text>
                 <Text style={st.sub}>Joined {String(u.createdAt || '').slice(0, 10)}</Text>
               </View>
-              <Text style={st.coins}>{u.coins ?? 0} 🪙</Text>
+              <Text style={st.coins}>{u.coins ?? 0} COINS</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 14, marginTop: 8 }}>
-              <Text style={st.stat}>🎮 {mine.length} joined</Text>
+              <Text style={st.stat}>{mine.length} joined</Text>
               <Text style={st.stat}>✓ {approved} approved</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>

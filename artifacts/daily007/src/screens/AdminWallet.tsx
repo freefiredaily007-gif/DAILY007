@@ -65,7 +65,7 @@ export default function AdminWallet() {
               <Text style={st.name}>{u.name}</Text>
               <Text style={st.sub}>{u.email}</Text>
             </View>
-            <Text style={st.coins}>{u.coins ?? 0} 🪙</Text>
+            <Text style={st.coins}>{u.coins ?? 0} COINS</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             <View style={{ flex: 1 }}><Btn title="+ ADD" onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
@@ -79,7 +79,7 @@ export default function AdminWallet() {
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={{ flex: 1, color: '#e6e9ef', fontSize: 12.5, fontWeight: '700' }}>{t.title || t.note || 'Transaction'}</Text>
             <Text style={{ color: Number(t.coins || 0) >= 0 ? '#22c55e' : '#ff3d3d', fontWeight: '900' }}>
-              {Number(t.coins || 0) >= 0 ? '+' : ''}{t.coins} 🪙
+              {Number(t.coins || 0) >= 0 ? '+' : ''}{t.coins} COINS
             </Text>
           </View>
           <Text style={st.sub}>{String(t.createdAt || '').slice(0, 16).replace('T', ' ')}</Text>

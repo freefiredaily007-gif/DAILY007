@@ -9,3 +9,4 @@
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user wants an installable APK file to send directly, not a URL.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
 - [Daily007 build port isolation](daily007-build-port.md) — temporary Metro builds must use a free port because another workspace service may occupy 8081.
+- [Daily007 admin styling scope](daily007-admin-visual-only.md) — keep admin restyles appearance-only; preserve settings, actions, permissions, data, and player-facing screens.

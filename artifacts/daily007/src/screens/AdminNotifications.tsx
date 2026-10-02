@@ -111,7 +111,7 @@ export default function AdminNotifications() {
           </View>
         )}
         <View style={{ marginTop: 12 }}>
-          <Btn title="🚀 SEND NOTIFICATION" onPress={send} loading={busy} disabled={type === 'selected' && (usersLoading || !!usersError || !users)} />
+          <Btn title="SEND NOTIFICATION" onPress={send} loading={busy} disabled={type === 'selected' && (usersLoading || !!usersError || !users)} />
         </View>
       </Card>
       <SectionTitle title="TEMPLATES" sub="tap to prefill" />

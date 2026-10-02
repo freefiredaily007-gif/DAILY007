@@ -95,7 +95,7 @@ export default function AdminPayments() {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
-      <Text style={st.h}>💳 COIN DEPOSITS & WITHDRAWALS</Text>
+      <Text style={st.h}>COIN DEPOSITS &amp; WITHDRAWALS</Text>
       <Text style={st.notice}>Payment approval is manual. Withdrawal approval does not send money automatically; arrange the payout separately.</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
@@ -104,13 +104,13 @@ export default function AdminPayments() {
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} requests.`} /> : list.map((p) => (
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>
-          <Text style={st.pName}>{p.kind === 'withdrawal' ? '↩ WITHDRAW' : '🪙 ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount, coinToMoneyRate)}</Text>
-          <Text style={st.sub}>👤 {p.userName || 'Player'} · User ID: {p.userId}</Text>
+          <Text style={st.pName}>{p.kind === 'withdrawal' ? 'WITHDRAW' : 'ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount, coinToMoneyRate)}</Text>
+          <Text style={st.sub}>{p.userName || 'Player'} · User ID: {p.userId}</Text>
           {p.kind === 'withdrawal' && <Text style={st.sub}>Estimated manual payout: {inr(p.coins, coinToMoneyRate)}</Text>}
           <Text style={st.sub}>{p.kind === 'withdrawal'
-            ? `🏦 ${p.method} • ${p.account || '—'}`
-            : `💳 UPI • Ref: ${p.reference || '—'}`}</Text>
-          {p.kind === 'payment' && <Text style={st.sub}>🧾 Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
+            ? `${p.method} • ${p.account || '—'}`
+            : `UPI • Ref: ${p.reference || '—'}`}</Text>
+          {p.kind === 'payment' && <Text style={st.sub}>Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
           {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}
           {p.kind === 'payment' && p.proofAvailable && (
@@ -125,8 +125,8 @@ export default function AdminPayments() {
           )}
           {tab === 'pending' && (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={{ flex: 1 }}><Btn title="✅ APPROVE" small loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'approve')} /></View>
-              <View style={{ flex: 1 }}><Btn title="❌ REJECT" small kind="danger" loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'reject')} /></View>
+              <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'approve')} /></View>
+              <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'reject')} /></View>
             </View>
           )}
         </Card>
@@ -153,7 +153,7 @@ export default function AdminPayments() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },

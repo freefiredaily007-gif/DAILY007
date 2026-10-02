@@ -1,6 +1,7 @@
 // Shared UI kit — PREMIUM ESPORTS gaming theme (FREE FIRE DAILY007)
-import React, { useEffect, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { View, Text, Pressable, TextInput, StyleSheet, ActivityIndicator, Animated, Easing } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 export { default as TimePicker } from './TimePicker';
 
 export const C = {
@@ -8,6 +9,14 @@ export const C = {
   neon: '#ff3d3d', orange: '#ff7a1a', gold: '#ffb020', green: '#2ecc71', blue: '#4da3ff',
   purple: '#a05cff', red: '#ff5c5c', text: '#eef1f8', sub: '#9aa3b8', dim: '#5b6478', line: '#1e2745',
 };
+
+const UiSurfaceContext = createContext<'player' | 'admin'>('player');
+
+export function AdminUiProvider({ children }: { children: React.ReactNode }) {
+  return <UiSurfaceContext.Provider value="admin">{children}</UiSurfaceContext.Provider>;
+}
+
+const useAdminSurface = () => useContext(UiSurfaceContext) === 'admin';
 
 // ---------- glow helpers ----------
 export const glow = (color: string, strength = 6) => ({
@@ -63,6 +72,7 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
   title: string; onPress?: () => void; disabled?: boolean;
   kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean; style?: any;
 }) {
+  const adminSurface = useAdminSurface();
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
     primary: { bg: C.neon, fg: '#fff', glowColor: C.neon },
     danger: { bg: '#5a1622', fg: '#ff9aa5', border: '#ff5c5c55' },
@@ -79,6 +89,7 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
       accessibilityLabel={title}
       style={({ pressed }) => [
         st.btn,
+        adminSurface && adminSt.btn,
         { backgroundColor: k.bg, opacity: disabled ? 0.4 : pressed ? 0.8 : 1 },
         k.border && { borderWidth: 1, borderColor: k.border },
         k.glowColor && !disabled && glow(k.glowColor, 8),
@@ -87,15 +98,16 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
       ]}
     >
       {loading ? <ActivityIndicator color="#fff" size="small" />
-        : <Text style={[st.btnText, { color: k.fg }]}>{title}</Text>}
+        : <Text style={[st.btnText, adminSurface && adminSt.btnText, { color: k.fg }]}>{title}</Text>}
     </Pressable>
   );
 }
 
 // ---------- glass card ----------
 export function Card({ children, style, glowColor }: { children: React.ReactNode; style?: any; glowColor?: string }) {
+  const adminSurface = useAdminSurface();
   return (
-    <View style={[st.card, glowColor ? [glow(glowColor, 10), { borderColor: glowColor + '55' }] : null, style]}>
+    <View style={[st.card, adminSurface && adminSt.card, glowColor ? [glow(glowColor, 10), { borderColor: glowColor + '55' }] : null, style]}>
       {children}
     </View>
   );
@@ -139,22 +151,24 @@ export function GCard({
 }
 
 export function Input(props: React.ComponentProps<typeof TextInput>) {
+  const adminSurface = useAdminSurface();
   return (
     <TextInput
       {...props}
-      style={[st.input, props.style]}
+      style={[st.input, adminSurface && adminSt.input, props.style]}
       placeholderTextColor={props.placeholderTextColor || C.dim}
     />
   );
 }
 
 export function Msg({ kind, text }: { kind: 'ok' | 'err'; text: string }) {
+  const adminSurface = useAdminSurface();
   if (!text) return null;
   const ok = kind === 'ok';
   return (
-    <View style={[st.msg, { borderColor: ok ? C.green + '66' : C.red + '66', backgroundColor: (ok ? C.green : C.red) + '14' }]}>
-      <Text style={{ color: ok ? C.green : C.red, fontSize: 13, fontWeight: '600' }}>
-        {ok ? '✓ ' : '⚠ '}{text}
+    <View style={[st.msg, adminSurface && adminSt.msg, { borderColor: ok ? C.green + '66' : C.red + '66', backgroundColor: (ok ? C.green : C.red) + '14' }]}>
+      <Text style={[{ color: ok ? C.green : C.red, fontSize: 13, fontWeight: '600' }, adminSurface && adminSt.bodyText]}>
+        {ok ? '✓ ' : '!' }{text}
       </Text>
     </View>
   );
@@ -164,61 +178,70 @@ export function Msg({ kind, text }: { kind: 'ok' | 'err'; text: string }) {
 export function Empty({ icon, text, actionLabel, onAction }: {
   icon?: string; text: string; actionLabel?: string; onAction?: () => void;
 }) {
+  const adminSurface = useAdminSurface();
   return (
-    <View style={st.empty}>
-      <View style={[st.emptyIconWrap, glow(C.purple, 14)]}>
-        <Text style={{ fontSize: 40 }}>{icon || '🎮'}</Text>
+    <View style={[st.empty, adminSurface && adminSt.empty]}>
+      <View style={[st.emptyIconWrap, adminSurface && adminSt.emptyIconWrap, glow(adminSurface ? C.orange : C.purple, 14)]}>
+        {adminSurface ? <Feather name="target" size={28} color={C.orange} /> : <Text style={{ fontSize: 40 }}>{icon || '🎮'}</Text>}
       </View>
-      <Text style={st.emptyTitle}>NO MATCHES LIVE</Text>
-      <Text style={st.emptyText}>{text}</Text>
+      <Text style={[st.emptyTitle, adminSurface && adminSt.emptyTitle]}>NO MATCHES LIVE</Text>
+      <Text style={[st.emptyText, adminSurface && adminSt.bodyText]}>{text}</Text>
       {!!actionLabel && <Btn title={actionLabel} kind="purple" onPress={onAction} style={{ marginTop: 16, alignSelf: 'center', paddingHorizontal: 24 }} />}
     </View>
   );
 }
 
 export function Loading() {
-  return <ActivityIndicator color={C.neon} style={{ marginTop: 40 }} size="large" />;
+  const adminSurface = useAdminSurface();
+  return <ActivityIndicator color={adminSurface ? C.orange : C.neon} style={{ marginTop: 40 }} size="large" />;
 }
 
-export function SectionTitle({ children, accent = C.neon }: { children: React.ReactNode; accent?: string }) {
+export function SectionTitle({ children, accent, icon }: { children: React.ReactNode; accent?: string; icon?: keyof typeof Feather.glyphMap }) {
+  const adminSurface = useAdminSurface();
+  const markerColor = accent || (adminSurface ? C.orange : C.neon);
   return (
-    <View style={st.secRow}>
-      <View style={[st.secBar, { backgroundColor: accent }, glow(accent, 6)]} />
-      <Text style={st.secText}>{children}</Text>
+    <View style={[st.secRow, adminSurface && adminSt.secRow]}>
+      <View style={[st.secBar, { backgroundColor: markerColor }, glow(markerColor, 6)]} />
+      {icon ? <Feather name={icon} size={14} color={markerColor} /> : null}
+      <Text style={[st.secText, adminSurface && adminSt.secText]}>{children}</Text>
     </View>
   );
 }
 
 export function Chip({ label, color = C.gold, onPress }: { label: string; color?: string; onPress?: () => void }) {
+  const adminSurface = useAdminSurface();
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={[st.chip, { borderColor: color }]}>
-      <Text style={[st.chipText, { color }]}>{label}</Text>
+    <Pressable onPress={onPress} disabled={!onPress} style={[st.chip, adminSurface && adminSt.chip, { borderColor: color, backgroundColor: adminSurface ? color + '12' : 'transparent' }]}>
+      <Text style={[st.chipText, adminSurface && adminSt.chipText, { color }]}>{label}</Text>
     </Pressable>
   );
 }
 
 export function Badge({ text, color = C.gold }: { text: string; color?: string }) {
+  const adminSurface = useAdminSurface();
   return (
-    <View style={[st.chip, { borderColor: color, alignSelf: 'auto', backgroundColor: color + '18' }, glow(color, 4)]}>
-      <Text style={[st.chipText, { color }]}>{text}</Text>
+    <View style={[st.chip, adminSurface && adminSt.chip, { borderColor: color, alignSelf: 'auto', backgroundColor: color + '18' }, glow(color, 4)]}>
+      <Text style={[st.chipText, adminSurface && adminSt.chipText, { color }]}>{text}</Text>
     </View>
   );
 }
 
 export function KV({ k, v, color }: { k: string; v: string; color?: string }) {
+  const adminSurface = useAdminSurface();
   return (
     <View style={st.kvRow}>
-      <Text style={st.kvK}>{k}</Text>
-      <Text style={[st.kvV, { color: color || C.text }]}>{v}</Text>
+      <Text style={[st.kvK, adminSurface && adminSt.bodyText]}>{k}</Text>
+      <Text style={[st.kvV, adminSurface && adminSt.kvV, { color: color || C.text }]}>{v}</Text>
     </View>
   );
 }
 
 export function Coin({ value, size = 14 }: { value: number; size?: number }) {
+  const adminSurface = useAdminSurface();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <Text style={{ fontSize: size }}>🪙</Text>
-      <Text style={{ fontSize: size, color: C.gold, fontWeight: '800', marginLeft: 3 }}>{value}</Text>
+      {adminSurface ? <Feather name="circle" size={size} color={C.gold} /> : <Text style={{ fontSize: size }}>🪙</Text>}
+      <Text style={{ fontSize: size, color: C.gold, fontWeight: '800', marginLeft: 3, fontFamily: adminSurface ? 'Inter_700Bold' : undefined }}>{value}</Text>
     </View>
   );
 }
@@ -313,9 +336,10 @@ const mc = StyleSheet.create({
 
 // ---------- glowing coin capsule (header) ----------
 export function CoinCapsule({ value, onPress }: { value: number; onPress?: () => void }) {
+  const adminSurface = useAdminSurface();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [st.capsule, glow(C.gold, 10), pressed && { opacity: 0.85 }]}>
-      <Text style={{ fontSize: 15 }}>🪙</Text>
+      {adminSurface ? <Feather name="circle" size={14} color={C.gold} /> : <Text style={{ fontSize: 15 }}>🪙</Text>}
       <Text style={st.capsuleText}>{value}</Text>
       <Text style={st.capsuleUnit}>COINS</Text>
     </Pressable>
@@ -356,4 +380,21 @@ const st = StyleSheet.create({
   },
   capsuleText: { color: C.gold, fontWeight: '900', fontSize: 15, marginLeft: 5 },
   capsuleUnit: { color: C.gold + '99', fontWeight: '800', fontSize: 9, letterSpacing: 1, marginLeft: 4 },
+});
+
+const adminSt = StyleSheet.create({
+  btn: { borderRadius: 10, paddingVertical: 12, minHeight: 42, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  btnText: { fontFamily: 'Inter_700Bold', fontSize: 12, letterSpacing: 0.9 },
+  card: { backgroundColor: '#11161f', borderRadius: 14, borderColor: 'rgba(255,255,255,0.09)', borderTopColor: 'rgba(255,176,32,0.24)', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  input: { backgroundColor: '#0e131b', borderColor: 'rgba(255,255,255,0.12)', borderRadius: 10, fontFamily: 'Inter_400Regular', fontSize: 13 },
+  msg: { borderRadius: 10, padding: 11 },
+  bodyText: { fontFamily: 'Inter_400Regular' },
+  empty: { padding: 26 },
+  emptyIconWrap: { borderColor: C.orange + '55', backgroundColor: '#15140f' },
+  emptyTitle: { fontFamily: 'Inter_700Bold', letterSpacing: 1.5, fontSize: 14 },
+  secRow: { marginVertical: 10 },
+  secText: { fontFamily: 'Inter_700Bold', fontSize: 13, letterSpacing: 1.1 },
+  chip: { borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
+  chipText: { fontFamily: 'Inter_600SemiBold', fontSize: 10.5, letterSpacing: 0.55 },
+  kvV: { fontFamily: 'Inter_600SemiBold' },
 });

@@ -54,7 +54,7 @@ export default function AdminResults() {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
-      <Text style={st.h}>🏆 RESULTS</Text>
+      <Text style={st.h}>RESULTS</Text>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : !sel ? list.map((t) => (
@@ -73,7 +73,7 @@ export default function AdminResults() {
               {regs.map((r) => (
                 <Card key={r.id} style={{ padding: 10, marginBottom: 6, borderColor: regId === r.id ? C.neon : C.border }}>
                   <Text onPress={() => setRegId(r.id)} style={{ color: regId === r.id ? C.neon : C.text, fontWeight: '800', fontSize: 13 }}>
-                    {regId === r.id ? '✅ ' : ''}{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''} (UID {r.gameUid})
+                    {regId === r.id ? '✓ ' : ''}{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''} (UID {r.gameUid})
                   </Text>
                 </Card>
               ))}
@@ -85,7 +85,7 @@ export default function AdminResults() {
           </View>
           <Input placeholder="Prize coins *" value={prizeCoins} onChangeText={setPrizeCoins} keyboardType="number-pad" />
           {!!prizeCoins && <Text style={st.inrNote}>Prize: {prizeCoins} coins = {inr(Number(prizeCoins))} INR ({COIN_RATE_TEXT})</Text>}
-          <Btn title="📢 PUBLISH RESULT" onPress={publish} loading={busy} />
+          <Btn title="PUBLISH RESULT" onPress={publish} loading={busy} />
         </Card>
       )}
       <View style={{ height: 30 }} />
@@ -94,7 +94,7 @@ export default function AdminResults() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 1 },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   tName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },

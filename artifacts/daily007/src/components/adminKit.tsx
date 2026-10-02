@@ -1,21 +1,22 @@
 // Premium admin theme kit — shared styles + primitives for the admin panel
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, ScrollView, TextInput, RefreshControl } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 
 export const A = {
-  bg: '#070a14',
-  card: 'rgba(20,26,44,0.72)',
-  cardSolid: '#141a2c',
-  border: 'rgba(255,255,255,0.08)',
-  red: '#ff2d55',
-  redSoft: 'rgba(255,45,85,0.14)',
-  gold: '#ffc107',
-  green: '#22c55e',
-  orange: '#ff9f0a',
-  cyan: '#22d3ee',
-  text: '#eef1f8',
-  sub: '#8b93a7',
-  danger: '#ef4444',
+  bg: '#070a12',
+  card: 'rgba(17,22,32,0.96)',
+  cardSolid: '#121821',
+  border: 'rgba(255,255,255,0.09)',
+  red: '#ff4b36',
+  redSoft: 'rgba(255,75,54,0.15)',
+  gold: '#ffb020',
+  green: '#2ecc71',
+  orange: '#ff7a1a',
+  cyan: '#4da3ff',
+  text: '#f4f2ef',
+  sub: '#9aa3b2',
+  danger: '#ff5c5c',
 };
 
 type ToastKind = 'ok' | 'err' | 'success' | 'error';
@@ -35,7 +36,7 @@ export function AdminToastHost({ children }: { children: React.ReactNode }) {
       {children}
       {toast && (
         <View style={[s.toast, toast.kind === 'err' && { borderColor: A.danger, backgroundColor: 'rgba(60,10,10,0.95)' }]} pointerEvents="none">
-          <Text style={{ color: toast.kind === 'err' ? '#ffb4b4' : '#c9f7d4', fontWeight: '800', fontSize: 12 }}>
+          <Text style={{ color: toast.kind === 'err' ? '#ffb4b4' : '#c9f7d4', fontWeight: '800', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>
             {toast.kind === 'err' ? '✕ ' : '✓ '}{toast.msg}
           </Text>
         </View>
@@ -49,10 +50,10 @@ export function GlassCard({ children, style, onPress }: { children: React.ReactN
   return <View style={[s.card, style]}>{children}</View>;
 }
 
-export function StatCard({ icon, value, label, tint, onPress, trend }: { icon: string; value: string | number; label: string; tint: string; onPress?: () => void; trend?: string }) {
+export function StatCard({ icon, value, label, tint, onPress, trend }: { icon: keyof typeof Feather.glyphMap; value: string | number; label: string; tint: string; onPress?: () => void; trend?: string }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.stat, pressed && { transform: [{ scale: 0.97 }] }]}>
-      <View style={[s.statIcon, { backgroundColor: tint + '22', borderColor: tint + '55' }]}><Text style={{ fontSize: 15 }}>{icon}</Text></View>
+      <View style={[s.statIcon, { backgroundColor: tint + '18', borderColor: tint + '55' }]}><Feather name={icon} size={15} color={tint} /></View>
       <Text style={s.statVal}>{value}</Text>
       <Text style={s.statLabel} numberOfLines={1}>{label}</Text>
       {!!trend && <Text style={[s.statTrend, { color: tint }]}>{trend}</Text>}
@@ -160,10 +161,16 @@ export function Input({ value, onChangeText, placeholder, keyboardType, multilin
   );
 }
 
-export function SectionTitle({ children, right, title, sub }: { children?: React.ReactNode; right?: React.ReactNode; title?: string; sub?: string }) {
+export function SectionTitle({ children, right, title, sub, icon }: { children?: React.ReactNode; right?: React.ReactNode; title?: string; sub?: string; icon?: keyof typeof Feather.glyphMap }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <View><Text style={s.sectionTitle}>{title ?? children}</Text>{sub ? <Text style={{ color: A.sub, fontSize: 11 }}>{sub}</Text> : null}</View>
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+          {icon ? <Feather name={icon} size={14} color={A.orange} /> : null}
+          <Text style={s.sectionTitle}>{title ?? children}</Text>
+        </View>
+        {sub ? <Text style={{ color: A.sub, fontSize: 11, fontFamily: 'Inter_400Regular' }}>{sub}</Text> : null}
+      </View>
       {right}
     </View>
   );
@@ -171,7 +178,10 @@ export function SectionTitle({ children, right, title, sub }: { children?: React
 
 export function Empty({ text }: { text: string }) {
   return (
-    <View style={s.empty}><Text style={{ color: A.sub, fontSize: 12 }}>{text}</Text></View>
+    <View style={s.empty}>
+      <View style={s.emptyIcon}><Feather name="inbox" size={20} color={A.orange} /></View>
+      <Text style={{ color: A.sub, fontSize: 12, fontFamily: 'Inter_500Medium', textAlign: 'center' }}>{text}</Text>
+    </View>
   );
 }
 
@@ -200,24 +210,25 @@ export function ScreenWrap({ children, onRefresh }: { children: React.ReactNode;
 }
 
 const s = StyleSheet.create({
-  toast: { position: 'absolute', bottom: 96, left: 20, right: 20, backgroundColor: 'rgba(8,30,16,0.95)', borderColor: 'rgba(34,197,94,0.5)', borderWidth: 1, borderRadius: 12, padding: 12, zIndex: 99 },
-  card: { backgroundColor: A.card, borderRadius: 16, borderWidth: 1, borderColor: A.border, padding: 14 },
-  stat: { flexBasis: '31%', flexGrow: 1, backgroundColor: A.card, borderRadius: 14, borderWidth: 1, borderColor: A.border, padding: 10, alignItems: 'flex-start' },
-  statIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginBottom: 6 },
-  statVal: { color: A.text, fontSize: 19, fontWeight: '900' },
-  statLabel: { color: A.sub, fontSize: 9.5, fontWeight: '700', letterSpacing: 0.3, marginTop: 2 },
+  toast: { position: 'absolute', bottom: 96, left: 20, right: 20, backgroundColor: 'rgba(8,30,16,0.96)', borderColor: 'rgba(46,204,113,0.45)', borderWidth: 1, borderRadius: 12, padding: 12, zIndex: 99, elevation: 8 },
+  card: { backgroundColor: A.card, borderRadius: 14, borderWidth: 1, borderColor: A.border, borderTopColor: 'rgba(255,176,32,0.24)', padding: 14, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  stat: { flexBasis: '31%', flexGrow: 1, backgroundColor: 'rgba(17,22,32,0.98)', borderRadius: 12, borderWidth: 1, borderColor: A.border, padding: 10, alignItems: 'flex-start', borderTopColor: 'rgba(255,176,32,0.22)' },
+  statIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginBottom: 7 },
+  statVal: { color: A.text, fontSize: 19, fontWeight: '900', fontFamily: 'Inter_700Bold' },
+  statLabel: { color: A.sub, fontSize: 9.5, fontWeight: '700', letterSpacing: 0.3, marginTop: 2, fontFamily: 'Inter_500Medium' },
   statTrend: { fontSize: 9, fontWeight: '800', marginTop: 3 },
-  btn: { borderRadius: 10, paddingVertical: 11, alignItems: 'center', justifyContent: 'center' },
-  btnSmall: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
-  btnTxt: { fontWeight: '900', fontSize: 12, letterSpacing: 0.6 },
-  tag: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3, alignSelf: 'flex-start' },
-  tagTxt: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+  btn: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', minHeight: 42 },
+  btnSmall: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, minHeight: 32 },
+  btnTxt: { fontWeight: '900', fontSize: 11.5, letterSpacing: 0.8, fontFamily: 'Inter_700Bold' },
+  tag: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 4, alignSelf: 'flex-start' },
+  tagTxt: { fontSize: 8.5, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  dialog: { backgroundColor: A.cardSolid, borderRadius: 18, borderWidth: 1, borderColor: A.border, padding: 18, width: '100%' },
-  dialogTitle: { color: A.text, fontWeight: '900', fontSize: 15, marginBottom: 6 },
-  dialogMsg: { color: A.sub, fontSize: 12.5, lineHeight: 18 },
-  fieldLabel: { color: A.sub, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.6, marginBottom: 6 },
-  input: { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: A.border, borderRadius: 10, color: A.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13 },
-  sectionTitle: { color: A.text, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
-  empty: { padding: 24, alignItems: 'center', borderWidth: 1, borderColor: A.border, borderRadius: 12, borderStyle: 'dashed' },
+  dialog: { backgroundColor: A.cardSolid, borderRadius: 16, borderWidth: 1, borderColor: A.border, padding: 18, width: '100%', borderTopColor: 'rgba(255,122,26,0.55)' },
+  dialogTitle: { color: A.text, fontWeight: '900', fontSize: 15, marginBottom: 6, fontFamily: 'Inter_700Bold' },
+  dialogMsg: { color: A.sub, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' },
+  fieldLabel: { color: A.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: 6, fontFamily: 'Inter_600SemiBold' },
+  input: { backgroundColor: '#0e131b', borderWidth: 1, borderColor: 'rgba(255,255,255,0.11)', borderRadius: 10, color: A.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: 'Inter_400Regular' },
+  sectionTitle: { color: A.text, fontSize: 12, fontWeight: '900', letterSpacing: 1.05, fontFamily: 'Inter_700Bold' },
+  empty: { padding: 22, alignItems: 'center', borderWidth: 1, borderColor: A.border, borderRadius: 12, borderStyle: 'dashed', gap: 8 },
+  emptyIcon: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,122,26,0.25)', backgroundColor: 'rgba(255,122,26,0.08)', alignItems: 'center', justifyContent: 'center' },
 });
