@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Alert, View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
@@ -18,7 +18,7 @@ function capacityFor(mode: string, teamType: string) {
   return { slots: 2, label: `2 team slots · ${size * 2} players` };
 }
 
-export default function AdminTournaments() {
+export default function AdminTournaments({ onFinish }: { onFinish?: (tournament: Tournament) => void }) {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [form, setForm] = useState<any>(blank);
   const [editId, setEditId] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export default function AdminTournaments() {
 
   const load = useCallback(async () => {
     try {
-      const response = await Api.tournaments(true);
+      const response = await Api.tournaments();
       setList(Array.isArray(response) ? response : []);
       setLoadError('');
     } catch (e: any) {
@@ -62,13 +62,26 @@ export default function AdminTournaments() {
     finally { setBusy(false); }
   };
 
-  const toggle = async (t: Tournament) => {
-    try { await Api.updateTournament(t.id, { enabled: !t.enabled }); load(); }
-    catch (e: any) { setErr(apiError(e)); }
+  const removeNow = async (t: Tournament) => {
+    setErr(''); setOkMsg('');
+    try {
+      const result = await Api.deleteTournament(t.id);
+      setOkMsg(result?.deleted === false
+        ? 'Player or coin records exist, so the tournament was closed and its history was kept.'
+        : 'Tournament deleted.');
+      await load();
+      setTimeout(() => setOkMsg(''), 3000);
+    } catch (e: any) { setErr(apiError(e)); }
   };
-  const remove = async (t: Tournament) => {
-    try { await Api.deleteTournament(t.id); load(); }
-    catch (e: any) { setErr(apiError(e)); }
+  const remove = (t: Tournament) => {
+    Alert.alert(
+      'Delete tournament?',
+      'Empty tournaments can be permanently deleted. If player or coin records exist, the tournament will only be closed so its history is preserved.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => { void removeNow(t); } },
+      ],
+    );
   };
 
   return (
@@ -77,6 +90,7 @@ export default function AdminTournaments() {
         <Text style={st.h}>TOURNAMENTS</Text>
         <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
       </View>
+      <Text style={st.hint}>FINISH opens result entry and credits the winner’s prize coins.</Text>
       <Msg kind="err" text={err} />
       {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
       <Msg kind="ok" text={okMsg} />
@@ -127,21 +141,25 @@ export default function AdminTournaments() {
         </Card>
       )}
 
-      {!list ? <Loading /> : list.length === 0 ? <Empty text="No tournaments yet." /> : list.map((t) => (
-        <Card key={t.id} style={{ marginBottom: 10 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={st.tName}>{t.name}</Text>
-            <Chip label={t.enabled ? 'ENABLED' : 'DISABLED'} color={t.enabled ? C.green : C.red} />
-          </View>
-          <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time}</Text>
-          <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
-            <View style={{ flex: 1 }}><Btn title={t.enabled ? 'DISABLE' : 'ENABLE'} small kind="ghost" onPress={() => toggle(t)} /></View>
-            <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" onPress={() => remove(t)} /></View>
-          </View>
-        </Card>
-      ))}
+      {!list ? <Loading /> : list.length === 0 ? <Empty text="No tournaments yet." /> : list.map((t) => {
+        const finished = t.status === 'completed';
+        const statusLabel = finished ? 'COMPLETED' : t.enabled ? 'ENABLED' : 'DISABLED';
+        return (
+          <Card key={t.id} style={{ marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={st.tName}>{t.name}</Text>
+              <Chip label={statusLabel} color={finished ? C.gold : t.enabled ? C.green : C.red} />
+            </View>
+            <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time}</Text>
+            <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
+              <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" onPress={() => remove(t)} /></View>
+              <View style={{ flex: 1 }}><Btn title={finished ? 'FINISHED' : 'FINISH'} small kind={finished ? 'ghost' : 'gold'} disabled={finished} onPress={() => onFinish?.(t)} /></View>
+            </View>
+          </Card>
+        );
+      })}
       <View style={{ height: 30 }} />
     </ScrollView>
   );
@@ -149,6 +167,7 @@ export default function AdminTournaments() {
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
   h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
+  hint: { color: C.sub, fontSize: 11, marginTop: 3, marginBottom: 10 },
   formH: { color: C.neon, fontWeight: '900', letterSpacing: 1, marginBottom: 10 },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   area: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, padding: 12, minHeight: 60, marginBottom: 10, fontSize: 14 },

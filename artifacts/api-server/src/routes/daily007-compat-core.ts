@@ -12,6 +12,7 @@ type MatchRow = {
   capacity: number; entry_coins: number;
   prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
   rules: string; banner: string; prize_distribution: string; enabled: boolean;
+  has_result?: boolean;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
   registered_count: number;
 };
@@ -26,7 +27,11 @@ type RegistrationRow = {
   title?: string; prize_pool?: number; rules?: string; banner?: string; prize_distribution?: string;
   enabled?: boolean; is_full?: boolean; room_id?: string | null; room_password?: string | null;
   room_time?: string; room_published?: boolean; registered_count?: number;
+  match_has_result?: boolean;
   result_rank?: number | null; result_kills?: number | null; result_prize_coins?: number | null;
+  match_results?: {
+    rank: number; kills: number; prizeCoins: number; playerName: string; gameName: string; teamName: string;
+  }[] | null;
 };
 type SqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
@@ -139,7 +144,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     banner: row.banner,
     prizeDist: row.prize_distribution,
     enabled: row.enabled,
-    status: row.enabled ? row.status : "closed",
+    status: row.has_result ? "completed" : row.enabled ? row.status : "closed",
     filledSlots,
     filledPlayerSlots: filledSlots * mode.teamSize,
     availableSlots: Math.max(0, row.capacity - filledSlots),
@@ -162,6 +167,7 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
     `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
             m.status, m.is_full, m.rules, m.banner, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
+             EXISTS (SELECT 1 FROM daily007_v2_result_awards award WHERE award.match_id = m.id) AS has_result,
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS registered_count
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id
@@ -428,13 +434,18 @@ router.delete("/tournaments/:id", authenticate, async (req, res): Promise<void> 
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
   const current = (await getMatches(id))[0];
   if (!current) return fail(res, 404, "Tournament not found.");
-  if (current.entry_coins > 0) return fail(res, 409, "Paid tournaments cannot be deleted; disable the tournament instead.");
-  const registrations = await pool.query<{ count: string }>(
-    "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1", [id],
+  const history = await pool.query<{ has_registrations: boolean; has_wallet_history: boolean; has_awards: boolean }>(
+    `SELECT
+       EXISTS (SELECT 1 FROM daily007_v2_registrations WHERE match_id = $1) AS has_registrations,
+       EXISTS (SELECT 1 FROM daily007_v2_wallet_ledger WHERE match_id = $1) AS has_wallet_history,
+       EXISTS (SELECT 1 FROM daily007_v2_result_awards WHERE match_id = $1) AS has_awards`,
+    [id],
   );
-  if (Number(registrations.rows[0].count) > 0) {
+  const hasHistory = history.rows[0]?.has_registrations ||
+    history.rows[0]?.has_wallet_history || history.rows[0]?.has_awards;
+  if (hasHistory) {
     await pool.query("UPDATE daily007_v2_matches SET enabled = false WHERE id = $1", [id]);
-    res.json({ success: true, data: { id, enabled: false, deleted: false } });
+    res.json({ success: true, data: { id, enabled: false, deleted: false, closed: true } });
     return;
   }
   await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [id]);
@@ -470,6 +481,19 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
             m.entry_coins AS match_entry_coins, m.status AS match_status,
             m.prize_pool, m.rules, m.banner, m.prize_distribution, m.enabled, m.is_full,
             m.room_id, m.room_password, m.room_time, m.room_published,
+             EXISTS (SELECT 1 FROM daily007_v2_result_awards match_award WHERE match_award.match_id = m.id) AS match_has_result,
+             (SELECT json_agg(json_build_object(
+                       'rank', published.rank,
+                       'kills', published.kills,
+                       'prizeCoins', published.prize_coins,
+                       'playerName', result_registration.captain_name,
+                       'gameName', result_registration.captain_game_name,
+                       'teamName', result_registration.team_name
+                     ) ORDER BY published.rank, result_registration.captain_name)
+                FROM daily007_v2_result_awards published
+                JOIN daily007_v2_registrations result_registration
+                  ON result_registration.id = published.registration_id
+               WHERE published.match_id = m.id) AS match_results,
             award.rank AS result_rank, award.kills AS result_kills, award.prize_coins AS result_prize_coins,
             (SELECT count(*)::integer FROM daily007_v2_registrations active
               WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) AS registered_count
@@ -485,6 +509,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       ...row, id: row.match_id, title: row.title!, entry_coins: row.match_entry_coins!,
       prize_pool: row.prize_pool!, capacity: row.capacity!, starts_at: row.starts_at!,
       status: row.match_status!,
+       has_result: row.match_has_result,
       registered_count: row.registered_count!, is_full: row.is_full!, rules: row.rules!,
       banner: row.banner!, prize_distribution: row.prize_distribution!, enabled: row.enabled!,
       room_id: row.room_id!, room_password: row.room_password!, room_time: row.room_time!,
@@ -504,7 +529,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       roomPassword: expose ? row.room_password : undefined,
       roomTime: expose ? row.room_time : undefined,
       roomPublished: expose,
-      tournament: t,
+       tournament: { ...t, results: row.match_results ?? [] },
     };
   }));
   res.json(data);

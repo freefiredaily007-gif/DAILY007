@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Api, apiError, User } from '../lib/api';
+import { Api, apiError, Tournament, User } from '../lib/api';
 import { useApp } from '../App';
 import { A, AdminToastHost, Loading } from '../components/adminKit';
 import { AdminUiProvider } from '../components/ui';
@@ -40,6 +40,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const { logout: ctxLogout } = useApp();
   const onLogout = onLogoutProp || ctxLogout;
   const [screen, setScreen] = useState('dashboard');
+  const [finishTournamentId, setFinishTournamentId] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [err, setErr] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -54,6 +55,10 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const visibleNav = tournamentOnly ? NAV.filter((item) => TOURNAMENT_ADMIN_SCREENS.has(item.key)) : NAV;
   const navigate = (next: string) => {
     if (!tournamentOnly || TOURNAMENT_ADMIN_SCREENS.has(next)) setScreen(next);
+  };
+  const finishTournament = (tournament: Tournament) => {
+    setFinishTournamentId(tournament.id);
+    setScreen('results');
   };
   const Screen: any = {
     dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
@@ -95,7 +100,14 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
         </View>
 
         <View style={{ flex: 1 }} key={refreshKey}>
-          <Screen go={navigate} onLogout={onLogout} currentUserId={user.id} />
+          <Screen
+            go={navigate}
+            onLogout={onLogout}
+            currentUserId={user.id}
+            onFinish={finishTournament}
+            initialTournamentId={activeScreen === 'results' ? finishTournamentId : undefined}
+            onInitialTournamentHandled={() => setFinishTournamentId(null)}
+          />
         </View>
 
         {/* BOTTOM NAV */}

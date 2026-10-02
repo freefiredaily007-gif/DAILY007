@@ -1,10 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 
-export default function AdminResults() {
+export default function AdminResults({
+  initialTournamentId,
+  onInitialTournamentHandled,
+}: {
+  initialTournamentId?: string | null;
+  onInitialTournamentHandled?: () => void;
+}) {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [sel, setSel] = useState<Tournament | null>(null);
   const [regs, setRegs] = useState<AdminRegistration[] | null>(null);
@@ -16,10 +22,19 @@ export default function AdminResults() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const initialTournamentHandled = useRef(false);
 
-  useEffect(() => { Api.tournaments(true).then(setList).catch(() => setList([])); }, []);
+  useEffect(() => {
+    let active = true;
+    Api.tournaments().then((tournaments) => {
+      if (active) setList(tournaments);
+    }).catch(() => {
+      if (active) setList([]);
+    });
+    return () => { active = false; };
+  }, []);
 
-  const open = async (t: Tournament) => {
+  const open = useCallback(async (t: Tournament) => {
     const currentRequest = ++requestId.current;
     setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegId(''); setRank(''); setKills(''); setPrizeCoins('');
     try {
@@ -28,7 +43,16 @@ export default function AdminResults() {
     } catch (e: any) {
       if (requestId.current === currentRequest) { setErr(apiError(e)); setRegs([]); }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!initialTournamentId || !list || initialTournamentHandled.current) return;
+    initialTournamentHandled.current = true;
+    const tournament = list.find((item) => item.id === initialTournamentId);
+    if (tournament) void open(tournament);
+    else setErr('That tournament is no longer available.');
+    onInitialTournamentHandled?.();
+  }, [initialTournamentId, list, onInitialTournamentHandled, open]);
 
   const back = () => { requestId.current++; setSel(null); setRegs(null); setRegId(''); };
 
@@ -45,7 +69,8 @@ export default function AdminResults() {
         tournamentId: sel.id, registrationId: regId,
         rank: Number(rank), kills: Number(kills || 0), prizeCoins: Number(prizeCoins),
       });
-      setOkMsg('Result published — prize credited to player');
+      setSel((current) => current ? { ...current, status: 'completed', enabled: false } : current);
+      setOkMsg('Result published — prize credited and tournament finished.');
       setRegId(''); setRank(''); setKills(''); setPrizeCoins('');
       setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) { setErr(apiError(e)); }

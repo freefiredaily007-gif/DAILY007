@@ -8,3 +8,15 @@ A Tournament Admin can manage tournaments, registrations, rooms, results, and to
 **Why:** The user chose all tournament operations, including registrations and room management, while explicitly excluding non-tournament coin approvals and withdrawals. They clarified that the main Full Admin must assign the role directly, not process player requests.
 
 **How to apply:** Keep the boundary in both server authorization and Admin navigation. Treat User Management as the sole route for assigning the role. Do not expand tournament permissions to unrelated wallet or reward workflows.
+
+**Tournament finish:** The Finish action opens result entry. Publishing a result awards the prize and closes registration in the same transaction; registered players see published standings in MY MATCHES → COMPLETED.
+
+**Why:** The user asked for tournament admins to record results and award the winner when finishing a tournament, with results visible to players.
+
+**How to apply:** Do not complete a tournament just by opening the form. Only expose completion after a result award commits.
+
+**Safe deletion:** Permanently delete only tournaments without registration, wallet, or result history. If history exists, close the tournament and preserve its records.
+
+**Why:** Removing a tournament with participant or coin history could erase records players rely on.
+
+**How to apply:** Check all related history before deleting; do not cascade-delete registrations, awards, or wallet entries.

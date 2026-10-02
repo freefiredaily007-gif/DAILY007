@@ -53,6 +53,7 @@ export default function MyMatches() {
           renderItem={({ item }) => {
             const t = item.tournament ?? {};
             const status = String(item.status ?? '').toLowerCase();
+            const matchFinished = String(t.status ?? '').toLowerCase() === 'completed';
             const roomId = item.roomId ?? t.roomId;
             const roomPassword = item.roomPassword ?? t.roomPassword;
             const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
@@ -63,6 +64,7 @@ export default function MyMatches() {
             const result = typeof item.result === 'string'
               ? item.result
               : item.result?.description ?? item.result?.result ?? item.result?.placement;
+            const results = Array.isArray(t.results) ? t.results : [];
             return (
               <GCard glowColor={roomReady ? C.green : undefined}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -70,7 +72,10 @@ export default function MyMatches() {
                     <Text style={s.mode}>{String(t.mode ?? '').toUpperCase()} • {String(t.teamType ?? '').toUpperCase()}</Text>
                     <Text style={s.tName}>{t.name ?? 'Tournament'}</Text>
                   </View>
-                    <Badge text={status === 'approved' ? 'CONFIRMED' : status.toUpperCase()} color={status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold} />
+                    <Badge
+                      text={matchFinished ? 'COMPLETED' : status === 'approved' ? 'CONFIRMED' : status.toUpperCase()}
+                      color={matchFinished ? C.gold : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
+                    />
                 </View>
                 <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
@@ -98,7 +103,20 @@ export default function MyMatches() {
                     </Text>
                   )}
                 </View>
-                 {result ? <Text style={s.result}>🏆 {String(result)}</Text> : null}
+                  {results.length > 0 ? (
+                    <View style={s.results}>
+                      <Text style={s.resultsTitle}>TOURNAMENT RESULTS</Text>
+                      {results.map((entry: any, index: number) => {
+                        const player = entry.gameName || entry.playerName || 'Player';
+                        const name = entry.teamName ? `${entry.teamName} · ${player}` : player;
+                        return (
+                          <Text key={`${entry.rank ?? 'rank'}-${index}`} style={s.result}>
+                            #{entry.rank} · {name} · {entry.kills ?? 0} kills · {entry.prizeCoins ?? 0} coins
+                          </Text>
+                        );
+                      })}
+                    </View>
+                  ) : result ? <Text style={s.result}>🏆 {String(result)}</Text> : null}
               </GCard>
             );
           }}
@@ -122,5 +140,7 @@ const s = StyleSheet.create({
   roomLine: { color: C.sub, fontSize: 12, fontWeight: '700', marginTop: 2 },
   roomVal: { color: '#22c55e', fontWeight: '900' },
   roomLocked: { color: '#f59e0b', fontSize: 12, fontWeight: '600' },
+  results: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
+  resultsTitle: { color: '#fbbf24', fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 4 },
   result: { color: '#fbbf24', fontWeight: '800', marginTop: 8, fontSize: 13 },
 });

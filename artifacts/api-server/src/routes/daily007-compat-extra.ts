@@ -1140,6 +1140,10 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
          VALUES ($1, $2, $3, 'match_prize')`, [row.captain_user_id, prizeCoins, next],
       );
+      await client.query(
+        "UPDATE daily007_v2_matches SET enabled = false WHERE id = $1",
+        [row.match_id],
+      );
       return { id: (award.rows[0] as { id: string }).id, registrationId: row.id, userId: row.captain_user_id, walletCoins: next };
     });
     res.status(201).json(result);
