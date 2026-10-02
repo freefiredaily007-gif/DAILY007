@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
 import {
   useDaily007GetMyReferrals,
   useDaily007GetYoutubeSubscribeTask,
@@ -71,7 +72,7 @@ export default function Earn() {
     if (!dashboard?.referralLink) return;
     setActionError('');
     try {
-      await Linking.openURL(dashboard.referralLink);
+      await WebBrowser.openBrowserAsync(dashboard.referralLink);
     } catch {
       setActionError('Could not open the invite link. Copy or share it and open it in a browser.');
     }
