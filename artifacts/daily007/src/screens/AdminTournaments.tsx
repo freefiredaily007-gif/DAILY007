@@ -224,8 +224,8 @@ export default function AdminTournaments({
               <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
               <View style={{ flex: 1 }}>
                 {cancellable
-                  ? <Btn title="CANCEL" small kind="danger" loading={cancelLifecycle.isPending} onPress={() => cancel(t)} />
-                  : <Btn title="DELETE" small kind="danger" onPress={() => remove(t)} />}
+                  ? <Btn title="CANCEL" small kind="danger" testID={`cancel-tournament-${t.id}`} loading={cancelLifecycle.isPending} onPress={() => cancel(t)} />
+                  : <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />}
               </View>
             </View>
             {ongoing ? (
