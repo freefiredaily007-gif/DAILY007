@@ -207,56 +207,6 @@ export const Daily007AdminSetUserRoleResponse = zod.unknown()
 
 
 /**
- * @summary Get the current account's latest Tournament Admin access request
- */
-export const Daily007GetTournamentAdminAccessRequestResponse = zod.object({
-  "request": zod.union([zod.object({
-  "id": zod.string().uuid(),
-  "status": zod.enum(['pending', 'approved', 'rejected']),
-  "createdAt": zod.coerce.date()
-}),zod.null()])
-})
-
-
-/**
- * Regular player accounts can submit one pending request; a Full Admin must approve it before the role changes.
- * @summary Submit a Tournament Admin access request
- */
-export const Daily007RequestTournamentAdminAccessResponse = zod.unknown()
-
-
-/**
- * Full Admin only.
- * @summary List pending Tournament Admin access requests
- */
-export const Daily007AdminListTournamentAdminAccessRequestsResponseItem = zod.object({
-  "id": zod.string().uuid(),
-  "userId": zod.string().uuid(),
-  "name": zod.string(),
-  "email": zod.string().email(),
-  "userStatus": zod.enum(['active', 'blocked']),
-  "createdAt": zod.coerce.date()
-})
-export const Daily007AdminListTournamentAdminAccessRequestsResponse = zod.array(Daily007AdminListTournamentAdminAccessRequestsResponseItem)
-
-
-/**
- * Full Admin only. Approval grants only tournament-scoped access; rejection leaves the account as a player.
- * @summary Approve or reject a Tournament Admin access request
- */
-export const Daily007AdminReviewTournamentAdminAccessRequestParams = zod.object({
-  "id": zod.coerce.string().uuid(),
-  "action": zod.enum(['approve', 'reject'])
-})
-
-export const Daily007AdminReviewTournamentAdminAccessRequestResponse = zod.object({
-  "id": zod.string().uuid(),
-  "status": zod.enum(['approved', 'rejected']),
-  "userRole": zod.enum(['user', 'tournament_admin', 'admin'])
-})
-
-
-/**
  * Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
  * @summary Save or publish match room credentials
  */

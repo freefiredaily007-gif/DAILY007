@@ -3,6 +3,7 @@
     "name": "Daily007",
     "slug": "daily007",
     "version": "1.0.0",
+    "platforms": ["android", "web"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "daily007",
@@ -12,7 +13,8 @@
       "bundleIdentifier": "com.daily007.app"
     },
     "android": {
-      "package": "com.daily007.app"
+      "package": "com.daily007.app",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/images/icon.png"
