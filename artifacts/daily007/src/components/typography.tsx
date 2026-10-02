@@ -8,7 +8,10 @@ import type { TextInputProps, TextProps, TextStyle } from 'react-native';
 
 const TYPE_SCALE = 1.18;
 const DEFAULT_TEXT_SIZE = 16;
-const InheritedFontSize = createContext<number | null>(null);
+const InheritedTypography = createContext<{ fontSize: number | null; color: string | null }>({
+  fontSize: null,
+  color: null,
+});
 
 const TEXT_COLOR = {
   white: '#F5F7FF',
@@ -59,11 +62,14 @@ function colorProfile(color: unknown) {
   const lightness = (max + min) / 2;
   const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
   const hex = `#${channels.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
-  return { hue, lightness, saturation, hex };
+  return { hue, lightness, saturation, chroma: max - min, hex };
 }
 
 function numericWeight(style: TextStyle) {
-  const weight = String(style.fontWeight ?? '400');
+  const familyWeight = typeof style.fontFamily === 'string'
+    ? /Inter_(\d{3})/.exec(style.fontFamily)?.[1]
+    : undefined;
+  const weight = String(style.fontWeight ?? familyWeight ?? '400');
   if (weight === 'bold') return 700;
   if (weight === 'normal') return 400;
   const parsed = Number.parseInt(weight, 10);
@@ -83,18 +89,21 @@ function paletteTextColor(color: unknown, style: TextStyle, role: 'text' | 'body
     (typeof style.letterSpacing === 'number' && style.letterSpacing >= 0.8)
   );
   if (isPureWhite) return TEXT_COLOR.white;
-  if (profile && profile.saturation > 0.22 && profile.hue >= 20 && profile.hue <= 70) {
+  if (profile && profile.lightness < 0.18) return TEXT_COLOR.deepBlue;
+  if (profile && profile.chroma > 0.2 && profile.hue >= 20 && profile.hue <= 70) {
     return TEXT_COLOR.yellow;
   }
-  if (profile && profile.saturation > 0.2 && profile.hue >= 185 && profile.hue <= 285) {
+  if (profile && profile.chroma > 0.2 && profile.hue >= 185 && profile.hue <= 285) {
     return TEXT_COLOR.blue;
   }
   if (isHeading) return TEXT_COLOR.yellow;
-  if (profile && profile.saturation < 0.22 && profile.lightness < 0.18) {
-    return TEXT_COLOR.deepBlue;
-  }
   if (profile && profile.saturation < 0.22 && profile.lightness < 0.75) {
-    return TEXT_COLOR.blue;
+    const fontSize = typeof style.fontSize === 'number' ? style.fontSize : DEFAULT_TEXT_SIZE;
+    const isSupportingLabel = fontSize <= 11.5 || (
+      fontSize <= 13 &&
+      (numericWeight(style) >= 600 || (style.letterSpacing ?? 0) >= 0.3)
+    );
+    return isSupportingLabel ? TEXT_COLOR.blue : TEXT_COLOR.white;
   }
   return TEXT_COLOR.white;
 }
@@ -106,17 +115,19 @@ function boldFontFamily(style: TextStyle) {
 }
 
 export function ReadableText({ children, style, ...props }: TextProps) {
-  const inheritedSize = useContext(InheritedFontSize);
+  const inherited = useContext(InheritedTypography);
   const flattenedStyle = StyleSheet.flatten(style);
   const ownFontSize = typeof flattenedStyle?.fontSize === 'number'
     ? scaleSize(flattenedStyle.fontSize)
     : undefined;
-  const fontSize = ownFontSize ?? (inheritedSize === null ? DEFAULT_TEXT_SIZE : undefined);
+  const fontSize = ownFontSize ?? (inherited.fontSize === null ? DEFAULT_TEXT_SIZE : undefined);
   const lineHeight = typeof flattenedStyle?.lineHeight === 'number'
     ? scaleSize(flattenedStyle.lineHeight)
     : undefined;
-  const effectiveSize = fontSize ?? inheritedSize ?? DEFAULT_TEXT_SIZE;
-  const textColor = paletteTextColor(flattenedStyle?.color, flattenedStyle || {});
+  const effectiveSize = fontSize ?? inherited.fontSize ?? DEFAULT_TEXT_SIZE;
+  const textColor = flattenedStyle?.color !== undefined
+    ? paletteTextColor(flattenedStyle.color, flattenedStyle || {})
+    : inherited.color ?? paletteTextColor(undefined, flattenedStyle || {});
   const fontFamily = boldFontFamily(flattenedStyle || {});
 
   return (
@@ -133,9 +144,9 @@ export function ReadableText({ children, style, ...props }: TextProps) {
         },
       ]}
     >
-      <InheritedFontSize.Provider value={effectiveSize}>
+      <InheritedTypography.Provider value={{ fontSize: effectiveSize, color: textColor }}>
         {children}
-      </InheritedFontSize.Provider>
+      </InheritedTypography.Provider>
     </NativeText>
   );
 }

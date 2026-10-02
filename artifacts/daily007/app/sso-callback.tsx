@@ -1,5 +1,6 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { ReadableText as Text } from '../src/components/typography';
 import * as WebBrowser from 'expo-web-browser';
 
 // This route is the web popup return target. Call synchronously at module load
