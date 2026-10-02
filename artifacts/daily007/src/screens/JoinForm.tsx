@@ -90,7 +90,7 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
 
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>
-          Your application profile name will be used for the captain registration. Free Fire in-game name and UID are required.
+          New registrations are confirmed immediately. Entry coins are deducted from your wallet when you join. Your application profile name is used for the captain registration. Free Fire in-game name and UID are required.
           {isTeam ? ` Enter all ${teamSize - 1} teammate in-game names; teammate UIDs are optional.` : ''}
         </Text>
         <Text style={st.pLabel}>CAPTAIN DETAILS</Text>

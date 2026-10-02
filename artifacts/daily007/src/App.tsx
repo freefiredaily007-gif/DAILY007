@@ -72,8 +72,19 @@ function JoinFormRoute() {
       if (result?.success === false || result?.ok === false) {
         throw new Error(result?.error || result?.message || 'The server did not confirm this registration.');
       }
+      if (result?.status !== 'approved' && result?.status !== 'pending') {
+        throw new Error('The server returned an unexpected registration status. Please try again.');
+      }
       await refresh();
-      Alert.alert('Registration submitted', 'Your entry is pending admin approval. Check MY MATCHES for its status and room details.');
+      if (result.status === 'approved') {
+        const entryCoins = Number(result.entryCoinsPaid ?? tournament.entryCoins ?? 0);
+        const message = entryCoins > 0
+          ? `Your slot is confirmed and ${entryCoins} coins were deducted from your wallet. Check MY MATCHES for room details.`
+          : 'Your slot is confirmed. Check MY MATCHES for room details.';
+        Alert.alert('Registration confirmed', message);
+      } else {
+        Alert.alert('Registration pending', 'This registration is still awaiting admin review. Check MY MATCHES for its status and room details.');
+      }
       navigation.goBack();
     }} />;
 }

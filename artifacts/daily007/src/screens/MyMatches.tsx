@@ -70,7 +70,7 @@ export default function MyMatches() {
                     <Text style={s.mode}>{String(t.mode ?? '').toUpperCase()} • {String(t.teamType ?? '').toUpperCase()}</Text>
                     <Text style={s.tName}>{t.name ?? 'Tournament'}</Text>
                   </View>
-                   <Badge text={status.toUpperCase()} color={status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold} />
+                    <Badge text={status === 'approved' ? 'CONFIRMED' : status.toUpperCase()} color={status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold} />
                 </View>
                 <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}

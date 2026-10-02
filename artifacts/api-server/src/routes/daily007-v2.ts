@@ -574,7 +574,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       const registrationResult = await client.query<{ id: string }>(
         `INSERT INTO daily007_v2_registrations
            (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name, entry_coins_paid, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') RETURNING id`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'approved') RETURNING id`,
         [matchId, account.id, captainName, captainGameName, captainGameUid, submittedTeamName, match.entry_coins],
       );
       const registrationId = registrationResult.rows[0].id;
@@ -611,7 +611,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         registeredCount: newCount,
         capacity: match.capacity,
         isFull: full,
-        status: "pending",
+        status: "approved",
         matchStatus,
         alreadyRegistered: false,
       };
