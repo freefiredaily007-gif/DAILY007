@@ -13,3 +13,4 @@
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
 - [Daily007 role constraint verification](daily007-role-constraint-verification.md) — verify role CHECK constraints in the app's actual development database; a successful Drizzle push may leave one stale.
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.
+- [Daily007 tournament captain name](daily007-tournament-captain-name.md) — use the read-only Daily007 profile name for the captain instead of asking for a separate real name.

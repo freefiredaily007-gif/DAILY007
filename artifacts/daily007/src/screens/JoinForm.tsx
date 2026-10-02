@@ -20,7 +20,7 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
   const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'closed'].includes(status);
   const full = remainingSlots <= 0 || filledSlots >= totalSlots || ['full', 'setup_needed'].includes(status);
   const unavailable = full || closed;
-  const [captainRealName, setCaptainRealName] = useState(user.name);
+  const captainProfileName = user.name.trim();
   const [captainGameName, setCaptainGameName] = useState('');
   const [captainGameUid, setCaptainGameUid] = useState(user.gameUid || '');
   const [teamName, setTeamName] = useState('');
@@ -38,7 +38,7 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
     setErr('');
     if (closed) return setErr('This tournament is no longer open for registration.');
     if (full) return setErr('This tournament is full. Please choose another match.');
-    if (!captainRealName.trim()) return setErr('Captain real name is required.');
+    if (!captainProfileName) return setErr('Add an application profile name before registering.');
     if (!captainGameName.trim()) return setErr('Captain Free Fire in-game name is required.');
     if (!captainGameUid.trim()) return setErr('Captain Free Fire UID is required.');
     if (isTeam && !teamName.trim()) return setErr('Team name is required.');
@@ -55,7 +55,7 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
       await onSubmit({
         teamMembers: JSON.stringify(players),
         teamName: teamName.trim(),
-        playerName: captainRealName.trim(),
+        playerName: captainProfileName,
         captainGameName: captainGameName.trim(),
         gameUid: captainGameUid.trim(),
       });
@@ -90,15 +90,17 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
 
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>
-          Captain real name, Free Fire in-game name, and UID are required.
+          Your application profile name will be used for the captain registration. Free Fire in-game name and UID are required.
           {isTeam ? ` Enter all ${teamSize - 1} teammate in-game names; teammate UIDs are optional.` : ''}
         </Text>
         <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
+        <Text style={st.pLabel}>CAPTAIN APPLICATION PROFILE NAME</Text>
         <Input
-          placeholder="Captain real name"
-          value={captainRealName}
-          onChangeText={setCaptainRealName}
-          autoCapitalize="words"
+          accessibilityLabel="Captain application profile name"
+          placeholder="Set your name in Profile before joining"
+          value={captainProfileName}
+          editable={false}
+          selectTextOnFocus={false}
         />
         <Input
           placeholder="Captain Free Fire in-game name"
