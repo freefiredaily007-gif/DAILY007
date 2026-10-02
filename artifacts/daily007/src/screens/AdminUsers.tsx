@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Api, errMessage } from '../lib/api';
-import { Card, Btn, ScreenWrap, useToast, SectionTitle } from '../components/adminKit';
+import { Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog } from '../components/adminKit';
 
 export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
   const toast = useToast();
@@ -9,6 +9,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [regs, setRegs] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [roleChangeTarget, setRoleChangeTarget] = useState<any | null>(null);
 
   const load = async () => {
     try {
@@ -44,26 +45,25 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   };
 
   const setTournamentAdmin = (u: any) => {
+    setRoleChangeTarget(u);
+  };
+
+  const confirmTournamentAdminChange = async () => {
+    const u = roleChangeTarget;
+    if (!u || busy === u.$id) return;
     const role = u.role === 'tournament_admin' ? 'user' : 'tournament_admin';
     const granting = role === 'tournament_admin';
-    Alert.alert(
-      granting ? 'Limit this account to tournaments?' : 'Remove tournament admin access?',
-      granting
-        ? `${u.name} can manage tournaments, registrations, rooms, results, and winner rewards only.`
-        : `${u.name} will return to regular player access.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: granting ? 'Grant access' : 'Remove access', style: granting ? 'default' : 'destructive', onPress: async () => {
-          setBusy(u.$id);
-          try {
-            await Api.adminSetUserRole(u.$id, role);
-            toast(granting ? `${u.name} is now a Tournament Admin` : `${u.name} is now a player`, 'success');
-            await load();
-          } catch (e) { toast(errMessage(e), 'error'); }
-          finally { setBusy(null); }
-        } },
-      ],
-    );
+    setRoleChangeTarget(null);
+    setBusy(u.$id);
+    try {
+      await Api.adminSetUserRole(u.$id, role);
+      toast(granting ? `${u.name} is now a Tournament Admin` : `${u.name} is now a player`, 'success');
+      await load();
+    } catch (e) {
+      toast(errMessage(e), 'error');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
@@ -115,6 +115,19 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
           </Card>
         );
       })}
+      <ConfirmDialog
+        visible={roleChangeTarget !== null}
+        title={roleChangeTarget?.role === 'tournament_admin' ? 'Remove tournament admin access?' : 'Make this user a Tournament Admin?'}
+        message={roleChangeTarget?.role === 'tournament_admin'
+          ? `${roleChangeTarget.name} will return to regular player access.`
+          : `${roleChangeTarget?.name} can manage tournaments, registrations, rooms, results, and winner rewards only.`}
+        confirmTitle={roleChangeTarget?.role === 'tournament_admin' ? 'REMOVE ACCESS' : 'GRANT ACCESS'}
+        danger={roleChangeTarget?.role === 'tournament_admin'}
+        onCancel={() => setRoleChangeTarget(null)}
+        onConfirm={() => { void confirmTournamentAdminChange(); }}
+        cancelTestID="cancel-tournament-admin-change"
+        confirmTestID="confirm-tournament-admin-change"
+      />
     </ScreenWrap>
   );
 }

@@ -61,8 +61,8 @@ export function StatCard({ icon, value, label, tint, onPress, trend }: { icon: k
   );
 }
 
-export function ActionBtn({ title, onPress, kind = 'primary', loading, small, disabled }: {
-  title: string; onPress: () => void; kind?: 'primary' | 'ghost' | 'danger' | 'gold' | 'green'; loading?: boolean; small?: boolean; disabled?: boolean;
+export function ActionBtn({ title, onPress, kind = 'primary', loading, small, disabled, testID }: {
+  title: string; onPress: () => void; kind?: 'primary' | 'ghost' | 'danger' | 'gold' | 'green'; loading?: boolean; small?: boolean; disabled?: boolean; testID?: string;
 }) {
   const bg: Record<string, any> = {
     primary: { backgroundColor: A.red },
@@ -73,7 +73,7 @@ export function ActionBtn({ title, onPress, kind = 'primary', loading, small, di
   };
   const fg: Record<string, string> = { primary: '#fff', ghost: A.text, danger: '#fca5a5', gold: '#1a1200', green: '#86efac' };
   return (
-    <Pressable onPress={onPress} disabled={disabled || loading} style={({ pressed }) => [s.btn, small && s.btnSmall, bg[kind], pressed && { opacity: 0.8 }, (disabled || loading) && { opacity: 0.5 }]}>
+    <Pressable testID={testID} onPress={onPress} disabled={disabled || loading} style={({ pressed }) => [s.btn, small && s.btnSmall, bg[kind], pressed && { opacity: 0.8 }, (disabled || loading) && { opacity: 0.5 }]}>
       {loading ? <ActivityIndicator size="small" color={fg[kind]} /> : <Text style={[s.btnTxt, small && { fontSize: 10.5 }, { color: fg[kind] }]}>{title}</Text>}
     </Pressable>
   );
@@ -95,8 +95,8 @@ export function StatusTag({ status }: { status: string }) {
   return <View style={[s.tag, { backgroundColor: m.bg, borderColor: m.c + '55' }]}><Text style={[s.tagTxt, { color: m.c }]}>{(status || '—').toUpperCase()}</Text></View>;
 }
 
-export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, confirmTitle = 'CONFIRM', danger }: {
-  visible: boolean; title: string; message: string; onCancel: () => void; onConfirm: () => void; confirmTitle?: string; danger?: boolean;
+export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, confirmTitle = 'CONFIRM', danger, cancelTestID, confirmTestID }: {
+  visible: boolean; title: string; message: string; onCancel: () => void; onConfirm: () => void; confirmTitle?: string; danger?: boolean; cancelTestID?: string; confirmTestID?: string;
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -105,8 +105,8 @@ export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, co
           <Text style={s.dialogTitle}>{title}</Text>
           <Text style={s.dialogMsg}>{message}</Text>
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
-            <View style={{ flex: 1 }}><ActionBtn title="CANCEL" kind="ghost" onPress={onCancel} /></View>
-            <View style={{ flex: 1 }}><ActionBtn title={confirmTitle} kind={danger ? 'danger' : 'primary'} onPress={onConfirm} /></View>
+            <View style={{ flex: 1 }}><ActionBtn title="CANCEL" kind="ghost" onPress={onCancel} testID={cancelTestID} /></View>
+            <View style={{ flex: 1 }}><ActionBtn title={confirmTitle} kind={danger ? 'danger' : 'primary'} onPress={onConfirm} testID={confirmTestID} /></View>
           </View>
         </View>
       </View>
