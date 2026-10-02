@@ -25,7 +25,7 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
         const parsed = new URL(url);
         const isAppLink = parsed.protocol === 'daily007:';
         const isWebInvite = parsed.protocol === 'https:' &&
-          (parsed.hostname === 'daily-007-source-1-zip.replit.app' ||
+          (parsed.hostname === process.env.EXPO_PUBLIC_DOMAIN ||
             (Platform.OS === 'web' && typeof window !== 'undefined' && parsed.hostname === window.location.hostname));
         if (!isAppLink && !isWebInvite) return;
         const code = parsed.searchParams.get('ref') ?? parsed.searchParams.get('referralCode');

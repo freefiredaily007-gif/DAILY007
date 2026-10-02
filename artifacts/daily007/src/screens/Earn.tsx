@@ -4,6 +4,7 @@ import {
   Alert,
   Linking,
   Pressable,
+  Platform,
   RefreshControl,
   ScrollView,
   Share,
@@ -70,9 +71,17 @@ export default function Earn() {
   const openReferralLink = async () => {
     if (!dashboard?.referralLink) return;
     setActionError('');
+    const appLink = `daily007://signup?ref=${encodeURIComponent(dashboard.code)}`;
+    const firstLink = Platform.OS === 'web' ? dashboard.referralLink : appLink;
     try {
-      await Linking.openURL(dashboard.referralLink);
+      await Linking.openURL(firstLink);
     } catch {
+      if (firstLink !== dashboard.referralLink) {
+        try {
+          await Linking.openURL(dashboard.referralLink);
+          return;
+        } catch {}
+      }
       setActionError('Could not open the invite link. Copy or share it and open it in a browser.');
     }
   };

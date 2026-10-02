@@ -5,3 +5,4 @@
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
+- [Daily007 referral links](daily007-referral-links.md) — keep shared referral invites clickable and open signup with the referring code prefilled.

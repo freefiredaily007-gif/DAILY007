@@ -12,6 +12,7 @@ import {
   awardReferrerForApprovedRecharge,
   classifyReferralRechargeStatus,
 } from "../lib/daily007-referrals";
+import { createDaily007ReferralLinks } from "../lib/daily007-referral-links";
 import {
   reviewYoutubeSubscribeClaim,
   submitYoutubeSubscribeClaim,
@@ -912,13 +913,10 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
     }),
   }));
   const totalPeopleReferred = referralList.length;
-  const codeForLink = encodeURIComponent(savedCode.rows[0].code);
-  const referralLink = `https://daily-007-source-1-zip.replit.app/?ref=${codeForLink}`;
-  const appReferralLink = `daily007://signup?ref=${codeForLink}`;
+  const { referralLink } = createDaily007ReferralLinks(savedCode.rows[0].code);
   res.json({
     code: savedCode.rows[0].code,
     referralLink,
-    appReferralLink,
     totalPeopleReferred,
     successfulReferrals,
     pendingReferrals: totalPeopleReferred - successfulReferrals,

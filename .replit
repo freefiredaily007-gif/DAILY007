@@ -21,3 +21,8 @@ timeoutMs = 180000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+DAILY007_PUBLIC_APP_URL = "https://daily-007-source-1-zip.replit.app"

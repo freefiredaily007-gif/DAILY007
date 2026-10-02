@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../src/lib/daily007-v2-validation.ts";
 import { resolveTournamentMode } from "../src/lib/daily007-mode-rules.ts";
+import { createDaily007ReferralLinks } from "../src/lib/daily007-referral-links.ts";
 
 test("registration timestamps must be ISO timestamps strictly in the future", () => {
   const now = Date.parse("2030-01-01T00:00:00Z");
@@ -48,6 +49,15 @@ test("all main modes expose their fixed Solo, Duo, and Squad capacities", () => 
     assert.equal(resolved.teamSize, teamSize);
     assert.equal(resolved.slotUnit, slotUnit);
   }
+});
+
+test("referral links are clickable HTTPS URLs with the code in the query", () => {
+  process.env.DAILY007_PUBLIC_APP_URL = "https://daily007.example.test";
+  const links = createDaily007ReferralLinks("DAILY 7");
+  const parsedLink = new URL(links.referralLink);
+  assert.equal(parsedLink.origin, "https://daily007.example.test");
+  assert.equal(parsedLink.pathname, "/");
+  assert.equal(parsedLink.searchParams.get("ref"), "DAILY 7");
 });
 
 test("CSV cells escape quotes and neutralize spreadsheet formulas", () => {
