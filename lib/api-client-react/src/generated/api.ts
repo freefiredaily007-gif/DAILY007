@@ -37,6 +37,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  Daily007AdminAccessRequest,
+  Daily007AdminAccessRequestReviewResult,
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminSettingsBody,
   Daily007AdminUserRoleBody,
@@ -48,6 +50,8 @@ import type {
   Daily007RechargeRequestBody,
   Daily007ReferralDashboard,
   Daily007ReviewRequestBody,
+  Daily007TournamentAdminAccessRequestState,
+  Daily007TournamentAdminAccessRequestSubmission,
   Daily007V2CreateMatchBody,
   Daily007V2RegistrationBody,
   Daily007V2UpdateMatchBody,
@@ -1076,6 +1080,313 @@ export const useDaily007AdminSetUserRole = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007AdminSetUserRoleMutationOptions(options));
+    }
+
+export const getDaily007GetTournamentAdminAccessRequestUrl = () => {
+
+
+
+
+  return `/api/tournament-admin/access-request`
+}
+
+/**
+ * @summary Get the current account's latest Tournament Admin access request
+ */
+export const daily007GetTournamentAdminAccessRequest = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007TournamentAdminAccessRequestState> => {
+
+  return customFetch<Daily007TournamentAdminAccessRequestState>(getDaily007GetTournamentAdminAccessRequestUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007GetTournamentAdminAccessRequestQueryKey = () => {
+    return [
+    `/api/tournament-admin/access-request`
+    ] as const;
+    }
+
+
+export const getDaily007GetTournamentAdminAccessRequestQueryOptions = <TData = Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007GetTournamentAdminAccessRequestQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>> = ({ signal }) => daily007GetTournamentAdminAccessRequest({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007GetTournamentAdminAccessRequestQueryResult = NonNullable<Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>>
+export type Daily007GetTournamentAdminAccessRequestQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the current account's latest Tournament Admin access request
+ */
+
+export function useDaily007GetTournamentAdminAccessRequest<TData = Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetTournamentAdminAccessRequest>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007GetTournamentAdminAccessRequestQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007RequestTournamentAdminAccessUrl = () => {
+
+
+
+
+  return `/api/tournament-admin/access-request`
+}
+
+/**
+ * Regular player accounts can submit one pending request; a Full Admin must approve it before the role changes.
+ * @summary Submit a Tournament Admin access request
+ */
+export const daily007RequestTournamentAdminAccess = async ( options?: Parameters<typeof customFetch>[1]): Promise<void | Daily007TournamentAdminAccessRequestSubmission> => {
+
+  return customFetch<void | Daily007TournamentAdminAccessRequestSubmission>(getDaily007RequestTournamentAdminAccessUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007RequestTournamentAdminAccessMutationKey = () => ['daily007RequestTournamentAdminAccess'] as const;
+
+export const getDaily007RequestTournamentAdminAccessMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007RequestTournamentAdminAccess>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007RequestTournamentAdminAccess>>, TError,void, TContext> => {
+
+const mutationKey = getDaily007RequestTournamentAdminAccessMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007RequestTournamentAdminAccess>>, void> = () => {
+
+
+          return  daily007RequestTournamentAdminAccess(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007RequestTournamentAdminAccessMutationResult = NonNullable<Awaited<ReturnType<typeof daily007RequestTournamentAdminAccess>>>
+
+    export type Daily007RequestTournamentAdminAccessMutationError = ErrorType<void>
+
+
+    /**
+ * @summary Submit a Tournament Admin access request
+ */
+export const useDaily007RequestTournamentAdminAccess = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007RequestTournamentAdminAccess>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007RequestTournamentAdminAccess>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDaily007RequestTournamentAdminAccessMutationOptions(options));
+    }
+
+export const getDaily007AdminListTournamentAdminAccessRequestsUrl = () => {
+
+
+
+
+  return `/api/admin/access-requests`
+}
+
+/**
+ * Full Admin only.
+ * @summary List pending Tournament Admin access requests
+ */
+export const daily007AdminListTournamentAdminAccessRequests = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminAccessRequest[]> => {
+
+  return customFetch<Daily007AdminAccessRequest[]>(getDaily007AdminListTournamentAdminAccessRequestsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminListTournamentAdminAccessRequestsQueryKey = () => {
+    return [
+    `/api/admin/access-requests`
+    ] as const;
+    }
+
+
+export const getDaily007AdminListTournamentAdminAccessRequestsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListTournamentAdminAccessRequestsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>> = ({ signal }) => daily007AdminListTournamentAdminAccessRequests({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminListTournamentAdminAccessRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>>
+export type Daily007AdminListTournamentAdminAccessRequestsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List pending Tournament Admin access requests
+ */
+
+export function useDaily007AdminListTournamentAdminAccessRequests<TData = Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListTournamentAdminAccessRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminListTournamentAdminAccessRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminReviewTournamentAdminAccessRequestUrl = (id: string,
+    action: 'approve' | 'reject',) => {
+
+
+
+
+  return `/api/admin/access-requests/${id}/${action}`
+}
+
+/**
+ * Full Admin only. Approval grants only tournament-scoped access; rejection leaves the account as a player.
+ * @summary Approve or reject a Tournament Admin access request
+ */
+export const daily007AdminReviewTournamentAdminAccessRequest = async (id: string,
+    action: 'approve' | 'reject', options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminAccessRequestReviewResult> => {
+
+  return customFetch<Daily007AdminAccessRequestReviewResult>(getDaily007AdminReviewTournamentAdminAccessRequestUrl(id,action),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminReviewTournamentAdminAccessRequestMutationKey = () => ['daily007AdminReviewTournamentAdminAccessRequest'] as const;
+
+export const getDaily007AdminReviewTournamentAdminAccessRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewTournamentAdminAccessRequest>>, TError,Daily007AdminReviewTournamentAdminAccessRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewTournamentAdminAccessRequest>>, TError,Daily007AdminReviewTournamentAdminAccessRequestMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminReviewTournamentAdminAccessRequestMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminReviewTournamentAdminAccessRequest>>, Daily007AdminReviewTournamentAdminAccessRequestMutationVariables> = (props) => {
+          const {id,action} = props ?? {};
+
+          return  daily007AdminReviewTournamentAdminAccessRequest(id,action,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminReviewTournamentAdminAccessRequestMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminReviewTournamentAdminAccessRequest>>>
+
+    export type Daily007AdminReviewTournamentAdminAccessRequestMutationError = ErrorType<void>
+    export type Daily007AdminReviewTournamentAdminAccessRequestMutationVariables = {id: string;action: 'approve' | 'reject'}
+
+    /**
+ * @summary Approve or reject a Tournament Admin access request
+ */
+export const useDaily007AdminReviewTournamentAdminAccessRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewTournamentAdminAccessRequest>>, TError,Daily007AdminReviewTournamentAdminAccessRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminReviewTournamentAdminAccessRequest>>,
+        TError,
+        Daily007AdminReviewTournamentAdminAccessRequestMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminReviewTournamentAdminAccessRequestMutationOptions(options));
     }
 
 export const getDaily007V2SetRoomUrl = (id: string,) => {

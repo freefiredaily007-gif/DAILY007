@@ -14,6 +14,7 @@ import AdminWallet from './AdminWallet';
 import AdminRooms from './AdminRooms';
 import AdminResults from './AdminResults';
 import AdminUsers from './AdminUsers';
+import AdminAccessRequests from './AdminAccessRequests';
 import AdminNotifications from './AdminNotifications';
 import AdminSettings from './AdminSettings';
 import AdminEarnTasks from './AdminEarnTasks';
@@ -29,6 +30,7 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
   { key: 'rooms', label: 'Rooms', icon: 'key' },
   { key: 'results', label: 'Results', icon: 'target' },
   { key: 'users', label: 'Users', icon: 'users' },
+  { key: 'accessRequests', label: 'Access', icon: 'user-check' },
   { key: 'notifications', label: 'Notify', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
@@ -56,7 +58,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const Screen: any = {
     dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
     payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, rooms: AdminRooms, results: AdminResults,
-    users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
+    users: AdminUsers, accessRequests: AdminAccessRequests, notifications: AdminNotifications, settings: AdminSettings,
   }[activeScreen] || AdminDashboard;
 
   return (

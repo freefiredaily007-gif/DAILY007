@@ -35,6 +35,20 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   check("daily007_v2_users_status_valid", sql`${table.status} IN ('active', 'blocked')`),
 ]);
 
+export const daily007AdminAccessRequestsTable = pgTable("daily007_v2_admin_access_requests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => daily007UsersTable.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
+}, (table) => [
+  check("daily007_v2_admin_access_request_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  uniqueIndex("daily007_v2_admin_access_pending_once").on(table.userId)
+    .where(sql`${table.status} = 'pending'`),
+  index("daily007_v2_admin_access_status_idx").on(table.status, table.createdAt),
+]);
+
 export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),

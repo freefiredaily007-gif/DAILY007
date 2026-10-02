@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { authenticate, requireAdmin, requireTournamentAdmin } from "./daily007-v2";
-import { isAssignableTournamentRole } from "../lib/daily007-roles";
+import { canRequestTournamentAdminAccess, isAssignableTournamentRole } from "../lib/daily007-roles";
 import {
   isValidYoutubeChannelUrl,
   normalizePaymentReference,
@@ -531,6 +531,127 @@ router.patch("/admin/users/:id/role", authenticate, async (req, res): Promise<vo
     });
     if (!result) { error(res, 404, "User not found."); return; }
     res.json(result);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.get("/tournament-admin/access-request", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const result = await pool.query(
+    `SELECT id, status, created_at AS "createdAt"
+       FROM daily007_v2_admin_access_requests
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [id],
+  );
+  res.json({ request: result.rows[0] ?? null });
+});
+
+router.post("/tournament-admin/access-request", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  if (!canRequestTournamentAdminAccess(req.daily007Account?.role)) {
+    error(res, 409, "Only regular player accounts can request Tournament Admin access.");
+    return;
+  }
+  try {
+    const result = await transaction(async (client) => {
+      const account = await client.query<{ role: string }>(
+        "SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [id],
+      );
+      if (!account.rows[0]) throw Object.assign(new Error("Account not found."), { status: 404 });
+      if (!canRequestTournamentAdminAccess(account.rows[0].role)) {
+        throw Object.assign(new Error("Only regular player accounts can request Tournament Admin access."), { status: 409 });
+      }
+
+      const pending = await client.query<{ id: string; status: string; createdAt: string }>(
+        `SELECT id, status, created_at AS "createdAt"
+           FROM daily007_v2_admin_access_requests
+          WHERE user_id = $1 AND status = 'pending'
+          LIMIT 1`,
+        [id],
+      );
+      if (pending.rows[0]) return { request: pending.rows[0], alreadyPending: true };
+
+      const created = await client.query<{ id: string; status: string; createdAt: string }>(
+        `INSERT INTO daily007_v2_admin_access_requests (user_id)
+         VALUES ($1)
+         RETURNING id, status, created_at AS "createdAt"`,
+        [id],
+      );
+      return { request: created.rows[0], alreadyPending: false };
+    });
+    res.status(result.alreadyPending ? 200 : 201).json(result);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.get("/admin/access-requests", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const result = await pool.query(
+    `SELECT r.id, r.user_id AS "userId", u.name, u.email, u.status AS "userStatus",
+            r.created_at AS "createdAt"
+       FROM daily007_v2_admin_access_requests r
+       JOIN daily007_v2_users u ON u.id = r.user_id
+      WHERE r.status = 'pending'
+      ORDER BY r.created_at ASC`,
+  );
+  res.json(result.rows);
+});
+
+router.post("/admin/access-requests/:id/:action", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const id = req.params.id;
+  const action = req.params.action;
+  const reviewerId = privateAccount(req, res);
+  if (!reviewerId) return;
+  if (!validId(id) || (action !== "approve" && action !== "reject")) {
+    error(res, 400, "A valid request UUID and approve/reject action are required.");
+    return;
+  }
+
+  try {
+    const result = await transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(740073)");
+      const selected = await client.query<{ id: string; user_id: string; status: string }>(
+        "SELECT id, user_id, status FROM daily007_v2_admin_access_requests WHERE id = $1 FOR UPDATE",
+        [id],
+      );
+      const request = selected.rows[0];
+      if (!request) return { kind: "missing" as const };
+      if (request.status !== "pending") return { kind: "reviewed" as const };
+
+      const account = await client.query<{ role: string; status: string }>(
+        "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [request.user_id],
+      );
+      const target = account.rows[0];
+      if (!target) return { kind: "missing" as const };
+      if (action === "approve" && target.status === "blocked") {
+        return { kind: "blocked" as const };
+      }
+
+      let userRole = target.role;
+      if (action === "approve" && target.role === "user") {
+        const updated = await client.query<{ role: string }>(
+          "UPDATE daily007_v2_users SET role = 'tournament_admin' WHERE id = $1 RETURNING role",
+          [request.user_id],
+        );
+        userRole = updated.rows[0]?.role ?? target.role;
+      }
+      const status = action === "approve" ? "approved" : "rejected";
+      await client.query(
+        `UPDATE daily007_v2_admin_access_requests
+            SET status = $2, reviewed_at = now(), reviewed_by = $3
+          WHERE id = $1`,
+        [id, status, reviewerId],
+      );
+      return { kind: "reviewed" as const, status, userRole };
+    });
+
+    if (result.kind === "missing") { error(res, 404, "Access request not found."); return; }
+    if (result.kind === "blocked") { error(res, 409, "Unblock this account before approving Tournament Admin access."); return; }
+    if (result.status === undefined) { error(res, 409, "This access request has already been reviewed."); return; }
+    res.json({ id, status: result.status, userRole: result.userRole });
   } catch (e) { respondFailure(res, e); }
 });
 
