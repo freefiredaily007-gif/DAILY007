@@ -214,9 +214,9 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
-        { img: modeSoloLogo, title: '🔥 BATTLE ROYALE SOLO', capacity: '48 PLAYER SLOTS', mode: 'Battle Royale Solo', accent: C.gold },
-        { img: modeSquadLogo, title: '⚔️ BATTLE ROYALE SQUAD', capacity: '12 TEAMS × 4 PLAYERS', mode: 'Battle Royale Squad', accent: C.neon },
-        { img: modeClashLogo, title: '💥 CLASH SQUAD', capacity: '4V4', mode: 'Clash Squad', accent: C.purple },
+        { img: modeSoloLogo, category: 'BATTLE ROYALE', title: 'SOLO', capacity: '48 PLAYER SLOTS', mode: 'Battle Royale Solo', accent: C.gold },
+        { img: modeSquadLogo, category: 'BATTLE ROYALE', title: 'SQUAD', capacity: '12 TEAMS × 4 PLAYERS', mode: 'Battle Royale Squad', accent: C.neon },
+        { img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: '4V4 MATCHES', mode: 'Clash Squad', accent: C.purple },
       ].map((m) => (
         <GCard
           key={m.mode}
@@ -225,16 +225,19 @@ export default function Home() {
           accessibilityHint="Opens the tournament list for this game mode"
           testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
           glowColor={m.accent}
-          style={s.modeCard}
+          style={[s.modeCard, { borderLeftColor: m.accent }]}
         >
           <View style={s.modeArtWrap}>
             <Image source={m.img} style={s.modeBanner} resizeMode="contain" />
           </View>
           <View style={s.modeBody}>
-            <Text style={[s.modeTitle, { color: m.accent }]}>{m.title}</Text>
-            <Text style={[s.modeCapacity, { color: m.accent }]}>{m.capacity}</Text>
+            <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
+            <Text style={s.modeTitle}>{m.title}</Text>
+            <View style={[s.modeCapacityBadge, { borderColor: m.accent + '66', backgroundColor: m.accent + '14' }]}>
+              <Text style={[s.modeCapacity, { color: m.accent }]} numberOfLines={1}>{m.capacity}</Text>
+            </View>
             <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
-              <Text style={s.modeBtnT}>VIEW TOURNAMENTS</Text>
+              <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
               <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
             </View>
           </View>
@@ -342,25 +345,31 @@ const s = StyleSheet.create({
   slotBar: { height: 4, backgroundColor: '#1a2136', borderRadius: 2, marginTop: 10, overflow: 'hidden' },
   slotFill: { height: 4, backgroundColor: C.neon, borderRadius: 2 },
   modeCard: {
-    marginHorizontal: 16, marginBottom: 12, padding: 9, overflow: 'hidden',
-    flexDirection: 'row', alignItems: 'stretch', minHeight: 124,
-    backgroundColor: '#10162b',
+    marginHorizontal: 16, marginBottom: 12, padding: 10, overflow: 'hidden',
+    flexDirection: 'row', alignItems: 'stretch', minHeight: 146,
+    backgroundColor: '#11182a', borderRadius: 16, borderWidth: 1,
+    borderColor: '#28314b', borderLeftWidth: 4,
   },
   modeArtWrap: {
-    width: 98, height: 106, borderRadius: 11, overflow: 'hidden',
+    width: 104, height: 124, borderRadius: 12, overflow: 'hidden',
     backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
   },
-  modeBanner: { width: '100%', height: '100%', minHeight: 106 },
-  modeBody: { flex: 1, minWidth: 0, justifyContent: 'center', paddingLeft: 12, paddingRight: 3, paddingVertical: 3 },
-  modeTitle: { fontWeight: '900', fontSize: 13, letterSpacing: 0.35, lineHeight: 17 },
-  modeCapacity: { fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 5 },
+  modeBanner: { width: '100%', height: '100%', minHeight: 124 },
+  modeBody: { flex: 1, minWidth: 0, justifyContent: 'center', paddingLeft: 12, paddingRight: 2, paddingVertical: 3 },
+  modeKicker: { fontWeight: '900', fontSize: 9, letterSpacing: 1.4, lineHeight: 12 },
+  modeTitle: { color: C.text, fontWeight: '900', fontSize: 17, letterSpacing: 0.45, lineHeight: 20, marginTop: 4 },
+  modeCapacityBadge: {
+    alignSelf: 'flex-start', borderWidth: 1, borderRadius: 7,
+    paddingHorizontal: 8, paddingVertical: 5, marginTop: 7, maxWidth: '100%',
+  },
+  modeCapacity: { fontSize: 8.5, fontWeight: '900', letterSpacing: 0.7 },
   modeChip: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#ffffff08' },
   modeChipT: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   modeBtn: {
-    marginTop: 10, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 10,
+    marginTop: 9, minHeight: 36, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 9,
     alignItems: 'center', justifyContent: 'space-between', flexDirection: 'row',
   },
-  modeBtnT: { color: '#090b12', fontWeight: '900', letterSpacing: 0.9, fontSize: 9.5 },
+  modeBtnT: { color: '#090b12', fontWeight: '900', letterSpacing: 0.65, fontSize: 9.5 },
   modeBtnArrow: { color: '#090b12', fontSize: 17, fontWeight: '900', lineHeight: 17 },
   socialBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12,
