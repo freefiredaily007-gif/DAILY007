@@ -192,7 +192,22 @@ export const Daily007V2CreditWalletResponse = zod.unknown()
 
 
 /**
- * Admin only. Setting published=true still does not reveal credentials until 15 minutes before match start.
+ * Full Admin only. The role can be set to player or tournament_admin, cannot be changed on the caller's account, and cannot demote the last Full Admin.
+ * @summary Assign or remove Tournament Admin access
+ */
+export const Daily007AdminSetUserRoleParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007AdminSetUserRoleBody = zod.object({
+  "role": zod.enum(['user', 'tournament_admin'])
+})
+
+export const Daily007AdminSetUserRoleResponse = zod.unknown()
+
+
+/**
+ * Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
  * @summary Save or publish match room credentials
  */
 export const Daily007V2SetRoomParams = zod.object({
@@ -214,7 +229,7 @@ export const Daily007V2GetRoomResponse = zod.unknown()
 
 
 /**
- * Admin only. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
+ * Full Admin or Tournament Admin. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
  * @summary Export a match registration roster as CSV
  */
 export const Daily007V2ExportRegistrationsParams = zod.object({

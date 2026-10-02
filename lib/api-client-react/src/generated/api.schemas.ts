@@ -569,6 +569,18 @@ export interface Daily007YoutubeSubscribeReviewBody {
   reason?: string;
 }
 
+export type Daily007AdminUserRoleBodyRole = typeof Daily007AdminUserRoleBodyRole[keyof typeof Daily007AdminUserRoleBodyRole];
+
+
+export const Daily007AdminUserRoleBodyRole = {
+  user: 'user',
+  tournament_admin: 'tournament_admin',
+} as const;
+
+export interface Daily007AdminUserRoleBody {
+  role: Daily007AdminUserRoleBodyRole;
+}
+
 export type Daily007AdminGetRechargeProofUrl200 = {
   url: string;
 };

@@ -39,6 +39,7 @@ import type {
 import type {
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminSettingsBody,
+  Daily007AdminUserRoleBody,
   Daily007AdminYoutubeSubscribeClaims,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
@@ -987,6 +988,96 @@ export const useDaily007V2CreditWallet = <TError = ErrorType<void>,
       return useMutation(getDaily007V2CreditWalletMutationOptions(options));
     }
 
+export const getDaily007AdminSetUserRoleUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/users/${id}/role`
+}
+
+/**
+ * Full Admin only. The role can be set to player or tournament_admin, cannot be changed on the caller's account, and cannot demote the last Full Admin.
+ * @summary Assign or remove Tournament Admin access
+ */
+export const daily007AdminSetUserRole = async (id: string,
+    daily007AdminUserRoleBody: Daily007AdminUserRoleBody, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<void>(getDaily007AdminSetUserRoleUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminUserRoleBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminSetUserRoleMutationKey = () => ['daily007AdminSetUserRole'] as const;
+
+export const getDaily007AdminSetUserRoleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSetUserRole>>, TError,Daily007AdminSetUserRoleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSetUserRole>>, TError,Daily007AdminSetUserRoleMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminSetUserRoleMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminSetUserRole>>, Daily007AdminSetUserRoleMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminSetUserRole(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminSetUserRoleMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminSetUserRole>>>
+    export type Daily007AdminSetUserRoleMutationBody = BodyType<Daily007AdminUserRoleBody>
+    export type Daily007AdminSetUserRoleMutationError = ErrorType<void>
+    export type Daily007AdminSetUserRoleMutationVariables = {id: string;data: BodyType<Daily007AdminUserRoleBody>}
+
+    /**
+ * @summary Assign or remove Tournament Admin access
+ */
+export const useDaily007AdminSetUserRole = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSetUserRole>>, TError,Daily007AdminSetUserRoleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminSetUserRole>>,
+        TError,
+        Daily007AdminSetUserRoleMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminSetUserRoleMutationOptions(options));
+    }
+
 export const getDaily007V2SetRoomUrl = (id: string,) => {
 
 
@@ -996,7 +1087,7 @@ export const getDaily007V2SetRoomUrl = (id: string,) => {
 }
 
 /**
- * Admin only. Setting published=true still does not reveal credentials until 15 minutes before match start.
+ * Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
  * @summary Save or publish match room credentials
  */
 export const daily007V2SetRoom = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
@@ -1149,7 +1240,7 @@ export const getDaily007V2ExportRegistrationsUrl = (id: string,) => {
 }
 
 /**
- * Admin only. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
+ * Full Admin or Tournament Admin. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
  * @summary Export a match registration roster as CSV
  */
 export const daily007V2ExportRegistrations = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {

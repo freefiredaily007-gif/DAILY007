@@ -142,7 +142,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     <Ctx.Provider value={{ user, refresh, logout }}>
       <NavigationContainer theme={navTheme}>
         <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: '#0d1220' }, headerTintColor: '#eef1f8', contentStyle: { backgroundColor: '#070a12' } }}>
-          {user.role === 'admin' ? (
+          {user.role === 'admin' || user.role === 'tournament_admin' ? (
             <Stack.Screen name="Admin" component={AdminApp} options={{ headerShown: false }} />
           ) : (
             <>

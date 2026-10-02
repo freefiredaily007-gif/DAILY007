@@ -3,7 +3,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
-import { authenticate, hashPassword, makeToken, requireAdmin } from "./daily007-v2";
+import { authenticate, hashPassword, makeToken, requireTournamentAdmin } from "./daily007-v2";
 
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -350,7 +350,7 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
 }
 
 router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   if (!record(req.body)) return fail(res, 400, "Expected tournament fields.");
   const values = tournamentValues(req.body);
   if (!values) return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, and nonnegative integer coin values.");
@@ -369,7 +369,7 @@ router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
 });
 
 router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
   if (!record(req.body)) return fail(res, 400, "Expected tournament fields.");
@@ -423,7 +423,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
 });
 
 router.delete("/tournaments/:id", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
   const current = (await getMatches(id))[0];
@@ -511,7 +511,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
 });
 
 router.get("/admin/registrations", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
             r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode, m.game_mode, m.team_type
@@ -644,7 +644,7 @@ async function approveRegistration(registrationId: string): Promise<"approved" |
 }
 
 router.post("/admin/registrations/:id/:action", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   const action = req.params.action;
   if (!id) return fail(res, 400, "Registration id must be a UUID.");
@@ -662,7 +662,7 @@ router.post("/admin/registrations/:id/:action", authenticate, async (req, res): 
 });
 
 router.delete("/admin/registrations/:id", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Registration id must be a UUID.");
   if (await rejectRegistration(id) === "missing") return fail(res, 404, "Registration not found.");
@@ -670,7 +670,7 @@ router.delete("/admin/registrations/:id", authenticate, async (req, res): Promis
 });
 
 router.get("/admin/tournaments/:id/room", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
   const result = await pool.query<{
@@ -687,7 +687,7 @@ router.get("/admin/tournaments/:id/room", authenticate, async (req, res): Promis
 });
 
 router.put("/admin/tournaments/:id/room", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   const body = req.body as unknown;
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
@@ -712,7 +712,7 @@ router.put("/admin/tournaments/:id/room", authenticate, async (req, res): Promis
 });
 
 router.post("/admin/tournaments/:id/publish-room", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
   const result = await pool.query(

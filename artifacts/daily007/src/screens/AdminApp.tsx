@@ -32,6 +32,7 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
   { key: 'notifications', label: 'Notify', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
+const TOURNAMENT_ADMIN_SCREENS = new Set(['tournaments', 'registrations', 'rooms', 'results']);
 
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {
   const { logout: ctxLogout } = useApp();
@@ -46,11 +47,17 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   if (err) return <View style={st.center}><Text style={{ color: '#fca5a5' }}>{err}</Text></View>;
   if (!user) return <Loading />;
 
+  const tournamentOnly = user.role === 'tournament_admin';
+  const activeScreen = tournamentOnly && !TOURNAMENT_ADMIN_SCREENS.has(screen) ? 'tournaments' : screen;
+  const visibleNav = tournamentOnly ? NAV.filter((item) => TOURNAMENT_ADMIN_SCREENS.has(item.key)) : NAV;
+  const navigate = (next: string) => {
+    if (!tournamentOnly || TOURNAMENT_ADMIN_SCREENS.has(next)) setScreen(next);
+  };
   const Screen: any = {
     dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
     payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, rooms: AdminRooms, results: AdminResults,
     users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
-  }[screen] || AdminDashboard;
+  }[activeScreen] || AdminDashboard;
 
   return (
     <AdminUiProvider>
@@ -76,7 +83,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
           <View style={st.badge}><Feather name="shield" size={14} color={A.orange} /></View>
           <View style={{ flex: 1 }}>
             <Text style={st.adminName}>{user.name || 'Admin'}</Text>
-            <Text style={st.adminMail}>{user.email}</Text>
+            <Text style={st.adminMail}>{tournamentOnly ? 'TOURNAMENT ADMIN · ' : ''}{user.email}</Text>
           </View>
           <View style={st.liveBadge}><View style={st.liveDot} /><Text style={st.liveTxt}>LIVE</Text></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={onLogout} style={st.logoutBtn}>
@@ -86,16 +93,16 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
         </View>
 
         <View style={{ flex: 1 }} key={refreshKey}>
-          <Screen go={setScreen} onLogout={onLogout} />
+          <Screen go={navigate} onLogout={onLogout} currentUserId={user.id} />
         </View>
 
         {/* BOTTOM NAV */}
         <View style={st.navWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.nav}>
-            {NAV.map((n) => {
-              const active = screen === n.key;
+            {visibleNav.map((n) => {
+              const active = activeScreen === n.key;
               return (
-                <Pressable key={n.key} onPress={() => setScreen(n.key)} style={[st.navItem, active && st.navActive]}>
+                <Pressable key={n.key} onPress={() => navigate(n.key)} style={[st.navItem, active && st.navActive]}>
                   <View style={[st.navIcon, active && st.navIconActive]}>
                     {active && <View style={st.navIconGlow} />}
                     <Feather name={n.icon} size={19} color={active ? A.gold : A.sub} />

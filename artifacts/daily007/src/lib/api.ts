@@ -3,9 +3,11 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from './backendUrl';
 
+export type Daily007Role = 'user' | 'tournament_admin' | 'admin';
+
 export type User = {
   id?: string; $id?: string; name: string; email: string; phone?: string;
-  gameUid?: string; coins?: number; role?: string; status?: string;
+  gameUid?: string; coins?: number; role?: Daily007Role; status?: string;
   createdAt?: string; $createdAt?: string;
   matches?: number; wins?: number; kills?: number; prizeCoins?: number; token?: string;
   statsError?: string;
@@ -225,6 +227,8 @@ export const Api = {
   adminPublishResult: (b: object) => unwrap(http.post('/admin/results', b)),
   adminAdjustCoins: (id: string, coinsDelta: number, note: string) => unwrap(http.patch('/admin/users/' + id, { coinsDelta, note })),
   adminSetUser: (id: string, b: object) => unwrap(http.patch('/admin/users/' + id, b)),
+  adminSetUserRole: (id: string, role: 'user' | 'tournament_admin') =>
+    unwrap(http.patch('/admin/users/' + id + '/role', { role })),
   adminUsers: () => unwrap(http.get('/admin/users')),
   adminSettings: () => unwrap(http.get('/admin/settings')),
   adminSaveSettings: (b: object) => unwrap(http.put('/admin/settings', b)),

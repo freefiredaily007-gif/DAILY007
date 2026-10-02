@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
-import { authenticate, requireAdmin } from "./daily007-v2";
+import { authenticate, requireAdmin, requireTournamentAdmin } from "./daily007-v2";
+import { isAssignableTournamentRole } from "../lib/daily007-roles";
 import {
   isValidYoutubeChannelUrl,
   normalizePaymentReference,
@@ -494,6 +495,45 @@ router.get("/admin/users", authenticate, async (req, res): Promise<void> => {
   res.json(result.rows);
 });
 
+router.patch("/admin/users/:id/role", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const id = req.params.id;
+  const body = req.body as unknown;
+  if (!validId(id) || !isObject(body) || !isAssignableTournamentRole(body.role)) {
+    error(res, 400, "A valid user UUID and role of user or tournament_admin are required.");
+    return;
+  }
+  if (id === userId(req)) {
+    error(res, 409, "You cannot change your own administrator access.");
+    return;
+  }
+  try {
+    const result = await transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(740073)");
+      const selected = await client.query<{ role: string }>(
+        "SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [id],
+      );
+      const currentRole = selected.rows[0]?.role;
+      if (!currentRole) return null;
+      if (currentRole === "admin") {
+        const admins = await client.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM daily007_v2_users WHERE role = 'admin'",
+        );
+        if (Number(admins.rows[0]?.count ?? 0) <= 1) {
+          throw Object.assign(new Error("At least one full administrator must remain."), { status: 409 });
+        }
+      }
+      const updated = await client.query<{ id: string; role: string }>(
+        "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role",
+        [id, body.role],
+      );
+      return updated.rows[0] ?? null;
+    });
+    if (!result) { error(res, 404, "User not found."); return; }
+    res.json(result);
+  } catch (e) { respondFailure(res, e); }
+});
+
 router.patch("/admin/users/:id", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   const id = req.params.id;
@@ -919,7 +959,7 @@ router.post("/videos/watch", authenticate, (_req, res): void => {
 });
 
 router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const body = req.body as unknown;
   if (!isObject(body) || !validId(body.tournamentId) || !validId(body.registrationId) ||
       !integer(body.rank, 1) || !integer(body.kills, 0) || !integer(body.prizeCoins, 0)) {

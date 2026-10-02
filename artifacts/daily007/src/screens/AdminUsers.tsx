@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TextInput, Alert, ActivityIndicator
 import { Api, errMessage } from '../lib/api';
 import { Card, Btn, ScreenWrap, useToast, SectionTitle } from '../components/adminKit';
 
-export default function AdminUsers() {
+export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
   const toast = useToast();
   const [users, setUsers] = useState<any[] | null>(null);
   const [regs, setRegs] = useState<any[] | null>(null);
@@ -43,6 +43,29 @@ export default function AdminUsers() {
     });
   };
 
+  const setTournamentAdmin = (u: any) => {
+    const role = u.role === 'tournament_admin' ? 'user' : 'tournament_admin';
+    const granting = role === 'tournament_admin';
+    Alert.alert(
+      granting ? 'Limit this account to tournaments?' : 'Remove tournament admin access?',
+      granting
+        ? `${u.name} can manage tournaments, registrations, rooms, results, and winner rewards only.`
+        : `${u.name} will return to regular player access.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: granting ? 'Grant access' : 'Remove access', style: granting ? 'default' : 'destructive', onPress: async () => {
+          setBusy(u.$id);
+          try {
+            await Api.adminSetUserRole(u.$id, role);
+            toast(granting ? `${u.name} is now a Tournament Admin` : `${u.name} is now a player`, 'success');
+            await load();
+          } catch (e) { toast(errMessage(e), 'error'); }
+          finally { setBusy(null); }
+        } },
+      ],
+    );
+  };
+
   const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
 
   return (
@@ -63,6 +86,7 @@ export default function AdminUsers() {
               <View style={{ flex: 1 }}>
                 <Text style={st.name}>{u.name} {blocked && <Text style={{ color: '#ff3d3d', fontSize: 10 }}>· BLOCKED</Text>}</Text>
                 <Text style={st.sub}>{u.email}</Text>
+                <Text style={st.role}>{u.role === 'admin' ? 'FULL ADMIN' : u.role === 'tournament_admin' ? 'TOURNAMENT ADMIN' : 'PLAYER'}</Text>
                 <Text style={st.sub}>Joined {String(u.createdAt || '').slice(0, 10)}</Text>
               </View>
               <Text style={st.coins}>{u.coins ?? 0} COINS</Text>
@@ -76,6 +100,17 @@ export default function AdminUsers() {
               <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
               <View style={{ flex: 1 }}><Btn title={blocked ? 'UNBLOCK' : 'BLOCK'} kind="danger" onPress={() => toggleBlock(u)} loading={busy === u.$id} /></View>
             </View>
+            {u.$id !== currentUserId && (
+              <View style={{ marginTop: 8 }}>
+                <Btn
+                  title={u.role === 'tournament_admin' ? 'REMOVE TOURNAMENT ADMIN' : u.role === 'admin' ? 'RESTRICT TOURNAMENT ACCESS' : 'MAKE TOURNAMENT ADMIN'}
+                  small
+                  kind={u.role === 'tournament_admin' ? 'danger' : 'ghost'}
+                  onPress={() => setTournamentAdmin(u)}
+                  loading={busy === u.$id}
+                />
+              </View>
+            )}
           </Card>
         );
       })}
@@ -86,6 +121,7 @@ export default function AdminUsers() {
 const st = StyleSheet.create({
   search: { backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
   name: { color: '#e6e9ef', fontWeight: '900', fontSize: 14 },
+  role: { color: '#FFC107', fontSize: 9, fontWeight: '900', letterSpacing: 0.8, marginTop: 4 },
   sub: { color: '#5b6478', fontSize: 11, marginTop: 2 },
   coins: { color: '#FFC107', fontWeight: '900', fontSize: 15 },
   stat: { color: '#9aa3b2', fontSize: 11, fontWeight: '700' },

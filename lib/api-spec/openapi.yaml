@@ -183,11 +183,30 @@ paths:
         "200": { description: Updated wallet balance }
         "400": { description: Invalid amount or reason }
         "403": { description: Administrator required }
+  /admin/users/{id}/role:
+    patch:
+      operationId: daily007AdminSetUserRole
+      summary: Assign or remove Tournament Admin access
+      description: Full Admin only. The role can be set to player or tournament_admin, cannot be changed on the caller's account, and cannot demote the last Full Admin.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminUserRoleBody" }
+      responses:
+        "200": { description: Updated account role }
+        "400": { description: Invalid user id or role }
+        "403": { description: Full Admin required }
+        "404": { description: User not found }
+        "409": { description: Caller cannot change their own access or last Full Admin cannot be demoted }
   /daily007/v2/admin/matches/{id}/room:
     put:
       operationId: daily007V2SetRoom
       summary: Save or publish match room credentials
-      description: Admin only. Setting published=true still does not reveal credentials until 15 minutes before match start.
+      description: Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -210,7 +229,7 @@ paths:
     get:
       operationId: daily007V2ExportRegistrations
       summary: Export a match registration roster as CSV
-      description: Admin only. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
+      description: Full Admin or Tournament Admin. CSV cells are formula-neutralized, escaped, and quoted; the export includes captain real name, in-game name, and game UID (never the internal account UUID). Teammate game UIDs are optional.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -949,4 +968,10 @@ components:
       additionalProperties: false
       properties:
         reason: { type: string, maxLength: 500 }
+    Daily007AdminUserRoleBody:
+      type: object
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [user, tournament_admin] }
+      required: [role]
 

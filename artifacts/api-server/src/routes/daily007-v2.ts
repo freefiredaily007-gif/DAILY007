@@ -5,6 +5,7 @@ import { pool } from "@workspace/db";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007-v2-validation";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mode-rules";
+import { hasTournamentAdminAccess, isFullAdminRole, type Daily007Role } from "../lib/daily007-roles";
 
 const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
@@ -13,7 +14,7 @@ const PASSWORD_BYTES = 64;
 const TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 14;
 
 export type Account = {
-  id: string; name: string; email: string; role: "user" | "admin"; wallet_coins: number;
+  id: string; name: string; email: string; role: Daily007Role; wallet_coins: number;
   phone?: string | null; game_uid?: string | null; status?: "active" | "blocked";
 };
 type SqlClient = {
@@ -117,8 +118,16 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 }
 
 export function requireAdmin(req: Request, res: Response): boolean {
-  if (req.daily007Account?.role !== "admin") {
+  if (!isFullAdminRole(req.daily007Account?.role)) {
     fail(res, 403, "Administrator access is required.");
+    return false;
+  }
+  return true;
+}
+
+export function requireTournamentAdmin(req: Request, res: Response): boolean {
+  if (!hasTournamentAdminAccess(req.daily007Account?.role)) {
+    fail(res, 403, "Tournament administrator access is required.");
     return false;
   }
   return true;
@@ -324,7 +333,7 @@ router.get("/daily007/v2/matches", async (_req, res): Promise<void> => {
 });
 
 router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const body = req.body as unknown;
   if (!isRecord(body)) {
     fail(res, 400, "Expected title, mode, startsAt, and optional nonnegative integer entryCoins.");
@@ -360,7 +369,7 @@ router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promis
 });
 
 router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = requestId(req);
   if (!id) {
     fail(res, 400, "Match id must be a UUID.");
@@ -675,7 +684,7 @@ router.post("/daily007/v2/admin/users/:id/wallet", authenticate, async (req, res
 });
 
 router.put("/daily007/v2/admin/matches/:id/room", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = requestId(req);
   const body = req.body as unknown;
   if (!id) {
@@ -745,7 +754,7 @@ router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Prom
 });
 
 router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireTournamentAdmin(req, res)) return;
   const id = requestId(req);
   if (!id) {
     fail(res, 400, "Match id must be a UUID.");
