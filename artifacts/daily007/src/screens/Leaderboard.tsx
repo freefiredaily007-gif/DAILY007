@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Api } from '../lib/api';
 import { Card, C, Empty, Loading } from '../components/ui';
 

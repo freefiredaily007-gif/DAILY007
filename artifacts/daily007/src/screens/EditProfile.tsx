@@ -1,6 +1,7 @@
 // EditProfile — update name, phone, game UID
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, Btn } from '../components/ui';

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { ReadableText as Text } from './components/typography';
 import { NavigationContainer, DarkTheme, useNavigation, useRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -41,7 +42,7 @@ function Tabs() {
         shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
       },
       tabBarActiveTintColor: '#FFC107', tabBarInactiveTintColor: '#777777',
-      tabBarLabelStyle: { fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
+      tabBarLabelStyle: { fontSize: 11.2, fontWeight: '900', letterSpacing: 0.5 },
     }}>
       <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: 'HOME', tabBarIcon: ({ focused }) => focused ? <HomeIconActive /> : <HomeIconInactive /> }} />
       <Tab.Screen name="Video" component={Video} options={{ tabBarLabel: 'VIDEO', tabBarIcon: ({ focused }) => focused ? <VideoIconActive /> : <VideoIconInactive /> }} />

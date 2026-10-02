@@ -1,6 +1,7 @@
 // Shared UI kit — PREMIUM ESPORTS gaming theme (FREE FIRE DAILY007)
 import React, { createContext, useContext, useEffect, useRef } from 'react';
-import { View, Text, Pressable, TextInput, StyleSheet, ActivityIndicator, Animated, Easing } from 'react-native';
+import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing } from 'react-native';
+import { ReadableText as Text, ReadableTextInput as TextInput } from './typography';
 import { Feather } from '@expo/vector-icons';
 export { default as TimePicker } from './TimePicker';
 

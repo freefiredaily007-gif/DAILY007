@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { ReadableText as Text } from './typography';
 
 // Pure-RN tab icons — 24x24, matching Wallet/Video/Profile icons.
 

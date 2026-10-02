@@ -1,6 +1,7 @@
 // Profile — avatar, stats, edit profile, notifications, leaderboard, logout
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, Modal } from 'react-native';
+import { View, ScrollView, StyleSheet, Modal } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../App';
 import { Api, apiError } from '../lib/api';

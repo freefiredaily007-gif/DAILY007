@@ -1,6 +1,7 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import bannerSquad from '../assets/banner-squad.jpg';
 import bannerClash from '../assets/banner-clash.jpg';
 import modeSoloLogo from '../assets/mode-solo-logo.jpg';

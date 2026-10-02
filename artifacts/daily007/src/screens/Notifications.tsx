@@ -1,6 +1,7 @@
 // Notifications — list of user's notifications
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Api } from '../lib/api';
 import { C, Card, Empty } from '../components/ui';
 

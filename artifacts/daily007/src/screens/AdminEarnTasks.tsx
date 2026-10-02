@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import {
   useDaily007AdminListYoutubeSubscribeClaims,
   useDaily007AdminReviewYoutubeSubscribeClaim,

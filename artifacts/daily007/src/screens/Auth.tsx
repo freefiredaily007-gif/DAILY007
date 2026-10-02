@@ -1,6 +1,7 @@
 // Login / Signup screen
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Platform, Pressable, Image, Linking } from 'react-native';
+import { View, StyleSheet, Platform, Pressable, Image, Linking } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
 import { Api, apiError, setSession, User } from '../lib/api';
 import { Btn, C, Input, Msg } from '../components/ui';

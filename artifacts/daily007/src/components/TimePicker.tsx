@@ -1,4 +1,5 @@
-import { Text, View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ReadableText as Text } from './typography';
 import { useState } from 'react';
 
 const HOURS = ['1','2','3','4','5','6','7','8','9','10','11','12'];

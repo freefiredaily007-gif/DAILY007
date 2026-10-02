@@ -1,6 +1,7 @@
 // Admin dashboard — real stats, quick actions, pending actions, recent activity
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, RefreshControl } from 'react-native';
+import { ScrollView, View, StyleSheet, RefreshControl } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import { Api, apiError } from '../lib/api';
 import { A, GlassCard, Loading, SectionTitle, StatCard, Empty, useAdminToast } from '../components/adminKit';

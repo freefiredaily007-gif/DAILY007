@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, View, Text, ScrollView, StyleSheet } from 'react-native';
+import { Alert, View, ScrollView, StyleSheet } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { getTournamentLifecycleState } from '../lib/tournamentLifecycle';

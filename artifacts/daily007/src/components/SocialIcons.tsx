@@ -1,6 +1,7 @@
 // Premium social brand icons — pure RN Views (no SVG dependency)
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { ReadableText as Text } from './typography';
 
 // WhatsApp: green rounded square + white phone glyph
 export function WhatsAppIcon({ size = 30 }: { size?: number }) {

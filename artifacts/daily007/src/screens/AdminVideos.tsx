@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import {
   useDaily007AdminCreateVideo,

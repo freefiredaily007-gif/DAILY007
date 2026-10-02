@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';

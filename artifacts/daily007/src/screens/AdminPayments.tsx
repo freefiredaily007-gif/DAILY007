@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Image, ScrollView, StyleSheet } from 'react-native';
+import { View, Image, ScrollView, StyleSheet } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import * as Clipboard from 'expo-clipboard';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';

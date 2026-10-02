@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';

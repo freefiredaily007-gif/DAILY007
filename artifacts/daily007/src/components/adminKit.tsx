@@ -1,6 +1,7 @@
 // Premium admin theme kit — shared styles + primitives for the admin panel
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, ScrollView, TextInput, RefreshControl } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, Modal, ScrollView, RefreshControl } from 'react-native';
+import { ReadableText as Text, ReadableTextInput as TextInput } from './typography';
 import { Feather } from '@expo/vector-icons';
 
 export const A = {

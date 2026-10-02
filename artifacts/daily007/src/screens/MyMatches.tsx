@@ -1,6 +1,7 @@
 // My Matches — upcoming / live / completed tabs with room details
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
 import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';

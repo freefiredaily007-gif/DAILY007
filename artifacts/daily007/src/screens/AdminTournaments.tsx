@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Platform, View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
+import { Alert, Platform, View, StyleSheet, Pressable } from 'react-native';
+import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
   getDaily007ListAdminResultLogsQueryKey,
   useDaily007ListAdminResultLogs,

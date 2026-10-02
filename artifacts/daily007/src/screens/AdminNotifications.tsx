@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, type User } from '../lib/api';
 import { A, Card, Btn, ScreenWrap, useToast, SectionTitle } from '../components/adminKit';
 

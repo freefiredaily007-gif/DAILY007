@@ -1,6 +1,7 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useState } from 'react';
-import { View, Text, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, ScrollView } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';

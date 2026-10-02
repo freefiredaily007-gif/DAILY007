@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Pressable, StyleSheet, View, Platform } from 'react-native';
+import { ReadableText as Text } from './typography';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { getClerkInstance } from '@clerk/expo';

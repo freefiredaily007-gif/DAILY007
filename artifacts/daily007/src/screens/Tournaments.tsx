@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl, Pressable } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl, Pressable } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
 import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';

@@ -1,6 +1,7 @@
 // Admin shell — premium header + bottom nav hosting all admin screens
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
+import { ReadableText as Text } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import { Api, apiError, User } from '../lib/api';
 import { useApp } from '../App';

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TextInput, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage } from '../lib/api';
 import { Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, PromptDialog } from '../components/adminKit';
 import { inr } from '../lib/coins';
