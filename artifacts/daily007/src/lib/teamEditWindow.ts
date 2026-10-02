@@ -23,6 +23,6 @@ export function canEditRegistrationTeam(
   const tournamentStatus = String(tournament?.status ?? '').toLowerCase();
   return ['approved', 'pending'].includes(status) &&
     tournament?.enabled !== false &&
-    !['live', 'closed', 'cancelled', 'completed'].includes(tournamentStatus) &&
+    !['live', 'ongoing', 'closed', 'cancelled', 'completed'].includes(tournamentStatus) &&
     isTeamEditWindowOpen(tournament?.startsAt, now);
 }

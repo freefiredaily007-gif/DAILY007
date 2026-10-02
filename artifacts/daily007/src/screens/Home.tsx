@@ -11,6 +11,7 @@ import { api, Api } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse } from '../components/ui';
 import { inr } from '../lib/coins';
+import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 
@@ -30,12 +31,13 @@ function fmtDate(d?: string) {
   if (isNaN(dt.getTime())) return String(d).slice(0, 10);
   return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase();
 }
-function statusOf(t: any) {
+function statusOf(t: any, now: number) {
   const filled = Number(t.filledSlots ?? t.filled ?? 0);
   const total = Number(t.totalSlots ?? (String(t.mode || '').toLowerCase().includes('clash') ? 2 : String(t.teamType || '').toLowerCase() === 'squad' ? 12 : 48));
   const status = String(t.status ?? '').toLowerCase();
-  if (status === 'live') return { key: 'LIVE', color: C.red };
-  if (status === 'completed' || status === 'cancelled') return { key: 'COMPLETED', color: C.dim };
+  const lifecycle = getTournamentLifecycleState(t, now);
+  if (lifecycle === 'ongoing') return { key: 'ONGOING', color: C.red };
+  if (lifecycle === 'completed' || lifecycle === 'closed') return { key: 'COMPLETED', color: C.dim };
   if (status === 'full' || status === 'setup_needed' || (total > 0 && filled >= total)) return { key: 'FULL', color: C.orange };
   return { key: 'UPCOMING', color: C.green };
 }
@@ -50,6 +52,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
   const [links, setLinks] = useState<any>({});
   const [page, setPage] = useState(0);
   const carouselRef = useRef<ScrollView>(null);
@@ -58,7 +61,6 @@ export default function Home() {
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const goStack = (k: string) => {
     if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
-    else if (k.startsWith('mode:')) nav.navigate('ModeSubmodes', { gameMode: k.slice(5) });
   };
   const load = useCallback(async () => {
     try {
@@ -76,6 +78,7 @@ export default function Home() {
         ...tournament,
         joined: joinedIds.has(String(tournament.id)),
       })));
+      setClockNow(Date.now());
       setLoadError('');
     } catch (e: any) {
       setLoadError(e?.message || 'Could not load tournaments.');
@@ -84,6 +87,17 @@ export default function Home() {
   }, []);
 
   React.useEffect(() => { load(); Api.settings().then((st: any) => setLinks(st?.settings ?? st ?? {})).catch(() => {}); }, [load]);
+  React.useEffect(() => {
+    const now = Date.now();
+    const nextStart = items
+      .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming')
+      .map((tournament) => Date.parse(String(tournament.startsAt ?? '')))
+      .filter((start) => Number.isFinite(start) && start > now)
+      .sort((a, b) => a - b)[0];
+    if (nextStart === undefined) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    return () => clearTimeout(timer);
+  }, [items, clockNow]);
 
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
@@ -140,7 +154,7 @@ export default function Home() {
       </View>
       <View style={s.headLine} pointerEvents="none" />
 
-      {/* ===== LIVE / UPCOMING MATCHES — auto carousel ===== */}
+      {/* ===== ONGOING / UPCOMING MATCHES — auto carousel ===== */}
       <Pressable
         style={({ pressed }) => [s.myMatchesButton, pressed && { opacity: 0.8 }]}
         onPress={() => goTab('mymatches')}
@@ -151,7 +165,7 @@ export default function Home() {
         <Text style={s.myMatchesButtonHint}>ROOM DETAILS & RESULTS →</Text>
       </Pressable>
       <View style={s.secRow}>
-        <Text style={s.secTitle}>🔥 LIVE & UPCOMING MATCHES</Text>
+        <Text style={s.secTitle}>🔥 ONGOING & UPCOMING MATCHES</Text>
         <Pressable onPress={() => goTab('tournaments')} hitSlop={8}>
           <Text style={s.viewAll}>VIEW ALL →</Text>
         </Pressable>
@@ -169,23 +183,23 @@ export default function Home() {
             {items.slice(0, 8).map((t) => {
         const filled = t.filledSlots ?? t.filled ?? 0;
         const total = t.totalSlots ?? tournamentModeFallback(t);
-        const stt = statusOf(t);
+        const stt = statusOf(t, clockNow);
         const br = t.mode === 'Battle Royale';
-        const live = stt.key === 'LIVE';
+        const ongoing = stt.key === 'ONGOING';
               const capacityFull = stt.key === 'FULL' ||
                 ['full', 'setup_needed'].includes(String(t.status ?? '').toLowerCase()) ||
                 (Number(total) > 0 && Number(filled) >= Number(total));
               const joined = t.joined === true;
               const ctaLabel = joined
                 ? capacityFull ? 'JOINED · SLOTS FULL' : 'JOINED'
-                : capacityFull ? 'SLOTS FULL' : live ? 'VIEW MATCH' : 'JOIN NOW ›';
+                : ongoing ? 'VIEW MATCH' : capacityFull ? 'SLOTS FULL' : 'JOIN NOW ›';
         return (
-          <GCard key={t.id} onPress={() => goStack('tdetail:' + t.id)} glowColor={live ? C.red : br ? C.orange : C.purple} style={s.matchCard}>
+          <GCard key={t.id} onPress={() => goStack('tdetail:' + t.id)} glowColor={ongoing ? C.red : br ? C.orange : C.purple} style={s.matchCard}>
             <View style={s.mBanner}>
               <Image source={br ? bannerSquad : bannerClash} style={s.mBannerImg} resizeMode="cover" />
               <View style={s.mBannerShade} />
               <View style={s.mBadgeRow}>
-                {live ? <Pulse><Badge text="● LIVE NOW" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
+                {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
                 <View style={[s.modeBadge, { borderColor: br ? C.orange : C.purple }]}>
                   <Text style={[s.modeBadgeT, { color: br ? C.orange : C.purple }]}>{br ? 'BATTLE ROYALE' : 'CLASH SQUAD'}</Text>
                 </View>
@@ -212,15 +226,15 @@ export default function Home() {
                 <View style={[s.slotFill, { width: `${Math.min(100, (filled / Math.max(1, total)) * 100)}%` }]} />
               </View>
               <Pressable
-                disabled={!joined && capacityFull}
+                disabled={!joined && capacityFull && !ongoing}
                 style={({ pressed }) => [
                   s.joinBtn,
                   joined && { backgroundColor: C.green + '22', borderColor: C.green + '77' },
-                  !joined && capacityFull && { backgroundColor: C.card2, borderColor: C.border },
+                  !joined && capacityFull && !ongoing && { backgroundColor: C.card2, borderColor: C.border },
                   pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
                 ]}
                 onPress={() => goStack('tdetail:' + t.id)}>
-                <Text style={[s.joinBtnT, joined && { color: C.green }, !joined && capacityFull && { color: C.dim }]}>{ctaLabel}</Text>
+                <Text style={[s.joinBtnT, joined && { color: C.green }, !joined && capacityFull && !ongoing && { color: C.dim }]}>{ctaLabel}</Text>
               </Pressable>
             </View>
           </GCard>
@@ -245,9 +259,9 @@ export default function Home() {
       ].map((m) => (
         <GCard
           key={m.mode}
-          onPress={() => nav.navigate('ModeSubmodes', { gameMode: m.gameMode })}
-          accessibilityLabel={`Choose a ${m.mode} tournament format`}
-          accessibilityHint="Opens the Solo, Duo, and Squad options"
+          onPress={() => nav.navigate('Tournaments', { gameMode: m.gameMode, gameModeLabel: m.mode })}
+          accessibilityLabel={`Open ${m.mode} tournaments`}
+          accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
           testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
           glowColor={m.accent}
           style={[s.modeCard, { borderLeftColor: m.accent }]}

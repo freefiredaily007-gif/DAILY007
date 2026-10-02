@@ -15,6 +15,7 @@ export type User = {
 
 export type Tournament = {
   id: string; name: string; mode: string; teamType: string; date: string; time: string;
+  startsAt?: string;
   gameMode?: string; teamSize?: number; slotUnit?: 'player' | 'team';
   entryCoins: number; prizePool: number; totalSlots: number; rules?: string;
   banner?: string; prizeDist?: string; enabled?: boolean; status?: string;

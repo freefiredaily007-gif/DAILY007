@@ -36,7 +36,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const remainingSlots = Math.max(0, Number(t.availableSlots ?? totalSlots - filledSlots));
   const status = String(t.status || '').toLowerCase();
-  const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'closed'].includes(status);
+  const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'ongoing', 'closed'].includes(status);
   const full = remainingSlots <= 0 || filledSlots >= totalSlots || ['full', 'setup_needed'].includes(status);
   const unavailable = full || closed;
   const captainProfileName = String(registration?.playerName ?? user.name).trim();

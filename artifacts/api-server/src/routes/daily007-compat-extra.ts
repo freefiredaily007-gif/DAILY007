@@ -602,13 +602,24 @@ router.get("/admin/stats", authenticate, async (req, res): Promise<void> => {
   const result = await pool.query(
     `SELECT
        (SELECT count(*)::int FROM daily007_v2_users) AS "totalUsers",
-       (SELECT count(*)::int FROM daily007_v2_matches
-         WHERE enabled = true AND starts_at > now()) AS "activeTournaments",
+        (SELECT count(*)::int FROM daily007_v2_matches m
+          WHERE (m.enabled = true AND m.starts_at > clock_timestamp())
+             OR (m.starts_at <= clock_timestamp()
+                 AND NOT (m.enabled = false AND EXISTS (
+                   SELECT 1 FROM daily007_v2_result_awards a
+                    WHERE a.match_id = m.id AND a.rank = 1
+                 )))) AS "activeTournaments",
        (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'pending') AS "pendingRegistrations",
        (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'approved') AS "approvedRegistrations",
        (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'rejected') AS "rejectedRegistrations",
        (SELECT count(*)::int FROM daily007_v2_payments WHERE status = 'pending') AS "pendingPayments",
-       (SELECT count(DISTINCT match_id)::int FROM daily007_v2_result_awards) AS "completedTournaments",
+        (SELECT count(*)::int
+           FROM daily007_v2_matches m
+          WHERE m.enabled = false
+            AND EXISTS (
+              SELECT 1 FROM daily007_v2_result_awards a
+               WHERE a.match_id = m.id AND a.rank = 1
+            )) AS "completedTournaments",
        (SELECT COALESCE(sum(amount) FILTER (WHERE amount > 0), 0)::int FROM daily007_v2_wallet_ledger) AS "coinsDistributed",
        (SELECT COALESCE(sum(wallet_coins), 0)::int FROM daily007_v2_users) AS "coinsInWallets",
        (SELECT COALESCE(sum(prize_coins), 0)::int FROM daily007_v2_result_awards) AS "prizeDistributed",
@@ -1119,8 +1130,10 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
     const result = await transaction(async (client) => {
       const registration = await client.query<{
         id: string; match_id: string; captain_user_id: string; prize_pool: number; prize_distribution: string;
+        has_started: boolean;
       }>(
-        `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution
+        `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution,
+                m.starts_at <= clock_timestamp() AS has_started
            FROM daily007_v2_registrations r
            JOIN daily007_v2_matches m ON m.id = r.match_id
           WHERE r.id = $1 AND m.id = $2 AND r.status = 'approved'
@@ -1128,6 +1141,18 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       );
       const row = registration.rows[0];
       if (!row || row.match_id !== tournamentId) throw Object.assign(new Error("Registration was not found for this tournament/match."), { status: 404 });
+      if (!row.has_started) {
+        throw Object.assign(new Error("Results can only be published after the tournament starts."), { status: 409 });
+      }
+      if (rank === 1) {
+        const winner = await client.query<{ registration_id: string }>(
+          "SELECT registration_id FROM daily007_v2_result_awards WHERE match_id = $1 AND rank = 1",
+          [row.match_id],
+        );
+        if (winner.rows[0] && winner.rows[0].registration_id !== row.id) {
+          throw Object.assign(new Error("A winner has already been declared for this tournament."), { status: 409 });
+        }
+      }
       const prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
       const account = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [row.captain_user_id],
@@ -1156,10 +1181,12 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
          VALUES ($1, $2, $3, 'match_prize')`, [row.captain_user_id, prizeCoins, next],
       );
-      await client.query(
-        "UPDATE daily007_v2_matches SET enabled = false WHERE id = $1",
-        [row.match_id],
-      );
+      if (rank === 1) {
+        await client.query(
+          "UPDATE daily007_v2_matches SET enabled = false WHERE id = $1",
+          [row.match_id],
+        );
+      }
       return { id: (award.rows[0] as { id: string }).id, registrationId: row.id, userId: row.captain_user_id, prizeCoins, walletCoins: next };
     });
     res.status(201).json(result);

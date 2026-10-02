@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
+import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 function configuredPrizeForRank(tournament: Tournament, rank: number): number {
   const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
@@ -29,19 +30,40 @@ export default function AdminResults({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const [clockNow, setClockNow] = useState(Date.now());
   const initialTournamentHandled = useRef(false);
 
   useEffect(() => {
     let active = true;
     Api.tournaments().then((tournaments) => {
-      if (active) setList(tournaments);
+      if (active) {
+        setList(tournaments);
+        setClockNow(Date.now());
+      }
     }).catch(() => {
       if (active) setList([]);
     });
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    if (!list) return;
+    const now = Date.now();
+    const nextStart = list
+      .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming')
+      .map((tournament) => Date.parse(String(tournament.startsAt ?? '')))
+      .filter((start) => Number.isFinite(start) && start > now)
+      .sort((a, b) => a - b)[0];
+    if (nextStart === undefined) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    return () => clearTimeout(timer);
+  }, [list, clockNow]);
+
   const open = useCallback(async (t: Tournament) => {
+    if (!['ongoing', 'completed'].includes(getTournamentLifecycleState(t, Date.now()))) {
+      setErr('Results can only be entered after the tournament starts.');
+      return;
+    }
     const currentRequest = ++requestId.current;
     setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegId(''); setRank('1'); setKills('');
     try {
@@ -69,15 +91,32 @@ export default function AdminResults({
     if (!regId || !regs?.some((r) => r.id === regId && r.tournamentId === sel.id && r.status === 'approved')) {
       return setErr('Select an approved player for this tournament.');
     }
-    if (!rank) return setErr('Rank is required.');
+    const resultRank = Number(rank);
+    if (!Number.isInteger(resultRank) || resultRank < 1) return setErr('Enter a valid rank.');
     setBusy(true);
     try {
       await Api.adminPublishResult({
         tournamentId: sel.id, registrationId: regId,
-        rank: Number(rank), kills: Number(kills || 0),
+        rank: resultRank, kills: Number(kills || 0),
       });
-      setSel((current) => current ? { ...current, status: 'completed', enabled: false } : current);
-      setOkMsg('Result published — prize credited and tournament finished.');
+      const finished = resultRank === 1;
+      const previousLifecycle = getTournamentLifecycleState(sel, Date.now());
+      const nextStatus = finished ? 'completed' : previousLifecycle;
+      setSel((current) => current ? {
+        ...current,
+        status: nextStatus,
+        enabled: finished ? false : current.enabled,
+      } : current);
+      setList((current) => current?.map((tournament) => tournament.id === sel.id ? {
+        ...tournament,
+        status: finished ? 'completed' : getTournamentLifecycleState(tournament, Date.now()),
+        enabled: finished ? false : tournament.enabled,
+      } : tournament) ?? null);
+      setOkMsg(finished
+        ? 'Winner published — prize credited and tournament finished.'
+        : previousLifecycle === 'completed'
+          ? 'Placement published for the completed tournament.'
+          : 'Placement published — tournament remains ongoing until the winner is declared.');
       setRegId(''); setRank(''); setKills('');
       setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) { setErr(apiError(e)); }
@@ -92,13 +131,24 @@ export default function AdminResults({
       <Text style={st.h}>RESULTS</Text>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
-      {!list ? <Loading /> : !sel ? list.map((t) => (
-        <Card key={t.id} style={{ marginBottom: 10 }}>
-          <Text style={st.tName}>{t.name}</Text>
-          <Text style={st.sub}>{t.date} • {t.time}</Text>
-          <View style={{ marginTop: 8 }}><Btn title="ADD RESULT →" small kind="ghost" onPress={() => open(t)} /></View>
-        </Card>
-      )) : (
+      {!list ? <Loading /> : !sel ? list.map((t) => {
+        const lifecycle = getTournamentLifecycleState(t, clockNow);
+        return (
+          <Card key={t.id} style={{ marginBottom: 10 }}>
+            <Text style={st.tName}>{t.name}</Text>
+            <Text style={st.sub}>{t.date} • {t.time} • {lifecycle.toUpperCase()}</Text>
+            <View style={{ marginTop: 8 }}>
+              <Btn
+                title={lifecycle === 'completed' ? 'ADD PLACEMENT →' : lifecycle === 'ongoing' ? 'ADD RESULT →' : 'WAIT FOR START'}
+                small
+                kind="ghost"
+                disabled={lifecycle !== 'ongoing' && lifecycle !== 'completed'}
+                onPress={() => open(t)}
+              />
+            </View>
+          </Card>
+        );
+      }) : (
         <Card>
           <Text onPress={back} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
@@ -124,7 +174,14 @@ export default function AdminResults({
             <Text style={st.inrNote}>{inr(prizeCoins)} INR ({COIN_RATE_TEXT})</Text>
           </View>
           <Text style={st.prizeHint}>Auto-calculated for rank {rank || '—'} from the saved prize distribution.</Text>
-          <Btn title="PUBLISH RESULT" onPress={publish} loading={busy} />
+          <Btn
+            title={sel.status === 'completed' && Number(rank) === 1
+              ? 'WINNER ALREADY DECLARED'
+              : Number(rank) === 1 ? 'FINISH & PUBLISH WINNER' : 'PUBLISH PLACEMENT'}
+            onPress={publish}
+            loading={busy}
+            disabled={sel.status === 'completed' && Number(rank) === 1}
+          />
         </Card>
       )}
       <View style={{ height: 30 }} />

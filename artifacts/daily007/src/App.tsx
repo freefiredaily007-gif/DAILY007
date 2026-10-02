@@ -9,7 +9,6 @@ import Home from './screens/Home';
 import Video from './screens/Video';
 import Earn from './screens/Earn';
 import Tournaments from './screens/Tournaments';
-import ModeSubmodes from './screens/ModeSubmodes';
 import TDetail from './screens/TDetail';
 import JoinForm from './screens/JoinForm';
 import MyMatches from './screens/MyMatches';
@@ -172,7 +171,6 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
           ) : (
             <>
               <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-              <Stack.Screen name="ModeSubmodes" component={ModeSubmodes} options={{ title: 'CHOOSE FORMAT' }} />
               <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: 'MATCHES' }} />
               <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: 'MY MATCHES' }} />
               <Stack.Screen name="TDetail" component={TDetail} options={{ title: 'TOURNAMENT' }} />

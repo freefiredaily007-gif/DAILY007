@@ -9,11 +9,11 @@ A Tournament Admin can manage tournaments, registrations, rooms, results, and to
 
 **How to apply:** Keep the boundary in both server authorization and Admin navigation. Treat User Management as the sole route for assigning the role. Do not expand tournament permissions to unrelated wallet or reward workflows.
 
-**Tournament finish:** The Finish action opens result entry. Publishing a result awards the prize and closes registration in the same transaction; registered players see published standings in MY MATCHES → COMPLETED.
+**Tournament lifecycle and finish:** A match becomes Ongoing at its scheduled start and stays Ongoing until an admin publishes the rank-1 winner. Publishing other placements does not finish it. The winner's prize award and match completion commit together; players see standings in MY MATCHES → COMPLETED.
 
-**Why:** The user asked for tournament admins to record results and award the winner when finishing a tournament, with results visible to players.
+**Why:** The user wants scheduled start time to control the Ongoing transition and an explicit admin winner publication to control completion.
 
-**How to apply:** Do not complete a tournament just by opening the form. Only expose completion after a result award commits.
+**How to apply:** Derive lifecycle status from database time and the rank-1 award, without adding persisted status values. Reject results before start; complete only when the rank-1 award and disabling the match commit together.
 
 **Prize source:** During result publication, derive the non-editable award from the tournament's saved prize distribution for the entered rank; if no first-place distribution is specified, use the saved prize pool. The API is the source of truth.
 

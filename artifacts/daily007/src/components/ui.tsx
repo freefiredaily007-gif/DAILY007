@@ -268,7 +268,7 @@ export function fmtDate(d?: string) {
 
 export function statusOf(t: any): { key: string; label: string; color: string } {
   const st = String(t?.status || 'upcoming').toLowerCase();
-  if (st === 'live') return { key: 'live', label: '🔴 LIVE', color: C.neon };
+  if (st === 'live' || st === 'ongoing') return { key: 'ongoing', label: 'ONGOING', color: C.neon };
   if (st === 'completed' || st === 'cancelled') return { key: 'completed', label: st.toUpperCase(), color: C.dim };
   const filled = Number(t?.filledSlots ?? t?.filled ?? 0);
   const total = Number(t?.totalSlots ?? 0);
@@ -286,12 +286,12 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
   const ctaText = joined
     ? s.key === 'full' ? 'Joined · Slots Full' : 'Joined'
-    : s.key === 'live' ? '▶ ENTER MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →';
-  const ctaColor = joined ? C.green : s.key === 'full' || s.key === 'completed' ? C.dim : C.neon;
-  const ctaBackground = joined ? C.green + '22' : s.key === 'full' || s.key === 'completed' ? C.card2 : C.neon + '22';
-  const ctaBorder = joined ? C.green + '77' : s.key === 'full' || s.key === 'completed' ? C.border : C.neon + '77';
+    : s.key === 'ongoing' ? 'VIEW MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →';
+  const ctaColor = joined ? C.green : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.dim : C.neon;
+  const ctaBackground = joined ? C.green + '22' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.card2 : C.neon + '22';
+  const ctaBorder = joined ? C.green + '77' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.border : C.neon + '77';
   return (
-    <GCard onPress={onPress} glowColor={s.key === 'live' ? C.neon : undefined} style={{ marginBottom: 12 }}>
+    <GCard onPress={onPress} glowColor={s.key === 'ongoing' ? C.neon : undefined} style={{ marginBottom: 12 }}>
       <View style={mc.topRow}>
         <View style={{ flex: 1, marginRight: 8 }}>
           <Text style={mc.mode}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>

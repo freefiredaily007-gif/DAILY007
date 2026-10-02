@@ -57,7 +57,7 @@ export default function TDetail() {
     <ScrollView style={s.root} contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={C.neon} />}>
       {/* HERO */}
-      <GCard glowColor={st.key === 'live' ? C.neon : C.orange} style={{ marginBottom: 14 }}>
+      <GCard glowColor={st.key === 'ongoing' ? C.neon : C.orange} style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
           <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={s.mode}>{(t.mode || 'BATTLE ROYALE').toUpperCase()}</Text>
@@ -120,6 +120,8 @@ export default function TDetail() {
           <Btn title="MATCH ENDED" kind="ghost" disabled />
         ) : joined ? (
           <Btn title={full ? 'Joined · Slots Full' : 'Joined'} kind="ghost" disabled />
+        ) : st.key === 'ongoing' ? (
+          <Btn title="MATCH ONGOING" kind="ghost" disabled />
         ) : full ? (
           <Btn title="Slots Full" kind="ghost" disabled />
         ) : short ? (

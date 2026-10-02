@@ -87,8 +87,12 @@ test("team edits require the exact roster and reject duplicate game UIDs", () =>
   );
 });
 
-test("published results expose Completed status and disabled matches are closed", () => {
-  assert.equal(effectiveTournamentStatus({ has_result: true, enabled: false, status: "full" }), "completed");
-  assert.equal(effectiveTournamentStatus({ has_result: false, enabled: false, status: "full" }), "closed");
-  assert.equal(effectiveTournamentStatus({ has_result: false, enabled: true, status: "open" }), "open");
+test("tournament status moves to Ongoing at start and completes only after the winner is declared", () => {
+  assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: false, enabled: true, status: "open" }), "open");
+  assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: false, enabled: true, status: "full" }), "full");
+  assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: true, enabled: true, status: "full" }), "ongoing");
+  assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: true, enabled: false, status: "full" }), "ongoing");
+  assert.equal(effectiveTournamentStatus({ has_winner: true, has_started: true, enabled: true, status: "full" }), "ongoing");
+  assert.equal(effectiveTournamentStatus({ has_winner: true, has_started: true, enabled: false, status: "full" }), "completed");
+  assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: false, enabled: false, status: "full" }), "closed");
 });

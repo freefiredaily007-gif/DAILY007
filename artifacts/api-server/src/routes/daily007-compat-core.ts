@@ -12,7 +12,7 @@ type MatchRow = {
   capacity: number; entry_coins: number;
   prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
   rules: string; banner: string; prize_distribution: string; enabled: boolean;
-  has_result?: boolean;
+  has_winner?: boolean; has_started?: boolean;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
   registered_count: number;
 };
@@ -27,7 +27,7 @@ type RegistrationRow = {
   title?: string; prize_pool?: number; rules?: string; banner?: string; prize_distribution?: string;
   enabled?: boolean; is_full?: boolean; room_id?: string | null; room_password?: string | null;
   room_time?: string; room_published?: boolean; registered_count?: number;
-  match_has_result?: boolean;
+  match_has_winner?: boolean; match_has_started?: boolean;
   result_rank?: number | null; result_kills?: number | null; result_prize_coins?: number | null;
   match_results?: {
     rank: number; kills: number; prizeCoins: number; playerName: string; gameName: string; teamName: string;
@@ -117,8 +117,10 @@ export function isTeamEditWindowOpen(startsAt: Date | string, now: Date | string
   return Number.isFinite(startMs) && Number.isFinite(nowMs) && nowMs < startMs - 30 * 60 * 1000;
 }
 
-export function effectiveTournamentStatus(row: Pick<MatchRow, "has_result" | "enabled" | "status">): string {
-  return row.has_result ? "completed" : row.enabled ? row.status : "closed";
+export function effectiveTournamentStatus(row: Pick<MatchRow, "has_winner" | "has_started" | "enabled" | "status">): string {
+  if (row.has_winner && !row.enabled) return "completed";
+  if (row.has_started) return "ongoing";
+  return row.enabled ? row.status : "closed";
 }
 
 function startsAsLegacy(value: Date | string): { date: string; time: string } {
@@ -177,7 +179,11 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
     `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
             m.status, m.is_full, m.rules, m.banner, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
-             EXISTS (SELECT 1 FROM daily007_v2_result_awards award WHERE award.match_id = m.id) AS has_result,
+            m.starts_at <= clock_timestamp() AS has_started,
+            EXISTS (
+              SELECT 1 FROM daily007_v2_result_awards award
+               WHERE award.match_id = m.id AND award.rank = 1
+            ) AS has_winner,
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS registered_count
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id
@@ -491,7 +497,11 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
             m.entry_coins AS match_entry_coins, m.status AS match_status,
             m.prize_pool, m.rules, m.banner, m.prize_distribution, m.enabled, m.is_full,
             m.room_id, m.room_password, m.room_time, m.room_published,
-             EXISTS (SELECT 1 FROM daily007_v2_result_awards match_award WHERE match_award.match_id = m.id) AS match_has_result,
+            m.starts_at <= clock_timestamp() AS match_has_started,
+            EXISTS (
+              SELECT 1 FROM daily007_v2_result_awards match_award
+               WHERE match_award.match_id = m.id AND match_award.rank = 1
+            ) AS match_has_winner,
              (SELECT json_agg(json_build_object(
                        'rank', published.rank,
                        'kills', published.kills,
@@ -519,7 +529,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       ...row, id: row.match_id, title: row.title!, entry_coins: row.match_entry_coins!,
       prize_pool: row.prize_pool!, capacity: row.capacity!, starts_at: row.starts_at!,
       status: row.match_status!,
-       has_result: row.match_has_result,
+       has_started: row.match_has_started, has_winner: row.match_has_winner,
       registered_count: row.registered_count!, is_full: row.is_full!, rules: row.rules!,
       banner: row.banner!, prize_distribution: row.prize_distribution!, enabled: row.enabled!,
       room_id: row.room_id!, room_password: row.room_password!, room_time: row.room_time!,

@@ -5,11 +5,12 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
 import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
+import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 export default function MyMatches() {
   const navigation: any = useNavigation();
   const [regs, setRegs] = useState<any[]>([]);
-  const [tab, setTab] = useState<'upcoming' | 'live' | 'completed'>('upcoming');
+  const [tab, setTab] = useState<'upcoming' | 'ongoing' | 'completed'>('upcoming');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
@@ -32,27 +33,33 @@ export default function MyMatches() {
   }, [load]));
 
   useEffect(() => {
-    const nextCutoff = regs
-      .map((registration) => getTeamEditCutoff(registration.tournament?.startsAt ?? registration.startsAt))
-      .filter((cutoff): cutoff is number => cutoff !== null && cutoff > clockNow)
+    const transitions = regs.flatMap((registration) => {
+      const startsAt = registration.tournament?.startsAt ?? registration.startsAt;
+      return [
+        getTeamEditCutoff(startsAt),
+        Date.parse(String(startsAt ?? '')),
+      ];
+    });
+    const nextTransition = transitions
+      .filter((time): time is number => time !== null && Number.isFinite(time) && time > clockNow)
       .sort((a, b) => a - b)[0];
-    if (nextCutoff === undefined) return;
-    const timer = setTimeout(() => setClockNow(Date.now()), nextCutoff - clockNow);
+    if (nextTransition === undefined) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow + 20));
     return () => clearTimeout(timer);
   }, [regs, clockNow]);
 
   const filtered = regs.filter((r) => {
-    const st = String(r.tournament?.status ?? 'upcoming').toLowerCase();
-    if (tab === 'upcoming') return ['upcoming', 'open', 'full', 'setup_needed'].includes(st);
-    if (tab === 'live') return st === 'live';
-    return st === 'completed' || st === 'cancelled';
+    const state = getTournamentLifecycleState(r.tournament, clockNow);
+    if (tab === 'upcoming') return state === 'upcoming';
+    if (tab === 'ongoing') return state === 'ongoing';
+    return state === 'completed' || String(r.tournament?.status ?? '').toLowerCase() === 'cancelled';
   });
 
   return (
     <View style={s.wrap}>
       <SectionTitle accent={C.purple}>MY MATCHES</SectionTitle>
       <View style={s.tabs}>
-        {(['upcoming', 'live', 'completed'] as const).map((t) => (
+        {(['upcoming', 'ongoing', 'completed'] as const).map((t) => (
           <Text key={t} onPress={() => setTab(t)} style={[s.tab, tab === t && s.tabOn]}>{t.toUpperCase()}</Text>
         ))}
       </View>
@@ -70,7 +77,8 @@ export default function MyMatches() {
             const t = item.tournament ?? {};
             const status = String(item.status ?? '').toLowerCase();
             const tournamentStatus = String(t.status ?? '').toLowerCase();
-            const matchFinished = ['completed', 'cancelled'].includes(tournamentStatus);
+            const lifecycle = getTournamentLifecycleState(t, clockNow);
+            const matchFinished = lifecycle === 'completed' || tournamentStatus === 'cancelled';
             const roomId = item.roomId ?? t.roomId;
             const roomPassword = item.roomPassword ?? t.roomPassword;
             const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
@@ -79,8 +87,7 @@ export default function MyMatches() {
             const roomWindowOpen = Number.isFinite(startMs) && Date.now() >= startMs - 15 * 60 * 1000;
             const roomReady = status === 'approved' && published && !!roomId && !!roomPassword && roomWindowOpen;
             const registrationActive = ['approved', 'pending'].includes(status);
-            const editEligible = registrationActive && t.enabled !== false &&
-              !['completed', 'cancelled', 'closed', 'live'].includes(tournamentStatus);
+            const editEligible = registrationActive && t.enabled !== false && lifecycle === 'upcoming';
             const canEditTeam = editEligible && canEditRegistrationTeam(t, status, clockNow);
             const editCutoff = getTeamEditCutoff(startsAt);
             const teamEditLocked = editEligible && editCutoff !== null && clockNow >= editCutoff;
@@ -96,8 +103,8 @@ export default function MyMatches() {
                     <Text style={s.tName}>{t.name ?? 'Tournament'}</Text>
                   </View>
                     <Badge
-                      text={matchFinished ? 'COMPLETED' : status === 'approved' ? 'CONFIRMED' : status.toUpperCase()}
-                      color={matchFinished ? C.gold : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
+                      text={matchFinished ? 'COMPLETED' : lifecycle === 'ongoing' ? 'ONGOING' : status === 'approved' ? 'CONFIRMED' : status.toUpperCase()}
+                      color={matchFinished ? C.gold : lifecycle === 'ongoing' ? C.red : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
                     />
                 </View>
                 <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>

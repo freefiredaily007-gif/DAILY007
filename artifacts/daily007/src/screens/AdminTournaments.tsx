@@ -3,6 +3,7 @@ import { Alert, View, Text, ScrollView, StyleSheet, TextInput } from 'react-nati
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
+import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
 
@@ -27,11 +28,13 @@ export default function AdminTournaments({ onFinish }: { onFinish?: (tournament:
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [clockNow, setClockNow] = useState(Date.now());
 
   const load = useCallback(async () => {
     try {
       const response = await Api.tournaments();
       setList(Array.isArray(response) ? response : []);
+      setClockNow(Date.now());
       setLoadError('');
     } catch (e: any) {
       setList([]);
@@ -39,6 +42,18 @@ export default function AdminTournaments({ onFinish }: { onFinish?: (tournament:
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!list) return;
+    const now = Date.now();
+    const nextStart = list
+      .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming')
+      .map((tournament) => Date.parse(String(tournament.startsAt ?? '')))
+      .filter((start) => Number.isFinite(start) && start > now)
+      .sort((a, b) => a - b)[0];
+    if (nextStart === undefined) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    return () => clearTimeout(timer);
+  }, [list, clockNow]);
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
@@ -90,7 +105,7 @@ export default function AdminTournaments({ onFinish }: { onFinish?: (tournament:
         <Text style={st.h}>TOURNAMENTS</Text>
         <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
       </View>
-      <Text style={st.hint}>FINISH opens result entry and credits the winner’s prize coins.</Text>
+      <Text style={st.hint}>FINISH opens winner entry. Publishing rank 1 credits the prize and completes the match.</Text>
       <Msg kind="err" text={err} />
       {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
       <Msg kind="ok" text={okMsg} />
@@ -142,20 +157,28 @@ export default function AdminTournaments({ onFinish }: { onFinish?: (tournament:
       )}
 
       {!list ? <Loading /> : list.length === 0 ? <Empty text="No tournaments yet." /> : list.map((t) => {
-        const finished = t.status === 'completed';
-        const statusLabel = finished ? 'COMPLETED' : t.enabled ? 'ENABLED' : 'DISABLED';
+        const lifecycle = getTournamentLifecycleState(t, clockNow);
+        const finished = lifecycle === 'completed';
+        const ongoing = lifecycle === 'ongoing';
+        const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : t.enabled ? 'ENABLED' : 'DISABLED';
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={st.tName}>{t.name}</Text>
-              <Chip label={statusLabel} color={finished ? C.gold : t.enabled ? C.green : C.red} />
+              <Chip label={statusLabel} color={finished ? C.gold : ongoing ? C.red : t.enabled ? C.green : C.red} />
             </View>
             <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time}</Text>
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
               <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" onPress={() => remove(t)} /></View>
-              <View style={{ flex: 1 }}><Btn title={finished ? 'FINISHED' : 'FINISH'} small kind={finished ? 'ghost' : 'gold'} disabled={finished} onPress={() => onFinish?.(t)} /></View>
+              <View style={{ flex: 1 }}><Btn
+                title={finished ? 'FINISHED' : ongoing ? 'FINISH' : 'WAIT FOR START'}
+                small
+                kind={finished || !ongoing ? 'ghost' : 'gold'}
+                disabled={finished || !ongoing}
+                onPress={() => onFinish?.(t)}
+              /></View>
             </View>
           </Card>
         );
