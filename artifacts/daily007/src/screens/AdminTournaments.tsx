@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { useUpdateTournamentLifecycle } from '@workspace/api-client-react';
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
@@ -35,6 +36,7 @@ export default function AdminTournaments({
   const [okMsg, setOkMsg] = useState('');
   const [loadError, setLoadError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const cancelLifecycle = useUpdateTournamentLifecycle();
 
   const load = useCallback(async () => {
     try {
@@ -57,9 +59,9 @@ export default function AdminTournaments({
       .filter((start) => Number.isFinite(start) && start > now)
       .sort((a, b) => a - b)[0];
     if (nextStart === undefined) return;
-    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    const timer = setTimeout(() => { void load(); }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
     return () => clearTimeout(timer);
-  }, [list, clockNow]);
+  }, [list, clockNow, load]);
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
@@ -101,6 +103,31 @@ export default function AdminTournaments({
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => { void removeNow(t); } },
+      ],
+    );
+  };
+  const cancelNow = async (t: Tournament) => {
+    setErr(''); setOkMsg('');
+    try {
+      const result = await cancelLifecycle.mutateAsync({
+        id: t.id,
+        data: { status: 'cancelled' },
+      });
+      const data = result?.data;
+      const coinsRefunded = Number(data?.coinsRefunded ?? 0);
+      const accountsRefunded = Number(data?.accountsRefunded ?? 0);
+      setOkMsg(`Tournament cancelled. Refunded ${coinsRefunded} coins to ${accountsRefunded} payer account${accountsRefunded === 1 ? '' : 's'}.`);
+      await load();
+      setTimeout(() => setOkMsg(''), 4000);
+    } catch (e: any) { setErr(apiError(e)); }
+  };
+  const cancel = (t: Tournament) => {
+    Alert.alert(
+      'Cancel tournament and refund players?',
+      'This is available only after the scheduled start when at least one slot is vacant. Each recorded entry fee will be refunded to the account that paid it. This cannot be undone.',
+      [
+        { text: 'Keep tournament', style: 'cancel' },
+        { text: 'Cancel and refund', style: 'destructive', onPress: () => { void cancelNow(t); } },
       ],
     );
   };
@@ -166,6 +193,7 @@ export default function AdminTournaments({
         const lifecycle = getTournamentLifecycleState(t, clockNow);
         const finished = lifecycle === 'completed';
         const ongoing = lifecycle === 'ongoing';
+        const cancellable = ongoing && Number(t.filledSlots ?? 0) < Number(t.totalSlots ?? 0);
         const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : t.enabled ? 'ENABLED' : 'DISABLED';
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
@@ -177,7 +205,11 @@ export default function AdminTournaments({
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
-              <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" onPress={() => remove(t)} /></View>
+              <View style={{ flex: 1 }}>
+                {cancellable
+                  ? <Btn title="CANCEL" small kind="danger" loading={cancelLifecycle.isPending} onPress={() => cancel(t)} />
+                  : <Btn title="DELETE" small kind="danger" onPress={() => remove(t)} />}
+              </View>
             </View>
             {ongoing ? (
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>

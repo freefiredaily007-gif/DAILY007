@@ -10,6 +10,7 @@ import {
   parseOptionalReferralCode,
   parseStart,
   referralSignupStatus,
+  tournamentCancellationError,
 } from "../src/routes/daily007-compat-core.ts";
 import {
   isTournamentStartInFuture,
@@ -108,4 +109,20 @@ test("tournament status moves to Ongoing at start and completes only after the w
   assert.equal(effectiveTournamentStatus({ has_winner: true, has_started: true, enabled: true, status: "full" }), "ongoing");
   assert.equal(effectiveTournamentStatus({ has_winner: true, has_started: true, enabled: false, status: "full" }), "completed");
   assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: false, enabled: false, status: "full" }), "closed");
+  assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: true, enabled: false, status: "cancelled" }), "cancelled");
+});
+
+test("cancellation is allowed only after start while at least one slot is vacant and no winner exists", () => {
+  const eligible = {
+    status: "full",
+    hasStarted: true,
+    hasWinner: false,
+    filledSlots: 11,
+    capacity: 12,
+  };
+  assert.equal(tournamentCancellationError(eligible), null);
+  assert.equal(tournamentCancellationError({ ...eligible, hasStarted: false }), "A tournament can only be cancelled after its scheduled start time.");
+  assert.equal(tournamentCancellationError({ ...eligible, filledSlots: 12 }), "Only an ongoing tournament with at least one vacant slot can be cancelled.");
+  assert.equal(tournamentCancellationError({ ...eligible, hasWinner: true }), "A tournament with a declared winner cannot be cancelled.");
+  assert.equal(tournamentCancellationError({ ...eligible, status: "cancelled" }), "Tournament is already cancelled.");
 });

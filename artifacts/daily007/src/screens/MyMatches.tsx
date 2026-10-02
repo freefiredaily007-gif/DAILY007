@@ -78,7 +78,8 @@ export default function MyMatches() {
             const status = String(item.status ?? '').toLowerCase();
             const tournamentStatus = String(t.status ?? '').toLowerCase();
             const lifecycle = getTournamentLifecycleState(t, clockNow);
-            const matchFinished = lifecycle === 'completed' || tournamentStatus === 'cancelled';
+            const cancelled = tournamentStatus === 'cancelled';
+            const matchFinished = lifecycle === 'completed' || cancelled;
             const roomId = item.roomId ?? t.roomId;
             const roomPassword = item.roomPassword ?? t.roomPassword;
             const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
@@ -103,11 +104,12 @@ export default function MyMatches() {
                     <Text style={s.tName}>{t.name ?? 'Tournament'}</Text>
                   </View>
                     <Badge
-                      text={matchFinished ? 'COMPLETED' : lifecycle === 'ongoing' ? 'ONGOING' : status === 'approved' ? 'CONFIRMED' : status.toUpperCase()}
-                      color={matchFinished ? C.gold : lifecycle === 'ongoing' ? C.red : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
+                      text={cancelled ? 'CANCELLED' : matchFinished ? 'COMPLETED' : lifecycle === 'ongoing' ? 'ONGOING' : status === 'approved' ? 'CONFIRMED' : status.toUpperCase()}
+                      color={cancelled ? C.red : matchFinished ? C.gold : lifecycle === 'ongoing' ? C.red : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
                     />
                 </View>
                 <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)} IST</Text>
+                {cancelled ? <Text style={s.meta}>Any entry fee paid was refunded to the paying account.</Text> : null}
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
                 {canEditTeam ? (
                   <Btn

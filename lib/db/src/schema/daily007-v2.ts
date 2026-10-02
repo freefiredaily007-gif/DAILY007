@@ -97,8 +97,9 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
      ${table.gameMode} IN ('clash_squad', 'lone_wolf') AND ${table.capacity} = 2)
   `),
   check("daily007_v2_matches_entry_nonnegative", sql`${table.entryCoins} >= 0`),
-  check("daily007_v2_matches_status_valid", sql`${table.status} IN ('open', 'full', 'setup_needed')`),
+  check("daily007_v2_matches_status_valid", sql`${table.status} IN ('open', 'full', 'setup_needed', 'cancelled')`),
   check("daily007_v2_matches_full_consistent", sql`
+    ${table.status} = 'cancelled' OR
     (${table.isFull} = false AND ${table.status} = 'open') OR
     (${table.isFull} = true AND ${table.status} IN ('full', 'setup_needed'))
   `),

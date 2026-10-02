@@ -897,17 +897,34 @@ export const GetTournamentResultsResponse = zod.object({
 
 
 /**
- * @summary Open or close registration, mark live/completed, or cancel with refunds
+ * @summary Cancel an underfilled tournament after its scheduled start and refund paid entry fees
  */
 export const UpdateTournamentLifecycleParams = zod.object({
   "id": zod.coerce.string().uuid()
 })
 
 export const UpdateTournamentLifecycleBody = zod.object({
-  "status": zod.enum(['open', 'closed', 'live', 'completed', 'cancelled'])
+  "status": zod.enum(['cancelled'])
 })
 
-export const UpdateTournamentLifecycleResponse = zod.unknown()
+export const updateTournamentLifecycleResponseDataRegistrationsRefundedMin = 0;
+
+export const updateTournamentLifecycleResponseDataAccountsRefundedMin = 0;
+
+export const updateTournamentLifecycleResponseDataCoinsRefundedMin = 0;
+
+
+
+export const UpdateTournamentLifecycleResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['cancelled']),
+  "registrationsRefunded": zod.number().int().min(updateTournamentLifecycleResponseDataRegistrationsRefundedMin),
+  "accountsRefunded": zod.number().int().min(updateTournamentLifecycleResponseDataAccountsRefundedMin),
+  "coinsRefunded": zod.number().int().min(updateTournamentLifecycleResponseDataCoinsRefundedMin)
+})
+})
 
 
 /**

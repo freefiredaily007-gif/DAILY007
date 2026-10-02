@@ -669,7 +669,7 @@ paths:
   /admin/tournaments/{id}/lifecycle:
     post:
       operationId: updateTournamentLifecycle
-      summary: Open or close registration, mark live/completed, or cancel with refunds
+      summary: Cancel an underfilled tournament after its scheduled start and refund paid entry fees
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -679,8 +679,26 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/TournamentLifecycleUpdate" }
       responses:
-        "200": { description: Tournament lifecycle updated }
-        "400": { description: Invalid or disallowed transition }
+        "200":
+          description: Tournament cancelled and paid entry fees refunded atomically
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      status: { type: string, enum: [cancelled] }
+                      registrationsRefunded: { type: integer, minimum: 0 }
+                      accountsRefunded: { type: integer, minimum: 0 }
+                      coinsRefunded: { type: integer, minimum: 0 }
+                    required: [id, status, registrationsRefunded, accountsRefunded, coinsRefunded]
+                required: [success, data]
+        "400": { description: Invalid cancellation request }
+        "409": { description: "Tournament has not started, is full, has a winner, or was already cancelled" }
         "403": { description: Administrator required }
         "404": { description: Tournament not found }
   /admin/tournaments/{id}/results:
@@ -737,7 +755,7 @@ components:
       type: object
       additionalProperties: false
       properties:
-        status: { type: string, enum: [open, closed, live, completed, cancelled] }
+        status: { type: string, enum: [cancelled] }
       required: [status]
     TournamentResultDraft:
       type: object

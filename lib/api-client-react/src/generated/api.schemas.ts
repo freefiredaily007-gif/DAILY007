@@ -26,10 +26,6 @@ export type TournamentLifecycleUpdateStatus = typeof TournamentLifecycleUpdateSt
 
 
 export const TournamentLifecycleUpdateStatus = {
-  open: 'open',
-  closed: 'closed',
-  live: 'live',
-  completed: 'completed',
   cancelled: 'cancelled',
 } as const;
 
@@ -648,5 +644,28 @@ export interface Daily007AdminUserRoleBody {
 
 export type Daily007AdminGetRechargeProofUrl200 = {
   url: string;
+};
+
+export type UpdateTournamentLifecycle200DataStatus = typeof UpdateTournamentLifecycle200DataStatus[keyof typeof UpdateTournamentLifecycle200DataStatus];
+
+
+export const UpdateTournamentLifecycle200DataStatus = {
+  cancelled: 'cancelled',
+} as const;
+
+export type UpdateTournamentLifecycle200Data = {
+  id: string;
+  status: UpdateTournamentLifecycle200DataStatus;
+  /** @minimum 0 */
+  registrationsRefunded: number;
+  /** @minimum 0 */
+  accountsRefunded: number;
+  /** @minimum 0 */
+  coinsRefunded: number;
+};
+
+export type UpdateTournamentLifecycle200 = {
+  success: boolean;
+  data: UpdateTournamentLifecycle200Data;
 };
 

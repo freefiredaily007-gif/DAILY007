@@ -71,7 +71,8 @@ import type {
   TournamentLifecycleUpdate,
   TournamentResultDraft,
   TournamentResultsView,
-  TournamentSlotsResponse
+  TournamentSlotsResponse,
+  UpdateTournamentLifecycle200
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -3618,10 +3619,10 @@ export const getUpdateTournamentLifecycleUrl = (id: string,) => {
 }
 
 /**
- * @summary Open or close registration, mark live/completed, or cancel with refunds
+ * @summary Cancel an underfilled tournament after its scheduled start and refund paid entry fees
  */
 export const updateTournamentLifecycle = async (id: string,
-    tournamentLifecycleUpdate: TournamentLifecycleUpdate, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+    tournamentLifecycleUpdate: TournamentLifecycleUpdate, options?: Parameters<typeof customFetch>[1]): Promise<UpdateTournamentLifecycle200> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3637,7 +3638,7 @@ export const updateTournamentLifecycle = async (id: string,
     }
     return headers;
   };
-return customFetch<void>(getUpdateTournamentLifecycleUrl(id),
+return customFetch<UpdateTournamentLifecycle200>(getUpdateTournamentLifecycleUrl(id),
   {
     ...options,
     method: 'POST',
@@ -3685,7 +3686,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateTournamentLifecycleMutationVariables = {id: string;data: BodyType<TournamentLifecycleUpdate>}
 
     /**
- * @summary Open or close registration, mark live/completed, or cancel with refunds
+ * @summary Cancel an underfilled tournament after its scheduled start and refund paid entry fees
  */
 export const useUpdateTournamentLifecycle = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTournamentLifecycle>>, TError,UpdateTournamentLifecycleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

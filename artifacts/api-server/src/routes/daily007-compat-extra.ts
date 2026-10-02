@@ -139,9 +139,16 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
             created_at AS "createdAt"
        FROM daily007_v2_wallet_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500`, [id],
   );
-  res.json(result.rows.map((row: any) => ({
-    ...row, description: String(row.reason).replaceAll("_", " "),
-  })));
+  res.json(result.rows.map((row: any) => {
+    const details = row.details && typeof row.details === "object" ? row.details as Record<string, unknown> : {};
+    const refundDescription = row.reason === "tournament_cancel_refund" && typeof details.description === "string"
+      ? details.description
+      : null;
+    return {
+      ...row,
+      description: refundDescription ?? String(row.reason).replaceAll("_", " "),
+    };
+  }));
 });
 
 router.post("/payments", authenticate, async (req, res): Promise<void> => {
@@ -1130,9 +1137,10 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
     const result = await transaction(async (client) => {
       const registration = await client.query<{
         id: string; match_id: string; captain_user_id: string; prize_pool: number; prize_distribution: string;
-        has_started: boolean;
+        has_started: boolean; match_status: string;
       }>(
         `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution,
+                m.status AS match_status,
                 m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started
            FROM daily007_v2_registrations r
            JOIN daily007_v2_matches m ON m.id = r.match_id
@@ -1141,6 +1149,9 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       );
       const row = registration.rows[0];
       if (!row || row.match_id !== tournamentId) throw Object.assign(new Error("Registration was not found for this tournament/match."), { status: 404 });
+      if (row.match_status === "cancelled") {
+        throw Object.assign(new Error("Results cannot be published for a cancelled tournament."), { status: 409 });
+      }
       if (!row.has_started) {
         throw Object.assign(new Error("Results can only be published after the tournament starts."), { status: 409 });
       }

@@ -27,9 +27,5 @@ export type TournamentLifecycleUpdateStatus = typeof TournamentLifecycleUpdateSt
 
 
 export const TournamentLifecycleUpdateStatus = {
-  open: 'open',
-  closed: 'closed',
-  live: 'live',
-  completed: 'completed',
   cancelled: 'cancelled',
 } as const;
