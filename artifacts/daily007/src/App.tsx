@@ -41,8 +41,8 @@ function Tabs() {
         backgroundColor: '#0d1220ee', borderTopColor: '#2a3558', height: 64, paddingBottom: 8, paddingTop: 6,
         shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
       },
-      tabBarActiveTintColor: '#FFC107', tabBarInactiveTintColor: '#777777',
-      tabBarLabelStyle: { fontSize: 11.2, fontWeight: '900', letterSpacing: 0.5 },
+      tabBarActiveTintColor: '#FFD54D', tabBarInactiveTintColor: '#70B8FF',
+      tabBarLabelStyle: { fontSize: 11.2, fontWeight: '900', letterSpacing: 0.5, fontFamily: 'Inter_700Bold' },
     }}>
       <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: 'HOME', tabBarIcon: ({ focused }) => focused ? <HomeIconActive /> : <HomeIconInactive /> }} />
       <Tab.Screen name="Video" component={Video} options={{ tabBarLabel: 'VIDEO', tabBarIcon: ({ focused }) => focused ? <VideoIconActive /> : <VideoIconInactive /> }} />
@@ -166,7 +166,12 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   return (
     <Ctx.Provider value={{ user, refresh, logout }}>
       <NavigationContainer theme={navTheme}>
-        <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: '#0d1220' }, headerTintColor: '#eef1f8', contentStyle: { backgroundColor: '#070a12' } }}>
+        <Stack.Navigator screenOptions={{
+          headerStyle: { backgroundColor: '#0d1220' },
+          headerTintColor: '#eef1f8',
+          headerTitleStyle: { color: '#FFD54D', fontWeight: '700', fontFamily: 'Inter_700Bold' },
+          contentStyle: { backgroundColor: '#070a12' },
+        }}>
           {user.role === 'admin' || user.role === 'tournament_admin' ? (
             <Stack.Screen name="Admin" component={AdminApp} options={{ headerShown: false }} />
           ) : (
