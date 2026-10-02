@@ -28,12 +28,11 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
   { key: 'wallet', label: 'Wallet', icon: 'database' },
   { key: 'earnTasks', label: 'Earn', icon: 'youtube' },
   { key: 'videos', label: 'Videos', icon: 'video' },
-  { key: 'rooms', label: 'Rooms', icon: 'key' },
-  { key: 'results', label: 'Results', icon: 'target' },
   { key: 'users', label: 'Users', icon: 'users' },
   { key: 'notifications', label: 'Notify', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
+// Rooms and Results remain available through tournament actions, not the bottom navigation.
 const TOURNAMENT_ADMIN_SCREENS = new Set(['tournaments', 'registrations', 'rooms', 'results']);
 
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {

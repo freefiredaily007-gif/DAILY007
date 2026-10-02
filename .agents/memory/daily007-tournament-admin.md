@@ -32,3 +32,9 @@ A Tournament Admin can manage tournaments, registrations, rooms, results, and to
 **Why:** Removing a tournament with participant or coin history could erase records players rely on.
 
 **How to apply:** Check all related history before deleting; do not cascade-delete registrations, awards, or wallet entries.
+
+**Tournament operations navigation:** Room and result workflows are opened from the Tournament section, not from separate bottom-navigation items.
+
+**Why:** The user wants all room and result work managed within the Tournament section.
+
+**How to apply:** Keep the Rooms and Results screens routable from tournament actions and within Tournament Admin permissions, but omit them from the bottom navigation.
