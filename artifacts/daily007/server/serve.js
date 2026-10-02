@@ -1,10 +1,11 @@
 /**
  * Standalone production server for Expo static builds.
  *
- * Serves the output of build.js (static-build/) with two special routes:
+ * Serves the output of build.js (static-build/) with these routes:
  * - GET / or /manifest with expo-platform header → platform manifest JSON
- * - GET / without expo-platform → landing page HTML
- * Everything else falls through to static file serving from ./static-build/.
+ * - GET / without expo-platform → Daily007 browser app
+ * - GET /install → Expo Go install/launch instructions
+ * - Native bundles/manifests → static files from ./static-build/
  *
  * Zero external dependencies — uses only Node.js built-ins (http, fs, path).
  */
@@ -14,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 
 const STATIC_ROOT = path.resolve(__dirname, '..', 'static-build');
+const WEB_STATIC_ROOT = path.join(STATIC_ROOT, 'web');
 const TEMPLATE_PATH = path.resolve(__dirname, 'templates', 'landing-page.html');
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
 
@@ -77,6 +79,7 @@ function serveManifest(platform, res) {
   const manifest = fs.readFileSync(manifestPath, 'utf-8');
   res.writeHead(200, {
     'content-type': 'application/json',
+    'cache-control': 'no-cache',
     'expo-protocol-version': '1',
     'expo-sfv-version': '0',
   });
@@ -100,11 +103,45 @@ function serveLandingPage(req, res, landingPageTemplate, appName) {
   res.end(html);
 }
 
-function serveStaticFile(urlPath, res) {
-  const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, '');
-  const filePath = path.join(STATIC_ROOT, safePath);
+function resolveStaticPath(root, urlPath) {
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(urlPath);
+  } catch {
+    return null;
+  }
 
-  if (!filePath.startsWith(STATIC_ROOT)) {
+  const rootPath = path.resolve(root);
+  const relativePath = decodedPath.replace(/^[/\\]+/, '');
+  const filePath = path.resolve(rootPath, relativePath);
+  if (filePath !== rootPath && !filePath.startsWith(`${rootPath}${path.sep}`)) {
+    return null;
+  }
+  return filePath;
+}
+
+function sendFile(filePath, res) {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+  const content = fs.readFileSync(filePath);
+  const filename = path.basename(filePath);
+  const isHashedAsset = /[.-][a-f0-9]{8,}[.-]/i.test(filename);
+  const isVersionedNativeAsset = /[/\\]\d+-\d+[/\\]_expo[/\\]/.test(filePath);
+  const cacheControl =
+    ext === '.html' || ext === '.json' || (!isHashedAsset && !isVersionedNativeAsset)
+      ? 'no-cache'
+      : 'public, max-age=31536000, immutable';
+  res.writeHead(200, {
+    'content-type': contentType,
+    'cache-control': cacheControl,
+  });
+  res.end(content);
+}
+
+function serveStaticFile(urlPath, res, root = STATIC_ROOT) {
+  const filePath = resolveStaticPath(root, urlPath);
+
+  if (!filePath) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -116,11 +153,37 @@ function serveStaticFile(urlPath, res) {
     return;
   }
 
-  const ext = path.extname(filePath).toLowerCase();
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  const content = fs.readFileSync(filePath);
-  res.writeHead(200, { 'content-type': contentType });
-  res.end(content);
+  sendFile(filePath, res);
+}
+
+function serveWebApp(urlPath, res) {
+  const entryPath = path.join(WEB_STATIC_ROOT, 'index.html');
+  if (!fs.existsSync(entryPath)) {
+    res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('Daily007 web build is missing. Rebuild the app before serving it.');
+    return;
+  }
+
+  const requestedPath = urlPath === '/' ? '/index.html' : urlPath;
+  const requestedFile = resolveStaticPath(WEB_STATIC_ROOT, requestedPath);
+  if (!requestedFile) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+
+  if (fs.existsSync(requestedFile) && fs.statSync(requestedFile).isFile()) {
+    sendFile(requestedFile, res);
+    return;
+  }
+
+  if (path.extname(urlPath)) {
+    res.writeHead(404);
+    res.end('Not Found');
+    return;
+  }
+
+  sendFile(entryPath, res);
 }
 
 const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
@@ -130,7 +193,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
   let pathname = url.pathname;
 
-  if (basePath && pathname.startsWith(basePath)) {
+  if (basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))) {
     pathname = pathname.slice(basePath.length) || '/';
   }
 
@@ -140,15 +203,28 @@ const server = http.createServer((req, res) => {
       return serveManifest(platform, res);
     }
 
-    if (pathname === '/') {
-      return serveLandingPage(req, res, landingPageTemplate, appName);
+    if (pathname === '/manifest') {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
     }
   }
 
-  serveStaticFile(pathname, res);
+  if (pathname === '/install') {
+    return serveLandingPage(req, res, landingPageTemplate, appName);
+  }
+
+  if (
+    /^\/(?:ios|android)(?:\/|$)/.test(pathname) ||
+    /^\/\d+-\d+\/_expo\//.test(pathname)
+  ) {
+    return serveStaticFile(pathname, res);
+  }
+
+  serveWebApp(pathname, res);
 });
 
 const port = parseInt(process.env.PORT || '3000', 10);
 server.listen(port, '0.0.0.0', () => {
-  console.log(`Serving static Expo build on port ${port}`);
+  console.log(`Serving Daily007 web app, Expo manifests, and native assets on port ${port}`);
 });

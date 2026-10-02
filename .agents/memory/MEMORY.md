@@ -7,3 +7,5 @@
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
 - [Daily007 referral links](daily007-referral-links.md) — use simple five-letter codes and keep clickable invites working with legacy codes.
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user wants an installable APK file to send directly, not a URL.
+- [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
+- [Daily007 build port isolation](daily007-build-port.md) — temporary Metro builds must use a free port because another workspace service may occupy 8081.
