@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Alert, Platform, View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { useUpdateTournamentLifecycle } from '@workspace/api-client-react';
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
@@ -7,6 +7,25 @@ import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
+
+function confirmDestructiveAction(
+  title: string,
+  message: string,
+  cancelLabel: string,
+  confirmLabel: string,
+  onConfirm: () => void,
+) {
+  if (Platform.OS === 'web') {
+    // React Native Web's Alert.alert is intentionally a no-op.
+    if (window.confirm(`${title}\n\n${message}`)) onConfirm();
+    return;
+  }
+
+  Alert.alert(title, message, [
+    { text: cancelLabel, style: 'cancel' },
+    { text: confirmLabel, style: 'destructive', onPress: onConfirm },
+  ]);
+}
 
 function capacityFor(mode: string, teamType: string) {
   const size = teamType === 'Solo' ? 1 : teamType === 'Duo' ? 2 : 4;
@@ -97,13 +116,12 @@ export default function AdminTournaments({
     } catch (e: any) { setErr(apiError(e)); }
   };
   const remove = (t: Tournament) => {
-    Alert.alert(
+    confirmDestructiveAction(
       'Delete tournament?',
       'Empty tournaments can be permanently deleted. If player or coin records exist, the tournament will only be closed so its history is preserved.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => { void removeNow(t); } },
-      ],
+      'Cancel',
+      'Delete',
+      () => { void removeNow(t); },
     );
   };
   const cancelNow = async (t: Tournament) => {
@@ -122,13 +140,12 @@ export default function AdminTournaments({
     } catch (e: any) { setErr(apiError(e)); }
   };
   const cancel = (t: Tournament) => {
-    Alert.alert(
+    confirmDestructiveAction(
       'Cancel tournament and refund players?',
       'This is available only after the scheduled start when at least one slot is vacant. Each recorded entry fee will be refunded to the account that paid it. This cannot be undone.',
-      [
-        { text: 'Keep tournament', style: 'cancel' },
-        { text: 'Cancel and refund', style: 'destructive', onPress: () => { void cancelNow(t); } },
-      ],
+      'Keep tournament',
+      'Cancel and refund',
+      () => { void cancelNow(t); },
     );
   };
 
