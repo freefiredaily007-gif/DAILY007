@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Api, apiError, Tournament, User } from '../lib/api';
+import { Api, apiError, User } from '../lib/api';
 import { useApp } from '../App';
 import { A, AdminToastHost, Loading } from '../components/adminKit';
 import { AdminUiProvider } from '../components/ui';
@@ -11,8 +11,6 @@ import AdminTournaments from './AdminTournaments';
 import AdminRegs from './AdminRegs';
 import AdminPayments from './AdminPayments';
 import AdminWallet from './AdminWallet';
-import AdminRooms from './AdminRooms';
-import AdminResults from './AdminResults';
 import AdminUsers from './AdminUsers';
 import AdminNotifications from './AdminNotifications';
 import AdminSettings from './AdminSettings';
@@ -32,15 +30,13 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
   { key: 'notifications', label: 'Notify', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
-// Rooms and Results remain available through tournament actions, not the bottom navigation.
-const TOURNAMENT_ADMIN_SCREENS = new Set(['tournaments', 'registrations', 'rooms', 'results']);
+// Tournament Admins use the tournament cards for room and result actions.
+const TOURNAMENT_ADMIN_SCREENS = new Set(['tournaments', 'registrations']);
 
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {
   const { logout: ctxLogout } = useApp();
   const onLogout = onLogoutProp || ctxLogout;
   const [screen, setScreen] = useState('dashboard');
-  const [finishTournamentId, setFinishTournamentId] = useState<string | null>(null);
-  const [roomTournamentId, setRoomTournamentId] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [err, setErr] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -56,17 +52,9 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const navigate = (next: string) => {
     if (!tournamentOnly || TOURNAMENT_ADMIN_SCREENS.has(next)) setScreen(next);
   };
-  const finishTournament = (tournament: Tournament) => {
-    setFinishTournamentId(tournament.id);
-    setScreen('results');
-  };
-  const manageTournamentRoom = (tournament: Tournament) => {
-    setRoomTournamentId(tournament.id);
-    setScreen('rooms');
-  };
   const Screen: any = {
     dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
-    payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, videos: AdminVideos, rooms: AdminRooms, results: AdminResults,
+    payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, videos: AdminVideos,
     users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
   }[activeScreen] || AdminDashboard;
 
@@ -108,12 +96,6 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
             go={navigate}
             onLogout={onLogout}
             currentUserId={user.id}
-            onFinish={finishTournament}
-            onManageRoom={manageTournamentRoom}
-            initialTournamentId={activeScreen === 'results' ? finishTournamentId : undefined}
-            onInitialTournamentHandled={() => setFinishTournamentId(null)}
-            initialRoomTournamentId={activeScreen === 'rooms' ? roomTournamentId : undefined}
-            onInitialRoomHandled={() => setRoomTournamentId(null)}
           />
         </View>
 

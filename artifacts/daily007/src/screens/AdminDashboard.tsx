@@ -62,7 +62,7 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
             </GlassCard>
           )}
           {roomsNeeded > 0 && (
-            <GlassCard style={st.alert} onPress={() => go('rooms')}>
+            <GlassCard style={st.alert} onPress={() => go('tournaments')}>
               <View style={[st.alertIcon, { backgroundColor: 'rgba(77,163,255,0.1)' }]}><Feather name="key" size={15} color={A.cyan} /></View>
               <Text style={st.alertTxt}>{roomsNeeded} tournament{roomsNeeded > 1 ? 's' : ''} need room details</Text>
               <Feather name="chevron-right" size={16} color={A.orange} />
@@ -80,10 +80,10 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
         <StatCard icon="check-circle" value={s.approvedRegistrations ?? 0} label="Approved Regs" tint={A.green} onPress={() => go('registrations')} />
         <StatCard icon="x-circle" value={s.rejectedRegistrations ?? 0} label="Rejected Regs" tint={A.danger} onPress={() => go('registrations')} />
         <StatCard icon="credit-card" value={pendingPays} label="Pending Payments" tint={A.red} onPress={() => go('payments')} />
-        <StatCard icon="flag" value={s.completedTournaments ?? 0} label="Completed" tint={A.cyan} onPress={() => go('results')} />
+        <StatCard icon="flag" value={s.completedTournaments ?? 0} label="Completed" tint={A.cyan} onPress={() => go('tournaments')} />
         <StatCard icon="dollar-sign" value={s.coinsDistributed ?? 0} label="Coins Distributed" tint={A.gold} onPress={() => go('wallet')} />
         <StatCard icon="database" value={s.coinsInWallets ?? 0} label="Coins in Wallets" tint={A.gold} onPress={() => go('wallet')} />
-        <StatCard icon="gift" value={'₹' + (s.prizeDistributed ?? 0)} label="Prize Distributed" tint={A.green} onPress={() => go('results')} />
+        <StatCard icon="gift" value={'₹' + (s.prizeDistributed ?? 0)} label="Prize Distributed" tint={A.green} onPress={() => go('tournaments')} />
         <StatCard icon="calendar" value={s.todayRegistrations ?? 0} label="Today's Regs" tint={A.cyan} onPress={() => go('registrations')} trend={s.todayRegistrations ? '+today' : undefined} />
         <StatCard icon="trending-up" value={'₹' + (s.todayRevenue ?? 0)} label="Today's Revenue" tint={A.green} onPress={() => go('payments')} trend={s.todayRevenue ? '+today' : undefined} />
       </View>
@@ -96,8 +96,8 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
             { icon: 'plus', label: 'Create Tournament', go: 'tournaments' },
             { icon: 'file-text', label: 'Manage Registrations', go: 'registrations' },
             { icon: 'credit-card', label: 'Approve Payments', go: 'payments' },
-            { icon: 'key', label: 'Publish Room', go: 'rooms' },
-            { icon: 'award', label: 'Enter Results', go: 'results' },
+            { icon: 'key', label: 'Manage Tournament Rooms', go: 'tournaments' },
+            { icon: 'award', label: 'Enter Tournament Results', go: 'tournaments' },
             { icon: 'gift', label: 'Distribute Prize', go: 'results' },
             { icon: 'users', label: 'Manage Users', go: 'users' },
             { icon: 'bell', label: 'Send Notification', go: 'notifications' },

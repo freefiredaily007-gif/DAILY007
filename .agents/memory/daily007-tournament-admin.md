@@ -33,8 +33,8 @@ A Tournament Admin can manage tournaments, registrations, rooms, results, and to
 
 **How to apply:** Check all related history before deleting; do not cascade-delete registrations, awards, or wallet entries.
 
-**Tournament operations navigation:** Room and result workflows are opened from the Tournament section, not from separate bottom-navigation items.
+**Tournament operations navigation:** Room setup/sharing and result entry belong directly inside the Tournament lifecycle tabs, not on separate management pages.
 
-**Why:** The user wants all room and result work managed within the Tournament section.
+**Why:** The user wants all room and result work managed within the Tournament section and questioned why Room Management still opened separately.
 
-**How to apply:** Keep the Rooms and Results screens routable from tournament actions and within Tournament Admin permissions, but omit them from the bottom navigation.
+**How to apply:** Use expandable tournament-card panels for room and result actions; keep completed logs in the Completed tab and do not route to standalone Rooms or Results pages.

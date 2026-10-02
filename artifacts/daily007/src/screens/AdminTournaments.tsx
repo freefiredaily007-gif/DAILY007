@@ -1,14 +1,15 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, View, Text, ScrollView, StyleSheet, TextInput, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Platform, View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
 import {
   getDaily007ListAdminResultLogsQueryKey,
   useDaily007ListAdminResultLogs,
   useUpdateTournamentLifecycle,
 } from '@workspace/api-client-react';
-import { Api, apiError, Tournament } from '../lib/api';
+import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
 const TOURNAMENT_TABS = [
@@ -17,6 +18,15 @@ const TOURNAMENT_TABS = [
   { id: 'completed', label: 'Completed' },
 ] as const;
 type TournamentAdminTab = (typeof TOURNAMENT_TABS)[number]['id'];
+type TournamentAction = { tournamentId: string; kind: 'room' | 'results' };
+
+function configuredPrizeForRank(tournament: Tournament, rank: number): number {
+  const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
+  for (const match of String(tournament.prizeDist ?? '').matchAll(configured)) {
+    if (Number(match[1]) === rank) return Number(match[2].replace(/,/g, ''));
+  }
+  return rank === 1 ? Number(tournament.prizePool) || 0 : 0;
+}
 
 function confirmDestructiveAction(
   title: string,
@@ -49,13 +59,7 @@ function capacityFor(mode: string, teamType: string) {
   return { slots: 2, label: `2 team slots · ${size * 2} players` };
 }
 
-export default function AdminTournaments({
-  onFinish,
-  onManageRoom,
-}: {
-  onFinish?: (tournament: Tournament) => void;
-  onManageRoom?: (tournament: Tournament) => void;
-}) {
+export default function AdminTournaments() {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [tab, setTab] = useState<TournamentAdminTab>('upcoming');
   const [form, setForm] = useState<any>(blank);
@@ -66,6 +70,21 @@ export default function AdminTournaments({
   const [okMsg, setOkMsg] = useState('');
   const [loadError, setLoadError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const [expandedAction, setExpandedAction] = useState<TournamentAction | null>(null);
+  const actionRequestId = useRef(0);
+  const [roomMeta, setRoomMeta] = useState<any | null>(null);
+  const [roomForm, setRoomForm] = useState({ roomId: '', roomPassword: '', roomTime: '08:00 PM' });
+  const [roomBusy, setRoomBusy] = useState(false);
+  const [roomError, setRoomError] = useState('');
+  const [roomSuccess, setRoomSuccess] = useState('');
+  const [resultRegs, setResultRegs] = useState<AdminRegistration[] | null>(null);
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState('');
+  const [resultRank, setResultRank] = useState('1');
+  const [resultKills, setResultKills] = useState('');
+  const [resultBusy, setResultBusy] = useState(false);
+  const [resultError, setResultError] = useState('');
+  const [resultSuccess, setResultSuccess] = useState('');
+  const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
   const resultLogsQuery = useDaily007ListAdminResultLogs({
     query: { enabled: tab === 'completed', queryKey: getDaily007ListAdminResultLogsQueryKey() },
@@ -86,6 +105,153 @@ export default function AdminTournaments({
       setLoadError(apiError(e));
     }
   }, []);
+
+  const toggleTournamentAction = async (tournament: Tournament, kind: TournamentAction['kind']) => {
+    const requestId = ++actionRequestId.current;
+    if (expandedAction?.tournamentId === tournament.id && expandedAction.kind === kind) {
+      setExpandedAction(null);
+      setRoomBusy(false);
+      setResultBusy(false);
+      return;
+    }
+    setExpandedAction({ tournamentId: tournament.id, kind });
+    setRoomError(''); setRoomSuccess('');
+    setResultError(''); setResultSuccess('');
+    if (kind === 'room') {
+      setRoomMeta(null);
+      setRoomForm({ roomId: '', roomPassword: '', roomTime: '08:00 PM' });
+      setRoomBusy(true);
+      try {
+        const meta = await Api.adminRoom(tournament.id);
+        if (actionRequestId.current !== requestId) return;
+        setRoomMeta(meta);
+        setRoomForm({
+          roomId: meta.roomId || '',
+          roomPassword: meta.roomPassword || '',
+          roomTime: meta.roomTime || '08:00 PM',
+        });
+      } catch (e: any) {
+        if (actionRequestId.current === requestId) setRoomError(apiError(e));
+      } finally {
+        if (actionRequestId.current === requestId) setRoomBusy(false);
+      }
+      return;
+    }
+
+    setResultRegs(null);
+    setSelectedRegistrationId('');
+    setResultRank('1');
+    setResultKills('');
+    setResultBusy(true);
+    try {
+      const registrations = await Api.adminApprovedRegs(tournament.id);
+      if (actionRequestId.current === requestId) setResultRegs(registrations);
+    } catch (e: any) {
+      if (actionRequestId.current === requestId) {
+        setResultError(apiError(e));
+        setResultRegs([]);
+      }
+    } finally {
+      if (actionRequestId.current === requestId) setResultBusy(false);
+    }
+  };
+
+  const saveRoom = async (publish: boolean) => {
+    if (expandedAction?.kind !== 'room') return;
+    const requestId = actionRequestId.current;
+    const tournamentId = expandedAction.tournamentId;
+    setRoomError(''); setRoomSuccess(''); setRoomBusy(true);
+    try {
+      await Api.adminSaveRoom(tournamentId, { ...roomForm, publish });
+      if (actionRequestId.current !== requestId) return;
+      const meta = await Api.adminRoom(tournamentId);
+      if (actionRequestId.current !== requestId) return;
+      setRoomMeta(meta);
+      setRoomForm({
+        roomId: meta.roomId || '',
+        roomPassword: meta.roomPassword || '',
+        roomTime: meta.roomTime || '08:00 PM',
+      });
+      setRoomSuccess(publish
+        ? 'Room published — visible to approved players.'
+        : 'Room details saved but remain hidden from players.');
+    } catch (e: any) {
+      if (actionRequestId.current === requestId) setRoomError(apiError(e));
+    } finally {
+      if (actionRequestId.current === requestId) setRoomBusy(false);
+    }
+  };
+
+  const clearRoom = async () => {
+    if (expandedAction?.kind !== 'room') return;
+    const requestId = actionRequestId.current;
+    const tournamentId = expandedAction.tournamentId;
+    setRoomError(''); setRoomSuccess(''); setRoomBusy(true);
+    try {
+      await Api.adminClearRoom(tournamentId);
+      if (actionRequestId.current !== requestId) return;
+      const meta = await Api.adminRoom(tournamentId);
+      if (actionRequestId.current !== requestId) return;
+      setRoomMeta(meta);
+      setRoomForm({
+        roomId: meta.roomId || '',
+        roomPassword: meta.roomPassword || '',
+        roomTime: meta.roomTime || '08:00 PM',
+      });
+      setRoomSuccess('Room details removed and hidden from players.');
+    } catch (e: any) {
+      if (actionRequestId.current === requestId) setRoomError(apiError(e));
+    } finally {
+      if (actionRequestId.current === requestId) setRoomBusy(false);
+    }
+  };
+
+  const publishResult = async (tournament: Tournament) => {
+    setResultError(''); setResultSuccess('');
+    if (!selectedRegistrationId ||
+        !resultRegs?.some((registration) => registration.id === selectedRegistrationId && registration.status === 'approved')) {
+      setResultError('Select an approved player for this tournament.');
+      return;
+    }
+    const rank = Number(resultRank);
+    const kills = Number(resultKills || 0);
+    if (!Number.isInteger(rank) || rank < 1) {
+      setResultError('Enter a valid rank.');
+      return;
+    }
+    if (!Number.isInteger(kills) || kills < 0) {
+      setResultError('Kills must be a non-negative whole number.');
+      return;
+    }
+    setResultBusy(true);
+    try {
+      await Api.adminPublishResult({
+        tournamentId: tournament.id,
+        registrationId: selectedRegistrationId,
+        rank,
+        kills,
+      });
+      setPublishedRegistrationIds((current) => ({
+        ...current,
+        [tournament.id]: [...(current[tournament.id] ?? []), selectedRegistrationId],
+      }));
+      setSelectedRegistrationId('');
+      setResultRank('1');
+      setResultKills('');
+      if (rank === 1) {
+        setExpandedAction(null);
+        setOkMsg('Winner published — prize credited and tournament completed.');
+        await load();
+        setTab('completed');
+      } else {
+        setResultSuccess('Placement published. The tournament stays ongoing until rank 1 is declared.');
+      }
+    } catch (e: any) {
+      setResultError(apiError(e));
+    } finally {
+      setResultBusy(false);
+    }
+  };
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!list) return;
@@ -168,14 +334,27 @@ export default function AdminTournaments({
   };
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
+    <KeyboardAwareScrollViewCompat
+      style={{ flex: 1 }}
+      contentContainerStyle={st.wrap}
+      bottomOffset={64}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={st.h}>TOURNAMENTS</Text>
         {tab === 'upcoming' && (
-          <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
+          <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => {
+            actionRequestId.current++;
+            setExpandedAction(null);
+            setRoomBusy(false);
+            setResultBusy(false);
+            setShowForm(!showForm);
+            setEditId(null);
+            setForm(blank);
+          }} />
         )}
       </View>
-      <Text style={st.hint}>FINISH opens winner entry. Publishing rank 1 credits the prize and completes the match.</Text>
+      <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
       <Msg kind="err" text={err} />
       {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
       <Msg kind="ok" text={okMsg} />
@@ -193,7 +372,13 @@ export default function AdminTournaments({
               accessibilityState={{ selected, disabled: showForm }}
               accessibilityLabel={`${label} tournaments, ${count}`}
               disabled={showForm}
-              onPress={() => setTab(id)}
+              onPress={() => {
+                setRoomBusy(false);
+                setResultBusy(false);
+                actionRequestId.current++;
+                setExpandedAction(null);
+                setTab(id);
+              }}
               style={[st.tab, selected && st.tabOn, showForm && st.tabDisabled]}
             >
               <Text numberOfLines={1} style={[st.tabText, selected && st.tabTextOn]}>
@@ -264,6 +449,13 @@ export default function AdminTournaments({
         const winner = tournamentResults.find((entry) => Number(entry.rank) === 1);
         const winnerName = String(winner?.gameName || winner?.playerName || winner?.teamName || 'Winner');
         const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : 'UPCOMING';
+        const eligibleResultRegs = (resultRegs ?? []).filter(
+          (registration) => !(publishedRegistrationIds[t.id] ?? []).includes(registration.id),
+        );
+        const resultPrizeCoins = configuredPrizeForRank(
+          t,
+          /^\d+$/.test(resultRank) ? Number(resultRank) : 0,
+        );
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -284,6 +476,10 @@ export default function AdminTournaments({
                       onPress={() => {
                         setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) });
                         setEditId(t.id);
+                        setRoomBusy(false);
+                        setResultBusy(false);
+                        actionRequestId.current++;
+                        setExpandedAction(null);
                         setShowForm(true);
                       }}
                     />
@@ -293,7 +489,14 @@ export default function AdminTournaments({
                   </View>
                 </View>
                 <View style={{ marginTop: 8 }}>
-                  <Btn title="ROOM SETUP" small kind="ghost" testID={`manage-room-${t.id}`} onPress={() => onManageRoom?.(t)} />
+                  <Btn
+                    title={expandedAction?.tournamentId === t.id && expandedAction.kind === 'room' ? 'CLOSE ROOM SETUP' : 'ROOM SETUP'}
+                    small
+                    kind="ghost"
+                    testID={`manage-room-${t.id}`}
+                    disabled={roomBusy || resultBusy}
+                    onPress={() => { void toggleTournamentAction(t, 'room'); }}
+                  />
                 </View>
               </>
             )}
@@ -313,13 +516,139 @@ export default function AdminTournaments({
                 )}
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: cancellable ? 8 : 10 }}>
                   <View style={{ flex: 1 }}>
-                    <Btn title="SHARE ROOM" small kind="ghost" testID={`manage-room-${t.id}`} onPress={() => onManageRoom?.(t)} />
+                    <Btn
+                      title={expandedAction?.tournamentId === t.id && expandedAction.kind === 'room' ? 'CLOSE ROOM' : 'SHARE ROOM'}
+                      small
+                      kind="ghost"
+                      testID={`manage-room-${t.id}`}
+                      disabled={roomBusy || resultBusy}
+                      onPress={() => { void toggleTournamentAction(t, 'room'); }}
+                    />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Btn title="INPUT RESULTS" small kind="gold" testID={`finish-tournament-${t.id}`} onPress={() => onFinish?.(t)} />
+                    <Btn
+                      title={expandedAction?.tournamentId === t.id && expandedAction.kind === 'results' ? 'CLOSE' : 'INPUT RESULTS'}
+                      small
+                      kind="gold"
+                      testID={`finish-tournament-${t.id}`}
+                      disabled={roomBusy || resultBusy}
+                      onPress={() => { void toggleTournamentAction(t, 'results'); }}
+                    />
                   </View>
                 </View>
               </>
+            )}
+            {expandedAction?.tournamentId === t.id && expandedAction.kind === 'room' && (
+              <View testID={`inline-room-management-${t.id}`} style={st.actionPanel}>
+                <Text style={st.actionTitle}>ROOM SETUP</Text>
+                {roomMeta ? (
+                  <>
+                    <Text style={st.actionStatus}>
+                      {roomMeta.roomPublished ? 'PUBLISHED · VISIBLE TO APPROVED PLAYERS' : 'NOT PUBLISHED · HIDDEN FROM PLAYERS'}
+                    </Text>
+                    <Text style={st.actionHint}>Enter the room credentials here. Save keeps them hidden; Publish shares them with registered players.</Text>
+                    <Input placeholder="Room ID" value={roomForm.roomId} onChangeText={(roomId) => setRoomForm((current) => ({ ...current, roomId }))} />
+                    <Input placeholder="Room Password" value={roomForm.roomPassword} onChangeText={(roomPassword) => setRoomForm((current) => ({ ...current, roomPassword }))} />
+                    <Text style={st.lbl}>ROOM TIME (12-HOUR)</Text>
+                    <TimePicker variant="admin" value={roomForm.roomTime} onChange={(roomTime) => setRoomForm((current) => ({ ...current, roomTime }))} />
+                    <Msg kind="err" text={roomError} />
+                    <Msg kind="ok" text={roomSuccess} />
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+                      <View style={{ flex: 1 }}>
+                        <Btn title="SAVE" small kind="ghost" onPress={() => { void saveRoom(false); }} loading={roomBusy} disabled={roomBusy} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Btn title="PUBLISH" small onPress={() => { void saveRoom(true); }} loading={roomBusy} disabled={roomBusy} />
+                      </View>
+                    </View>
+                    {(roomForm.roomId || roomForm.roomPassword || roomMeta.roomPublished) && (
+                      <View style={{ marginTop: 8 }}>
+                        <Btn
+                          title="REMOVE ROOM DETAILS"
+                          small
+                          kind="danger"
+                          loading={roomBusy}
+                          disabled={roomBusy}
+                          onPress={() => confirmDestructiveAction(
+                            'Remove room details?',
+                            'This clears and unpublishes the room credentials. Tournament and player records stay unchanged.',
+                            'Keep room',
+                            'Remove',
+                            () => { void clearRoom(); },
+                          )}
+                        />
+                      </View>
+                    )}
+                  </>
+                ) : roomBusy ? <Loading /> : (
+                  <Msg
+                    kind="err"
+                    text={`${roomError || 'Room details could not be loaded.'} Close and reopen this panel to retry.`}
+                  />
+                )}
+              </View>
+            )}
+            {expandedAction?.tournamentId === t.id && expandedAction.kind === 'results' && ongoing && (
+              <View testID={`inline-results-entry-${t.id}`} style={st.actionPanel}>
+                <Text style={st.actionTitle}>RESULT ENTRY</Text>
+                <Msg kind="err" text={resultError} />
+                <Msg kind="ok" text={resultSuccess} />
+                {resultRegs === null ? (
+                  resultBusy ? <Loading /> : <Text style={st.actionHint}>Approved registrations could not be loaded. Close and reopen this panel to retry.</Text>
+                ) : eligibleResultRegs.length === 0 ? (
+                  <Empty text={resultError
+                    ? 'Approved registrations could not be loaded. Close and reopen this panel to retry.'
+                    : resultRegs.length === 0
+                      ? 'No approved registrations for this tournament.'
+                      : 'Every approved player already has a published result.'} />
+                ) : (
+                  <>
+                    <Text style={st.lbl}>SELECT PLAYER</Text>
+                    {eligibleResultRegs.map((registration) => {
+                        const selected = selectedRegistrationId === registration.id;
+                        return (
+                          <Pressable
+                            key={registration.id}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            testID={`result-registration-${registration.id}`}
+                            onPress={() => {
+                              setSelectedRegistrationId(registration.id);
+                              setResultError('');
+                            }}
+                            style={[st.playerOption, selected && st.playerOptionSelected]}
+                          >
+                            <Text style={[st.playerOptionText, selected && st.playerOptionTextSelected]}>
+                              {selected ? '✓ ' : ''}{registration.playerName}{registration.teamName ? ` — ${registration.teamName}` : ''} (UID {registration.gameUid})
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Input placeholder="Rank *" value={resultRank} onChangeText={setResultRank} keyboardType="number-pad" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Input placeholder="Kills" value={resultKills} onChangeText={setResultKills} keyboardType="number-pad" />
+                      </View>
+                    </View>
+                    <Text style={st.lbl}>PRIZE COINS · FROM SAVED TOURNAMENT SETTINGS</Text>
+                    <View accessibilityLabel={`Prize amount: ${resultPrizeCoins} coins; cannot be edited`} style={st.prizeBox}>
+                      <Text style={st.prizeValue}>{resultPrizeCoins.toLocaleString()} coins</Text>
+                      <Text style={st.inrNote}>
+                        {inr(resultPrizeCoins)} INR ({COIN_RATE_TEXT})
+                      </Text>
+                    </View>
+                    <Text style={st.prizeHint}>Auto-calculated for rank {resultRank || '—'} from the saved prize distribution.</Text>
+                    <Btn
+                      title={Number(resultRank) === 1 ? 'FINISH & PUBLISH WINNER' : 'PUBLISH PLACEMENT'}
+                      onPress={() => { void publishResult(t); }}
+                      loading={resultBusy}
+                      disabled={resultBusy}
+                    />
+                  </>
+                )}
+              </View>
             )}
             {tab === 'completed' && (
               <View testID={`completed-result-log-${t.id}`} style={st.resultLog}>
@@ -356,7 +685,7 @@ export default function AdminTournaments({
         );
       })}
       <View style={{ height: 30 }} />
-    </ScrollView>
+    </KeyboardAwareScrollViewCompat>
   );
 }
 const st = StyleSheet.create({
@@ -384,6 +713,17 @@ const st = StyleSheet.create({
   winnerName: { color: C.text, fontSize: 13, fontWeight: '900' },
   resultSettlement: { color: C.green, fontSize: 10, fontWeight: '800', marginTop: 3, marginBottom: 4 },
   resultLine: { color: C.sub, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  actionPanel: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
+  actionTitle: { color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 0.8, marginBottom: 8 },
+  actionStatus: { color: C.neon, fontSize: 10, fontWeight: '800', marginBottom: 6 },
+  actionHint: { color: C.sub, fontSize: 11, lineHeight: 16, marginBottom: 8 },
+  playerOption: { padding: 10, marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  playerOptionSelected: { borderColor: C.neon, backgroundColor: C.neon + '20' },
+  playerOptionText: { color: C.text, fontWeight: '800', fontSize: 12 },
+  playerOptionTextSelected: { color: C.neon },
+  prizeBox: { backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 5 },
+  prizeValue: { color: C.gold, fontWeight: '900', fontSize: 17 },
+  prizeHint: { color: C.sub, fontSize: 11, marginBottom: 10 },
   capacity: { color: C.text, fontSize: 14, fontWeight: '900', marginBottom: 3 },
   capacityNote: { color: C.dim, fontSize: 11, marginBottom: 10 },
 });
