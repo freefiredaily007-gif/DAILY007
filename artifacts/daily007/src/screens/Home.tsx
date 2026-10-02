@@ -36,7 +36,7 @@ function statusOf(t: any) {
   const status = String(t.status ?? '').toLowerCase();
   if (status === 'live') return { key: 'LIVE', color: C.red };
   if (status === 'completed' || status === 'cancelled') return { key: 'COMPLETED', color: C.dim };
-  if (status === 'full' || (total > 0 && filled >= total)) return { key: 'FULL', color: C.orange };
+  if (status === 'full' || status === 'setup_needed' || (total > 0 && filled >= total)) return { key: 'FULL', color: C.orange };
   return { key: 'UPCOMING', color: C.green };
 }
 function tournamentModeFallback(t: any): number {
@@ -62,9 +62,20 @@ export default function Home() {
   };
   const load = useCallback(async () => {
     try {
-      const r = await api.tournaments('?enabled=true');
+      const [r, registrations] = await Promise.all([
+        api.tournaments('?enabled=true'),
+        api.myRegistrations(),
+      ]);
       const list = Array.isArray(r) ? r : r?.tournaments || [];
-      setItems(Array.isArray(list) ? list : []);
+      const joinedIds = new Set(
+        (Array.isArray(registrations) ? registrations : [])
+          .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
+          .map((registration: any) => String(registration.tournamentId)),
+      );
+      setItems((Array.isArray(list) ? list : []).map((tournament: any) => ({
+        ...tournament,
+        joined: joinedIds.has(String(tournament.id)),
+      })));
       setLoadError('');
     } catch (e: any) {
       setLoadError(e?.message || 'Could not load tournaments.');
@@ -161,6 +172,13 @@ export default function Home() {
         const stt = statusOf(t);
         const br = t.mode === 'Battle Royale';
         const live = stt.key === 'LIVE';
+              const capacityFull = stt.key === 'FULL' ||
+                ['full', 'setup_needed'].includes(String(t.status ?? '').toLowerCase()) ||
+                (Number(total) > 0 && Number(filled) >= Number(total));
+              const joined = t.joined === true;
+              const ctaLabel = joined
+                ? capacityFull ? 'JOINED · SLOTS FULL' : 'JOINED'
+                : capacityFull ? 'SLOTS FULL' : live ? 'VIEW MATCH' : 'JOIN NOW ›';
         return (
           <GCard key={t.id} onPress={() => goStack('tdetail:' + t.id)} glowColor={live ? C.red : br ? C.orange : C.purple} style={s.matchCard}>
             <View style={s.mBanner}>
@@ -193,9 +211,16 @@ export default function Home() {
               <View style={s.slotBar}>
                 <View style={[s.slotFill, { width: `${Math.min(100, (filled / Math.max(1, total)) * 100)}%` }]} />
               </View>
-              <Pressable style={({ pressed }) => [s.joinBtn, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+              <Pressable
+                disabled={!joined && capacityFull}
+                style={({ pressed }) => [
+                  s.joinBtn,
+                  joined && { backgroundColor: C.green + '22', borderColor: C.green + '77' },
+                  !joined && capacityFull && { backgroundColor: C.card2, borderColor: C.border },
+                  pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+                ]}
                 onPress={() => goStack('tdetail:' + t.id)}>
-                <Text style={s.joinBtnT}>JOIN NOW ›</Text>
+                <Text style={[s.joinBtnT, joined && { color: C.green }, !joined && capacityFull && { color: C.dim }]}>{ctaLabel}</Text>
               </Pressable>
             </View>
           </GCard>

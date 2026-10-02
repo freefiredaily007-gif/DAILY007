@@ -177,6 +177,26 @@ export const Api = {
       } : {}),
     }));
   },
+  updateRegistrationTeam: (registrationId: string, b: object) => {
+    const payload = b as { captainGameName?: string; gameUid?: string; teamName?: string; teamMembers?: string };
+    let members: { name?: string; uid?: string }[] = [];
+    try {
+      members = payload.teamMembers ? JSON.parse(payload.teamMembers) : [];
+    } catch {
+      throw new Error('The team edit form data could not be read. Please try again.');
+    }
+    const captain = members[0];
+    if (!captain) throw new Error('Captain game details are required.');
+    return unwrap(http.patch(`/my/registrations/${encodeURIComponent(registrationId)}/team`, {
+      captainGameName: String(payload.captainGameName ?? captain.name ?? '').trim(),
+      captainGameUid: String(payload.gameUid ?? captain.uid ?? '').trim(),
+      teamName: String(payload.teamName ?? '').trim(),
+      teammates: members.slice(1).map((member) => ({
+        name: String(member.name ?? '').trim(),
+        ...(String(member.uid ?? '').trim() ? { uid: String(member.uid).trim() } : {}),
+      })),
+    }));
+  },
   // wallet
   transactions: () => unwrap(http.get('/wallet/transactions')),
   // payments

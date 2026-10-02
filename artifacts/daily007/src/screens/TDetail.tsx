@@ -19,7 +19,18 @@ export default function TDetail() {
 
   const load = useCallback(async () => {
     if (!id) { setLoading(false); return; }
-    try { setT(await api.tournament(id)); } catch (e: any) { setErr(e?.message || 'Failed to load'); }
+    try {
+      setErr('');
+      const [tournament, registrations] = await Promise.all([
+        api.tournament(id),
+        api.myRegistrations(),
+      ]);
+      const registration = (Array.isArray(registrations) ? registrations : []).find((item: any) =>
+        String(item.tournamentId) === String(id) &&
+        ['approved', 'pending'].includes(String(item.status ?? '').toLowerCase()),
+      );
+      setT({ ...tournament, joined: !!registration, myRegistration: registration });
+    } catch (e: any) { setErr(e?.message || 'Failed to load'); }
     setLoading(false);
   }, [id]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -105,10 +116,10 @@ export default function TDetail() {
       <Msg kind="ok" text={msg} />
 
       <View style={{ marginTop: 16 }}>
-        {joined ? (
-          <Btn title="✓ ALREADY REGISTERED" kind="ghost" disabled />
-        ) : st.key === 'completed' || ['closed', 'cancelled'].includes(tournamentStatus) ? (
+        {st.key === 'completed' || ['closed', 'cancelled'].includes(tournamentStatus) ? (
           <Btn title="MATCH ENDED" kind="ghost" disabled />
+        ) : joined ? (
+          <Btn title={full ? 'Joined · Slots Full' : 'Joined'} kind="ghost" disabled />
         ) : full ? (
           <Btn title="Slots Full" kind="ghost" disabled />
         ) : short ? (

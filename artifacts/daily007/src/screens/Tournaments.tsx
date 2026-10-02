@@ -20,8 +20,19 @@ export default function Tournaments() {
 
   const load = useCallback(async () => {
     try {
-      const list = await api.tournaments('?enabled=true');
-      setItems(Array.isArray(list) ? list : []);
+      const [list, registrations] = await Promise.all([
+        api.tournaments('?enabled=true'),
+        api.myRegistrations(),
+      ]);
+      const joinedIds = new Set(
+        (Array.isArray(registrations) ? registrations : [])
+          .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
+          .map((registration: any) => String(registration.tournamentId)),
+      );
+      setItems((Array.isArray(list) ? list : []).map((tournament: any) => ({
+        ...tournament,
+        joined: joinedIds.has(String(tournament.id)),
+      })));
       setError('');
     } catch (e) { setError(apiError(e)); }
     setLoading(false);

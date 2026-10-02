@@ -57,6 +57,7 @@ function JoinFormRoute() {
   const navigation: any = useNavigation();
   const route: any = useRoute();
   const { user, refresh } = useApp();
+  const registration = route.params?.registration;
   const [tournament, setTournament] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -66,8 +67,21 @@ function JoinFormRoute() {
   }, [route.params?.id]);
   if (error) return <View style={s.boot}><Text style={{ color: '#eef1f8' }}>{error}</Text></View>;
   if (!tournament) return <View style={s.boot}><ActivityIndicator color="#ff4655" /></View>;
-  return <JoinForm tournament={tournament} user={user} onCancel={() => navigation.goBack()}
+  return <JoinForm tournament={tournament} user={user} registration={registration} onCancel={() => navigation.goBack()}
     onSubmit={async (payload) => {
+      if (registration?.id) {
+        if (String(registration.tournamentId) !== String(tournament.id)) {
+          throw new Error('This team registration does not match the selected tournament.');
+        }
+        const result = await Api.updateRegistrationTeam(registration.id, payload);
+        if (result?.success === false || result?.ok === false || result?.updated !== true) {
+          throw new Error(result?.error || result?.message || 'Team changes could not be saved.');
+        }
+        await refresh();
+        Alert.alert('Team updated', 'Your team details were saved. No additional coins were charged.');
+        navigation.goBack();
+        return;
+      }
       const result = await Api.join(tournament.id, payload);
       if (result?.success === false || result?.ok === false) {
         throw new Error(result?.error || result?.message || 'The server did not confirm this registration.');

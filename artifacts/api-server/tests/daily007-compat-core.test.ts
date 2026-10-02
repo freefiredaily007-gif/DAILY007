@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canApproveWithinCapacity,
+  effectiveTournamentStatus,
+  isTeamEditWindowOpen,
   legacyMode,
   matchCapacityState,
+  parseTeamEditPayload,
   parseOptionalReferralCode,
   parseStart,
   referralSignupStatus,
@@ -41,4 +44,51 @@ test("pending approvals consume reserved capacity and full clash matches retain 
   assert.equal(canApproveWithinCapacity(3, 2), false);
   assert.deepEqual(matchCapacityState("clash", 2, 2), { isFull: true, status: "setup_needed" });
   assert.deepEqual(matchCapacityState("squad", 11, 12), { isFull: false, status: "open" });
+});
+
+test("team editing closes strictly at the 30-minute-before-start cutoff", () => {
+  const startsAt = "2030-04-05T12:00:00.000Z";
+  const cutoff = Date.parse(startsAt) - 30 * 60 * 1000;
+  assert.equal(isTeamEditWindowOpen(startsAt, cutoff - 1), true);
+  assert.equal(isTeamEditWindowOpen(startsAt, cutoff), false);
+  assert.equal(isTeamEditWindowOpen(startsAt, cutoff + 1), false);
+  assert.equal(isTeamEditWindowOpen("not-a-time", cutoff - 1), false);
+});
+
+test("team edits require the exact roster and reject duplicate game UIDs", () => {
+  assert.deepEqual(
+    parseTeamEditPayload({
+      captainGameName: "Captain",
+      captainGameUid: "100",
+      teamName: "Blue",
+      teammates: [{ name: "Teammate", uid: "200" }],
+    }, 2),
+    {
+      payload: {
+        captainGameName: "Captain",
+        captainGameUid: "100",
+        teamName: "Blue",
+        teammates: [{ name: "Teammate", uid: "200" }],
+      },
+    },
+  );
+  assert.match(
+    parseTeamEditPayload({ captainGameName: "Captain", captainGameUid: "100", teamName: "Blue", teammates: [] }, 2).error ?? "",
+    /exactly 1 teammate/,
+  );
+  assert.match(
+    parseTeamEditPayload({
+      captainGameName: "Captain",
+      captainGameUid: "100",
+      teamName: "Blue",
+      teammates: [{ name: "Teammate", uid: "100" }],
+    }, 2).error ?? "",
+    /different game UID/,
+  );
+});
+
+test("published results expose Completed status and disabled matches are closed", () => {
+  assert.equal(effectiveTournamentStatus({ has_result: true, enabled: false, status: "full" }), "completed");
+  assert.equal(effectiveTournamentStatus({ has_result: false, enabled: false, status: "full" }), "closed");
+  assert.equal(effectiveTournamentStatus({ has_result: false, enabled: true, status: "open" }), "open");
 });

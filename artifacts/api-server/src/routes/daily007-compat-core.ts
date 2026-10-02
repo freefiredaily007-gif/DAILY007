@@ -111,6 +111,16 @@ export function matchCapacityState(mode: string, activeCount: number, capacity: 
   };
 }
 
+export function isTeamEditWindowOpen(startsAt: Date | string, now: Date | string | number): boolean {
+  const startMs = startsAt instanceof Date ? startsAt.getTime() : Date.parse(String(startsAt));
+  const nowMs = now instanceof Date ? now.getTime() : typeof now === "number" ? now : Date.parse(String(now));
+  return Number.isFinite(startMs) && Number.isFinite(nowMs) && nowMs < startMs - 30 * 60 * 1000;
+}
+
+export function effectiveTournamentStatus(row: Pick<MatchRow, "has_result" | "enabled" | "status">): string {
+  return row.has_result ? "completed" : row.enabled ? row.status : "closed";
+}
+
 function startsAsLegacy(value: Date | string): { date: string; time: string } {
   const date = new Date(value);
   return {
@@ -144,7 +154,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     banner: row.banner,
     prizeDist: row.prize_distribution,
     enabled: row.enabled,
-    status: row.has_result ? "completed" : row.enabled ? row.status : "closed",
+    status: effectiveTournamentStatus(row),
     filledSlots,
     filledPlayerSlots: filledSlots * mode.teamSize,
     availableSlots: Math.max(0, row.capacity - filledSlots),
@@ -561,6 +571,153 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
     };
   }));
   res.json(data);
+});
+
+type EditableTeammate = { name: string; uid: string | null };
+type TeamEditPayload = {
+  captainGameName: string;
+  captainGameUid: string;
+  teamName: string;
+  teammates: EditableTeammate[];
+};
+
+export function parseTeamEditPayload(body: Record<string, unknown>, teamSize: number): {
+  payload?: TeamEditPayload; error?: string;
+} {
+  const allowed = ["captainGameName", "captainGameUid", "teamName", "teammates"];
+  if (Object.keys(body).some((key) => !allowed.includes(key))) {
+    return { error: "Only game name, game UID, team name, and teammate details can be changed." };
+  }
+  const captainGameName = typeof body.captainGameName === "string" ? body.captainGameName.trim() : "";
+  const captainGameUid = typeof body.captainGameUid === "string" ? body.captainGameUid.trim() : "";
+  const teamName = typeof body.teamName === "string" ? body.teamName.trim() : "";
+  if (!captainGameName || captainGameName.length > 100 || !captainGameUid || captainGameUid.length > 128) {
+    return { error: "Captain game name and UID are required; names must be at most 100 characters and UIDs at most 128." };
+  }
+  if ((teamSize > 1 && (!teamName || teamName.length > 100)) || teamName.length > 100) {
+    return { error: "Team name is required for team tournaments and must be at most 100 characters." };
+  }
+
+  const rawTeammates = body.teammates ?? [];
+  if (!Array.isArray(rawTeammates) || rawTeammates.length !== teamSize - 1) {
+    return { error: `This format requires exactly ${teamSize - 1} teammate${teamSize === 2 ? "" : "s"}.` };
+  }
+  const teammates: EditableTeammate[] = [];
+  for (const raw of rawTeammates) {
+    if (!record(raw)) return { error: "Teammate details are invalid." };
+    const name = typeof raw.name === "string" ? raw.name.trim() : "";
+    const uid = raw.uid == null || raw.uid === "" ? null : typeof raw.uid === "string" ? raw.uid.trim() : null;
+    if (!name || name.length > 100 || (raw.uid != null && raw.uid !== "" && !uid) || (uid !== null && uid.length > 128)) {
+      return { error: "Each teammate needs a game name of up to 100 characters and an optional UID of up to 128 characters." };
+    }
+    teammates.push({ name, uid });
+  }
+  const submittedUids = [captainGameUid, ...teammates.flatMap((member) => member.uid ? [member.uid] : [])]
+    .map((uid) => uid.toLowerCase());
+  if (new Set(submittedUids).size !== submittedUids.length) {
+    return { error: "Each player in the registration must have a different game UID." };
+  }
+  return { payload: { captainGameName, captainGameUid, teamName, teammates } };
+}
+
+router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promise<void> => {
+  const registrationId = idFrom(req);
+  if (!registrationId) return fail(res, 400, "Registration id must be a UUID.");
+  const account = req.daily007Account;
+  if (!account) return fail(res, 401, "Authentication is required.");
+  if (!record(req.body)) return fail(res, 400, "Expected updated game name, UID, team name, and teammate details.");
+
+  const outcome = await transaction(async (client) => {
+    const ref = await client.query<{ match_id: string }>(
+      "SELECT match_id FROM daily007_v2_registrations WHERE id = $1 AND captain_user_id = $2",
+      [registrationId, account.id],
+    );
+    if (!ref.rows[0]) return { kind: "missing" as const };
+
+    const matchResult = await client.query<{
+      id: string; starts_at: Date | string; status: string; enabled: boolean;
+      mode: string; game_mode: string | null; team_type: string | null;
+      database_now: Date | string; has_result: boolean;
+    }>(
+      `SELECT m.id, m.starts_at, m.status, m.enabled, m.mode, m.game_mode, m.team_type,
+              clock_timestamp() AS database_now,
+              EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id) AS has_result
+         FROM daily007_v2_matches m
+        WHERE m.id = $1
+        FOR UPDATE`,
+      [ref.rows[0].match_id],
+    );
+    const match = matchResult.rows[0];
+    if (!match) return { kind: "missing" as const };
+
+    const registrationResult = await client.query<{ id: string; status: string }>(
+      `SELECT id, status FROM daily007_v2_registrations
+        WHERE id = $1 AND match_id = $2 AND captain_user_id = $3
+        FOR UPDATE`,
+      [registrationId, match.id, account.id],
+    );
+    const registration = registrationResult.rows[0];
+    if (!registration) return { kind: "missing" as const };
+    if (!["approved", "pending"].includes(registration.status) || !match.enabled ||
+        ["live", "closed", "cancelled", "completed"].includes(match.status) || match.has_result ||
+        !isTeamEditWindowOpen(match.starts_at, match.database_now)) {
+      return { kind: "locked" as const };
+    }
+
+    const mode = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+    const parsed = parseTeamEditPayload(req.body as Record<string, unknown>, mode.teamSize);
+    if (!parsed.payload) return { kind: "invalid" as const, error: parsed.error || "Team details are invalid." };
+    const { captainGameName, captainGameUid, teamName, teammates } = parsed.payload;
+    const submittedUids = [captainGameUid, ...teammates.flatMap((member) => member.uid ? [member.uid] : [])]
+      .map((uid) => uid.toLowerCase());
+    const duplicate = await client.query<{ id: string }>(
+      `SELECT r.id
+         FROM daily007_v2_registrations r
+        WHERE r.match_id = $1 AND r.id <> $2 AND r.status IN ('approved', 'pending')
+          AND (lower(r.captain_game_uid) = ANY($3::text[]) OR EXISTS (
+            SELECT 1 FROM daily007_v2_roster roster
+             WHERE roster.registration_id = r.id AND roster.member_uid IS NOT NULL
+               AND lower(roster.member_uid) = ANY($3::text[])
+          ))
+        LIMIT 1`,
+      [match.id, registrationId, submittedUids],
+    );
+    if (duplicate.rows[0]) return { kind: "duplicate" as const };
+
+    const updated = await client.query<{ id: string }>(
+      `UPDATE daily007_v2_registrations AS r
+          SET captain_game_name = $3, captain_game_uid = $4, team_name = $5
+        WHERE r.id = $1 AND r.match_id = $2 AND r.status IN ('approved', 'pending')
+          AND EXISTS (
+            SELECT 1 FROM daily007_v2_matches m
+             WHERE m.id = r.match_id AND m.enabled = true
+               AND m.status NOT IN ('live', 'closed', 'cancelled', 'completed')
+               AND m.starts_at > clock_timestamp() + interval '30 minutes'
+               AND NOT EXISTS (
+                 SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id
+               )
+          )
+        RETURNING r.id`,
+      [registrationId, match.id, captainGameName, captainGameUid, teamName],
+    );
+    if (!updated.rows[0]) return { kind: "locked" as const };
+
+    await client.query("DELETE FROM daily007_v2_roster WHERE registration_id = $1", [registrationId]);
+    for (let position = 0; position < teammates.length; position++) {
+      const teammate = teammates[position];
+      await client.query(
+        "INSERT INTO daily007_v2_roster (registration_id, position, member_uid, member_name) VALUES ($1, $2, $3, $4)",
+        [registrationId, position + 1, teammate.uid, teammate.name],
+      );
+    }
+    return { kind: "updated" as const, status: registration.status };
+  });
+
+  if (outcome.kind === "missing") return fail(res, 404, "Registration not found.");
+  if (outcome.kind === "locked") return fail(res, 409, "Team editing is locked 30 minutes before the tournament starts.");
+  if (outcome.kind === "invalid") return fail(res, 400, outcome.error);
+  if (outcome.kind === "duplicate") return fail(res, 409, "A player game UID is already registered for this tournament.");
+  res.json({ success: true, data: { registrationId, status: outcome.status, updated: true } });
 });
 
 async function transaction<T>(work: (client: SqlClient) => Promise<T>): Promise<T> {

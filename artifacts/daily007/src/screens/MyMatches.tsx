@@ -1,15 +1,18 @@
 // My Matches — upcoming / live / completed tabs with room details
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
-import { C, Card, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';
+import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';
+import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 
 export default function MyMatches() {
+  const navigation: any = useNavigation();
   const [regs, setRegs] = useState<any[]>([]);
   const [tab, setTab] = useState<'upcoming' | 'live' | 'completed'>('upcoming');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [clockNow, setClockNow] = useState(Date.now());
 
   const load = useCallback(async () => {
     try {
@@ -23,7 +26,20 @@ export default function MyMatches() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    setClockNow(Date.now());
+    void load();
+  }, [load]));
+
+  useEffect(() => {
+    const nextCutoff = regs
+      .map((registration) => getTeamEditCutoff(registration.tournament?.startsAt ?? registration.startsAt))
+      .filter((cutoff): cutoff is number => cutoff !== null && cutoff > clockNow)
+      .sort((a, b) => a - b)[0];
+    if (nextCutoff === undefined) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), nextCutoff - clockNow);
+    return () => clearTimeout(timer);
+  }, [regs, clockNow]);
 
   const filtered = regs.filter((r) => {
     const st = String(r.tournament?.status ?? 'upcoming').toLowerCase();
@@ -53,7 +69,8 @@ export default function MyMatches() {
           renderItem={({ item }) => {
             const t = item.tournament ?? {};
             const status = String(item.status ?? '').toLowerCase();
-            const matchFinished = String(t.status ?? '').toLowerCase() === 'completed';
+            const tournamentStatus = String(t.status ?? '').toLowerCase();
+            const matchFinished = ['completed', 'cancelled'].includes(tournamentStatus);
             const roomId = item.roomId ?? t.roomId;
             const roomPassword = item.roomPassword ?? t.roomPassword;
             const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
@@ -61,12 +78,18 @@ export default function MyMatches() {
             const startMs = startsAt ? new Date(startsAt).getTime() : Number.NaN;
             const roomWindowOpen = Number.isFinite(startMs) && Date.now() >= startMs - 15 * 60 * 1000;
             const roomReady = status === 'approved' && published && !!roomId && !!roomPassword && roomWindowOpen;
+            const registrationActive = ['approved', 'pending'].includes(status);
+            const editEligible = registrationActive && t.enabled !== false &&
+              !['completed', 'cancelled', 'closed', 'live'].includes(tournamentStatus);
+            const canEditTeam = editEligible && canEditRegistrationTeam(t, status, clockNow);
+            const editCutoff = getTeamEditCutoff(startsAt);
+            const teamEditLocked = editEligible && editCutoff !== null && clockNow >= editCutoff;
             const result = typeof item.result === 'string'
               ? item.result
               : item.result?.description ?? item.result?.result ?? item.result?.placement;
             const results = Array.isArray(t.results) ? t.results : [];
             return (
-              <GCard glowColor={roomReady ? C.green : undefined}>
+              <GCard key={item.id} glowColor={roomReady ? C.green : undefined}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <View style={{ flex: 1, marginRight: 8 }}>
                     <Text style={s.mode}>{String(t.mode ?? '').toUpperCase()} • {String(t.teamType ?? '').toUpperCase()}</Text>
@@ -79,6 +102,18 @@ export default function MyMatches() {
                 </View>
                 <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
+                {canEditTeam ? (
+                  <Btn
+                    title="EDIT TEAM"
+                    kind="ghost"
+                    small
+                    accessibilityLabel={`Edit your team for ${t.name ?? 'this tournament'}`}
+                    onPress={() => navigation.navigate('JoinForm', { id: t.id ?? item.tournamentId, registration: item })}
+                    style={{ marginTop: 10 }}
+                  />
+                ) : teamEditLocked ? (
+                  <Btn title="TEAM EDITING LOCKED" kind="ghost" small disabled style={{ marginTop: 10 }} />
+                ) : null}
                 <View style={s.room}>
                   {roomReady ? (
                     <>

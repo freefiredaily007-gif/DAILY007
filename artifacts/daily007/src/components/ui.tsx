@@ -278,11 +278,18 @@ export function statusOf(t: any): { key: string; label: string; color: string } 
 
 export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
   const s = statusOf(t);
+  const joined = t?.joined === true;
   const filled = t?.filledSlots ?? 0;
   const total = t?.totalSlots ?? 0;
   const slotUnit = t?.slotUnit === 'player' ? 'players' : 'teams';
   const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
+  const ctaText = joined
+    ? s.key === 'full' ? 'Joined · Slots Full' : 'Joined'
+    : s.key === 'live' ? '▶ ENTER MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →';
+  const ctaColor = joined ? C.green : s.key === 'full' || s.key === 'completed' ? C.dim : C.neon;
+  const ctaBackground = joined ? C.green + '22' : s.key === 'full' || s.key === 'completed' ? C.card2 : C.neon + '22';
+  const ctaBorder = joined ? C.green + '77' : s.key === 'full' || s.key === 'completed' ? C.border : C.neon + '77';
   return (
     <GCard onPress={onPress} glowColor={s.key === 'live' ? C.neon : undefined} style={{ marginBottom: 12 }}>
       <View style={mc.topRow}>
@@ -312,10 +319,8 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
           <Text style={{ color: C.dim, fontSize: 9, marginTop: 2 }}>{filledPlayers}/{totalPlayers} players</Text>
         </View>
       </View>
-      <View style={[mc.joinBtn, { backgroundColor: s.key === 'full' || s.key === 'completed' ? C.card2 : C.neon + '22', borderColor: s.key === 'full' || s.key === 'completed' ? C.border : C.neon + '77' }]}>
-        <Text style={[mc.joinText, { color: s.key === 'full' || s.key === 'completed' ? C.dim : C.neon }]}>
-          {s.key === 'live' ? '▶ ENTER MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →'}
-        </Text>
+      <View style={[mc.joinBtn, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}>
+        <Text style={[mc.joinText, { color: ctaColor }]}>{ctaText}</Text>
       </View>
     </GCard>
   );

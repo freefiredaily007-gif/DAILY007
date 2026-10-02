@@ -1,13 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
+import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 
 type Member = { name: string; uid: string };
 
-export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
-  tournament: any; user: User; onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
+function initialMembers(registration: any, teamSize: number): Member[] {
+  let roster: any[] = [];
+  try {
+    const parsed = typeof registration?.teamMembers === 'string'
+      ? JSON.parse(registration.teamMembers)
+      : registration?.teamMembers;
+    if (Array.isArray(parsed)) roster = parsed;
+  } catch {}
+  return Array.from({ length: teamSize }, (_, index) => {
+    const member = roster[index] ?? {};
+    return {
+      name: String(member.name ?? (index === 0 ? registration?.captainGameName : '') ?? ''),
+      uid: String(member.uid ?? (index === 0 ? registration?.gameUid : '') ?? ''),
+    };
+  });
+}
+
+export default function JoinForm({ tournament: t, user, registration, onCancel, onSubmit }: {
+  tournament: any; user: User; registration?: any; onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
 }) {
+  const editing = !!registration?.id;
   const teamType = String(t.teamType || 'Solo');
   const gameMode = String(t.mode || 'Battle Royale');
   const teamSize = Number(t.teamSize) || (teamType.toLowerCase() === 'squad' ? 4 : teamType.toLowerCase() === 'duo' ? 2 : 1);
@@ -20,15 +39,35 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
   const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'closed'].includes(status);
   const full = remainingSlots <= 0 || filledSlots >= totalSlots || ['full', 'setup_needed'].includes(status);
   const unavailable = full || closed;
-  const captainProfileName = user.name.trim();
-  const [captainGameName, setCaptainGameName] = useState('');
-  const [captainGameUid, setCaptainGameUid] = useState(user.gameUid || '');
-  const [teamName, setTeamName] = useState('');
-  const [members, setMembers] = useState<Member[]>(
-    Array.from({ length: Math.max(0, teamSize - 1) }, () => ({ name: '', uid: '' }))
-  );
+  const captainProfileName = String(registration?.playerName ?? user.name).trim();
+  const initialRoster = initialMembers(registration, teamSize);
+  const [captainGameName, setCaptainGameName] = useState(initialRoster[0]?.name ?? '');
+  const [captainGameUid, setCaptainGameUid] = useState(initialRoster[0]?.uid || user.gameUid || '');
+  const [teamName, setTeamName] = useState(String(registration?.teamName ?? ''));
+  const [members, setMembers] = useState<Member[]>(initialRoster.slice(1));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
+  const editCutoff = getTeamEditCutoff(t.startsAt);
+  const editLocked = editing && (editCutoff === null || clockNow >= editCutoff);
+  const editAllowed = editing && canEditRegistrationTeam(t, registration?.status, clockNow);
+  const editUnavailable = editing && !editAllowed;
+  const isUnavailable = editing ? editUnavailable : unavailable;
+
+  useEffect(() => {
+    const roster = initialMembers(registration, teamSize);
+    setCaptainGameName(roster[0]?.name ?? '');
+    setCaptainGameUid(roster[0]?.uid || user.gameUid || '');
+    setMembers(roster.slice(1));
+    setTeamName(String(registration?.teamName ?? ''));
+    setErr('');
+  }, [registration?.id, t.id, teamSize, user.gameUid]);
+
+  useEffect(() => {
+    if (!editing || editCutoff === null || editCutoff <= clockNow) return;
+    const timer = setTimeout(() => setClockNow(Date.now()), editCutoff - clockNow);
+    return () => clearTimeout(timer);
+  }, [editing, editCutoff, clockNow]);
 
   const setMember = (i: number, field: keyof Member, v: string) => {
     setMembers((m) => m.map((x, j) => (j === i ? { ...x, [field]: v } : x)));
@@ -36,8 +75,12 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
 
   const submit = async () => {
     setErr('');
-    if (closed) return setErr('This tournament is no longer open for registration.');
-    if (full) return setErr('This tournament is full. Please choose another match.');
+    if (editing && !canEditRegistrationTeam(t, registration?.status, Date.now())) {
+      setClockNow(Date.now());
+      return setErr('Team editing is locked 30 minutes before the tournament starts.');
+    }
+    if (!editing && closed) return setErr('This tournament is no longer open for registration.');
+    if (!editing && full) return setErr('This tournament is full. Please choose another match.');
     if (!captainProfileName) return setErr('Add an application profile name before registering.');
     if (!captainGameName.trim()) return setErr('Captain Free Fire in-game name is required.');
     if (!captainGameUid.trim()) return setErr('Captain Free Fire UID is required.');
@@ -74,24 +117,44 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
     ? `${remainingSlots} ${remainingSlots === 1 ? 'team' : 'teams'} · ${remainingSlots * teamSize} player places remaining`
     : `${remainingSlots} player places remaining`;
   const action = isTeam ? 'REGISTER TEAM' : slotUnit === 'team' ? 'JOIN SLOT' : 'JOIN SOLO';
+  const disabledMessage = editing
+    ? editLocked
+      ? 'Team editing is locked 30 minutes before the tournament starts.'
+      : editUnavailable
+        ? 'Team changes are unavailable for this tournament.'
+        : ''
+    : '';
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap} keyboardShouldPersistTaps="handled">
       <Text onPress={onCancel} style={st.back}>← BACK</Text>
-      <Text style={st.h}>{title}</Text>
-      <Text style={st.sub}>{t.name} · Entry: {t.entryCoins ?? 0} coins {isTeam ? '(captain pays once for the team)' : ''}</Text>
-      <Card style={{ marginTop: 12 }}>
-        <Text style={st.capacityLabel}>CAPACITY</Text>
-        <Text style={st.capacity}>{capacity}</Text>
-        <Text style={[st.sub, unavailable && { color: C.red }]}>
-          {closed ? 'REGISTRATION CLOSED' : full ? 'FULL — registration is closed' : remaining}
-        </Text>
-      </Card>
+      <Text style={st.h}>{editing ? `EDIT TEAM · ${teamType.toUpperCase()}` : title}</Text>
+      <Text style={st.sub}>
+        {editing
+          ? `${t.name} · No additional coins will be charged.`
+          : `${t.name} · Entry: ${t.entryCoins ?? 0} coins ${isTeam ? '(captain pays once for the team)' : ''}`}
+      </Text>
+      {editing ? (
+        <Card style={{ marginTop: 12 }}>
+          <Text style={st.capacityLabel}>TEAM EDIT WINDOW</Text>
+          <Text style={[st.sub, editUnavailable && { color: C.red }]}>
+            {disabledMessage || 'You can update your team until 30 minutes before the tournament starts.'}
+          </Text>
+        </Card>
+      ) : (
+        <Card style={{ marginTop: 12 }}>
+          <Text style={st.capacityLabel}>CAPACITY</Text>
+          <Text style={st.capacity}>{capacity}</Text>
+          <Text style={[st.sub, unavailable && { color: C.red }]}>
+            {closed ? 'REGISTRATION CLOSED' : full ? 'FULL — registration is closed' : remaining}
+          </Text>
+        </Card>
+      )}
 
       <Card style={{ marginTop: 12 }}>
-        <Text style={st.legacyNote}>
-          New registrations are confirmed immediately. Entry coins are deducted from your wallet when you join. Your application profile name is used for the captain registration. Free Fire in-game name and UID are required.
-          {isTeam ? ` Enter all ${teamSize - 1} teammate in-game names; teammate UIDs are optional.` : ''}
+        <Text style={st.legacyNote}>{editing
+          ? 'Update the Free Fire names, UIDs, and team details for this registration. Your application profile name and original entry payment will not change.'
+          : `New registrations are confirmed immediately. Entry coins are deducted from your wallet when you join. Your application profile name is used for the captain registration. Free Fire in-game name and UID are required.${isTeam ? ` Enter all ${teamSize - 1} teammate in-game names; teammate UIDs are optional.` : ''}`}
         </Text>
         <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
         <Text style={st.pLabel}>CAPTAIN APPLICATION PROFILE NAME</Text>
@@ -145,13 +208,13 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
         ))}
       </Card>
 
-      <Msg kind="err" text={err} />
+      <Msg kind="err" text={err || disabledMessage} />
       <View style={{ marginTop: 12, marginBottom: 32 }}>
         <Btn
-          title={`PAY ${t.entryCoins ?? 0} COINS & ${action}`}
+          title={editing ? 'SAVE TEAM CHANGES' : `PAY ${t.entryCoins ?? 0} COINS & ${action}`}
           onPress={submit}
           loading={busy}
-          disabled={unavailable}
+          disabled={isUnavailable}
         />
         <Btn title="CANCEL" kind="ghost" onPress={onCancel} style={{ marginTop: 9 }} />
       </View>
