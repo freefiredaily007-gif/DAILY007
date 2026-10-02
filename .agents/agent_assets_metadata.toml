@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "m-05bO9F1aJYJWycw3Ty4"
+uri = "file://artifacts/daily007/ANDROID_APK_BUILD_HANDOFF.md"
+type = "text"
+title = "Daily007 Android APK build handoff"
+description = "Developer instructions for producing a signed APK outside Replit; this file is not the installable APK."
+logical_id = "886bd4b5-696b-45b8-a189-a1cf26e47330"
+content_hash = "sha256:19148650e3ddc04f582043caf3d55516e717ae4f2f04f7e48736ec4a20b2156a"
+size = 2753
+mtime_ms = 1790920917734
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/886bd4b5-696b-45b8-a189-a1cf26e47330/5f1f1a73-5cc5-4301-8059-96e7824c6177"
+storage_version_token = "1790922772968060"
+content_type = "text/markdown"
