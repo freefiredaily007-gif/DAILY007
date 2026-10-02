@@ -35,7 +35,6 @@ export default function Earn() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
   const [taskError, setTaskError] = useState('');
-  const [hasOpenedChannel, setHasOpenedChannel] = useState(false);
   const referralsQuery = useDaily007GetMyReferrals();
   const youtubeTaskQuery = useDaily007GetYoutubeSubscribeTask();
   const submitYoutubeClaim = useDaily007SubmitYoutubeSubscribeClaim();
@@ -96,7 +95,6 @@ export default function Earn() {
     setTaskError('');
     try {
       await Linking.openURL(youtubeTask.channelUrl);
-      setHasOpenedChannel(true);
     } catch {
       setTaskError('Could not open YouTube. Try again or open the channel in your browser.');
     }
@@ -106,7 +104,6 @@ export default function Earn() {
     setTaskError('');
     try {
       await submitYoutubeClaim.mutateAsync(undefined);
-      setHasOpenedChannel(false);
       await youtubeTaskQuery.refetch();
       Alert.alert('Claim submitted', 'An administrator will review your YouTube subscription before adding the coins.');
     } catch (e) {
@@ -208,9 +205,9 @@ export default function Earn() {
                 accessibilityRole="button"
                 accessibilityLabel="Submit YouTube subscription for administrator review"
                 testID="youtube-task-submit-claim"
-                disabled={!hasOpenedChannel || submitYoutubeClaim.isPending}
+                disabled={submitYoutubeClaim.isPending}
                 onPress={submitYoutubeTask}
-                style={[s.claimButton, (!hasOpenedChannel || submitYoutubeClaim.isPending) && s.claimButtonDisabled]}
+                style={[s.claimButton, submitYoutubeClaim.isPending && s.claimButtonDisabled]}
               >
                 {submitYoutubeClaim.isPending
                   ? <ActivityIndicator color={C.bg} />
@@ -219,9 +216,6 @@ export default function Earn() {
                   {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
                 </Text>
               </Pressable>
-              {!hasOpenedChannel ? (
-                <Text style={s.taskHint}>Open the channel first. Coins are added only after admin approval.</Text>
-              ) : null}
             </>
           ) : (
             <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
