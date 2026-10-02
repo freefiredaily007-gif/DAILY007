@@ -314,7 +314,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
       </View>
       <View style={[mc.joinBtn, { backgroundColor: s.key === 'full' || s.key === 'completed' ? C.card2 : C.neon + '22', borderColor: s.key === 'full' || s.key === 'completed' ? C.border : C.neon + '77' }]}>
         <Text style={[mc.joinText, { color: s.key === 'full' || s.key === 'completed' ? C.dim : C.neon }]}>
-          {s.key === 'live' ? '▶ ENTER MATCH' : s.key === 'full' ? 'MATCH FULL' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →'}
+          {s.key === 'live' ? '▶ ENTER MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →'}
         </Text>
       </View>
     </GCard>

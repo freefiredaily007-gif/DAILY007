@@ -110,7 +110,7 @@ export default function TDetail() {
         ) : st.key === 'completed' || ['closed', 'cancelled'].includes(tournamentStatus) ? (
           <Btn title="MATCH ENDED" kind="ghost" disabled />
         ) : full ? (
-          <Btn title="MATCH FULL" kind="ghost" disabled />
+          <Btn title="Slots Full" kind="ghost" disabled />
         ) : short ? (
           <>
             <Btn title={`INSUFFICIENT COINS — NEED 🪙 ${t.entryCoins}`} kind="danger" disabled />
