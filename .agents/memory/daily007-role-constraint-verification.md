@@ -1,10 +1,10 @@
 ---
-name: Daily007 role constraint verification
-description: A development database check constraint did not update despite Drizzle Kit reporting success.
+name: Daily007 database CHECK constraints
+description: Verify development database CHECK constraints after schema changes.
 ---
 
-After a Daily007 role CHECK constraint change, verify the actual development database definition through the app's connection; `push-force` reported success while the role constraint remained unchanged in this environment.
+**Rule:** A successful schema push does not guarantee the live development database's CHECK constraints were updated. Verify their actual definitions through the app's database connection after changing them.
 
-**Why:** The stale constraint would reject assigning the new role even though application code and schema source accepted it.
+**Why:** More than one Daily007 CHECK constraint remained stale after a reported successful schema push, blocking otherwise valid application operations.
 
-**How to apply:** Verify the development database after schema changes. Keep production DDL out of band; production schema changes belong to the publish flow.
+**How to apply:** Query the actual constraint definitions before relying on the updated schema. Correct development drift directly when needed; production schema changes belong to the publish flow.
