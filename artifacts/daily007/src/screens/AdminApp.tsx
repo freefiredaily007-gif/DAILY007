@@ -41,6 +41,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const onLogout = onLogoutProp || ctxLogout;
   const [screen, setScreen] = useState('dashboard');
   const [finishTournamentId, setFinishTournamentId] = useState<string | null>(null);
+  const [roomTournamentId, setRoomTournamentId] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [err, setErr] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -59,6 +60,10 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const finishTournament = (tournament: Tournament) => {
     setFinishTournamentId(tournament.id);
     setScreen('results');
+  };
+  const manageTournamentRoom = (tournament: Tournament) => {
+    setRoomTournamentId(tournament.id);
+    setScreen('rooms');
   };
   const Screen: any = {
     dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
@@ -105,8 +110,11 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
             onLogout={onLogout}
             currentUserId={user.id}
             onFinish={finishTournament}
+            onManageRoom={manageTournamentRoom}
             initialTournamentId={activeScreen === 'results' ? finishTournamentId : undefined}
             onInitialTournamentHandled={() => setFinishTournamentId(null)}
+            initialRoomTournamentId={activeScreen === 'rooms' ? roomTournamentId : undefined}
+            onInitialRoomHandled={() => setRoomTournamentId(null)}
           />
         </View>
 

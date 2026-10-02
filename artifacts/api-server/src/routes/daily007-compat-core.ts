@@ -903,6 +903,21 @@ router.put("/admin/tournaments/:id/room", authenticate, async (req, res): Promis
   res.json({ ...result.rows[0], roomId, roomPassword, roomTime });
 });
 
+router.delete("/admin/tournaments/:id/room", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const id = idFrom(req);
+  if (!id) return fail(res, 400, "Tournament id must be a UUID.");
+  const result = await pool.query(
+    `UPDATE daily007_v2_matches
+        SET room_id = NULL, room_password = NULL, room_published = false
+      WHERE id = $1
+      RETURNING id`,
+    [id],
+  );
+  if (!result.rows[0]) return fail(res, 404, "Tournament not found.");
+  res.json({ success: true, roomPublished: false });
+});
+
 router.post("/admin/tournaments/:id/publish-room", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);

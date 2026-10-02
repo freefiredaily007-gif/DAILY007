@@ -236,6 +236,7 @@ export const Api = {
   deleteTournament: (id: string) => unwrap(http.delete('/tournaments/' + id)),
   adminRoom: (id: string) => unwrap(http.get('/admin/tournaments/' + id + '/room')),
   adminSaveRoom: (id: string, b: object) => unwrap(http.put('/admin/tournaments/' + id + '/room', b)),
+  adminClearRoom: (id: string) => unwrap(http.delete('/admin/tournaments/' + id + '/room')),
   adminPublishRoom: (id: string) => unwrap(http.post('/admin/tournaments/' + id + '/publish-room', {})),
   adminPayments: () => unwrap(http.get('/admin/payments')),
   adminPaymentProofUrl: (id: string) => unwrap(http.get('/admin/payments/' + encodeURIComponent(id) + '/proof-url')),

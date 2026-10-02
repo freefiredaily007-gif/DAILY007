@@ -19,7 +19,13 @@ function capacityFor(mode: string, teamType: string) {
   return { slots: 2, label: `2 team slots · ${size * 2} players` };
 }
 
-export default function AdminTournaments({ onFinish }: { onFinish?: (tournament: Tournament) => void }) {
+export default function AdminTournaments({
+  onFinish,
+  onManageRoom,
+}: {
+  onFinish?: (tournament: Tournament) => void;
+  onManageRoom?: (tournament: Tournament) => void;
+}) {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [form, setForm] = useState<any>(blank);
   const [editId, setEditId] = useState<string | null>(null);
@@ -172,14 +178,25 @@ export default function AdminTournaments({ onFinish }: { onFinish?: (tournament:
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
               <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" onPress={() => remove(t)} /></View>
-              <View style={{ flex: 1 }}><Btn
-                title={finished ? 'FINISHED' : ongoing ? 'FINISH' : 'WAIT FOR START'}
-                small
-                kind={finished || !ongoing ? 'ghost' : 'gold'}
-                disabled={finished || !ongoing}
-                onPress={() => onFinish?.(t)}
-              /></View>
             </View>
+            {ongoing ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Btn title="MANAGE ROOM" small kind="ghost" testID={`manage-room-${t.id}`} onPress={() => onManageRoom?.(t)} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Btn title="FINISH & RESULTS" small kind="gold" testID={`finish-tournament-${t.id}`} onPress={() => onFinish?.(t)} />
+                </View>
+              </View>
+            ) : finished ? (
+              <View style={{ marginTop: 8 }}>
+                <Btn title="FINISHED" small kind="ghost" disabled />
+              </View>
+            ) : (
+              <View style={{ marginTop: 8 }}>
+                <Btn title="WAIT FOR START" small kind="ghost" disabled />
+              </View>
+            )}
           </Card>
         );
       })}

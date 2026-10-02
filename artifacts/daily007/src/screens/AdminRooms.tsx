@@ -1,9 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
+import { getTournamentLifecycleState } from '../lib/tournamentLifecycle';
 
-export default function AdminRooms() {
+export default function AdminRooms({
+  initialRoomTournamentId,
+  onInitialRoomHandled,
+}: {
+  initialRoomTournamentId?: string | null;
+  onInitialRoomHandled?: () => void;
+}) {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [sel, setSel] = useState<Tournament | null>(null);
   const [meta, setMeta] = useState<any>(null);
@@ -13,20 +20,30 @@ export default function AdminRooms() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const initialRoomHandled = useRef(false);
 
   const load = useCallback(async () => {
-    try { setList(await Api.tournaments(true)); } catch { setList([]); }
+    try { setList(await Api.tournaments()); } catch (e: any) { setList([]); setErr(apiError(e)); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const open = async (t: Tournament) => {
+  const open = useCallback(async (t: Tournament) => {
     setSel(t); setErr(''); setOkMsg(''); setMeta(null);
     try {
       const m = await Api.adminRoom(t.id);
       setMeta(m);
       setRoomId(m.roomId || ''); setRoomPassword(m.roomPassword || ''); setRoomTime(m.roomTime || '08:00 PM');
     } catch (e: any) { setErr(apiError(e)); }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!initialRoomTournamentId || !list || initialRoomHandled.current) return;
+    initialRoomHandled.current = true;
+    const tournament = list.find((item) => item.id === initialRoomTournamentId);
+    if (tournament) void open(tournament);
+    else setErr('That tournament is no longer available.');
+    onInitialRoomHandled?.();
+  }, [initialRoomTournamentId, list, onInitialRoomHandled, open]);
 
   const save = async (publish: boolean) => {
     if (!sel) return;
@@ -41,22 +58,47 @@ export default function AdminRooms() {
     finally { setBusy(false); }
   };
 
+  const clearRoom = async () => {
+    if (!sel) return;
+    setErr(''); setOkMsg(''); setBusy(true);
+    try {
+      await Api.adminClearRoom(sel.id);
+      setRoomId(''); setRoomPassword('');
+      setMeta((current: any) => ({ ...current, roomId: '', roomPassword: '', roomPublished: false }));
+      setOkMsg('Room unpublished and deleted. The tournament and registrations are unchanged.');
+      setTimeout(() => setOkMsg(''), 3000);
+    } catch (e: any) { setErr(apiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  const confirmClearRoom = () => Alert.alert(
+    'Delete room details?',
+    'This unpublishes and removes the Room ID and Password. It does not cancel the tournament or change registrations/results.',
+    [
+      { text: 'Keep room', style: 'cancel' },
+      { text: 'Delete room', style: 'destructive', onPress: () => { void clearRoom(); } },
+    ],
+  );
+
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>ROOM MANAGEMENT</Text>
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={okMsg} />
-      {!list ? <Loading /> : !sel ? list.map((t) => (
+      {!list ? <Loading /> : !sel ? list.length === 0 ? <Empty text={err || 'No tournaments found.'} /> : list.map((t) => {
+        const lifecycle = getTournamentLifecycleState(t);
+        return (
         <Card key={t.id} style={{ marginBottom: 10 }}>
           <Text style={st.tName}>{t.name}</Text>
-          <Text style={st.sub}>{t.date} • {t.time} • {t.teamType}</Text>
+          <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time} • {lifecycle.toUpperCase()}</Text>
           <View style={{ marginTop: 8 }}><Btn title="MANAGE ROOM →" small kind="ghost" onPress={() => open(t)} /></View>
         </Card>
-      )) : (
+        );
+      }) : (
         <Card>
           <Text onPress={() => setSel(null)} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
-          <Text style={st.sub}>Status: {meta?.roomPublished ? 'PUBLISHED' : 'HIDDEN (not published)'}</Text>
+          <Text style={st.sub}>Status: {meta?.roomPublished ? 'PUBLISHED' : 'HIDDEN (not published)'} · {getTournamentLifecycleState(sel).toUpperCase()}</Text>
           <Text style={st.sub}>Enter credentials and publish about 10–15 minutes before match start. Published details are visible only to registered players.</Text>
           <Input placeholder="Room ID" value={roomId} onChangeText={setRoomId} />
           <Input placeholder="Room Password" value={roomPassword} onChangeText={setRoomPassword} />
@@ -66,6 +108,18 @@ export default function AdminRooms() {
             <View style={{ flex: 1 }}><Btn title="SAVE" small kind="ghost" onPress={() => save(false)} loading={busy} /></View>
             <View style={{ flex: 1 }}><Btn title="PUBLISH" small onPress={() => save(true)} loading={busy} /></View>
           </View>
+          {(!!roomId || !!roomPassword || !!meta?.roomPublished) && (
+            <View style={{ marginTop: 8 }}>
+              <Btn
+                title="CANCEL / DELETE ROOM"
+                small
+                kind="danger"
+                testID={`clear-room-${sel.id}`}
+                onPress={confirmClearRoom}
+                loading={busy}
+              />
+            </View>
+          )}
         </Card>
       )}
       <View style={{ height: 30 }} />
