@@ -146,14 +146,10 @@ function ConfiguredGoogleButton({
       setSession(authenticated.user);
       await onSuccess(authenticated.user);
     } catch (e: any) {
-      if (e?.response?.status === 409) {
-        showError('This email already has a Daily007 account. Please log in with your password, then use Connect Google in Profile.');
-      } else {
-        const message = apiError(e);
-        showError(message === 'Network Error'
-          ? 'Could not reach Daily007. Check your connection and try again.'
-          : message);
-      }
+      const message = apiError(e);
+      showError(message === 'Network Error'
+        ? 'Could not reach Daily007. Check your connection and try again.'
+        : message);
     } finally {
       setBusy(false);
     }
