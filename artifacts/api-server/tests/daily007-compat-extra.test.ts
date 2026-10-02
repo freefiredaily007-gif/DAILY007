@@ -7,11 +7,13 @@ import {
   parseCoinPackages,
   pausedVideoRewardResponse,
   referralCodeForUserId,
+  shortReferralCodeForUserId,
 } from "../src/lib/daily007-compat-extra-validation.ts";
 import {
   awardDaily007SignupBonus,
   awardReferrerForApprovedRecharge,
   classifyReferralRechargeStatus,
+  ensureDaily007ReferralCode,
   isQualifyingReferralRecharge,
 } from "../src/lib/daily007-referrals.ts";
 import {
@@ -41,13 +43,57 @@ test("coin packages accept unique whole-number amounts within configured purchas
   assert.equal(parseCoinPackages("100.5,500", 1, 5000), null);
 });
 
-test("referral codes are stable per account and unique across account UUIDs", () => {
+test("legacy referral codes remain stable per account", () => {
   const firstId = "7d160000-0000-4000-8000-000000000001";
   const secondId = "7d160000-0000-4000-8000-000000000002";
   const firstCode = referralCodeForUserId(firstId);
   assert.equal(firstCode, referralCodeForUserId(firstId));
-  assert.notEqual(firstCode, referralCodeForUserId(secondId));
   assert.match(firstCode, /^D7[0-9A-F]{32}$/);
+  assert.notEqual(firstCode, referralCodeForUserId(secondId));
+});
+
+test("short referral codes are stable, five-letter, pronounceable strings", () => {
+  const firstId = "7d160000-0000-4000-8000-000000000001";
+  const secondId = "7d160000-0000-4000-8000-000000000002";
+  const firstCode = shortReferralCodeForUserId(firstId);
+  assert.match(firstCode, /^[BCDFGHJKLMNPQRSTVWXYZ][AEIOU][BCDFGHJKLMNPQRSTVWXYZ][AEIOU][BCDFGHJKLMNPQRSTVWXYZ]$/);
+  assert.equal(firstCode, shortReferralCodeForUserId(firstId));
+  assert.notEqual(firstCode, shortReferralCodeForUserId(secondId));
+  assert.notEqual(firstCode, shortReferralCodeForUserId(firstId, 1));
+});
+
+test("short-code assignment retries collisions and retains the legacy code", async () => {
+  const userId = "new-user-id";
+  const collidingCode = shortReferralCodeForUserId(userId, 0);
+  const shortCodesByUser = new Map<string, string>([["existing-user-id", collidingCode]]);
+  const shortCodeOwners = new Map<string, string>([[collidingCode, "existing-user-id"]]);
+  const legacyCodes = new Map<string, string>();
+  const client = {
+    async query<T = Record<string, unknown>>(sql: string, values: any[] = []) {
+      if (sql.includes("INSERT INTO daily007_v2_referral_codes")) {
+        legacyCodes.set(values[0], values[1]);
+        return { rows: [] as T[] };
+      }
+      if (sql.includes("INSERT INTO daily007_v2_referral_short_codes")) {
+        const [ownerId, code] = values as [string, string];
+        if (!shortCodeOwners.has(code) || shortCodeOwners.get(code) === ownerId) {
+          shortCodesByUser.set(ownerId, code);
+          shortCodeOwners.set(code, ownerId);
+        }
+        return { rows: [] as T[] };
+      }
+      if (sql.includes("SELECT code FROM daily007_v2_referral_short_codes")) {
+        const code = shortCodesByUser.get(values[0]);
+        return { rows: (code ? [{ code }] : []) as T[] };
+      }
+      return { rows: [] as T[] };
+    },
+  };
+
+  const code = await ensureDaily007ReferralCode(client, userId);
+  assert.equal(code, shortReferralCodeForUserId(userId, 1));
+  assert.equal(legacyCodes.get(userId), referralCodeForUserId(userId));
+  assert.equal(shortCodeOwners.get(code), userId);
 });
 
 test("only approved recharge amounts of 50 coins or more qualify", () => {
@@ -119,6 +165,32 @@ test("new referred accounts receive the 10-coin bonus with an idempotency key", 
   assert.equal(bonus.values[1], 10);
   assert.equal(bonus.values[3], "daily007-referral-signup:referred-id");
   assert.equal(bonus.values[4].referrerUserId, "referrer-id");
+});
+
+test("short referral codes are accepted for new signups", async () => {
+  const queries: Array<{ sql: string; values: any[] }> = [];
+  const client = {
+    async query<T = Record<string, unknown>>(sql: string, values: any[] = []) {
+      queries.push({ sql, values });
+      if (sql.includes("SELECT user_id FROM daily007_v2_referral_short_codes")) {
+        return { rows: [{ user_id: "short-code-owner" }] as T[] };
+      }
+      if (sql.includes("INSERT INTO daily007_v2_referrals")) {
+        return { rows: [{ id: "referral-id" }] as T[] };
+      }
+      if (sql.includes("SELECT wallet_coins FROM daily007_v2_users")) {
+        return { rows: [{ wallet_coins: 0 }] as T[] };
+      }
+      return { rows: [] as T[] };
+    },
+  };
+
+  const result = await awardDaily007SignupBonus(client, "kaven", "referred-user");
+  assert.equal(result, 10);
+  assert.ok(queries.some(({ sql, values }) =>
+    sql.includes("INSERT INTO daily007_v2_referrals") &&
+    values[0] === "short-code-owner" && values[2] === "KAVEN",
+  ));
 });
 
 test("new accounts without a referral receive one idempotent 10-coin welcome bonus", async () => {

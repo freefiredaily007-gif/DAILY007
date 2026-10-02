@@ -1,4 +1,7 @@
-import { referralCodeForUserId } from "./daily007-compat-extra-validation";
+import {
+  referralCodeForUserId,
+  shortReferralCodeForUserId,
+} from "./daily007-compat-extra-validation";
 
 export const SIGNUP_BONUS_COINS = 10;
 export const REFERRAL_SIGNUP_BONUS_COINS = SIGNUP_BONUS_COINS;
@@ -40,18 +43,24 @@ export async function ensureDaily007ReferralCode(
   client: ReferralTransactionClient,
   userId: string,
 ): Promise<string> {
-  const generatedCode = referralCodeForUserId(userId);
   await client.query(
     `INSERT INTO daily007_v2_referral_codes (user_id, code)
      VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING`,
-    [userId, generatedCode],
+    [userId, referralCodeForUserId(userId)],
   );
-  const saved = await client.query<{ code: string }>(
-    "SELECT code FROM daily007_v2_referral_codes WHERE user_id = $1",
-    [userId],
-  );
-  if (!saved.rows[0]) throw new Error("Could not create a referral code for this account.");
-  return saved.rows[0].code;
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    await client.query(
+      `INSERT INTO daily007_v2_referral_short_codes (user_id, code)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [userId, shortReferralCodeForUserId(userId, attempt)],
+    );
+    const saved = await client.query<{ code: string }>(
+      "SELECT code FROM daily007_v2_referral_short_codes WHERE user_id = $1",
+      [userId],
+    );
+    if (saved.rows[0]) return saved.rows[0].code;
+  }
+  throw new Error("Could not reserve a unique short referral code for this account.");
 }
 
 export async function recordReferralSignup(
@@ -62,11 +71,15 @@ export async function recordReferralSignup(
   const code = referralCodeInput?.trim().toUpperCase() || null;
   if (!code) return null;
 
-  const referrerResult = await client.query<{ user_id: string }>(
+  const shortCodeResult = await client.query<{ user_id: string }>(
+    "SELECT user_id FROM daily007_v2_referral_short_codes WHERE code = $1 FOR KEY SHARE",
+    [code],
+  );
+  const legacyCodeResult = shortCodeResult.rows[0] ? null : await client.query<{ user_id: string }>(
     "SELECT user_id FROM daily007_v2_referral_codes WHERE code = $1 FOR KEY SHARE",
     [code],
   );
-  const referrerUserId = referrerResult.rows[0]?.user_id;
+  const referrerUserId = shortCodeResult.rows[0]?.user_id ?? legacyCodeResult?.rows[0]?.user_id;
   if (!referrerUserId) throw requestError(400, "Referral code is not recognized.");
   if (referrerUserId === referredUserId) {
     throw requestError(400, "You cannot use your own referral code.");

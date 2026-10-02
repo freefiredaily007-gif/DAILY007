@@ -240,7 +240,7 @@ export default function Earn() {
       {!!dashboard && (
         <>
           <View style={s.codeCard}>
-            <Text style={s.sectionLabel}>YOUR REFERRAL CODE</Text>
+            <Text style={s.sectionLabel}>YOUR 5-LETTER REFERRAL CODE</Text>
             <View style={s.codeRow}>
               <Text selectable style={s.code}>{dashboard.code}</Text>
               <Pressable

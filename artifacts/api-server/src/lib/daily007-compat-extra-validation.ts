@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export function normalizePaymentReference(reference: string): string {
   return reference.normalize("NFKC").trim().toLocaleUpperCase("en-US");
 }
@@ -33,6 +35,23 @@ export function isValidYoutubeChannelUrl(value: string): boolean {
 
 export function referralCodeForUserId(userId: string): string {
   return `D7${userId.replaceAll("-", "").toUpperCase()}`;
+}
+
+const SHORT_REFERRAL_CONSONANTS = "BCDFGHJKLMNPQRSTVWXYZ";
+const SHORT_REFERRAL_VOWELS = "AEIOU";
+
+export function shortReferralCodeForUserId(userId: string, attempt = 0): string {
+  if (!Number.isSafeInteger(attempt) || attempt < 0) {
+    throw new Error("Referral code attempt must be a non-negative integer.");
+  }
+  const hash = createHash("sha256").update(`${userId}:${attempt}`).digest();
+  return [
+    SHORT_REFERRAL_CONSONANTS[hash[0] % SHORT_REFERRAL_CONSONANTS.length],
+    SHORT_REFERRAL_VOWELS[hash[1] % SHORT_REFERRAL_VOWELS.length],
+    SHORT_REFERRAL_CONSONANTS[hash[2] % SHORT_REFERRAL_CONSONANTS.length],
+    SHORT_REFERRAL_VOWELS[hash[3] % SHORT_REFERRAL_VOWELS.length],
+    SHORT_REFERRAL_CONSONANTS[hash[4] % SHORT_REFERRAL_CONSONANTS.length],
+  ].join("");
 }
 
 export function pausedVideoRewardResponse() {

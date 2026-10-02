@@ -6,11 +6,11 @@ import {
   normalizePaymentReference,
   parseCoinPackages,
   pausedVideoRewardResponse,
-  referralCodeForUserId,
 } from "../lib/daily007-compat-extra-validation";
 import {
   awardReferrerForApprovedRecharge,
   classifyReferralRechargeStatus,
+  ensureDaily007ReferralCode,
 } from "../lib/daily007-referrals";
 import { createDaily007ReferralLinks } from "../lib/daily007-referral-links";
 import {
@@ -842,18 +842,7 @@ router.get("/leaderboard", async (_req, res): Promise<void> => {
 
 router.get("/referrals", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
-  const code = referralCodeForUserId(id);
-  await pool.query(
-    `INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)
-     ON CONFLICT (user_id) DO NOTHING`, [id, code],
-  );
-  const savedCode = await pool.query<{ code: string }>(
-    "SELECT code FROM daily007_v2_referral_codes WHERE user_id = $1", [id],
-  );
-  if (!savedCode.rows[0]) {
-    error(res, 500, "A referral code could not be created for this account.");
-    return;
-  }
+  const code = await ensureDaily007ReferralCode(pool, id);
   const [referrals, totals] = await Promise.all([
     pool.query(
       `SELECT r.id, u.id AS "referredUserId", u.name AS "referredName",
@@ -913,9 +902,9 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
     }),
   }));
   const totalPeopleReferred = referralList.length;
-  const { referralLink } = createDaily007ReferralLinks(savedCode.rows[0].code);
+  const { referralLink } = createDaily007ReferralLinks(code);
   res.json({
-    code: savedCode.rows[0].code,
+    code,
     referralLink,
     totalPeopleReferred,
     successfulReferrals,

@@ -83,6 +83,14 @@ export const daily007ReferralCodesTable = pgTable("daily007_v2_referral_codes", 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const daily007ReferralShortCodesTable = pgTable("daily007_v2_referral_short_codes", {
+  userId: uuid("user_id").primaryKey().references(() => daily007UsersTable.id),
+  code: text("code").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("daily007_referral_short_code_format", sql`${table.code} ~ '^[A-Z]{5}$'`),
+]);
+
 export const daily007ResultAwardsTable = pgTable("daily007_v2_result_awards", {
   id: uuid("id").defaultRandom().primaryKey(),
   matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id),
