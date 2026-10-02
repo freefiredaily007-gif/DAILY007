@@ -72,6 +72,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     <ScreenWrap onRefresh={load}>
       <SectionTitle title="USER MANAGEMENT" sub={`${filtered.length} users`} />
       <Card>
+        <Text style={st.accessNote}>Full Admins assign Tournament Admin access directly here. Players cannot submit access requests.</Text>
         <TextInput placeholder="Search name or email…" placeholderTextColor="#5b6478" value={q} onChangeText={setQ} style={st.search} />
       </Card>
       {users === null ? (
@@ -120,6 +121,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
 
 const st = StyleSheet.create({
   search: { backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
+  accessNote: { color: '#9aa3b2', fontSize: 11, lineHeight: 16, marginBottom: 8 },
   name: { color: '#e6e9ef', fontWeight: '900', fontSize: 14 },
   role: { color: '#FFC107', fontSize: 9, fontWeight: '900', letterSpacing: 0.8, marginTop: 4 },
   sub: { color: '#5b6478', fontSize: 11, marginTop: 2 },

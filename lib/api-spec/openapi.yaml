@@ -202,66 +202,6 @@ paths:
         "403": { description: Full Admin required }
         "404": { description: User not found }
         "409": { description: Caller cannot change their own access or last Full Admin cannot be demoted }
-  /tournament-admin/access-request:
-    get:
-      operationId: daily007GetTournamentAdminAccessRequest
-      summary: Get the current account's latest Tournament Admin access request
-      security: [{ bearerAuth: [] }]
-      responses:
-        "200":
-          description: Latest request, or null when the account has not requested access
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Daily007TournamentAdminAccessRequestState" }
-        "401": { description: Daily007 bearer token required }
-    post:
-      operationId: daily007RequestTournamentAdminAccess
-      summary: Submit a Tournament Admin access request
-      description: Regular player accounts can submit one pending request; a Full Admin must approve it before the role changes.
-      security: [{ bearerAuth: [] }]
-      responses:
-        "201":
-          description: Access request submitted
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Daily007TournamentAdminAccessRequestSubmission" }
-        "200": { description: Existing pending request returned without creating a duplicate }
-        "401": { description: Daily007 bearer token required }
-        "409": { description: Only regular player accounts can submit access requests }
-  /admin/access-requests:
-    get:
-      operationId: daily007AdminListTournamentAdminAccessRequests
-      summary: List pending Tournament Admin access requests
-      description: Full Admin only.
-      security: [{ bearerAuth: [] }]
-      responses:
-        "200":
-          description: Pending access requests in submission order
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Daily007AdminAccessRequest" }
-        "403": { description: Full Admin required }
-  /admin/access-requests/{id}/{action}:
-    post:
-      operationId: daily007AdminReviewTournamentAdminAccessRequest
-      summary: Approve or reject a Tournament Admin access request
-      description: Full Admin only. Approval grants only tournament-scoped access; rejection leaves the account as a player.
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
-      responses:
-        "200":
-          description: Request reviewed
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Daily007AdminAccessRequestReviewResult" }
-        "400": { description: Invalid request ID or review action }
-        "403": { description: Full Admin required }
-        "404": { description: Access request not found }
-        "409": { description: Request already reviewed or account is blocked }
   /daily007/v2/admin/matches/{id}/room:
     put:
       operationId: daily007V2SetRoom
@@ -1034,42 +974,4 @@ components:
       properties:
         role: { type: string, enum: [user, tournament_admin] }
       required: [role]
-    Daily007TournamentAdminAccessRequest:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        status: { type: string, enum: [pending, approved, rejected] }
-        createdAt: { type: string, format: date-time }
-      required: [id, status, createdAt]
-    Daily007TournamentAdminAccessRequestState:
-      type: object
-      properties:
-        request:
-          anyOf:
-            - { $ref: "#/components/schemas/Daily007TournamentAdminAccessRequest" }
-            - { type: "null" }
-      required: [request]
-    Daily007TournamentAdminAccessRequestSubmission:
-      type: object
-      properties:
-        request: { $ref: "#/components/schemas/Daily007TournamentAdminAccessRequest" }
-        alreadyPending: { type: boolean }
-      required: [request, alreadyPending]
-    Daily007AdminAccessRequest:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        userId: { type: string, format: uuid }
-        name: { type: string }
-        email: { type: string, format: email }
-        userStatus: { type: string, enum: [active, blocked] }
-        createdAt: { type: string, format: date-time }
-      required: [id, userId, name, email, userStatus, createdAt]
-    Daily007AdminAccessRequestReviewResult:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        status: { type: string, enum: [approved, rejected] }
-        userRole: { type: string, enum: [user, tournament_admin, admin] }
-      required: [id, status, userRole]
 

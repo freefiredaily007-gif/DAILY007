@@ -6,10 +6,6 @@ import { useApp } from '../App';
 import { Api, apiError } from '../lib/api';
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
-import {
-  useDaily007GetTournamentAdminAccessRequest,
-  useDaily007RequestTournamentAdminAccess,
-} from '@workspace/api-client-react';
 
 export default function Profile() {
   const { user, logout, refresh } = useApp();
@@ -23,8 +19,6 @@ export default function Profile() {
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
   const [googleConnectError, setGoogleConnectError] = React.useState('');
   const [googleConnected, setGoogleConnected] = React.useState(false);
-  const accessRequestQuery = useDaily007GetTournamentAdminAccessRequest();
-  const requestAccessMutation = useDaily007RequestTournamentAdminAccess();
 
   React.useEffect(() => {
     let active = true;
@@ -44,15 +38,6 @@ export default function Profile() {
     if (user?.matches === undefined && !user?.statsError) void refresh();
   }, [user?.matches, user?.statsError, refresh]);
   const statsUnavailable = !!user?.statsError || user?.matches === undefined;
-
-  const submitTournamentAdminRequest = async () => {
-    try {
-      await requestAccessMutation.mutateAsync();
-      await accessRequestQuery.refetch();
-    } catch {
-      // The mutation error is displayed in the request card.
-    }
-  };
 
   const closeSetup = () => {
     setSetupVisible(false);
@@ -110,49 +95,6 @@ export default function Profile() {
         <KV k="Balance" v={'🪙 ' + (user?.coins ?? 0)} color={C.gold} />
         <KV k="Member since" v={String(user?.$createdAt ?? user?.createdAt ?? '—').slice(0, 10)} />
       </Card>
-
-      {user.role === 'user' && (
-        <>
-          <SectionTitle accent={C.blue}>TOURNAMENT ADMIN ACCESS</SectionTitle>
-          <Card>
-            <Text style={s.connectDescription}>
-              Request permission to manage tournaments, registrations, rooms, results, and winner payouts. A Full Admin must approve the request.
-            </Text>
-            {accessRequestQuery.isPending && !accessRequestQuery.data ? (
-              <Text style={s.accessStatus}>Checking request status…</Text>
-            ) : accessRequestQuery.error ? (
-              <>
-                <Text style={s.statsError}>Request status unavailable: {apiError(accessRequestQuery.error)}</Text>
-                <Btn title="RETRY STATUS CHECK" kind="ghost" onPress={() => { void accessRequestQuery.refetch(); }} />
-              </>
-            ) : accessRequestQuery.data?.request?.status === 'pending' ? (
-              <Text style={s.accessStatus}>Your request is waiting for Full Admin review.</Text>
-            ) : accessRequestQuery.data?.request?.status === 'approved' ? (
-              <Text style={s.accessStatus}>Approved. Sign out and sign back in to refresh your access.</Text>
-            ) : accessRequestQuery.data?.request?.status === 'rejected' ? (
-              <>
-                <Text style={s.accessStatus}>Your previous request was declined. You can submit a new request.</Text>
-                <Btn
-                  title="REQUEST AGAIN"
-                  kind="gold"
-                  loading={requestAccessMutation.isPending}
-                  onPress={submitTournamentAdminRequest}
-                />
-              </>
-            ) : (
-              <Btn
-                title="REQUEST TOURNAMENT ADMIN ACCESS"
-                kind="gold"
-                loading={requestAccessMutation.isPending}
-                onPress={submitTournamentAdminRequest}
-              />
-            )}
-            {!!requestAccessMutation.error && (
-              <Text style={s.statsError}>Could not submit request: {apiError(requestAccessMutation.error)}</Text>
-            )}
-          </Card>
-        </>
-      )}
 
       <Card>
         <Text style={s.connectTitle}>CONNECT GOOGLE</Text>
@@ -227,7 +169,6 @@ const s = StyleSheet.create({
   connectTitle: { color: C.text, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   connectDescription: { color: C.sub, fontSize: 12, lineHeight: 17, marginTop: 5 },
   connected: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: 8 },
-  accessStatus: { color: C.text, fontSize: 12, lineHeight: 18, marginTop: 10 },
   stats: { flexDirection: 'row', gap: 8 },
   stat: { flex: 1, backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: 'center' },
   statV: { color: C.text, fontWeight: '900', fontSize: 16 },
