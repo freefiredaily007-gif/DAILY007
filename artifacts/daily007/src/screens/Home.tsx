@@ -214,9 +214,9 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
-        { img: modeSoloLogo, category: 'BATTLE ROYALE', title: 'SOLO', capacity: '48 PLAYER SLOTS', mode: 'Battle Royale Solo', accent: C.gold },
-        { img: modeSquadLogo, category: 'BATTLE ROYALE', title: 'SQUAD', capacity: '12 TEAMS × 4 PLAYERS', mode: 'Battle Royale Squad', accent: C.neon },
-        { img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: '4V4 MATCHES', mode: 'Clash Squad', accent: C.purple },
+        { img: modeSquadLogo, category: 'CLASSIC SURVIVAL', title: 'BATTLE ROYALE', capacity: 'SOLO & SQUAD MATCHES', mode: 'Battle Royale', accent: C.gold },
+        { img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: '4V4 MATCHES', mode: 'Clash Squad', accent: C.neon },
+        { img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: '1V1 MATCHES', mode: 'Lone Wolf', accent: C.purple },
       ].map((m) => (
         <GCard
           key={m.mode}
