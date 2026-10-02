@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  AppState,
   ActivityIndicator,
   Alert,
   Linking,
@@ -35,12 +36,29 @@ export default function Earn() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
   const [taskError, setTaskError] = useState('');
+  const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
+  const waitingForYoutubeReturn = useRef(false);
+  const appState = useRef(AppState.currentState);
   const referralsQuery = useDaily007GetMyReferrals();
   const youtubeTaskQuery = useDaily007GetYoutubeSubscribeTask();
   const submitYoutubeClaim = useDaily007SubmitYoutubeSubscribeClaim();
   const dashboard = referralsQuery.data;
   const referrals = dashboard?.referrals ?? [];
   const youtubeTask = youtubeTaskQuery.data;
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const returnedToApp = waitingForYoutubeReturn.current
+        && appState.current !== 'active'
+        && nextState === 'active';
+      appState.current = nextState;
+      if (returnedToApp) {
+        waitingForYoutubeReturn.current = false;
+        setReturnedFromYoutube(true);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   const copyCode = async () => {
     if (!dashboard?.code) return;
@@ -93,9 +111,12 @@ export default function Earn() {
   const openYoutubeChannel = async () => {
     if (!youtubeTask?.channelUrl) return;
     setTaskError('');
+    waitingForYoutubeReturn.current = true;
+    setReturnedFromYoutube(false);
     try {
       await Linking.openURL(youtubeTask.channelUrl);
     } catch {
+      waitingForYoutubeReturn.current = false;
       setTaskError('Could not open YouTube. Try again or open the channel in your browser.');
     }
   };
@@ -104,6 +125,7 @@ export default function Earn() {
     setTaskError('');
     try {
       await submitYoutubeClaim.mutateAsync(undefined);
+      setReturnedFromYoutube(false);
       await youtubeTaskQuery.refetch();
       Alert.alert('Claim submitted', 'An administrator will review your YouTube subscription before adding the coins.');
     } catch (e) {
@@ -205,9 +227,9 @@ export default function Earn() {
                 accessibilityRole="button"
                 accessibilityLabel="Submit YouTube subscription for administrator review"
                 testID="youtube-task-submit-claim"
-                disabled={submitYoutubeClaim.isPending}
+                disabled={!returnedFromYoutube || submitYoutubeClaim.isPending}
                 onPress={submitYoutubeTask}
-                style={[s.claimButton, submitYoutubeClaim.isPending && s.claimButtonDisabled]}
+                style={[s.claimButton, (!returnedFromYoutube || submitYoutubeClaim.isPending) && s.claimButtonDisabled]}
               >
                 {submitYoutubeClaim.isPending
                   ? <ActivityIndicator color={C.bg} />
@@ -216,6 +238,9 @@ export default function Earn() {
                   {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
                 </Text>
               </Pressable>
+              {!returnedFromYoutube ? (
+                <Text style={s.taskHint}>Subscribe on YouTube, then return to Daily007 to submit for review.</Text>
+              ) : null}
             </>
           ) : (
             <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
