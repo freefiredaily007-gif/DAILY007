@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../src/lib/daily007-v2-validation.ts";
+import { resolveTournamentMode } from "../src/lib/daily007-mode-rules.ts";
 
 test("registration timestamps must be ISO timestamps strictly in the future", () => {
   const now = Date.parse("2030-01-01T00:00:00Z");
@@ -11,7 +12,7 @@ test("registration timestamps must be ISO timestamps strictly in the future", ()
   assert.equal(parseFutureTimestamp("2030-01-01T00:00:01Z", now)?.toISOString(), "2030-01-01T00:00:01.000Z");
 });
 
-test("team roster requires exactly three names while game UIDs are optional", () => {
+test("team roster size follows the selected format while game UIDs remain optional", () => {
   assert.deepEqual(parseTeamMembers([
     { name: " A " },
     { name: "B", uid: "" },
@@ -21,8 +22,32 @@ test("team roster requires exactly three names while game UIDs are optional", ()
     { name: "B", uid: null },
     { name: "C", uid: "player-3" },
   ]);
+  assert.deepEqual(parseTeamMembers([{ name: "Duo partner" }], 1), [{ name: "Duo partner", uid: null }]);
+  assert.deepEqual(parseTeamMembers([], 0), []);
   assert.equal(parseTeamMembers([{ uid: "missing-name" }, { name: "B" }, { name: "C" }]), null);
   assert.equal(parseTeamMembers([{ name: "A" }, { name: "B" }]), null);
+  assert.equal(parseTeamMembers([{ name: "A", uid: "UID" }, { name: "B", uid: "uid" }]), null);
+});
+
+test("all main modes expose their fixed Solo, Duo, and Squad capacities", () => {
+  const expected = [
+    ["battle_royale", "solo", 48, 1, "player"],
+    ["battle_royale", "duo", 24, 2, "team"],
+    ["battle_royale", "squad", 12, 4, "team"],
+    ["clash_squad", "solo", 2, 1, "team"],
+    ["clash_squad", "duo", 2, 2, "team"],
+    ["clash_squad", "squad", 2, 4, "team"],
+    ["lone_wolf", "solo", 2, 1, "team"],
+    ["lone_wolf", "duo", 2, 2, "team"],
+    ["lone_wolf", "squad", 2, 4, "team"],
+  ] as const;
+  for (const [gameMode, teamType, capacity, teamSize, slotUnit] of expected) {
+    const resolved = resolveTournamentMode(gameMode, teamType);
+    assert.ok(resolved, `${gameMode} ${teamType} should resolve`);
+    assert.equal(resolved.capacity, capacity);
+    assert.equal(resolved.teamSize, teamSize);
+    assert.equal(resolved.slotUnit, slotUnit);
+  }
 });
 
 test("CSV cells escape quotes and neutralize spreadsheet formulas", () => {

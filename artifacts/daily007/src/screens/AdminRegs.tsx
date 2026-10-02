@@ -14,6 +14,7 @@ export default function AdminRegs() {
   const [okMsg, setOkMsg] = useState('');
 
   const [all, setAll] = useState<any[] | null>(null);
+  const [tournamentFilter, setTournamentFilter] = useState('');
   const [exportTournamentId, setExportTournamentId] = useState('');
   const [exportBusy, setExportBusy] = useState(false);
 
@@ -25,13 +26,31 @@ export default function AdminRegs() {
     load().catch((e) => { setErr(apiError(e)); setAll([]); });
   }, [load]);
 
-  const list = (all ?? []).filter((x) => x.status === tab);
+  const list = (all ?? []).filter((x) =>
+    x.status === tab && (!tournamentFilter || String(x.tournamentId) === tournamentFilter)
+  );
   const paidRoster = (all ?? []).filter((x) => x.status === 'pending' || x.status === 'approved');
-  const tournaments = Array.from(new Map(paidRoster.map((r) => [
+  const tournaments = Array.from(new Map((all ?? []).map((r) => [
     String(r.tournamentId || ''),
     { id: String(r.tournamentId || ''), name: String(r.tournamentName || r.tournamentId || 'Tournament') },
   ])).values()).filter((t) => t.id);
-  const selectedTournament = tournaments.find((t) => t.id === exportTournamentId) || tournaments[0];
+  const exportTournaments = Array.from(new Map(paidRoster.map((r) => [
+    String(r.tournamentId || ''),
+    { id: String(r.tournamentId || ''), name: String(r.tournamentName || r.tournamentId || 'Tournament') },
+  ])).values()).filter((t) => t.id);
+  const selectedTournament = exportTournaments.find((t) => t.id === exportTournamentId) || exportTournaments[0];
+
+  const rosterText = (raw: unknown) => {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (Array.isArray(parsed)) return parsed.map((member) => {
+        const name = String(member?.name || member?.ign || 'Player');
+        const uid = String(member?.uid || member?.gameUid || '').trim();
+        return uid ? `${name} · UID ${uid}` : name;
+      }).join('\n');
+    } catch {}
+    return typeof raw === 'string' ? raw : '';
+  };
 
   const exportCsv = async () => {
     if (!selectedTournament) return;
@@ -141,12 +160,28 @@ export default function AdminRegs() {
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
+      {exportTournaments.length > 0 && (
+        <Card style={{ marginBottom: 12 }}>
+          <Text style={st.exportTitle}>TOURNAMENT REGISTRATION LIST</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 10 }}>
+            <Chip label="ALL TOURNAMENTS" color={!tournamentFilter ? C.neon : C.sub} onPress={() => setTournamentFilter('')} />
+            {tournaments.map((t) => (
+              <Chip
+                key={t.id}
+                label={t.name}
+                color={tournamentFilter === t.id ? C.neon : C.sub}
+                onPress={() => setTournamentFilter(t.id)}
+              />
+            ))}
+          </ScrollView>
+        </Card>
+      )}
       {tournaments.length > 0 && (
         <Card style={{ marginBottom: 12 }}>
           <Text style={st.exportTitle}>PLAYER LIST EXPORT</Text>
           <Text style={st.sub}>Pending and approved paid registrations · names and game UIDs as CSV (rejected/refunded entries excluded)</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 10 }}>
-            {tournaments.map((t) => (
+            {exportTournaments.map((t) => (
               <Chip
                 key={t.id}
                 label={t.name}
@@ -168,7 +203,7 @@ export default function AdminRegs() {
           <Text style={st.sub}>🎯 {r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
           <Text style={st.sub}>🪙 Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
           {r.teamMembers && r.teamMembers !== '[]' && (
-            <Text style={st.sub}>👥 {r.teamMembers}</Text>
+            <Text style={st.sub}>ROSTER{'\n'}{rosterText(r.teamMembers)}</Text>
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             {tab === 'pending' && (

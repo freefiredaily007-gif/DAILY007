@@ -24,8 +24,9 @@ export function parseFutureTimestamp(value: unknown, now = Date.now()): Date | n
   return Number.isFinite(date.getTime()) && date.getTime() > now ? date : null;
 }
 
-export function parseTeamMembers(value: unknown): TeamMemberInput[] | null {
-  if (!Array.isArray(value) || value.length !== 3) return null;
+export function parseTeamMembers(value: unknown, expectedCount = 3): TeamMemberInput[] | null {
+  if (!Number.isInteger(expectedCount) || expectedCount < 0 || expectedCount > 3 ||
+      !Array.isArray(value) || value.length !== expectedCount) return null;
   const members: TeamMemberInput[] = [];
   for (const entry of value) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return null;
@@ -41,7 +42,7 @@ export function parseTeamMembers(value: unknown): TeamMemberInput[] | null {
     members.push({ name: member.name.trim(), uid });
   }
   const providedUids = members.flatMap((member) => member.uid === null ? [] : [member.uid]);
-  return new Set(providedUids).size === providedUids.length ? members : null;
+  return new Set(providedUids.map((uid) => uid.toLocaleLowerCase())).size === providedUids.length ? members : null;
 }
 
 export function csvCell(value: unknown): string {

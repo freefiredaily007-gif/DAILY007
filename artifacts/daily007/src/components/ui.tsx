@@ -247,7 +247,7 @@ export function statusOf(t: any): { key: string; label: string; color: string } 
   if (st === 'completed' || st === 'cancelled') return { key: 'completed', label: st.toUpperCase(), color: C.dim };
   const filled = Number(t?.filledSlots ?? t?.filled ?? 0);
   const total = Number(t?.totalSlots ?? 0);
-  if (st === 'full' || (total > 0 && filled >= total)) return { key: 'full', label: 'FULL', color: C.orange };
+  if (st === 'full' || st === 'setup_needed' || (total > 0 && filled >= total)) return { key: 'full', label: 'FULL', color: C.orange };
   return { key: 'upcoming', label: 'UPCOMING', color: C.green };
 }
 
@@ -255,11 +255,14 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
   const s = statusOf(t);
   const filled = t?.filledSlots ?? 0;
   const total = t?.totalSlots ?? 0;
+  const slotUnit = t?.slotUnit === 'player' ? 'players' : 'teams';
+  const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
+  const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
   return (
     <GCard onPress={onPress} glowColor={s.key === 'live' ? C.neon : undefined} style={{ marginBottom: 12 }}>
       <View style={mc.topRow}>
         <View style={{ flex: 1, marginRight: 8 }}>
-          <Text style={mc.mode}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()}</Text>
+          <Text style={mc.mode}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
           <Text style={mc.name} numberOfLines={1}>{t?.name || t?.title || 'Tournament'}</Text>
         </View>
         <Badge text={s.label} color={s.color} />
@@ -267,7 +270,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
       <View style={mc.sep} />
       <View style={mc.metaRow}>
         <Text style={mc.meta}>📅 {fmtDate(t?.date)}{t?.time ? ` • ${fmtTime12(t.time)}` : ''}</Text>
-        <Text style={mc.meta}>👥 {filled}/{total}</Text>
+        <Text style={mc.meta}>{filled}/{total} {slotUnit}</Text>
       </View>
       <View style={mc.statRow}>
         <View style={mc.stat}>
@@ -279,8 +282,9 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
           <Text style={[mc.statV, { color: C.green }]}>🪙 {t?.prizePool ?? 0}</Text>
         </View>
         <View style={mc.stat}>
-          <Text style={mc.statK}>SLOTS</Text>
+          <Text style={mc.statK}>{slotUnit.toUpperCase()}</Text>
           <Text style={[mc.statV, { color: C.blue }]}>{filled}/{total}</Text>
+          <Text style={{ color: C.dim, fontSize: 9, marginTop: 2 }}>{filledPlayers}/{totalPlayers} players</Text>
         </View>
       </View>
       <View style={[mc.joinBtn, { backgroundColor: s.key === 'full' || s.key === 'completed' ? C.card2 : C.neon + '22', borderColor: s.key === 'full' || s.key === 'completed' ? C.border : C.neon + '77' }]}>

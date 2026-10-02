@@ -13,9 +13,11 @@ export type User = {
 
 export type Tournament = {
   id: string; name: string; mode: string; teamType: string; date: string; time: string;
+  gameMode?: string; teamSize?: number; slotUnit?: 'player' | 'team';
   entryCoins: number; prizePool: number; totalSlots: number; rules?: string;
   banner?: string; prizeDist?: string; enabled?: boolean; status?: string;
-  filledSlots?: number; availableSlots?: number; roomId?: string; roomPassword?: string; roomTime?: string; roomPublished?: boolean;
+  filledSlots?: number; filledPlayerSlots?: number; totalPlayerSlots?: number; capacityLabel?: string;
+  availableSlots?: number; roomId?: string; roomPassword?: string; roomTime?: string; roomPublished?: boolean;
 };
 
 export type AdminRegistration = {
@@ -151,7 +153,7 @@ export const Api = {
   // registrations / join
   myRegistrations: () => unwrap(http.get('/my/registrations')),
   join: (id: string, b: object) => {
-    const payload = b as { playerName?: string; captainGameName?: string; gameUid?: string; teamMembers?: string };
+    const payload = b as { playerName?: string; captainGameName?: string; gameUid?: string; teamName?: string; teamMembers?: string };
     let members: { name?: string; uid?: string }[] = [];
     try {
       members = payload.teamMembers ? JSON.parse(payload.teamMembers) : [];
@@ -164,8 +166,9 @@ export const Api = {
       captainName: String(payload.playerName ?? '').trim(),
       captainGameName: String(payload.captainGameName ?? '').trim(),
       captainGameUid: String(payload.gameUid ?? captain.uid ?? '').trim(),
+      teamName: String(payload.teamName ?? '').trim(),
       ...(isTeam ? {
-        teammates: members.slice(1, 4).map((member) => ({
+        teammates: members.slice(1).map((member) => ({
           name: String(member.name ?? '').trim(),
           ...(String(member.uid ?? '').trim() ? { uid: String(member.uid).trim() } : {}),
         })),

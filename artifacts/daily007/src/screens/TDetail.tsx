@@ -34,7 +34,7 @@ export default function TDetail() {
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const tournamentStatus = String(t.status || '').toLowerCase();
-  const full = tournamentStatus === 'full' || (totalSlots > 0 && filledSlots >= totalSlots);
+  const full = st.key === 'full' || tournamentStatus === 'setup_needed' || (totalSlots > 0 && filledSlots >= totalSlots);
   const coins = user?.coins ?? 0;
   const short = coins < (t.entryCoins ?? 0);
 
@@ -70,17 +70,23 @@ export default function TDetail() {
           <Text style={s.statSub}>{inr(t.prizePool)}</Text>
         </View>
         <View style={s.stat}>
-          <Text style={s.statK}>SLOTS</Text>
+          <Text style={s.statK}>{t.slotUnit === 'player' ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
           <Text style={[s.statV, { color: C.blue }]}>{filledSlots}/{totalSlots}</Text>
-          <Text style={s.statSub}>{COIN_RATE_TEXT}</Text>
+          <Text style={s.statSub}>
+            {t.slotUnit === 'player'
+              ? `${filledSlots}/${totalSlots} players`
+              : `${t.filledPlayerSlots ?? filledSlots * (t.teamSize ?? 1)}/${t.totalPlayerSlots ?? totalSlots * (t.teamSize ?? 1)} players`}
+          </Text>
         </View>
       </View>
 
       <SectionTitle accent={C.orange}>MATCH INFO</SectionTitle>
       <Card>
         <KV k="Mode" v={t.mode || '—'} />
+        <KV k="Format" v={t.teamType || '—'} />
         <KV k="Map" v={t.map || '—'} />
-        <KV k="Per Team" v={t.perTeam ? `${t.perTeam} players` : '—'} />
+        <KV k="Per Team" v={t.teamSize ? `${t.teamSize} players` : t.perTeam ? `${t.perTeam} players` : '—'} />
+        <KV k="Capacity" v={t.capacityLabel || `${t.totalSlots} slots`} />
         <KV k="Version" v={t.version || '—'} />
         {!!t.rules && <Text style={s.rules}>{t.rules}</Text>}
       </Card>

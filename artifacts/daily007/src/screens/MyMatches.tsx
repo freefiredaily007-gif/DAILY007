@@ -90,7 +90,11 @@ export default function MyMatches() {
                              : !roomWindowOpen
                                ? '🔒 Room details are hidden until 15 minutes before match start.'
                                : '🔒 Room credentials are not available.'
-                        : '⏳ Waiting for admin approval.'}
+                        : status === 'pending'
+                          ? 'Entry is pending admin approval.'
+                          : status === 'rejected'
+                            ? 'Registration rejected; the entry fee was refunded.'
+                            : 'Registration status is unavailable.'}
                     </Text>
                   )}
                 </View>

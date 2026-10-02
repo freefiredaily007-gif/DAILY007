@@ -8,22 +8,24 @@ type Member = { name: string; uid: string };
 export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
   tournament: any; user: User; onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
 }) {
-  const squad = String(t.teamType || '').toLowerCase() === 'squad';
-  const clash = String(t.mode || '').toLowerCase().includes('clash');
-  const isTeam = squad || clash;
-  const teamSize = 4;
-  const totalSlots = Number(t.totalSlots ?? (clash ? 2 : squad ? 12 : 48));
+  const teamType = String(t.teamType || 'Solo');
+  const gameMode = String(t.mode || 'Battle Royale');
+  const teamSize = Number(t.teamSize) || (teamType.toLowerCase() === 'squad' ? 4 : teamType.toLowerCase() === 'duo' ? 2 : 1);
+  const isTeam = teamSize > 1;
+  const slotUnit = String(t.slotUnit || (gameMode.toLowerCase() === 'battle royale' && teamSize === 1 ? 'player' : 'team'));
+  const totalSlots = Number(t.totalSlots ?? (slotUnit === 'player' ? 48 : gameMode.toLowerCase() === 'battle royale' ? (teamType.toLowerCase() === 'duo' ? 24 : 12) : 2));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const remainingSlots = Math.max(0, Number(t.availableSlots ?? totalSlots - filledSlots));
   const status = String(t.status || '').toLowerCase();
   const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'closed'].includes(status);
-  const full = remainingSlots <= 0 || filledSlots >= totalSlots || status === 'full';
+  const full = remainingSlots <= 0 || filledSlots >= totalSlots || ['full', 'setup_needed'].includes(status);
   const unavailable = full || closed;
   const [captainRealName, setCaptainRealName] = useState(user.name);
   const [captainGameName, setCaptainGameName] = useState('');
   const [captainGameUid, setCaptainGameUid] = useState(user.gameUid || '');
+  const [teamName, setTeamName] = useState('');
   const [members, setMembers] = useState<Member[]>(
-    isTeam ? [{ name: '', uid: '' }, { name: '', uid: '' }, { name: '', uid: '' }] : []
+    Array.from({ length: Math.max(0, teamSize - 1) }, () => ({ name: '', uid: '' }))
   );
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,7 +41,11 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
     if (!captainRealName.trim()) return setErr('Captain real name is required.');
     if (!captainGameName.trim()) return setErr('Captain Free Fire in-game name is required.');
     if (!captainGameUid.trim()) return setErr('Captain Free Fire UID is required.');
-    if (members.some((member) => !member.name.trim())) return setErr('Enter all three teammate in-game names.');
+    if (isTeam && !teamName.trim()) return setErr('Team name is required.');
+    if (members.some((member) => !member.name.trim())) return setErr(`Enter all ${teamSize - 1} teammate in-game name${teamSize === 2 ? '' : 's'}.`);
+    const submittedUids = [captainGameUid, ...members.map((member) => member.uid).filter(Boolean)]
+      .map((uid) => uid.trim().toLowerCase());
+    if (new Set(submittedUids).size !== submittedUids.length) return setErr('Each player must have a different game UID.');
     setBusy(true);
     try {
       const players = [
@@ -48,6 +54,7 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
       ];
       await onSubmit({
         teamMembers: JSON.stringify(players),
+        teamName: teamName.trim(),
         playerName: captainRealName.trim(),
         captainGameName: captainGameName.trim(),
         gameUid: captainGameUid.trim(),
@@ -57,20 +64,22 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
     } finally { setBusy(false); }
   };
 
-  const title = clash ? 'CLASH SQUAD REGISTRATION' : squad ? 'SQUAD REGISTRATION' : 'SOLO REGISTRATION';
-  const capacity = isTeam
-    ? `${filledSlots}/${totalSlots} teams · ${filledSlots * teamSize}/${totalSlots * teamSize} players`
+  const title = `${gameMode.toUpperCase()} · ${teamType.toUpperCase()} REGISTRATION`;
+  const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * teamSize);
+  const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * teamSize);
+  const capacity = slotUnit === 'team'
+    ? `${filledSlots}/${totalSlots} teams · ${filledPlayers}/${totalPlayers} players`
     : `${filledSlots}/${totalSlots} players`;
-  const remaining = isTeam
+  const remaining = slotUnit === 'team'
     ? `${remainingSlots} ${remainingSlots === 1 ? 'team' : 'teams'} · ${remainingSlots * teamSize} player places remaining`
     : `${remainingSlots} player places remaining`;
-  const action = clash ? 'BOOK SLOT' : isTeam ? 'REGISTER TEAM' : 'JOIN';
+  const action = isTeam ? 'REGISTER TEAM' : slotUnit === 'team' ? 'JOIN SLOT' : 'JOIN SOLO';
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap} keyboardShouldPersistTaps="handled">
       <Text onPress={onCancel} style={st.back}>← BACK</Text>
       <Text style={st.h}>{title}</Text>
-      <Text style={st.sub}>{t.name} · Entry: {t.entryCoins ?? 0} coins {isTeam ? '(captain pays for the team)' : ''}</Text>
+      <Text style={st.sub}>{t.name} · Entry: {t.entryCoins ?? 0} coins {isTeam ? '(captain pays once for the team)' : ''}</Text>
       <Card style={{ marginTop: 12 }}>
         <Text style={st.capacityLabel}>CAPACITY</Text>
         <Text style={st.capacity}>{capacity}</Text>
@@ -82,7 +91,7 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>
           Captain real name, Free Fire in-game name, and UID are required.
-          {isTeam ? ' Enter all three teammate in-game names; teammate UIDs are optional.' : ''}
+          {isTeam ? ` Enter all ${teamSize - 1} teammate in-game names; teammate UIDs are optional.` : ''}
         </Text>
         <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
         <Input
@@ -103,6 +112,18 @@ export default function JoinForm({ tournament: t, user, onCancel, onSubmit }: {
           onChangeText={setCaptainGameUid}
           keyboardType="number-pad"
         />
+        {isTeam && (
+          <>
+            <Text style={st.pLabel}>TEAM NAME</Text>
+            <Input
+              placeholder="Team name"
+              value={teamName}
+              onChangeText={setTeamName}
+              autoCapitalize="words"
+              maxLength={100}
+            />
+          </>
+        )}
         {members.map((member, i) => (
           <View key={i} style={{ marginBottom: 4 }}>
             <Text style={st.pLabel}>TEAMMATE {i + 1}</Text>

@@ -4,12 +4,11 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { pool } from "@workspace/db";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007-v2-validation";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
+import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mode-rules";
 
 const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const TEAM_MODES = new Set(["squad", "clash"]);
-const CAPACITY: Record<string, number> = { solo: 48, squad: 12, clash: 2 };
 const PASSWORD_BYTES = 64;
 const TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 14;
 
@@ -312,7 +311,8 @@ router.post("/daily007/v2/admin/bootstrap", authenticate, async (req, res): Prom
 
 router.get("/daily007/v2/matches", async (_req, res): Promise<void> => {
   const result = await pool.query(
-    `SELECT m.id, m.title, m.mode, m.capacity, m.entry_coins AS "entryCoins",
+    `SELECT m.id, m.title, m.mode, m.game_mode AS "gameMode", m.team_type AS "teamType",
+            m.capacity, m.entry_coins AS "entryCoins",
             m.starts_at AS "startsAt", m.status, m.is_full AS "isFull",
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS "registeredCount"
        FROM daily007_v2_matches m
@@ -331,21 +331,26 @@ router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promis
     return;
   }
   const title = cleanName(body.title, "title");
-  const mode = body.mode;
+  const configuredMode = resolveTournamentMode(
+    body.gameMode ?? body.mode,
+    body.teamType ?? (body.mode === "clash" ? "squad" : undefined),
+  );
   const startsAt = parseFutureTimestamp(body.startsAt);
   const entryCoins = body.entryCoins === undefined ? 0 : body.entryCoins;
-  if (!title || typeof mode !== "string" || !Object.hasOwn(CAPACITY, mode) ||
+  if (!title || !configuredMode ||
       !startsAt || !Number.isInteger(entryCoins) ||
       typeof entryCoins !== "number" || entryCoins < 0 || entryCoins > 2_147_483_647) {
-    fail(res, 400, "Title must be 1–100 characters, mode must be solo, squad, or clash, startsAt must be a valid future ISO timestamp, and entryCoins must be a nonnegative 32-bit integer.");
+    fail(res, 400, "Provide a title, supported game mode and team type, future startsAt timestamp, and nonnegative 32-bit integer entryCoins.");
     return;
   }
   const result = await pool.query(
-    `INSERT INTO daily007_v2_matches (title, mode, capacity, starts_at, entry_coins)
-     SELECT $1, $2, $3, $4, $5
-      WHERE $4::timestamptz > clock_timestamp()
-     RETURNING id, title, mode, capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
-    [title, mode, CAPACITY[mode], startsAt, entryCoins],
+    `INSERT INTO daily007_v2_matches (title, mode, game_mode, team_type, capacity, starts_at, entry_coins)
+     SELECT $1, $2, $3, $4, $5, $6, $7
+      WHERE $6::timestamptz > clock_timestamp()
+     RETURNING id, title, mode, game_mode AS "gameMode", team_type AS "teamType",
+               capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
+    [title, configuredMode.storageMode, configuredMode.gameMode, configuredMode.teamType,
+      configuredMode.capacity, startsAt, entryCoins],
   );
   if (!result.rows[0]) {
     fail(res, 400, "startsAt must be in the future when the match is created.");
@@ -402,7 +407,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   }
   const body = req.body as unknown;
   if (!isRecord(body)) {
-    fail(res, 400, "Expected captainName, captainGameName, captainGameUid and, for team modes, exactly three teammates.");
+    fail(res, 400, "Expected captain details and, for team formats, the exact teammate roster for the selected format.");
     return;
   }
   const account = req.daily007Account;
@@ -431,13 +436,15 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   try {
     const registered = await withTransaction(async (client) => {
       const matchResult = await client.query<{
-        id: string; mode: string; capacity: number; status: string; entry_coins: number; starts_at: Date; enabled: boolean;
+        id: string; mode: string; game_mode: string | null; team_type: string | null;
+        capacity: number; status: string; entry_coins: number; starts_at: Date; enabled: boolean;
       }>(
-        "SELECT id, mode, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        "SELECT id, mode, game_mode, team_type, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
         [matchId],
       );
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
+      const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
 
       // Match row serialization makes this lookup race-safe for simultaneous retries.
       const existing = await client.query<{
@@ -470,7 +477,8 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           registeredCount: Number(countResult.rows[0].count),
           capacity: prior.capacity,
           isFull: prior.is_full,
-          status: prior.status,
+          status: prior.registration_status,
+          matchStatus: prior.status,
           alreadyRegistered: true,
         };
       }
@@ -490,33 +498,56 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       }
       let teammates: { name: string; uid: string | null }[] = [];
       let submittedTeamName = "";
-      if (TEAM_MODES.has(match.mode)) {
-        let teammateInput = body.teammates;
-        if (legacy) {
-          submittedTeamName = typeof body.teamName === "string" ? body.teamName.trim() : "";
-          let members: unknown = body.teamMembers;
-          if (typeof members === "string") {
-            try { members = JSON.parse(members) as unknown; } catch { members = null; }
-          }
-          if (!submittedTeamName || submittedTeamName.length > 100 || !Array.isArray(members) ||
-              members.length !== 4 || !isRecord(members[0]) ||
-               members[0].name !== captainGameName || members[0].uid !== captainGameUid) {
-            throw Object.assign(new Error("Team registrations require a team name and four members with the captain listed first."), { status: 400 });
-          }
-          teammateInput = members.slice(1).map((member) => isRecord(member)
-            ? { name: member.name, uid: member.uid || null }
-            : null);
+      const teammateCount = modeConfig.teamSize - 1;
+      let teammateInput: unknown = legacy ? [] : (body.teammates ?? []);
+      if (legacy) {
+        let members: unknown = body.teamMembers;
+        if (typeof members === "string") {
+          try { members = JSON.parse(members) as unknown; } catch { members = null; }
         }
-        const parsedTeammates = parseTeamMembers(teammateInput);
-        if (!parsedTeammates) {
-          throw Object.assign(new Error("Squad and clash registrations require exactly three teammate names; each optional uid must contain at most 128 characters and be unique."), { status: 400 });
+        submittedTeamName = typeof body.teamName === "string" ? body.teamName.trim() : "";
+        if (!Array.isArray(members) || members.length !== modeConfig.teamSize ||
+            !isRecord(members[0]) ||
+            String(members[0].name ?? "").trim() !== captainGameName ||
+            String(members[0].uid ?? "").trim() !== captainGameUid) {
+          throw Object.assign(new Error(`${modeConfig.teamTypeLabel} registrations require exactly ${modeConfig.teamSize} player${modeConfig.teamSize === 1 ? "" : "s"}, with the captain listed first.`), { status: 400 });
         }
-        if (parsedTeammates.some((member) => member.uid === captainGameUid)) {
-          throw Object.assign(new Error("A teammate game UID must not duplicate the captain game UID."), { status: 400 });
-        }
-        teammates = parsedTeammates;
-      } else if (body.teammates !== undefined && (!Array.isArray(body.teammates) || body.teammates.length !== 0)) {
-        throw Object.assign(new Error("Solo registrations do not accept teammates."), { status: 400 });
+        teammateInput = members.slice(1).map((member) => isRecord(member)
+          ? { name: member.name, uid: member.uid || null }
+          : null);
+      } else if (body.teamName !== undefined) {
+        submittedTeamName = typeof body.teamName === "string" ? body.teamName.trim() : "";
+      }
+      if (modeConfig.teamSize > 1 && (!submittedTeamName || submittedTeamName.length > 100)) {
+        throw Object.assign(new Error("Team registrations require a team name between 1 and 100 characters."), { status: 400 });
+      }
+      if (submittedTeamName.length > 100) {
+        throw Object.assign(new Error("Team name must not exceed 100 characters."), { status: 400 });
+      }
+      const parsedTeammates = parseTeamMembers(teammateInput, teammateCount);
+      if (!parsedTeammates) {
+        throw Object.assign(new Error(`${modeConfig.teamTypeLabel} registrations require exactly ${teammateCount} teammate name${teammateCount === 1 ? "" : "s"}; teammate UIDs are optional and must be unique.`), { status: 400 });
+      }
+      const submittedUids = [captainGameUid, ...parsedTeammates.flatMap((member) => member.uid ? [member.uid] : [])]
+        .map((uid) => uid.toLocaleLowerCase());
+      if (new Set(submittedUids).size !== submittedUids.length) {
+        throw Object.assign(new Error("Each player in the registration must have a different game UID."), { status: 400 });
+      }
+      teammates = parsedTeammates;
+      const duplicateUid = await client.query<{ id: string }>(
+        `SELECT r.id
+           FROM daily007_v2_registrations r
+          WHERE r.match_id = $1 AND r.status IN ('approved', 'pending')
+            AND (lower(r.captain_game_uid) = ANY($2::text[]) OR EXISTS (
+              SELECT 1 FROM daily007_v2_roster roster
+               WHERE roster.registration_id = r.id AND roster.member_uid IS NOT NULL
+                 AND lower(roster.member_uid) = ANY($2::text[])
+            ))
+          LIMIT 1`,
+        [matchId, submittedUids],
+      );
+      if (duplicateUid.rows[0]) {
+        throw Object.assign(new Error("A player game UID is already registered for this tournament."), { status: 409 });
       }
       const countResult = await client.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
@@ -532,12 +563,13 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 401 });
       if (balance < match.entry_coins) throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), { status: 409 });
       const registrationResult = await client.query<{ id: string }>(
-        `INSERT INTO daily007_v2_registrations (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name, entry_coins_paid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        `INSERT INTO daily007_v2_registrations
+           (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name, entry_coins_paid, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') RETURNING id`,
         [matchId, account.id, captainName, captainGameName, captainGameUid, submittedTeamName, match.entry_coins],
       );
       const registrationId = registrationResult.rows[0].id;
-      if (TEAM_MODES.has(match.mode)) {
+      if (teammates.length > 0) {
         for (let position = 0; position < teammates.length; position++) {
           const teammate = teammates[position];
           await client.query(
@@ -557,9 +589,9 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       );
       const newCount = currentCount + 1;
       const full = newCount >= match.capacity;
-      const status = full && match.mode === "clash" ? "setup_needed" : full ? "full" : "open";
+      const matchStatus = full && match.mode === "clash" ? "setup_needed" : full ? "full" : "open";
       if (full) {
-        await client.query("UPDATE daily007_v2_matches SET status = $2, is_full = true WHERE id = $1", [matchId, status]);
+        await client.query("UPDATE daily007_v2_matches SET status = $2, is_full = true WHERE id = $1", [matchId, matchStatus]);
       }
       return {
         registrationId,
@@ -570,7 +602,8 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         registeredCount: newCount,
         capacity: match.capacity,
         isFull: full,
-        status,
+        status: "pending",
+        matchStatus,
         alreadyRegistered: false,
       };
     });

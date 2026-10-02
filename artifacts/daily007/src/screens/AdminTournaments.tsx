@@ -7,9 +7,15 @@ import { inr, COIN_RATE_TEXT } from '../lib/coins';
 const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
 
 function capacityFor(mode: string, teamType: string) {
-  if (mode === 'Clash Squad') return { slots: 2, label: '2 teams · 8 players' };
-  if (teamType === 'Squad') return { slots: 12, label: '12 teams · 48 players' };
-  return { slots: 48, label: '48 individual players' };
+  const size = teamType === 'Solo' ? 1 : teamType === 'Duo' ? 2 : 4;
+  if (mode === 'Battle Royale') {
+    if (teamType === 'Solo') return { slots: 48, label: '48 player slots' };
+    return {
+      slots: teamType === 'Duo' ? 24 : 12,
+      label: `${teamType === 'Duo' ? 24 : 12} team slots · 48 players`,
+    };
+  }
+  return { slots: 2, label: `2 team slots · ${size * 2} players` };
 }
 
 export default function AdminTournaments() {
@@ -80,23 +86,23 @@ export default function AdminTournaments() {
           <Text style={st.formH}>{editId ? 'EDIT TOURNAMENT' : 'CREATE TOURNAMENT'}</Text>
           <Input placeholder="Tournament name *" value={form.name} onChangeText={(v) => set('name', v)} />
           <Text style={st.lbl}>GAME MODE</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-            {['Battle Royale', 'Clash Squad'].map((m) => (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            {['Battle Royale', 'Clash Squad', 'Lone Wolf'].map((m) => (
               <Chip key={m} label={m} color={form.mode === m ? C.neon : C.sub} onPress={() => {
-                setForm((f: any) => ({ ...f, mode: m, teamType: m === 'Clash Squad' ? 'Squad' : f.teamType }));
+                setForm((f: any) => ({
+                  ...f,
+                  mode: m,
+                  banner: m === 'Battle Royale' ? 'br' : m === 'Clash Squad' ? 'cs' : 'lw',
+                }));
               }} />
             ))}
           </View>
-          {form.mode === 'Battle Royale' && (
-            <>
-              <Text style={st.lbl}>TEAM TYPE</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-                {['Solo', 'Squad'].map((m) => (
-                  <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
-                ))}
-              </View>
-            </>
-          )}
+          <Text style={st.lbl}>FORMAT</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+            {['Solo', 'Duo', 'Squad'].map((m) => (
+              <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
+            ))}
+          </View>
           <Input placeholder="Date (YYYY-MM-DD) *" value={form.date} onChangeText={(v) => set('date', v)} />
           <Text style={st.lbl}>TIME (12-HOUR)</Text>
           <TimePicker value={form.time} onChange={(v) => set('time', v)} />
@@ -113,8 +119,8 @@ export default function AdminTournaments() {
           <TextInput style={st.area} placeholder="Rules (one per line)" placeholderTextColor={C.sub} value={form.rules} onChangeText={(v) => set('rules', v)} multiline />
           <TextInput style={st.area} placeholder="Prize distribution (e.g. 1st: 500 coins)" placeholderTextColor={C.sub} value={form.prizeDist} onChangeText={(v) => set('prizeDist', v)} multiline />
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-            {['br', 'cs'].map((b) => (
-              <Chip key={b} label={b === 'br' ? '🔥 BR banner' : '💥 CS banner'} color={form.banner === b ? C.orange : C.sub} onPress={() => set('banner', b)} />
+            {['br', 'cs', 'lw'].map((b) => (
+              <Chip key={b} label={`${b.toUpperCase()} banner`} color={form.banner === b ? C.orange : C.sub} onPress={() => set('banner', b)} />
             ))}
           </View>
           <Btn title={editId ? '💾 SAVE CHANGES' : '＋ CREATE'} onPress={save} loading={busy} />
@@ -128,7 +134,7 @@ export default function AdminTournaments() {
             <Chip label={t.enabled ? 'ENABLED' : 'DISABLED'} color={t.enabled ? C.green : C.red} />
           </View>
           <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time}</Text>
-          <Text style={st.sub}>🪙 {t.entryCoins} ({inr(t.entryCoins)}) entry • 🏆 {t.prizePool} ({inr(t.prizePool)}) pool • {t.totalSlots} slots</Text>
+          <Text style={st.sub}>🪙 {t.entryCoins} ({inr(t.entryCoins)}) entry • 🏆 {t.prizePool} ({inr(t.prizePool)}) pool • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             <View style={{ flex: 1 }}><Btn title="✏️ EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
             <View style={{ flex: 1 }}><Btn title={t.enabled ? 'DISABLE' : 'ENABLE'} small kind="ghost" onPress={() => toggle(t)} /></View>

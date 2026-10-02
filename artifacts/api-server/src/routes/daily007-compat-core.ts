@@ -2,18 +2,14 @@ import { timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
+import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { authenticate, hashPassword, makeToken, requireAdmin } from "./daily007-v2";
 
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CAPACITY: Record<string, number> = { solo: 48, squad: 12, clash: 2 };
-const MODES: Record<string, { mode: string; teamType: string; legacyMode: string }> = {
-  solo: { mode: "solo", teamType: "Solo", legacyMode: "Battle Royale" },
-  squad: { mode: "squad", teamType: "Squad", legacyMode: "Battle Royale" },
-  clash: { mode: "clash", teamType: "Squad", legacyMode: "Clash Squad" },
-};
 type MatchRow = {
-  id: string; title: string; mode: string; capacity: number; entry_coins: number;
+  id: string; title: string; mode: string; game_mode?: string | null; team_type?: string | null;
+  capacity: number; entry_coins: number;
   prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
   rules: string; banner: string; prize_distribution: string; enabled: boolean;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
@@ -23,7 +19,8 @@ type RegistrationRow = {
   id: string; match_id: string; captain_user_id: string; captain_name: string;
   captain_game_name: string; captain_game_uid: string;
   team_name: string; entry_coins_paid: number; status: string; created_at: Date | string;
-  name?: string; email?: string; mode?: string; capacity?: number; starts_at?: Date | string;
+  name?: string; email?: string; mode?: string; game_mode?: string | null; team_type?: string | null;
+  capacity?: number; starts_at?: Date | string;
   match_entry_coins?: number;
   match_status?: string;
   title?: string; prize_pool?: number; rules?: string; banner?: string; prize_distribution?: string;
@@ -79,16 +76,7 @@ export function parseStart(date: unknown, time: unknown): Date | null {
 }
 
 export function legacyMode(body: Record<string, unknown>): string | null {
-  const mode = typeof body.mode === "string" ? body.mode.trim().toLowerCase() : "";
-  const teamType = typeof body.teamType === "string" ? body.teamType.trim().toLowerCase() : "";
-  if (mode === "clash squad" || mode === "clash" || mode === "clashsquad") return teamType === "squad" ? "clash" : null;
-  if (mode === "battle royale" || mode === "battleroyale" || mode === "battle-royale") {
-    if (teamType === "solo") return "solo";
-    if (teamType === "squad") return "squad";
-  }
-  // Clients that submit normalized v2 modes are also accepted.
-  if (mode in CAPACITY && (mode !== "clash" || teamType === "squad")) return mode;
-  return null;
+  return resolveTournamentMode(body.mode, body.teamType)?.storageMode ?? null;
 }
 
 export function referralSignupStatus(referralCode: string | null): "pending" | "none" {
@@ -130,26 +118,32 @@ function startsAsLegacy(value: Date | string): { date: string; time: string } {
 
 function tournament(row: MatchRow, includeRoomCredentials = false) {
   const { date, time } = startsAsLegacy(row.starts_at);
-  const mode = MODES[row.mode] ?? MODES.solo;
+  const mode = legacyTournamentMode(row.mode, row.game_mode, row.team_type);
   const filledSlots = Number(row.registered_count ?? 0);
   return {
     id: row.id,
     name: row.title,
-    mode: mode.legacyMode,
-    teamType: mode.teamType,
+    mode: mode.gameModeLabel,
+    gameMode: mode.gameMode,
+    teamType: mode.teamTypeLabel,
+    teamSize: mode.teamSize,
+    slotUnit: mode.slotUnit,
     date,
     time,
     startsAt: new Date(row.starts_at).toISOString(),
     entryCoins: row.entry_coins,
     prizePool: row.prize_pool,
     totalSlots: row.capacity,
+    totalPlayerSlots: row.capacity * mode.teamSize,
     rules: row.rules,
     banner: row.banner,
     prizeDist: row.prize_distribution,
     enabled: row.enabled,
     status: row.enabled ? row.status : "closed",
     filledSlots,
+    filledPlayerSlots: filledSlots * mode.teamSize,
     availableSlots: Math.max(0, row.capacity - filledSlots),
+    capacityLabel: tournamentModeCapacityLabel({ ...mode, capacity: row.capacity }),
     ...(includeRoomCredentials ? { roomId: row.room_id, roomPassword: row.room_password } : {}),
     roomTime: row.room_time,
     roomPublished: row.room_published,
@@ -165,7 +159,7 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
   }
   if (enabledOnly) clauses.push("m.enabled = true");
   const result = await pool.query<MatchRow>(
-    `SELECT m.id, m.title, m.mode, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
+    `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
             m.status, m.is_full, m.rules, m.banner, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS registered_count
@@ -320,7 +314,13 @@ router.get("/tournaments/:id", async (req, res): Promise<void> => {
 });
 
 function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
-  const mode = body.mode === undefined && fallback ? fallback.mode : legacyMode(body);
+  const previousMode = fallback
+    ? legacyTournamentMode(fallback.mode, fallback.game_mode, fallback.team_type)
+    : null;
+  const configuredMode = resolveTournamentMode(
+    body.mode === undefined ? previousMode?.gameMode : body.mode,
+    body.teamType === undefined ? previousMode?.teamType : body.teamType,
+  );
   const title = body.name === undefined && fallback ? fallback.title : nonempty(body.name, 100);
   const entryCoins = body.entryCoins === undefined && fallback ? fallback.entry_coins : body.entryCoins;
   const prizePool = body.prizePool === undefined && fallback ? fallback.prize_pool : body.prizePool;
@@ -337,11 +337,13 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
     startsAt = parseStart(body.date ?? existing?.date, body.time ?? existing?.time);
   } else if (fallback) startsAt = new Date(fallback.starts_at);
   if (body.enabled !== undefined && typeof body.enabled !== "boolean") return null;
-  if (!mode || !Object.hasOwn(CAPACITY, mode) || !title || !nonnegativeInt(entryCoins) ||
+  if (!configuredMode || !title || !nonnegativeInt(entryCoins) ||
       !nonnegativeInt(prizePool) || rules === null || !banner || prizeDistribution === null ||
       !startsAt || !Number.isFinite(startsAt.getTime()) || startsAt.getTime() <= Date.now()) return null;
   return {
-    mode, title, capacity: CAPACITY[mode], entryCoins, prizePool, startsAt,
+    mode: configuredMode.storageMode, gameMode: configuredMode.gameMode,
+    teamType: configuredMode.teamType, title, capacity: configuredMode.capacity,
+    entryCoins, prizePool, startsAt,
     rules, banner, prizeDistribution,
     enabled: body.enabled === undefined ? fallback?.enabled ?? true : body.enabled,
   };
@@ -354,12 +356,12 @@ router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
   if (!values) return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, and nonnegative integer coin values.");
   const result = await pool.query(
     `INSERT INTO daily007_v2_matches
-       (title, mode, capacity, entry_coins, prize_pool, starts_at, rules, banner, prize_distribution, enabled)
-     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-      WHERE $6::timestamptz > clock_timestamp()
+       (title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, rules, banner, prize_distribution, enabled)
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+      WHERE $8::timestamptz > clock_timestamp()
      RETURNING id`,
-    [values.title, values.mode, values.capacity, values.entryCoins, values.prizePool, values.startsAt,
-      values.rules, values.banner, values.prizeDistribution, values.enabled],
+    [values.title, values.mode, values.gameMode, values.teamType, values.capacity, values.entryCoins,
+      values.prizePool, values.startsAt, values.rules, values.banner, values.prizeDistribution, values.enabled],
   );
   if (!result.rows[0]) return fail(res, 400, "Tournament start time must still be in the future.");
   const created = await getMatches(result.rows[0].id as string);
@@ -374,7 +376,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
   try {
     const outcome = await transaction(async (client) => {
       const selected = await client.query<MatchRow>(
-        `SELECT id, title, mode, capacity, entry_coins, prize_pool, starts_at,
+        `SELECT id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at,
                 status, is_full, rules, banner, prize_distribution, enabled,
                 room_id, room_password, room_time, room_published, 0::integer AS registered_count
            FROM daily007_v2_matches WHERE id = $1 FOR UPDATE`,
@@ -389,19 +391,22 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
         [id],
       );
       const activeCount = Number(count.rows[0].count);
-      if (activeCount > values.capacity || (current.mode !== values.mode && activeCount > 0)) {
+      const currentMode = legacyTournamentMode(current.mode, current.game_mode, current.team_type);
+      if (activeCount > values.capacity ||
+          ((currentMode.gameMode !== values.gameMode || currentMode.teamType !== values.teamType) && activeCount > 0)) {
         return "capacity" as const;
       }
       const capacityState = matchCapacityState(values.mode, activeCount, values.capacity);
       const updated = await client.query<{ id: string }>(
         `UPDATE daily007_v2_matches
-            SET title = $2, mode = $3, capacity = $4, entry_coins = $5, prize_pool = $6,
-                starts_at = $7, rules = $8, banner = $9, prize_distribution = $10, enabled = $11,
-                is_full = $12, status = $13
-          WHERE id = $1 AND $7::timestamptz > clock_timestamp()
+            SET title = $2, mode = $3, game_mode = $4, team_type = $5, capacity = $6,
+                entry_coins = $7, prize_pool = $8, starts_at = $9, rules = $10, banner = $11,
+                prize_distribution = $12, enabled = $13, is_full = $14, status = $15
+          WHERE id = $1 AND $9::timestamptz > clock_timestamp()
           RETURNING id`,
-        [id, values.title, values.mode, values.capacity, values.entryCoins, values.prizePool,
-          values.startsAt, values.rules, values.banner, values.prizeDistribution, values.enabled,
+        [id, values.title, values.mode, values.gameMode, values.teamType, values.capacity,
+          values.entryCoins, values.prizePool, values.startsAt, values.rules, values.banner,
+          values.prizeDistribution, values.enabled,
           capacityState.isFull, capacityState.status],
       );
       // A time can pass while validation/locking is in progress.
@@ -452,7 +457,7 @@ function asTeamMembers(row: RegistrationRow, roster: { position: number; member_
 }
 
 function mayExposeRoom(row: RegistrationRow): boolean {
-  return Boolean(row.room_published && row.room_id && row.room_password && row.starts_at &&
+  return Boolean(row.status === "approved" && row.room_published && row.room_id && row.room_password && row.starts_at &&
     Date.now() >= new Date(row.starts_at).getTime() - 15 * 60 * 1000);
 }
 
@@ -461,7 +466,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
   if (!account) return fail(res, 401, "Authentication is required.");
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
-            r.entry_coins_paid, r.status, r.created_at, m.title, m.mode, m.capacity, m.starts_at,
+            r.entry_coins_paid, r.status, r.created_at, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.starts_at,
             m.entry_coins AS match_entry_coins, m.status AS match_status,
             m.prize_pool, m.rules, m.banner, m.prize_distribution, m.enabled, m.is_full,
             m.room_id, m.room_password, m.room_time, m.room_published,
@@ -470,7 +475,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
               WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) AS registered_count
        FROM daily007_v2_registrations r JOIN daily007_v2_matches m ON m.id = r.match_id
        LEFT JOIN daily007_v2_result_awards award ON award.registration_id = r.id
-      WHERE r.captain_user_id = $1 AND r.status = 'approved'
+       WHERE r.captain_user_id = $1
       ORDER BY r.created_at DESC`,
     [account.id],
   );
@@ -487,7 +492,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
     } as MatchRow, expose);
     const roster = await getRoster(row.id);
     return {
-      id: row.id, tournamentId: row.match_id, status: "approved",
+      id: row.id, tournamentId: row.match_id, status: row.status,
       playerName: row.captain_name, captainGameName: row.captain_game_name,
       gameUid: row.captain_game_uid, teamName: row.team_name,
       teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",
@@ -509,7 +514,7 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
   if (!requireAdmin(req, res)) return;
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
-            r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode
+            r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode, m.game_mode, m.team_type
        FROM daily007_v2_registrations r
        JOIN daily007_v2_users u ON u.id = r.captain_user_id
        JOIN daily007_v2_matches m ON m.id = r.match_id
@@ -517,10 +522,12 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
   );
   const data = await Promise.all(result.rows.map(async (row) => {
     const roster = await getRoster(row.id);
+    const mode = legacyTournamentMode(row.mode ?? "solo", row.game_mode, row.team_type);
     return {
       id: row.id, tournamentId: row.match_id, tournamentName: row.title,
-      mode: MODES[row.mode ?? "solo"]?.legacyMode ?? row.mode,
-      teamType: MODES[row.mode ?? "solo"]?.teamType,
+      mode: mode.gameModeLabel,
+      gameMode: mode.gameMode,
+      teamType: mode.teamTypeLabel,
       status: row.status, playerName: row.captain_name, captainGameName: row.captain_game_name,
       gameUid: row.captain_game_uid,
       teamName: row.team_name, teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",

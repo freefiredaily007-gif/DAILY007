@@ -39,6 +39,8 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),
   mode: text("mode").notNull(),
+  gameMode: text("game_mode"),
+  teamType: text("team_type"),
   capacity: integer("capacity").notNull(),
   entryCoins: integer("entry_coins").notNull().default(0),
   prizePool: integer("prize_pool").notNull().default(0),
@@ -56,10 +58,29 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_matches_mode_valid", sql`${table.mode} IN ('solo', 'squad', 'clash')`),
+  check("daily007_v2_matches_game_mode_valid", sql`
+    (${table.gameMode} IS NULL AND ${table.teamType} IS NULL) OR
+    (${table.gameMode} IS NOT NULL AND ${table.teamType} IS NOT NULL AND
+     ${table.gameMode} IN ('battle_royale', 'clash_squad', 'lone_wolf') AND
+     ${table.teamType} IN ('solo', 'duo', 'squad') AND
+     ((${table.gameMode} = 'battle_royale' AND
+        ((${table.teamType} = 'solo' AND ${table.mode} = 'solo') OR
+         (${table.teamType} IN ('duo', 'squad') AND ${table.mode} = 'squad'))) OR
+      (${table.gameMode} IN ('clash_squad', 'lone_wolf') AND ${table.mode} = 'clash')))
+  `),
   check("daily007_v2_matches_capacity_valid", sql`
-    (${table.mode} = 'solo' AND ${table.capacity} = 48) OR
-    (${table.mode} = 'squad' AND ${table.capacity} = 12) OR
-    (${table.mode} = 'clash' AND ${table.capacity} = 2)
+    (${table.gameMode} IS NULL AND ${table.teamType} IS NULL AND (
+      (${table.mode} = 'solo' AND ${table.capacity} = 48) OR
+      (${table.mode} = 'squad' AND ${table.capacity} = 12) OR
+      (${table.mode} = 'clash' AND ${table.capacity} = 2)
+    )) OR
+    (${table.gameMode} IS NOT NULL AND ${table.teamType} IS NOT NULL AND
+     ${table.gameMode} = 'battle_royale' AND
+      ((${table.teamType} = 'solo' AND ${table.capacity} = 48) OR
+       (${table.teamType} = 'duo' AND ${table.capacity} = 24) OR
+       (${table.teamType} = 'squad' AND ${table.capacity} = 12))) OR
+    (${table.gameMode} IS NOT NULL AND ${table.teamType} IS NOT NULL AND
+     ${table.gameMode} IN ('clash_squad', 'lone_wolf') AND ${table.capacity} = 2)
   `),
   check("daily007_v2_matches_entry_nonnegative", sql`${table.entryCoins} >= 0`),
   check("daily007_v2_matches_status_valid", sql`${table.status} IN ('open', 'full', 'setup_needed')`),
@@ -79,7 +100,7 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   captainGameUid: text("captain_game_uid").notNull(),
   teamName: text("team_name").notNull().default(""),
   entryCoinsPaid: integer("entry_coins_paid").notNull(),
-  status: text("status").notNull().default("approved"),
+  status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   unique("daily007_v2_registration_once_per_account").on(table.matchId, table.captainUserId),

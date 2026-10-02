@@ -13,8 +13,10 @@ test("legacy tournament modes map to the fixed v2 mode capacities", () => {
   assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Solo" }), "solo");
   assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Squad" }), "squad");
   assert.equal(legacyMode({ mode: "Clash Squad", teamType: "Squad" }), "clash");
-  assert.equal(legacyMode({ mode: "Clash Squad", teamType: "Solo" }), null);
-  assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Duo" }), null);
+  assert.equal(legacyMode({ mode: "Clash Squad", teamType: "Solo" }), "clash");
+  assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Duo" }), "squad");
+  assert.equal(legacyMode({ mode: "Clash Squad", teamType: "Duo" }), "clash");
+  assert.equal(legacyMode({ mode: "Lone Wolf", teamType: "Solo" }), "clash");
 });
 
 test("legacy date and time inputs are validated and stored as future UTC instants", () => {

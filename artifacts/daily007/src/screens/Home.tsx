@@ -58,7 +58,7 @@ export default function Home() {
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const goStack = (k: string) => {
     if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
-    else if (k.startsWith('mode:')) nav.navigate('Tournaments', { mode: k.slice(5) });
+    else if (k.startsWith('mode:')) nav.navigate('ModeSubmodes', { gameMode: k.slice(5) });
   };
   const load = useCallback(async () => {
     try {
@@ -214,15 +214,15 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
-        { img: modeSquadLogo, category: 'CLASSIC SURVIVAL', title: 'BATTLE ROYALE', capacity: 'SOLO & SQUAD MATCHES', mode: 'Battle Royale', accent: C.gold },
-        { img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: '4V4 MATCHES', mode: 'Clash Squad', accent: C.neon },
-        { img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: '1V1 MATCHES', mode: 'Lone Wolf', accent: C.purple },
+        { img: modeSquadLogo, category: 'CLASSIC SURVIVAL', title: 'BATTLE ROYALE', capacity: 'SOLO · DUO · SQUAD', mode: 'Battle Royale', gameMode: 'battle_royale', accent: C.gold },
+        { img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: 'SOLO · DUO · SQUAD', mode: 'Clash Squad', gameMode: 'clash_squad', accent: C.neon },
+        { img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: 'SOLO · DUO · SQUAD', mode: 'Lone Wolf', gameMode: 'lone_wolf', accent: C.purple },
       ].map((m) => (
         <GCard
           key={m.mode}
-          onPress={() => nav.navigate('Tournaments', { mode: m.mode })}
-          accessibilityLabel={`View ${m.mode} tournaments`}
-          accessibilityHint="Opens the tournament list for this game mode"
+          onPress={() => nav.navigate('ModeSubmodes', { gameMode: m.gameMode })}
+          accessibilityLabel={`Choose a ${m.mode} tournament format`}
+          accessibilityHint="Opens the Solo, Duo, and Squad options"
           testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
           glowColor={m.accent}
           style={[s.modeCard, { borderLeftColor: m.accent }]}
