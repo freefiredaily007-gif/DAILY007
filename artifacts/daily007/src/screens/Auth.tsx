@@ -132,7 +132,7 @@ const s = StyleSheet.create({
   wrap: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 32, paddingBottom: 36 },
   logo: { alignItems: 'center', marginBottom: 24 },
   logoIcon: { width: 84, height: 84, borderRadius: 18 },
-  logoText: { color: C.text, fontSize: 23, fontWeight: '900', letterSpacing: 3, marginTop: 8 },
+  logoText: { color: C.text, fontSize: 23, fontWeight: '900', letterSpacing: 2, marginTop: 8 },
   logoSub: { color: C.sub, marginTop: 4, fontSize: 13 },
   tabs: { flexDirection: 'row', backgroundColor: C.bg2, borderRadius: 12, padding: 4, marginBottom: 18 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: 'center' },
