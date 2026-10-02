@@ -96,7 +96,10 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
               const active = screen === n.key;
               return (
                 <Pressable key={n.key} onPress={() => setScreen(n.key)} style={[st.navItem, active && st.navActive]}>
-                  <Feather name={n.icon} size={15} color={active ? A.orange : A.sub} />
+                  <View style={[st.navIcon, active && st.navIconActive]}>
+                    {active && <View style={st.navIconGlow} />}
+                    <Feather name={n.icon} size={19} color={active ? A.gold : A.sub} />
+                  </View>
                   <Text style={[st.navLabel, active && st.navLabelActive]}>{n.label}</Text>
                 </Pressable>
               );
@@ -127,10 +130,13 @@ const st = StyleSheet.create({
   liveTxt: { color: A.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.9, fontFamily: 'Inter_700Bold' },
   logoutBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,75,54,0.08)', borderWidth: 1, borderColor: 'rgba(255,75,54,0.23)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
   logoutTxt: { color: A.red, fontSize: 8, fontWeight: '900', letterSpacing: 0.6, fontFamily: 'Inter_700Bold' },
-  navWrap: { borderTopWidth: 1, borderTopColor: A.border, backgroundColor: '#0c1016' },
-  nav: { paddingHorizontal: 8, paddingVertical: 6, gap: 3 },
-  navItem: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, minWidth: 58 },
-  navActive: { backgroundColor: 'rgba(255,122,26,0.09)', borderWidth: 1, borderColor: 'rgba(255,122,26,0.28)' },
-  navLabel: { color: A.sub, fontSize: 8, fontWeight: '700', marginTop: 3, letterSpacing: 0.2, fontFamily: 'Inter_500Medium' },
+  navWrap: { borderTopWidth: 1, borderTopColor: '#2a3558', backgroundColor: '#0d1220ee', shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
+  nav: { paddingHorizontal: 8, paddingVertical: 6, gap: 4 },
+  navItem: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, minWidth: 66, borderWidth: 1, borderColor: 'transparent' },
+  navActive: { backgroundColor: 'rgba(255,176,32,0.08)', borderColor: 'rgba(255,176,32,0.3)' },
+  navIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
+  navIconActive: { backgroundColor: 'rgba(255,176,32,0.14)', borderColor: 'rgba(255,176,32,0.42)', shadowColor: A.gold, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  navIconGlow: { position: 'absolute', width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,176,32,0.14)' },
+  navLabel: { color: A.sub, fontSize: 8.5, fontWeight: '700', marginTop: 3, letterSpacing: 0.25, fontFamily: 'Inter_500Medium' },
   navLabelActive: { color: A.gold, fontFamily: 'Inter_700Bold' },
 });
