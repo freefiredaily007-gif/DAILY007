@@ -603,8 +603,8 @@ router.get("/admin/stats", authenticate, async (req, res): Promise<void> => {
     `SELECT
        (SELECT count(*)::int FROM daily007_v2_users) AS "totalUsers",
         (SELECT count(*)::int FROM daily007_v2_matches m
-          WHERE (m.enabled = true AND m.starts_at > clock_timestamp())
-             OR (m.starts_at <= clock_timestamp()
+          WHERE (m.enabled = true AND m.starts_at > clock_timestamp() + interval '5 hours 30 minutes')
+             OR (m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes'
                  AND NOT (m.enabled = false AND EXISTS (
                    SELECT 1 FROM daily007_v2_result_awards a
                     WHERE a.match_id = m.id AND a.rank = 1
@@ -1133,7 +1133,7 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         has_started: boolean;
       }>(
         `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution,
-                m.starts_at <= clock_timestamp() AS has_started
+                m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started
            FROM daily007_v2_registrations r
            JOIN daily007_v2_matches m ON m.id = r.match_id
           WHERE r.id = $1 AND m.id = $2 AND r.status = 'approved'

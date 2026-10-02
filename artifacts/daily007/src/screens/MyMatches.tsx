@@ -107,7 +107,7 @@ export default function MyMatches() {
                       color={matchFinished ? C.gold : lifecycle === 'ongoing' ? C.red : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
                     />
                 </View>
-                <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>
+                <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)} IST</Text>
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
                 {canEditTeam ? (
                   <Btn

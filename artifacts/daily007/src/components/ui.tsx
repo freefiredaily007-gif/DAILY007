@@ -301,7 +301,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
       </View>
       <View style={mc.sep} />
       <View style={mc.metaRow}>
-        <Text style={mc.meta}>📅 {fmtDate(t?.date)}{t?.time ? ` • ${fmtTime12(t.time)}` : ''}</Text>
+        <Text style={mc.meta}>📅 {fmtDate(t?.date)}{t?.time ? ` • ${fmtTime12(t.time)} IST` : ''}</Text>
         <Text style={mc.meta}>{filled}/{total} {slotUnit}</Text>
       </View>
       <View style={mc.statRow}>

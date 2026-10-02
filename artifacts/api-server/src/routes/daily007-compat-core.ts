@@ -3,6 +3,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
+import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { authenticate, hashPassword, makeToken, requireTournamentAdmin } from "./daily007-v2";
 
 const router: IRouter = Router();
@@ -76,7 +77,8 @@ export function parseStart(date: unknown, time: unknown): Date | null {
     minute = Number(twentyFourHour[2]);
   } else return null;
   const value = new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00.000Z`);
-  if (!Number.isFinite(value.getTime()) || value.toISOString().slice(0, 10) !== date || value.getTime() <= Date.now()) return null;
+  if (!Number.isFinite(value.getTime()) || value.toISOString().slice(0, 10) !== date ||
+      !isTournamentStartInFuture(value)) return null;
   return value;
 }
 
@@ -147,7 +149,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     slotUnit: mode.slotUnit,
     date,
     time,
-    startsAt: new Date(row.starts_at).toISOString(),
+    startsAt: tournamentInstantFromStored(row.starts_at).toISOString(),
     entryCoins: row.entry_coins,
     prizePool: row.prize_pool,
     totalSlots: row.capacity,
@@ -179,7 +181,7 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
     `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
             m.status, m.is_full, m.rules, m.banner, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
-            m.starts_at <= clock_timestamp() AS has_started,
+            m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
             EXISTS (
               SELECT 1 FROM daily007_v2_result_awards award
                WHERE award.match_id = m.id AND award.rank = 1
@@ -361,7 +363,7 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   if (body.enabled !== undefined && typeof body.enabled !== "boolean") return null;
   if (!configuredMode || !title || !nonnegativeInt(entryCoins) ||
       !nonnegativeInt(prizePool) || rules === null || !banner || prizeDistribution === null ||
-      !startsAt || !Number.isFinite(startsAt.getTime()) || startsAt.getTime() <= Date.now()) return null;
+      !startsAt || !Number.isFinite(startsAt.getTime()) || !isTournamentStartInFuture(startsAt)) return null;
   return {
     mode: configuredMode.storageMode, gameMode: configuredMode.gameMode,
     teamType: configuredMode.teamType, title, capacity: configuredMode.capacity,
@@ -380,7 +382,7 @@ router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
     `INSERT INTO daily007_v2_matches
        (title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, rules, banner, prize_distribution, enabled)
      SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-      WHERE $8::timestamptz > clock_timestamp()
+       WHERE $8::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
      RETURNING id`,
     [values.title, values.mode, values.gameMode, values.teamType, values.capacity, values.entryCoins,
       values.prizePool, values.startsAt, values.rules, values.banner, values.prizeDistribution, values.enabled],
@@ -424,7 +426,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
             SET title = $2, mode = $3, game_mode = $4, team_type = $5, capacity = $6,
                 entry_coins = $7, prize_pool = $8, starts_at = $9, rules = $10, banner = $11,
                 prize_distribution = $12, enabled = $13, is_full = $14, status = $15
-          WHERE id = $1 AND $9::timestamptz > clock_timestamp()
+          WHERE id = $1 AND $9::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
           RETURNING id`,
         [id, values.title, values.mode, values.gameMode, values.teamType, values.capacity,
           values.entryCoins, values.prizePool, values.startsAt, values.rules, values.banner,
@@ -485,7 +487,7 @@ function asTeamMembers(row: RegistrationRow, roster: { position: number; member_
 
 function mayExposeRoom(row: RegistrationRow): boolean {
   return Boolean(row.status === "approved" && row.room_published && row.room_id && row.room_password && row.starts_at &&
-    Date.now() >= new Date(row.starts_at).getTime() - 15 * 60 * 1000);
+    Date.now() >= tournamentInstantFromStored(row.starts_at).getTime() - 15 * 60 * 1000);
 }
 
 router.get("/my/registrations", authenticate, async (req, res): Promise<void> => {
@@ -497,7 +499,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
             m.entry_coins AS match_entry_coins, m.status AS match_status,
             m.prize_pool, m.rules, m.banner, m.prize_distribution, m.enabled, m.is_full,
             m.room_id, m.room_password, m.room_time, m.room_published,
-            m.starts_at <= clock_timestamp() AS match_has_started,
+            m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS match_has_started,
             EXISTS (
               SELECT 1 FROM daily007_v2_result_awards match_award
                WHERE match_award.match_id = m.id AND match_award.rank = 1
@@ -670,7 +672,7 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     if (!registration) return { kind: "missing" as const };
     if (!["approved", "pending"].includes(registration.status) || !match.enabled ||
         ["live", "closed", "cancelled", "completed"].includes(match.status) || match.has_result ||
-        !isTeamEditWindowOpen(match.starts_at, match.database_now)) {
+        !isTeamEditWindowOpen(tournamentInstantFromStored(match.starts_at), match.database_now)) {
       return { kind: "locked" as const };
     }
 
@@ -702,7 +704,7 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
             SELECT 1 FROM daily007_v2_matches m
              WHERE m.id = r.match_id AND m.enabled = true
                AND m.status NOT IN ('live', 'closed', 'cancelled', 'completed')
-               AND m.starts_at > clock_timestamp() + interval '30 minutes'
+                AND m.starts_at > clock_timestamp() + interval '6 hours'
                AND NOT EXISTS (
                  SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id
                )

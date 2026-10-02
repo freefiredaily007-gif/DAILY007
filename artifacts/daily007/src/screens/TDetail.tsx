@@ -62,7 +62,7 @@ export default function TDetail() {
           <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={s.mode}>{(t.mode || 'BATTLE ROYALE').toUpperCase()}</Text>
             <Text style={s.name}>{t.name || t.title}</Text>
-            <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)}</Text>
+            <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)} IST</Text>
           </View>
           <Badge text={st.label} color={st.color} />
         </View>

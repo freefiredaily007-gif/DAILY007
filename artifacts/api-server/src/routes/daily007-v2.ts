@@ -5,6 +5,7 @@ import { pool } from "@workspace/db";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007-v2-validation";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mode-rules";
+import { storedTournamentTimeFromInstant, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { hasTournamentAdminAccess, isFullAdminRole, type Daily007Role } from "../lib/daily007-roles";
 
 const scrypt = promisify(scryptCallback);
@@ -329,7 +330,12 @@ router.get("/daily007/v2/matches", async (_req, res): Promise<void> => {
       GROUP BY m.id
       ORDER BY m.starts_at ASC`,
   );
-  res.json({ matches: result.rows });
+  res.json({
+    matches: result.rows.map((row: any) => ({
+      ...row,
+      startsAt: tournamentInstantFromStored(row.startsAt).toISOString(),
+    })),
+  });
 });
 
 router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promise<void> => {
@@ -344,7 +350,8 @@ router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promis
     body.gameMode ?? body.mode,
     body.teamType ?? (body.mode === "clash" ? "squad" : undefined),
   );
-  const startsAt = parseFutureTimestamp(body.startsAt);
+  const parsedStart = parseFutureTimestamp(body.startsAt);
+  const startsAt = parsedStart ? storedTournamentTimeFromInstant(parsedStart) : null;
   const entryCoins = body.entryCoins === undefined ? 0 : body.entryCoins;
   if (!title || !configuredMode ||
       !startsAt || !Number.isInteger(entryCoins) ||
@@ -355,7 +362,7 @@ router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promis
   const result = await pool.query(
     `INSERT INTO daily007_v2_matches (title, mode, game_mode, team_type, capacity, starts_at, entry_coins)
      SELECT $1, $2, $3, $4, $5, $6, $7
-      WHERE $6::timestamptz > clock_timestamp()
+       WHERE $6::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
      RETURNING id, title, mode, game_mode AS "gameMode", team_type AS "teamType",
                capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
     [title, configuredMode.storageMode, configuredMode.gameMode, configuredMode.teamType,
@@ -365,7 +372,13 @@ router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promis
     fail(res, 400, "startsAt must be in the future when the match is created.");
     return;
   }
-  res.status(201).json({ match: result.rows[0] });
+   const match = result.rows[0] as Record<string, unknown>;
+   res.status(201).json({
+     match: {
+       ...match,
+       startsAt: tournamentInstantFromStored(match.startsAt as Date | string).toISOString(),
+     },
+   });
 });
 
 router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): Promise<void> => {
@@ -382,7 +395,8 @@ router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): P
   }
   const hasEntryCoins = Object.hasOwn(body, "entryCoins");
   const hasStartsAt = Object.hasOwn(body, "startsAt");
-  const startsAt = hasStartsAt ? parseFutureTimestamp(body.startsAt) : null;
+  const parsedStart = hasStartsAt ? parseFutureTimestamp(body.startsAt) : null;
+  const startsAt = parsedStart ? storedTournamentTimeFromInstant(parsedStart) : null;
   if ((!hasEntryCoins && !hasStartsAt) ||
       (hasEntryCoins && (typeof body.entryCoins !== "number" ||
         !Number.isInteger(body.entryCoins) || body.entryCoins < 0 ||
@@ -395,7 +409,7 @@ router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): P
     `UPDATE daily007_v2_matches
         SET entry_coins = COALESCE($2, entry_coins),
             starts_at = COALESCE($3, starts_at)
-      WHERE id = $1 AND COALESCE($3::timestamptz, starts_at) > clock_timestamp()
+      WHERE id = $1 AND COALESCE($3::timestamptz, starts_at) > clock_timestamp() + interval '5 hours 30 minutes'
      RETURNING id, title, mode, capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
     [id, hasEntryCoins ? body.entryCoins : null, startsAt],
   );
@@ -405,7 +419,13 @@ router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): P
       exists.rows[0] ? "startsAt must be in the future when the match is updated." : "Match not found.");
     return;
   }
-  res.json({ match: result.rows[0] });
+  const match = result.rows[0] as Record<string, unknown>;
+  res.json({
+    match: {
+      ...match,
+      startsAt: tournamentInstantFromStored(match.startsAt as Date | string).toISOString(),
+    },
+  });
 });
 
 router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], authenticate, async (req, res): Promise<void> => {
@@ -493,7 +513,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       }
 
       const upcoming = await client.query<{ upcoming: boolean }>(
-        "SELECT starts_at > clock_timestamp() AS upcoming FROM daily007_v2_matches WHERE id = $1",
+        "SELECT starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS upcoming FROM daily007_v2_matches WHERE id = $1",
         [matchId],
       );
       if (!upcoming.rows[0]?.upcoming) {
@@ -746,7 +766,7 @@ router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Prom
     fail(res, 404, "Room credentials have not been published.");
     return;
   }
-  if (Date.now() < new Date(match.starts_at).getTime() - 15 * 60 * 1000) {
+  if (Date.now() < tournamentInstantFromStored(match.starts_at).getTime() - 15 * 60 * 1000) {
     fail(res, 403, "Room credentials become available 15 minutes before the match starts.");
     return;
   }

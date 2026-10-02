@@ -136,7 +136,7 @@ export default function AdminResults({
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
             <Text style={st.tName}>{t.name}</Text>
-            <Text style={st.sub}>{t.date} • {t.time} • {lifecycle.toUpperCase()}</Text>
+            <Text style={st.sub}>{t.date} • {t.time} IST • {lifecycle.toUpperCase()}</Text>
             <View style={{ marginTop: 8 }}>
               <Btn
                 title={lifecycle === 'completed' ? 'ADD PLACEMENT →' : lifecycle === 'ongoing' ? 'ADD RESULT →' : 'WAIT FOR START'}

@@ -138,8 +138,8 @@ export default function AdminTournaments({
               <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
             ))}
           </View>
-          <Input placeholder="Date (YYYY-MM-DD) *" value={form.date} onChangeText={(v) => set('date', v)} />
-          <Text style={st.lbl}>TIME (12-HOUR)</Text>
+          <Input placeholder="Date (YYYY-MM-DD, IST) *" value={form.date} onChangeText={(v) => set('date', v)} />
+          <Text style={st.lbl}>TIME (IST · 12-HOUR)</Text>
           <TimePicker variant="admin" value={form.time} onChange={(v) => set('time', v)} />
           <Text style={st.lbl}>ENTRY FEE & PRIZE ({COIN_RATE_TEXT})</Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -173,7 +173,7 @@ export default function AdminTournaments({
               <Text style={st.tName}>{t.name}</Text>
               <Chip label={statusLabel} color={finished ? C.gold : ongoing ? C.red : t.enabled ? C.green : C.red} />
             </View>
-            <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time}</Text>
+            <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time} IST</Text>
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>

@@ -11,6 +11,11 @@ import {
   parseStart,
   referralSignupStatus,
 } from "../src/routes/daily007-compat-core.ts";
+import {
+  isTournamentStartInFuture,
+  storedTournamentTimeFromInstant,
+  tournamentInstantFromStored,
+} from "../src/lib/daily007-schedule-time.ts";
 
 test("legacy tournament modes map to the fixed v2 mode capacities", () => {
   assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Solo" }), "solo");
@@ -22,9 +27,17 @@ test("legacy tournament modes map to the fixed v2 mode capacities", () => {
   assert.equal(legacyMode({ mode: "Lone Wolf", teamType: "Solo" }), "clash");
 });
 
-test("legacy date and time inputs are validated and stored as future UTC instants", () => {
-  assert.equal(parseStart("2999-03-15", "08:00 PM")?.toISOString(), "2999-03-15T20:00:00.000Z");
+test("tournament wall times use IST while timestamps convert to the correct instant", () => {
+  const storedWallTime = parseStart("2999-03-15", "08:00 PM");
+  assert.equal(storedWallTime?.toISOString(), "2999-03-15T20:00:00.000Z");
   assert.equal(parseStart("2999-03-15", "20:00")?.toISOString(), "2999-03-15T20:00:00.000Z");
+  assert.equal(tournamentInstantFromStored(storedWallTime!).toISOString(), "2999-03-15T14:30:00.000Z");
+  assert.equal(
+    storedTournamentTimeFromInstant(new Date("2999-03-15T14:30:00.000Z")).toISOString(),
+    storedWallTime?.toISOString(),
+  );
+  assert.equal(isTournamentStartInFuture(storedWallTime!, Date.parse("2999-03-15T14:29:59.999Z")), true);
+  assert.equal(isTournamentStartInFuture(storedWallTime!, Date.parse("2999-03-15T14:30:00.000Z")), false);
   assert.equal(parseStart("2999-02-30", "08:00 PM"), null);
   assert.equal(parseStart("2999-03-15", "25:00"), null);
   assert.equal(parseStart("2000-01-01", "08:00 PM"), null);

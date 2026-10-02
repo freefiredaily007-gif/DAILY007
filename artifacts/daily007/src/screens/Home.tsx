@@ -207,7 +207,7 @@ export default function Home() {
               <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
             </View>
             <View style={{ padding: 12 }}>
-              <Text style={s.mSub}>{t.teamType ?? ''} • {fmtDate(t.date)} • {fmtTime(t.time)}</Text>
+              <Text style={s.mSub}>{t.teamType ?? ''} • {fmtDate(t.date)} • {fmtTime(t.time)} IST</Text>
               <View style={s.mStats}>
                 <View style={s.mStat}>
                   <Text style={s.mStatL}>ENTRY</Text>
