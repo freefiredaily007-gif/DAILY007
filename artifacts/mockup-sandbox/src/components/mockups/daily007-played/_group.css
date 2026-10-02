@@ -1,0 +1,212 @@
+:root {
+  --d7-bg: #070a12;
+  --d7-panel: #0b1020;
+  --d7-border: #1e2745;
+  --d7-text: #eef1f8;
+  --d7-sub: #9aa3b8;
+  --d7-dim: #5b6478;
+  --d7-gold: #ffb020;
+  --d7-green: #2ecc71;
+}
+
+.d7-played-frame,
+.d7-played-frame * {
+  box-sizing: border-box;
+}
+
+.d7-played-frame {
+  min-height: 100%;
+  padding: 18px;
+  color: var(--d7-text);
+  background: var(--d7-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.d7-results-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--d7-border);
+  border-radius: 14px;
+  background: var(--d7-panel);
+}
+
+.d7-results-title {
+  margin: 0 0 4px;
+  color: var(--d7-gold);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+}
+
+.d7-current-result {
+  margin: 8px 0 0;
+  color: var(--d7-gold);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.d7-winner-row {
+  display: grid;
+  grid-template-columns: 38px 46px minmax(0, 1fr) 72px;
+  align-items: center;
+  column-gap: 9px;
+  min-height: 82px;
+  padding: 10px 0;
+  border-bottom: 1px solid #343842;
+}
+
+.d7-winner-row:last-child {
+  border-bottom: 0;
+}
+
+.d7-rank-medal {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 3px solid rgba(255, 255, 255, 0.42);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.12);
+}
+
+.d7-rank-medal--gold {
+  background: radial-gradient(circle at 35% 28%, #fff0a7, #f6bb17 56%, #d99100);
+  color: #614000;
+}
+
+.d7-rank-medal--silver {
+  background: radial-gradient(circle at 35% 28%, #fff, #cbd0d6 56%, #8f959d);
+  color: #58616d;
+}
+
+.d7-rank-medal--bronze {
+  background: radial-gradient(circle at 35% 28%, #ffd0a5, #c77b48 56%, #8f4a28);
+  color: #542c16;
+}
+
+.d7-avatar {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.d7-avatar--coral {
+  background: #e94721;
+}
+
+.d7-avatar--brown {
+  background: #65423b;
+}
+
+.d7-winner-identity {
+  min-width: 0;
+}
+
+.d7-winner-name {
+  overflow: hidden;
+  color: var(--d7-text);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.d7-profile-name {
+  overflow: hidden;
+  margin-top: 5px;
+  color: #848994;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.25px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d7-kills {
+  margin-top: 3px;
+  color: var(--d7-dim);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+}
+
+.d7-prize {
+  min-width: 0;
+  text-align: right;
+}
+
+.d7-prize-amount {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  color: var(--d7-green);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.d7-coin {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border: 2px solid #ffcc42;
+  border-radius: 50%;
+  background: #e79b00;
+  color: #fff3ad;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.d7-prize-label {
+  margin-top: 7px;
+  color: #848994;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 360px) {
+  .d7-played-frame {
+    padding: 12px;
+  }
+
+  .d7-results-panel {
+    padding: 10px;
+  }
+
+  .d7-winner-row {
+    grid-template-columns: 34px 40px minmax(0, 1fr) 64px;
+    column-gap: 7px;
+  }
+
+  .d7-rank-medal {
+    width: 32px;
+    height: 32px;
+  }
+
+  .d7-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 21px;
+  }
+
+  .d7-winner-name {
+    font-size: 12px;
+  }
+
+  .d7-prize-amount {
+    font-size: 18px;
+  }
+}

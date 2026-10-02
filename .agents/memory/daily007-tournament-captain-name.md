@@ -8,3 +8,9 @@ description: Product rule for the captain name shown and submitted during tourna
 **Why:** The user asked to replace the separate captain real-name entry with the application profile name.
 
 **How to apply:** Keep the read-only display sourced from the current Daily007 user profile and submit that same value as the captain's player name.
+
+**Played-match results:** Show the Free Fire game name as the prominent winner name, the Daily007 profile name beneath it, and retain rank, avatar initial, kills, and prize coins in the row.
+
+**Why:** The user provided a played-match screenshot as the reference for winner-name presentation.
+
+**How to apply:** Use `gameName` for the primary line and `playerName` for the secondary line when both are available.
