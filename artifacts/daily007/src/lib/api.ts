@@ -94,7 +94,7 @@ async function authenticate(path: string, body: object): Promise<{ user: User; t
 
 export const Api = {
   // auth
-  register: (b: { name: string; email: string; phone: string; password: string; gameUid?: string; referralCode?: string }) =>
+  register: (b: { name: string; email: string; phone?: string; password: string; gameUid?: string; referralCode?: string }) =>
     authenticate('/auth/register', b),
   login: (b: { email: string; password: string }) => authenticate('/auth/login', b),
   googleAuth: async (clerkJwt: string, options: { dailyToken?: string; referralCode?: string } = {}) => {

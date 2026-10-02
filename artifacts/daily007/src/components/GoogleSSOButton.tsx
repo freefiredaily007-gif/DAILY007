@@ -96,7 +96,6 @@ function ConfiguredGoogleButton({
       // it rather than starting a second OAuth flow, which Clerk rejects.
       const existingSession = getClerkInstance().session;
       let expectedSessionId: string | null | undefined = existingSession?.id;
-      let isNewSignup = false;
 
       if (!existingSession) {
         const redirectUrl = Platform.OS === 'web'
@@ -108,8 +107,6 @@ function ConfiguredGoogleButton({
         });
 
         expectedSessionId = sso.createdSessionId;
-        isNewSignup = !!sso.createdSessionId
-          && sso.signUp?.createdSessionId === sso.createdSessionId;
         if (!expectedSessionId) {
           const resultType = sso.authSessionResult?.type;
           if (resultType === 'cancel' || resultType === 'dismiss') return;
@@ -144,7 +141,7 @@ function ConfiguredGoogleButton({
 
       const authenticated = await Api.googleAuth(clerkJwt, {
         ...(dailyToken ? { dailyToken } : {}),
-        ...(isNewSignup && referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
+        ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
       });
       setSession(authenticated.user);
       await onSuccess(authenticated.user);
