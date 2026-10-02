@@ -22,6 +22,7 @@ export default function Wallet() {
   const [showSheet, setShowSheet] = useState(false);
   const [tab, setTab] = useState<'add' | 'withdraw'>('add');
   const [amount, setAmount] = useState('');
+  const [payerUpiId, setPayerUpiId] = useState('');
   const [txnId, setTxnId] = useState('');
   const [account, setAccount] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -120,7 +121,7 @@ export default function Wallet() {
       setError('Withdrawals are currently disabled by the administrator.');
       return;
     }
-    setOk(''); setError(''); setAmount(''); setTxnId(''); setAccount(''); setProof(null);
+    setOk(''); setError(''); setAmount(''); setPayerUpiId(''); setTxnId(''); setAccount(''); setProof(null);
     setTab(t); setShowSheet(true);
   };
 
@@ -139,16 +140,17 @@ export default function Wallet() {
   const submitAdd = async () => {
     if (!rechargeEnabled || !paymentUpi || !paymentQr) { setError('Coin recharge is unavailable until an administrator configures it.'); return; }
     if (!coins || coins < minPurchase || coins > maxPurchase) { setError(`Enter an amount between ${minPurchase} and ${maxPurchase} coins.`); return; }
+    if (!payerUpiId.trim()) { setError('Please enter the UPI ID you used to make the payment.'); return; }
     if (!txnId.trim()) { setError('Please enter the transaction ID of your payment.'); return; }
     setSubmitting(true); setError('');
     try {
       const proofObjectPath = proof ? await uploadWalletImage(proof, 'payment-proof') : undefined;
       await Api.createPayment({
-        coins, txnId: txnId.trim(), reference: txnId.trim(),
+        coins, payerUpiId: payerUpiId.trim(), txnId: txnId.trim(), reference: txnId.trim(),
         ...(proofObjectPath ? { proofObjectPath } : {}),
       });
       setOk('Your recharge request is waiting for Admin verification. Coins will be credited only after approval.');
-      setShowSheet(false); setAmount(''); setTxnId(''); setProof(null);
+      setShowSheet(false); setAmount(''); setPayerUpiId(''); setTxnId(''); setProof(null);
       load();
     } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
   };
@@ -266,7 +268,7 @@ export default function Wallet() {
                   <Text style={s.minWarn}>Coin recharge is unavailable because the administrator has not enabled and configured manual UPI payments.</Text>
                 ) : (
                   <>
-                <Text style={s.mSub}>Copy the UPI ID or scan the QR code and make the payment using your preferred UPI application. After completing the payment, return to this app and submit your Transaction ID and Coin Amount. Coins will be added only after Admin manually verifies and approves your payment.</Text>
+                <Text style={s.mSub}>Copy the UPI ID or scan the QR code and make the payment using your preferred UPI application. After completing the payment, return to this app and enter your UPI ID, Transaction ID, and Coin Amount. Coins will be added only after Admin manually verifies and approves your payment.</Text>
                 {!!paymentNote && <Text style={s.mSub}>{paymentNote}</Text>}
                     <Image source={{ uri: paymentQr }} resizeMode="contain" style={s.qr} accessibilityLabel="Administrator UPI payment QR code" />
                     <View style={s.upiRow}>
@@ -294,6 +296,17 @@ export default function Wallet() {
                     )}
                     <Input placeholder={`Enter coins (${minPurchase}–${maxPurchase})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                     {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins, coinToMoneyRate)} for {coins} coins</Text>}
+                    <Input
+                      accessibilityLabel="UPI ID used to make payment"
+                      testID="payer-upi-id"
+                      placeholder="Enter your UPI ID"
+                      value={payerUpiId}
+                      onChangeText={setPayerUpiId}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      maxLength={200}
+                    />
                     <Input placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
                     <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT (OPTIONAL)'} kind="ghost" onPress={pickProof} />
                     {proof && (

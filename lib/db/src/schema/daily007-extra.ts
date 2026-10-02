@@ -14,6 +14,7 @@ export const daily007PaymentsTable = pgTable("daily007_v2_payments", {
   userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
   coins: integer("coins").notNull(),
   amount: integer("amount").notNull(),
+  payerUpiId: text("payer_upi_id"),
   referenceNormalized: text("reference_normalized").notNull().unique(),
   reference: text("reference").notNull(),
   proofObjectPath: text("proof_object_path"),

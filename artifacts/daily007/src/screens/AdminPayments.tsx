@@ -109,7 +109,7 @@ export default function AdminPayments() {
           {p.kind === 'withdrawal' && <Text style={st.sub}>Estimated manual payout: {inr(p.coins, coinToMoneyRate)}</Text>}
           <Text style={st.sub}>{p.kind === 'withdrawal'
             ? `${p.method} • ${p.account || '—'}`
-            : `UPI • Ref: ${p.reference || '—'}`}</Text>
+            : `Paid from UPI ID: ${p.payerUpiId || '—'}`}</Text>
           {p.kind === 'payment' && <Text style={st.sub}>Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
           {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}

@@ -180,7 +180,13 @@ export const Api = {
   // wallet
   transactions: () => unwrap(http.get('/wallet/transactions')),
   // payments
-  createPayment: (b: object) => unwrap(http.post('/payments', b)),
+  createPayment: (b: {
+    coins: number;
+    payerUpiId: string;
+    txnId: string;
+    reference: string;
+    proofObjectPath?: string;
+  }) => unwrap(http.post('/payments', b)),
   myPayments: () => unwrap(http.get('/my/payments')),
   walletUploadUrl: (b: { purpose: 'payment-proof' | 'wallet-qr'; contentType: string; size: number }) =>
     unwrap(http.post('/wallet/uploads/request-url', b)),

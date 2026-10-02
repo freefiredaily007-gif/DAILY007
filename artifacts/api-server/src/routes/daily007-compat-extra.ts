@@ -150,8 +150,13 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   if (!isObject(body)) { error(res, 400, "Expected coins and a payment transaction reference."); return; }
   const coins = body.coins;
   const reference = text(body.txnId ?? body.reference, 1, 200);
+  const payerUpiId = body.payerUpiId === undefined ? null : text(body.payerUpiId, 1, 200);
   if (!integer(coins, 1) || !reference) {
     error(res, 400, "coins must be a positive whole number and txnId/reference must contain 1–200 characters.");
+    return;
+  }
+  if (body.payerUpiId !== undefined && !payerUpiId) {
+    error(res, 400, "payerUpiId must contain 1–200 characters.");
     return;
   }
   const config = await settings();
@@ -188,11 +193,11 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   try {
     const result = await pool.query(
       `INSERT INTO daily007_v2_payments
-         (user_id, coins, amount, reference, reference_normalized, proof_object_path)
-       VALUES ($1, $2, $2, $3, $4, $5)
-       RETURNING id, coins, amount, reference AS "txnId", status,
+         (user_id, coins, amount, payer_upi_id, reference, reference_normalized, proof_object_path)
+       VALUES ($1, $2, $2, $3, $4, $5, $6)
+       RETURNING id, coins, amount, payer_upi_id AS "payerUpiId", reference AS "txnId", status,
                  created_at AS "createdAt"`,
-      [id, coins, reference, normalized, proofObjectPath],
+      [id, coins, payerUpiId, reference, normalized, proofObjectPath],
     );
     res.status(201).json(result.rows[0]);
   } catch (e) {
@@ -297,6 +302,7 @@ router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
   const result = await pool.query(
     `SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email,
             p.coins, p.amount, p.reference AS "reference", p.reference AS "txnId", p.status,
+            p.payer_upi_id AS "payerUpiId",
             p.proof_object_path IS NOT NULL AS "proofAvailable",
             p.review_reason AS "reviewReason",
             p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
