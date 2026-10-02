@@ -948,6 +948,33 @@ export const GetAdminTournamentResultsResponse = zod.object({
 
 
 /**
+ * @summary List published result entries for completed tournaments
+ */
+
+export const daily007ListAdminResultLogsResponseDataItemKillsMin = 0;
+
+export const daily007ListAdminResultLogsResponseDataItemPrizeCoinsMin = 0;
+
+
+
+export const Daily007ListAdminResultLogsResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "tournamentId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "registrationId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "gameName": zod.string().nullish(),
+  "teamName": zod.string().nullish(),
+  "rank": zod.number().int().min(1),
+  "kills": zod.number().int().min(daily007ListAdminResultLogsResponseDataItemKillsMin),
+  "prizeCoins": zod.number().int().min(daily007ListAdminResultLogsResponseDataItemPrizeCoinsMin),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * @summary Save one result entry as a draft without distributing rewards
  */
 export const saveTournamentResultDraftBodyRankMax = 2147483647;

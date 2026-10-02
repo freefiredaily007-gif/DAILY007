@@ -76,6 +76,29 @@ export interface TournamentResultsView {
   entries: TournamentResultEntry[];
 }
 
+export interface AdminResultLog {
+  tournamentId: string;
+  tournamentName: string;
+  registrationId: string;
+  playerName: string;
+  /** @nullable */
+  gameName?: string | null;
+  /** @nullable */
+  teamName?: string | null;
+  /** @minimum 1 */
+  rank: number;
+  /** @minimum 0 */
+  kills: number;
+  /** @minimum 0 */
+  prizeCoins: number;
+  createdAt: string;
+}
+
+export interface AdminResultLogsResponse {
+  success: boolean;
+  data: AdminResultLog[];
+}
+
 export type TournamentSlotStatus = typeof TournamentSlotStatus[keyof typeof TournamentSlotStatus];
 
 

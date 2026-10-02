@@ -1,12 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
-import { useUpdateTournamentLifecycle } from '@workspace/api-client-react';
+import { Alert, Platform, View, Text, ScrollView, StyleSheet, TextInput, Pressable } from 'react-native';
+import {
+  getDaily007ListAdminResultLogsQueryKey,
+  useDaily007ListAdminResultLogs,
+  useUpdateTournamentLifecycle,
+} from '@workspace/api-client-react';
 import { Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
+const TOURNAMENT_TABS = [
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'ongoing', label: 'Ongoing' },
+  { id: 'completed', label: 'Completed' },
+] as const;
+type TournamentAdminTab = (typeof TOURNAMENT_TABS)[number]['id'];
 
 function confirmDestructiveAction(
   title: string,
@@ -47,6 +57,7 @@ export default function AdminTournaments({
   onManageRoom?: (tournament: Tournament) => void;
 }) {
   const [list, setList] = useState<Tournament[] | null>(null);
+  const [tab, setTab] = useState<TournamentAdminTab>('upcoming');
   const [form, setForm] = useState<any>(blank);
   const [editId, setEditId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -56,6 +67,13 @@ export default function AdminTournaments({
   const [loadError, setLoadError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const cancelLifecycle = useUpdateTournamentLifecycle();
+  const resultLogsQuery = useDaily007ListAdminResultLogs({
+    query: { enabled: tab === 'completed', queryKey: getDaily007ListAdminResultLogsQueryKey() },
+  });
+  const resultLogs = resultLogsQuery.data?.data ?? [];
+  const visibleTournaments = (list ?? []).filter(
+    (tournament) => getTournamentLifecycleState(tournament, clockNow) === tab,
+  );
 
   const load = useCallback(async () => {
     try {
@@ -153,12 +171,41 @@ export default function AdminTournaments({
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={st.h}>TOURNAMENTS</Text>
-        <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
+        {tab === 'upcoming' && (
+          <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => { setShowForm(!showForm); setEditId(null); setForm(blank); }} />
+        )}
       </View>
       <Text style={st.hint}>FINISH opens winner entry. Publishing rank 1 credits the prize and completes the match.</Text>
       <Msg kind="err" text={err} />
       {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
       <Msg kind="ok" text={okMsg} />
+      <View style={st.tabs}>
+        {TOURNAMENT_TABS.map(({ id, label }) => {
+          const selected = tab === id;
+          const count = (list ?? []).filter(
+            (tournament) => getTournamentLifecycleState(tournament, clockNow) === id,
+          ).length;
+          return (
+            <Pressable
+              key={id}
+              testID={`admin-tournament-tab-${id}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected, disabled: showForm }}
+              accessibilityLabel={`${label} tournaments, ${count}`}
+              disabled={showForm}
+              onPress={() => setTab(id)}
+              style={[st.tab, selected && st.tabOn, showForm && st.tabDisabled]}
+            >
+              <Text numberOfLines={1} style={[st.tabText, selected && st.tabTextOn]}>
+                {label} <Text style={[st.tabCount, selected && st.tabTextOn]}>{count}</Text>
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {tab === 'completed' && resultLogsQuery.isError && (
+        <Msg kind="err" text={`Could not load completed result logs: ${apiError(resultLogsQuery.error)}`} />
+      )}
 
       {showForm && (
         <Card style={{ marginBottom: 14 }}>
@@ -206,44 +253,103 @@ export default function AdminTournaments({
         </Card>
       )}
 
-      {!list ? <Loading /> : list.length === 0 ? <Empty text="No tournaments yet." /> : list.map((t) => {
+      {!list ? <Loading /> : visibleTournaments.length === 0 ? <Empty text={`No ${tab} tournaments.`} /> : visibleTournaments.map((t) => {
         const lifecycle = getTournamentLifecycleState(t, clockNow);
         const finished = lifecycle === 'completed';
         const ongoing = lifecycle === 'ongoing';
         const cancellable = ongoing && Number(t.filledSlots ?? 0) < Number(t.totalSlots ?? 0);
-        const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : t.enabled ? 'ENABLED' : 'DISABLED';
+        const tournamentResults = resultLogs
+          .filter((entry) => entry.tournamentId === t.id)
+          .sort((a, b) => Number(a.rank) - Number(b.rank));
+        const winner = tournamentResults.find((entry) => Number(entry.rank) === 1);
+        const winnerName = String(winner?.gameName || winner?.playerName || winner?.teamName || 'Winner');
+        const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : 'UPCOMING';
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={st.tName}>{t.name}</Text>
-              <Chip label={statusLabel} color={finished ? C.gold : ongoing ? C.red : t.enabled ? C.green : C.red} />
+              <Chip label={statusLabel} color={finished ? C.gold : ongoing ? C.red : C.green} />
             </View>
             <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time} IST</Text>
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={{ flex: 1 }}><Btn title="EDIT" small kind="ghost" onPress={() => { setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) }); setEditId(t.id); setShowForm(true); }} /></View>
-              <View style={{ flex: 1 }}>
-                {cancellable
-                  ? <Btn title="CANCEL" small kind="danger" testID={`cancel-tournament-${t.id}`} loading={cancelLifecycle.isPending} onPress={() => cancel(t)} />
-                  : <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />}
-              </View>
-            </View>
-            {ongoing ? (
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Btn title="MANAGE ROOM" small kind="ghost" testID={`manage-room-${t.id}`} onPress={() => onManageRoom?.(t)} />
+            {tab === 'upcoming' && (
+              <>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Btn
+                      title="EDIT"
+                      small
+                      kind="ghost"
+                      testID={`edit-tournament-${t.id}`}
+                      onPress={() => {
+                        setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) });
+                        setEditId(t.id);
+                        setShowForm(true);
+                      }}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Btn title="FINISH & RESULTS" small kind="gold" testID={`finish-tournament-${t.id}`} onPress={() => onFinish?.(t)} />
+                <View style={{ marginTop: 8 }}>
+                  <Btn title="ROOM SETUP" small kind="ghost" testID={`manage-room-${t.id}`} onPress={() => onManageRoom?.(t)} />
                 </View>
-              </View>
-            ) : finished ? (
-              <View style={{ marginTop: 8 }}>
-                <Btn title="FINISHED" small kind="ghost" disabled />
-              </View>
-            ) : (
-              <View style={{ marginTop: 8 }}>
-                <Btn title="WAIT FOR START" small kind="ghost" disabled />
+              </>
+            )}
+            {tab === 'ongoing' && (
+              <>
+                {cancellable && (
+                  <View style={{ marginTop: 10 }}>
+                    <Btn
+                      title="CANCEL & REFUND"
+                      small
+                      kind="danger"
+                      testID={`cancel-tournament-${t.id}`}
+                      loading={cancelLifecycle.isPending}
+                      onPress={() => cancel(t)}
+                    />
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: cancellable ? 8 : 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Btn title="SHARE ROOM" small kind="ghost" testID={`manage-room-${t.id}`} onPress={() => onManageRoom?.(t)} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Btn title="INPUT RESULTS" small kind="gold" testID={`finish-tournament-${t.id}`} onPress={() => onFinish?.(t)} />
+                  </View>
+                </View>
+              </>
+            )}
+            {tab === 'completed' && (
+              <View testID={`completed-result-log-${t.id}`} style={st.resultLog}>
+                <Text style={st.resultTitle}>WINNER & RESULT LOG</Text>
+                {resultLogsQuery.isLoading ? (
+                  <Text style={st.resultLine}>Loading published results…</Text>
+                ) : resultLogsQuery.isError ? (
+                  <View>
+                    <Text style={st.resultLine}>Result logs are unavailable right now.</Text>
+                    <View style={{ marginTop: 6 }}>
+                      <Btn title="RETRY LOGS" small kind="ghost" onPress={() => { void resultLogsQuery.refetch(); }} />
+                    </View>
+                  </View>
+                ) : winner ? (
+                  <>
+                    <Text style={st.winnerName}>WINNER · {winnerName}</Text>
+                    <Text style={st.resultSettlement}>PRIZE SETTLED · {Number(winner.prizeCoins).toLocaleString()} COINS</Text>
+                    {tournamentResults.map((entry) => {
+                      const playerName = String(entry.gameName || entry.playerName || entry.teamName || 'Player');
+                      const team = entry.teamName && entry.teamName !== playerName ? ` · ${entry.teamName}` : '';
+                      return (
+                        <Text key={entry.registrationId} style={st.resultLine}>
+                          {`#${entry.rank} ${playerName}${team} · ${Number(entry.kills)} kills · ${Number(entry.prizeCoins).toLocaleString()} coins`}
+                        </Text>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <Text style={st.resultLine}>No published result entries were returned for this completed tournament.</Text>
+                )}
               </View>
             )}
           </Card>
@@ -255,6 +361,16 @@ export default function AdminTournaments({
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
+  tabs: { flexDirection: 'row', gap: 7, marginBottom: 12 },
+  tab: {
+    flex: 1, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card,
+  },
+  tabOn: { borderColor: C.neon, backgroundColor: C.neon + '20' },
+  tabDisabled: { opacity: 0.5 },
+  tabText: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.2 },
+  tabTextOn: { color: C.text },
+  tabCount: { color: C.dim, fontSize: 9, fontWeight: '700' },
   h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   hint: { color: C.sub, fontSize: 11, marginTop: 3, marginBottom: 10 },
   formH: { color: C.neon, fontWeight: '900', letterSpacing: 1, marginBottom: 10 },
@@ -263,6 +379,11 @@ const st = StyleSheet.create({
   tName: { color: C.text, fontWeight: '900', flex: 1, fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
   inrNote: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  resultLog: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
+  resultTitle: { color: C.gold, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 5 },
+  winnerName: { color: C.text, fontSize: 13, fontWeight: '900' },
+  resultSettlement: { color: C.green, fontSize: 10, fontWeight: '800', marginTop: 3, marginBottom: 4 },
+  resultLine: { color: C.sub, fontSize: 10, lineHeight: 15, marginTop: 2 },
   capacity: { color: C.text, fontSize: 14, fontWeight: '900', marginBottom: 3 },
   capacityNote: { color: C.dim, fontSize: 11, marginBottom: 10 },
 });

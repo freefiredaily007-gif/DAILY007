@@ -717,6 +717,17 @@ paths:
         "403": { description: Administrator required }
         "404": { description: Tournament not found }
   /admin/results:
+    get:
+      operationId: daily007ListAdminResultLogs
+      summary: List published result entries for completed tournaments
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Published winner and placement entries with settlement details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminResultLogsResponse" }
+        "403": { description: Tournament administrator required }
     post:
       operationId: saveTournamentResultDraft
       summary: Save one result entry as a draft without distributing rewards
@@ -785,6 +796,28 @@ components:
           type: array
           items: { $ref: "#/components/schemas/TournamentResultEntry" }
       required: [tournamentId, entries]
+    AdminResultLog:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid }
+        tournamentName: { type: string }
+        registrationId: { type: string, format: uuid }
+        playerName: { type: string }
+        gameName: { type: ["string", "null"] }
+        teamName: { type: ["string", "null"] }
+        rank: { type: integer, minimum: 1 }
+        kills: { type: integer, minimum: 0 }
+        prizeCoins: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+      required: [tournamentId, tournamentName, registrationId, playerName, rank, kills, prizeCoins, createdAt]
+    AdminResultLogsResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/AdminResultLog" }
+      required: [success, data]
     TournamentSlot:
       type: object
       properties:
