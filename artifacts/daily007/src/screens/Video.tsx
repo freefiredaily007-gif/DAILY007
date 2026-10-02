@@ -20,7 +20,7 @@ import {
 import { useApp } from '../App';
 import { apiError } from '../lib/api';
 
-const WATCH_MARK_PERCENT = 90;
+const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
 const ENDED_STATE = 0;
 
@@ -483,7 +483,7 @@ export default function Video() {
           <View style={styles.notice}>
             <Feather name="info" size={16} color={colors.accent} />
             <Text style={styles.noticeText}>
-              Earn 1 coin for each completed view; replays can earn again. A claim needs the YouTube ended event and at least 90% estimated continuous playback. Playback is client-reported and cannot be made tamper-proof.
+              Earn 1 coin for each completed view; replays can earn again. A claim needs the YouTube ended event and at least 75% estimated continuous playback. Playback is client-reported and cannot be made tamper-proof.
             </Text>
           </View>
 

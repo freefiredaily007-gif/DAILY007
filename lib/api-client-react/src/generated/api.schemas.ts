@@ -604,7 +604,7 @@ export interface Daily007VideoWatchSession {
 export interface Daily007VideoWatchCompleteBody {
   sessionId: string;
   /**
-     * @minimum 90
+     * @minimum 75
      * @maximum 100
      */
   percentWatched: number;

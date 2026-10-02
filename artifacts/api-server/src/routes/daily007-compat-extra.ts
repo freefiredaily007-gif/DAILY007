@@ -1064,8 +1064,8 @@ router.post("/videos/watch/complete", authenticate, async (req, res): Promise<vo
   const accountId = privateAccount(req, res); if (!accountId) return;
   const body = req.body as unknown;
   if (!isObject(body) || !validId(body.sessionId) ||
-      !integer(body.percentWatched, 90, 100)) {
-    error(res, 400, "Provide a valid playback session and at least 90% estimated progress."); return;
+      !integer(body.percentWatched, 75, 100)) {
+    error(res, 400, "Provide a valid playback session and at least 75% estimated progress."); return;
   }
   try {
     const result = await transaction((client) =>

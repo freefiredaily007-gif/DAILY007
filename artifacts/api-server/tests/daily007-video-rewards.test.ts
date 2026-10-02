@@ -17,14 +17,14 @@ test("YouTube video links are accepted only for secure supported YouTube video U
   assert.equal(youtubeVideoIdFromUrl("https://youtube.com/watch?v=short"), null);
 });
 
-test("video reward completion requires 90% playback and at least 70% of the reported duration", () => {
+test("video reward completion requires 75% playback and at least 70% of the reported duration", () => {
   const now = Date.UTC(2026, 9, 2, 12);
   const startedAt = new Date(now - 70_000);
   assert.equal(isEligibleDaily007VideoCompletion({
-    percentWatched: 90, durationSeconds: 100, startedAt, now,
+    percentWatched: 75, durationSeconds: 100, startedAt, now,
   }), true);
   assert.equal(isEligibleDaily007VideoCompletion({
-    percentWatched: 89, durationSeconds: 100, startedAt, now,
+    percentWatched: 74, durationSeconds: 100, startedAt, now,
   }), false);
   assert.equal(isEligibleDaily007VideoCompletion({
     percentWatched: 100, durationSeconds: 100, startedAt: new Date(now - 69_000), now,

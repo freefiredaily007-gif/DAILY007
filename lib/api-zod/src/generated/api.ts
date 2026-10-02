@@ -323,7 +323,7 @@ export const Daily007StartVideoWatchResponse = zod.object({
  * and elapsed time as best-effort checks, not proof that playback cannot be spoofed.
  * @summary Claim one coin for a completed playback session
  */
-export const daily007CompleteVideoWatchBodyPercentWatchedMin = 90;
+export const daily007CompleteVideoWatchBodyPercentWatchedMin = 75;
 export const daily007CompleteVideoWatchBodyPercentWatchedMax = 100;
 
 

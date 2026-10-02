@@ -1107,7 +1107,7 @@ components:
       additionalProperties: false
       properties:
         sessionId: { type: string, format: uuid }
-        percentWatched: { type: integer, minimum: 90, maximum: 100 }
+        percentWatched: { type: integer, minimum: 75, maximum: 100 }
       required: [sessionId, percentWatched]
     Daily007VideoWatchResult:
       type: object
