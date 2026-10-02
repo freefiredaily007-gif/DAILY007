@@ -355,12 +355,13 @@ export function CoinCapsule({ value, onPress }: { value: number; onPress?: () =>
 }
 
 const st = StyleSheet.create({
-  btn: { paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
+  btn: { paddingVertical: 13.5, borderRadius: 12, alignItems: 'center' },
   btnText: { fontWeight: '900', letterSpacing: 1.2, fontSize: 14 },
   card: {
     backgroundColor: C.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: C.border,
     // subtle top-edge metallic highlight
     borderTopColor: '#2a3558',
+    paddingVertical: 14.5,
   },
   input: {
     backgroundColor: C.card2, color: C.text, borderRadius: 10, paddingHorizontal: 12,
@@ -377,7 +378,7 @@ const st = StyleSheet.create({
   secRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 12 },
   secBar: { width: 4, height: 18, borderRadius: 2, marginRight: 8 },
   secText: { color: C.text, fontSize: 16, fontWeight: '900', letterSpacing: 1.5 },
-  chip: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, alignSelf: 'flex-start' },
+   chip: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5.5, alignSelf: 'flex-start' },
   chipText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   kvRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border + '66' },
   kvK: { color: C.sub, fontSize: 13 },
@@ -391,7 +392,7 @@ const st = StyleSheet.create({
 });
 
 const adminSt = StyleSheet.create({
-  btn: { borderRadius: 10, paddingVertical: 12, minHeight: 42, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  btn: { borderRadius: 10, paddingVertical: 12.5, minHeight: 43, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   btnText: { fontFamily: 'Inter_700Bold', fontSize: 12, letterSpacing: 0.9 },
   card: { backgroundColor: '#11161f', borderRadius: 14, borderColor: 'rgba(255,255,255,0.09)', borderTopColor: 'rgba(255,176,32,0.24)', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
   input: { backgroundColor: '#0e131b', borderColor: 'rgba(255,255,255,0.12)', borderRadius: 10, fontFamily: 'Inter_400Regular', fontSize: 13 },
@@ -402,7 +403,7 @@ const adminSt = StyleSheet.create({
   emptyTitle: { fontFamily: 'Inter_700Bold', letterSpacing: 1.5, fontSize: 14 },
   secRow: { marginVertical: 10 },
   secText: { fontFamily: 'Inter_700Bold', fontSize: 13, letterSpacing: 1.1 },
-  chip: { borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
+  chip: { borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5.5 },
   chipText: { fontFamily: 'Inter_600SemiBold', fontSize: 10.5, letterSpacing: 0.55 },
   kvV: { fontFamily: 'Inter_600SemiBold' },
 });

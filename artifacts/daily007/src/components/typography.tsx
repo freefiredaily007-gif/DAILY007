@@ -6,8 +6,8 @@ import {
 } from 'react-native';
 import type { TextInputProps, TextProps, TextStyle } from 'react-native';
 
-const TYPE_SCALE = 1.18;
-const DEFAULT_TEXT_SIZE = 16;
+const TYPE_SCALE = 1.24;
+const DEFAULT_TEXT_SIZE = 16.8;
 const InheritedTypography = createContext<{ fontSize: number | null; color: string | null }>({
   fontSize: null,
   color: null,
@@ -166,6 +166,19 @@ export function ReadableTextInput({ style, ...props }: TextInputProps) {
     flattenedStyle || {},
     'supporting',
   );
+  const paddingAdjustment: TextStyle = {};
+  if (typeof flattenedStyle?.paddingVertical === 'number') {
+    paddingAdjustment.paddingVertical = flattenedStyle.paddingVertical + 0.5;
+  } else if (typeof flattenedStyle?.padding === 'number') {
+    paddingAdjustment.padding = flattenedStyle.padding + 0.5;
+  } else {
+    if (typeof flattenedStyle?.paddingTop === 'number') {
+      paddingAdjustment.paddingTop = flattenedStyle.paddingTop + 0.5;
+    }
+    if (typeof flattenedStyle?.paddingBottom === 'number') {
+      paddingAdjustment.paddingBottom = flattenedStyle.paddingBottom + 0.5;
+    }
+  }
 
   return (
     <NativeTextInput
@@ -178,6 +191,7 @@ export function ReadableTextInput({ style, ...props }: TextInputProps) {
           lineHeight,
           color: textColor,
           fontWeight: '700',
+          ...paddingAdjustment,
           ...(fontFamily ? { fontFamily } : {}),
         },
       ]}
