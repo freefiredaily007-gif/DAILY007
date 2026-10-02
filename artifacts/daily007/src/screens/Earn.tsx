@@ -31,6 +31,7 @@ const rechargeStatusLabel: Record<string, string> = {
 
 export default function Earn() {
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
   const [taskError, setTaskError] = useState('');
   const [hasOpenedChannel, setHasOpenedChannel] = useState(false);
@@ -54,14 +55,38 @@ export default function Earn() {
   };
 
   const shareInvite = async () => {
-    if (!dashboard?.code) return;
+    if (!dashboard?.code || !dashboard.referralLink) return;
     setActionError('');
     try {
       await Share.share({
         message: `Join FreeFire Daily007 with my referral code ${dashboard.code} and get 10 bonus coins. I get 5 coins after your first approved recharge of at least 50 coins.\n\nOpen Daily007: ${dashboard.referralLink}`,
+        url: dashboard.referralLink,
       });
     } catch {
       setActionError('Could not open the share sheet. You can copy the code instead.');
+    }
+  };
+
+  const openReferralLink = async () => {
+    if (!dashboard?.referralLink) return;
+    setActionError('');
+    try {
+      await Linking.openURL(dashboard.referralLink);
+    } catch {
+      setActionError('Could not open the invite link. Copy or share it and open it in a browser.');
+    }
+  };
+
+  const copyReferralLink = async () => {
+    if (!dashboard?.referralLink) return;
+    setActionError('');
+    try {
+      await Clipboard.setStringAsync(dashboard.referralLink);
+      setLinkCopied(true);
+      Alert.alert('Invite link copied', 'Send the link to a friend. It opens Daily007 signup with your referral code filled in.');
+      setTimeout(() => setLinkCopied(false), 1800);
+    } catch {
+      setActionError('Could not copy the invite link. Try the share button instead.');
     }
   };
 
@@ -219,6 +244,28 @@ export default function Earn() {
                 <Feather name={copied ? 'check' : 'copy'} size={18} color={C.gold} />
               </Pressable>
             </View>
+            <Text style={[s.sectionLabel, { marginTop: 16 }]}>CLICKABLE INVITE LINK</Text>
+            <View style={s.linkRow}>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel="Open Daily007 referral signup link"
+                testID="referral-open-link"
+                onPress={openReferralLink}
+                style={s.linkButton}
+              >
+                <Text selectable numberOfLines={2} style={s.linkText}>{dashboard.referralLink}</Text>
+                <Feather name="external-link" size={16} color={C.gold} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={linkCopied ? 'Referral link copied' : 'Copy referral link'}
+                testID="referral-copy-link"
+                onPress={copyReferralLink}
+                style={s.iconButton}
+              >
+                <Feather name={linkCopied ? 'check' : 'copy'} size={18} color={C.gold} />
+              </Pressable>
+            </View>
             <Pressable
               accessibilityRole="button"
               testID="referral-share-invite"
@@ -323,6 +370,9 @@ const s = StyleSheet.create({
   sectionLabel: { color: C.gold, fontWeight: '900', letterSpacing: 1.4, fontSize: 11 },
   codeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   code: { flex: 1, color: C.gold, fontWeight: '900', fontSize: 17, letterSpacing: 1.4, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, textAlign: 'center', paddingVertical: 12 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  linkButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 8 },
+  linkText: { flex: 1, color: C.blue, fontSize: 11, lineHeight: 16, textDecorationLine: 'underline' },
   iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   shareButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.gold, borderRadius: 10, paddingVertical: 12, marginTop: 10 },
   shareButtonText: { color: C.bg, fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },

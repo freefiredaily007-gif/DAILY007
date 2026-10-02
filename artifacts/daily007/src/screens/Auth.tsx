@@ -23,7 +23,11 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
       if (!url) return;
       try {
         const parsed = new URL(url);
-        if (parsed.protocol !== 'daily007:') return;
+        const isAppLink = parsed.protocol === 'daily007:';
+        const isWebInvite = parsed.protocol === 'https:' &&
+          (parsed.hostname === 'daily-007-source-1-zip.replit.app' ||
+            (Platform.OS === 'web' && typeof window !== 'undefined' && parsed.hostname === window.location.hostname));
+        if (!isAppLink && !isWebInvite) return;
         const code = parsed.searchParams.get('ref') ?? parsed.searchParams.get('referralCode');
         if (!code?.trim()) return;
         setRefCode((current) => current || code.trim().toUpperCase());
