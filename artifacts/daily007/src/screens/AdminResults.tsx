@@ -4,6 +4,14 @@ import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 
+function configuredPrizeForRank(tournament: Tournament, rank: number): number {
+  const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
+  for (const match of String(tournament.prizeDist ?? '').matchAll(configured)) {
+    if (Number(match[1]) === rank) return Number(match[2].replace(/,/g, ''));
+  }
+  return rank === 1 ? Number(tournament.prizePool) || 0 : 0;
+}
+
 export default function AdminResults({
   initialTournamentId,
   onInitialTournamentHandled,
@@ -16,9 +24,8 @@ export default function AdminResults({
   const [regs, setRegs] = useState<AdminRegistration[] | null>(null);
   const requestId = useRef(0);
   const [regId, setRegId] = useState('');
-  const [rank, setRank] = useState('');
+  const [rank, setRank] = useState('1');
   const [kills, setKills] = useState('');
-  const [prizeCoins, setPrizeCoins] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
@@ -36,7 +43,7 @@ export default function AdminResults({
 
   const open = useCallback(async (t: Tournament) => {
     const currentRequest = ++requestId.current;
-    setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegId(''); setRank(''); setKills(''); setPrizeCoins('');
+    setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegId(''); setRank('1'); setKills('');
     try {
       const approved = await Api.adminApprovedRegs(t.id);
       if (requestId.current === currentRequest) setRegs(approved);
@@ -62,20 +69,23 @@ export default function AdminResults({
     if (!regId || !regs?.some((r) => r.id === regId && r.tournamentId === sel.id && r.status === 'approved')) {
       return setErr('Select an approved player for this tournament.');
     }
-    if (!rank || !prizeCoins) return setErr('Rank and prize coins are required.');
+    if (!rank) return setErr('Rank is required.');
     setBusy(true);
     try {
       await Api.adminPublishResult({
         tournamentId: sel.id, registrationId: regId,
-        rank: Number(rank), kills: Number(kills || 0), prizeCoins: Number(prizeCoins),
+        rank: Number(rank), kills: Number(kills || 0),
       });
       setSel((current) => current ? { ...current, status: 'completed', enabled: false } : current);
       setOkMsg('Result published — prize credited and tournament finished.');
-      setRegId(''); setRank(''); setKills(''); setPrizeCoins('');
+      setRegId(''); setRank(''); setKills('');
       setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) { setErr(apiError(e)); }
     finally { setBusy(false); }
   };
+  const prizeCoins = sel
+    ? configuredPrizeForRank(sel, /^\d+$/.test(rank) ? Number(rank) : 0)
+    : 0;
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
@@ -108,8 +118,12 @@ export default function AdminResults({
             <View style={{ flex: 1 }}><Input placeholder="Rank *" value={rank} onChangeText={setRank} keyboardType="number-pad" /></View>
             <View style={{ flex: 1 }}><Input placeholder="Kills" value={kills} onChangeText={setKills} keyboardType="number-pad" /></View>
           </View>
-          <Input placeholder="Prize coins *" value={prizeCoins} onChangeText={setPrizeCoins} keyboardType="number-pad" />
-          {!!prizeCoins && <Text style={st.inrNote}>Prize: {prizeCoins} coins = {inr(Number(prizeCoins))} INR ({COIN_RATE_TEXT})</Text>}
+          <Text style={st.lbl}>PRIZE COINS · LOCKED TO TOURNAMENT SETTINGS</Text>
+          <View accessibilityLabel={`Prize amount: ${prizeCoins} coins; cannot be edited`} style={st.prizeBox}>
+            <Text style={st.prizeValue}>{prizeCoins.toLocaleString()} coins</Text>
+            <Text style={st.inrNote}>{inr(prizeCoins)} INR ({COIN_RATE_TEXT})</Text>
+          </View>
+          <Text style={st.prizeHint}>Auto-calculated for rank {rank || '—'} from the saved prize distribution.</Text>
           <Btn title="PUBLISH RESULT" onPress={publish} loading={busy} />
         </Card>
       )}
@@ -124,4 +138,7 @@ const st = StyleSheet.create({
   tName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
   inrNote: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  prizeBox: { backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 5 },
+  prizeValue: { color: C.gold, fontWeight: '900', fontSize: 17 },
+  prizeHint: { color: C.sub, fontSize: 11, marginBottom: 10 },
 });

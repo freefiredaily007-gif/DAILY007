@@ -1091,28 +1091,44 @@ router.post("/videos/watch", authenticate, (_req, res): void => {
   res.json(pausedVideoRewardResponse());
 });
 
+function configuredPrizeForRank(prizePool: number, prizeDistribution: string, rank: number): number {
+  const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
+  for (const match of prizeDistribution.matchAll(configured)) {
+    if (Number(match[1]) !== rank) continue;
+    const amount = Number(match[2].replace(/,/g, ""));
+    if (!Number.isSafeInteger(amount) || amount < 0 || amount > MAX_INT) {
+      throw Object.assign(new Error("The configured tournament prize is outside the supported range."), { status: 409 });
+    }
+    return amount;
+  }
+  return rank === 1 ? prizePool : 0;
+}
+
 router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   const body = req.body as unknown;
   if (!isObject(body) || !validId(body.tournamentId) || !validId(body.registrationId) ||
-      !integer(body.rank, 1) || !integer(body.kills, 0) || !integer(body.prizeCoins, 0)) {
-    error(res, 400, "tournamentId/match id and registrationId UUIDs, positive rank, nonnegative kills and prizeCoins are required."); return;
+      !integer(body.rank, 1) || !integer(body.kills, 0)) {
+    error(res, 400, "tournamentId/match id and registrationId UUIDs, positive rank and nonnegative kills are required."); return;
   }
   const tournamentId = body.tournamentId as string;
   const registrationId = body.registrationId as string;
   const rank = body.rank as number;
   const kills = body.kills as number;
-  const prizeCoins = body.prizeCoins as number;
   try {
     const result = await transaction(async (client) => {
       const registration = await client.query<{
-        id: string; match_id: string; captain_user_id: string;
+        id: string; match_id: string; captain_user_id: string; prize_pool: number; prize_distribution: string;
       }>(
-        `SELECT id, match_id, captain_user_id FROM daily007_v2_registrations
-          WHERE id = $1 AND status = 'approved' FOR UPDATE`, [registrationId],
+        `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution
+           FROM daily007_v2_registrations r
+           JOIN daily007_v2_matches m ON m.id = r.match_id
+          WHERE r.id = $1 AND m.id = $2 AND r.status = 'approved'
+          FOR UPDATE OF r, m`, [registrationId, tournamentId],
       );
       const row = registration.rows[0];
       if (!row || row.match_id !== tournamentId) throw Object.assign(new Error("Registration was not found for this tournament/match."), { status: 404 });
+      const prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
       const account = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [row.captain_user_id],
       );
@@ -1144,7 +1160,7 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         "UPDATE daily007_v2_matches SET enabled = false WHERE id = $1",
         [row.match_id],
       );
-      return { id: (award.rows[0] as { id: string }).id, registrationId: row.id, userId: row.captain_user_id, walletCoins: next };
+      return { id: (award.rows[0] as { id: string }).id, registrationId: row.id, userId: row.captain_user_id, prizeCoins, walletCoins: next };
     });
     res.status(201).json(result);
   } catch (e) {
