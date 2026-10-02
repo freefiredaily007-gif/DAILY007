@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Image, ScrollView, StyleSheet } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 import { inr } from '../lib/coins';
@@ -19,6 +20,7 @@ export default function AdminPayments() {
   const [payoutTarget, setPayoutTarget] = useState<string | null>(null);
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
+  const [copiedUpiId, setCopiedUpiId] = useState<string | null>(null);
 
   const [all, setAll] = useState<any[] | null>(null);
 
@@ -81,6 +83,18 @@ export default function AdminPayments() {
     finally { setProofLoading(null); }
   };
 
+  const copyWithdrawalUpi = async (requestId: string, upiId: string) => {
+    const value = upiId.trim();
+    if (!value) return;
+    try {
+      await Clipboard.setStringAsync(value);
+      setCopiedUpiId(requestId);
+      setErr('');
+    } catch {
+      setErr('Could not copy this UPI ID.');
+    }
+  };
+
   const markPaid = async () => {
     if (!payoutTarget) return;
     setPayoutBusy(true); setErr(''); setOkMsg('');
@@ -107,9 +121,23 @@ export default function AdminPayments() {
           <Text style={st.pName}>{p.kind === 'withdrawal' ? 'WITHDRAW' : 'ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount, coinToMoneyRate)}</Text>
           <Text style={st.sub}>{p.userName || 'Player'} · User ID: {p.userId}</Text>
           {p.kind === 'withdrawal' && <Text style={st.sub}>Estimated manual payout: {inr(p.coins, coinToMoneyRate)}</Text>}
-          <Text style={st.sub}>{p.kind === 'withdrawal'
-            ? `${p.method} • ${p.account || '—'}`
-            : `Paid from UPI ID: ${p.payerUpiId || '—'}`}</Text>
+          {p.kind === 'withdrawal' ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text selectable style={[st.sub, { flex: 1 }]}>
+                {String(p.method || '').toLowerCase() === 'upi' ? 'UPI ID' : p.method || 'Account'}: {p.account || '—'}
+              </Text>
+              {String(p.method || '').toLowerCase() === 'upi' && p.account ? (
+                <Btn
+                  title={copiedUpiId === p.id ? 'COPIED' : 'COPY UPI'}
+                  small
+                  kind="ghost"
+                  accessibilityLabel="Copy withdrawal UPI ID"
+                  testID={`copy-withdrawal-upi-${p.id}`}
+                  onPress={() => { void copyWithdrawalUpi(String(p.id), String(p.account)); }}
+                />
+              ) : null}
+            </View>
+          ) : <Text style={st.sub}>Paid from UPI ID: {p.payerUpiId || '—'}</Text>}
           {p.kind === 'payment' && <Text style={st.sub}>Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
           {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}

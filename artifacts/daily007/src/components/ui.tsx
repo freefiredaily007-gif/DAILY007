@@ -68,9 +68,10 @@ export function Shimmer({ height = 90, style }: { height?: number; style?: any }
 }
 
 // ---------- buttons ----------
-export function Btn({ title, onPress, disabled, kind = 'primary', small, loading, style }: {
+export function Btn({ title, onPress, disabled, kind = 'primary', small, loading, style, accessibilityLabel, testID }: {
   title: string; onPress?: () => void; disabled?: boolean;
   kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean; style?: any;
+  accessibilityLabel?: string; testID?: string;
 }) {
   const adminSurface = useAdminSurface();
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
@@ -86,7 +87,8 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel || title}
+      testID={testID}
       style={({ pressed }) => [
         st.btn,
         adminSurface && adminSt.btn,
