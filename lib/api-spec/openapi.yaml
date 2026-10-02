@@ -271,6 +271,110 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Daily007WalletLedgerEntry" }
         "401": { description: Missing or invalid bearer token }
+  /videos:
+    get:
+      operationId: daily007ListVideos
+      summary: List active videos available to watch
+      responses:
+        "200":
+          description: Active Daily007 videos
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007VideoList" }
+  /videos/watch/start:
+    post:
+      operationId: daily007StartVideoWatch
+      summary: Start a reward-tracked playback session
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007VideoWatchStartBody" }
+      responses:
+        "201":
+          description: Playback session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007VideoWatchSession" }
+        "400": { description: Invalid video id or duration }
+        "401": { description: Missing or invalid bearer token }
+        "404": { description: Video is unavailable }
+  /videos/watch/complete:
+    post:
+      operationId: daily007CompleteVideoWatch
+      summary: Claim one coin for a completed playback session
+      description: |
+        A playback session can earn at most once. A new playback session may earn
+        again for the same video. Completion uses client-reported YouTube progress
+        and elapsed time as best-effort checks, not proof that playback cannot be spoofed.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007VideoWatchCompleteBody" }
+      responses:
+        "200":
+          description: Reward result; retries of an already rewarded session do not credit again
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007VideoWatchResult" }
+        "400": { description: Invalid completion request }
+        "401": { description: Missing or invalid bearer token }
+        "404": { description: Playback session not found }
+        "409": { description: Playback is incomplete or the video is unavailable }
+  /admin/videos:
+    get:
+      operationId: daily007AdminListVideos
+      summary: List managed videos for Full Admins
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Active and inactive video links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007VideoList" }
+        "403": { description: Full Admin required }
+    post:
+      operationId: daily007AdminCreateVideo
+      summary: Add a YouTube video link
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminVideoCreateBody" }
+      responses:
+        "201":
+          description: Video created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007Video" }
+        "400": { description: Invalid title or YouTube URL }
+        "403": { description: Full Admin required }
+        "409": { description: This YouTube video is already managed }
+  /admin/videos/{id}/active:
+    patch:
+      operationId: daily007AdminSetVideoActive
+      summary: Activate or deactivate a managed YouTube video
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminVideoActiveBody" }
+      responses:
+        "200":
+          description: Updated video
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007Video" }
+        "400": { description: Invalid video id or active state }
+        "403": { description: Full Admin required }
+        "404": { description: Video not found }
   /referrals:
     get:
       operationId: daily007GetMyReferrals
@@ -968,6 +1072,68 @@ components:
       additionalProperties: false
       properties:
         reason: { type: string, maxLength: 500 }
+    Daily007Video:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        youtubeId: { type: string, pattern: "^[A-Za-z0-9_-]{11}$" }
+        url: { type: string, format: uri }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+      required: [id, title, youtubeId, url, active, createdAt]
+    Daily007VideoList:
+      type: object
+      properties:
+        videos:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007Video" }
+      required: [videos]
+    Daily007VideoWatchStartBody:
+      type: object
+      additionalProperties: false
+      properties:
+        videoId: { type: string, format: uuid }
+        durationSeconds: { type: integer, minimum: 5, maximum: 86400 }
+      required: [videoId, durationSeconds]
+    Daily007VideoWatchSession:
+      type: object
+      properties:
+        sessionId: { type: string, format: uuid }
+        startedAt: { type: string, format: date-time }
+      required: [sessionId, startedAt]
+    Daily007VideoWatchCompleteBody:
+      type: object
+      additionalProperties: false
+      properties:
+        sessionId: { type: string, format: uuid }
+        percentWatched: { type: integer, minimum: 90, maximum: 100 }
+      required: [sessionId, percentWatched]
+    Daily007VideoWatchResult:
+      type: object
+      properties:
+        rewarded: { type: boolean }
+        coins: { type: integer, minimum: 0 }
+        walletCoins: { type: integer, minimum: 0 }
+        transactionId:
+          anyOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+        message: { type: string }
+      required: [rewarded, coins, walletCoins, transactionId, message]
+    Daily007AdminVideoCreateBody:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        url: { type: string, format: uri, maxLength: 500 }
+      required: [title, url]
+    Daily007AdminVideoActiveBody:
+      type: object
+      additionalProperties: false
+      properties:
+        active: { type: boolean }
+      required: [active]
     Daily007AdminUserRoleBody:
       type: object
       additionalProperties: false

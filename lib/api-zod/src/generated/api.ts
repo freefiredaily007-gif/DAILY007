@@ -279,6 +279,151 @@ export const Daily007GetWalletTransactionsResponse = zod.array(Daily007GetWallet
 
 
 /**
+ * @summary List active videos available to watch
+ */
+export const daily007ListVideosResponseVideosItemTitleMax = 120;
+
+export const daily007ListVideosResponseVideosItemYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
+
+
+export const Daily007ListVideosResponse = zod.object({
+  "videos": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().min(1).max(daily007ListVideosResponseVideosItemTitleMax),
+  "youtubeId": zod.string().regex(daily007ListVideosResponseVideosItemYoutubeIdRegExp),
+  "url": zod.string().url(),
+  "active": zod.boolean(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Start a reward-tracked playback session
+ */
+export const daily007StartVideoWatchBodyDurationSecondsMin = 5;
+export const daily007StartVideoWatchBodyDurationSecondsMax = 86400;
+
+
+
+export const Daily007StartVideoWatchBody = zod.object({
+  "videoId": zod.string().uuid(),
+  "durationSeconds": zod.number().int().min(daily007StartVideoWatchBodyDurationSecondsMin).max(daily007StartVideoWatchBodyDurationSecondsMax)
+})
+
+export const Daily007StartVideoWatchResponse = zod.object({
+  "sessionId": zod.string().uuid(),
+  "startedAt": zod.coerce.date()
+})
+
+
+/**
+ * A playback session can earn at most once. A new playback session may earn
+ * again for the same video. Completion uses client-reported YouTube progress
+ * and elapsed time as best-effort checks, not proof that playback cannot be spoofed.
+ * @summary Claim one coin for a completed playback session
+ */
+export const daily007CompleteVideoWatchBodyPercentWatchedMin = 90;
+export const daily007CompleteVideoWatchBodyPercentWatchedMax = 100;
+
+
+
+export const Daily007CompleteVideoWatchBody = zod.object({
+  "sessionId": zod.string().uuid(),
+  "percentWatched": zod.number().int().min(daily007CompleteVideoWatchBodyPercentWatchedMin).max(daily007CompleteVideoWatchBodyPercentWatchedMax)
+})
+
+export const daily007CompleteVideoWatchResponseCoinsMin = 0;
+
+export const daily007CompleteVideoWatchResponseWalletCoinsMin = 0;
+
+
+
+export const Daily007CompleteVideoWatchResponse = zod.object({
+  "rewarded": zod.boolean(),
+  "coins": zod.number().int().min(daily007CompleteVideoWatchResponseCoinsMin),
+  "walletCoins": zod.number().int().min(daily007CompleteVideoWatchResponseWalletCoinsMin),
+  "transactionId": zod.union([zod.string().uuid(),zod.null()]),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary List managed videos for Full Admins
+ */
+export const daily007AdminListVideosResponseVideosItemTitleMax = 120;
+
+export const daily007AdminListVideosResponseVideosItemYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
+
+
+export const Daily007AdminListVideosResponse = zod.object({
+  "videos": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().min(1).max(daily007AdminListVideosResponseVideosItemTitleMax),
+  "youtubeId": zod.string().regex(daily007AdminListVideosResponseVideosItemYoutubeIdRegExp),
+  "url": zod.string().url(),
+  "active": zod.boolean(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Add a YouTube video link
+ */
+export const daily007AdminCreateVideoBodyTitleMax = 120;
+
+export const daily007AdminCreateVideoBodyUrlMax = 500;
+
+
+
+export const Daily007AdminCreateVideoBody = zod.object({
+  "title": zod.string().min(1).max(daily007AdminCreateVideoBodyTitleMax),
+  "url": zod.string().url().max(daily007AdminCreateVideoBodyUrlMax)
+})
+
+export const daily007AdminCreateVideoResponseTitleMax = 120;
+
+export const daily007AdminCreateVideoResponseYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
+
+
+export const Daily007AdminCreateVideoResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().min(1).max(daily007AdminCreateVideoResponseTitleMax),
+  "youtubeId": zod.string().regex(daily007AdminCreateVideoResponseYoutubeIdRegExp),
+  "url": zod.string().url(),
+  "active": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Activate or deactivate a managed YouTube video
+ */
+export const Daily007AdminSetVideoActiveParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007AdminSetVideoActiveBody = zod.object({
+  "active": zod.boolean()
+})
+
+export const daily007AdminSetVideoActiveResponseTitleMax = 120;
+
+export const daily007AdminSetVideoActiveResponseYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
+
+
+export const Daily007AdminSetVideoActiveResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().min(1).max(daily007AdminSetVideoActiveResponseTitleMax),
+  "youtubeId": zod.string().regex(daily007AdminSetVideoActiveResponseYoutubeIdRegExp),
+  "url": zod.string().url(),
+  "active": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Get referral code, sharing link, reward totals, and referral statuses
  */
 export const daily007GetMyReferralsResponseTotalPeopleReferredMin = 0;

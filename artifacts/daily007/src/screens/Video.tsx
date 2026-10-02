@@ -4,6 +4,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,11 +12,26 @@ import {
 import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
 import { useColors } from '@/hooks/useColors';
+import {
+  useDaily007CompleteVideoWatch,
+  useDaily007ListVideos,
+  useDaily007StartVideoWatch,
+} from '@workspace/api-client-react';
+import { useApp } from '../App';
+import { apiError } from '../lib/api';
 
-const VIDEO_ID = 'opKbUpusuTc';
-const VIDEO_URL = `https://youtu.be/${VIDEO_ID}`;
-const WATCH_MARK_PERCENT = 70;
+const WATCH_MARK_PERCENT = 90;
 const PLAYING_STATE = 1;
+const ENDED_STATE = 0;
+
+type VideoItem = {
+  id: string;
+  title: string;
+  youtubeId: string;
+  url: string;
+  active: boolean;
+  createdAt: string;
+};
 
 type PlayerMessage = {
   type?: string;
@@ -103,12 +119,65 @@ export default function Video() {
     colors.border,
     colors.radius,
   ]);
+  const videosQuery = useDaily007ListVideos();
+  const videos: VideoItem[] = (videosQuery.data?.videos ?? []) as VideoItem[];
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
+  const { refresh } = useApp();
+  const { mutateAsync: startVideoWatch } = useDaily007StartVideoWatch();
+  const { mutateAsync: completeVideoWatch } = useDaily007CompleteVideoWatch();
   const webFrameRef = useRef<any>(null);
   const lastSampleRef = useRef<PlaybackSample | null>(null);
   const watchedSecondBucketsRef = useRef<Set<number>>(new Set());
+  const currentSessionRef = useRef<string | null>(null);
+  const startingSessionRef = useRef(false);
+  const sessionStartFailedRef = useRef(false);
+  const playbackCycleRef = useRef(0);
+  const progressPercentRef = useRef(0);
   const [progressPercent, setProgressPercent] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [playerFailed, setPlayerFailed] = useState(false);
+  const [rewardMessage, setRewardMessage] = useState('');
+  const [rewardError, setRewardError] = useState('');
+  const [rewardPending, setRewardPending] = useState(false);
+  const [retrySession, setRetrySession] = useState<{ sessionId: string; percent: number } | null>(null);
+
+  const claimViewReward = useCallback(async (sessionId: string, percentWatched: number) => {
+    setRewardPending(true);
+    setRewardError('');
+    try {
+      const result = await completeVideoWatch({
+        data: { sessionId, percentWatched: Math.min(100, percentWatched) },
+      });
+      setRewardMessage(result.message || (result.rewarded ? '1 coin added to your wallet.' : 'This view has already been rewarded.'));
+      setRetrySession(null);
+      void refresh().catch(() => {
+        setRewardError('The coin was recorded, but the wallet display did not refresh. Reopen Wallet to update it.');
+      });
+    } catch (error) {
+      setRewardError(apiError(error));
+      setRetrySession({ sessionId, percent: percentWatched });
+    } finally {
+      setRewardPending(false);
+    }
+  }, [completeVideoWatch, refresh]);
+
+  const finishCurrentPlayback = useCallback(() => {
+    const sessionId = currentSessionRef.current;
+    currentSessionRef.current = null;
+    playbackCycleRef.current += 1;
+    startingSessionRef.current = false;
+    sessionStartFailedRef.current = false;
+    lastSampleRef.current = null;
+    if (!sessionId) return;
+
+    const percentWatched = progressPercentRef.current;
+    if (percentWatched < WATCH_MARK_PERCENT) {
+      setRewardError(`Watch at least ${WATCH_MARK_PERCENT}% continuously and let the YouTube video finish to earn 1 coin.`);
+      return;
+    }
+    void claimViewReward(sessionId, percentWatched);
+  }, [claimViewReward]);
 
   const handlePlayerMessage = useCallback((rawMessage: unknown) => {
     let payload: PlayerMessage | null = null;
@@ -134,6 +203,10 @@ export default function Video() {
       return;
     }
     if (payload.type === 'state') {
+      if (payload.state === ENDED_STATE) {
+        finishCurrentPlayback();
+        return;
+      }
       if (payload.state !== PLAYING_STATE) lastSampleRef.current = null;
       return;
     }
@@ -147,7 +220,42 @@ export default function Video() {
       return;
     }
 
+    if (!selectedVideo) return;
     const now = Date.now();
+    if (!currentSessionRef.current) {
+      if (startingSessionRef.current || sessionStartFailedRef.current) return;
+      const durationSeconds = Math.ceil(duration);
+      if (durationSeconds < 5 || durationSeconds > 86_400) {
+        sessionStartFailedRef.current = true;
+        setRewardError('This video duration is outside the reward range.');
+        return;
+      }
+      startingSessionRef.current = true;
+      const cycle = playbackCycleRef.current;
+      watchedSecondBucketsRef.current.clear();
+      progressPercentRef.current = 0;
+      setProgressPercent(0);
+      setRewardMessage('');
+      setRewardError('');
+      lastSampleRef.current = null;
+      void startVideoWatch({
+        data: { videoId: selectedVideo.id, durationSeconds },
+      }).then((session) => {
+        if (cycle !== playbackCycleRef.current) return;
+        currentSessionRef.current = session.sessionId;
+        lastSampleRef.current = { currentTime, receivedAt: Date.now() };
+      }).catch((error) => {
+        if (cycle === playbackCycleRef.current) {
+          sessionStartFailedRef.current = true;
+          setRewardError(apiError(error));
+        }
+      }).finally(() => {
+        if (cycle === playbackCycleRef.current) startingSessionRef.current = false;
+      });
+      return;
+    }
+    if (startingSessionRef.current) return;
+
     const previous = lastSampleRef.current;
     if (previous) {
       const elapsedSeconds = Math.max(0, (now - previous.receivedAt) / 1000);
@@ -166,13 +274,31 @@ export default function Video() {
 
     const watchedSeconds = watchedSecondBucketsRef.current.size;
     const estimated = Math.min(100, Math.floor((watchedSeconds / duration) * 100));
-    setProgressPercent((current) => Math.max(current, estimated));
-  }, []);
+    const nextPercent = Math.max(progressPercentRef.current, estimated);
+    progressPercentRef.current = nextPercent;
+    setProgressPercent(nextPercent);
+  }, [finishCurrentPlayback, selectedVideo?.id, startVideoWatch]);
 
   const playerDocument = useMemo(
-    () => createYouTubeDocument(VIDEO_ID, colors.background),
-    [colors.background],
+    () => createYouTubeDocument(selectedVideo?.youtubeId ?? '', colors.background),
+    [colors.background, selectedVideo?.youtubeId],
   );
+
+  useEffect(() => {
+    playbackCycleRef.current += 1;
+    currentSessionRef.current = null;
+    startingSessionRef.current = false;
+    sessionStartFailedRef.current = false;
+    lastSampleRef.current = null;
+    watchedSecondBucketsRef.current.clear();
+    progressPercentRef.current = 0;
+    setProgressPercent(0);
+    setPlayerReady(false);
+    setPlayerFailed(false);
+    setRewardMessage('');
+    setRewardError('');
+    setRetrySession(null);
+  }, [selectedVideo?.id]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
@@ -185,24 +311,26 @@ export default function Video() {
   }, [handlePlayerMessage]);
 
   useEffect(() => {
-    if (playerReady || playerFailed) return undefined;
+    if (!selectedVideo || playerReady || playerFailed) return undefined;
     const timer = setTimeout(() => setPlayerFailed(true), 20_000);
     return () => clearTimeout(timer);
-  }, [playerReady, playerFailed]);
+  }, [playerReady, playerFailed, selectedVideo?.id]);
 
   const openOnYouTube = useCallback(async () => {
+    if (!selectedVideo) return;
     try {
-      await Linking.openURL(VIDEO_URL);
+      await Linking.openURL(selectedVideo.url);
     } catch {
       setPlayerFailed(true);
     }
-  }, []);
+  }, [selectedVideo?.url]);
 
-  const player = Platform.OS === 'web'
+  const player = !selectedVideo ? null : Platform.OS === 'web'
     ? React.createElement('iframe' as any, {
+        key: selectedVideo.id,
         ref: webFrameRef,
         srcDoc: playerDocument,
-        title: 'Featured Daily007 YouTube video',
+        title: selectedVideo.title,
         allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
         allowFullScreen: true,
         style: { width: '100%', height: '100%', border: 0, display: 'block' },
@@ -210,6 +338,7 @@ export default function Video() {
       })
     : (
       <WebView
+        key={selectedVideo.id}
         testID="video-youtube-player"
         source={{ html: playerDocument }}
         style={styles.player}
@@ -228,68 +357,149 @@ export default function Video() {
   const reachedWatchMark = progressPercent >= WATCH_MARK_PERCENT;
 
   return (
-    <View style={styles.root}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.scrollContent}>
       <Text style={styles.title}>VIDEO</Text>
-      <Text style={styles.subtitle}>FEATURED YOUTUBE VIDEO</Text>
+      <Text style={styles.subtitle}>WATCH & EARN</Text>
 
-      <View style={styles.playerShell}>
-        {player}
-        {!playerReady && !playerFailed ? (
-          <View pointerEvents="none" style={styles.loadingOverlay}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={styles.loadingText}>Loading video…</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {playerFailed ? (
+      {videosQuery.isLoading ? (
+        <View style={styles.emptyCard}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={styles.errorText}>Loading videos…</Text>
+        </View>
+      ) : null}
+      {videosQuery.isError ? (
         <View style={styles.errorCard}>
           <Feather name="alert-circle" size={18} color={colors.destructive} />
-          <Text style={styles.errorText}>This video could not be embedded. Open it on YouTube instead.</Text>
+          <Text style={styles.errorText}>Could not load videos. Check your connection and try again.</Text>
+          <Pressable onPress={() => { void videosQuery.refetch(); }} accessibilityRole="button" accessibilityLabel="Reload videos">
+            <Feather name="refresh-cw" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
+      ) : null}
+      {!videosQuery.isLoading && !videosQuery.isError && videos.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Feather name="video" size={22} color={colors.accent} />
+          <Text style={styles.errorText}>No videos are available yet.</Text>
         </View>
       ) : null}
 
-      <View style={styles.progressHeader}>
-        <Text style={styles.progressLabel}>ESTIMATED WATCH PROGRESS</Text>
-        <Text style={styles.progressValue}>{progressPercent}%</Text>
-      </View>
-      <View
-        accessibilityLabel={`${progressPercent}% estimated watched, ${WATCH_MARK_PERCENT}% marker`}
-        accessibilityRole="progressbar"
-        accessibilityValue={{ min: 0, max: 100, now: progressPercent }}
-        testID="video-progress-track"
-        style={styles.progressTrack}
-      >
-        <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-        <View
-          testID="video-progress-threshold"
-          style={[styles.thresholdMarker, { left: `${WATCH_MARK_PERCENT}%` }]}
-        />
-      </View>
-      <Text style={styles.progressCaption}>
-        {reachedWatchMark
-          ? `${WATCH_MARK_PERCENT}% watch marker reached for this session.`
-          : `Continuous playback builds an estimate. Large seeks are ignored for the ${WATCH_MARK_PERCENT}% marker.`}
-      </Text>
+      {videos.length > 0 ? (
+        <View style={styles.videoChoices}>
+          {videos.map((video) => {
+            const selected = video.id === selectedVideo?.id;
+            return (
+              <Pressable
+                key={video.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => setSelectedVideoId(video.id)}
+                style={[styles.videoChoice, selected && styles.videoChoiceSelected]}
+              >
+                <Feather name={selected ? 'play-circle' : 'video'} size={17} color={selected ? colors.primary : colors.mutedForeground} />
+                <Text numberOfLines={2} style={[styles.videoChoiceTitle, selected && styles.videoChoiceTitleSelected]}>
+                  {video.title}
+                </Text>
+                {selected ? <Feather name="check" size={16} color={colors.primary} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
-      <View style={styles.notice}>
-        <Feather name="info" size={16} color={colors.accent} />
-        <Text style={styles.noticeText}>
-          This is an estimated, session-only progress marker. Video viewing does not award coins.
-        </Text>
-      </View>
+      {selectedVideo ? (
+        <>
+          <Text style={styles.selectedTitle}>{selectedVideo.title}</Text>
+          <View style={styles.playerShell}>
+            {player}
+            {!playerReady && !playerFailed ? (
+              <View pointerEvents="none" style={styles.loadingOverlay}>
+                <ActivityIndicator color={colors.accent} />
+                <Text style={styles.loadingText}>Loading video…</Text>
+              </View>
+            ) : null}
+          </View>
 
-      <Pressable
-        accessibilityRole="link"
-        accessibilityLabel="Open the video on YouTube"
-        testID="video-open-youtube"
-        onPress={() => { void openOnYouTube(); }}
-        style={styles.externalButton}
-      >
-        <Feather name="external-link" size={16} color={colors.primary} />
-        <Text style={styles.externalButtonText}>OPEN ON YOUTUBE</Text>
-      </Pressable>
-    </View>
+          {playerFailed ? (
+            <View style={styles.errorCard}>
+              <Feather name="alert-circle" size={18} color={colors.destructive} />
+              <Text style={styles.errorText}>This video could not be embedded. Open it on YouTube instead.</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>ESTIMATED WATCH PROGRESS</Text>
+            <Text style={styles.progressValue}>{progressPercent}%</Text>
+          </View>
+          <View
+            accessibilityLabel={`${progressPercent}% estimated watched, ${WATCH_MARK_PERCENT}% reward marker`}
+            accessibilityRole="progressbar"
+            accessibilityValue={{ min: 0, max: 100, now: progressPercent }}
+            testID="video-progress-track"
+            style={styles.progressTrack}
+          >
+            <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+            <View
+              testID="video-progress-threshold"
+              style={[styles.thresholdMarker, { left: `${WATCH_MARK_PERCENT}%` }]}
+            />
+          </View>
+          <Text style={styles.progressCaption}>
+            {reachedWatchMark
+              ? `${WATCH_MARK_PERCENT}% watch estimate reached. Let the YouTube video finish to claim.`
+              : `Continuous playback builds the estimate. Large seeks are ignored; at least ${WATCH_MARK_PERCENT}% is required.`}
+          </Text>
+
+          {rewardPending ? (
+            <View style={styles.rewardNotice}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={styles.noticeText}>Verifying the completed view…</Text>
+            </View>
+          ) : null}
+          {!!rewardMessage ? (
+            <View style={styles.rewardNotice}>
+              <Feather name="check-circle" size={16} color={colors.primary} />
+              <Text style={styles.rewardText}>{rewardMessage}</Text>
+            </View>
+          ) : null}
+          {!!rewardError ? (
+            <View style={styles.errorCard}>
+              <Feather name="alert-circle" size={16} color={colors.destructive} />
+              <Text style={styles.errorText}>{rewardError}</Text>
+            </View>
+          ) : null}
+          {retrySession ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Retry the coin reward claim"
+              disabled={rewardPending}
+              onPress={() => { void claimViewReward(retrySession.sessionId, retrySession.percent); }}
+              style={styles.retryButton}
+            >
+              <Feather name="refresh-cw" size={15} color={colors.primary} />
+              <Text style={styles.externalButtonText}>RETRY COIN CLAIM</Text>
+            </Pressable>
+          ) : null}
+
+          <View style={styles.notice}>
+            <Feather name="info" size={16} color={colors.accent} />
+            <Text style={styles.noticeText}>
+              Earn 1 coin for each completed view; replays can earn again. A claim needs the YouTube ended event and at least 90% estimated continuous playback. Playback is client-reported and cannot be made tamper-proof.
+            </Text>
+          </View>
+
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Open the video on YouTube"
+            testID="video-open-youtube"
+            onPress={() => { void openOnYouTube(); }}
+            style={styles.externalButton}
+          >
+            <Feather name="external-link" size={16} color={colors.primary} />
+            <Text style={styles.externalButtonText}>OPEN ON YOUTUBE</Text>
+          </Pressable>
+        </>
+      ) : null}
+    </ScrollView>
   );
 }
 
@@ -303,6 +513,7 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       paddingTop: 16,
       ...webInsets,
     },
+    scrollContent: { paddingBottom: 24 },
     title: {
       color: colors.foreground,
       fontSize: 20,
@@ -316,6 +527,41 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       letterSpacing: 1.2,
       marginTop: 5,
       marginBottom: 14,
+    },
+    videoChoices: { gap: 8, marginBottom: 16 },
+    videoChoice: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    videoChoiceSelected: { borderColor: colors.primary },
+    videoChoiceTitle: { flex: 1, color: colors.mutedForeground, fontSize: 12, fontWeight: '700' },
+    videoChoiceTitleSelected: { color: colors.foreground },
+    selectedTitle: {
+      color: colors.foreground,
+      fontSize: 15,
+      lineHeight: 21,
+      fontWeight: '800',
+      marginBottom: 9,
+    },
+    emptyCard: {
+      minHeight: 62,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      padding: 14,
+      marginBottom: 14,
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: colors.radius,
     },
     playerShell: {
       width: '100%',
@@ -390,6 +636,27 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       marginTop: 16,
     },
     noticeText: { color: colors.mutedForeground, fontSize: 11, lineHeight: 17, flex: 1 },
+    rewardNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      padding: 12,
+      marginTop: 12,
+    },
+    rewardText: { color: colors.primary, fontSize: 12, lineHeight: 18, fontWeight: '800', flex: 1 },
+    retryButton: {
+      alignSelf: 'flex-start',
+      minHeight: 42,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 8,
+      paddingVertical: 8,
+    },
     externalButton: {
       alignSelf: 'flex-start',
       minHeight: 44,

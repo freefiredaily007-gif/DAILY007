@@ -1,5 +1,5 @@
 import {
-  check, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid,
+  boolean, check, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import {
@@ -134,4 +134,33 @@ export const daily007YoutubeSubscribeClaimsTable = pgTable("daily007_v2_youtube_
     .where(sql`${table.status} = 'pending'`),
   uniqueIndex("daily007_youtube_one_completion_per_user").on(table.userId, table.taskKey)
     .where(sql`${table.status} = 'approved'`),
+]);
+
+export const daily007VideosTable = pgTable("daily007_v2_videos", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  youtubeId: text("youtube_id").notNull().unique(),
+  active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").references(() => daily007UsersTable.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("daily007_video_title_valid", sql`length(btrim(${table.title})) BETWEEN 1 AND 120`),
+  check("daily007_video_youtube_id_valid", sql`${table.youtubeId} ~ '^[A-Za-z0-9_-]{11}$'`),
+  index("daily007_video_active_created_idx").on(table.active, table.createdAt),
+]);
+
+export const daily007VideoWatchSessionsTable = pgTable("daily007_v2_video_watch_sessions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
+  videoId: uuid("video_id").notNull().references(() => daily007VideosTable.id),
+  durationSeconds: integer("duration_seconds").notNull(),
+  reportedPercent: integer("reported_percent").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  rewardLedgerId: uuid("reward_ledger_id").references(() => daily007WalletLedgerTable.id).unique(),
+}, (table) => [
+  check("daily007_video_watch_duration_valid", sql`${table.durationSeconds} BETWEEN 5 AND 86400`),
+  check("daily007_video_watch_percent_valid", sql`${table.reportedPercent} BETWEEN 0 AND 100`),
+  index("daily007_video_watch_user_video_idx").on(table.userId, table.videoId, table.startedAt),
+  index("daily007_video_watch_video_idx").on(table.videoId, table.startedAt),
 ]);

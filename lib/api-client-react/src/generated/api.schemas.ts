@@ -569,6 +569,71 @@ export interface Daily007YoutubeSubscribeReviewBody {
   reason?: string;
 }
 
+export interface Daily007Video {
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+  /** @pattern ^[A-Za-z0-9_-]{11}$ */
+  youtubeId: string;
+  url: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface Daily007VideoList {
+  videos: Daily007Video[];
+}
+
+export interface Daily007VideoWatchStartBody {
+  videoId: string;
+  /**
+     * @minimum 5
+     * @maximum 86400
+     */
+  durationSeconds: number;
+}
+
+export interface Daily007VideoWatchSession {
+  sessionId: string;
+  startedAt: string;
+}
+
+export interface Daily007VideoWatchCompleteBody {
+  sessionId: string;
+  /**
+     * @minimum 90
+     * @maximum 100
+     */
+  percentWatched: number;
+}
+
+export interface Daily007VideoWatchResult {
+  rewarded: boolean;
+  /** @minimum 0 */
+  coins: number;
+  /** @minimum 0 */
+  walletCoins: number;
+  transactionId: string | null;
+  message: string;
+}
+
+export interface Daily007AdminVideoCreateBody {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+  /** @maxLength 500 */
+  url: string;
+}
+
+export interface Daily007AdminVideoActiveBody {
+  active: boolean;
+}
+
 export type Daily007AdminUserRoleBodyRole = typeof Daily007AdminUserRoleBodyRole[keyof typeof Daily007AdminUserRoleBodyRole];
 
 

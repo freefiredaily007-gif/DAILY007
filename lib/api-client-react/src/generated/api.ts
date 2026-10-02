@@ -40,6 +40,8 @@ import type {
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminSettingsBody,
   Daily007AdminUserRoleBody,
+  Daily007AdminVideoActiveBody,
+  Daily007AdminVideoCreateBody,
   Daily007AdminYoutubeSubscribeClaims,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
@@ -51,6 +53,12 @@ import type {
   Daily007V2CreateMatchBody,
   Daily007V2RegistrationBody,
   Daily007V2UpdateMatchBody,
+  Daily007Video,
+  Daily007VideoList,
+  Daily007VideoWatchCompleteBody,
+  Daily007VideoWatchResult,
+  Daily007VideoWatchSession,
+  Daily007VideoWatchStartBody,
   Daily007WalletImageUploadBody,
   Daily007WalletImageUploadResponse,
   Daily007WalletLedgerEntry,
@@ -1474,6 +1482,516 @@ export function useDaily007GetWalletTransactions<TData = Awaited<ReturnType<type
 
 
 
+
+export const getDaily007ListVideosUrl = () => {
+
+
+
+
+  return `/api/videos`
+}
+
+/**
+ * @summary List active videos available to watch
+ */
+export const daily007ListVideos = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007VideoList> => {
+
+  return customFetch<Daily007VideoList>(getDaily007ListVideosUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007ListVideosQueryKey = () => {
+    return [
+    `/api/videos`
+    ] as const;
+    }
+
+
+export const getDaily007ListVideosQueryOptions = <TData = Awaited<ReturnType<typeof daily007ListVideos>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListVideos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007ListVideosQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007ListVideos>>> = ({ signal }) => daily007ListVideos({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007ListVideos>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007ListVideosQueryResult = NonNullable<Awaited<ReturnType<typeof daily007ListVideos>>>
+export type Daily007ListVideosQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List active videos available to watch
+ */
+
+export function useDaily007ListVideos<TData = Awaited<ReturnType<typeof daily007ListVideos>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListVideos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007ListVideosQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007StartVideoWatchUrl = () => {
+
+
+
+
+  return `/api/videos/watch/start`
+}
+
+/**
+ * @summary Start a reward-tracked playback session
+ */
+export const daily007StartVideoWatch = async (daily007VideoWatchStartBody: Daily007VideoWatchStartBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007VideoWatchSession> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007VideoWatchSession>(getDaily007StartVideoWatchUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007VideoWatchStartBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007StartVideoWatchMutationKey = () => ['daily007StartVideoWatch'] as const;
+
+export const getDaily007StartVideoWatchMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007StartVideoWatch>>, TError,Daily007StartVideoWatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007StartVideoWatch>>, TError,Daily007StartVideoWatchMutationVariables, TContext> => {
+
+const mutationKey = getDaily007StartVideoWatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007StartVideoWatch>>, Daily007StartVideoWatchMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007StartVideoWatch(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007StartVideoWatchMutationResult = NonNullable<Awaited<ReturnType<typeof daily007StartVideoWatch>>>
+    export type Daily007StartVideoWatchMutationBody = BodyType<Daily007VideoWatchStartBody>
+    export type Daily007StartVideoWatchMutationError = ErrorType<void>
+    export type Daily007StartVideoWatchMutationVariables = {data: BodyType<Daily007VideoWatchStartBody>}
+
+    /**
+ * @summary Start a reward-tracked playback session
+ */
+export const useDaily007StartVideoWatch = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007StartVideoWatch>>, TError,Daily007StartVideoWatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007StartVideoWatch>>,
+        TError,
+        Daily007StartVideoWatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007StartVideoWatchMutationOptions(options));
+    }
+
+export const getDaily007CompleteVideoWatchUrl = () => {
+
+
+
+
+  return `/api/videos/watch/complete`
+}
+
+/**
+ * A playback session can earn at most once. A new playback session may earn
+ * again for the same video. Completion uses client-reported YouTube progress
+ * and elapsed time as best-effort checks, not proof that playback cannot be spoofed.
+ * @summary Claim one coin for a completed playback session
+ */
+export const daily007CompleteVideoWatch = async (daily007VideoWatchCompleteBody: Daily007VideoWatchCompleteBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007VideoWatchResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007VideoWatchResult>(getDaily007CompleteVideoWatchUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007VideoWatchCompleteBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007CompleteVideoWatchMutationKey = () => ['daily007CompleteVideoWatch'] as const;
+
+export const getDaily007CompleteVideoWatchMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007CompleteVideoWatch>>, TError,Daily007CompleteVideoWatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007CompleteVideoWatch>>, TError,Daily007CompleteVideoWatchMutationVariables, TContext> => {
+
+const mutationKey = getDaily007CompleteVideoWatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007CompleteVideoWatch>>, Daily007CompleteVideoWatchMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007CompleteVideoWatch(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007CompleteVideoWatchMutationResult = NonNullable<Awaited<ReturnType<typeof daily007CompleteVideoWatch>>>
+    export type Daily007CompleteVideoWatchMutationBody = BodyType<Daily007VideoWatchCompleteBody>
+    export type Daily007CompleteVideoWatchMutationError = ErrorType<void>
+    export type Daily007CompleteVideoWatchMutationVariables = {data: BodyType<Daily007VideoWatchCompleteBody>}
+
+    /**
+ * @summary Claim one coin for a completed playback session
+ */
+export const useDaily007CompleteVideoWatch = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007CompleteVideoWatch>>, TError,Daily007CompleteVideoWatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007CompleteVideoWatch>>,
+        TError,
+        Daily007CompleteVideoWatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007CompleteVideoWatchMutationOptions(options));
+    }
+
+export const getDaily007AdminListVideosUrl = () => {
+
+
+
+
+  return `/api/admin/videos`
+}
+
+/**
+ * @summary List managed videos for Full Admins
+ */
+export const daily007AdminListVideos = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007VideoList> => {
+
+  return customFetch<Daily007VideoList>(getDaily007AdminListVideosUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminListVideosQueryKey = () => {
+    return [
+    `/api/admin/videos`
+    ] as const;
+    }
+
+
+export const getDaily007AdminListVideosQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListVideos>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListVideos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListVideosQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListVideos>>> = ({ signal }) => daily007AdminListVideos({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListVideos>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminListVideosQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListVideos>>>
+export type Daily007AdminListVideosQueryError = ErrorType<void>
+
+
+/**
+ * @summary List managed videos for Full Admins
+ */
+
+export function useDaily007AdminListVideos<TData = Awaited<ReturnType<typeof daily007AdminListVideos>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListVideos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminListVideosQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminCreateVideoUrl = () => {
+
+
+
+
+  return `/api/admin/videos`
+}
+
+/**
+ * @summary Add a YouTube video link
+ */
+export const daily007AdminCreateVideo = async (daily007AdminVideoCreateBody: Daily007AdminVideoCreateBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007Video> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007Video>(getDaily007AdminCreateVideoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminVideoCreateBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminCreateVideoMutationKey = () => ['daily007AdminCreateVideo'] as const;
+
+export const getDaily007AdminCreateVideoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminCreateVideo>>, TError,Daily007AdminCreateVideoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminCreateVideo>>, TError,Daily007AdminCreateVideoMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminCreateVideoMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminCreateVideo>>, Daily007AdminCreateVideoMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007AdminCreateVideo(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminCreateVideoMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminCreateVideo>>>
+    export type Daily007AdminCreateVideoMutationBody = BodyType<Daily007AdminVideoCreateBody>
+    export type Daily007AdminCreateVideoMutationError = ErrorType<void>
+    export type Daily007AdminCreateVideoMutationVariables = {data: BodyType<Daily007AdminVideoCreateBody>}
+
+    /**
+ * @summary Add a YouTube video link
+ */
+export const useDaily007AdminCreateVideo = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminCreateVideo>>, TError,Daily007AdminCreateVideoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminCreateVideo>>,
+        TError,
+        Daily007AdminCreateVideoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminCreateVideoMutationOptions(options));
+    }
+
+export const getDaily007AdminSetVideoActiveUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/videos/${id}/active`
+}
+
+/**
+ * @summary Activate or deactivate a managed YouTube video
+ */
+export const daily007AdminSetVideoActive = async (id: string,
+    daily007AdminVideoActiveBody: Daily007AdminVideoActiveBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007Video> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007Video>(getDaily007AdminSetVideoActiveUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminVideoActiveBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminSetVideoActiveMutationKey = () => ['daily007AdminSetVideoActive'] as const;
+
+export const getDaily007AdminSetVideoActiveMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSetVideoActive>>, TError,Daily007AdminSetVideoActiveMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSetVideoActive>>, TError,Daily007AdminSetVideoActiveMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminSetVideoActiveMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminSetVideoActive>>, Daily007AdminSetVideoActiveMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminSetVideoActive(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminSetVideoActiveMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminSetVideoActive>>>
+    export type Daily007AdminSetVideoActiveMutationBody = BodyType<Daily007AdminVideoActiveBody>
+    export type Daily007AdminSetVideoActiveMutationError = ErrorType<void>
+    export type Daily007AdminSetVideoActiveMutationVariables = {id: string;data: BodyType<Daily007AdminVideoActiveBody>}
+
+    /**
+ * @summary Activate or deactivate a managed YouTube video
+ */
+export const useDaily007AdminSetVideoActive = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSetVideoActive>>, TError,Daily007AdminSetVideoActiveMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminSetVideoActive>>,
+        TError,
+        Daily007AdminSetVideoActiveMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminSetVideoActiveMutationOptions(options));
+    }
 
 export const getDaily007GetMyReferralsUrl = () => {
 

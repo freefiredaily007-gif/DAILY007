@@ -20,6 +20,11 @@ import {
   youtubeClaimResponse,
 } from "../lib/daily007-youtube-subscribe";
 import {
+  completeDaily007VideoWatch,
+  startDaily007VideoWatch,
+  youtubeVideoIdFromUrl,
+} from "../lib/daily007-video-rewards";
+import {
   createWalletImageReadUrl,
   createWalletImageUpload,
   isWalletObjectPath,
@@ -954,6 +959,128 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
   });
 });
 
+router.get("/videos", async (_req, res): Promise<void> => {
+  const result = await pool.query(
+    `SELECT id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+       FROM daily007_v2_videos
+      WHERE active = true
+      ORDER BY created_at DESC, id`,
+  );
+  res.json({
+    videos: result.rows.map((video: any) => ({
+      ...video,
+      url: `https://youtu.be/${video.youtubeId}`,
+    })),
+  });
+});
+
+router.get("/admin/videos", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+
+  // Carry the existing featured player into the managed list once. Admins can
+  // deactivate it after adding their replacement or additional videos.
+  await pool.query(
+    `INSERT INTO daily007_v2_videos (title, youtube_id, active)
+     SELECT $1, $2, true
+      WHERE NOT EXISTS (SELECT 1 FROM daily007_v2_videos)
+     ON CONFLICT (youtube_id) DO NOTHING`,
+    ["Daily007 featured video", "opKbUpusuTc"],
+  );
+  const result = await pool.query(
+    `SELECT id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+       FROM daily007_v2_videos
+      ORDER BY created_at DESC, id`,
+  );
+  res.json({
+    videos: result.rows.map((video: any) => ({
+      ...video,
+      url: `https://youtu.be/${video.youtubeId}`,
+    })),
+  });
+});
+
+router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const body = req.body as unknown;
+  if (!isObject(body)) {
+    error(res, 400, "Expected a video title and YouTube URL."); return;
+  }
+  const title = text(body.title, 1, 120);
+  const youtubeId = youtubeVideoIdFromUrl(body.url);
+  if (!title || !youtubeId) {
+    error(res, 400, "Enter a title up to 120 characters and a valid YouTube video URL."); return;
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO daily007_v2_videos (title, youtube_id, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
+      [title, youtubeId, userId(req)],
+    );
+    const video: any = result.rows[0];
+    res.status(201).json({ ...video, url: `https://youtu.be/${video.youtubeId}` });
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") {
+      error(res, 409, "This YouTube video is already in the managed list."); return;
+    }
+    throw e;
+  }
+});
+
+router.patch("/admin/videos/:id/active", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const id = req.params.id;
+  const body = req.body as unknown;
+  if (!validId(id) || !isObject(body) || typeof body.active !== "boolean") {
+    error(res, 400, "Provide a valid video id and active state."); return;
+  }
+  const result = await pool.query(
+    `UPDATE daily007_v2_videos
+        SET active = $2
+      WHERE id = $1
+      RETURNING id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
+    [id, body.active],
+  );
+  const video: any = result.rows[0];
+  if (!video) { error(res, 404, "Video not found."); return; }
+  res.json({ ...video, url: `https://youtu.be/${video.youtubeId}` });
+});
+
+router.post("/videos/watch/start", authenticate, async (req, res): Promise<void> => {
+  const accountId = privateAccount(req, res); if (!accountId) return;
+  const body = req.body as unknown;
+  if (!isObject(body) || !validId(body.videoId) ||
+      !integer(body.durationSeconds, 5, 86_400)) {
+    error(res, 400, "Provide a valid video id and duration."); return;
+  }
+  try {
+    const session = await transaction((client) =>
+      startDaily007VideoWatch(client, accountId, body.videoId as string, body.durationSeconds as number));
+    res.status(201).json(session);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.post("/videos/watch/complete", authenticate, async (req, res): Promise<void> => {
+  const accountId = privateAccount(req, res); if (!accountId) return;
+  const body = req.body as unknown;
+  if (!isObject(body) || !validId(body.sessionId) ||
+      !integer(body.percentWatched, 90, 100)) {
+    error(res, 400, "Provide a valid playback session and at least 90% estimated progress."); return;
+  }
+  try {
+    const result = await transaction((client) =>
+      completeDaily007VideoWatch(
+        client,
+        accountId,
+        body.sessionId as string,
+        body.percentWatched as number,
+      ));
+    res.json(result);
+  } catch (e) { respondFailure(res, e); }
+});
+
+// Keep the older endpoint non-rewarding: only a server-created playback
+// session can be credited by the new completion route.
 router.post("/videos/watch", authenticate, (_req, res): void => {
   res.json(pausedVideoRewardResponse());
 });
