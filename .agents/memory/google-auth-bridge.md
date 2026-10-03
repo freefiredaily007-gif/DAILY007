@@ -35,8 +35,8 @@ Expo Go's StoreClient environment ignores app-defined redirect schemes that it d
 
 **How to apply:** When Google SSO fails in Expo Go, capture the generated redirect or the phone's error log before changing callback paths. Keep web and standalone redirect behavior intact unless the exact failure points to them.
 
-On 2026-10-03, the user asked to remove the Full Admin Recovery UI and said they have the owner key. Keep server-side recovery and stored request records intact unless they separately request their removal.
+On 2026-10-03, the user asked to remove the Full Admin Recovery UI and the login-home admin-review/owner-code controls; they have the owner key. Keep server-side recovery and stored request records intact unless they separately request their removal.
 
-**Why:** The request was to remove the admin-panel section, not the recovery backend or its data.
+**Why:** The user wants recovery controls out of the admin and login interfaces, while retaining backend recovery and its data.
 
-**How to apply:** Keep the Recovery tab out of the admin UI while preserving the owner-key path and audit records.
+**How to apply:** Keep the Recovery tab and login-home recovery controls out of the UI while preserving server-side owner-code recovery and audit records.
