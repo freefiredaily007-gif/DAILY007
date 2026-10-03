@@ -355,7 +355,7 @@ async function queryStandings(
                COALESCE(SUM(a.kills), 0) DESC,
                LOWER(u.name) ASC,
                a.user_id ASC
-       LIMIT 3`,
+       LIMIT 20`,
     [startsAt.toISOString(), endsAt.toISOString()],
   );
 
