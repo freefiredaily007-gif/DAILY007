@@ -18,6 +18,7 @@ type MatchRow = {
   prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
   rules: string; banner: string; prize_distribution: string; enabled: boolean;
   has_winner?: boolean; has_started?: boolean;
+  completed_at?: Date | string | null;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
   registered_count: number;
 };
@@ -157,6 +158,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     date,
     time,
     startsAt: tournamentInstantFromStored(row.starts_at).toISOString(),
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     entryCoins: row.entry_coins,
     prizePool: row.prize_pool,
     totalSlots: row.capacity,
@@ -193,6 +195,9 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
               SELECT 1 FROM daily007_v2_result_awards award
                WHERE award.match_id = m.id AND award.rank = 1
             ) AS has_winner,
+             (SELECT max(result_award.created_at)
+                FROM daily007_v2_result_awards result_award
+               WHERE result_award.match_id = m.id) AS completed_at,
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS registered_count
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id

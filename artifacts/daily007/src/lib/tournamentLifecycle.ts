@@ -1,6 +1,17 @@
 export type TournamentLifecycleState = 'upcoming' | 'ongoing' | 'completed' | 'closed';
 
 export const MAX_TIMEOUT_MS = 2_147_000_000;
+export const MAX_COMPLETED_TOURNAMENTS = 10;
+
+type TournamentDates = {
+  completedAt?: Date | string | null;
+  startsAt?: Date | string | null;
+};
+
+function timestamp(value: Date | string | null | undefined): number | null {
+  const parsed = value instanceof Date ? value.getTime() : Date.parse(String(value ?? ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export function compareTournamentStartTime(a: any, b: any): number {
   const aStart = Date.parse(String(a?.startsAt ?? ''));
@@ -11,6 +22,21 @@ export function compareTournamentStartTime(a: any, b: any): number {
   if (aValid) return -1;
   if (bValid) return 1;
   return 0;
+}
+
+export function mostRecentCompletedTournaments<T extends TournamentDates>(tournaments: readonly T[]): T[] {
+  return [...tournaments]
+    .sort((a, b) => {
+      const aCompleted = timestamp(a.completedAt);
+      const bCompleted = timestamp(b.completedAt);
+      if (aCompleted === null && bCompleted !== null) return 1;
+      if (aCompleted !== null && bCompleted === null) return -1;
+      if (aCompleted !== null && bCompleted !== null && aCompleted !== bCompleted) {
+        return bCompleted - aCompleted;
+      }
+      return compareTournamentStartTime(b, a);
+    })
+    .slice(0, MAX_COMPLETED_TOURNAMENTS);
 }
 
 export function getTournamentLifecycleState(tournament: any, now = Date.now()): TournamentLifecycleState {

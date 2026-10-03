@@ -5,7 +5,14 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { api } from '../lib/api';
 import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
-import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS, TournamentLifecycleState } from '../lib/tournamentLifecycle';
+import {
+  compareTournamentStartTime,
+  getTournamentLifecycleState,
+  MAX_COMPLETED_TOURNAMENTS,
+  MAX_TIMEOUT_MS,
+  mostRecentCompletedTournaments,
+  TournamentLifecycleState,
+} from '../lib/tournamentLifecycle';
 
 export default function Tournaments() {
   const nav: any = useNavigation();
@@ -61,7 +68,9 @@ export default function Tournaments() {
     : items;
   const lifecycleOf = (tournament: any) => getTournamentLifecycleState(tournament, clockNow);
   const visible = filtered.filter((tournament) => lifecycleOf(tournament) === tab);
-  const orderedVisible = tab === 'ongoing' ? [...visible].sort(compareTournamentStartTime) : visible;
+  const orderedVisible = tab === 'completed'
+    ? mostRecentCompletedTournaments(visible)
+    : tab === 'ongoing' ? [...visible].sort(compareTournamentStartTime) : visible;
   const tabs: Exclude<TournamentLifecycleState, 'closed'>[] = ['upcoming', 'ongoing', 'completed'];
   const tabLabel: Record<typeof tab, string> = {
     upcoming: 'Upcoming',
@@ -86,6 +95,7 @@ export default function Tournaments() {
             <View style={s.tabs}>
               {tabs.map((value) => {
                 const count = filtered.filter((tournament) => lifecycleOf(tournament) === value).length;
+                const displayedCount = value === 'completed' ? Math.min(count, MAX_COMPLETED_TOURNAMENTS) : count;
                 const selected = tab === value;
                 return (
                   <Pressable
@@ -98,7 +108,7 @@ export default function Tournaments() {
                     style={[s.tab, selected && s.tabOn]}
                   >
                     <Text numberOfLines={1} style={[s.tabText, selected && s.tabTextOn]}>
-                      {tabLabel[value]} <Text style={[s.tabCount, selected && s.tabTextOn]}>{count}</Text>
+                      {tabLabel[value]} <Text style={[s.tabCount, selected && s.tabTextOn]}>{displayedCount}</Text>
                     </Text>
                   </Pressable>
                 );
