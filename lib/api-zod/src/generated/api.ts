@@ -100,6 +100,27 @@ export const Daily007GoogleRecoveryRequestResponse = zod.object({
 
 
 /**
+ * Requires a verified Google identity from Clerk and the separate owner
+ * recovery code configured in Replit Secrets. The server only permits this
+ * path for the sole active Full Admin account, records the owner-code
+ * review method, and never stores the submitted code.
+ * @summary Recover the sole Full Admin account using a workspace owner recovery code
+ */
+export const daily007GoogleOwnerRecoveryBodyOwnerRecoveryCodeMin = 32;
+export const daily007GoogleOwnerRecoveryBodyOwnerRecoveryCodeMax = 256;
+
+
+
+export const Daily007GoogleOwnerRecoveryBody = zod.object({
+  "ownerRecoveryCode": zod.string().min(daily007GoogleOwnerRecoveryBodyOwnerRecoveryCodeMin).max(daily007GoogleOwnerRecoveryBodyOwnerRecoveryCodeMax)
+})
+
+export const Daily007GoogleOwnerRecoveryResponse = zod.object({
+  "message": zod.string()
+})
+
+
+/**
  * @summary Get authenticated account and wallet balance
  */
 export const Daily007V2MeResponse = zod.unknown()

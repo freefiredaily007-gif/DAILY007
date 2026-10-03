@@ -59,8 +59,13 @@ export const daily007GoogleRecoveryRequestsTable = pgTable("daily007_v2_google_r
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
   reviewNote: text("review_note"),
+  reviewMethod: text("review_method"),
 }, (table) => [
   check("daily007_v2_google_recovery_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  check(
+    "daily007_v2_google_recovery_method_valid",
+    sql`${table.reviewMethod} IS NULL OR ${table.reviewMethod} IN ('full_admin', 'owner_code')`,
+  ),
   check(
     "daily007_v2_google_recovery_review_audit_valid",
     sql`(${table.status} = 'pending' AND ${table.reviewedAt} IS NULL AND ${table.reviewedBy} IS NULL AND ${table.reviewNote} IS NULL)

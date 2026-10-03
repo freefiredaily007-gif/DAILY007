@@ -49,6 +49,8 @@ import type {
   Daily007AdminVideoActiveBody,
   Daily007AdminVideoCreateBody,
   Daily007AdminYoutubeSubscribeClaims,
+  Daily007GoogleOwnerRecoveryBody,
+  Daily007GoogleOwnerRecoveryResult,
   Daily007GoogleRecoveryRequestAccepted,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
@@ -515,6 +517,98 @@ export const useDaily007GoogleRecoveryRequest = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007GoogleRecoveryRequestMutationOptions(options));
+    }
+
+export const getDaily007GoogleOwnerRecoveryUrl = () => {
+
+
+
+
+  return `/api/auth/google/recovery-owner`
+}
+
+/**
+ * Requires a verified Google identity from Clerk and the separate owner
+ * recovery code configured in Replit Secrets. The server only permits this
+ * path for the sole active Full Admin account, records the owner-code
+ * review method, and never stores the submitted code.
+ * @summary Recover the sole Full Admin account using a workspace owner recovery code
+ */
+export const daily007GoogleOwnerRecovery = async (daily007GoogleOwnerRecoveryBody: Daily007GoogleOwnerRecoveryBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007GoogleOwnerRecoveryResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007GoogleOwnerRecoveryResult>(getDaily007GoogleOwnerRecoveryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007GoogleOwnerRecoveryBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007GoogleOwnerRecoveryMutationKey = () => ['daily007GoogleOwnerRecovery'] as const;
+
+export const getDaily007GoogleOwnerRecoveryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007GoogleOwnerRecovery>>, TError,Daily007GoogleOwnerRecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007GoogleOwnerRecovery>>, TError,Daily007GoogleOwnerRecoveryMutationVariables, TContext> => {
+
+const mutationKey = getDaily007GoogleOwnerRecoveryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007GoogleOwnerRecovery>>, Daily007GoogleOwnerRecoveryMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007GoogleOwnerRecovery(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007GoogleOwnerRecoveryMutationResult = NonNullable<Awaited<ReturnType<typeof daily007GoogleOwnerRecovery>>>
+    export type Daily007GoogleOwnerRecoveryMutationBody = BodyType<Daily007GoogleOwnerRecoveryBody>
+    export type Daily007GoogleOwnerRecoveryMutationError = ErrorType<void>
+    export type Daily007GoogleOwnerRecoveryMutationVariables = {data: BodyType<Daily007GoogleOwnerRecoveryBody>}
+
+    /**
+ * @summary Recover the sole Full Admin account using a workspace owner recovery code
+ */
+export const useDaily007GoogleOwnerRecovery = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007GoogleOwnerRecovery>>, TError,Daily007GoogleOwnerRecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007GoogleOwnerRecovery>>,
+        TError,
+        Daily007GoogleOwnerRecoveryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007GoogleOwnerRecoveryMutationOptions(options));
     }
 
 export const getDaily007V2MeUrl = () => {

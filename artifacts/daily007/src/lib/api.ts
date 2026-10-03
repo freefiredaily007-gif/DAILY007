@@ -139,6 +139,12 @@ export const Api = {
       headers: { Authorization: `Bearer ${clerkJwt}` },
     }));
   },
+  requestGoogleOwnerRecovery: async (clerkJwt: string, ownerRecoveryCode: string) => {
+    if (!clerkJwt) throw new Error('A verified Google session is required.');
+    return unwrap(http.post('/auth/google/recovery-owner', { ownerRecoveryCode }, {
+      headers: { Authorization: `Bearer ${clerkJwt}` },
+    }));
+  },
   adminAccountRecoveryRequests: async (): Promise<AccountRecoveryRequest[]> =>
     unwrap(http.get('/admin/account-recovery-requests')),
   reviewAdminAccountRecoveryRequest: async (

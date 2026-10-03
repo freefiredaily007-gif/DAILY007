@@ -717,6 +717,18 @@ export interface Daily007GoogleRecoveryRequestAccepted {
   message: string;
 }
 
+export interface Daily007GoogleOwnerRecoveryBody {
+  /**
+     * @minLength 32
+     * @maxLength 256
+     */
+  ownerRecoveryCode: string;
+}
+
+export interface Daily007GoogleOwnerRecoveryResult {
+  message: string;
+}
+
 export type Daily007AdminAccountRecoveryRequestAccountRole = typeof Daily007AdminAccountRecoveryRequestAccountRole[keyof typeof Daily007AdminAccountRecoveryRequestAccountRole];
 
 

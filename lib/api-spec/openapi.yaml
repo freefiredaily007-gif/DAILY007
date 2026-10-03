@@ -120,6 +120,32 @@ paths:
         "401": { description: Missing or invalid Clerk session }
         "403": { description: No verified Google identity }
         "503": { description: Clerk identity could not be verified }
+  /auth/google/recovery-owner:
+    post:
+      operationId: daily007GoogleOwnerRecovery
+      summary: Recover the sole Full Admin account using a workspace owner recovery code
+      description: |
+        Requires a verified Google identity from Clerk and the separate owner
+        recovery code configured in Replit Secrets. The server only permits this
+        path for the sole active Full Admin account, records the owner-code
+        review method, and never stores the submitted code.
+      security: [{ clerkBearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007GoogleOwnerRecoveryBody" }
+      responses:
+        "200":
+          description: Owner recovery verified and Google linked to the existing account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007GoogleOwnerRecoveryResult" }
+        "401": { description: Missing or invalid Clerk session }
+        "403": { description: Verified Google identity or owner recovery code was not accepted }
+        "409": { description: Account is not eligible for sole Full Admin owner recovery }
+        "429": { description: Too many recovery code attempts; wait before retrying }
+        "503": { description: Clerk identity verification or owner recovery configuration unavailable }
   /daily007/v2/auth/me:
     get:
       operationId: daily007V2Me
@@ -1391,6 +1417,17 @@ components:
         role: { type: string, enum: [user, tournament_admin] }
       required: [role]
     Daily007GoogleRecoveryRequestAccepted:
+      type: object
+      properties:
+        message: { type: string }
+      required: [message]
+    Daily007GoogleOwnerRecoveryBody:
+      type: object
+      additionalProperties: false
+      properties:
+        ownerRecoveryCode: { type: string, minLength: 32, maxLength: 256 }
+      required: [ownerRecoveryCode]
+    Daily007GoogleOwnerRecoveryResult:
       type: object
       properties:
         message: { type: string }

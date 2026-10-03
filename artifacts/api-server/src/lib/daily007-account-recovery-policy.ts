@@ -10,6 +10,10 @@ export type RecoveryGoogleIdentity = {
   email: string;
 };
 
+export type OwnerRecoveryAccount = RecoveryAccount & {
+  role: string;
+};
+
 const normalizedEmail = (value: string) => value.trim().toLowerCase();
 
 export function isEligibleForGoogleRecoveryRequest(
@@ -20,6 +24,28 @@ export function isEligibleForGoogleRecoveryRequest(
     account &&
     account.status === "active" &&
     !account.clerkUserId &&
+    normalizedEmail(account.email) === normalizedEmail(identity.email),
+  );
+}
+
+export function isEligibleForGoogleOwnerRecovery(input: {
+  account: OwnerRecoveryAccount | null;
+  soleAdminUserIds: string[];
+  identity: RecoveryGoogleIdentity | null;
+}): input is {
+  account: OwnerRecoveryAccount;
+  soleAdminUserIds: [string];
+  identity: RecoveryGoogleIdentity;
+} {
+  const { account, soleAdminUserIds, identity } = input;
+  return Boolean(
+    account &&
+    identity &&
+    account.role === "admin" &&
+    account.status === "active" &&
+    !account.clerkUserId &&
+    soleAdminUserIds.length === 1 &&
+    soleAdminUserIds[0] === account.id &&
     normalizedEmail(account.email) === normalizedEmail(identity.email),
   );
 }

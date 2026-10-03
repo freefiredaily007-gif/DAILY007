@@ -6,7 +6,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { getClerkInstance } from '@clerk/expo';
 import { useSSO } from '@clerk/expo';
 import { Api, apiError, setSession, User } from '../lib/api';
-import { C, Msg } from './ui';
+import { C, Input, Msg } from './ui';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -83,6 +83,7 @@ function ConfiguredGoogleButton({
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryAvailable, setRecoveryAvailable] = useState(false);
   const [recoverySubmitted, setRecoverySubmitted] = useState(false);
+  const [ownerRecoveryCode, setOwnerRecoveryCode] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -102,6 +103,7 @@ function ConfiguredGoogleButton({
     onError?.('');
     setRecoveryAvailable(false);
     setRecoverySubmitted(false);
+    setOwnerRecoveryCode('');
     setBusy(true);
     try {
       // A saved Clerk session can outlive the Daily007 account session. Reuse
@@ -190,6 +192,42 @@ function ConfiguredGoogleButton({
     }
   };
 
+  const recoverWithOwnerCode = async () => {
+    const activeSession = getClerkInstance().session;
+    if (!activeSession) {
+      showError('Your Google session has expired. Choose Continue with Google and try again.');
+      return;
+    }
+    if (!ownerRecoveryCode.trim()) {
+      showError('Enter the owner recovery code stored in Replit Secrets.');
+      return;
+    }
+
+    setRecoveryBusy(true);
+    let recoveryCompleted = false;
+    try {
+      const clerkJwt = await activeSession.getToken();
+      if (!clerkJwt) throw new Error('A verified Google session is required. Please try again.');
+      await Api.requestGoogleOwnerRecovery(clerkJwt, ownerRecoveryCode);
+      recoveryCompleted = true;
+      setOwnerRecoveryCode('');
+      setRecoveryAvailable(false);
+      setRecoverySubmitted(false);
+
+      const authenticated = await Api.googleAuth(clerkJwt);
+      setSession(authenticated.user);
+      setError('');
+      onError?.('');
+      await onSuccess(authenticated.user);
+    } catch (e: any) {
+      showError(recoveryCompleted
+        ? 'Google recovery is complete, but sign-in did not finish. Choose Continue with Google to sign in.'
+        : apiError(e));
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   return (
     <>
       <GoogleButtonFrame label={label} disabled={disabled || recoveryBusy} loading={busy} onPress={authenticateGoogle} />
@@ -204,6 +242,42 @@ function ConfiguredGoogleButton({
         >
           <Text style={s.recoveryButtonText}>{recoveryBusy ? 'SENDING REQUEST…' : 'REQUEST ADMIN REVIEW'}</Text>
         </Pressable>
+      )}
+      {allowRecoveryRequest && (recoveryAvailable || error === RECOVERY_CONFLICT || recoverySubmitted) && (
+        <View style={s.ownerRecovery}>
+          <Text style={s.ownerRecoveryLabel}>
+            Sole Full Admin? Enter the owner recovery code configured in Replit Secrets. Daily007 does not store the code.
+          </Text>
+          <Input
+            accessibilityLabel="Owner recovery code"
+            testID="owner-recovery-code"
+            value={ownerRecoveryCode}
+            onChangeText={setOwnerRecoveryCode}
+            placeholder="Owner recovery code"
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            maxLength={256}
+            editable={!recoveryBusy}
+            style={s.ownerRecoveryInput}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Recover sole Full Admin account with owner code"
+            testID="recover-with-owner-code"
+            disabled={recoveryBusy || !ownerRecoveryCode.trim()}
+            onPress={recoverWithOwnerCode}
+            style={({ pressed }) => [
+              s.ownerRecoveryButton,
+              pressed && !recoveryBusy && s.pressed,
+              (recoveryBusy || !ownerRecoveryCode.trim()) && s.disabled,
+            ]}
+          >
+            <Text style={s.recoveryButtonText}>
+              {recoveryBusy ? 'VERIFYING OWNER CODE…' : 'VERIFY OWNER CODE & RECOVER'}
+            </Text>
+          </Pressable>
+        </View>
       )}
       {recoverySubmitted && (
         <Text accessibilityRole="text" style={s.recoveryNotice}>
@@ -237,4 +311,33 @@ const s = StyleSheet.create({
   recoveryButton: { alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 12, marginTop: 2 },
   recoveryButtonText: { color: C.blue, fontSize: 12, fontWeight: '800', letterSpacing: 0.3, textAlign: 'center' },
   recoveryNotice: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 6, textAlign: 'center' },
+  ownerRecovery: {
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    backgroundColor: C.card,
+  },
+  ownerRecoveryLabel: { color: C.sub, fontSize: 11, lineHeight: 17 },
+  ownerRecoveryInput: {
+    minHeight: 46,
+    marginTop: 9,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    backgroundColor: C.bg2,
+    color: C.text,
+    paddingHorizontal: 12,
+    fontSize: 13,
+  },
+  ownerRecoveryButton: {
+    minHeight: 46,
+    marginTop: 9,
+    borderRadius: 10,
+    backgroundColor: C.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
 });

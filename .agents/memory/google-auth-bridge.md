@@ -13,7 +13,7 @@ As of 2026-10-03, the production Daily007 account has one Full Admin. That admin
 
 **Why:** The requester confirmed there is no second Full Admin, so allowing the existing self-review path would leave their request permanently pending.
 
-**How to apply:** Keep self-approval blocked. If recovery must work for the sole Full Admin, ask the user to choose a separately controlled owner recovery factor rather than treating an audit note as independent verification.
+**How to apply:** Keep ordinary recovery under a different Full Admin's review. For the sole Full Admin, allow recovery only with a separate high-entropy owner code plus a freshly verified Google identity; restrict that route to the sole active Full Admin, record its method in the audit row, and never persist or log the code.
 
 The user reported that the Android flow completed, and a Google-linked account appeared in the development backend. This confirms the additive bridge can complete on Android; a future production build should still be checked against its own redirect and provider configuration.
 
