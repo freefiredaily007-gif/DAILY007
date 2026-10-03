@@ -8,6 +8,8 @@ import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
+const ROOM_CREDENTIAL_REVEAL_LEAD_MS = 5 * 60 * 1000;
+
 export default function MyMatches() {
   const navigation: any = useNavigation();
   const [regs, setRegs] = useState<any[]>([]);
@@ -36,18 +38,23 @@ export default function MyMatches() {
   useEffect(() => {
     const transitions = regs.flatMap((registration) => {
       const startsAt = registration.tournament?.startsAt ?? registration.startsAt;
+      const startMs = Date.parse(String(startsAt ?? ''));
       return [
         getTeamEditCutoff(startsAt),
-        Date.parse(String(startsAt ?? '')),
+        startMs - ROOM_CREDENTIAL_REVEAL_LEAD_MS,
+        startMs,
       ];
     });
     const nextTransition = transitions
       .filter((time): time is number => time !== null && Number.isFinite(time) && time > clockNow)
       .sort((a, b) => a - b)[0];
     if (nextTransition === undefined) return;
-    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow + 20));
+    const timer = setTimeout(() => {
+      setClockNow(Date.now());
+      void load();
+    }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow + 20));
     return () => clearTimeout(timer);
-  }, [regs, clockNow]);
+  }, [regs, clockNow, load]);
 
   const filtered = regs.filter((r) => {
     const state = getTournamentLifecycleState(r.tournament, clockNow);
@@ -92,7 +99,7 @@ export default function MyMatches() {
             const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
             const startsAt = t.startsAt ?? item.startsAt;
             const startMs = startsAt ? new Date(startsAt).getTime() : Number.NaN;
-            const roomWindowOpen = Number.isFinite(startMs) && Date.now() >= startMs - 15 * 60 * 1000;
+            const roomWindowOpen = Number.isFinite(startMs) && clockNow >= startMs - ROOM_CREDENTIAL_REVEAL_LEAD_MS;
             const roomReady = status === 'approved' && published && !!roomId && !!roomPassword && roomWindowOpen;
             const registrationActive = ['approved', 'pending'].includes(status);
             const editEligible = registrationActive && t.enabled !== false && lifecycle === 'upcoming';
@@ -140,11 +147,11 @@ export default function MyMatches() {
                     <Text style={s.roomLocked}>
                        {status === 'approved'
                          ? !published
-                           ? '🔒 Room details have not been published yet.'
+                           ? '🔒 Room details have not been saved yet.'
                            : !Number.isFinite(startMs)
                              ? '🔒 Match start time is unavailable; room details remain hidden.'
                              : !roomWindowOpen
-                               ? '🔒 Room details are hidden until 15 minutes before match start.'
+                               ? '🔒 Room details unlock automatically five minutes before scheduled start.'
                                : '🔒 Room credentials are not available.'
                         : status === 'pending'
                           ? 'Entry is pending admin approval.'

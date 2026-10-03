@@ -87,7 +87,7 @@ export default function AdminTournaments() {
   const [expandedAction, setExpandedAction] = useState<TournamentAction | null>(null);
   const actionRequestId = useRef(0);
   const [roomMeta, setRoomMeta] = useState<any | null>(null);
-  const [roomForm, setRoomForm] = useState({ roomId: '', roomPassword: '', roomTime: '08:00 PM' });
+  const [roomForm, setRoomForm] = useState({ roomId: '', roomPassword: '' });
   const [roomBusy, setRoomBusy] = useState(false);
   const [roomError, setRoomError] = useState('');
   const [roomSuccess, setRoomSuccess] = useState('');
@@ -133,7 +133,7 @@ export default function AdminTournaments() {
     setResultError(''); setResultSuccess('');
     if (kind === 'room') {
       setRoomMeta(null);
-      setRoomForm({ roomId: '', roomPassword: '', roomTime: '08:00 PM' });
+      setRoomForm({ roomId: '', roomPassword: '' });
       setRoomBusy(true);
       try {
         const meta = await Api.adminRoom(tournament.id);
@@ -142,7 +142,6 @@ export default function AdminTournaments() {
         setRoomForm({
           roomId: meta.roomId || '',
           roomPassword: meta.roomPassword || '',
-          roomTime: meta.roomTime || '08:00 PM',
         });
       } catch (e: any) {
         if (actionRequestId.current === requestId) setRoomError(apiError(e));
@@ -170,13 +169,13 @@ export default function AdminTournaments() {
     }
   };
 
-  const saveRoom = async (publish: boolean) => {
+  const saveRoom = async () => {
     if (expandedAction?.kind !== 'room') return;
     const requestId = actionRequestId.current;
     const tournamentId = expandedAction.tournamentId;
     setRoomError(''); setRoomSuccess(''); setRoomBusy(true);
     try {
-      await Api.adminSaveRoom(tournamentId, { ...roomForm, publish });
+      await Api.adminSaveRoom(tournamentId, roomForm);
       if (actionRequestId.current !== requestId) return;
       const meta = await Api.adminRoom(tournamentId);
       if (actionRequestId.current !== requestId) return;
@@ -184,11 +183,8 @@ export default function AdminTournaments() {
       setRoomForm({
         roomId: meta.roomId || '',
         roomPassword: meta.roomPassword || '',
-        roomTime: meta.roomTime || '08:00 PM',
       });
-      setRoomSuccess(publish
-        ? 'Room published — visible to approved players.'
-        : 'Room details saved but remain hidden from players.');
+      setRoomSuccess('Room credentials saved. They will appear to registered players five minutes before the scheduled start.');
     } catch (e: any) {
       if (actionRequestId.current === requestId) setRoomError(apiError(e));
     } finally {
@@ -210,7 +206,6 @@ export default function AdminTournaments() {
       setRoomForm({
         roomId: meta.roomId || '',
         roomPassword: meta.roomPassword || '',
-        roomTime: meta.roomTime || '08:00 PM',
       });
       setRoomSuccess('Room details removed and hidden from players.');
     } catch (e: any) {
@@ -583,22 +578,21 @@ export default function AdminTournaments() {
                 {roomMeta ? (
                   <>
                     <Text style={st.actionStatus}>
-                      {roomMeta.roomPublished ? 'PUBLISHED · VISIBLE TO APPROVED PLAYERS' : 'NOT PUBLISHED · HIDDEN FROM PLAYERS'}
+                      {roomMeta.roomPublished ? 'SAVED · AUTO-RELEASES 5 MIN BEFORE START' : 'NOT SAVED · HIDDEN FROM PLAYERS'}
                     </Text>
-                    <Text style={st.actionHint}>Enter the room credentials here. Save keeps them hidden; Publish shares them with registered players.</Text>
+                    <Text style={st.actionHint}>Save the Room ID and Password. They are shown only to registered players, automatically from five minutes before the scheduled start.</Text>
                     <Input placeholder="Room ID" value={roomForm.roomId} onChangeText={(roomId) => setRoomForm((current) => ({ ...current, roomId }))} />
                     <Input placeholder="Room Password" value={roomForm.roomPassword} onChangeText={(roomPassword) => setRoomForm((current) => ({ ...current, roomPassword }))} />
-                    <Text style={st.lbl}>ROOM TIME (12-HOUR)</Text>
-                    <TimePicker variant="admin" value={roomForm.roomTime} onChange={(roomTime) => setRoomForm((current) => ({ ...current, roomTime }))} />
                     <Msg kind="err" text={roomError} />
                     <Msg kind="ok" text={roomSuccess} />
-                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-                      <View style={{ flex: 1 }}>
-                        <Btn title="SAVE" small kind="ghost" onPress={() => { void saveRoom(false); }} loading={roomBusy} disabled={roomBusy} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Btn title="PUBLISH" small onPress={() => { void saveRoom(true); }} loading={roomBusy} disabled={roomBusy} />
-                      </View>
+                    <View style={{ marginTop: 6 }}>
+                      <Btn
+                        title="SAVE ROOM DETAILS"
+                        small
+                        onPress={() => { void saveRoom(); }}
+                        loading={roomBusy}
+                        disabled={roomBusy || !roomForm.roomId.trim() || !roomForm.roomPassword.trim()}
+                      />
                     </View>
                     {(roomForm.roomId || roomForm.roomPassword || roomMeta.roomPublished) && (
                       <View style={{ marginTop: 8 }}>

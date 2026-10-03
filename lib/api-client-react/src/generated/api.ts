@@ -56,6 +56,7 @@ import type {
   Daily007ReviewRequestBody,
   Daily007V2CreateMatchBody,
   Daily007V2RegistrationBody,
+  Daily007V2SetRoomBody,
   Daily007V2UpdateMatchBody,
   Daily007Video,
   Daily007VideoList,
@@ -1345,17 +1346,32 @@ export const getDaily007V2SetRoomUrl = (id: string,) => {
 }
 
 /**
- * Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
- * @summary Save or publish match room credentials
+ * Full Admin or Tournament Admin. Credentials become available only to approved registrants from five minutes before the scheduled start.
+ * @summary Save match room credentials for scheduled release
  */
-export const daily007V2SetRoom = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const daily007V2SetRoom = async (id: string,
+    daily007V2SetRoomBody: Daily007V2SetRoomBody, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getDaily007V2SetRoomUrl(id),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<void>(getDaily007V2SetRoomUrl(id),
   {
     ...options,
-    method: 'PUT'
-
-
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007V2SetRoomBody)
   }
 );}
 
@@ -1380,9 +1396,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007V2SetRoom>>, Daily007V2SetRoomMutationVariables> = (props) => {
-          const {id} = props ?? {};
+          const {id,data} = props ?? {};
 
-          return  daily007V2SetRoom(id,requestOptions)
+          return  daily007V2SetRoom(id,data,requestOptions)
         }
 
 
@@ -1393,12 +1409,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type Daily007V2SetRoomMutationResult = NonNullable<Awaited<ReturnType<typeof daily007V2SetRoom>>>
-
+    export type Daily007V2SetRoomMutationBody = BodyType<Daily007V2SetRoomBody>
     export type Daily007V2SetRoomMutationError = ErrorType<void>
-    export type Daily007V2SetRoomMutationVariables = {id: string}
+    export type Daily007V2SetRoomMutationVariables = {id: string;data: BodyType<Daily007V2SetRoomBody>}
 
     /**
- * @summary Save or publish match room credentials
+ * @summary Save match room credentials for scheduled release
  */
 export const useDaily007V2SetRoom = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2SetRoom>>, TError,Daily007V2SetRoomMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1420,8 +1436,8 @@ export const getDaily007V2GetRoomUrl = (id: string,) => {
 }
 
 /**
- * Registered account only, and only from 15 minutes before match start.
- * @summary Get published room credentials
+ * Approved registrants only. Credentials are unavailable before five minutes prior to the scheduled start and are never returned for cancelled matches.
+ * @summary Get scheduled room credentials
  */
 export const daily007V2GetRoom = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
@@ -1468,7 +1484,7 @@ export type Daily007V2GetRoomQueryError = ErrorType<void>
 
 
 /**
- * @summary Get published room credentials
+ * @summary Get scheduled room credentials
  */
 
 export function useDaily007V2GetRoom<TData = Awaited<ReturnType<typeof daily007V2GetRoom>>, TError = ErrorType<void>>(

@@ -411,19 +411,30 @@ export const Daily007AdminSetUserRoleResponse = zod.unknown()
 
 
 /**
- * Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
- * @summary Save or publish match room credentials
+ * Full Admin or Tournament Admin. Credentials become available only to approved registrants from five minutes before the scheduled start.
+ * @summary Save match room credentials for scheduled release
  */
 export const Daily007V2SetRoomParams = zod.object({
   "id": zod.coerce.string().uuid()
+})
+
+export const daily007V2SetRoomBodyRoomIdMax = 200;
+
+export const daily007V2SetRoomBodyRoomPasswordMax = 200;
+
+
+
+export const Daily007V2SetRoomBody = zod.object({
+  "roomId": zod.string().min(1).max(daily007V2SetRoomBodyRoomIdMax),
+  "roomPassword": zod.string().min(1).max(daily007V2SetRoomBodyRoomPasswordMax)
 })
 
 export const Daily007V2SetRoomResponse = zod.unknown()
 
 
 /**
- * Registered account only, and only from 15 minutes before match start.
- * @summary Get published room credentials
+ * Approved registrants only. Credentials are unavailable before five minutes prior to the scheduled start and are never returned for cancelled matches.
+ * @summary Get scheduled room credentials
  */
 export const Daily007V2GetRoomParams = zod.object({
   "id": zod.coerce.string().uuid()

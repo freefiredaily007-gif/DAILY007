@@ -789,6 +789,19 @@ export interface Daily007AdminLeaderboardRewardsResponse {
   monthly: Daily007AdminLeaderboardRewardSchedule;
 }
 
+export type Daily007V2SetRoomBody = {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  roomId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  roomPassword: string;
+};
+
 export type Daily007AdminGetRechargeProofUrl200 = {
   url: string;
 };

@@ -5,6 +5,7 @@ import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/dai
 import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
+import { canRevealRoomCredentials } from "../lib/daily007-room-access";
 import {
   cancelUnderfilledTournamentAndRefund,
   tournamentCancellationError,
@@ -525,8 +526,13 @@ function asTeamMembers(row: RegistrationRow, roster: { position: number; member_
 }
 
 function mayExposeRoom(row: RegistrationRow): boolean {
-  return Boolean(row.match_status !== "cancelled" && row.status === "approved" && row.room_published && row.room_id && row.room_password && row.starts_at &&
-    Date.now() >= tournamentInstantFromStored(row.starts_at).getTime() - 15 * 60 * 1000);
+  return canRevealRoomCredentials({
+    registrationStatus: row.status,
+    tournamentStatus: row.match_status ?? "",
+    roomId: row.room_id ?? null,
+    roomPassword: row.room_password ?? null,
+    startsAt: row.starts_at ? tournamentInstantFromStored(row.starts_at) : null,
+  });
 }
 
 router.get("/my/registrations", authenticate, async (req, res): Promise<void> => {
@@ -566,6 +572,12 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
   );
   const data = await Promise.all(result.rows.map(async (row) => {
     const expose = mayExposeRoom(row);
+    const roomPrepared = Boolean(
+      row.status === "approved" &&
+      row.match_status !== "cancelled" &&
+      row.room_id &&
+      row.room_password
+    );
     const t = tournament({
       ...row, id: row.match_id, title: row.title!, entry_coins: row.match_entry_coins!,
       prize_pool: row.prize_pool!, capacity: row.capacity!, starts_at: row.starts_at!,
@@ -574,7 +586,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       registered_count: row.registered_count!, is_full: row.is_full!, rules: row.rules!,
        banner: row.banner!, image_url: row.image_url ?? null, prize_distribution: row.prize_distribution!, enabled: row.enabled!,
       room_id: row.room_id!, room_password: row.room_password!, room_time: row.room_time!,
-      room_published: row.room_published!,
+      room_published: roomPrepared,
     } as MatchRow, expose);
     const roster = await getRoster(row.id);
     return {
@@ -589,7 +601,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       roomId: expose ? row.room_id : undefined,
       roomPassword: expose ? row.room_password : undefined,
       roomTime: expose ? row.room_time : undefined,
-      roomPublished: expose,
+      roomPublished: roomPrepared,
        tournament: { ...t, results: row.match_results ?? [] },
     };
   }));
@@ -923,7 +935,7 @@ router.get("/admin/tournaments/:id/room", authenticate, async (req, res): Promis
   if (row.status === "cancelled") return fail(res, 409, "A cancelled tournament has no room to manage.");
   res.json({
     id: row.id, roomId: row.room_id ?? "", roomPassword: row.room_password ?? "",
-    roomTime: row.room_time, roomPublished: row.room_published,
+    roomTime: row.room_time, roomPublished: Boolean(row.room_id && row.room_password),
   });
 });
 
@@ -932,29 +944,25 @@ router.put("/admin/tournaments/:id/room", authenticate, async (req, res): Promis
   const id = idFrom(req);
   const body = req.body as unknown;
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
-  if (!record(body) || typeof body.publish !== "boolean") {
-    return fail(res, 400, "Expected roomId, roomPassword, roomTime, and boolean publish.");
+  if (!record(body)) return fail(res, 400, "Expected roomId and roomPassword.");
+  const roomId = nonempty(body.roomId, 200);
+  const roomPassword = nonempty(body.roomPassword, 200);
+  if (!roomId || !roomPassword) {
+    return fail(res, 400, "Room ID and password must each contain 1–200 characters.");
   }
-  const roomId = body.roomId === "" ? "" : nonempty(body.roomId, 200);
-  const roomPassword = body.roomPassword === "" ? "" : nonempty(body.roomPassword, 200);
-  const roomTime = body.roomTime === undefined ? "08:00 PM" : nonempty(body.roomTime, 32);
-  if (roomId === null || roomPassword === null || !roomTime || (body.publish && (!roomId || !roomPassword))) {
-    return fail(res, 400, "Room credentials must be 1–200 characters when provided; publish requires both credentials.");
-  }
-  const result = await pool.query(
+  const result = await pool.query<{ id: string; roomPublished: boolean; roomTime: string }>(
     `UPDATE daily007_v2_matches
-        SET room_id = NULLIF($2, ''), room_password = NULLIF($3, ''),
-            room_time = $4, room_published = $5
+        SET room_id = $2, room_password = $3, room_published = true
       WHERE id = $1 AND status <> 'cancelled'
-      RETURNING id, room_published AS "roomPublished"`,
-    [id, roomId, roomPassword, roomTime, body.publish],
+      RETURNING id, room_published AS "roomPublished", room_time AS "roomTime"`,
+    [id, roomId, roomPassword],
   );
   if (!result.rows[0]) {
     const exists = await pool.query<{ status: string }>("SELECT status FROM daily007_v2_matches WHERE id = $1", [id]);
     if (exists.rows[0]?.status === "cancelled") return fail(res, 409, "A cancelled tournament has no room to manage.");
     return fail(res, 404, "Tournament not found.");
   }
-  res.json({ ...result.rows[0], roomId, roomPassword, roomTime });
+  res.json({ ...result.rows[0], roomId, roomPassword });
 });
 
 router.delete("/admin/tournaments/:id/room", authenticate, async (req, res): Promise<void> => {

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, View, ScrollView, StyleSheet } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { Api, apiError, Tournament } from '../lib/api';
-import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
+import { Btn, Card, C, Chip, Empty, Input, Loading, Msg } from '../components/ui';
 import { getTournamentLifecycleState } from '../lib/tournamentLifecycle';
 
 export default function AdminRooms({
@@ -17,7 +17,6 @@ export default function AdminRooms({
   const [meta, setMeta] = useState<any>(null);
   const [roomId, setRoomId] = useState('');
   const [roomPassword, setRoomPassword] = useState('');
-  const [roomTime, setRoomTime] = useState('08:00 PM');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
@@ -33,7 +32,7 @@ export default function AdminRooms({
     try {
       const m = await Api.adminRoom(t.id);
       setMeta(m);
-      setRoomId(m.roomId || ''); setRoomPassword(m.roomPassword || ''); setRoomTime(m.roomTime || '08:00 PM');
+      setRoomId(m.roomId || ''); setRoomPassword(m.roomPassword || '');
     } catch (e: any) { setErr(apiError(e)); }
   }, []);
 
@@ -46,12 +45,12 @@ export default function AdminRooms({
     onInitialRoomHandled?.();
   }, [initialRoomTournamentId, list, onInitialRoomHandled, open]);
 
-  const save = async (publish: boolean) => {
+  const save = async () => {
     if (!sel) return;
     setErr(''); setOkMsg(''); setBusy(true);
     try {
-      await Api.adminSaveRoom(sel.id, { roomId, roomPassword, roomTime, publish });
-      setOkMsg(publish ? 'Room published — visible to approved players' : 'Room details saved (not published)');
+      await Api.adminSaveRoom(sel.id, { roomId, roomPassword });
+      setOkMsg('Room credentials saved. They will appear to registered players five minutes before the scheduled start.');
       await load();
       const m = await Api.adminRoom(sel.id); setMeta(m);
       setTimeout(() => setOkMsg(''), 2500);
@@ -99,15 +98,18 @@ export default function AdminRooms({
         <Card>
           <Text onPress={() => setSel(null)} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
-          <Text style={st.sub}>Status: {meta?.roomPublished ? 'PUBLISHED' : 'HIDDEN (not published)'} · {getTournamentLifecycleState(sel).toUpperCase()}</Text>
-          <Text style={st.sub}>Enter credentials and publish about 10–15 minutes before match start. Published details are visible only to registered players.</Text>
+          <Text style={st.sub}>Status: {meta?.roomPublished ? 'SAVED · AUTO-RELEASE AT 5 MINUTES BEFORE START' : 'NOT SAVED · HIDDEN'} · {getTournamentLifecycleState(sel).toUpperCase()}</Text>
+          <Text style={st.sub}>Save the Room ID and Password. They are shown only to registered players, automatically from five minutes before the scheduled start.</Text>
           <Input placeholder="Room ID" value={roomId} onChangeText={setRoomId} />
           <Input placeholder="Room Password" value={roomPassword} onChangeText={setRoomPassword} />
-          <Text style={st.lbl}>ROOM TIME (12-HOUR)</Text>
-          <TimePicker variant="admin" value={roomTime} onChange={setRoomTime} />
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-            <View style={{ flex: 1 }}><Btn title="SAVE" small kind="ghost" onPress={() => save(false)} loading={busy} /></View>
-            <View style={{ flex: 1 }}><Btn title="PUBLISH" small onPress={() => save(true)} loading={busy} /></View>
+          <View style={{ marginTop: 6 }}>
+            <Btn
+              title="SAVE ROOM DETAILS"
+              small
+              onPress={() => save()}
+              loading={busy}
+              disabled={busy || !roomId.trim() || !roomPassword.trim()}
+            />
           </View>
           {(!!roomId || !!roomPassword || !!meta?.roomPublished) && (
             <View style={{ marginTop: 8 }}>

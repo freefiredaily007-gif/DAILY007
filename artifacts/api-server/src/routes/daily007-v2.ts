@@ -6,6 +6,7 @@ import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mode-rules";
 import { storedTournamentTimeFromInstant, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
+import { canRevealRoomCredentials, isRoomCredentialReleaseOpen } from "../lib/daily007-room-access";
 import { hasTournamentAdminAccess, isFullAdminRole, type Daily007Role } from "../lib/daily007-roles";
 
 const scrypt = promisify(scryptCallback);
@@ -713,20 +714,19 @@ router.put("/daily007/v2/admin/matches/:id/room", authenticate, async (req, res)
   }
   if (!isRecord(body) || typeof body.roomId !== "string" || !body.roomId.trim() ||
       body.roomId.length > 200 || typeof body.roomPassword !== "string" ||
-      !body.roomPassword.trim() || body.roomPassword.length > 200 ||
-      typeof body.published !== "boolean") {
-    fail(res, 400, "roomId and roomPassword must each contain 1–200 characters, and published must be a boolean.");
+      !body.roomPassword.trim() || body.roomPassword.length > 200) {
+    fail(res, 400, "roomId and roomPassword must each contain 1–200 characters.");
     return;
   }
   const result = await pool.query(
     `UPDATE daily007_v2_matches
-        SET room_id = $2, room_password = $3, room_published = $4
-      WHERE id = $1
+        SET room_id = $2, room_password = $3, room_published = true
+      WHERE id = $1 AND status <> 'cancelled'
       RETURNING id, room_published AS published`,
-    [id, body.roomId.trim(), body.roomPassword.trim(), body.published],
+    [id, body.roomId.trim(), body.roomPassword.trim()],
   );
   if (!result.rows[0]) {
-    fail(res, 404, "Match not found.");
+    fail(res, 404, "Match not found or cancelled.");
     return;
   }
   res.json({ match: result.rows[0] });
@@ -744,10 +744,10 @@ router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Prom
     return;
   }
   const result = await pool.query<{
-    room_id: string | null; room_password: string | null; room_published: boolean;
-    starts_at: Date; registered: boolean;
+    room_id: string | null; room_password: string | null;
+    starts_at: Date; tournament_status: string; registered: boolean;
   }>(
-    `SELECT m.room_id, m.room_password, m.room_published, m.starts_at,
+    `SELECT m.room_id, m.room_password, m.starts_at, m.status AS tournament_status,
              EXISTS(SELECT 1 FROM daily007_v2_registrations r
                      WHERE r.match_id = m.id AND r.captain_user_id = $2 AND r.status = 'approved') AS registered
        FROM daily007_v2_matches m WHERE m.id = $1`,
@@ -762,12 +762,19 @@ router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Prom
     fail(res, 403, "Room credentials are available only to registered users.");
     return;
   }
-  if (!match.room_published || !match.room_id || !match.room_password) {
-    fail(res, 404, "Room credentials have not been published.");
+  const startsAt = tournamentInstantFromStored(match.starts_at);
+  if (!isRoomCredentialReleaseOpen(startsAt)) {
+    fail(res, 403, "Room credentials become available five minutes before the match starts.");
     return;
   }
-  if (Date.now() < tournamentInstantFromStored(match.starts_at).getTime() - 15 * 60 * 1000) {
-    fail(res, 403, "Room credentials become available 15 minutes before the match starts.");
+  if (!canRevealRoomCredentials({
+    registrationStatus: "approved",
+    tournamentStatus: match.tournament_status,
+    roomId: match.room_id,
+    roomPassword: match.room_password,
+    startsAt,
+  })) {
+    fail(res, 404, "Room credentials are not available for this match.");
     return;
   }
   res.json({ roomId: match.room_id, roomPassword: match.room_password });

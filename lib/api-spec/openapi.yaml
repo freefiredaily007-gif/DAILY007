@@ -246,26 +246,38 @@ paths:
   /daily007/v2/admin/matches/{id}/room:
     put:
       operationId: daily007V2SetRoom
-      summary: Save or publish match room credentials
-      description: Full Admin or Tournament Admin. Setting published=true still does not reveal credentials until 15 minutes before match start.
+      summary: Save match room credentials for scheduled release
+      description: Full Admin or Tournament Admin. Credentials become available only to approved registrants from five minutes before the scheduled start.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roomId, roomPassword]
+              properties:
+                roomId: { type: string, minLength: 1, maxLength: 200 }
+                roomPassword: { type: string, minLength: 1, maxLength: 200 }
       responses:
-        "200": { description: Room credentials saved }
-        "400": { description: Invalid room credentials or published flag }
+        "200": { description: Room credentials saved and scheduled for automatic release }
+        "400": { description: Invalid room credentials }
+        "403": { description: Tournament administrator required }
+        "404": { description: Match not found }
   /daily007/v2/matches/{id}/room:
     get:
       operationId: daily007V2GetRoom
-      summary: Get published room credentials
-      description: Registered account only, and only from 15 minutes before match start.
+      summary: Get scheduled room credentials
+      description: Approved registrants only. Credentials are unavailable before five minutes prior to the scheduled start and are never returned for cancelled matches.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         "200": { description: Room id and password }
-        "403": { description: Not registered or not yet available }
-        "404": { description: Match or published credentials not found }
+        "403": { description: Not registered or before the automatic release time }
+        "404": { description: Match or saved credentials not found }
   /daily007/v2/admin/matches/{id}/registrations.csv:
     get:
       operationId: daily007V2ExportRegistrations
