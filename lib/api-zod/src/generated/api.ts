@@ -104,6 +104,151 @@ export const Daily007V2ListMatchesResponse = zod.unknown()
 
 
 /**
+ * Scores are total match prize coins earned during the cycle. Weeks run Monday through Sunday and months follow the calendar in India Standard Time.
+ * @summary Get the active weekly and monthly prize-coin leaderboards
+ */
+
+export const daily007ListLeaderboardsResponseWeeklyStandingsItemPointsMin = 0;
+
+export const daily007ListLeaderboardsResponseWeeklyStandingsItemEarningsMin = 0;
+
+export const daily007ListLeaderboardsResponseWeeklyStandingsItemWinsMin = 0;
+
+export const daily007ListLeaderboardsResponseWeeklyStandingsItemKillsMin = 0;
+
+export const daily007ListLeaderboardsResponseWeeklyStandingsItemMatchesMin = 0;
+
+
+export const daily007ListLeaderboardsResponseMonthlyStandingsItemPointsMin = 0;
+
+export const daily007ListLeaderboardsResponseMonthlyStandingsItemEarningsMin = 0;
+
+export const daily007ListLeaderboardsResponseMonthlyStandingsItemWinsMin = 0;
+
+export const daily007ListLeaderboardsResponseMonthlyStandingsItemKillsMin = 0;
+
+export const daily007ListLeaderboardsResponseMonthlyStandingsItemMatchesMin = 0;
+
+
+
+export const Daily007ListLeaderboardsResponse = zod.object({
+  "weekly": zod.object({
+  "id": zod.string().uuid(),
+  "cycleType": zod.enum(['weekly', 'monthly']),
+  "status": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "standings": zod.array(zod.object({
+  "rank": zod.number().int().min(1),
+  "userId": zod.string().uuid(),
+  "name": zod.string(),
+  "points": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemPointsMin).describe('Total match prize coins earned during this period'),
+  "earnings": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemEarningsMin),
+  "wins": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemWinsMin),
+  "kills": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemKillsMin),
+  "matches": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemMatchesMin)
+}))
+}),
+  "monthly": zod.object({
+  "id": zod.string().uuid(),
+  "cycleType": zod.enum(['weekly', 'monthly']),
+  "status": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "standings": zod.array(zod.object({
+  "rank": zod.number().int().min(1),
+  "userId": zod.string().uuid(),
+  "name": zod.string(),
+  "points": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemPointsMin).describe('Total match prize coins earned during this period'),
+  "earnings": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemEarningsMin),
+  "wins": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemWinsMin),
+  "kills": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemKillsMin),
+  "matches": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemMatchesMin)
+}))
+})
+})
+
+
+/**
+ * @summary List ended leaderboard periods awaiting Full Admin approval
+ */
+
+export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemPointsMin = 0;
+
+export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemEarningsMin = 0;
+
+export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemWinsMin = 0;
+
+export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemKillsMin = 0;
+
+export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemMatchesMin = 0;
+
+
+
+export const Daily007AdminListLeaderboardPeriodsResponse = zod.object({
+  "periods": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "cycleType": zod.enum(['weekly', 'monthly']),
+  "status": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "standings": zod.array(zod.object({
+  "rank": zod.number().int().min(1),
+  "userId": zod.string().uuid(),
+  "name": zod.string(),
+  "points": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemPointsMin).describe('Total match prize coins earned during this period'),
+  "earnings": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemEarningsMin),
+  "wins": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemWinsMin),
+  "kills": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemKillsMin),
+  "matches": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemMatchesMin)
+}))
+}))
+})
+
+
+/**
+ * Full Admin only. Coin payouts and period transitions are committed in one transaction and cannot be repeated.
+ * @summary Finalize standings, pay selected ranks, and activate the next cycle
+ */
+export const Daily007AdminApproveLeaderboardPeriodParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007AdminApproveLeaderboardPeriodBodyPayoutsItemRankMax = 100;
+
+export const daily007AdminApproveLeaderboardPeriodBodyPayoutsItemCoinsMax = 2147483647;
+
+export const daily007AdminApproveLeaderboardPeriodBodyPayoutsMax = 10;
+
+
+
+export const Daily007AdminApproveLeaderboardPeriodBody = zod.object({
+  "payouts": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodBodyPayoutsItemRankMax),
+  "coins": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodBodyPayoutsItemCoinsMax)
+})).max(daily007AdminApproveLeaderboardPeriodBodyPayoutsMax)
+})
+
+
+
+export const daily007AdminApproveLeaderboardPeriodResponsePayoutsItemWalletCoinsMin = 0;
+
+
+
+export const Daily007AdminApproveLeaderboardPeriodResponse = zod.object({
+  "periodId": zod.string().uuid(),
+  "status": zod.enum(['finalized']),
+  "payouts": zod.array(zod.object({
+  "rank": zod.number().int().min(1),
+  "userId": zod.string().uuid(),
+  "coins": zod.number().int().min(1),
+  "walletCoins": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponsePayoutsItemWalletCoinsMin)
+})),
+  "nextPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation'])
+})
+
+
+/**
  * Admin only. Capacities are fixed to solo=48 registrations, squad=12 teams, and clash=2 teams. startsAt must be a future ISO timestamp; entryCoins must be a nonnegative integer.
  * @summary Create a match
  */

@@ -122,6 +122,52 @@ paths:
       summary: List match capacities, entry prices, and status
       responses:
         "200": { description: Match list; does not expose room credentials }
+  /daily007/v2/leaderboards:
+    get:
+      operationId: daily007ListLeaderboards
+      summary: Get the active weekly and monthly prize-coin leaderboards
+      description: Scores are total match prize coins earned during the cycle. Weeks run Monday through Sunday and months follow the calendar in India Standard Time.
+      responses:
+        "200":
+          description: Weekly and monthly leaderboard periods and standings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007LeaderboardsResponse" }
+  /daily007/v2/admin/leaderboards/periods:
+    get:
+      operationId: daily007AdminListLeaderboardPeriods
+      summary: List ended leaderboard periods awaiting Full Admin approval
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Approveable ended periods, in cycle order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminLeaderboardPeriodsResponse" }
+        "403": { description: Full Admin required }
+  /daily007/v2/admin/leaderboards/periods/{id}/approve:
+    post:
+      operationId: daily007AdminApproveLeaderboardPeriod
+      summary: Finalize standings, pay selected ranks, and activate the next cycle
+      description: Full Admin only. Coin payouts and period transitions are committed in one transaction and cannot be repeated.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007ApproveLeaderboardPeriodBody" }
+      responses:
+        "200":
+          description: Period finalized and any configured coin payouts issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007ApproveLeaderboardPeriodResponse" }
+        "400": { description: Invalid period id or payout configuration }
+        "403": { description: Full Admin required }
+        "404": { description: Period not found }
+        "409": { description: Period is not ready or wallet balance would exceed its supported range }
   /daily007/v2/admin/matches:
     post:
       operationId: daily007V2CreateMatch
@@ -1191,4 +1237,74 @@ components:
       properties:
         role: { type: string, enum: [user, tournament_admin] }
       required: [role]
+    Daily007LeaderboardStanding:
+      type: object
+      properties:
+        rank: { type: integer, minimum: 1 }
+        userId: { type: string, format: uuid }
+        name: { type: string }
+        points: { type: integer, minimum: 0, description: Total match prize coins earned during this period }
+        earnings: { type: integer, minimum: 0 }
+        wins: { type: integer, minimum: 0 }
+        kills: { type: integer, minimum: 0 }
+        matches: { type: integer, minimum: 0 }
+      required: [rank, userId, name, points, earnings, wins, kills, matches]
+    Daily007LeaderboardPeriod:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        cycleType: { type: string, enum: [weekly, monthly] }
+        status: { type: string, enum: [active, pending_approval, pending_activation, finalized] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        standings:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007LeaderboardStanding" }
+      required: [id, cycleType, status, startsAt, endsAt, standings]
+    Daily007LeaderboardsResponse:
+      type: object
+      properties:
+        weekly: { $ref: "#/components/schemas/Daily007LeaderboardPeriod" }
+        monthly: { $ref: "#/components/schemas/Daily007LeaderboardPeriod" }
+      required: [weekly, monthly]
+    Daily007AdminLeaderboardPeriodsResponse:
+      type: object
+      properties:
+        periods:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007LeaderboardPeriod" }
+      required: [periods]
+    Daily007LeaderboardPayout:
+      type: object
+      additionalProperties: false
+      properties:
+        rank: { type: integer, minimum: 1, maximum: 100 }
+        coins: { type: integer, minimum: 1, maximum: 2147483647 }
+      required: [rank, coins]
+    Daily007ApproveLeaderboardPeriodBody:
+      type: object
+      additionalProperties: false
+      properties:
+        payouts:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/Daily007LeaderboardPayout" }
+      required: [payouts]
+    Daily007ApproveLeaderboardPeriodResponse:
+      type: object
+      properties:
+        periodId: { type: string, format: uuid }
+        status: { type: string, enum: [finalized] }
+        payouts:
+          type: array
+          items:
+            type: object
+            properties:
+              rank: { type: integer, minimum: 1 }
+              userId: { type: string, format: uuid }
+              coins: { type: integer, minimum: 1 }
+              walletCoins: { type: integer, minimum: 0 }
+            required: [rank, userId, coins, walletCoins]
+        nextPeriodStatus: { type: string, enum: [active, pending_approval, pending_activation] }
+      required: [periodId, status, payouts, nextPeriodStatus]
 

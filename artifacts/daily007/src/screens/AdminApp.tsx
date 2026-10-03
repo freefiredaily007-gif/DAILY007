@@ -17,10 +17,12 @@ import AdminNotifications from './AdminNotifications';
 import AdminSettings from './AdminSettings';
 import AdminEarnTasks from './AdminEarnTasks';
 import AdminVideos from './AdminVideos';
+import AdminLeaderboards from './AdminLeaderboards';
 import logoImg from '../assets/logo.jpg';
 
 const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
+  { key: 'leaderboards', label: 'Leaders', icon: 'award' },
   { key: 'tournaments', label: 'Tournaments', icon: 'award' },
   { key: 'registrations', label: 'Regs', icon: 'file-text' },
   { key: 'payments', label: 'Payments', icon: 'credit-card' },
@@ -54,7 +56,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
     if (!tournamentOnly || TOURNAMENT_ADMIN_SCREENS.has(next)) setScreen(next);
   };
   const Screen: any = {
-    dashboard: AdminDashboard, tournaments: AdminTournaments, registrations: AdminRegs,
+    dashboard: AdminDashboard, leaderboards: AdminLeaderboards, tournaments: AdminTournaments, registrations: AdminRegs,
     payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, videos: AdminVideos,
     users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
   }[activeScreen] || AdminDashboard;

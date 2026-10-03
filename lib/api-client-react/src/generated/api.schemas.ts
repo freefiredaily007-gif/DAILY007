@@ -665,6 +665,113 @@ export interface Daily007AdminUserRoleBody {
   role: Daily007AdminUserRoleBodyRole;
 }
 
+export interface Daily007LeaderboardStanding {
+  /** @minimum 1 */
+  rank: number;
+  userId: string;
+  name: string;
+  /**
+     * Total match prize coins earned during this period
+     * @minimum 0
+     */
+  points: number;
+  /** @minimum 0 */
+  earnings: number;
+  /** @minimum 0 */
+  wins: number;
+  /** @minimum 0 */
+  kills: number;
+  /** @minimum 0 */
+  matches: number;
+}
+
+export type Daily007LeaderboardPeriodCycleType = typeof Daily007LeaderboardPeriodCycleType[keyof typeof Daily007LeaderboardPeriodCycleType];
+
+
+export const Daily007LeaderboardPeriodCycleType = {
+  weekly: 'weekly',
+  monthly: 'monthly',
+} as const;
+
+export type Daily007LeaderboardPeriodStatus = typeof Daily007LeaderboardPeriodStatus[keyof typeof Daily007LeaderboardPeriodStatus];
+
+
+export const Daily007LeaderboardPeriodStatus = {
+  active: 'active',
+  pending_approval: 'pending_approval',
+  pending_activation: 'pending_activation',
+  finalized: 'finalized',
+} as const;
+
+export interface Daily007LeaderboardPeriod {
+  id: string;
+  cycleType: Daily007LeaderboardPeriodCycleType;
+  status: Daily007LeaderboardPeriodStatus;
+  startsAt: string;
+  endsAt: string;
+  standings: Daily007LeaderboardStanding[];
+}
+
+export interface Daily007LeaderboardsResponse {
+  weekly: Daily007LeaderboardPeriod;
+  monthly: Daily007LeaderboardPeriod;
+}
+
+export interface Daily007AdminLeaderboardPeriodsResponse {
+  periods: Daily007LeaderboardPeriod[];
+}
+
+export interface Daily007LeaderboardPayout {
+  /**
+     * @minimum 1
+     * @maximum 100
+     */
+  rank: number;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  coins: number;
+}
+
+export interface Daily007ApproveLeaderboardPeriodBody {
+  /** @maxItems 10 */
+  payouts: Daily007LeaderboardPayout[];
+}
+
+export type Daily007ApproveLeaderboardPeriodResponseStatus = typeof Daily007ApproveLeaderboardPeriodResponseStatus[keyof typeof Daily007ApproveLeaderboardPeriodResponseStatus];
+
+
+export const Daily007ApproveLeaderboardPeriodResponseStatus = {
+  finalized: 'finalized',
+} as const;
+
+export type Daily007ApproveLeaderboardPeriodResponsePayoutsItem = {
+  /** @minimum 1 */
+  rank: number;
+  userId: string;
+  /** @minimum 1 */
+  coins: number;
+  /** @minimum 0 */
+  walletCoins: number;
+};
+
+export type Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus = typeof Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus[keyof typeof Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus];
+
+
+export const Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus = {
+  active: 'active',
+  pending_approval: 'pending_approval',
+  pending_activation: 'pending_activation',
+} as const;
+
+export interface Daily007ApproveLeaderboardPeriodResponse {
+  periodId: string;
+  status: Daily007ApproveLeaderboardPeriodResponseStatus;
+  payouts: Daily007ApproveLeaderboardPeriodResponsePayoutsItem[];
+  nextPeriodStatus: Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus;
+}
+
 export type Daily007AdminGetRechargeProofUrl200 = {
   url: string;
 };

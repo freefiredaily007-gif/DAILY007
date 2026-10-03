@@ -105,6 +105,7 @@ export const daily007ResultAwardsTable = pgTable("daily007_v2_result_awards", {
   check("daily007_result_rank_valid", sql`${table.rank} BETWEEN 1 AND 2147483647`),
   check("daily007_result_kills_valid", sql`${table.kills} BETWEEN 0 AND 2147483647`),
   check("daily007_result_prize_valid", sql`${table.prizeCoins} BETWEEN 0 AND 2147483647`),
+  index("daily007_result_awards_match_idx").on(table.matchId),
 ]);
 
 export const daily007UserStatsTable = pgTable("daily007_v2_user_stats", {

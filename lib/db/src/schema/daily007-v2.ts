@@ -104,6 +104,7 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
     (${table.isFull} = true AND ${table.status} IN ('full', 'setup_needed'))
   `),
   check("daily007_v2_matches_setup_only_clash", sql`${table.status} <> 'setup_needed' OR ${table.mode} = 'clash'`),
+  index("daily007_v2_matches_starts_at_idx").on(table.startsAt),
 ]);
 
 export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {

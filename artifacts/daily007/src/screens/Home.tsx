@@ -15,6 +15,7 @@ import { inr } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
+import HomeLeaderboards from './HomeLeaderboards';
 
 function fmtDate(d?: string) {
   if (!d) return '';
@@ -45,6 +46,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [links, setLinks] = useState<any>({});
+  const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
   const [page, setPage] = useState(0);
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
@@ -109,7 +111,12 @@ export default function Home() {
     }, 3500);
     return () => clearInterval(iv);
   }, [upcomingItems.length]);
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setLeaderboardRefreshKey((key) => key + 1);
+    await load();
+    setRefreshing(false);
+  };
 
   const social = (url?: string) => { if (url) Linking.openURL(url).catch(() => {}); };
 
@@ -244,6 +251,8 @@ export default function Home() {
           )}
         </>
       )}
+
+      <HomeLeaderboards userId={String(user?.id ?? '')} refreshKey={leaderboardRefreshKey} />
 
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
