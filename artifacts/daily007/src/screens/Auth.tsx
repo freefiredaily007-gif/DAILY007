@@ -10,7 +10,7 @@ import GoogleSSOButton from '../components/GoogleSSOButton';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 
-export default function Auth({ onDone }: { onDone: (u: User) => void }) {
+export default function Auth({ onDone, notice }: { onDone: (u: User) => void; notice?: string }) {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -118,6 +118,10 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
         </View>
 
         <Msg kind="err" text={err} />
+        {!isSignup && notice ? <Text style={s.sessionNotice}>{notice}</Text> : null}
+        {!isSignup
+          ? <Text style={s.sessionHint}>Signing in here will sign out your other Daily007 sessions.</Text>
+          : null}
 
         <View style={s.googleArea}>
           <Text style={s.googleHint}>{isSignup ? 'Create an account quickly with Google' : 'Sign in quickly with Google'}</Text>
@@ -187,6 +191,8 @@ const s = StyleSheet.create({
   signupTitle: { color: C.neon, fontSize: 23, fontWeight: '900', letterSpacing: 1.2, marginTop: 7 },
   signupSub: { color: C.sub, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 4, maxWidth: 300 },
   tabs: { flexDirection: 'row', backgroundColor: C.bg2, borderRadius: 12, padding: 4, marginBottom: 18 },
+  sessionNotice: { color: C.gold, textAlign: 'center', fontSize: 12, lineHeight: 18, marginBottom: 8 },
+  sessionHint: { color: C.dim, textAlign: 'center', fontSize: 11, lineHeight: 16, marginBottom: 8 },
   signupTabs: { borderWidth: 1, borderColor: C.border, marginBottom: 16 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: 'center' },
   tabOn: { backgroundColor: C.neon },

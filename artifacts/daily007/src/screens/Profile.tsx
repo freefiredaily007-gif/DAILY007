@@ -113,7 +113,7 @@ export default function Profile() {
 
     try {
       await changePassword({ data: { currentPassword, newPassword } });
-      setPasswordMessage('Password changed. Other signed-in sessions remain active.');
+      setPasswordMessage('Password changed. Other sessions stay active until the next sign-in.');
       setPasswordModalVisible(false);
       setCurrentPassword('');
       setNewPassword('');
@@ -226,7 +226,7 @@ export default function Profile() {
         <View style={s.modalCard}>
           <Text style={s.modalTitle}>CHANGE PASSWORD</Text>
           <Text style={s.modalDescription}>
-            Enter your current Daily007 password. This does not change Google sign-in, and other signed-in sessions remain active.
+            Enter your current Daily007 password. This does not change Google sign-in. A new sign-in on another browser or device will end this session.
           </Text>
           <Input
             value={currentPassword}

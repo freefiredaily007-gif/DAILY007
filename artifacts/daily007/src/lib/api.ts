@@ -1,6 +1,7 @@
 // API client + typed wrappers for the deployed backend
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setAuthExpiredHandler as setGeneratedAuthExpiredHandler } from '@workspace/api-client-react';
 import { API_BASE_URL } from './backendUrl';
 
 export type Daily007Role = 'user' | 'tournament_admin' | 'admin';
@@ -45,6 +46,40 @@ export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Ty
 // Deliberately distinct from the legacy hosted app's AsyncStorage keys.
 const KEY = 'daily007_v2_session';
 let current: User | null = null;
+let sessionExpiredHandler: (() => void) | null = null;
+
+const AUTH_ENTRY_PATHS = [
+  '/auth/login',
+  '/auth/register',
+  '/daily007/v2/auth/login',
+  '/daily007/v2/auth/register',
+  '/auth/google',
+  '/auth/google/recovery-request',
+  '/auth/google/recovery-owner',
+];
+
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+  setGeneratedAuthExpiredHandler(handler);
+}
+
+http.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const url = String(error?.config?.url ?? '').split('?')[0];
+    const isAuthEntry = AUTH_ENTRY_PATHS.some((path) => url === path || url.endsWith(path));
+    const responseMessage = error?.response?.data?.error;
+    const googleLinkRejectedOldSession = url.endsWith('/auth/google') &&
+      typeof responseMessage === 'string' &&
+      responseMessage.includes('Daily007 session was replaced');
+    if (error?.response?.status === 401 && current?.token &&
+        (!isAuthEntry || googleLinkRejectedOldSession)) {
+      setSession(null);
+      sessionExpiredHandler?.();
+    }
+    return Promise.reject(error);
+  },
+);
 
 export function setSession(u: User | null) {
   current = u;

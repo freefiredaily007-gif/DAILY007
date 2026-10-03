@@ -255,7 +255,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       return { user, referralStatus: referralSignupStatus(referralCode) };
     });
     const { user, referralStatus } = signup;
-    const token = makeToken(user.id);
+    const token = makeToken(user.id, 0);
     if (!token) return fail(res, 503, "Daily007 authentication is not configured.");
     res.status(201).json({ ...asLegacyUser(user), token, referralStatus });
   } catch (error) {
@@ -299,7 +299,17 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     return fail(res, 401, "Email or password is incorrect.");
   }
-  const token = makeToken(user.id);
+  const rotated = await pool.query<{ auth_version: number }>(
+    `UPDATE daily007_v2_users
+        SET auth_version = auth_version + 1
+      WHERE id = $1 AND status = 'active'
+      RETURNING auth_version`,
+    [user.id],
+  );
+  if (!rotated.rows[0]) {
+    return fail(res, 401, "Account could not be signed in. Please try again.");
+  }
+  const token = makeToken(user.id, rotated.rows[0].auth_version);
   if (!token) return fail(res, 503, "Daily007 authentication is not configured.");
   res.json({ ...asLegacyUser(user), token });
 });

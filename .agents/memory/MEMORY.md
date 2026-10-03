@@ -1,6 +1,7 @@
 - [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
 - [Daily007 Google auth bridge](google-auth-bridge.md) — Same-email sign-in never links automatically; recovery needs another Full Admin or the sole-admin owner code.
+- [Daily007 single-session policy](daily007-single-session.md) — a new sign-in replaces prior sessions; Google linking preserves the current one.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.

@@ -22,6 +22,7 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   clerkUserId: text("clerk_user_id").unique(),
   passwordSalt: text("password_salt").notNull(),
   passwordHash: text("password_hash").notNull(),
+  authVersion: integer("auth_version").notNull().default(0),
   phone: text("phone"),
   gameUid: text("game_uid"),
   referralCode: text("referral_code"),

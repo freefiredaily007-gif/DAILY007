@@ -6,7 +6,7 @@ import { ReadableText as Text } from './components/typography';
 import { NavigationContainer, DarkTheme, useNavigation, useRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Api, getSession, setSession, User } from './lib/api';
+import { Api, getSession, setSession, setSessionExpiredHandler, User } from './lib/api';
 import Auth from './screens/Auth';
 import Home from './screens/Home';
 import Video from './screens/Video';
@@ -118,6 +118,18 @@ const navTheme = {
 function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [authNotice, setAuthNotice] = useState('');
+
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      setSession(null);
+      setUser(null);
+      queryClient.clear();
+      setAuthNotice('This account signed in elsewhere. Sign in again to continue.');
+    };
+    setSessionExpiredHandler(handleExpiredSession);
+    return () => setSessionExpiredHandler(null);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -159,6 +171,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     } finally {
       setSession(null);
       setUser(null);
+      setAuthNotice('');
     }
   }, [signOutClerk]);
 
@@ -169,7 +182,10 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     </View>
   );
 
-  if (!user) return <Auth onDone={(u) => { setSession(u); setUser(u); }} />;
+  if (!user) return <Auth
+    notice={authNotice}
+    onDone={(u) => { setAuthNotice(''); setSession(u); setUser(u); }}
+  />;
 
   return (
     <Ctx.Provider value={{ user, refresh, logout }}>

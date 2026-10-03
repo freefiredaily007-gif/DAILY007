@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { pool } from "@workspace/db";
@@ -8,16 +8,24 @@ import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mod
 import { storedTournamentTimeFromInstant, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials, isRoomCredentialReleaseOpen } from "../lib/daily007-room-access";
 import { hasTournamentAdminAccess, isFullAdminRole, type Daily007Role } from "../lib/daily007-roles";
+import {
+  daily007TokenConfigured,
+  isSessionVersionCurrent,
+  makeToken,
+  readSessionToken,
+  readToken,
+} from "../lib/daily007-session-token";
+
+export { makeToken, readToken };
 
 const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PASSWORD_BYTES = 64;
-const TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 14;
 
 export type Account = {
   id: string; name: string; email: string; role: Daily007Role; wallet_coins: number;
-  phone?: string | null; game_uid?: string | null; status?: "active" | "blocked";
+  phone?: string | null; game_uid?: string | null; status?: "active" | "blocked"; auth_version?: number;
 };
 type SqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
@@ -50,65 +58,28 @@ function requestId(req: Request): string | null {
   return typeof value === "string" && UUID_PATTERN.test(value) ? value : null;
 }
 
-function tokenSecret(): string | null {
-  // Reuse the workspace-managed signing secret until a dedicated v2 key is configured.
-  const secret = process.env.DAILY007_AUTH_SECRET || process.env.SESSION_SECRET;
-  return secret && secret.length >= 32 ? secret : null;
-}
-
-export function makeToken(userId: string): string | null {
-  const secret = tokenSecret();
-  if (!secret) return null;
-  const payload = Buffer.from(JSON.stringify({
-    sub: userId,
-    exp: Math.floor(Date.now() / 1000) + TOKEN_LIFETIME_SECONDS,
-  })).toString("base64url");
-  const signature = createHmac("sha256", secret).update(payload).digest("base64url");
-  return `${payload}.${signature}`;
-}
-
-export function readToken(token: string): string | null {
-  const secret = tokenSecret();
-  if (!secret) return null;
-  const parts = token.split(".");
-  if (parts.length !== 2) return null;
-  const expected = createHmac("sha256", secret).update(parts[0]).digest();
-  let supplied: Buffer;
-  try {
-    supplied = Buffer.from(parts[1], "base64url");
-  } catch {
-    return null;
-  }
-  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return null;
-  try {
-    const payload: unknown = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
-    if (!isRecord(payload) || typeof payload.sub !== "string" ||
-        typeof payload.exp !== "number" || payload.exp <= Math.floor(Date.now() / 1000) ||
-        !UUID_PATTERN.test(payload.sub)) return null;
-    return payload.sub;
-  } catch {
-    return null;
-  }
-}
-
 export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
-  if (!tokenSecret()) {
+  if (!daily007TokenConfigured()) {
     fail(res, 503, "Daily007 v2 authentication needs DAILY007_AUTH_SECRET or SESSION_SECRET (at least 32 characters).");
     return;
   }
   const authorization = req.get("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(authorization);
-  const userId = match ? readToken(match[1]) : null;
-  if (!userId) {
+  const claims = match ? readSessionToken(match[1]) : null;
+  if (!claims) {
     fail(res, 401, "A valid Daily007 v2 bearer token is required.");
     return;
   }
-  const result = await pool.query<Account>(
-    "SELECT id, name, email, role, wallet_coins, phone, game_uid, status FROM daily007_v2_users WHERE id = $1",
-    [userId],
+  const result = await pool.query<Account & { auth_version: number }>(
+    "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users WHERE id = $1",
+    [claims.userId],
   );
   if (!result.rows[0]) {
     fail(res, 401, "Account not found.");
+    return;
+  }
+  if (!isSessionVersionCurrent(claims.sessionVersion, result.rows[0].auth_version)) {
+    fail(res, 401, "This Daily007 session was replaced by a newer sign-in. Sign in again.");
     return;
   }
   if (result.rows[0].status === "blocked") {
@@ -192,7 +163,7 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
     fail(res, 400, "Optional phone, gameUid, and referralCode must be valid strings within supported lengths.");
     return;
   }
-  if (!tokenSecret()) {
+  if (!daily007TokenConfigured()) {
     fail(res, 503, "Daily007 v2 authentication needs DAILY007_AUTH_SECRET or SESSION_SECRET (at least 32 characters).");
     return;
   }
@@ -210,7 +181,11 @@ router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
       created.wallet_coins = await awardDaily007SignupBonus(client, referralCode, created.id);
       return created;
     });
-    const token = makeToken(account.id);
+    const token = makeToken(account.id, 0);
+    if (!token) {
+      fail(res, 503, "Daily007 authentication is not configured.");
+      return;
+    }
     res.status(201).json({ token, account });
   } catch (error) {
     const status = (error as { status?: number }).status;
@@ -232,7 +207,7 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
     fail(res, 400, "Email and password are required.");
     return;
   }
-  if (!tokenSecret()) {
+  if (!daily007TokenConfigured()) {
     fail(res, 503, "Daily007 v2 authentication needs DAILY007_AUTH_SECRET or SESSION_SECRET (at least 32 characters).");
     return;
   }
@@ -258,7 +233,22 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
     fail(res, 401, "Email or password is incorrect.");
     return;
   }
-  const token = makeToken(user.id);
+  const rotated = await pool.query<{ auth_version: number }>(
+    `UPDATE daily007_v2_users
+        SET auth_version = auth_version + 1
+      WHERE id = $1 AND status = 'active'
+      RETURNING auth_version`,
+    [user.id],
+  );
+  if (!rotated.rows[0]) {
+    fail(res, 401, "Account could not be signed in. Please try again.");
+    return;
+  }
+  const token = makeToken(user.id, rotated.rows[0].auth_version);
+  if (!token) {
+    fail(res, 503, "Daily007 authentication is not configured.");
+    return;
+  }
   res.json({
     token,
     account: {

@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { clerkClient, getAuth } from "@clerk/express";
 import { pool } from "@workspace/db";
-import { hashPassword, makeToken, readToken } from "./daily007-v2";
+import { hashPassword, makeToken } from "./daily007-v2";
+import { isSessionVersionCurrent, readSessionToken } from "../lib/daily007-session-token";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import {
   chooseGoogleAccountAction,
@@ -19,6 +20,7 @@ type Account = {
   role: string;
   wallet_coins: number;
   status: string;
+  auth_version: number;
   clerk_user_id?: string | null;
 };
 
@@ -102,10 +104,10 @@ router.post("/auth/google", async (req, res): Promise<void> => {
   }
 
   const localToken = req.get("X-Daily007-Token");
-  let localTokenUserId: string | null = null;
+  let localTokenClaims: ReturnType<typeof readSessionToken> = null;
   if (localToken) {
-    localTokenUserId = readToken(localToken);
-    if (!localTokenUserId) {
+    localTokenClaims = readSessionToken(localToken);
+    if (!localTokenClaims) {
       fail(res, 401, "X-Daily007-Token must contain a valid Daily007 token.");
       return;
     }
@@ -123,7 +125,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [identity.clerkUserId]);
 
       const linkedResult = await client.query<Account>(
-        `SELECT id, name, email, role, wallet_coins, status, clerk_user_id
+        `SELECT id, name, email, role, wallet_coins, status, clerk_user_id, auth_version
            FROM daily007_v2_users WHERE clerk_user_id = $1 FOR UPDATE`,
         [identity.clerkUserId],
       );
@@ -134,14 +136,17 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       );
       const emailOwnerId = emailOwnerResult.rows[0]?.id ?? null;
       let localAccount: Account | null = null;
-      if (localTokenUserId) {
+      if (localTokenClaims) {
         const localResult = await client.query<Account>(
-          `SELECT id, name, email, role, wallet_coins, status, clerk_user_id
+          `SELECT id, name, email, role, wallet_coins, status, clerk_user_id, auth_version
              FROM daily007_v2_users WHERE id = $1 FOR UPDATE`,
-          [localTokenUserId],
+          [localTokenClaims.userId],
         );
         localAccount = localResult.rows[0] ?? null;
         if (!localAccount) throw httpError(401, "Daily007 account not found.");
+        if (!isSessionVersionCurrent(localTokenClaims.sessionVersion, localAccount.auth_version)) {
+          throw httpError(401, "This Daily007 session was replaced by a newer sign-in. Sign in again.");
+        }
         if (localAccount.status === "blocked") throw httpError(403, "This account is blocked.");
         if (localAccount.email.trim().toLowerCase() !== identity.email) {
           throw httpError(409, "The verified Google email must match the signed-in Daily007 account.");
@@ -178,7 +183,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
           `UPDATE daily007_v2_users
               SET clerk_user_id = $2
             WHERE id = $1 AND clerk_user_id IS NULL
-            RETURNING id, name, email, role, wallet_coins, status, clerk_user_id`,
+            RETURNING id, name, email, role, wallet_coins, status, clerk_user_id, auth_version`,
           [localAccount!.id, identity.clerkUserId],
         );
         if (!updated.rows[0]) throw httpError(409, "This account could not be linked because its identity changed concurrently.");
@@ -188,7 +193,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
           `INSERT INTO daily007_v2_users
              (name, email, password_salt, password_hash, referral_code, clerk_user_id)
            VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, name, email, role, wallet_coins, status, clerk_user_id`,
+             RETURNING id, name, email, role, wallet_coins, status, clerk_user_id, auth_version`,
           [identity.name, identity.email, credentials.salt, credentials.hash, referralCode, identity.clerkUserId],
         );
         account = inserted.rows[0];
@@ -198,10 +203,22 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       }
 
       if (account.status === "blocked") throw httpError(403, "This account is blocked.");
-      return { account, created };
+      let sessionVersion = account.auth_version;
+      if (!localTokenClaims) {
+        const rotated = await client.query<{ auth_version: number }>(
+          `UPDATE daily007_v2_users
+              SET auth_version = auth_version + 1
+            WHERE id = $1 AND status = 'active'
+            RETURNING auth_version`,
+          [account.id],
+        );
+        if (!rotated.rows[0]) throw httpError(401, "Account could not be signed in. Please try again.");
+        sessionVersion = rotated.rows[0].auth_version;
+      }
+      return { account, created, sessionVersion };
     });
 
-    const accountToken = makeToken(result.account.id);
+    const accountToken = makeToken(result.account.id, result.sessionVersion);
     if (!accountToken) {
       fail(res, 503, "Daily007 authentication is not configured.");
       return;
