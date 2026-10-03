@@ -59,7 +59,9 @@ export default function AdminAccountRecovery({ currentUserId }: { currentUserId?
           title="GOOGLE ACCOUNT RECOVERY"
           sub="Pending requests · Full Admin only"
           icon="key"
-          right={<StatusTag status="pending" />}
+          right={requests && requests.length > 0
+            ? <StatusTag status="pending" label={`${requests.length} pending`} />
+            : null}
         />
 
         <Card style={styles.policyCard}>

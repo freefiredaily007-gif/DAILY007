@@ -81,7 +81,7 @@ export function ActionBtn({ title, onPress, kind = 'primary', loading, small, di
   );
 }
 
-export function StatusTag({ status }: { status: string }) {
+export function StatusTag({ status, label = status }: { status: string; label?: string }) {
   const map: Record<string, any> = {
     pending: { c: A.gold, bg: 'rgba(255,193,7,0.14)' },
     approved: { c: A.green, bg: 'rgba(34,197,94,0.14)' },
@@ -94,7 +94,7 @@ export function StatusTag({ status }: { status: string }) {
     live: { c: A.red, bg: A.redSoft },
   };
   const m = map[(status || '').toLowerCase()] || { c: A.sub, bg: 'rgba(77,163,255,0.06)' };
-  return <View style={[s.tag, { backgroundColor: m.bg, borderColor: swapThemeColor(m.c) + '55' }]}><Text style={[s.tagTxt, { color: m.c }]}>{(status || '—').toUpperCase()}</Text></View>;
+  return <View style={[s.tag, { backgroundColor: m.bg, borderColor: swapThemeColor(m.c) + '55' }]}><Text style={[s.tagTxt, { color: m.c }]}>{(label || '—').toUpperCase()}</Text></View>;
 }
 
 export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, confirmTitle = 'CONFIRM', danger, cancelTestID, confirmTestID }: {
