@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startDaily007AutoCancellationScheduler } from "./lib/daily007-tournament-auto-cancel";
 
 const rawPort = process.env["PORT"];
 
@@ -21,5 +22,6 @@ app.listen(port, (err) => {
     process.exit(1);
   }
 
+  startDaily007AutoCancellationScheduler();
   logger.info({ port }, "Server listening");
 });

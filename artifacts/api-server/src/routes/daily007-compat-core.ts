@@ -4,6 +4,10 @@ import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
+import {
+  cancelUnderfilledTournamentAndRefund,
+  tournamentCancellationError,
+} from "../lib/daily007-tournament-cancellation";
 import { authenticate, hashPassword, makeToken, requireTournamentAdmin } from "./daily007-v2";
 
 const router: IRouter = Router();
@@ -34,6 +38,8 @@ type RegistrationRow = {
     rank: number; kills: number; prizeCoins: number; playerName: string; gameName: string; teamName: string;
   }[] | null;
 };
+export { tournamentCancellationError };
+
 type SqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
   release(): void;
@@ -124,26 +130,6 @@ export function effectiveTournamentStatus(row: Pick<MatchRow, "has_winner" | "ha
   if (row.has_winner && !row.enabled) return "completed";
   if (row.has_started) return "ongoing";
   return row.enabled ? row.status : "closed";
-}
-
-export function tournamentCancellationError(state: {
-  status: string;
-  hasStarted: boolean;
-  hasWinner: boolean;
-  filledSlots: number;
-  capacity: number;
-}): string | null {
-  if (state.status === "cancelled") return "Tournament is already cancelled.";
-  if (state.hasWinner) return "A tournament with a declared winner cannot be cancelled.";
-  if (!state.hasStarted) return "A tournament can only be cancelled after its scheduled start time.";
-  if (!Number.isInteger(state.filledSlots) || state.filledSlots < 0 ||
-      !Number.isInteger(state.capacity) || state.capacity < 1) {
-    return "Tournament slot data is invalid.";
-  }
-  if (state.filledSlots >= state.capacity) {
-    return "Only an ongoing tournament with at least one vacant slot can be cancelled.";
-  }
-  return null;
 }
 
 function startsAsLegacy(value: Date | string): { date: string; time: string } {
@@ -367,138 +353,8 @@ router.post("/admin/tournaments/:id/lifecycle", authenticate, async (req, res): 
   }
 
   try {
-    const cancellation = await transaction(async (client) => {
-      const matchResult = await client.query<{
-        id: string;
-        title: string;
-        status: string;
-        capacity: number;
-        has_started: boolean;
-        has_winner: boolean;
-      }>(
-        `SELECT m.id, m.title, m.status, m.capacity,
-                m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
-                EXISTS (
-                  SELECT 1 FROM daily007_v2_result_awards award
-                   WHERE award.match_id = m.id AND award.rank = 1
-                ) AS has_winner
-           FROM daily007_v2_matches m
-          WHERE m.id = $1
-          FOR UPDATE OF m`,
-        [id],
-      );
-      const match = matchResult.rows[0];
-      if (!match) throw Object.assign(new Error("Tournament not found."), { status: 404 });
-
-      const countResult = await client.query<{ filled_slots: number }>(
-        `SELECT count(*)::integer AS filled_slots
-           FROM daily007_v2_registrations
-          WHERE match_id = $1 AND status IN ('approved', 'pending')`,
-        [id],
-      );
-      const filledSlots = Number(countResult.rows[0]?.filled_slots ?? 0);
-      const refusal = tournamentCancellationError({
-        status: match.status,
-        hasStarted: match.has_started,
-        hasWinner: match.has_winner,
-        filledSlots,
-        capacity: Number(match.capacity),
-      });
-      if (refusal) throw Object.assign(new Error(refusal), { status: 409 });
-
-      const registrations = await client.query<{
-        id: string;
-        captain_user_id: string;
-        entry_coins_paid: number;
-      }>(
-        `SELECT id, captain_user_id, entry_coins_paid
-           FROM daily007_v2_registrations
-          WHERE match_id = $1 AND status IN ('approved', 'pending')
-          ORDER BY captain_user_id, id
-          FOR UPDATE`,
-        [id],
-      );
-
-      let registrationsRefunded = 0;
-      let coinsRefunded = 0;
-      const refundedUsers = new Set<string>();
-      for (const registration of registrations.rows) {
-        const priorRefund = await client.query<{ id: string }>(
-          `SELECT id
-             FROM daily007_v2_wallet_ledger
-            WHERE registration_id = $1
-              AND reason IN ('registration_refund', 'tournament_cancel_refund')
-            LIMIT 1`,
-          [registration.id],
-        );
-        if (priorRefund.rows[0]) {
-          throw Object.assign(
-            new Error("A registration already has a refund record; cancellation was not applied."),
-            { status: 409 },
-          );
-        }
-
-        const amount = Number(registration.entry_coins_paid);
-        if (!Number.isSafeInteger(amount) || amount < 0 || amount > 2_147_483_647) {
-          throw Object.assign(new Error("A recorded entry fee is outside the supported refund range."), { status: 409 });
-        }
-        if (amount === 0) continue;
-
-        const account = await client.query<{ wallet_coins: number }>(
-          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
-          [registration.captain_user_id],
-        );
-        const balance = account.rows[0]?.wallet_coins;
-        if (balance === undefined) throw Object.assign(new Error("A paying account was not found."), { status: 409 });
-        const nextBalance = balance + amount;
-        if (!Number.isSafeInteger(nextBalance) || nextBalance > 2_147_483_647) {
-          throw Object.assign(new Error("A refund would exceed the supported wallet balance."), { status: 409 });
-        }
-
-        await client.query(
-          "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
-          [registration.captain_user_id, nextBalance],
-        );
-        const description = `Refund for Cancelled Tournament #${id}`;
-        const ledger = await client.query<{ id: string }>(
-          `INSERT INTO daily007_v2_wallet_ledger
-             (user_id, amount, balance_after, reason, match_id, registration_id, idempotency_key, details)
-           VALUES ($1, $2, $3, 'tournament_cancel_refund', $4, $5, $6, $7::jsonb)
-           ON CONFLICT (idempotency_key) DO NOTHING
-           RETURNING id`,
-          [
-            registration.captain_user_id,
-            amount,
-            nextBalance,
-            id,
-            registration.id,
-            `daily007:tournament-cancel:${id}:${registration.id}`,
-            JSON.stringify({ description, tournamentId: id, tournamentTitle: match.title }),
-          ],
-        );
-        if (!ledger.rows[0]) {
-          throw Object.assign(new Error("This registration's refund was already recorded; cancellation was not applied."), { status: 409 });
-        }
-        registrationsRefunded += 1;
-        coinsRefunded += amount;
-        refundedUsers.add(registration.captain_user_id);
-      }
-
-      await client.query(
-        `UPDATE daily007_v2_matches
-            SET enabled = false, is_full = false, status = 'cancelled',
-                room_id = NULL, room_password = NULL, room_published = false
-          WHERE id = $1`,
-        [id],
-      );
-      return {
-        id,
-        status: "cancelled" as const,
-        registrationsRefunded,
-        accountsRefunded: refundedUsers.size,
-        coinsRefunded,
-      };
-    });
+    const cancellation = await cancelUnderfilledTournamentAndRefund(id);
+    if (!cancellation) return fail(res, 409, "Tournament is not eligible for cancellation.");
     res.json({ success: true, data: cancellation });
   } catch (error) {
     const status = Number((error as { status?: number })?.status);

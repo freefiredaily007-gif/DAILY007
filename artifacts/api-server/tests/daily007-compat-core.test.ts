@@ -17,6 +17,10 @@ import {
   storedTournamentTimeFromInstant,
   tournamentInstantFromStored,
 } from "../src/lib/daily007-schedule-time.ts";
+import {
+  isAutomaticTournamentCancellationMode,
+  shouldAutomaticallyCancelTournament,
+} from "../src/lib/daily007-tournament-cancellation.ts";
 
 test("legacy tournament modes map to the fixed v2 mode capacities", () => {
   assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Solo" }), "solo");
@@ -125,4 +129,26 @@ test("cancellation is allowed only after start while at least one slot is vacant
   assert.equal(tournamentCancellationError({ ...eligible, filledSlots: 12 }), "Only an ongoing tournament with at least one vacant slot can be cancelled.");
   assert.equal(tournamentCancellationError({ ...eligible, hasWinner: true }), "A tournament with a declared winner cannot be cancelled.");
   assert.equal(tournamentCancellationError({ ...eligible, status: "cancelled" }), "Tournament is already cancelled.");
+});
+
+test("automatic underfilled cancellation is limited to Clash Squad and Lone Wolf", () => {
+  assert.equal(isAutomaticTournamentCancellationMode("clash_squad", "clash"), true);
+  assert.equal(isAutomaticTournamentCancellationMode("lone_wolf", "clash"), true);
+  assert.equal(isAutomaticTournamentCancellationMode(null, "clash"), true);
+  assert.equal(isAutomaticTournamentCancellationMode("battle_royale", "solo"), false);
+  assert.equal(isAutomaticTournamentCancellationMode(null, "squad"), false);
+
+  const eligible = {
+    gameMode: "lone_wolf",
+    storageMode: "clash",
+    status: "open",
+    hasStarted: true,
+    hasWinner: false,
+    filledSlots: 1,
+    capacity: 2,
+  };
+  assert.equal(shouldAutomaticallyCancelTournament(eligible), true);
+  assert.equal(shouldAutomaticallyCancelTournament({ ...eligible, filledSlots: 2 }), false);
+  assert.equal(shouldAutomaticallyCancelTournament({ ...eligible, hasStarted: false }), false);
+  assert.equal(shouldAutomaticallyCancelTournament({ ...eligible, gameMode: "battle_royale" }), false);
 });
