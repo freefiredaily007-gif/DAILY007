@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useDaily007ListLeaderboards } from "@workspace/api-client-react";
 import { ReadableText as Text } from "../components/typography";
-import { C, Card, Empty, Loading, SectionTitle } from "../components/ui";
+import { C, Card, Empty, Loading } from "../components/ui";
 import { apiError } from "../lib/api";
 
 type CycleType = "weekly" | "monthly";
@@ -26,6 +26,12 @@ type Period = {
   standings: Standing[];
   rewards?: { rank: number; coins: number }[];
 };
+
+const TROPHY_RANKS = [
+  { id: "gold", label: "🥇 RANK #1  |  🏆 GOLD TROPHY", color: C.gold },
+  { id: "silver", label: "🥈 RANK #2  |  🥈 SILVER TROPHY", color: C.sub },
+  { id: "bronze", label: "🥉 RANK #3  |  🥉 BRONZE TROPHY", color: C.orange },
+] as const;
 
 function formatDate(date: string): string {
   return new Intl.DateTimeFormat("en-IN", {
@@ -52,6 +58,7 @@ export default function HomeLeaderboards({
 }) {
   const query = useDaily007ListLeaderboards();
   const [cycle, setCycle] = useState<CycleType>("weekly");
+  const [showTop20, setShowTop20] = useState(false);
   const lastRefreshKey = useRef(refreshKey);
   const refetchRef = useRef(query.refetch);
   const data = query.data as unknown as {
@@ -76,21 +83,23 @@ export default function HomeLeaderboards({
     return () => clearInterval(timer);
   }, []);
 
-  const topStandings = period?.standings.slice(0, 3) ?? [];
+  const topStandings = period?.standings.slice(0, 20) ?? [];
 
   return (
     <View style={styles.section}>
-      <SectionTitle accent={C.gold}>WEEKLY & MONTHLY LEADERBOARDS</SectionTitle>
       <Card style={styles.card}>
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.kicker}>MATCH PRIZE COINS EARNED</Text>
-            <Text style={styles.title}>TOP 3 PLAYERS</Text>
+            <Text style={styles.title}>⚡ LEADERBOARD REWARDS</Text>
+            <Text style={styles.subtitle}>
+              Climb the Ranks &amp; Claim Big Coin Prizes Every Week &amp; Month!
+            </Text>
           </View>
           <Pressable
             onPress={() => void query.refetch()}
             accessibilityRole="button"
             accessibilityLabel="Refresh leaderboards"
+            testID="refresh-leaderboards"
             hitSlop={10}
             style={styles.refresh}
           >
@@ -106,6 +115,8 @@ export default function HomeLeaderboards({
                 key={key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
+                accessibilityLabel={`${key} leaderboard`}
+                testID={`leaderboard-tab-${key}`}
                 onPress={() => setCycle(key)}
                 style={[
                   styles.tab,
@@ -123,42 +134,74 @@ export default function HomeLeaderboards({
           })}
         </View>
 
-        {query.isLoading ? (
-          <Loading />
-        ) : query.error && !period ? (
-          <Empty text={`Leaderboard is unavailable: ${apiError(query.error)}`} />
-        ) : !period ? (
-          <Empty text="Leaderboard data is not available yet." />
-        ) : (
-          <>
-            <View style={styles.periodMeta}>
-              <View style={[styles.statusDot, { backgroundColor: period.status === "active" ? C.green : C.gold }]} />
-              <Text style={[styles.status, { color: period.status === "active" ? C.green : C.gold }]}>
-                {statusLabel(period.status)}
+        <View style={styles.trophyRows}>
+          {TROPHY_RANKS.map((rank) => (
+            <View key={rank.id} style={styles.trophyRow}>
+              <Text numberOfLines={1} style={[styles.trophyRowText, { color: rank.color }]}>
+                {rank.label}
               </Text>
             </View>
-            <Text style={styles.range}>{dateRange(period)}</Text>
-            {period.status === "finalized" && (
-              <Text style={styles.pendingHint}>
-                This cycle is complete. Its configured rewards were credited automatically.
-              </Text>
-            )}
+          ))}
+        </View>
 
-            {topStandings.length === 0 ? (
-              <Empty text="No match awards yet this cycle. Scores update when tournament results are published." />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showTop20 }}
+          accessibilityLabel={showTop20 ? "Hide top 20 players" : "View top 20 players"}
+          testID="toggle-top-20-leaderboard"
+          onPress={() => setShowTop20((visible) => !visible)}
+          style={({ pressed }) => [
+            styles.expandButton,
+            { borderColor: color + "66", opacity: pressed ? 0.78 : 1 },
+          ]}
+        >
+          <Text style={[styles.expandText, { color }]}>
+            {showTop20 ? "HIDE TOP 20 PLAYERS" : "VIEW TOP 20 PLAYERS"}
+          </Text>
+          <Feather name={showTop20 ? "chevron-up" : "chevron-down"} size={16} color={color} />
+        </Pressable>
+
+        {showTop20 && (
+          <View style={styles.expandedLeaderboard}>
+            <Text style={styles.listTitle}>{cycle.toUpperCase()} TOP 20 PLAYERS</Text>
+            {query.isLoading ? (
+              <Loading />
+            ) : query.error && !period ? (
+              <Empty text={`Leaderboard is unavailable: ${apiError(query.error)}`} />
+            ) : !period ? (
+              <Empty text="Leaderboard data is not available yet." />
             ) : (
-              <View style={styles.rows}>
-                {topStandings.map((standing) => (
-                  <StandingRow
-                    key={standing.userId}
-                    standing={standing}
-                    color={color}
-                    rewardCoins={period.rewards?.find((reward) => reward.rank === standing.rank)?.coins ?? 0}
-                  />
-                ))}
-              </View>
+              <>
+                <View style={styles.periodMeta}>
+                  <View style={[styles.statusDot, { backgroundColor: period.status === "active" ? C.green : C.gold }]} />
+                  <Text style={[styles.status, { color: period.status === "active" ? C.green : C.gold }]}>
+                    {statusLabel(period.status)}
+                  </Text>
+                </View>
+                <Text style={styles.range}>{dateRange(period)}</Text>
+                {period.status === "finalized" && (
+                  <Text style={styles.pendingHint}>
+                    This cycle is complete. Its configured rewards were credited automatically.
+                  </Text>
+                )}
+
+                {topStandings.length === 0 ? (
+                  <Empty text="No match awards yet this cycle. Scores update when tournament results are published." />
+                ) : (
+                  <View style={styles.rows}>
+                    {topStandings.map((standing) => (
+                      <StandingRow
+                        key={standing.userId}
+                        standing={standing}
+                        color={color}
+                        rewardCoins={period.rewards?.find((reward) => reward.rank === standing.rank)?.coins ?? 0}
+                      />
+                    ))}
+                  </View>
+                )}
+              </>
             )}
-          </>
+          </View>
         )}
       </Card>
     </View>
@@ -197,13 +240,20 @@ function StandingRow({
 const styles = StyleSheet.create({
   section: { marginTop: 8, marginBottom: 2 },
   card: { marginHorizontal: 14, padding: 13 },
-  header: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  kicker: { color: C.sub, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
-  title: { color: C.text, fontSize: 19, fontWeight: "900", letterSpacing: 0.7, marginTop: 3 },
+  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
+  title: { color: C.gold, fontSize: 16, fontWeight: "900", letterSpacing: 0.5 },
+  subtitle: { color: C.sub, fontSize: 11, lineHeight: 15, marginTop: 5 },
   refresh: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
   tabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
   tab: { flex: 1, minHeight: 38, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card2, alignItems: "center", justifyContent: "center" },
   tabText: { color: C.sub, fontSize: 11, fontWeight: "900", letterSpacing: 0.6 },
+  trophyRows: { gap: 7, marginBottom: 11 },
+  trophyRow: { minHeight: 40, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg2 },
+  trophyRowText: { fontSize: 11, fontWeight: "900", letterSpacing: 0.25 },
+  expandButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, borderWidth: 1, backgroundColor: C.card2 },
+  expandText: { fontSize: 11, fontWeight: "900", letterSpacing: 0.7 },
+  expandedLeaderboard: { marginTop: 12 },
+  listTitle: { color: C.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.9, marginBottom: 9 },
   periodMeta: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   status: { fontSize: 9, fontWeight: "900", letterSpacing: 0.75 },
