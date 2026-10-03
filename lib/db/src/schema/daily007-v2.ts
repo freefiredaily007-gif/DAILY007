@@ -32,7 +32,7 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_users_wallet_nonnegative", sql`${table.walletCoins} >= 0`),
-  check("daily007_v2_users_role_valid", sql`${table.role} IN ('user', 'tournament_admin', 'admin')`),
+  check("daily007_v2_users_role_valid_v2", sql`${table.role} IN ('user', 'tournament_admin', 'admin')`),
   check("daily007_v2_users_status_valid", sql`${table.status} IN ('active', 'blocked')`),
 ]);
 
