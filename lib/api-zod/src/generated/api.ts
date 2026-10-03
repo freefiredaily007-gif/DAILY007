@@ -614,6 +614,55 @@ export const Daily007AdminCreateVideoResponse = zod.object({
 
 
 /**
+ * @summary Update a managed video's title, topic, or YouTube link
+ */
+export const Daily007AdminUpdateVideoParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007AdminUpdateVideoBodyTitleMax = 120;
+
+export const daily007AdminUpdateVideoBodyTopicMax = 80;
+
+export const daily007AdminUpdateVideoBodyUrlMax = 500;
+
+
+
+export const Daily007AdminUpdateVideoBody = zod.object({
+  "title": zod.string().min(1).max(daily007AdminUpdateVideoBodyTitleMax),
+  "topic": zod.string().min(1).max(daily007AdminUpdateVideoBodyTopicMax),
+  "url": zod.string().url().max(daily007AdminUpdateVideoBodyUrlMax)
+})
+
+export const daily007AdminUpdateVideoResponseTitleMax = 120;
+
+export const daily007AdminUpdateVideoResponseTopicMax = 80;
+
+export const daily007AdminUpdateVideoResponseYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
+
+
+export const Daily007AdminUpdateVideoResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().min(1).max(daily007AdminUpdateVideoResponseTitleMax),
+  "topic": zod.string().min(1).max(daily007AdminUpdateVideoResponseTopicMax),
+  "youtubeId": zod.string().regex(daily007AdminUpdateVideoResponseYoutubeIdRegExp),
+  "url": zod.string().url(),
+  "active": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Permanently delete a managed video only when it has no watch history
+ */
+export const Daily007AdminDeleteVideoParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007AdminDeleteVideoResponse = zod.void()
+
+
+/**
  * @summary Activate or deactivate a managed YouTube video
  */
 export const Daily007AdminSetVideoActiveParams = zod.object({

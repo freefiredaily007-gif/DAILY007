@@ -93,7 +93,7 @@ export async function startDaily007VideoWatch(
   }
 
   const video = await client.query<{ id: string }>(
-    "SELECT id FROM daily007_v2_videos WHERE id = $1 AND active = true",
+    "SELECT id FROM daily007_v2_videos WHERE id = $1 AND active = true FOR SHARE",
     [videoId],
   );
   if (!video.rows[0]) throw httpError(404, "This video is unavailable.");

@@ -59,6 +59,7 @@ import type {
   Daily007V2UpdateMatchBody,
   Daily007Video,
   Daily007VideoList,
+  Daily007VideoUpdate,
   Daily007VideoWatchCompleteBody,
   Daily007VideoWatchResult,
   Daily007VideoWatchSession,
@@ -2151,6 +2152,169 @@ export const useDaily007AdminCreateVideo = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007AdminCreateVideoMutationOptions(options));
+    }
+
+export const getDaily007AdminUpdateVideoUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/videos/${id}`
+}
+
+/**
+ * @summary Update a managed video's title, topic, or YouTube link
+ */
+export const daily007AdminUpdateVideo = async (id: string,
+    daily007VideoUpdate: Daily007VideoUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Daily007Video> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007Video>(getDaily007AdminUpdateVideoUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007VideoUpdate)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminUpdateVideoMutationKey = () => ['daily007AdminUpdateVideo'] as const;
+
+export const getDaily007AdminUpdateVideoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateVideo>>, TError,Daily007AdminUpdateVideoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateVideo>>, TError,Daily007AdminUpdateVideoMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminUpdateVideoMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminUpdateVideo>>, Daily007AdminUpdateVideoMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminUpdateVideo(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminUpdateVideoMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminUpdateVideo>>>
+    export type Daily007AdminUpdateVideoMutationBody = BodyType<Daily007VideoUpdate>
+    export type Daily007AdminUpdateVideoMutationError = ErrorType<void>
+    export type Daily007AdminUpdateVideoMutationVariables = {id: string;data: BodyType<Daily007VideoUpdate>}
+
+    /**
+ * @summary Update a managed video's title, topic, or YouTube link
+ */
+export const useDaily007AdminUpdateVideo = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateVideo>>, TError,Daily007AdminUpdateVideoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminUpdateVideo>>,
+        TError,
+        Daily007AdminUpdateVideoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminUpdateVideoMutationOptions(options));
+    }
+
+export const getDaily007AdminDeleteVideoUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/videos/${id}`
+}
+
+/**
+ * @summary Permanently delete a managed video only when it has no watch history
+ */
+export const daily007AdminDeleteVideo = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDaily007AdminDeleteVideoUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminDeleteVideoMutationKey = () => ['daily007AdminDeleteVideo'] as const;
+
+export const getDaily007AdminDeleteVideoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteVideo>>, TError,Daily007AdminDeleteVideoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteVideo>>, TError,Daily007AdminDeleteVideoMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminDeleteVideoMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminDeleteVideo>>, Daily007AdminDeleteVideoMutationVariables> = (props) => {
+          const {id} = props ?? {};
+
+          return  daily007AdminDeleteVideo(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminDeleteVideoMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminDeleteVideo>>>
+
+    export type Daily007AdminDeleteVideoMutationError = ErrorType<void>
+    export type Daily007AdminDeleteVideoMutationVariables = {id: string}
+
+    /**
+ * @summary Permanently delete a managed video only when it has no watch history
+ */
+export const useDaily007AdminDeleteVideo = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteVideo>>, TError,Daily007AdminDeleteVideoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminDeleteVideo>>,
+        TError,
+        Daily007AdminDeleteVideoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminDeleteVideoMutationOptions(options));
     }
 
 export const getDaily007AdminSetVideoActiveUrl = (id: string,) => {

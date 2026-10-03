@@ -3,6 +3,8 @@ import { pool } from "@workspace/db";
 import {
   Daily007AdminCreateVideoBody,
   Daily007AdminCreateVideoResponse,
+  Daily007AdminUpdateVideoBody,
+  Daily007AdminUpdateVideoResponse,
   Daily007AdminListVideosResponse,
   Daily007AdminSetVideoActiveResponse,
   Daily007ListVideosResponse,
@@ -77,6 +79,14 @@ async function transaction<T>(work: (client: Client) => Promise<T>): Promise<T> 
     client.release();
   }
 }
+async function markDaily007VideoCatalogSeeded(client: Client): Promise<void> {
+  await client.query(
+    `INSERT INTO daily007_v2_settings (id, settings)
+     VALUES (1, '{"__daily007VideoCatalogSeeded": true}'::jsonb)
+     ON CONFLICT (id) DO UPDATE
+       SET settings = COALESCE(daily007_v2_settings.settings, '{}'::jsonb) || EXCLUDED.settings`,
+  );
+}
 function respondFailure(res: Response, e: unknown) {
   const status = (e as { status?: number })?.status;
   if (status) error(res, status, (e as Error).message);
@@ -92,7 +102,9 @@ async function settings(): Promise<Record<string, unknown>> {
   const result = await pool.query<{ settings: Record<string, unknown> }>(
     "SELECT settings FROM daily007_v2_settings WHERE id = 1",
   );
-  const current = { ...SETTINGS_DEFAULTS, ...(result.rows[0]?.settings ?? {}) };
+  const storedSettings = { ...(result.rows[0]?.settings ?? {}) };
+  delete storedSettings.__daily007VideoCatalogSeeded;
+  const current = { ...SETTINGS_DEFAULTS, ...storedSettings };
   for (const key of ["whatsappLink", "instagramLink", "youtubeLink"] as const) {
     if (typeof current[key] !== "string" || !current[key].trim()) {
       current[key] = SETTINGS_DEFAULTS[key];
@@ -758,7 +770,18 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   }
   await pool.query(
     `INSERT INTO daily007_v2_settings (id, settings, updated_by, updated_at) VALUES (1, $1, $2, now())
-     ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+     ON CONFLICT (id) DO UPDATE
+       SET settings = EXCLUDED.settings ||
+         CASE
+           WHEN daily007_v2_settings.settings ? '__daily007VideoCatalogSeeded'
+             THEN jsonb_build_object(
+               '__daily007VideoCatalogSeeded',
+               daily007_v2_settings.settings->'__daily007VideoCatalogSeeded'
+             )
+           ELSE '{}'::jsonb
+         END,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = now()`,
     [JSON.stringify(next), userId(req)],
   );
   res.json(await clientSettings(true));
@@ -1010,13 +1033,29 @@ router.get("/admin/videos", authenticate, async (req, res): Promise<void> => {
 
   // Carry the existing featured player into the managed list once. Admins can
   // deactivate it after adding their replacement or additional videos.
-  await pool.query(
-    `INSERT INTO daily007_v2_videos (title, topic, youtube_id, active)
-     SELECT $1, $2, $3, true
-      WHERE NOT EXISTS (SELECT 1 FROM daily007_v2_videos)
-     ON CONFLICT (youtube_id) DO NOTHING`,
-    ["Daily007 featured video", "General", "opKbUpusuTc"],
-  );
+  await transaction(async (client) => {
+    await client.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, '{}'::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+    );
+    const seedState = await client.query<{ seeded: boolean }>(
+      `SELECT COALESCE((settings->>'__daily007VideoCatalogSeeded')::boolean, false) AS seeded
+         FROM daily007_v2_settings
+        WHERE id = 1
+        FOR UPDATE`,
+    );
+    if (seedState.rows[0]?.seeded) return;
+
+    await client.query(
+      `INSERT INTO daily007_v2_videos (title, topic, youtube_id, active)
+       SELECT $1, $2, $3, true
+        WHERE NOT EXISTS (SELECT 1 FROM daily007_v2_videos)
+       ON CONFLICT (youtube_id) DO NOTHING`,
+      ["Daily007 featured video", "General", "opKbUpusuTc"],
+    );
+    await markDaily007VideoCatalogSeeded(client);
+  });
   const result = await pool.query(
     `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
        FROM daily007_v2_videos
@@ -1060,6 +1099,129 @@ router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
     }
     throw e;
   }
+});
+
+router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const id = req.params.id;
+  if (!validId(id)) {
+    error(res, 400, "Provide a valid video id."); return;
+  }
+  const parsedBody = Daily007AdminUpdateVideoBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    error(res, 400, "Enter a title, topic, and valid YouTube video URL."); return;
+  }
+  const title = text(parsedBody.data.title, 1, 120);
+  const topic = text(parsedBody.data.topic, 1, 80);
+  const youtubeId = youtubeVideoIdFromUrl(parsedBody.data.url);
+  if (!title || !topic || !youtubeId) {
+    error(res, 400, "Enter a title, topic up to 80 characters, and valid YouTube video URL."); return;
+  }
+
+  try {
+    const outcome = await transaction(async (client) => {
+      const existing = await client.query<{ youtube_id: string }>(
+        `SELECT youtube_id
+           FROM daily007_v2_videos
+          WHERE id = $1
+          FOR UPDATE`,
+        [id],
+      );
+      const current = existing.rows[0];
+      if (!current) return { kind: "missing" } as const;
+
+      if (current.youtube_id !== youtubeId) {
+        const watchHistory = await client.query<{ hasSessions: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM daily007_v2_video_watch_sessions WHERE video_id = $1
+           ) AS "hasSessions"`,
+          [id],
+        );
+        if (watchHistory.rows[0]?.hasSessions) return { kind: "history" } as const;
+      }
+
+      const result = await client.query<{
+        id: string;
+        title: string;
+        topic: string;
+        youtubeId: string;
+        active: boolean;
+        createdAt: Date | string;
+      }>(
+        `UPDATE daily007_v2_videos
+            SET title = $2, topic = $3, youtube_id = $4
+          WHERE id = $1
+          RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
+        [id, title, topic, youtubeId],
+      );
+      const updated = result.rows[0];
+      if (!updated) return { kind: "missing" } as const;
+      return { kind: "updated", video: updated } as const;
+    });
+
+    if (outcome.kind === "missing") {
+      error(res, 404, "Video not found."); return;
+    }
+    if (outcome.kind === "history") {
+      error(res, 409, "This video has watch history. Add a new video instead of changing its YouTube link."); return;
+    }
+    res.json(Daily007AdminUpdateVideoResponse.parse({
+      ...outcome.video,
+      url: `https://youtu.be/${outcome.video.youtubeId}`,
+    }));
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") {
+      error(res, 409, "This YouTube video is already in the managed list."); return;
+    }
+    throw e;
+  }
+});
+
+router.delete("/admin/videos/:id", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const id = req.params.id;
+  if (!validId(id)) {
+    error(res, 400, "Provide a valid video id."); return;
+  }
+
+  const outcome = await transaction(async (client) => {
+    await client.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, '{}'::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+    );
+    await client.query(
+      "SELECT id FROM daily007_v2_settings WHERE id = 1 FOR UPDATE",
+    );
+    const existing = await client.query<{ id: string }>(
+      `SELECT id
+         FROM daily007_v2_videos
+        WHERE id = $1
+        FOR UPDATE`,
+      [id],
+    );
+    if (!existing.rows[0]) return "missing";
+
+    const watchHistory = await client.query<{ hasSessions: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM daily007_v2_video_watch_sessions WHERE video_id = $1
+       ) AS "hasSessions"`,
+      [id],
+    );
+    if (watchHistory.rows[0]?.hasSessions) return "history";
+
+    await client.query("DELETE FROM daily007_v2_videos WHERE id = $1", [id]);
+    await markDaily007VideoCatalogSeeded(client);
+    return "deleted";
+  });
+
+  if (outcome === "missing") {
+    error(res, 404, "Video not found."); return;
+  }
+  if (outcome === "history") {
+    error(res, 409, "This video has watch history. Hide it instead of permanently deleting it."); return;
+  }
+  res.status(204).send();
 });
 
 router.patch("/admin/videos/:id/active", authenticate, async (req, res): Promise<void> => {

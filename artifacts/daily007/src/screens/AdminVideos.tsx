@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { RefreshControl, View } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
-import { Feather } from '@expo/vector-icons';
 import {
   useDaily007AdminCreateVideo,
+  useDaily007AdminDeleteVideo,
   useDaily007AdminListVideos,
   useDaily007AdminSetVideoActive,
+  useDaily007AdminUpdateVideo,
 } from '@workspace/api-client-react';
+import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import {
   A,
   Btn,
   Card,
+  ConfirmDialog,
   Empty,
   Input,
   Loading,
-  ScreenWrap,
   SectionTitle,
   useToast,
 } from '../components/adminKit';
@@ -33,13 +35,32 @@ type ManagedVideo = {
 export default function AdminVideos() {
   const videosQuery = useDaily007AdminListVideos();
   const { mutateAsync: createVideo, isPending: isCreating } = useDaily007AdminCreateVideo();
-  const { mutateAsync: setVideoActive, isPending: isUpdating } = useDaily007AdminSetVideoActive();
+  const { mutateAsync: setVideoActive, isPending: isToggling } = useDaily007AdminSetVideoActive();
+  const { mutateAsync: updateManagedVideo, isPending: isSavingEdit } = useDaily007AdminUpdateVideo();
+  const { mutateAsync: deleteManagedVideo, isPending: isDeleting } = useDaily007AdminDeleteVideo();
   const toast = useToast();
   const [title, setTitle] = useState('');
   const [topic, setTopic] = useState('');
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
+  const [editError, setEditError] = useState('');
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editTopic, setEditTopic] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<ManagedVideo | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const videos: ManagedVideo[] = (videosQuery.data?.videos ?? []) as ManagedVideo[];
+  const mutationsBusy = isCreating || isToggling || isSavingEdit || isDeleting;
+
+  const refreshVideos = async () => {
+    setRefreshing(true);
+    try {
+      await videosQuery.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const addVideo = async () => {
     if (!title.trim() || !topic.trim() || !url.trim()) {
@@ -74,8 +95,69 @@ export default function AdminVideos() {
     }
   };
 
+  const beginEdit = (video: ManagedVideo) => {
+    setEditingVideoId(video.id);
+    setEditTitle(video.title);
+    setEditTopic(video.topic);
+    setEditUrl(video.url);
+    setEditError('');
+  };
+
+  const cancelEdit = () => {
+    setEditingVideoId(null);
+    setEditError('');
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!editTitle.trim() || !editTopic.trim() || !editUrl.trim()) {
+      setEditError('Enter a title, topic, and YouTube video link.');
+      return;
+    }
+    if (editTitle.trim().length > 120 || editTopic.trim().length > 80 || editUrl.trim().length > 500) {
+      setEditError('Title must be 120 characters or fewer, topic 80, and link 500.');
+      return;
+    }
+    setEditError('');
+    try {
+      await updateManagedVideo({
+        id,
+        data: { title: editTitle.trim(), topic: editTopic.trim(), url: editUrl.trim() },
+      });
+      setEditingVideoId(null);
+      toast('Video updated.', 'success');
+      await videosQuery.refetch();
+    } catch (cause) {
+      setEditError(apiError(cause));
+    }
+  };
+
+  const permanentlyDeleteVideo = async () => {
+    const video = pendingDelete;
+    if (!video) return;
+    setPendingDelete(null);
+    try {
+      await deleteManagedVideo({ id: video.id });
+      toast('Video permanently deleted.', 'success');
+      await videosQuery.refetch();
+    } catch (cause) {
+      toast(apiError(cause), 'error');
+    }
+  };
+
   return (
-    <ScreenWrap onRefresh={() => videosQuery.refetch()}>
+    <KeyboardAwareScrollViewCompat
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: 14, paddingBottom: 110 }}
+      bottomOffset={64}
+      keyboardShouldPersistTaps="handled"
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => { void refreshVideos(); }}
+          tintColor={A.red}
+        />
+      }
+    >
       <SectionTitle
         title="Videos"
         sub="Full Admin only · each completed view can earn 1 coin"
@@ -112,7 +194,7 @@ export default function AdminVideos() {
           title="Add video"
           onPress={() => { void addVideo(); }}
           loading={isCreating}
-          disabled={isCreating || isUpdating}
+          disabled={mutationsBusy}
           testID="admin-video-add"
         />
         <Text style={styles.help}>
@@ -150,28 +232,107 @@ export default function AdminVideos() {
               </Text>
             </View>
           </View>
-          <View style={styles.videoFooter}>
-            <Text style={styles.videoReward}>1 coin per completed view · repeat views count</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${video.active ? 'Hide' : 'Activate'} ${video.title}`}
-              disabled={isUpdating || isCreating}
-              onPress={() => { void toggleVideo(video); }}
-              style={({ pressed }) => [styles.toggleButton, pressed && { opacity: 0.75 }]}
-            >
-              {isUpdating ? (
-                <ActivityIndicator size="small" color={A.gold} />
-              ) : (
-                <>
-                  <Feather name={video.active ? 'eye-off' : 'eye'} size={14} color={A.gold} />
-                  <Text style={styles.toggleText}>{video.active ? 'HIDE' : 'ACTIVATE'}</Text>
-                </>
-              )}
-            </Pressable>
-          </View>
+          {editingVideoId === video.id ? (
+            <View style={styles.editPanel}>
+              <Text style={styles.formTitle}>EDIT VIDEO</Text>
+              <Text style={styles.fieldLabel}>TITLE</Text>
+              <Input
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Video title"
+                autoCapitalize="sentences"
+              />
+              <Text style={styles.fieldLabel}>TOPIC</Text>
+              <Input
+                value={editTopic}
+                onChangeText={setEditTopic}
+                placeholder="e.g. Match join"
+                autoCapitalize="sentences"
+              />
+              <Text style={styles.fieldLabel}>YOUTUBE VIDEO LINK</Text>
+              <Input
+                value={editUrl}
+                onChangeText={setEditUrl}
+                placeholder="https://youtu.be/…"
+                autoCapitalize="none"
+              />
+              {!!editError ? (
+                <Text accessibilityRole="alert" style={styles.error}>{editError}</Text>
+              ) : null}
+              <View style={styles.editActions}>
+                <View style={{ flex: 1 }}>
+                  <Btn
+                    title="SAVE CHANGES"
+                    onPress={() => { void saveEdit(video.id); }}
+                    loading={isSavingEdit}
+                    disabled={isCreating || isToggling || isDeleting}
+                    testID={`admin-video-save-${video.id}`}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Btn
+                    title="CANCEL"
+                    kind="ghost"
+                    onPress={cancelEdit}
+                    disabled={mutationsBusy}
+                  />
+                </View>
+              </View>
+              <Text style={styles.help}>
+                A YouTube link cannot be changed after watch history exists. Add a new video instead.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.videoFooter}>
+              <Text style={styles.videoReward}>1 coin per completed view · repeat views count</Text>
+              <View style={styles.videoActions}>
+                <View style={styles.actionItem}>
+                  <Btn
+                    title="EDIT"
+                    kind="gold"
+                    small
+                    onPress={() => beginEdit(video)}
+                    disabled={mutationsBusy}
+                    testID={`admin-video-edit-${video.id}`}
+                  />
+                </View>
+                <View style={styles.actionItem}>
+                  <Btn
+                    title={video.active ? 'HIDE' : 'ACTIVATE'}
+                    kind={video.active ? 'ghost' : 'green'}
+                    small
+                    onPress={() => { void toggleVideo(video); }}
+                    disabled={mutationsBusy}
+                    testID={`admin-video-toggle-${video.id}`}
+                  />
+                </View>
+                <View style={styles.actionItem}>
+                  <Btn
+                    title="DELETE"
+                    kind="danger"
+                    small
+                    onPress={() => setPendingDelete(video)}
+                    disabled={mutationsBusy}
+                    testID={`admin-video-delete-${video.id}`}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
         </Card>
       ))}
-    </ScreenWrap>
+      <ConfirmDialog
+        visible={!!pendingDelete}
+        title="Delete video permanently?"
+        message={`Permanently delete "${pendingDelete?.title ?? 'this video'}"? This cannot be undone. Videos with watch history are protected; use Hide instead.`}
+        confirmTitle="DELETE"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => { void permanentlyDeleteVideo(); }}
+        cancelTestID="admin-video-delete-cancel"
+        confirmTestID="admin-video-delete-confirm"
+      />
+    </KeyboardAwareScrollViewCompat>
   );
 }
 
@@ -181,6 +342,7 @@ const styles = {
   help: { color: A.sub, fontSize: 11, lineHeight: 16, marginTop: 10 },
   error: { color: A.danger, fontSize: 12, lineHeight: 17, marginBottom: 10 },
   videoHeader: { flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 10, marginBottom: 12 },
+  editPanel: { borderTopWidth: 1, borderTopColor: A.border, paddingTop: 12 },
   videoTitle: { color: A.text, fontSize: 13, lineHeight: 18, fontWeight: '800' as const },
   videoTopic: { color: A.gold, fontSize: 10, fontWeight: '800' as const, marginTop: 4 },
   videoUrl: { color: A.sub, fontSize: 10, marginTop: 4 },
@@ -191,15 +353,15 @@ const styles = {
   statusTextActive: { color: A.green },
   statusTextInactive: { color: A.sub },
   videoFooter: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
+    flexDirection: 'column' as const,
+    alignItems: 'stretch' as const,
     gap: 8,
     borderTopWidth: 1,
     borderTopColor: A.border,
     paddingTop: 10,
   },
   videoReward: { color: A.sub, fontSize: 10, flex: 1 },
-  toggleButton: { minHeight: 36, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, paddingHorizontal: 6 },
-  toggleText: { color: A.gold, fontSize: 10, fontWeight: '900' as const, letterSpacing: 0.6 },
+  videoActions: { flexDirection: 'row' as const, gap: 8 },
+  actionItem: { flex: 1 },
+  editActions: { flexDirection: 'row' as const, gap: 10, marginTop: 4 },
 };

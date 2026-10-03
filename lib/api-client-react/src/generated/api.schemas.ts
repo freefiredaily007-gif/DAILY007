@@ -659,6 +659,21 @@ export interface Daily007AdminVideoCreateBody {
   url: string;
 }
 
+export interface Daily007VideoUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  topic: string;
+  /** @maxLength 500 */
+  url: string;
+}
+
 export interface Daily007AdminVideoActiveBody {
   active: boolean;
 }

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   completeDaily007VideoWatch,
   isEligibleDaily007VideoCompletion,
+  startDaily007VideoWatch,
   youtubeVideoIdFromUrl,
 } from "../src/lib/daily007-video-rewards.ts";
 
@@ -15,6 +16,29 @@ test("YouTube video links are accepted only for secure supported YouTube video U
   assert.equal(youtubeVideoIdFromUrl(`http://youtube.com/watch?v=${id}`), null);
   assert.equal(youtubeVideoIdFromUrl(`https://youtube.com.evil.example/watch?v=${id}`), null);
   assert.equal(youtubeVideoIdFromUrl("https://youtube.com/watch?v=short"), null);
+});
+
+test("starting a watch session locks the video row while recording the session", async () => {
+  const startedAt = new Date(Date.UTC(2026, 9, 3, 12));
+  let videoLockSql = "";
+  const client = {
+    async query<T = unknown>(sql: string, values: unknown[] = []) {
+      if (sql.includes("SELECT id FROM daily007_v2_videos")) {
+        videoLockSql = sql;
+        return { rows: [{ id: "video-id" }] as T[] };
+      }
+      if (sql.includes("INSERT INTO daily007_v2_video_watch_sessions")) {
+        assert.deepEqual(values, ["user-id", "video-id", 30]);
+        return { rows: [{ id: "session-id", started_at: startedAt }] as T[] };
+      }
+      return { rows: [] as T[] };
+    },
+  };
+
+  const session = await startDaily007VideoWatch(client, "user-id", "video-id", 30);
+  assert.match(videoLockSql, /FOR SHARE/);
+  assert.equal(session.sessionId, "session-id");
+  assert.equal(session.startedAt, startedAt.toISOString());
 });
 
 test("video reward completion requires 75% playback and at least 70% of the reported duration", () => {

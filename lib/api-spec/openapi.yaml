@@ -395,6 +395,40 @@ paths:
         "400": { description: Invalid title or YouTube URL }
         "403": { description: Full Admin required }
         "409": { description: This YouTube video is already managed }
+  /admin/videos/{id}:
+    patch:
+      operationId: daily007AdminUpdateVideo
+      summary: Update a managed video's title, topic, or YouTube link
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007VideoUpdate" }
+      responses:
+        "200":
+          description: Updated video
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007Video" }
+        "400": { description: "Invalid video id, title, topic, or YouTube URL" }
+        "403": { description: Full Admin required }
+        "404": { description: Video not found }
+        "409": { description: Duplicate YouTube video or existing watch history prevents changing its link }
+    delete:
+      operationId: daily007AdminDeleteVideo
+      summary: Permanently delete a managed video only when it has no watch history
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Video permanently deleted }
+        "400": { description: Invalid video id }
+        "403": { description: Full Admin required }
+        "404": { description: Video not found }
+        "409": { description: Video has watch history; hide it instead }
   /admin/videos/{id}/active:
     patch:
       operationId: daily007AdminSetVideoActive
@@ -1215,6 +1249,14 @@ components:
         message: { type: string }
       required: [rewarded, coins, walletCoins, transactionId, message]
     Daily007AdminVideoCreateBody:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        topic: { type: string, minLength: 1, maxLength: 80 }
+        url: { type: string, format: uri, maxLength: 500 }
+      required: [title, topic, url]
+    Daily007VideoUpdate:
       type: object
       additionalProperties: false
       properties:
