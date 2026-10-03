@@ -18,6 +18,7 @@ import AdminSettings from './AdminSettings';
 import AdminEarnTasks from './AdminEarnTasks';
 import AdminVideos from './AdminVideos';
 import AdminLeaderboards from './AdminLeaderboards';
+import AdminAccountRecovery from './AdminAccountRecovery';
 import logoImg from '../assets/logo.jpg';
 
 const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
@@ -30,6 +31,7 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
   { key: 'earnTasks', label: 'Earn', icon: 'youtube' },
   { key: 'videos', label: 'Videos', icon: 'video' },
   { key: 'users', label: 'Users', icon: 'users' },
+  { key: 'accountRecovery', label: 'Recovery', icon: 'key' },
   { key: 'notifications', label: 'Notify', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
@@ -58,7 +60,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const Screen: any = {
     dashboard: AdminDashboard, leaderboards: AdminLeaderboards, tournaments: AdminTournaments, registrations: AdminRegs,
     payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, videos: AdminVideos,
-    users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
+    users: AdminUsers, accountRecovery: AdminAccountRecovery, notifications: AdminNotifications, settings: AdminSettings,
   }[activeScreen] || AdminDashboard;
 
   return (

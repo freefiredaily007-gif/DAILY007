@@ -65,8 +65,10 @@ paths:
         Requires a Clerk session bearer token. The server fetches the Clerk user
         and accepts only a Google external account with a verified email; client
         email and provider identity values are never trusted. Existing local
-        accounts are not auto-linked: sign in with the password and retry with
-        X-Daily007-Token to connect Google. A new account created with a valid
+        accounts are never auto-linked. A user may submit a separate recovery
+        request, but only a Full Admin can link Google after independently
+        verifying ownership. To link directly, sign in with the password and
+        retry with X-Daily007-Token. A new account created with a valid
         referral code receives a one-time 10-coin signup bonus. The referrer
         receives 5 coins once after an admin-approved recharge of at least 50
         coins.
@@ -96,8 +98,28 @@ paths:
         "400": { description: Invalid request or unrecognized referral code }
         "401": { description: Missing/invalid Clerk session or invalid Daily007 link token }
         "403": { description: Google email is not verified or Daily007 account is blocked }
-        "409": { description: Email or Google identity conflict; existing local accounts require password sign-in before linking }
+        "409": { description: Email or Google identity conflict; local accounts are never automatically linked }
         "503": { description: Clerk or Daily007 auth configuration unavailable }
+  /auth/google/recovery-request:
+    post:
+      operationId: daily007GoogleRecoveryRequest
+      summary: Request Full Admin review to link a verified Google identity to an existing Daily007 account
+      description: |
+        Requires a Clerk session bearer token. The server derives the identity and
+        verified email from Clerk; the client cannot choose an account. This only
+        creates a pending request and never creates an account or links Google.
+        Full Admin approval must include an audit note and re-verify the Google
+        identity. Matching email alone is not proof of account ownership.
+      security: [{ clerkBearerAuth: [] }]
+      responses:
+        "202":
+          description: Generic acknowledgment, whether or not an eligible account exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007GoogleRecoveryRequestAccepted" }
+        "401": { description: Missing or invalid Clerk session }
+        "403": { description: No verified Google identity }
+        "503": { description: Clerk identity could not be verified }
   /daily007/v2/auth/me:
     get:
       operationId: daily007V2Me
@@ -243,6 +265,51 @@ paths:
         "403": { description: Full Admin required }
         "404": { description: User not found }
         "409": { description: Caller cannot change their own access or last Full Admin cannot be demoted }
+  /admin/account-recovery-requests:
+    get:
+      operationId: daily007AdminListAccountRecoveryRequests
+      summary: List pending Google account recovery requests
+      description: Full Admin only. Tournament Admins cannot view recovery requests.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Pending recovery requests, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Daily007AdminAccountRecoveryRequest" }
+        "401": { description: Daily007 bearer token required }
+        "403": { description: Full Admin required }
+  /admin/account-recovery-requests/{id}/{action}:
+    post:
+      operationId: daily007AdminReviewAccountRecoveryRequest
+      summary: Approve or reject a Google account recovery request
+      description: |
+        Full Admin only. Requires a 10–500 character audit note. Approval is
+        forbidden for the requesting account itself and re-verifies the Clerk
+        Google identity and its verified email before linking it.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminAccountRecoveryReviewBody" }
+      responses:
+        "200":
+          description: Request reviewed; approved requests link Google to the existing account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminAccountRecoveryReviewResult" }
+        "400": { description: "Invalid request, action, or review note" }
+        "401": { description: Daily007 bearer token required }
+        "403": { description: Full Admin required }
+        "404": { description: Pending request not found }
+        "409": { description: "Request already reviewed, self-review, or identity/account changed" }
+        "503": { description: Clerk identity could not be re-verified }
   /daily007/v2/admin/matches/{id}/room:
     put:
       operationId: daily007V2SetRoom
@@ -1323,6 +1390,36 @@ components:
       properties:
         role: { type: string, enum: [user, tournament_admin] }
       required: [role]
+    Daily007GoogleRecoveryRequestAccepted:
+      type: object
+      properties:
+        message: { type: string }
+      required: [message]
+    Daily007AdminAccountRecoveryRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        googleEmail: { type: string, format: email }
+        createdAt: { type: string, format: date-time }
+        accountName: { type: string }
+        accountEmail: { type: string, format: email }
+        phone: { type: ["string", "null"] }
+        gameUid: { type: ["string", "null"] }
+        accountRole: { type: string, enum: [user, tournament_admin, admin] }
+      required: [id, userId, googleEmail, createdAt, accountName, accountEmail, phone, gameUid, accountRole]
+    Daily007AdminAccountRecoveryReviewBody:
+      type: object
+      additionalProperties: false
+      properties:
+        reviewNote: { type: string, minLength: 10, maxLength: 500 }
+      required: [reviewNote]
+    Daily007AdminAccountRecoveryReviewResult:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [approved, rejected] }
+      required: [id, status]
     Daily007LeaderboardStanding:
       type: object
       properties:

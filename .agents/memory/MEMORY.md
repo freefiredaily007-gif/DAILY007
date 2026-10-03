@@ -1,6 +1,6 @@
 - [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
-- [Daily007 Google auth bridge](google-auth-bridge.md) — Clerk proves Google identity; keep Daily007 wallet accounts and require explicit linking to password accounts.
+- [Daily007 Google auth bridge](google-auth-bridge.md) — Same-email sign-in never links automatically; audited recovery is a separate Full Admin exception.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.

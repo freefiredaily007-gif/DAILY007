@@ -124,6 +124,7 @@ export default function Auth({ onDone }: { onDone: (u: User) => void }) {
           <GoogleSSOButton
             label={mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
             disabled={busy}
+            allowRecoveryRequest={!isSignup}
             referralCode={isSignup ? refCode : undefined}
             onError={setErr}
             onSuccess={onDone}

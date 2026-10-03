@@ -713,6 +713,54 @@ export interface Daily007AdminUserRoleBody {
   role: Daily007AdminUserRoleBodyRole;
 }
 
+export interface Daily007GoogleRecoveryRequestAccepted {
+  message: string;
+}
+
+export type Daily007AdminAccountRecoveryRequestAccountRole = typeof Daily007AdminAccountRecoveryRequestAccountRole[keyof typeof Daily007AdminAccountRecoveryRequestAccountRole];
+
+
+export const Daily007AdminAccountRecoveryRequestAccountRole = {
+  user: 'user',
+  tournament_admin: 'tournament_admin',
+  admin: 'admin',
+} as const;
+
+export interface Daily007AdminAccountRecoveryRequest {
+  id: string;
+  userId: string;
+  googleEmail: string;
+  createdAt: string;
+  accountName: string;
+  accountEmail: string;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  gameUid: string | null;
+  accountRole: Daily007AdminAccountRecoveryRequestAccountRole;
+}
+
+export interface Daily007AdminAccountRecoveryReviewBody {
+  /**
+     * @minLength 10
+     * @maxLength 500
+     */
+  reviewNote: string;
+}
+
+export type Daily007AdminAccountRecoveryReviewResultStatus = typeof Daily007AdminAccountRecoveryReviewResultStatus[keyof typeof Daily007AdminAccountRecoveryReviewResultStatus];
+
+
+export const Daily007AdminAccountRecoveryReviewResultStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface Daily007AdminAccountRecoveryReviewResult {
+  id: string;
+  status: Daily007AdminAccountRecoveryReviewResultStatus;
+}
+
 export interface Daily007LeaderboardStanding {
   /** @minimum 1 */
   rank: number;

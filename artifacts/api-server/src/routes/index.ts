@@ -5,6 +5,7 @@ import daily007CompatCoreRouter from "./daily007-compat-core";
 import daily007CompatExtraRouter from "./daily007-compat-extra";
 import daily007LeaderboardRouter from "./daily007-leaderboards";
 import daily007GoogleAuthRouter from "./daily007-google-auth";
+import daily007AccountRecoveryRouter from "./daily007-account-recovery";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(daily007CompatCoreRouter);
 router.use(daily007CompatExtraRouter);
 router.use(daily007LeaderboardRouter);
 router.use(daily007GoogleAuthRouter);
+router.use(daily007AccountRecoveryRouter);
 
 export default router;

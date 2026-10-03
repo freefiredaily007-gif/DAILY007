@@ -38,6 +38,9 @@ import type {
 
 import type {
   AdminResultLogsResponse,
+  Daily007AdminAccountRecoveryRequest,
+  Daily007AdminAccountRecoveryReviewBody,
+  Daily007AdminAccountRecoveryReviewResult,
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
@@ -46,6 +49,7 @@ import type {
   Daily007AdminVideoActiveBody,
   Daily007AdminVideoCreateBody,
   Daily007AdminYoutubeSubscribeClaims,
+  Daily007GoogleRecoveryRequestAccepted,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
   Daily007LeaderboardsResponse,
@@ -348,8 +352,10 @@ export const getDaily007GoogleSignInUrl = () => {
  * Requires a Clerk session bearer token. The server fetches the Clerk user
  * and accepts only a Google external account with a verified email; client
  * email and provider identity values are never trusted. Existing local
- * accounts are not auto-linked: sign in with the password and retry with
- * X-Daily007-Token to connect Google. A new account created with a valid
+ * accounts are never auto-linked. A user may submit a separate recovery
+ * request, but only a Full Admin can link Google after independently
+ * verifying ownership. To link directly, sign in with the password and
+ * retry with X-Daily007-Token. A new account created with a valid
  * referral code receives a one-time 10-coin signup bonus. The referrer
  * receives 5 coins once after an admin-approved recharge of at least 50
  * coins.
@@ -430,6 +436,85 @@ export const useDaily007GoogleSignIn = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007GoogleSignInMutationOptions(options));
+    }
+
+export const getDaily007GoogleRecoveryRequestUrl = () => {
+
+
+
+
+  return `/api/auth/google/recovery-request`
+}
+
+/**
+ * Requires a Clerk session bearer token. The server derives the identity and
+ * verified email from Clerk; the client cannot choose an account. This only
+ * creates a pending request and never creates an account or links Google.
+ * Full Admin approval must include an audit note and re-verify the Google
+ * identity. Matching email alone is not proof of account ownership.
+ * @summary Request Full Admin review to link a verified Google identity to an existing Daily007 account
+ */
+export const daily007GoogleRecoveryRequest = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007GoogleRecoveryRequestAccepted> => {
+
+  return customFetch<Daily007GoogleRecoveryRequestAccepted>(getDaily007GoogleRecoveryRequestUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007GoogleRecoveryRequestMutationKey = () => ['daily007GoogleRecoveryRequest'] as const;
+
+export const getDaily007GoogleRecoveryRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007GoogleRecoveryRequest>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007GoogleRecoveryRequest>>, TError,void, TContext> => {
+
+const mutationKey = getDaily007GoogleRecoveryRequestMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007GoogleRecoveryRequest>>, void> = () => {
+
+
+          return  daily007GoogleRecoveryRequest(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007GoogleRecoveryRequestMutationResult = NonNullable<Awaited<ReturnType<typeof daily007GoogleRecoveryRequest>>>
+
+    export type Daily007GoogleRecoveryRequestMutationError = ErrorType<void>
+
+
+    /**
+ * @summary Request Full Admin review to link a verified Google identity to an existing Daily007 account
+ */
+export const useDaily007GoogleRecoveryRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007GoogleRecoveryRequest>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007GoogleRecoveryRequest>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDaily007GoogleRecoveryRequestMutationOptions(options));
     }
 
 export const getDaily007V2MeUrl = () => {
@@ -1336,6 +1421,178 @@ export const useDaily007AdminSetUserRole = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007AdminSetUserRoleMutationOptions(options));
+    }
+
+export const getDaily007AdminListAccountRecoveryRequestsUrl = () => {
+
+
+
+
+  return `/api/admin/account-recovery-requests`
+}
+
+/**
+ * Full Admin only. Tournament Admins cannot view recovery requests.
+ * @summary List pending Google account recovery requests
+ */
+export const daily007AdminListAccountRecoveryRequests = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminAccountRecoveryRequest[]> => {
+
+  return customFetch<Daily007AdminAccountRecoveryRequest[]>(getDaily007AdminListAccountRecoveryRequestsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminListAccountRecoveryRequestsQueryKey = () => {
+    return [
+    `/api/admin/account-recovery-requests`
+    ] as const;
+    }
+
+
+export const getDaily007AdminListAccountRecoveryRequestsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListAccountRecoveryRequestsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>> = ({ signal }) => daily007AdminListAccountRecoveryRequests({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminListAccountRecoveryRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>>
+export type Daily007AdminListAccountRecoveryRequestsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List pending Google account recovery requests
+ */
+
+export function useDaily007AdminListAccountRecoveryRequests<TData = Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListAccountRecoveryRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminListAccountRecoveryRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminReviewAccountRecoveryRequestUrl = (id: string,
+    action: 'approve' | 'reject',) => {
+
+
+
+
+  return `/api/admin/account-recovery-requests/${id}/${action}`
+}
+
+/**
+ * Full Admin only. Requires a 10–500 character audit note. Approval is
+ * forbidden for the requesting account itself and re-verifies the Clerk
+ * Google identity and its verified email before linking it.
+ * @summary Approve or reject a Google account recovery request
+ */
+export const daily007AdminReviewAccountRecoveryRequest = async (id: string,
+    action: 'approve' | 'reject',
+    daily007AdminAccountRecoveryReviewBody: Daily007AdminAccountRecoveryReviewBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminAccountRecoveryReviewResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007AdminAccountRecoveryReviewResult>(getDaily007AdminReviewAccountRecoveryRequestUrl(id,action),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminAccountRecoveryReviewBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminReviewAccountRecoveryRequestMutationKey = () => ['daily007AdminReviewAccountRecoveryRequest'] as const;
+
+export const getDaily007AdminReviewAccountRecoveryRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewAccountRecoveryRequest>>, TError,Daily007AdminReviewAccountRecoveryRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewAccountRecoveryRequest>>, TError,Daily007AdminReviewAccountRecoveryRequestMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminReviewAccountRecoveryRequestMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminReviewAccountRecoveryRequest>>, Daily007AdminReviewAccountRecoveryRequestMutationVariables> = (props) => {
+          const {id,action,data} = props ?? {};
+
+          return  daily007AdminReviewAccountRecoveryRequest(id,action,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminReviewAccountRecoveryRequestMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminReviewAccountRecoveryRequest>>>
+    export type Daily007AdminReviewAccountRecoveryRequestMutationBody = BodyType<Daily007AdminAccountRecoveryReviewBody>
+    export type Daily007AdminReviewAccountRecoveryRequestMutationError = ErrorType<void>
+    export type Daily007AdminReviewAccountRecoveryRequestMutationVariables = {id: string;action: 'approve' | 'reject';data: BodyType<Daily007AdminAccountRecoveryReviewBody>}
+
+    /**
+ * @summary Approve or reject a Google account recovery request
+ */
+export const useDaily007AdminReviewAccountRecoveryRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewAccountRecoveryRequest>>, TError,Daily007AdminReviewAccountRecoveryRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminReviewAccountRecoveryRequest>>,
+        TError,
+        Daily007AdminReviewAccountRecoveryRequestMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminReviewAccountRecoveryRequestMutationOptions(options));
     }
 
 export const getDaily007V2SetRoomUrl = (id: string,) => {

@@ -51,8 +51,10 @@ export const Daily007V2LoginResponse = zod.unknown()
  * Requires a Clerk session bearer token. The server fetches the Clerk user
  * and accepts only a Google external account with a verified email; client
  * email and provider identity values are never trusted. Existing local
- * accounts are not auto-linked: sign in with the password and retry with
- * X-Daily007-Token to connect Google. A new account created with a valid
+ * accounts are never auto-linked. A user may submit a separate recovery
+ * request, but only a Full Admin can link Google after independently
+ * verifying ownership. To link directly, sign in with the password and
+ * retry with X-Daily007-Token. A new account created with a valid
  * referral code receives a one-time 10-coin signup bonus. The referrer
  * receives 5 coins once after an admin-approved recharge of at least 50
  * coins.
@@ -81,6 +83,19 @@ export const Daily007GoogleSignInResponse = zod.object({
   "coins": zod.number().int().min(daily007GoogleSignInResponseCoinsMin),
   "role": zod.enum(['user', 'admin']),
   "token": zod.string()
+})
+
+
+/**
+ * Requires a Clerk session bearer token. The server derives the identity and
+ * verified email from Clerk; the client cannot choose an account. This only
+ * creates a pending request and never creates an account or links Google.
+ * Full Admin approval must include an audit note and re-verify the Google
+ * identity. Matching email alone is not proof of account ownership.
+ * @summary Request Full Admin review to link a verified Google identity to an existing Daily007 account
+ */
+export const Daily007GoogleRecoveryRequestResponse = zod.object({
+  "message": zod.string()
 })
 
 
@@ -408,6 +423,50 @@ export const Daily007AdminSetUserRoleBody = zod.object({
 })
 
 export const Daily007AdminSetUserRoleResponse = zod.unknown()
+
+
+/**
+ * Full Admin only. Tournament Admins cannot view recovery requests.
+ * @summary List pending Google account recovery requests
+ */
+export const Daily007AdminListAccountRecoveryRequestsResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "googleEmail": zod.string().email(),
+  "createdAt": zod.coerce.date(),
+  "accountName": zod.string(),
+  "accountEmail": zod.string().email(),
+  "phone": zod.string().nullable(),
+  "gameUid": zod.string().nullable(),
+  "accountRole": zod.enum(['user', 'tournament_admin', 'admin'])
+})
+export const Daily007AdminListAccountRecoveryRequestsResponse = zod.array(Daily007AdminListAccountRecoveryRequestsResponseItem)
+
+
+/**
+ * Full Admin only. Requires a 10–500 character audit note. Approval is
+ * forbidden for the requesting account itself and re-verifies the Clerk
+ * Google identity and its verified email before linking it.
+ * @summary Approve or reject a Google account recovery request
+ */
+export const Daily007AdminReviewAccountRecoveryRequestParams = zod.object({
+  "id": zod.coerce.string().uuid(),
+  "action": zod.enum(['approve', 'reject'])
+})
+
+export const daily007AdminReviewAccountRecoveryRequestBodyReviewNoteMin = 10;
+export const daily007AdminReviewAccountRecoveryRequestBodyReviewNoteMax = 500;
+
+
+
+export const Daily007AdminReviewAccountRecoveryRequestBody = zod.object({
+  "reviewNote": zod.string().min(daily007AdminReviewAccountRecoveryRequestBodyReviewNoteMin).max(daily007AdminReviewAccountRecoveryRequestBodyReviewNoteMax)
+})
+
+export const Daily007AdminReviewAccountRecoveryRequestResponse = zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['approved', 'rejected'])
+})
 
 
 /**

@@ -49,6 +49,31 @@ export const daily007AdminAccessRequestsTable = pgTable("daily007_v2_admin_acces
   index("daily007_v2_admin_access_status_idx").on(table.status, table.createdAt),
 ]);
 
+export const daily007GoogleRecoveryRequestsTable = pgTable("daily007_v2_google_recovery_requests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
+  googleClerkUserId: text("google_clerk_user_id").notNull(),
+  googleEmail: text("google_email").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
+  reviewNote: text("review_note"),
+}, (table) => [
+  check("daily007_v2_google_recovery_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  check(
+    "daily007_v2_google_recovery_review_audit_valid",
+    sql`(${table.status} = 'pending' AND ${table.reviewedAt} IS NULL AND ${table.reviewedBy} IS NULL AND ${table.reviewNote} IS NULL)
+      OR (${table.status} IN ('approved', 'rejected') AND ${table.reviewedAt} IS NOT NULL
+        AND ${table.reviewedBy} IS NOT NULL AND char_length(${table.reviewNote}) BETWEEN 10 AND 500)`,
+  ),
+  uniqueIndex("daily007_v2_google_recovery_pending_user_once").on(table.userId)
+    .where(sql`${table.status} = 'pending'`),
+  uniqueIndex("daily007_v2_google_recovery_pending_clerk_once").on(table.googleClerkUserId)
+    .where(sql`${table.status} = 'pending'`),
+  index("daily007_v2_google_recovery_status_created_idx").on(table.status, table.createdAt),
+]);
+
 export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),

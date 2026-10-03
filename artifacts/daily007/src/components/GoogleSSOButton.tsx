@@ -19,7 +19,10 @@ type Props = {
   dailyToken?: string;
   disabled?: boolean;
   label?: string;
+  allowRecoveryRequest?: boolean;
 };
+
+const RECOVERY_CONFLICT = 'An account already uses this email. Sign in with your password, then connect Google in Profile.';
 
 export default function GoogleSSOButton(props: Props) {
   if (!clerkConfigured) {
@@ -73,9 +76,13 @@ function ConfiguredGoogleButton({
   dailyToken,
   disabled,
   label = 'Continue with Google',
+  allowRecoveryRequest,
 }: Props) {
   const { startSSOFlow } = useSSO();
   const [busy, setBusy] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+  const [recoverySubmitted, setRecoverySubmitted] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -87,10 +94,14 @@ function ConfiguredGoogleButton({
   const showError = (message: string) => {
     setError(message);
     onError?.(message);
+    if (allowRecoveryRequest && message === RECOVERY_CONFLICT) setRecoveryAvailable(true);
   };
 
   const authenticateGoogle = async () => {
     setError('');
+    onError?.('');
+    setRecoveryAvailable(false);
+    setRecoverySubmitted(false);
     setBusy(true);
     try {
       // A saved Clerk session can outlive the Daily007 account session. Reuse
@@ -156,9 +167,49 @@ function ConfiguredGoogleButton({
     }
   };
 
+  const requestRecovery = async () => {
+    const activeSession = getClerkInstance().session;
+    if (!activeSession) {
+      showError('Your Google session has expired. Choose Continue with Google and try again.');
+      return;
+    }
+    setRecoveryBusy(true);
+    try {
+      const clerkJwt = await activeSession.getToken();
+      if (!clerkJwt) throw new Error('A verified Google session is required. Please try again.');
+      await Api.requestGoogleRecovery(clerkJwt);
+      setRecoveryAvailable(false);
+      setRecoverySubmitted(true);
+      setError('');
+      onError?.('');
+    } catch (e: any) {
+      setRecoveryAvailable(true);
+      showError(apiError(e));
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   return (
     <>
-      <GoogleButtonFrame label={label} disabled={disabled} loading={busy} onPress={authenticateGoogle} />
+      <GoogleButtonFrame label={label} disabled={disabled || recoveryBusy} loading={busy} onPress={authenticateGoogle} />
+      {allowRecoveryRequest && (recoveryAvailable || error === RECOVERY_CONFLICT) && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Request Full Admin account recovery review"
+          testID="request-google-account-recovery"
+          disabled={recoveryBusy}
+          onPress={requestRecovery}
+          style={({ pressed }) => [s.recoveryButton, pressed && !recoveryBusy && s.pressed, recoveryBusy && s.disabled]}
+        >
+          <Text style={s.recoveryButtonText}>{recoveryBusy ? 'SENDING REQUEST…' : 'REQUEST ADMIN REVIEW'}</Text>
+        </Pressable>
+      )}
+      {recoverySubmitted && (
+        <Text accessibilityRole="text" style={s.recoveryNotice}>
+          If an eligible account matches, a Full Admin will review it. Google will not be linked until ownership is verified.
+        </Text>
+      )}
       {!!error && !onError && <Msg kind="err" text={error} />}
     </>
   );
@@ -183,4 +234,7 @@ const s = StyleSheet.create({
   googleG: { color: '#4285F4', fontSize: 19, fontWeight: '900' },
   spinner: { position: 'absolute', left: 20, color: C.sub, fontWeight: '900' },
   buttonText: { color: C.text, fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
+  recoveryButton: { alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 12, marginTop: 2 },
+  recoveryButtonText: { color: C.blue, fontSize: 12, fontWeight: '800', letterSpacing: 0.3, textAlign: 'center' },
+  recoveryNotice: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 6, textAlign: 'center' },
 });

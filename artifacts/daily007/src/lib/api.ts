@@ -28,6 +28,18 @@ export type AdminRegistration = {
   playerName: string; teamName?: string; gameUid?: string;
 };
 
+export type AccountRecoveryRequest = {
+  id: string;
+  userId: string;
+  googleEmail: string;
+  createdAt: string;
+  accountName: string;
+  accountEmail: string;
+  phone: string | null;
+  gameUid: string | null;
+  accountRole: Daily007Role;
+};
+
 export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Type': 'application/json' } });
 
 // Deliberately distinct from the legacy hosted app's AsyncStorage keys.
@@ -121,6 +133,22 @@ export const Api = {
     }
     return { user, token };
   },
+  requestGoogleRecovery: async (clerkJwt: string) => {
+    if (!clerkJwt) throw new Error('A verified Google session is required.');
+    return unwrap(http.post('/auth/google/recovery-request', {}, {
+      headers: { Authorization: `Bearer ${clerkJwt}` },
+    }));
+  },
+  adminAccountRecoveryRequests: async (): Promise<AccountRecoveryRequest[]> =>
+    unwrap(http.get('/admin/account-recovery-requests')),
+  reviewAdminAccountRecoveryRequest: async (
+    id: string,
+    action: 'approve' | 'reject',
+    reviewNote: string,
+  ) => unwrap(http.post(
+    `/admin/account-recovery-requests/${encodeURIComponent(id)}/${action}`,
+    { reviewNote },
+  )),
   me: async () => {
     const savedSession = current ?? await getSession();
     const user = normalizeUser(await unwrap(http.get('/auth/me')), savedSession?.token);
