@@ -18,7 +18,7 @@ export type Tournament = {
   startsAt?: string;
   gameMode?: string; teamSize?: number; slotUnit?: 'player' | 'team';
   entryCoins: number; prizePool: number; totalSlots: number; rules?: string;
-  banner?: string; prizeDist?: string; enabled?: boolean; status?: string;
+  banner?: string; imageUrl?: string | null; prizeDist?: string; enabled?: boolean; status?: string;
   filledSlots?: number; filledPlayerSlots?: number; totalPlayerSlots?: number; capacityLabel?: string;
   availableSlots?: number; roomId?: string; roomPassword?: string; roomTime?: string; roomPublished?: boolean;
 };

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
+import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import {
@@ -16,7 +17,7 @@ type MatchRow = {
   id: string; title: string; mode: string; game_mode?: string | null; team_type?: string | null;
   capacity: number; entry_coins: number;
   prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
-  rules: string; banner: string; prize_distribution: string; enabled: boolean;
+  rules: string; banner: string; image_url: string | null; prize_distribution: string; enabled: boolean;
   has_winner?: boolean; has_started?: boolean;
   completed_at?: Date | string | null;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
@@ -30,7 +31,7 @@ type RegistrationRow = {
   capacity?: number; starts_at?: Date | string;
   match_entry_coins?: number;
   match_status?: string;
-  title?: string; prize_pool?: number; rules?: string; banner?: string; prize_distribution?: string;
+  title?: string; prize_pool?: number; rules?: string; banner?: string; image_url?: string | null; prize_distribution?: string;
   enabled?: boolean; is_full?: boolean; room_id?: string | null; room_password?: string | null;
   room_time?: string; room_published?: boolean; registered_count?: number;
   match_has_winner?: boolean; match_has_started?: boolean;
@@ -165,6 +166,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     totalPlayerSlots: row.capacity * mode.teamSize,
     rules: row.rules,
     banner: row.banner,
+    imageUrl: row.image_url ?? null,
     prizeDist: row.prize_distribution,
     enabled: row.enabled,
     status: effectiveTournamentStatus(row),
@@ -188,7 +190,7 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
   if (enabledOnly) clauses.push("m.enabled = true");
   const result = await pool.query<MatchRow>(
     `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
-            m.status, m.is_full, m.rules, m.banner, m.prize_distribution, m.enabled,
+            m.status, m.is_full, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
             m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
             EXISTS (
@@ -386,6 +388,9 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
     ? fallback.rules
     : typeof body.rules === "string" && body.rules.length <= 10_000 ? body.rules : null;
   const banner = body.banner === undefined && fallback ? fallback.banner : nonempty(body.banner, 100);
+  const parsedImageUrl = body.imageUrl === undefined && fallback
+    ? { ok: true as const, value: fallback.image_url ?? null }
+    : parseOptionalHttpsImageUrl(body.imageUrl);
   const prizeDistribution = body.prizeDist === undefined && fallback
     ? fallback.prize_distribution
     : typeof body.prizeDist === "string" && body.prizeDist.length <= 10_000 ? body.prizeDist : null;
@@ -396,13 +401,13 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   } else if (fallback) startsAt = new Date(fallback.starts_at);
   if (body.enabled !== undefined && typeof body.enabled !== "boolean") return null;
   if (!configuredMode || !title || !nonnegativeInt(entryCoins) ||
-      !nonnegativeInt(prizePool) || rules === null || !banner || prizeDistribution === null ||
+      !nonnegativeInt(prizePool) || rules === null || !banner || !parsedImageUrl.ok || prizeDistribution === null ||
       !startsAt || !Number.isFinite(startsAt.getTime()) || !isTournamentStartInFuture(startsAt)) return null;
   return {
     mode: configuredMode.storageMode, gameMode: configuredMode.gameMode,
     teamType: configuredMode.teamType, title, capacity: configuredMode.capacity,
     entryCoins, prizePool, startsAt,
-    rules, banner, prizeDistribution,
+    rules, banner, imageUrl: parsedImageUrl.value, prizeDistribution,
     enabled: body.enabled === undefined ? fallback?.enabled ?? true : body.enabled,
   };
 }
@@ -411,15 +416,15 @@ router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   if (!record(req.body)) return fail(res, 400, "Expected tournament fields.");
   const values = tournamentValues(req.body);
-  if (!values) return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, and nonnegative integer coin values.");
+  if (!values) return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, nonnegative integer coin values, and an optional HTTPS image URL.");
   const result = await pool.query(
     `INSERT INTO daily007_v2_matches
-       (title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, rules, banner, prize_distribution, enabled)
-     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+       (title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, rules, banner, image_url, prize_distribution, enabled)
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
        WHERE $8::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
      RETURNING id`,
     [values.title, values.mode, values.gameMode, values.teamType, values.capacity, values.entryCoins,
-      values.prizePool, values.startsAt, values.rules, values.banner, values.prizeDistribution, values.enabled],
+       values.prizePool, values.startsAt, values.rules, values.banner, values.imageUrl, values.prizeDistribution, values.enabled],
   );
   if (!result.rows[0]) return fail(res, 400, "Tournament start time must still be in the future.");
   const created = await getMatches(result.rows[0].id as string);
@@ -435,7 +440,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
     const outcome = await transaction(async (client) => {
       const selected = await client.query<MatchRow>(
         `SELECT id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at,
-                status, is_full, rules, banner, prize_distribution, enabled,
+                status, is_full, rules, banner, image_url, prize_distribution, enabled,
                 room_id, room_password, room_time, room_published, 0::integer AS registered_count
            FROM daily007_v2_matches WHERE id = $1 FOR UPDATE`,
         [id],
@@ -458,13 +463,13 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
       const updated = await client.query<{ id: string }>(
         `UPDATE daily007_v2_matches
             SET title = $2, mode = $3, game_mode = $4, team_type = $5, capacity = $6,
-                entry_coins = $7, prize_pool = $8, starts_at = $9, rules = $10, banner = $11,
-                prize_distribution = $12, enabled = $13, is_full = $14, status = $15
+                 entry_coins = $7, prize_pool = $8, starts_at = $9, rules = $10, banner = $11,
+                 image_url = $12, prize_distribution = $13, enabled = $14, is_full = $15, status = $16
           WHERE id = $1 AND $9::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
           RETURNING id`,
         [id, values.title, values.mode, values.gameMode, values.teamType, values.capacity,
-          values.entryCoins, values.prizePool, values.startsAt, values.rules, values.banner,
-          values.prizeDistribution, values.enabled,
+           values.entryCoins, values.prizePool, values.startsAt, values.rules, values.banner,
+           values.imageUrl, values.prizeDistribution, values.enabled,
           capacityState.isFull, capacityState.status],
       );
       // A time can pass while validation/locking is in progress.
@@ -472,7 +477,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
       return "updated" as const;
     });
     if (outcome === "missing") return fail(res, 404, "Tournament not found.");
-    if (outcome === "invalid") return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, and nonnegative integer coin values.");
+     if (outcome === "invalid") return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, nonnegative integer coin values, and an optional HTTPS image URL.");
     if (outcome === "capacity") return fail(res, 409, "Capacity or game mode cannot be reduced/changed below the current active registration count.");
   } catch (error) {
     throw error;
@@ -531,7 +536,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
             r.entry_coins_paid, r.status, r.created_at, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.starts_at,
             m.entry_coins AS match_entry_coins, m.status AS match_status,
-            m.prize_pool, m.rules, m.banner, m.prize_distribution, m.enabled, m.is_full,
+            m.prize_pool, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled, m.is_full,
             m.room_id, m.room_password, m.room_time, m.room_published,
             m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS match_has_started,
             EXISTS (
@@ -567,7 +572,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       status: row.match_status!,
        has_started: row.match_has_started, has_winner: row.match_has_winner,
       registered_count: row.registered_count!, is_full: row.is_full!, rules: row.rules!,
-      banner: row.banner!, prize_distribution: row.prize_distribution!, enabled: row.enabled!,
+       banner: row.banner!, image_url: row.image_url ?? null, prize_distribution: row.prize_distribution!, enabled: row.enabled!,
       room_id: row.room_id!, room_password: row.room_password!, room_time: row.room_time!,
       room_published: row.room_published!,
     } as MatchRow, expose);

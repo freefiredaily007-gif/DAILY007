@@ -23,7 +23,7 @@ function todayInIST() {
 function newTournamentForm() {
   return {
     name: '', mode: 'Battle Royale', teamType: 'Solo', date: todayInIST(), time: '08:00 PM',
-    entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '',
+    entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', imageUrl: '', prizeDist: '',
   };
 }
 const TOURNAMENT_TABS = [
@@ -287,12 +287,24 @@ export default function AdminTournaments() {
     if (!form.name.trim() || !form.date.trim() || form.entryCoins === '') {
       return setErr('Name, date and entry coins are required.');
     }
+    const imageUrl = String(form.imageUrl || '').trim();
+    if (imageUrl) {
+      if (imageUrl.length > 2048) return setErr('Custom banner image URL must be 2,048 characters or fewer.');
+      try {
+        const parsed = new URL(imageUrl);
+        if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) {
+          return setErr('Custom banner image must be a valid HTTPS URL.');
+        }
+      } catch {
+        return setErr('Custom banner image must be a valid HTTPS URL.');
+      }
+    }
     setBusy(true);
     try {
       const payload = {
         name: form.name.trim(), mode: form.mode, teamType: form.teamType, date: form.date.trim(), time: form.time,
         entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), totalSlots: capacityFor(form.mode, form.teamType).slots,
-        rules: form.rules, banner: form.banner, prizeDist: form.prizeDist,
+        rules: form.rules, banner: form.banner, imageUrl: imageUrl || null, prizeDist: form.prizeDist,
       };
       if (editId) { await Api.updateTournament(editId, payload); setOkMsg('Tournament updated successfully'); }
       else { await Api.createTournament(payload); setOkMsg('Tournament created successfully'); }
@@ -428,6 +440,19 @@ export default function AdminTournaments() {
               <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
             ))}
           </View>
+          {form.mode !== 'Battle Royale' && (
+            <>
+              <Input
+                placeholder="Optional custom banner image URL (HTTPS)"
+                value={form.imageUrl || ''}
+                onChangeText={(v) => set('imageUrl', v)}
+                keyboardType="url"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Text style={st.capacityNote}>Leave blank to use the default Solo, Duo, or Squad artwork.</Text>
+            </>
+          )}
           <Input placeholder="Date (YYYY-MM-DD, IST) *" value={form.date} onChangeText={(v) => set('date', v)} />
           <Text style={st.lbl}>TIME (IST · 12-HOUR)</Text>
           <TimePicker variant="admin" value={form.time} onChange={(v) => set('time', v)} />

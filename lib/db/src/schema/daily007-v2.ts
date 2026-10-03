@@ -60,6 +60,7 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   prizePool: integer("prize_pool").notNull().default(0),
   rules: text("rules").notNull().default(""),
   banner: text("banner").notNull().default("br"),
+  imageUrl: text("image_url"),
   prizeDistribution: text("prize_distribution").notNull().default(""),
   enabled: boolean("enabled").notNull().default(true),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),

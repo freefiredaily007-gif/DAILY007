@@ -8,7 +8,7 @@
 - [Daily007 referral links](daily007-referral-links.md) — use simple five-letter codes and keep clickable invites working with legacy codes.
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user wants an installable APK file to send directly, not a URL.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
-- [Daily007 build port isolation](daily007-build-port.md) — temporary Metro builds must use a free port because another workspace service may occupy 8081.
+- [Daily007 Expo port management](daily007-build-port.md) — use a free port for temporary Metro builds, but keep the managed Expo workflow on its injected port.
 - [Daily007 API workflow recovery](daily007-api-workflow-recovery.md) — after an API restart hits EADDRINUSE, stop the stale service and verify port 8080 is clear before retrying.
 - [Daily007 admin styling scope](daily007-admin-visual-only.md) — keep admin restyles appearance-only; preserve settings, actions, permissions, data, and player-facing screens.
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
