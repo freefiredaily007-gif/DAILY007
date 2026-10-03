@@ -12,7 +12,7 @@ import { api, Api } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12 } from '../components/ui';
 import { inr } from '../lib/coins';
-import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 
@@ -90,6 +90,10 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [items, clockNow]);
 
+  const upcomingItems = items.filter(
+    (tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming',
+  );
+
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
     const w = e?.nativeEvent?.layoutMeasurement?.width || 1;
@@ -98,22 +102,16 @@ export default function Home() {
   };
   // auto-scroll every 3.5s when more than one match
   React.useEffect(() => {
-    if (items.length <= 1) return;
+    if (upcomingItems.length <= 1) return;
     const iv = setInterval(() => {
-      const next = (pageRef.current + 1) % Math.min(items.length, 8);
+      const next = (pageRef.current + 1) % Math.min(upcomingItems.length, 8);
       try { carouselRef.current?.scrollTo({ x: next * 390, animated: true }); } catch {}
     }, 3500);
     return () => clearInterval(iv);
-  }, [items.length]);
+  }, [upcomingItems.length]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const social = (url?: string) => { if (url) Linking.openURL(url).catch(() => {}); };
-  const liveItems = items
-    .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'ongoing')
-    .sort(compareTournamentStartTime);
-  const homeItems = [...liveItems, ...items.filter(
-    (tournament) => getTournamentLifecycleState(tournament, clockNow) !== 'ongoing',
-  )];
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 30 }}
@@ -151,7 +149,7 @@ export default function Home() {
       </View>
       <View style={s.headLine} pointerEvents="none" />
 
-      {/* ===== ONGOING / UPCOMING MATCHES — auto carousel ===== */}
+      {/* ===== UPCOMING MATCHES — auto carousel ===== */}
       <Pressable
         style={({ pressed }) => [s.myMatchesButton, pressed && { opacity: 0.8 }]}
         onPress={() => goTab('mymatches')}
@@ -162,13 +160,13 @@ export default function Home() {
         <Text style={s.myMatchesButtonHint}>ROOM DETAILS & RESULTS →</Text>
       </Pressable>
       <View style={s.secRow}>
-        <Text style={s.secTitle}>🔥 ONGOING & UPCOMING MATCHES</Text>
+        <Text style={s.secTitle}>🔥 UPCOMING MATCHES</Text>
         <Pressable onPress={() => goTab('tournaments')} hitSlop={8}>
           <Text style={s.viewAll}>VIEW ALL →</Text>
         </Pressable>
       </View>
-      {loading ? <Loading /> : items.length === 0 ? (
-        <Empty icon="🎮" text={loadError ? `Tournament data is unavailable: ${loadError}` : 'No tournaments are available right now.'} actionLabel="CHECK MATCHES" onAction={() => goTab('tournaments')} />
+      {loading ? <Loading /> : upcomingItems.length === 0 ? (
+        <Empty icon="🎮" text={loadError ? `Tournament data is unavailable: ${loadError}` : 'No upcoming tournaments are available right now.'} actionLabel="CHECK MATCHES" onAction={() => goTab('tournaments')} />
       ) : (
         <>
           <ScrollView
@@ -177,7 +175,7 @@ export default function Home() {
             onScroll={onCarouselScroll} scrollEventThrottle={16}
             style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16 }}
             decelerationRate="fast">
-            {homeItems.slice(0, 8).map((t) => {
+            {upcomingItems.slice(0, 8).map((t) => {
         const filled = t.filledSlots ?? t.filled ?? 0;
         const total = t.totalSlots ?? tournamentModeFallback(t);
         const stt = statusOf(t, clockNow);
@@ -237,9 +235,9 @@ export default function Home() {
           </GCard>
             ); })}
           </ScrollView>
-          {items.length > 1 && (
+          {upcomingItems.length > 1 && (
             <View style={s.dots}>
-              {items.slice(0, 8).map((_, i) => (
+              {upcomingItems.slice(0, 8).map((_, i) => (
                 <View key={i} style={[s.dot, i === page && { backgroundColor: C.neon, width: 16 }]} />
               ))}
             </View>
