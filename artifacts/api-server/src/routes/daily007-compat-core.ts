@@ -197,7 +197,7 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
             ) AS has_winner,
              (SELECT max(result_award.created_at)
                 FROM daily007_v2_result_awards result_award
-               WHERE result_award.match_id = m.id) AS completed_at,
+               WHERE result_award.match_id = m.id AND result_award.rank = 1) AS completed_at,
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS registered_count
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id
