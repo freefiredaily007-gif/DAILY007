@@ -727,6 +727,20 @@ paths:
         "200": { description: Saved settings }
         "400": { description: Invalid settings or unverified QR upload }
         "403": { description: Administrator required }
+  /tournaments/{id}/participants:
+    get:
+      operationId: getTournamentParticipants
+      summary: List the joined public player names and teams for a tournament
+      description: Lists active approved and pending registrations with Free Fire in-game names only; account IDs, contact details, game UIDs, and application profile names are not exposed.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Public participant roster
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TournamentParticipantsResponse" }
+        "404": { description: Tournament not found }
   /tournaments/{id}/slots:
     get:
       operationId: getTournamentSlots
@@ -912,6 +926,24 @@ components:
         status: { type: string, enum: [available, taken, locked] }
         teamName: { type: ["string", "null"] }
       required: [number, status]
+    TournamentParticipant:
+      type: object
+      properties:
+        teamName: { type: ["string", "null"] }
+        players:
+          type: array
+          items: { type: string }
+          description: Free Fire in-game names, with the captain first.
+        status: { type: string, enum: [approved, pending] }
+      required: [teamName, players, status]
+    TournamentParticipantsResponse:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid }
+        participants:
+          type: array
+          items: { $ref: "#/components/schemas/TournamentParticipant" }
+      required: [tournamentId, participants]
     TournamentSlotsResponse:
       type: object
       properties:
