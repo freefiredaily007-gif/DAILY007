@@ -156,6 +156,9 @@ function getExpoPublicReplId() {
 function createExpoClientEnv(expoPublicDomain, expoPublicReplId) {
   return {
     ...process.env,
+    // Publishing needs the bundler, not a desktop debugger or interactive UI.
+    CI: '1',
+    EXPO_UNSTABLE_HEADLESS: '1',
     EXPO_PUBLIC_DOMAIN: expoPublicDomain,
     EXPO_PUBLIC_REPL_ID: expoPublicReplId,
     EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:
@@ -246,6 +249,16 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     },
   );
 
+  let startupError = null;
+  metroProcess.on('error', (error) => {
+    startupError = error;
+  });
+  metroProcess.on('exit', (code, signal) => {
+    startupError = new Error(
+      `Metro exited before becoming ready${signal ? ` (${signal})` : ` with code ${code}`}`,
+    );
+  });
+
   if (metroProcess.stdout) {
     metroProcess.stdout.on('data', (data) => {
       const output = data.toString().trim();
@@ -259,18 +272,21 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     });
   }
 
-  for (let i = 0; i < 60; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
+  const startupTimeoutMs = 180_000;
+  const deadline = Date.now() + startupTimeoutMs;
+  while (Date.now() < deadline) {
+    if (startupError) throw startupError;
     const healthy = await checkMetroHealth();
     if (healthy) {
       console.log('Metro ready');
       return;
     }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  console.error('Metro timeout');
-  process.exit(1);
+  throw new Error(
+    `Metro did not become ready within ${startupTimeoutMs / 1000} seconds on port ${metroPort}. Check Metro logs above.`,
+  );
 }
 
 async function downloadFile(url, outputPath) {

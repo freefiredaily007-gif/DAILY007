@@ -9,7 +9,7 @@
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user targets Google Play; each client release needs a new native build and higher versionCode.
 - [Daily007 production tournament data](daily007-production-tournament-data.md) — replace only production matches with the current development set; do not overwrite unrelated production data.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
-- [Daily007 Expo port management](daily007-build-port.md) — use a free port for temporary Metro builds, but keep the managed Expo workflow on its injected port.
+- [Daily007 Expo build isolation](daily007-build-port.md) — use free ports and headless Metro for publishing; keep the managed preview on its injected port.
 - [Daily007 API workflow recovery](daily007-api-workflow-recovery.md) — after an API restart hits EADDRINUSE, stop the stale service and verify port 8080 is clear before retrying.
 - [Daily007 admin styling scope](daily007-admin-visual-only.md) — keep admin restyles appearance-only; preserve settings, actions, permissions, data, and player-facing screens.
 - [Daily007 tournament artwork](daily007-tournament-artwork.md) — Clash Squad and Lone Wolf cards need fully visible gaming art labeled Solo 1 VS 1, Duo 2 VS 2, and Squad 4 VS 4; leave Battle Royale unchanged.
