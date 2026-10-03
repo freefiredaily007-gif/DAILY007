@@ -1,7 +1,11 @@
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useDaily007ListLeaderboards } from "@workspace/api-client-react";
+import {
+  getDaily007ListLeaderboardsQueryKey,
+  useDaily007ListLeaderboards,
+} from "@workspace/api-client-react";
+import { useFocusEffect } from "@react-navigation/native";
 import { ReadableText as Text } from "../components/typography";
 import { C, Loading } from "../components/ui";
 import { apiError } from "../lib/api";
@@ -17,12 +21,17 @@ type Standing = {
   kills: number;
   matches: number;
 };
+type RewardPayout = {
+  rank: number;
+  coins: number;
+};
 type Period = {
   cycleType: CycleType;
   status: "active" | "pending_approval" | "pending_activation" | "finalized";
   startsAt: string;
   endsAt: string;
   standings: Standing[];
+  rewards: RewardPayout[];
 };
 
 const AVATAR_COLORS = [C.blue, C.purple, C.neon, C.green, C.orange];
@@ -112,7 +121,18 @@ function PlayerRow({
 }
 
 export default function LeaderboardDetails({ navigation, route }: any) {
-  const query = useDaily007ListLeaderboards();
+  const query = useDaily007ListLeaderboards({
+    query: {
+      queryKey: getDaily007ListLeaderboardsQueryKey(),
+      refetchInterval: 30_000,
+      refetchOnMount: "always",
+    },
+  });
+  useFocusEffect(
+    React.useCallback(() => {
+      void query.refetch();
+    }, [query.refetch]),
+  );
   const cycle: CycleType = route?.params?.cycleType === "monthly" ? "monthly" : "weekly";
   const data = query.data as unknown as {
     weekly?: Period;
@@ -162,6 +182,32 @@ export default function LeaderboardDetails({ navigation, route }: any) {
             );
           })}
         </View>
+
+        {period?.rewards ? (
+          <View
+            style={styles.rewardsPanel}
+            testID={`leaderboard-rewards-${cycle}`}
+            accessibilityLabel={`${cycle} leaderboard rank rewards`}
+          >
+            <Text style={[styles.rewardsTitle, { color: accent }]}>
+              {cycle === "weekly" ? "WEEKLY PRIZES" : "MONTHLY PRIZES"}
+            </Text>
+            {[1, 2, 3].map((rank) => {
+              const coins = period.rewards.find((reward) => reward.rank === rank)?.coins ?? 0;
+              const rankColor = rank === 1 ? C.gold : rank === 2 ? C.sub : C.orange;
+              return (
+                <View
+                  key={rank}
+                  style={styles.rewardRow}
+                  testID={`leaderboard-reward-rank-${rank}`}
+                >
+                  <Text style={[styles.rewardRank, { color: rankColor }]}>Rank #{rank}</Text>
+                  <Text style={styles.rewardAmount}>{coins.toLocaleString("en-IN")} Coins</Text>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         {query.isLoading ? (
           <Loading />
@@ -220,6 +266,29 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 28 },
   tabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  rewardsPanel: {
+    gap: 8,
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card2,
+  },
+  rewardsTitle: { fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
+  rewardRow: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+  },
+  rewardRank: { fontSize: 12, fontWeight: "900" },
+  rewardAmount: { color: C.text, fontSize: 12, fontWeight: "800" },
   tab: {
     flex: 1,
     minHeight: 42,
