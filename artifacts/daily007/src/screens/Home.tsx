@@ -285,7 +285,10 @@ export default function Home() {
         </GCard>
       ))}
 
-      <HomeLeaderboards refreshKey={leaderboardRefreshKey} />
+      <HomeLeaderboards
+        refreshKey={leaderboardRefreshKey}
+        onOpen={(cycleType) => nav.navigate('LeaderboardDetails', { cycleType })}
+      />
 
       {/* ===== SOCIAL ===== */}
       <SectionTitle accent={C.blue}>JOIN THE COMMUNITY</SectionTitle>

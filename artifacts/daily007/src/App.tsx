@@ -16,6 +16,7 @@ import MyMatches from './screens/MyMatches';
 import Wallet from './screens/Wallet';
 import Profile from './screens/Profile';
 import Leaderboard from './screens/Leaderboard';
+import LeaderboardDetails from './screens/LeaderboardDetails';
 import Notifications from './screens/Notifications';
 import EditProfile from './screens/EditProfile';
 import AdminApp from './screens/AdminApp';
@@ -181,6 +182,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
               <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: 'MY MATCHES' }} />
               <Stack.Screen name="TDetail" component={TDetail} options={{ title: 'TOURNAMENT' }} />
               <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: 'REGISTER', presentation: 'modal' }} />
+              <Stack.Screen name="LeaderboardDetails" component={LeaderboardDetails} options={{ title: 'LEADERBOARD' }} />
               <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: 'LEADERBOARD' }} />
               <Stack.Screen name="Notifications" component={Notifications} options={{ title: 'NOTIFICATIONS' }} />
               <Stack.Screen name="EditProfile" component={EditProfile} options={{ title: 'EDIT PROFILE' }} />
