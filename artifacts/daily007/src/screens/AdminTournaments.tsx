@@ -12,7 +12,20 @@ import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
-const blank = { name: '', mode: 'Battle Royale', teamType: 'Solo', date: '', time: '08:00 PM', entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '' };
+function todayInIST() {
+  const istDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const year = istDate.getUTCFullYear();
+  const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(istDate.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function newTournamentForm() {
+  return {
+    name: '', mode: 'Battle Royale', teamType: 'Solo', date: todayInIST(), time: '08:00 PM',
+    entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', prizeDist: '',
+  };
+}
 const TOURNAMENT_TABS = [
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'ongoing', label: 'Ongoing' },
@@ -63,7 +76,7 @@ function capacityFor(mode: string, teamType: string) {
 export default function AdminTournaments() {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [tab, setTab] = useState<TournamentAdminTab>('upcoming');
-  const [form, setForm] = useState<any>(blank);
+  const [form, setForm] = useState<any>(newTournamentForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -283,7 +296,7 @@ export default function AdminTournaments() {
       };
       if (editId) { await Api.updateTournament(editId, payload); setOkMsg('Tournament updated successfully'); }
       else { await Api.createTournament(payload); setOkMsg('Tournament created successfully'); }
-      setShowForm(false); setEditId(null); setForm(blank); await load();
+      setShowForm(false); setEditId(null); setForm(newTournamentForm()); await load();
       setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) { setErr(apiError(e)); }
     finally { setBusy(false); }
@@ -351,7 +364,7 @@ export default function AdminTournaments() {
             setResultBusy(false);
             setShowForm(!showForm);
             setEditId(null);
-            setForm(blank);
+            setForm(newTournamentForm());
           }} />
         )}
       </View>
@@ -475,7 +488,7 @@ export default function AdminTournaments() {
                       kind="ghost"
                       testID={`edit-tournament-${t.id}`}
                       onPress={() => {
-                        setForm({ ...blank, ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) });
+                        setForm({ ...newTournamentForm(), ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) });
                         setEditId(t.id);
                         setRoomBusy(false);
                         setResultBusy(false);
