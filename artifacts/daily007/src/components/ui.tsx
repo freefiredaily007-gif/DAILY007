@@ -252,9 +252,9 @@ export function Coin({ value, size = 14 }: { value: number; size?: number }) {
 
 // ---------- esports match card ----------
 const tournamentFormatArt = {
-  solo: require('../assets/media/tournament-solo.jpg'),
-  duo: require('../assets/media/tournament-duo.jpg'),
-  squad: require('../assets/media/tournament-squad.jpg'),
+  solo: require('../assets/media/tournament-solo-showdown.jpg'),
+  duo: require('../assets/media/tournament-duo-showdown.jpg'),
+  squad: require('../assets/media/tournament-squad-showdown.jpg'),
 };
 
 export function fmtTime12(t?: string) {
@@ -302,6 +302,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
   const customImageUrl = /^https:\/\/\S+$/i.test(requestedImageUrl) ? requestedImageUrl : '';
   const teamType = String(t?.teamType || '').trim().toLowerCase();
   const format = teamType === 'duo' || teamType === 'squad' ? teamType : 'solo';
+  const playerMatchup = format === 'solo' ? '1 VS 1' : format === 'duo' ? '2 VS 2' : '4 VS 4';
   const modeKey = String(t?.gameMode || t?.mode || '')
     .trim()
     .toLowerCase()
@@ -332,7 +333,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
             onError={() => {
               if (customImageUrl && failedImageUrl !== customImageUrl) setFailedImageUrl(customImageUrl);
             }}
-            resizeMode="cover"
+            resizeMode="contain"
             style={mc.artImage}
           />
           <View pointerEvents="none" style={mc.artShade} />
@@ -340,6 +341,9 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
             <View style={mc.formatPill}>
               <Feather name="users" size={11} color={C.text} />
               <Text style={mc.formatText}>{format.toUpperCase()}</Text>
+              <View style={mc.matchupBadge}>
+                <Text style={mc.matchupText}>{playerMatchup}</Text>
+              </View>
             </View>
             <Badge text={s.label} color={s.color} />
           </View>
@@ -391,12 +395,14 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
 
 const mc = StyleSheet.create({
   cardWithArt: { padding: 0, paddingVertical: 0, overflow: 'hidden', marginBottom: 12, borderRadius: 16 },
-  artwork: { height: 142, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden' },
-  artImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined },
+  artwork: { width: '100%', aspectRatio: 16 / 9, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
+  artImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: C.bg2 },
   artShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,8,16,0.42)', borderBottomWidth: 1, borderBottomColor: '#ffffff12' },
   artTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  formatPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(7,10,18,0.76)', borderColor: '#ffffff35', borderWidth: 1, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
-  formatText: { color: C.text, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  formatPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(7,10,18,0.82)', borderColor: '#ffffff55', borderWidth: 1, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
+  formatText: { color: C.text, fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
+  matchupBadge: { backgroundColor: C.gold, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
+  matchupText: { color: C.bg, fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
   artTitle: { maxWidth: '92%' },
   artMode: { color: '#ffc06b', fontSize: 9, fontWeight: '900', letterSpacing: 1.7, marginBottom: 3 },
   artName: { color: C.text, fontSize: 17, fontWeight: '900', textShadowColor: '#000000aa', textShadowRadius: 6, textShadowOffset: { width: 0, height: 1 } },
