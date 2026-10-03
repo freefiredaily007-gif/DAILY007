@@ -21,6 +21,12 @@ export type LeaderboardPayout = {
   coins: number;
 };
 
+export type LeaderboardRewardRecipient = {
+  rank: number;
+  userId: string;
+  coins: number;
+};
+
 export type LeaderboardWindow = {
   startsAt: Date;
   endsAt: Date;
@@ -90,6 +96,29 @@ export function rankLeaderboardStandings(
       a.userId.localeCompare(b.userId),
     )
     .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+export function leaderboardRewardRecipients(
+  standings: LeaderboardStanding[],
+  rewards: LeaderboardPayout[],
+): LeaderboardRewardRecipient[] {
+  return rewards
+    .filter((reward) => reward.rank >= 1 && reward.rank <= 3 && reward.coins > 0)
+    .sort((a, b) => a.rank - b.rank)
+    .flatMap((reward) => {
+      const standing = standings.find((item) => item.rank === reward.rank);
+      return standing
+        ? [{ rank: reward.rank, userId: standing.userId, coins: reward.coins }]
+        : [];
+    });
+}
+
+export function leaderboardRewardDescription(
+  cycleType: LeaderboardCycleType,
+  rank: number,
+): string {
+  const cycle = cycleType === "weekly" ? "Weekly" : "Monthly";
+  return `${cycle} Leaderboard Rank #${rank} Reward`;
 }
 
 export function parseSafeInteger(value: number | string, label: string): number {

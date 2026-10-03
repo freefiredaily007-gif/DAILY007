@@ -118,6 +118,11 @@ export const daily007ListLeaderboardsResponseWeeklyStandingsItemKillsMin = 0;
 
 export const daily007ListLeaderboardsResponseWeeklyStandingsItemMatchesMin = 0;
 
+export const daily007ListLeaderboardsResponseWeeklyRewardsItemRankMax = 3;
+
+export const daily007ListLeaderboardsResponseWeeklyRewardsItemCoinsMin = 0;
+export const daily007ListLeaderboardsResponseWeeklyRewardsItemCoinsMax = 2147483647;
+
 
 export const daily007ListLeaderboardsResponseMonthlyStandingsItemPointsMin = 0;
 
@@ -128,6 +133,11 @@ export const daily007ListLeaderboardsResponseMonthlyStandingsItemWinsMin = 0;
 export const daily007ListLeaderboardsResponseMonthlyStandingsItemKillsMin = 0;
 
 export const daily007ListLeaderboardsResponseMonthlyStandingsItemMatchesMin = 0;
+
+export const daily007ListLeaderboardsResponseMonthlyRewardsItemRankMax = 3;
+
+export const daily007ListLeaderboardsResponseMonthlyRewardsItemCoinsMin = 0;
+export const daily007ListLeaderboardsResponseMonthlyRewardsItemCoinsMax = 2147483647;
 
 
 
@@ -147,6 +157,10 @@ export const Daily007ListLeaderboardsResponse = zod.object({
   "wins": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemWinsMin),
   "kills": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemKillsMin),
   "matches": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyStandingsItemMatchesMin)
+})),
+  "rewards": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(daily007ListLeaderboardsResponseWeeklyRewardsItemRankMax),
+  "coins": zod.number().int().min(daily007ListLeaderboardsResponseWeeklyRewardsItemCoinsMin).max(daily007ListLeaderboardsResponseWeeklyRewardsItemCoinsMax)
 }))
 }),
   "monthly": zod.object({
@@ -164,87 +178,132 @@ export const Daily007ListLeaderboardsResponse = zod.object({
   "wins": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemWinsMin),
   "kills": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemKillsMin),
   "matches": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyStandingsItemMatchesMin)
-}))
-})
-})
-
-
-/**
- * @summary List ended leaderboard periods awaiting Full Admin approval
- */
-
-export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemPointsMin = 0;
-
-export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemEarningsMin = 0;
-
-export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemWinsMin = 0;
-
-export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemKillsMin = 0;
-
-export const daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemMatchesMin = 0;
-
-
-
-export const Daily007AdminListLeaderboardPeriodsResponse = zod.object({
-  "periods": zod.array(zod.object({
-  "id": zod.string().uuid(),
-  "cycleType": zod.enum(['weekly', 'monthly']),
-  "status": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']),
-  "startsAt": zod.coerce.date(),
-  "endsAt": zod.coerce.date(),
-  "standings": zod.array(zod.object({
-  "rank": zod.number().int().min(1),
-  "userId": zod.string().uuid(),
-  "name": zod.string(),
-  "points": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemPointsMin).describe('Total match prize coins earned during this period'),
-  "earnings": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemEarningsMin),
-  "wins": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemWinsMin),
-  "kills": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemKillsMin),
-  "matches": zod.number().int().min(daily007AdminListLeaderboardPeriodsResponsePeriodsItemStandingsItemMatchesMin)
-}))
-}))
-})
-
-
-/**
- * Full Admin only. Coin payouts and period transitions are committed in one transaction and cannot be repeated.
- * @summary Finalize standings, pay selected ranks, and activate the next cycle
- */
-export const Daily007AdminApproveLeaderboardPeriodParams = zod.object({
-  "id": zod.coerce.string().uuid()
-})
-
-export const daily007AdminApproveLeaderboardPeriodBodyPayoutsItemRankMax = 100;
-
-export const daily007AdminApproveLeaderboardPeriodBodyPayoutsItemCoinsMax = 2147483647;
-
-export const daily007AdminApproveLeaderboardPeriodBodyPayoutsMax = 10;
-
-
-
-export const Daily007AdminApproveLeaderboardPeriodBody = zod.object({
-  "payouts": zod.array(zod.object({
-  "rank": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodBodyPayoutsItemRankMax),
-  "coins": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodBodyPayoutsItemCoinsMax)
-})).max(daily007AdminApproveLeaderboardPeriodBodyPayoutsMax)
-})
-
-
-
-export const daily007AdminApproveLeaderboardPeriodResponsePayoutsItemWalletCoinsMin = 0;
-
-
-
-export const Daily007AdminApproveLeaderboardPeriodResponse = zod.object({
-  "periodId": zod.string().uuid(),
-  "status": zod.enum(['finalized']),
-  "payouts": zod.array(zod.object({
-  "rank": zod.number().int().min(1),
-  "userId": zod.string().uuid(),
-  "coins": zod.number().int().min(1),
-  "walletCoins": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponsePayoutsItemWalletCoinsMin)
 })),
-  "nextPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation'])
+  "rewards": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(daily007ListLeaderboardsResponseMonthlyRewardsItemRankMax),
+  "coins": zod.number().int().min(daily007ListLeaderboardsResponseMonthlyRewardsItemCoinsMin).max(daily007ListLeaderboardsResponseMonthlyRewardsItemCoinsMax)
+}))
+})
+})
+
+
+/**
+ * @summary Get Full Admin weekly and monthly top-three reward amounts
+ */
+export const daily007AdminGetLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMin = 0;
+export const daily007AdminGetLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminGetLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMin = 0;
+export const daily007AdminGetLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminGetLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMin = 0;
+export const daily007AdminGetLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMax = 2147483647;
+
+export const daily007AdminGetLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMin = 0;
+export const daily007AdminGetLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminGetLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMin = 0;
+export const daily007AdminGetLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminGetLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMin = 0;
+export const daily007AdminGetLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMax = 2147483647;
+
+
+
+export const Daily007AdminGetLeaderboardRewardsResponse = zod.object({
+  "weekly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMax)
+}).and(zod.object({
+  "currentPeriodStartsAt": zod.coerce.date().nullable(),
+  "currentPeriodEndsAt": zod.coerce.date().nullable()
+})),
+  "monthly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMax)
+}).and(zod.object({
+  "currentPeriodStartsAt": zod.coerce.date().nullable(),
+  "currentPeriodEndsAt": zod.coerce.date().nullable()
+}))
+})
+
+
+/**
+ * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. Closed cycles settle automatically.
+ * @summary Set top-three weekly and monthly reward amounts
+ */
+export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsBodyWeeklySecondPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsBodyWeeklySecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyThirdPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyThirdPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsBodyMonthlyFirstPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsBodyMonthlyFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsBodyMonthlySecondPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsBodyMonthlySecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsBodyMonthlyThirdPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsBodyMonthlyThirdPlaceCoinsMax = 2147483647;
+
+
+
+export const Daily007AdminUpdateLeaderboardRewardsBody = zod.object({
+  "weekly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyWeeklySecondPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyWeeklySecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyWeeklyThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyWeeklyThirdPlaceCoinsMax)
+}),
+  "monthly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyMonthlyFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyMonthlyFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyMonthlySecondPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyMonthlySecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyMonthlyThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyMonthlyThirdPlaceCoinsMax)
+})
+})
+
+export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMin = 0;
+export const daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMax = 2147483647;
+
+
+
+export const Daily007AdminUpdateLeaderboardRewardsResponse = zod.object({
+  "weekly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMax)
+}).and(zod.object({
+  "currentPeriodStartsAt": zod.coerce.date().nullable(),
+  "currentPeriodEndsAt": zod.coerce.date().nullable()
+})),
+  "monthly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMax)
+}).and(zod.object({
+  "currentPeriodStartsAt": zod.coerce.date().nullable(),
+  "currentPeriodEndsAt": zod.coerce.date().nullable()
+}))
 })
 
 

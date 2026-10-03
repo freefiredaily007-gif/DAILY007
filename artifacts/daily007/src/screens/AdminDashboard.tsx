@@ -5,13 +5,9 @@ import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import { Api, apiError } from '../lib/api';
 import { A, GlassCard, Loading, SectionTitle, StatCard, Empty, useAdminToast } from '../components/adminKit';
-import { useDaily007AdminListLeaderboardPeriods } from '@workspace/api-client-react';
-import { useRef } from 'react';
 
 export default function AdminDashboard({ go }: { go: (s: string) => void }) {
   const toast = useAdminToast();
-  const leaderboardQueue = useDaily007AdminListLeaderboardPeriods();
-  const leaderboardRefetch = useRef(leaderboardQueue.refetch);
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -25,11 +21,6 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { leaderboardRefetch.current = leaderboardQueue.refetch; }, [leaderboardQueue.refetch]);
-  useEffect(() => {
-    const timer = setInterval(() => void leaderboardRefetch.current(), 60_000);
-    return () => clearInterval(timer);
-  }, []);
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
@@ -39,7 +30,6 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
   const s = data.stats || {};
   const pendingRegs = s.pendingRegistrations ?? 0;
   const pendingPays = s.pendingPayments ?? 0;
-  const pendingLeaderboards = leaderboardQueue.data?.periods?.length ?? 0;
   const roomsNeeded = s.tournamentsNeedingRoom ?? 0;
   const activity: any[] = data.activity || [];
 
@@ -55,7 +45,7 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
         <View style={st.heroIcon}><Feather name="crosshair" size={22} color={A.orange} /></View>
       </GlassCard>
       {/* PENDING ACTIONS */}
-      {(pendingRegs > 0 || pendingPays > 0 || roomsNeeded > 0 || pendingLeaderboards > 0) && (
+      {(pendingRegs > 0 || pendingPays > 0 || roomsNeeded > 0) && (
         <View style={{ marginBottom: 16 }}>
           <SectionTitle icon="alert-circle">PENDING ACTIONS</SectionTitle>
           {pendingRegs > 0 && (
@@ -69,15 +59,6 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
             <GlassCard style={st.alert} onPress={() => go('payments')}>
               <View style={[st.alertIcon, { backgroundColor: 'rgba(255,75,54,0.1)' }]}><Feather name="credit-card" size={15} color={A.red} /></View>
               <Text style={st.alertTxt}>{pendingPays} payment{pendingPays > 1 ? 's' : ''} waiting for approval</Text>
-              <Feather name="chevron-right" size={16} color={A.orange} />
-            </GlassCard>
-          )}
-          {pendingLeaderboards > 0 && (
-            <GlassCard style={st.alert} onPress={() => go('leaderboards')}>
-              <View style={[st.alertIcon, { backgroundColor: 'rgba(255,176,32,0.12)' }]}><Feather name="award" size={15} color={A.gold} /></View>
-              <Text style={st.alertTxt}>
-                Approve next weekly/monthly cycle · {pendingLeaderboards} awaiting
-              </Text>
               <Feather name="chevron-right" size={16} color={A.orange} />
             </GlassCard>
           )}
@@ -118,6 +99,7 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
             { icon: 'credit-card', label: 'Approve Payments', go: 'payments' },
             { icon: 'key', label: 'Manage Tournament Rooms', go: 'tournaments' },
             { icon: 'award', label: 'Enter Tournament Results', go: 'tournaments' },
+            { icon: 'award', label: 'Set Leaderboard Rewards', go: 'leaderboards' },
             { icon: 'gift', label: 'Distribute Prize', go: 'results' },
             { icon: 'users', label: 'Manage Users', go: 'users' },
             { icon: 'bell', label: 'Send Notification', go: 'notifications' },

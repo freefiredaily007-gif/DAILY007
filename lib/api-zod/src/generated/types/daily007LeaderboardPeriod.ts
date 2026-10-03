@@ -22,6 +22,7 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007LeaderboardPayout } from './daily007LeaderboardPayout';
 import type { Daily007LeaderboardPeriodCycleType } from './daily007LeaderboardPeriodCycleType';
 import type { Daily007LeaderboardPeriodStatus } from './daily007LeaderboardPeriodStatus';
 import type { Daily007LeaderboardStanding } from './daily007LeaderboardStanding';
@@ -33,4 +34,5 @@ export interface Daily007LeaderboardPeriod {
   startsAt: Date;
   endsAt: Date;
   standings: Daily007LeaderboardStanding[];
+  rewards: Daily007LeaderboardPayout[];
 }

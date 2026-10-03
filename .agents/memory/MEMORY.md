@@ -19,4 +19,4 @@
 - [Daily007 automatic tournament cancellation](daily007-auto-cancellation.md) — only underfilled Clash Squad/Lone Wolf matches cancel at start, refunding each original payer once.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.
 - [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — keep payout UPI IDs visible and easy for admins to copy from withdrawal requests.
-- [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — attribute match awards to their scheduled IST cycle; Full Admin approval freezes standings and gates cycle activation.
+- [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — attribute awards by scheduled IST match time; configure top-three prizes before end and settle them automatically.

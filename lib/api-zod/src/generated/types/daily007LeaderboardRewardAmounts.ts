@@ -23,11 +23,20 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus = typeof Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus[keyof typeof Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus];
-
-
-export const Daily007ApproveLeaderboardPeriodResponseNextPeriodStatus = {
-  active: 'active',
-  pending_approval: 'pending_approval',
-  pending_activation: 'pending_activation',
-} as const;
+export interface Daily007LeaderboardRewardAmounts {
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  firstPlaceCoins: number;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  secondPlaceCoins: number;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  thirdPlaceCoins: number;
+}

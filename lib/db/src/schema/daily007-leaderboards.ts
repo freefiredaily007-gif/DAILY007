@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  integer,
   index,
   jsonb,
   pgTable,
@@ -45,6 +46,7 @@ export const daily007LeaderboardPeriodsTable = pgTable(
     previousPeriodId: uuid("previous_period_id"),
     approvedBy: uuid("approved_by").references(() => daily007UsersTable.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
     finalStandings: jsonb("final_standings")
       .$type<Daily007LeaderboardStanding[]>()
       .notNull()
@@ -82,6 +84,36 @@ export const daily007LeaderboardPeriodsTable = pgTable(
       table.cycleType,
       table.status,
       table.startsAt,
+    ),
+  ],
+);
+
+export const daily007LeaderboardRewardSettingsTable = pgTable(
+  "daily007_v2_leaderboard_reward_settings",
+  {
+    cycleType: text("cycle_type")
+      .$type<Daily007LeaderboardCycleType>()
+      .primaryKey(),
+    firstPlaceCoins: integer("first_place_coins").notNull().default(0),
+    secondPlaceCoins: integer("second_place_coins").notNull().default(0),
+    thirdPlaceCoins: integer("third_place_coins").notNull().default(0),
+    updatedBy: uuid("updated_by").references(() => daily007UsersTable.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "daily007_v2_leaderboard_rewards_cycle_valid",
+      sql`${table.cycleType} IN ('weekly', 'monthly')`,
+    ),
+    check(
+      "daily007_v2_leaderboard_rewards_coins_valid",
+      sql`
+        ${table.firstPlaceCoins} BETWEEN 0 AND 2147483647 AND
+        ${table.secondPlaceCoins} BETWEEN 0 AND 2147483647 AND
+        ${table.thirdPlaceCoins} BETWEEN 0 AND 2147483647
+      `,
     ),
   ],
 );

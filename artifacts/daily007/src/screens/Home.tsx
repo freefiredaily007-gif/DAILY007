@@ -252,8 +252,6 @@ export default function Home() {
         </>
       )}
 
-      <HomeLeaderboards userId={String(user?.id ?? '')} refreshKey={leaderboardRefreshKey} />
-
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
@@ -286,6 +284,8 @@ export default function Home() {
           </View>
         </GCard>
       ))}
+
+      <HomeLeaderboards refreshKey={leaderboardRefreshKey} />
 
       {/* ===== SOCIAL ===== */}
       <SectionTitle accent={C.blue}>JOIN THE COMMUNITY</SectionTitle>

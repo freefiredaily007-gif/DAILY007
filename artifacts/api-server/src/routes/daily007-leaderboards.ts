@@ -1,14 +1,14 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { authenticate, requireAdmin } from "./daily007-v2";
 import {
-  approveDaily007LeaderboardPeriod,
-  getDaily007LeaderboardApprovalQueue,
+  getDaily007LeaderboardRewardSettings,
   getDaily007Leaderboards,
+  updateDaily007LeaderboardRewardSettings,
 } from "../lib/daily007-leaderboards";
 
 const router: IRouter = Router();
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_INT = 2_147_483_647;
+const REWARD_KEYS = ["firstPlaceCoins", "secondPlaceCoins", "thirdPlaceCoins"] as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -25,7 +25,7 @@ function respondFailure(res: Response, cause: unknown): void {
     return;
   }
   if ((cause as { code?: string })?.code === "23505") {
-    error(res, 409, "This leaderboard payout was already recorded.");
+    error(res, 409, "This leaderboard reward update conflicts with existing data.");
     return;
   }
   throw cause;
@@ -36,57 +36,66 @@ router.get("/daily007/v2/leaderboards", async (_req, res): Promise<void> => {
 });
 
 router.get(
-  "/daily007/v2/admin/leaderboards/periods",
+  "/daily007/v2/admin/leaderboards/rewards",
   authenticate,
   async (req, res): Promise<void> => {
     if (!requireAdmin(req, res)) return;
-    res.json(await getDaily007LeaderboardApprovalQueue());
+    try {
+      res.json(await getDaily007LeaderboardRewardSettings());
+    } catch (cause) {
+      respondFailure(res, cause);
+    }
   },
 );
 
-router.post(
-  "/daily007/v2/admin/leaderboards/periods/:id/approve",
+router.put(
+  "/daily007/v2/admin/leaderboards/rewards",
   authenticate,
   async (req, res): Promise<void> => {
     if (!requireAdmin(req, res)) return;
-    const periodParam = req.params.id;
-    const periodId = Array.isArray(periodParam) ? periodParam[0] : periodParam;
     const adminId = req.daily007Account?.id;
-    if (typeof periodId !== "string" || !UUID.test(periodId) || !adminId) {
-      error(res, 400, "A valid leaderboard period and Full Admin account are required.");
+    if (!adminId) {
+      error(res, 400, "A Full Admin account is required.");
       return;
     }
 
     const body = req.body as unknown;
-    if (!isObject(body) || !Array.isArray(body.payouts) || body.payouts.length > 10) {
-      error(res, 400, "Provide up to 10 leaderboard rank and coin payout entries.");
+    if (!isObject(body) || !isObject(body.weekly) || !isObject(body.monthly)) {
+      error(res, 400, "Provide weekly and monthly reward amounts.");
       return;
     }
 
-    const ranks = new Set<number>();
-    const payouts: { rank: number; coins: number }[] = [];
-    for (const entry of body.payouts) {
-      if (
-        !isObject(entry) ||
-        typeof entry.rank !== "number" ||
-        !Number.isSafeInteger(entry.rank) ||
-        entry.rank < 1 ||
-        entry.rank > 100 ||
-        typeof entry.coins !== "number" ||
-        !Number.isSafeInteger(entry.coins) ||
-        entry.coins < 1 ||
-        entry.coins > MAX_INT ||
-        ranks.has(entry.rank)
-      ) {
-        error(res, 400, "Each payout needs a unique rank from 1 to 100 and a positive coin amount.");
-        return;
+    type RewardAmountsInput = {
+      firstPlaceCoins: number;
+      secondPlaceCoins: number;
+      thirdPlaceCoins: number;
+    };
+    const schedules: {
+      weekly: RewardAmountsInput;
+      monthly: RewardAmountsInput;
+    } = {
+      weekly: { firstPlaceCoins: 0, secondPlaceCoins: 0, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 0, secondPlaceCoins: 0, thirdPlaceCoins: 0 },
+    };
+    for (const cycleType of ["weekly", "monthly"] as const) {
+      const schedule = body[cycleType] as Record<string, unknown>;
+      for (const key of REWARD_KEYS) {
+        const value = schedule[key];
+        if (
+          typeof value !== "number" ||
+          !Number.isSafeInteger(value) ||
+          value < 0 ||
+          value > MAX_INT
+        ) {
+          error(res, 400, "Each reward must be a whole number of coins from 0 to 2147483647.");
+          return;
+        }
+        schedules[cycleType][key] = value;
       }
-      ranks.add(entry.rank);
-      payouts.push({ rank: entry.rank, coins: entry.coins });
     }
 
     try {
-      res.json(await approveDaily007LeaderboardPeriod(periodId, adminId, payouts));
+      res.json(await updateDaily007LeaderboardRewardSettings(adminId, schedules));
     } catch (cause) {
       respondFailure(res, cause);
     }

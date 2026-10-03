@@ -22,7 +22,7 @@ import logoImg from '../assets/logo.jpg';
 
 const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
-  { key: 'leaderboards', label: 'Leaders', icon: 'award' },
+  { key: 'leaderboards', label: 'Rewards', icon: 'award' },
   { key: 'tournaments', label: 'Tournaments', icon: 'award' },
   { key: 'registrations', label: 'Regs', icon: 'file-text' },
   { key: 'payments', label: 'Payments', icon: 'credit-card' },

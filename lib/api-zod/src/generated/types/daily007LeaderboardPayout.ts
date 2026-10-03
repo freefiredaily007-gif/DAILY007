@@ -26,11 +26,11 @@
 export interface Daily007LeaderboardPayout {
   /**
      * @minimum 1
-     * @maximum 100
+     * @maximum 3
      */
   rank: number;
   /**
-     * @minimum 1
+     * @minimum 0
      * @maximum 2147483647
      */
   coins: number;

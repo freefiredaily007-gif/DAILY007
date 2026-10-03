@@ -39,14 +39,13 @@ import type {
 import type {
   AdminResultLogsResponse,
   Daily007AdminGetRechargeProofUrl200,
-  Daily007AdminLeaderboardPeriodsResponse,
+  Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
+  Daily007AdminUpdateLeaderboardRewardsBody,
   Daily007AdminUserRoleBody,
   Daily007AdminVideoActiveBody,
   Daily007AdminVideoCreateBody,
   Daily007AdminYoutubeSubscribeClaims,
-  Daily007ApproveLeaderboardPeriodBody,
-  Daily007ApproveLeaderboardPeriodResponse,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
   Daily007LeaderboardsResponse,
@@ -737,20 +736,20 @@ export function useDaily007ListLeaderboards<TData = Awaited<ReturnType<typeof da
 
 
 
-export const getDaily007AdminListLeaderboardPeriodsUrl = () => {
+export const getDaily007AdminGetLeaderboardRewardsUrl = () => {
 
 
 
 
-  return `/api/daily007/v2/admin/leaderboards/periods`
+  return `/api/daily007/v2/admin/leaderboards/rewards`
 }
 
 /**
- * @summary List ended leaderboard periods awaiting Full Admin approval
+ * @summary Get Full Admin weekly and monthly top-three reward amounts
  */
-export const daily007AdminListLeaderboardPeriods = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardPeriodsResponse> => {
+export const daily007AdminGetLeaderboardRewards = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardRewardsResponse> => {
 
-  return customFetch<Daily007AdminLeaderboardPeriodsResponse>(getDaily007AdminListLeaderboardPeriodsUrl(),
+  return customFetch<Daily007AdminLeaderboardRewardsResponse>(getDaily007AdminGetLeaderboardRewardsUrl(),
   {
     ...options,
     method: 'GET'
@@ -763,45 +762,45 @@ export const daily007AdminListLeaderboardPeriods = async ( options?: Parameters<
 
 
 
-export const getDaily007AdminListLeaderboardPeriodsQueryKey = () => {
+export const getDaily007AdminGetLeaderboardRewardsQueryKey = () => {
     return [
-    `/api/daily007/v2/admin/leaderboards/periods`
+    `/api/daily007/v2/admin/leaderboards/rewards`
     ] as const;
     }
 
 
-export const getDaily007AdminListLeaderboardPeriodsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getDaily007AdminGetLeaderboardRewardsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListLeaderboardPeriodsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminGetLeaderboardRewardsQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>> = ({ signal }) => daily007AdminListLeaderboardPeriods({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>> = ({ signal }) => daily007AdminGetLeaderboardRewards({ signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type Daily007AdminListLeaderboardPeriodsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>>
-export type Daily007AdminListLeaderboardPeriodsQueryError = ErrorType<void>
+export type Daily007AdminGetLeaderboardRewardsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>>
+export type Daily007AdminGetLeaderboardRewardsQueryError = ErrorType<void>
 
 
 /**
- * @summary List ended leaderboard periods awaiting Full Admin approval
+ * @summary Get Full Admin weekly and monthly top-three reward amounts
  */
 
-export function useDaily007AdminListLeaderboardPeriods<TData = Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>, TError = ErrorType<void>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListLeaderboardPeriods>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useDaily007AdminGetLeaderboardRewards<TData = Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetLeaderboardRewards>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getDaily007AdminListLeaderboardPeriodsQueryOptions(options)
+  const queryOptions = getDaily007AdminGetLeaderboardRewardsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -814,20 +813,19 @@ export function useDaily007AdminListLeaderboardPeriods<TData = Awaited<ReturnTyp
 
 
 
-export const getDaily007AdminApproveLeaderboardPeriodUrl = (id: string,) => {
+export const getDaily007AdminUpdateLeaderboardRewardsUrl = () => {
 
 
 
 
-  return `/api/daily007/v2/admin/leaderboards/periods/${id}/approve`
+  return `/api/daily007/v2/admin/leaderboards/rewards`
 }
 
 /**
- * Full Admin only. Coin payouts and period transitions are committed in one transaction and cannot be repeated.
- * @summary Finalize standings, pay selected ranks, and activate the next cycle
+ * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. Closed cycles settle automatically.
+ * @summary Set top-three weekly and monthly reward amounts
  */
-export const daily007AdminApproveLeaderboardPeriod = async (id: string,
-    daily007ApproveLeaderboardPeriodBody: Daily007ApproveLeaderboardPeriodBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007ApproveLeaderboardPeriodResponse> => {
+export const daily007AdminUpdateLeaderboardRewards = async (daily007AdminUpdateLeaderboardRewardsBody: Daily007AdminUpdateLeaderboardRewardsBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardRewardsResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -843,12 +841,12 @@ export const daily007AdminApproveLeaderboardPeriod = async (id: string,
     }
     return headers;
   };
-return customFetch<Daily007ApproveLeaderboardPeriodResponse>(getDaily007AdminApproveLeaderboardPeriodUrl(id),
+return customFetch<Daily007AdminLeaderboardRewardsResponse>(getDaily007AdminUpdateLeaderboardRewardsUrl(),
   {
     ...options,
-    method: 'POST',
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(daily007ApproveLeaderboardPeriodBody)
+    body: JSON.stringify(daily007AdminUpdateLeaderboardRewardsBody)
   }
 );}
 
@@ -856,13 +854,13 @@ return customFetch<Daily007ApproveLeaderboardPeriodResponse>(getDaily007AdminApp
 
 
 
-export const getDaily007AdminApproveLeaderboardPeriodMutationKey = () => ['daily007AdminApproveLeaderboardPeriod'] as const;
+export const getDaily007AdminUpdateLeaderboardRewardsMutationKey = () => ['daily007AdminUpdateLeaderboardRewards'] as const;
 
-export const getDaily007AdminApproveLeaderboardPeriodMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, TError,Daily007AdminApproveLeaderboardPeriodMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, TError,Daily007AdminApproveLeaderboardPeriodMutationVariables, TContext> => {
+export const getDaily007AdminUpdateLeaderboardRewardsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>, TError,Daily007AdminUpdateLeaderboardRewardsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>, TError,Daily007AdminUpdateLeaderboardRewardsMutationVariables, TContext> => {
 
-const mutationKey = getDaily007AdminApproveLeaderboardPeriodMutationKey();
+const mutationKey = getDaily007AdminUpdateLeaderboardRewardsMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -872,10 +870,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, Daily007AdminApproveLeaderboardPeriodMutationVariables> = (props) => {
-          const {id,data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>, Daily007AdminUpdateLeaderboardRewardsMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-          return  daily007AdminApproveLeaderboardPeriod(id,data,requestOptions)
+          return  daily007AdminUpdateLeaderboardRewards(data,requestOptions)
         }
 
 
@@ -885,23 +883,23 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type Daily007AdminApproveLeaderboardPeriodMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>>
-    export type Daily007AdminApproveLeaderboardPeriodMutationBody = BodyType<Daily007ApproveLeaderboardPeriodBody>
-    export type Daily007AdminApproveLeaderboardPeriodMutationError = ErrorType<void>
-    export type Daily007AdminApproveLeaderboardPeriodMutationVariables = {id: string;data: BodyType<Daily007ApproveLeaderboardPeriodBody>}
+    export type Daily007AdminUpdateLeaderboardRewardsMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>>
+    export type Daily007AdminUpdateLeaderboardRewardsMutationBody = BodyType<Daily007AdminUpdateLeaderboardRewardsBody>
+    export type Daily007AdminUpdateLeaderboardRewardsMutationError = ErrorType<void>
+    export type Daily007AdminUpdateLeaderboardRewardsMutationVariables = {data: BodyType<Daily007AdminUpdateLeaderboardRewardsBody>}
 
     /**
- * @summary Finalize standings, pay selected ranks, and activate the next cycle
+ * @summary Set top-three weekly and monthly reward amounts
  */
-export const useDaily007AdminApproveLeaderboardPeriod = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, TError,Daily007AdminApproveLeaderboardPeriodMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useDaily007AdminUpdateLeaderboardRewards = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>, TError,Daily007AdminUpdateLeaderboardRewardsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>,
+        Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>,
         TError,
-        Daily007AdminApproveLeaderboardPeriodMutationVariables,
+        Daily007AdminUpdateLeaderboardRewardsMutationVariables,
         TContext
       > => {
-      return useMutation(getDaily007AdminApproveLeaderboardPeriodMutationOptions(options));
+      return useMutation(getDaily007AdminUpdateLeaderboardRewardsMutationOptions(options));
     }
 
 export const getDaily007V2CreateMatchUrl = () => {

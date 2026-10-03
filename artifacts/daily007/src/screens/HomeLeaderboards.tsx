@@ -24,6 +24,7 @@ type Period = {
   startsAt: string;
   endsAt: string;
   standings: Standing[];
+  rewards?: { rank: number; coins: number }[];
 };
 
 function formatDate(date: string): string {
@@ -41,16 +42,12 @@ function dateRange(period: Period): string {
 }
 
 function statusLabel(status: Period["status"]): string {
-  if (status === "active") return "LIVE";
-  if (status === "finalized") return "FINALIZED";
-  return "AWAITING FULL ADMIN APPROVAL";
+  return status === "finalized" ? "FINISHED" : "LIVE";
 }
 
 export default function HomeLeaderboards({
-  userId,
   refreshKey,
 }: {
-  userId: string;
   refreshKey: number;
 }) {
   const query = useDaily007ListLeaderboards();
@@ -79,9 +76,7 @@ export default function HomeLeaderboards({
     return () => clearInterval(timer);
   }, []);
 
-  const currentStanding = period?.standings.find((standing) => standing.userId === userId);
-  const topStandings = period?.standings.slice(0, 10) ?? [];
-  const currentIsInTop = !!currentStanding && currentStanding.rank <= 10;
+  const topStandings = period?.standings.slice(0, 3) ?? [];
 
   return (
     <View style={styles.section}>
@@ -90,7 +85,7 @@ export default function HomeLeaderboards({
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <Text style={styles.kicker}>MATCH PRIZE COINS EARNED</Text>
-            <Text style={styles.title}>TOP PLAYERS</Text>
+            <Text style={styles.title}>TOP 3 PLAYERS</Text>
           </View>
           <Pressable
             onPress={() => void query.refetch()}
@@ -143,9 +138,9 @@ export default function HomeLeaderboards({
               </Text>
             </View>
             <Text style={styles.range}>{dateRange(period)}</Text>
-            {period.status !== "active" && (
+            {period.status === "finalized" && (
               <Text style={styles.pendingHint}>
-                This cycle’s standings are waiting for Full Admin approval before the next cycle starts.
+                This cycle is complete. Its configured rewards were credited automatically.
               </Text>
             )}
 
@@ -158,15 +153,9 @@ export default function HomeLeaderboards({
                     key={standing.userId}
                     standing={standing}
                     color={color}
-                    isCurrent={standing.userId === userId}
+                    rewardCoins={period.rewards?.find((reward) => reward.rank === standing.rank)?.coins ?? 0}
                   />
                 ))}
-                {currentStanding && !currentIsInTop && (
-                  <>
-                    <Text style={styles.yourRankLabel}>YOUR CURRENT RANK</Text>
-                    <StandingRow standing={currentStanding} color={color} isCurrent />
-                  </>
-                )}
               </View>
             )}
           </>
@@ -179,24 +168,27 @@ export default function HomeLeaderboards({
 function StandingRow({
   standing,
   color,
-  isCurrent,
+  rewardCoins,
 }: {
   standing: Standing;
   color: string;
-  isCurrent: boolean;
+  rewardCoins: number;
 }) {
   return (
-    <View style={[styles.row, isCurrent && { borderColor: color + "88", backgroundColor: color + "0e" }]}>
+    <View style={styles.row}>
       <View style={[styles.rank, { borderColor: color + "66" }]}>
         <Text style={[styles.rankText, { color }]}>#{standing.rank}</Text>
       </View>
       <View style={styles.player}>
-        <Text numberOfLines={1} style={styles.playerName}>{standing.name}{isCurrent ? " · YOU" : ""}</Text>
+        <Text numberOfLines={1} style={styles.playerName}>{standing.name}</Text>
         <Text style={styles.playerStats}>{standing.wins} wins · {standing.matches} matches · {standing.kills} kills</Text>
       </View>
       <View style={styles.score}>
         <Text style={[styles.points, { color }]}>{standing.points.toLocaleString("en-IN")}</Text>
         <Text style={styles.scoreLabel}>COINS</Text>
+        <Text style={styles.prize}>
+          {rewardCoins > 0 ? `${rewardCoins.toLocaleString("en-IN")} PRIZE` : "NO PRIZE"}
+        </Text>
       </View>
     </View>
   );
@@ -227,5 +219,5 @@ const styles = StyleSheet.create({
   score: { minWidth: 60, alignItems: "flex-end" },
   points: { fontSize: 15, fontWeight: "900" },
   scoreLabel: { color: C.dim, fontSize: 8, fontWeight: "800", letterSpacing: 0.7, marginTop: 2 },
-  yourRankLabel: { color: C.sub, fontSize: 9, fontWeight: "800", letterSpacing: 0.8, marginTop: 5 },
+  prize: { color: C.gold, fontSize: 8, fontWeight: "900", letterSpacing: 0.5, marginTop: 4 },
 });

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  leaderboardRewardDescription,
+  leaderboardRewardRecipients,
   leaderboardPeriodWindow,
   nextLeaderboardPeriodWindow,
   rankLeaderboardStandings,
@@ -41,4 +43,27 @@ test("standings score by prize coins and break ties by wins, kills, then player 
     standings.map(({ rank, userId }) => [rank, userId]),
     [[1, "c"], [2, "a"], [3, "d"], [4, "b"]],
   );
+});
+
+test("automatic rewards credit only configured first, second, and third place", () => {
+  const standings = [
+    { rank: 1, userId: "a", name: "A", points: 90, earnings: 90, wins: 2, kills: 5, matches: 3 },
+    { rank: 2, userId: "b", name: "B", points: 70, earnings: 70, wins: 1, kills: 4, matches: 3 },
+    { rank: 3, userId: "c", name: "C", points: 50, earnings: 50, wins: 0, kills: 3, matches: 3 },
+  ];
+
+  assert.deepEqual(
+    leaderboardRewardRecipients(standings, [
+      { rank: 1, coins: 100 },
+      { rank: 2, coins: 50 },
+      { rank: 3, coins: 0 },
+      { rank: 4, coins: 500 },
+    ]),
+    [
+      { rank: 1, userId: "a", coins: 100 },
+      { rank: 2, userId: "b", coins: 50 },
+    ],
+  );
+  assert.equal(leaderboardRewardDescription("weekly", 1), "Weekly Leaderboard Rank #1 Reward");
+  assert.equal(leaderboardRewardDescription("monthly", 3), "Monthly Leaderboard Rank #3 Reward");
 });

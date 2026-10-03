@@ -22,9 +22,9 @@
  *
  * OpenAPI spec version: 0.1.0
  */
-import type { Daily007LeaderboardPayout } from './daily007LeaderboardPayout';
+import type { Daily007AdminLeaderboardRewardSchedule } from './daily007AdminLeaderboardRewardSchedule';
 
-export interface Daily007ApproveLeaderboardPeriodBody {
-  /** @maxItems 10 */
-  payouts: Daily007LeaderboardPayout[];
+export interface Daily007AdminLeaderboardRewardsResponse {
+  weekly: Daily007AdminLeaderboardRewardSchedule;
+  monthly: Daily007AdminLeaderboardRewardSchedule;
 }

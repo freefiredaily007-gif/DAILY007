@@ -22,13 +22,9 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007LeaderboardRewardAmounts } from './daily007LeaderboardRewardAmounts';
 
-export type Daily007ApproveLeaderboardPeriodResponsePayoutsItem = {
-  /** @minimum 1 */
-  rank: number;
-  userId: string;
-  /** @minimum 1 */
-  coins: number;
-  /** @minimum 0 */
-  walletCoins: number;
-};
+export interface Daily007AdminUpdateLeaderboardRewardsBody {
+  weekly: Daily007LeaderboardRewardAmounts;
+  monthly: Daily007LeaderboardRewardAmounts;
+}
