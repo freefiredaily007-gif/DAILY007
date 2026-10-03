@@ -7,6 +7,7 @@
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
 - [Daily007 referral links](daily007-referral-links.md) — use simple five-letter codes and keep clickable invites working with legacy codes.
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user targets Google Play; each client release needs a new native build and higher versionCode.
+- [Daily007 production tournament data](daily007-production-tournament-data.md) — replace only production matches with the current development set; do not overwrite unrelated production data.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
 - [Daily007 Expo port management](daily007-build-port.md) — use a free port for temporary Metro builds, but keep the managed Expo workflow on its injected port.
 - [Daily007 API workflow recovery](daily007-api-workflow-recovery.md) — after an API restart hits EADDRINUSE, stop the stale service and verify port 8080 is clear before retrying.
