@@ -215,7 +215,7 @@ const s = StyleSheet.create({
   h1: { color: C.text, fontSize: 22, fontWeight: '900', letterSpacing: 1, padding: 14, paddingBottom: 4 },
   tabs: { flexDirection: 'row', paddingHorizontal: 14, gap: 8, marginBottom: 6 },
   tab: { color: C.sub, fontWeight: '800', fontSize: 11, letterSpacing: 1, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: '#151a29' },
-  tabOn: { color: '#fff', backgroundColor: C.neon },
+  tabOn: { color: C.bg, backgroundColor: C.neon },
   err: { color: '#ef4444', textAlign: 'center', marginTop: 40, paddingHorizontal: 20 },
   mode: { color: C.orange, fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
   tName: { color: C.text, fontWeight: '900', fontSize: 16, marginTop: 2 },

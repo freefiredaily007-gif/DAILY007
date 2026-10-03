@@ -311,7 +311,7 @@ export default function Home() {
 const s = StyleSheet.create({
   gridBg: {
     position: 'absolute', top: 0, left: 0, right: 0, height: 420, opacity: 0.35,
-    borderTopWidth: 1, borderTopColor: '#ffffff06',
+    borderTopWidth: 1, borderTopColor: '#70b8ff06',
   },
   head: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 12,
@@ -328,7 +328,7 @@ const s = StyleSheet.create({
   logo: { color: C.text, fontWeight: '900', fontSize: 18, letterSpacing: 2, textShadowColor: C.neon + '88', textShadowRadius: 10 },
   logoSub: { color: C.gold, fontWeight: '900', fontSize: 9, letterSpacing: 3, marginTop: 1 },
   bellBtn: {
-    width: 38, height: 38, borderRadius: 12, backgroundColor: '#ffffff0a', borderWidth: 1,
+    width: 38, height: 38, borderRadius: 12, backgroundColor: '#70b8ff0a', borderWidth: 1,
     borderColor: C.border, alignItems: 'center', justifyContent: 'center',
   },
   myMatchesButton: {
@@ -357,7 +357,7 @@ const s = StyleSheet.create({
     marginTop: 12, alignSelf: 'flex-start', backgroundColor: C.neon, borderRadius: 10,
     paddingVertical: 10, paddingHorizontal: 20,
   },
-  heroBtnText: { color: '#fff', fontWeight: '900', letterSpacing: 1.5, fontSize: 13 },
+  heroBtnText: { color: C.bg, fontWeight: '900', letterSpacing: 1.5, fontSize: 13 },
   matchCard: { width: 340, marginRight: 12, padding: 0, overflow: 'hidden' },
   secRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 14, marginBottom: 8 },
   secTitle: { color: C.text, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
@@ -370,7 +370,7 @@ const s = StyleSheet.create({
   modeBadgeT: { fontSize: 8.5, fontWeight: '900', letterSpacing: 1 },
   mTitleOnImg: { position: 'absolute', bottom: 8, left: 10, right: 10, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
   joinBtn: { marginTop: 10, backgroundColor: C.neon, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
-  joinBtnT: { color: '#fff', fontWeight: '900', letterSpacing: 1.5, fontSize: 12.5 },
+  joinBtnT: { color: C.bg, fontWeight: '900', letterSpacing: 1.5, fontSize: 12.5 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 14, marginTop: 8 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2a3350' },
   mTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -403,7 +403,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 5, marginTop: 7, maxWidth: '100%',
   },
   modeCapacity: { fontSize: 8.5, fontWeight: '900', letterSpacing: 0.7 },
-  modeChip: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#ffffff08' },
+  modeChip: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#70b8ff08' },
   modeChipT: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   modeBtn: {
     marginTop: 9, minHeight: 36, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 9,
@@ -416,7 +416,7 @@ const s = StyleSheet.create({
     borderRadius: 16, borderWidth: 1.2, paddingVertical: 12, paddingHorizontal: 14,
   },
   socialIconWrap: {
-    width: 46, height: 46, borderRadius: 14, borderWidth: 1.2, backgroundColor: '#ffffff0a',
+    width: 46, height: 46, borderRadius: 14, borderWidth: 1.2, backgroundColor: '#70b8ff0a',
     alignItems: 'center', justifyContent: 'center',
   },
   socialLabel: { fontWeight: '900', fontSize: 13, letterSpacing: 1.5 },

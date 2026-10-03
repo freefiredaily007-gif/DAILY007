@@ -160,5 +160,5 @@ const st = StyleSheet.create({
   switchNote: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 3, marginBottom: 8 },
   fieldTitle: { color: C.text, fontWeight: '800', fontSize: 13, marginTop: 14, marginBottom: 4 },
   taskSettings: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: C.line },
-  qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#fff', borderRadius: 10, marginVertical: 8 },
+  qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#70B8FF', borderRadius: 10, marginVertical: 8 },
 });

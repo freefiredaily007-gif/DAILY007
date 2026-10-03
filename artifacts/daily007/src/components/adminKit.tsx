@@ -1,14 +1,14 @@
 // Premium admin theme kit — shared styles + primitives for the admin panel
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator, Modal, ScrollView, RefreshControl } from 'react-native';
-import { ReadableText as Text, ReadableTextInput as TextInput } from './typography';
+import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
 
 export const A = {
   bg: '#070a12',
   card: 'rgba(17,22,32,0.96)',
   cardSolid: '#121821',
-  border: 'rgba(255,255,255,0.09)',
+  border: 'rgba(77,163,255,0.09)',
   red: '#ff4b36',
   redSoft: 'rgba(255,75,54,0.15)',
   gold: '#ffb020',
@@ -52,9 +52,10 @@ export function GlassCard({ children, style, onPress }: { children: React.ReactN
 }
 
 export function StatCard({ icon, value, label, tint, onPress, trend }: { icon: keyof typeof Feather.glyphMap; value: string | number; label: string; tint: string; onPress?: () => void; trend?: string }) {
+  const displayTint = swapThemeColor(tint);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.stat, pressed && { transform: [{ scale: 0.97 }] }]}>
-      <View style={[s.statIcon, { backgroundColor: tint + '18', borderColor: tint + '55' }]}><Feather name={icon} size={15} color={tint} /></View>
+      <View style={[s.statIcon, { backgroundColor: displayTint + '18', borderColor: displayTint + '55' }]}><Feather name={icon} size={15} color={displayTint} /></View>
       <Text style={s.statVal}>{value}</Text>
       <Text style={s.statLabel} numberOfLines={1}>{label}</Text>
       {!!trend && <Text style={[s.statTrend, { color: tint }]}>{trend}</Text>}
@@ -72,7 +73,7 @@ export function ActionBtn({ title, onPress, kind = 'primary', loading, small, di
     gold: { backgroundColor: A.gold },
     green: { backgroundColor: 'rgba(34,197,94,0.16)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.5)' },
   };
-  const fg: Record<string, string> = { primary: '#fff', ghost: A.text, danger: '#fca5a5', gold: '#1a1200', green: '#86efac' };
+  const fg: Record<string, string> = { primary: A.bg, ghost: A.text, danger: '#fca5a5', gold: '#1a1200', green: '#86efac' };
   return (
     <Pressable testID={testID} onPress={onPress} disabled={disabled || loading} style={({ pressed }) => [s.btn, small && s.btnSmall, bg[kind], pressed && { opacity: 0.8 }, (disabled || loading) && { opacity: 0.5 }]}>
       {loading ? <ActivityIndicator size="small" color={fg[kind]} /> : <Text style={[s.btnTxt, small && { fontSize: 10.5 }, { color: fg[kind] }]}>{title}</Text>}
@@ -88,12 +89,12 @@ export function StatusTag({ status }: { status: string }) {
     completed: { c: A.green, bg: 'rgba(34,197,94,0.14)' },
     rejected: { c: A.danger, bg: 'rgba(239,68,68,0.14)' },
     failed: { c: A.danger, bg: 'rgba(239,68,68,0.14)' },
-    published: { c: A.cyan, bg: 'rgba(34,211,238,0.14)' },
-    upcoming: { c: A.cyan, bg: 'rgba(34,211,238,0.14)' },
+    published: { c: A.cyan, bg: 'rgba(245,247,255,0.14)' },
+    upcoming: { c: A.cyan, bg: 'rgba(245,247,255,0.14)' },
     live: { c: A.red, bg: A.redSoft },
   };
-  const m = map[(status || '').toLowerCase()] || { c: A.sub, bg: 'rgba(255,255,255,0.06)' };
-  return <View style={[s.tag, { backgroundColor: m.bg, borderColor: m.c + '55' }]}><Text style={[s.tagTxt, { color: m.c }]}>{(status || '—').toUpperCase()}</Text></View>;
+  const m = map[(status || '').toLowerCase()] || { c: A.sub, bg: 'rgba(77,163,255,0.06)' };
+  return <View style={[s.tag, { backgroundColor: m.bg, borderColor: swapThemeColor(m.c) + '55' }]}><Text style={[s.tagTxt, { color: m.c }]}>{(status || '—').toUpperCase()}</Text></View>;
 }
 
 export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, confirmTitle = 'CONFIRM', danger, cancelTestID, confirmTestID }: {
@@ -228,7 +229,7 @@ const s = StyleSheet.create({
   dialogTitle: { color: A.text, fontWeight: '900', fontSize: 15, marginBottom: 6, fontFamily: 'Inter_700Bold' },
   dialogMsg: { color: A.sub, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' },
   fieldLabel: { color: A.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: 6, fontFamily: 'Inter_600SemiBold' },
-  input: { backgroundColor: '#0e131b', borderWidth: 1, borderColor: 'rgba(255,255,255,0.11)', borderRadius: 10, color: A.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: 'Inter_400Regular' },
+  input: { backgroundColor: '#0e131b', borderWidth: 1, borderColor: 'rgba(77,163,255,0.11)', borderRadius: 10, color: A.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: 'Inter_400Regular' },
   sectionTitle: { color: A.text, fontSize: 12, fontWeight: '900', letterSpacing: 1.05, fontFamily: 'Inter_700Bold' },
   empty: { padding: 22, alignItems: 'center', borderWidth: 1, borderColor: A.border, borderRadius: 12, borderStyle: 'dashed', gap: 8 },
   emptyIcon: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,122,26,0.25)', backgroundColor: 'rgba(255,122,26,0.08)', alignItems: 'center', justifyContent: 'center' },

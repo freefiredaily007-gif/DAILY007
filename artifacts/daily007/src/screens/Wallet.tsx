@@ -400,7 +400,7 @@ const s = StyleSheet.create({
   rejectedTag: { backgroundColor: C.red + '22', borderColor: C.red },
   reviewText: { color: C.red, fontSize: 11, marginTop: 3, lineHeight: 15 },
   pendingNote: { color: C.gold, fontSize: 11, marginTop: 8, lineHeight: 15, textAlign: 'center' },
-  qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#fff', borderRadius: 10, marginBottom: 10 },
+  qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#70B8FF', borderRadius: 10, marginBottom: 10 },
   upiRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   proofPreview: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, marginTop: 8, backgroundColor: C.bg, borderRadius: 10 },
   proofImage: { width: 58, height: 58, borderRadius: 7 },

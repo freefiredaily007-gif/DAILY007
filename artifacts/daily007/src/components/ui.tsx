@@ -1,7 +1,7 @@
 // Shared UI kit — PREMIUM ESPORTS gaming theme (FREE FIRE DAILY007)
 import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing } from 'react-native';
-import { ReadableText as Text, ReadableTextInput as TextInput } from './typography';
+import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
 export { default as TimePicker } from './TimePicker';
 
@@ -62,7 +62,7 @@ export function Shimmer({ height = 90, style }: { height?: number; style?: any }
       <Animated.View
         style={{ position: 'absolute', top: 0, bottom: 0, width: 180, transform: [{ translateX: tx }] }}
       >
-        <View style={{ flex: 1, backgroundColor: '#ffffff10' }} />
+        <View style={{ flex: 1, backgroundColor: '#70b8ff10' }} />
       </Animated.View>
     </View>
   );
@@ -76,7 +76,7 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
 }) {
   const adminSurface = useAdminSurface();
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
-    primary: { bg: C.neon, fg: '#fff', glowColor: C.neon },
+    primary: { bg: C.neon, fg: C.bg, glowColor: C.neon },
     danger: { bg: '#5a1622', fg: '#ff9aa5', border: '#ff5c5c55' },
     purple: { bg: '#3a1f66', fg: '#d9b8ff', border: C.purple + '66', glowColor: C.purple },
     gold: { bg: '#4a3208', fg: C.gold, border: C.gold + '77', glowColor: C.gold },
@@ -100,7 +100,7 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
         style,
       ]}
     >
-      {loading ? <ActivityIndicator color="#fff" size="small" />
+      {loading ? <ActivityIndicator color={C.bg} size="small" />
         : <Text style={[st.btnText, adminSurface && adminSt.btnText, { color: k.fg }]}>{title}</Text>}
     </Pressable>
   );
@@ -201,7 +201,7 @@ export function Loading() {
 
 export function SectionTitle({ children, accent, icon }: { children: React.ReactNode; accent?: string; icon?: keyof typeof Feather.glyphMap }) {
   const adminSurface = useAdminSurface();
-  const markerColor = accent || (adminSurface ? C.orange : C.neon);
+  const markerColor = swapThemeColor(accent || (adminSurface ? C.orange : C.neon));
   return (
     <View style={[st.secRow, adminSurface && adminSt.secRow]}>
       <View style={[st.secBar, { backgroundColor: markerColor }, glow(markerColor, 6)]} />
@@ -214,7 +214,7 @@ export function SectionTitle({ children, accent, icon }: { children: React.React
 export function Chip({ label, color = C.gold, onPress }: { label: string; color?: string; onPress?: () => void }) {
   const adminSurface = useAdminSurface();
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={[st.chip, adminSurface && adminSt.chip, { borderColor: color, backgroundColor: adminSurface ? color + '12' : 'transparent' }]}>
+    <Pressable onPress={onPress} disabled={!onPress} style={[st.chip, adminSurface && adminSt.chip, { borderColor: swapThemeColor(color), backgroundColor: adminSurface ? swapThemeColor(color) + '12' : 'transparent' }]}>
       <Text style={[st.chipText, adminSurface && adminSt.chipText, { color }]}>{label}</Text>
     </Pressable>
   );
@@ -222,8 +222,9 @@ export function Chip({ label, color = C.gold, onPress }: { label: string; color?
 
 export function Badge({ text, color = C.gold }: { text: string; color?: string }) {
   const adminSurface = useAdminSurface();
+  const displayColor = swapThemeColor(color);
   return (
-    <View style={[st.chip, adminSurface && adminSt.chip, { borderColor: color, alignSelf: 'auto', backgroundColor: color + '18' }, glow(color, 4)]}>
+    <View style={[st.chip, adminSurface && adminSt.chip, { borderColor: displayColor, alignSelf: 'auto', backgroundColor: displayColor + '18' }, glow(displayColor, 4)]}>
       <Text style={[st.chipText, adminSurface && adminSt.chipText, { color }]}>{text}</Text>
     </View>
   );
@@ -394,8 +395,8 @@ const st = StyleSheet.create({
 const adminSt = StyleSheet.create({
   btn: { borderRadius: 10, paddingVertical: 12.5, minHeight: 43, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   btnText: { fontFamily: 'Inter_700Bold', fontSize: 12, letterSpacing: 0.9 },
-  card: { backgroundColor: '#11161f', borderRadius: 14, borderColor: 'rgba(255,255,255,0.09)', borderTopColor: 'rgba(255,176,32,0.24)', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
-  input: { backgroundColor: '#0e131b', borderColor: 'rgba(255,255,255,0.12)', borderRadius: 10, fontFamily: 'Inter_400Regular', fontSize: 13 },
+  card: { backgroundColor: '#11161f', borderRadius: 14, borderColor: 'rgba(77,163,255,0.09)', borderTopColor: 'rgba(255,176,32,0.24)', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  input: { backgroundColor: '#0e131b', borderColor: 'rgba(77,163,255,0.12)', borderRadius: 10, fontFamily: 'Inter_400Regular', fontSize: 13 },
   msg: { borderRadius: 10, padding: 11 },
   bodyText: { fontFamily: 'Inter_400Regular' },
   empty: { padding: 26 },

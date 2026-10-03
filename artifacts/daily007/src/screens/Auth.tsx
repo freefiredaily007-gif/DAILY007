@@ -138,7 +138,7 @@ const s = StyleSheet.create({
   tab: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: 'center' },
   tabOn: { backgroundColor: C.neon },
   tabText: { color: C.sub, fontWeight: '800', letterSpacing: 1 },
-  tabTextOn: { color: '#fff' },
+  tabTextOn: { color: C.bg },
   googleArea: { marginBottom: 2 },
   googleHint: { color: C.sub, textAlign: 'center', fontSize: 13, fontWeight: '600', marginBottom: 2 },
   or: { color: C.dim, textAlign: 'center', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 18, marginBottom: 14 },

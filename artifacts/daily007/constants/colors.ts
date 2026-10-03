@@ -15,24 +15,24 @@
 const colors = {
   light: {
     // Legacy aliases (kept for backward compatibility)
-    text: '#eef1f8',
+    text: '#70B8FF',
     tint: '#ff3d3d',
 
     // Core surfaces
     background: '#070a12',
-    foreground: '#eef1f8',
+    foreground: '#70B8FF',
 
     // Cards / elevated surfaces
     card: '#10162b',
-    cardForeground: '#eef1f8',
+    cardForeground: '#70B8FF',
 
     // Primary action color (buttons, links, active states)
     primary: '#ff3d3d',
-    primaryForeground: '#ffffff',
+    primaryForeground: '#070a12',
 
     // Secondary / less-emphasis interactive surfaces
     secondary: '#141b33',
-    secondaryForeground: '#eef1f8',
+    secondaryForeground: '#70B8FF',
 
     // Muted / subdued elements (dividers, timestamps, placeholders)
     muted: '#0b1020',
@@ -44,7 +44,7 @@ const colors = {
 
     // Destructive actions (delete, error states)
     destructive: '#ff5c5c',
-    destructiveForeground: '#ffffff',
+    destructiveForeground: '#070a12',
 
     // Borders and input outlines
     border: '#1e2745',

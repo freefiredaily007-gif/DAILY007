@@ -7,7 +7,7 @@ import { View, StyleSheet } from 'react-native';
 export function VideoIconActive({ color = '#FF0000' }: { color?: string }) {
   return (
     <View style={[styles.frame, { borderColor: color, backgroundColor: color, shadowColor: color, shadowOpacity: 0.55, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 4 }]}>
-      <View style={[styles.triangle, { borderLeftColor: '#ffffff' }]} />
+      <View style={[styles.triangle, { borderLeftColor: '#070A12' }]} />
     </View>
   );
 }

@@ -187,5 +187,5 @@ const st = StyleSheet.create({
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
   reason: { color: C.red, fontSize: 11, marginTop: 5, lineHeight: 15 },
-  proof: { width: '100%', height: 240, borderRadius: 10, backgroundColor: '#fff' },
+  proof: { width: '100%', height: 240, borderRadius: 10, backgroundColor: '#70B8FF' },
 });

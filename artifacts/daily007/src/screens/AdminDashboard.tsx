@@ -1,7 +1,7 @@
 // Admin dashboard — real stats, quick actions, pending actions, recent activity
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, View, StyleSheet, RefreshControl } from 'react-native';
-import { ReadableText as Text } from '../components/typography';
+import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import { Api, apiError } from '../lib/api';
 import { A, GlassCard, Loading, SectionTitle, StatCard, Empty, useAdminToast } from '../components/adminKit';
@@ -64,7 +64,7 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
           )}
           {roomsNeeded > 0 && (
             <GlassCard style={st.alert} onPress={() => go('tournaments')}>
-              <View style={[st.alertIcon, { backgroundColor: 'rgba(77,163,255,0.1)' }]}><Feather name="key" size={15} color={A.cyan} /></View>
+              <View style={[st.alertIcon, { backgroundColor: 'rgba(245,247,255,0.1)' }]}><Feather name="key" size={15} color={swapThemeColor(A.cyan)} /></View>
               <Text style={st.alertTxt}>{roomsNeeded} tournament{roomsNeeded > 1 ? 's' : ''} need room details</Text>
               <Feather name="chevron-right" size={16} color={A.orange} />
             </GlassCard>
@@ -116,7 +116,7 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
         <SectionTitle icon="activity">RECENT ACTIVITY</SectionTitle>
         {activity.length === 0 ? <Empty text="No activity yet" /> : activity.slice(0, 8).map((a, i) => (
           <GlassCard key={i} style={{ marginBottom: 8, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={st.activityIcon}><Feather name="activity" size={13} color={A.cyan} /></View>
+            <View style={st.activityIcon}><Feather name="activity" size={13} color={swapThemeColor(A.cyan)} /></View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: A.text, fontSize: 12, fontWeight: '700' }}>{a.text}</Text>
               <Text style={{ color: A.sub, fontSize: 10 }}>{a.time}</Text>
@@ -142,5 +142,5 @@ const st = StyleSheet.create({
   qa: { flexBasis: '47.5%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, backgroundColor: 'rgba(17,22,32,0.98)' },
   qaIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: 'rgba(255,122,26,0.09)', borderWidth: 1, borderColor: 'rgba(255,122,26,0.2)' },
   qaTxt: { color: A.text, fontWeight: '700', fontSize: 10, flex: 1, fontFamily: 'Inter_500Medium' },
-  activityIcon: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: 'rgba(77,163,255,0.1)' },
+  activityIcon: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: 'rgba(245,247,255,0.1)' },
 });

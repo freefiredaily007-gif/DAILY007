@@ -3,11 +3,11 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ReadableText as Text } from './typography';
 
-// WhatsApp: green rounded square + white phone glyph
+// WhatsApp: green rounded square + high-contrast navy phone glyph
 export function WhatsAppIcon({ size = 30 }: { size?: number }) {
   return (
     <View style={[ic.wrap, { width: size, height: size, borderRadius: size * 0.3, backgroundColor: '#25D366' }]}>
-      <Text style={{ fontSize: size * 0.55, color: '#fff', fontWeight: '900', marginTop: -size * 0.04 }}>✆</Text>
+      <Text style={{ fontSize: size * 0.55, color: '#070A12', fontWeight: '900', marginTop: -size * 0.04 }}>✆</Text>
       <View style={[ic.waTail, { bottom: -size * 0.06, left: size * 0.12, borderTopWidth: size * 0.16, borderRightWidth: size * 0.16, borderTopColor: '#25D366', borderRightColor: '#25D366' }]} />
     </View>
   );
@@ -24,7 +24,7 @@ export function InstagramIcon({ size = 30 }: { size?: number }) {
   );
 }
 
-// YouTube: red rounded rect + white play triangle
+// YouTube: red rounded rect + high-contrast navy play triangle
 export function YouTubeIcon({ size = 30 }: { size?: number }) {
   return (
     <View style={[ic.wrap, { width: size * 1.25, height: size * 0.9, borderRadius: size * 0.24, backgroundColor: '#FF0000' }]}>
@@ -37,7 +37,7 @@ const ic = StyleSheet.create({
   wrap: { alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
   waTail: { position: 'absolute', width: 0, height: 0, transform: [{ rotate: '180deg' }] },
   igGrad: { position: 'absolute', top: 0, right: 0, width: '100%', height: '100%', backgroundColor: 'transparent' },
-  igLens: { borderColor: '#fff', backgroundColor: 'transparent' },
-  igDot: { position: 'absolute', backgroundColor: '#fff' },
-  ytTri: { width: 0, height: 0, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#fff' },
+  igLens: { borderColor: '#070A12', backgroundColor: 'transparent' },
+  igDot: { position: 'absolute', backgroundColor: '#070A12' },
+  ytTri: { width: 0, height: 0, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#070A12' },
 });

@@ -170,7 +170,7 @@ const styles = {
   videoUrl: { color: A.sub, fontSize: 10, marginTop: 4 },
   status: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
   statusActive: { backgroundColor: 'rgba(46,204,113,0.12)', borderColor: 'rgba(46,204,113,0.45)' },
-  statusInactive: { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: A.border },
+  statusInactive: { backgroundColor: 'rgba(77,163,255,0.04)', borderColor: A.border },
   statusText: { fontSize: 9, fontWeight: '900' as const, letterSpacing: 0.7 },
   statusTextActive: { color: A.green },
   statusTextInactive: { color: A.sub },

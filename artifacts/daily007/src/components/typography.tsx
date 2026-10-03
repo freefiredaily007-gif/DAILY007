@@ -14,15 +14,26 @@ const InheritedTypography = createContext<{ fontSize: number | null; color: stri
 });
 
 const TEXT_COLOR = {
-  white: '#F5F7FF',
+  white: '#70B8FF',
   yellow: '#FFD54D',
-  blue: '#70B8FF',
+  blue: '#F5F7FF',
   deepBlue: '#173B6C',
 } as const;
 
-const SEMANTIC_STATUS_COLORS = new Set([
+const BLUE_THEME_COLORS = new Set(['#4da3ff', '#70b8ff', '#7aa2f7']);
+const WHITE_THEME_COLORS = new Set(['#fff', '#ffffff', '#eef1f8', '#f4f2ef', '#e6e9ef', '#f5f7ff']);
+
+export function swapThemeColor(color: string) {
+  const normalized = color.trim().toLowerCase();
+  if (BLUE_THEME_COLORS.has(normalized)) return TEXT_COLOR.blue;
+  if (WHITE_THEME_COLORS.has(normalized)) return TEXT_COLOR.white;
+  return color;
+}
+
+const PRESERVED_COLORS = new Set([
   '#ff5c5c', '#ff9aa5', '#fca5a5', '#ffb4b4',
   '#2ecc71', '#86efac', '#c9f7d4',
+  '#ff3d3d', '#ff4655', '#ff4b36', '#a05cff', '#d9b8ff',
 ]);
 
 const scaleSize = (value: number) => Math.round(value * TYPE_SCALE * 10) / 10;
@@ -78,11 +89,12 @@ function numericWeight(style: TextStyle) {
 
 function paletteTextColor(color: unknown, style: TextStyle, role: 'text' | 'body' | 'supporting' = 'text') {
   const profile = colorProfile(color);
-  if (profile && SEMANTIC_STATUS_COLORS.has(profile.hex)) return profile.hex;
+  if (profile && PRESERVED_COLORS.has(profile.hex)) return profile.hex;
 
   if (role === 'supporting') return TEXT_COLOR.blue;
   if (role === 'body') return TEXT_COLOR.white;
 
+  if (profile?.hex === '#070a12') return profile.hex;
   const isPureWhite = profile && profile.lightness > 0.98 && profile.saturation < 0.1;
   const isHeading = numericWeight(style) >= 700 && (
     (typeof style.fontSize === 'number' && style.fontSize >= 16) ||
@@ -93,7 +105,7 @@ function paletteTextColor(color: unknown, style: TextStyle, role: 'text' | 'body
   if (profile && profile.chroma > 0.2 && profile.hue >= 20 && profile.hue <= 70) {
     return TEXT_COLOR.yellow;
   }
-  if (profile && profile.chroma > 0.2 && profile.hue >= 185 && profile.hue <= 285) {
+  if (profile && profile.chroma > 0.2 && profile.hue >= 195 && profile.hue <= 235) {
     return TEXT_COLOR.blue;
   }
   if (isHeading) return TEXT_COLOR.yellow;

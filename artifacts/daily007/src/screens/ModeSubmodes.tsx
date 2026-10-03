@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, ScrollView, StyleSheet } from 'react-native';
-import { ReadableText as Text } from '../components/typography';
+import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, GCard, SectionTitle } from '../components/ui';
@@ -63,6 +63,7 @@ export default function ModeSubmodes() {
       <View style={styles.formats}>
         {FORMATS.map((format) => {
           const capacity = capacityFor(gameMode, format.type, format.size);
+          const displayAccent = swapThemeColor(format.accent);
           return (
             <GCard
               key={format.type}
@@ -74,10 +75,10 @@ export default function ModeSubmodes() {
                 teamType: format.type,
                 gameModeLabel: mode.title,
               })}
-              glowColor={format.accent}
+              glowColor={displayAccent}
               style={styles.formatCard}
             >
-              <View style={[styles.sizeBadge, { borderColor: `${format.accent}88`, backgroundColor: `${format.accent}16` }]}>
+              <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
                 <Text style={[styles.sizeText, { color: format.accent }]}>{format.size}P</Text>
               </View>
               <View style={styles.formatInfo}>
