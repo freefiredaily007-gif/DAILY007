@@ -1188,7 +1188,9 @@ export const GetTournamentResultsResponse = zod.object({
   "registrationId": zod.string().uuid(),
   "rank": zod.number().int(),
   "kills": zod.number().int(),
-  "prizeCoins": zod.number().int()
+  "prizeCoins": zod.number().int(),
+  "gameName": zod.string(),
+  "teamName": zod.string().nullable()
 }))
 })
 
@@ -1239,7 +1241,9 @@ export const GetAdminTournamentResultsResponse = zod.object({
   "registrationId": zod.string().uuid(),
   "rank": zod.number().int(),
   "kills": zod.number().int(),
-  "prizeCoins": zod.number().int()
+  "prizeCoins": zod.number().int(),
+  "gameName": zod.string(),
+  "teamName": zod.string().nullable()
 }))
 })
 

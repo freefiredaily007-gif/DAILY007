@@ -2,7 +2,9 @@ import React, { useCallback, useState } from 'react';
 import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
+  getGetTournamentResultsQueryKey,
   useGetTournamentParticipants,
+  useGetTournamentResults,
 } from '@workspace/api-client-react';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
@@ -17,6 +19,12 @@ export default function TDetail() {
   const id = route?.params?.id;
   const { user } = useApp();
   const tournamentId = String(id ?? '');
+  const [t, setT] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isCompleted = String(t?.status ?? '').toLowerCase() === 'completed';
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
       queryKey: getGetTournamentParticipantsQueryKey(tournamentId),
@@ -25,11 +33,14 @@ export default function TDetail() {
       retry: 1,
     },
   });
-  const [t, setT] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
+  const resultsQuery = useGetTournamentResults(tournamentId, {
+    query: {
+      queryKey: getGetTournamentResultsQueryKey(tournamentId),
+      enabled: Boolean(id) && isCompleted,
+      refetchOnMount: 'always',
+      retry: 1,
+    },
+  });
 
   const load = useCallback(async () => {
     if (!id) { setLoading(false); return; }
@@ -48,8 +59,12 @@ export default function TDetail() {
     setLoading(false);
   }, [id]);
   const refreshAll = useCallback(async () => {
-    await Promise.all([load(), participantsQuery.refetch()]);
-  }, [load, participantsQuery.refetch]);
+    await Promise.all([
+      load(),
+      participantsQuery.refetch(),
+      ...(isCompleted ? [resultsQuery.refetch()] : []),
+    ]);
+  }, [load, participantsQuery.refetch, resultsQuery.refetch, isCompleted]);
   useFocusEffect(useCallback(() => { void refreshAll(); }, [refreshAll]));
 
   if (loading) return <View style={s.root} />;
@@ -64,6 +79,10 @@ export default function TDetail() {
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const tournamentStatus = String(t.status || '').toLowerCase();
+  const winner = resultsQuery.data?.entries.find((entry) => Number(entry.rank) === 1);
+  const winnerGameName = winner?.gameName?.trim() ?? '';
+  const winnerTeamName = winner?.teamName?.trim() ?? '';
+  const winnerName = winnerTeamName || winnerGameName || 'Winner';
   const full = st.key === 'full' || tournamentStatus === 'setup_needed' || (totalSlots > 0 && filledSlots >= totalSlots);
   const coins = user?.coins ?? 0;
   const short = coins < (t.entryCoins ?? 0);
@@ -74,7 +93,11 @@ export default function TDetail() {
 
   return (
     <ScrollView style={s.root} contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
-      refreshControl={<RefreshControl refreshing={loading || participantsQuery.isFetching} onRefresh={refreshAll} tintColor={C.neon} />}>
+      refreshControl={<RefreshControl
+        refreshing={loading || participantsQuery.isFetching || (isCompleted && resultsQuery.isFetching)}
+        onRefresh={refreshAll}
+        tintColor={C.neon}
+      />}>
       {/* HERO */}
       <GCard glowColor={st.key === 'ongoing' ? C.neon : C.orange} style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
@@ -175,6 +198,44 @@ export default function TDetail() {
         })
       )}
 
+      {isCompleted && (
+        <>
+          <SectionTitle accent={C.gold}>WINNER &amp; PRIZE</SectionTitle>
+          {resultsQuery.isLoading && !resultsQuery.data ? (
+            <Card style={s.participantsLoading}>
+              <ActivityIndicator color={C.gold} />
+              <Text style={s.participantsHint}>Loading winner details…</Text>
+            </Card>
+          ) : resultsQuery.isError ? (
+            <Card>
+              <Text style={s.participantsHint}>Winner and prize details couldn’t be loaded. Pull down to retry.</Text>
+            </Card>
+          ) : winner ? (
+            <Card style={s.winnerCard}>
+              <View style={s.winnerBadge}>
+                <Text style={s.winnerBadgeText}>#1</Text>
+              </View>
+              <View style={s.winnerIdentity}>
+                <Text style={s.winnerLabel}>TOURNAMENT WINNER</Text>
+                <Text style={s.winnerName} numberOfLines={1}>{winnerName}</Text>
+                {!!winnerTeamName && !!winnerGameName && (
+                  <Text style={s.winnerSub} numberOfLines={1}>CAPTAIN · {winnerGameName}</Text>
+                )}
+              </View>
+              <View style={s.winnerPrize}>
+                <Text style={s.winnerPrizeAmount}>{winner.prizeCoins.toLocaleString()} coins</Text>
+                <Text style={s.winnerPrizeLabel}>PRIZE WON</Text>
+                <Text style={s.winnerPrizeValue}>{inr(winner.prizeCoins)}</Text>
+              </View>
+            </Card>
+          ) : (
+            <Card>
+              <Text style={s.participantsHint}>Winner and prize details are not available for this match.</Text>
+            </Card>
+          )}
+        </>
+      )}
+
       {t.roomId ? (
         <>
           <SectionTitle accent={C.green}>ROOM DETAILS</SectionTitle>
@@ -238,4 +299,18 @@ const s = StyleSheet.create({
   memberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
   memberDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.blue, marginRight: 8 },
   memberName: { color: C.sub, fontSize: 11, fontWeight: '800', flexShrink: 1 },
+  winnerCard: { flexDirection: 'row', alignItems: 'center', padding: 12 },
+  winnerBadge: {
+    width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+    marginRight: 10, backgroundColor: C.bg2, borderColor: C.gold, borderWidth: 1,
+  },
+  winnerBadgeText: { color: C.gold, fontSize: 14, fontWeight: '900' },
+  winnerIdentity: { flex: 1, minWidth: 0 },
+  winnerLabel: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  winnerName: { color: C.text, fontSize: 15, fontWeight: '900', marginTop: 4 },
+  winnerSub: { color: C.sub, fontSize: 10, fontWeight: '800', marginTop: 3 },
+  winnerPrize: { alignItems: 'flex-end', marginLeft: 8 },
+  winnerPrizeAmount: { color: C.green, fontSize: 13, fontWeight: '900' },
+  winnerPrizeLabel: { color: C.dim, fontSize: 8, fontWeight: '900', letterSpacing: 0.7, marginTop: 3 },
+  winnerPrizeValue: { color: C.text, fontSize: 10, fontWeight: '800', marginTop: 2 },
 });

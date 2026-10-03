@@ -344,6 +344,53 @@ router.get("/tournaments", async (req, res): Promise<void> => {
   res.json((await getMatches(undefined, enabledOnly)).map((row) => tournament(row)));
 });
 
+router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
+  const id = idFrom(req);
+  if (!id) return fail(res, 400, "Tournament id must be a UUID.");
+
+  const match = await pool.query<{ enabled: boolean }>(
+    "SELECT enabled FROM daily007_v2_matches WHERE id = $1",
+    [id],
+  );
+  if (!match.rows[0]) return fail(res, 404, "Tournament not found.");
+
+  const result = await pool.query<{
+    registration_id: string;
+    rank: number;
+    kills: number;
+    prize_coins: number;
+    game_name: string;
+    team_name: string | null;
+    created_at: Date | string;
+  }>(
+    `SELECT award.registration_id, award.rank, award.kills, award.prize_coins,
+            COALESCE(NULLIF(BTRIM(registration.captain_game_name), ''), 'Player') AS game_name,
+            NULLIF(BTRIM(registration.team_name), '') AS team_name,
+            award.created_at
+       FROM daily007_v2_result_awards award
+       JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
+      WHERE award.match_id = $1
+      ORDER BY award.rank, award.created_at, award.registration_id`,
+    [id],
+  );
+
+  const winner = result.rows.find((row) => Number(row.rank) === 1);
+  const finalized = match.rows[0].enabled === false && Boolean(winner);
+  res.json({
+    tournamentId: id,
+    status: finalized ? "finalized" : "draft",
+    finalizedAt: finalized && winner ? new Date(winner.created_at).toISOString() : null,
+    entries: finalized ? result.rows.map((row) => ({
+      registrationId: row.registration_id,
+      rank: row.rank,
+      kills: row.kills,
+      prizeCoins: row.prize_coins,
+      gameName: row.game_name,
+      teamName: row.team_name,
+    })) : [],
+  });
+});
+
 type PublicTournamentParticipant = {
   teamName: string | null;
   players: string[];

@@ -766,6 +766,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TournamentResultsView" }
+        "400": { description: Invalid tournament id }
         "404": { description: Tournament not found }
   /admin/tournaments/{id}/lifecycle:
     post:
@@ -886,7 +887,9 @@ components:
         rank: { type: integer }
         kills: { type: integer }
         prizeCoins: { type: integer }
-      required: [registrationId, rank, kills, prizeCoins]
+        gameName: { type: string }
+        teamName: { type: string, nullable: true }
+      required: [registrationId, rank, kills, prizeCoins, gameName, teamName]
     TournamentResultsView:
       type: object
       properties:

@@ -28,4 +28,6 @@ export interface TournamentResultEntry {
   rank: number;
   kills: number;
   prizeCoins: number;
+  gameName: string;
+  teamName: string | null;
 }

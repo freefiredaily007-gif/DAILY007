@@ -58,6 +58,8 @@ export interface TournamentResultEntry {
   rank: number;
   kills: number;
   prizeCoins: number;
+  gameName: string;
+  teamName: string | null;
 }
 
 export type TournamentResultsViewStatus = typeof TournamentResultsViewStatus[keyof typeof TournamentResultsViewStatus];
