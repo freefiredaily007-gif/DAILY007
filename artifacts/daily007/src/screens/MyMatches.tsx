@@ -6,7 +6,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
 import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
-import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 export default function MyMatches() {
   const navigation: any = useNavigation();
@@ -55,6 +55,12 @@ export default function MyMatches() {
     if (tab === 'ongoing') return state === 'ongoing';
     return state === 'completed' || String(r.tournament?.status ?? '').toLowerCase() === 'cancelled';
   });
+  const orderedMatches = tab === 'ongoing'
+    ? [...filtered].sort((a, b) => compareTournamentStartTime(
+      { startsAt: a.tournament?.startsAt ?? a.startsAt },
+      { startsAt: b.tournament?.startsAt ?? b.startsAt },
+    ))
+    : filtered;
 
   return (
     <View style={s.wrap}>
@@ -70,7 +76,7 @@ export default function MyMatches() {
         <Empty icon="📋" text={'No ' + tab + ' matches yet. Join a tournament to get started!'} actionLabel="CHECK MATCHES" onAction={() => {}} />
       ) : (
         <FlatList
-          data={filtered}
+          data={orderedMatches}
           keyExtractor={(r, i) => String(r.id ?? i)}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={C.neon} />}
           contentContainerStyle={{ padding: 14, gap: 12 }}
@@ -109,7 +115,7 @@ export default function MyMatches() {
                       color={cancelled ? C.red : matchFinished ? C.gold : lifecycle === 'ongoing' ? C.red : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
                     />
                 </View>
-                <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)} IST</Text>
+                <Text style={s.meta}>📅 {fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(t.time)} IST</Text></Text>
                 {cancelled ? <Text style={s.meta}>Any entry fee paid was refunded to the paying account.</Text> : null}
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
                 {canEditTeam ? (
@@ -220,6 +226,7 @@ const s = StyleSheet.create({
   mode: { color: C.orange, fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
   tName: { color: C.text, fontWeight: '900', fontSize: 16, marginTop: 2 },
   meta: { color: C.sub, fontSize: 12, marginTop: 4 },
+  timeMeta: { color: C.gold, fontSize: 15, fontWeight: '900' },
   room: { backgroundColor: '#0d1120', borderRadius: 10, padding: 10, marginTop: 10, borderWidth: 1, borderColor: C.border },
   roomLine: { color: C.sub, fontSize: 12, fontWeight: '700', marginTop: 2 },
   roomVal: { color: '#22c55e', fontWeight: '900' },

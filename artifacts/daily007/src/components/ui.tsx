@@ -253,12 +253,20 @@ export function Coin({ value, size = 14 }: { value: number; size?: number }) {
 // ---------- esports match card ----------
 export function fmtTime12(t?: string) {
   if (!t) return '';
-  const m = /^(\d{1,2}):(\d{2})/.exec(t);
-  if (!m) return t;
-  let h = parseInt(m[1], 10); const min = m[2];
-  const ap = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${min} ${ap}`;
+  const value = String(t).trim();
+  const twelveHour = /^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i.exec(value);
+  if (twelveHour) {
+    const hour = Number(twelveHour[1]);
+    if (hour < 1 || hour > 12) return value;
+    return `${hour}:${twelveHour[2]} ${twelveHour[3].toUpperCase()}`;
+  }
+
+  const twentyFourHour = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!twentyFourHour) return value;
+  let hour = Number(twentyFourHour[1]);
+  const meridiem = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12 || 12;
+  return `${hour}:${twentyFourHour[2]} ${meridiem}`;
 }
 
 export function fmtDate(d?: string) {
@@ -303,7 +311,10 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
       </View>
       <View style={mc.sep} />
       <View style={mc.metaRow}>
-        <Text style={mc.meta}>📅 {fmtDate(t?.date)}{t?.time ? ` • ${fmtTime12(t.time)} IST` : ''}</Text>
+        <Text style={mc.meta}>
+          📅 {fmtDate(t?.date)}{t?.time ? ' • ' : ''}
+          {t?.time ? <Text style={mc.metaTime}>{fmtTime12(t.time)} IST</Text> : null}
+        </Text>
         <Text style={mc.meta}>{filled}/{total} {slotUnit}</Text>
       </View>
       <View style={mc.statRow}>
@@ -335,6 +346,7 @@ const mc = StyleSheet.create({
   sep: { height: 1, backgroundColor: C.border, marginVertical: 10 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   meta: { color: C.sub, fontSize: 12, fontWeight: '600' },
+  metaTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   statRow: { flexDirection: 'row', borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   stat: { flex: 1, alignItems: 'center', paddingVertical: 8 },
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },

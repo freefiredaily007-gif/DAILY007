@@ -10,22 +10,12 @@ import modeClashLogo from '../assets/mode-clash-logo.jpg';
 import { useNavigation } from '@react-navigation/native';
 import { api, Api } from '../lib/api';
 import { useApp } from '../App';
-import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse } from '../components/ui';
+import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12 } from '../components/ui';
 import { inr } from '../lib/coins';
-import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 
-// 12-hour time helper
-export function fmtTime(t?: string) {
-  if (!t) return '';
-  const m = String(t).match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return String(t);
-  let h = parseInt(m[1], 10);
-  const ap = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${m[2]} ${ap}`;
-}
 function fmtDate(d?: string) {
   if (!d) return '';
   const dt = new Date(String(d).slice(0, 10) + 'T00:00:00');
@@ -118,6 +108,12 @@ export default function Home() {
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const social = (url?: string) => { if (url) Linking.openURL(url).catch(() => {}); };
+  const liveItems = items
+    .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'ongoing')
+    .sort(compareTournamentStartTime);
+  const homeItems = [...liveItems, ...items.filter(
+    (tournament) => getTournamentLifecycleState(tournament, clockNow) !== 'ongoing',
+  )];
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 30 }}
@@ -181,7 +177,7 @@ export default function Home() {
             onScroll={onCarouselScroll} scrollEventThrottle={16}
             style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16 }}
             decelerationRate="fast">
-            {items.slice(0, 8).map((t) => {
+            {homeItems.slice(0, 8).map((t) => {
         const filled = t.filledSlots ?? t.filled ?? 0;
         const total = t.totalSlots ?? tournamentModeFallback(t);
         const stt = statusOf(t, clockNow);
@@ -208,7 +204,7 @@ export default function Home() {
               <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
             </View>
             <View style={{ padding: 12 }}>
-              <Text style={s.mSub}>{t.teamType ?? ''} • {fmtDate(t.date)} • {fmtTime(t.time)} IST</Text>
+              <Text style={s.mSub}>{t.teamType ?? ''} • {fmtDate(t.date)} • <Text style={s.mTime}>{fmtTime12(t.time)} IST</Text></Text>
               <View style={s.mStats}>
                 <View style={s.mStat}>
                   <Text style={s.mStatL}>ENTRY</Text>
@@ -377,6 +373,7 @@ const s = StyleSheet.create({
   mMode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
   mTitle: { color: C.text, fontWeight: '900', fontSize: 15, marginTop: 2 },
   mSub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  mTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   mDivider: { height: 1, backgroundColor: C.border, marginVertical: 10 },
   mStats: { flexDirection: 'row' },
   mStat: { flex: 1, alignItems: 'center' },

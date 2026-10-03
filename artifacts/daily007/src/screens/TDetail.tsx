@@ -63,7 +63,7 @@ export default function TDetail() {
           <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={s.mode}>{(t.mode || 'BATTLE ROYALE').toUpperCase()}</Text>
             <Text style={s.name}>{t.name || t.title}</Text>
-            <Text style={s.meta}>📅 {fmtDate(t.date)} • {fmtTime12(t.time)} IST</Text>
+            <Text style={s.meta}>📅 {fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(t.time)} IST</Text></Text>
           </View>
           <Badge text={st.label} color={st.color} />
         </View>
@@ -143,6 +143,7 @@ const s = StyleSheet.create({
   mode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
   name: { color: C.text, fontSize: 20, fontWeight: '900', marginTop: 2 },
   meta: { color: C.sub, fontSize: 12, marginTop: 6, fontWeight: '600' },
+  timeMeta: { color: C.gold, fontSize: 15, fontWeight: '900' },
   statRow: { flexDirection: 'row', borderRadius: 14, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, marginBottom: 6, overflow: 'hidden' },
   stat: { flex: 1, alignItems: 'center', paddingVertical: 12 },
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },

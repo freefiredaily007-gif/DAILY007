@@ -2,6 +2,17 @@ export type TournamentLifecycleState = 'upcoming' | 'ongoing' | 'completed' | 'c
 
 export const MAX_TIMEOUT_MS = 2_147_000_000;
 
+export function compareTournamentStartTime(a: any, b: any): number {
+  const aStart = Date.parse(String(a?.startsAt ?? ''));
+  const bStart = Date.parse(String(b?.startsAt ?? ''));
+  const aValid = Number.isFinite(aStart);
+  const bValid = Number.isFinite(bStart);
+  if (aValid && bValid) return aStart - bStart;
+  if (aValid) return -1;
+  if (bValid) return 1;
+  return 0;
+}
+
 export function getTournamentLifecycleState(tournament: any, now = Date.now()): TournamentLifecycleState {
   const status = String(tournament?.status ?? '').toLowerCase();
   if (status === 'completed') return 'completed';

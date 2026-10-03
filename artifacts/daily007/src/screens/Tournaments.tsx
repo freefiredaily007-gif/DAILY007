@@ -5,7 +5,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { api } from '../lib/api';
 import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
-import { getTournamentLifecycleState, MAX_TIMEOUT_MS, TournamentLifecycleState } from '../lib/tournamentLifecycle';
+import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS, TournamentLifecycleState } from '../lib/tournamentLifecycle';
 
 export default function Tournaments() {
   const nav: any = useNavigation();
@@ -61,6 +61,7 @@ export default function Tournaments() {
     : items;
   const lifecycleOf = (tournament: any) => getTournamentLifecycleState(tournament, clockNow);
   const visible = filtered.filter((tournament) => lifecycleOf(tournament) === tab);
+  const orderedVisible = tab === 'ongoing' ? [...visible].sort(compareTournamentStartTime) : visible;
   const tabs: Exclude<TournamentLifecycleState, 'closed'>[] = ['upcoming', 'ongoing', 'completed'];
   const tabLabel: Record<typeof tab, string> = {
     upcoming: 'Upcoming',
@@ -75,7 +76,7 @@ export default function Tournaments() {
   return (
     <View style={s.root}>
       <FlatList
-        data={visible}
+        data={orderedVisible}
         keyExtractor={(t) => String(t.id)}
         contentContainerStyle={{ padding: 14, paddingBottom: 30 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.neon} />}
