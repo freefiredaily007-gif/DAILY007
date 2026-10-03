@@ -34,3 +34,9 @@ Expo Go's StoreClient environment ignores app-defined redirect schemes that it d
 **Why:** Expo Go and standalone builds resolve deep links differently. A global redirect change can break web or installed-app callbacks without fixing an Expo Go runtime error.
 
 **How to apply:** When Google SSO fails in Expo Go, capture the generated redirect or the phone's error log before changing callback paths. Keep web and standalone redirect behavior intact unless the exact failure points to them.
+
+On 2026-10-03, the user asked to remove the Full Admin Recovery UI and said they have the owner key. Keep server-side recovery and stored request records intact unless they separately request their removal.
+
+**Why:** The request was to remove the admin-panel section, not the recovery backend or its data.
+
+**How to apply:** Keep the Recovery tab out of the admin UI while preserving the owner-key path and audit records.
