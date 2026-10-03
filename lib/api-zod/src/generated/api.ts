@@ -487,6 +487,8 @@ export const Daily007GetWalletTransactionsResponse = zod.array(Daily007GetWallet
  */
 export const daily007ListVideosResponseVideosItemTitleMax = 120;
 
+export const daily007ListVideosResponseVideosItemTopicMax = 80;
+
 export const daily007ListVideosResponseVideosItemYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
 
 
@@ -494,6 +496,7 @@ export const Daily007ListVideosResponse = zod.object({
   "videos": zod.array(zod.object({
   "id": zod.string().uuid(),
   "title": zod.string().min(1).max(daily007ListVideosResponseVideosItemTitleMax),
+  "topic": zod.string().min(1).max(daily007ListVideosResponseVideosItemTopicMax),
   "youtubeId": zod.string().regex(daily007ListVideosResponseVideosItemYoutubeIdRegExp),
   "url": zod.string().url(),
   "active": zod.boolean(),
@@ -557,6 +560,8 @@ export const Daily007CompleteVideoWatchResponse = zod.object({
  */
 export const daily007AdminListVideosResponseVideosItemTitleMax = 120;
 
+export const daily007AdminListVideosResponseVideosItemTopicMax = 80;
+
 export const daily007AdminListVideosResponseVideosItemYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
 
 
@@ -564,6 +569,7 @@ export const Daily007AdminListVideosResponse = zod.object({
   "videos": zod.array(zod.object({
   "id": zod.string().uuid(),
   "title": zod.string().min(1).max(daily007AdminListVideosResponseVideosItemTitleMax),
+  "topic": zod.string().min(1).max(daily007AdminListVideosResponseVideosItemTopicMax),
   "youtubeId": zod.string().regex(daily007AdminListVideosResponseVideosItemYoutubeIdRegExp),
   "url": zod.string().url(),
   "active": zod.boolean(),
@@ -577,16 +583,21 @@ export const Daily007AdminListVideosResponse = zod.object({
  */
 export const daily007AdminCreateVideoBodyTitleMax = 120;
 
+export const daily007AdminCreateVideoBodyTopicMax = 80;
+
 export const daily007AdminCreateVideoBodyUrlMax = 500;
 
 
 
 export const Daily007AdminCreateVideoBody = zod.object({
   "title": zod.string().min(1).max(daily007AdminCreateVideoBodyTitleMax),
+  "topic": zod.string().min(1).max(daily007AdminCreateVideoBodyTopicMax),
   "url": zod.string().url().max(daily007AdminCreateVideoBodyUrlMax)
 })
 
 export const daily007AdminCreateVideoResponseTitleMax = 120;
+
+export const daily007AdminCreateVideoResponseTopicMax = 80;
 
 export const daily007AdminCreateVideoResponseYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
 
@@ -594,6 +605,7 @@ export const daily007AdminCreateVideoResponseYoutubeIdRegExp = new RegExp('^[A-Z
 export const Daily007AdminCreateVideoResponse = zod.object({
   "id": zod.string().uuid(),
   "title": zod.string().min(1).max(daily007AdminCreateVideoResponseTitleMax),
+  "topic": zod.string().min(1).max(daily007AdminCreateVideoResponseTopicMax),
   "youtubeId": zod.string().regex(daily007AdminCreateVideoResponseYoutubeIdRegExp),
   "url": zod.string().url(),
   "active": zod.boolean(),
@@ -614,12 +626,15 @@ export const Daily007AdminSetVideoActiveBody = zod.object({
 
 export const daily007AdminSetVideoActiveResponseTitleMax = 120;
 
+export const daily007AdminSetVideoActiveResponseTopicMax = 80;
+
 export const daily007AdminSetVideoActiveResponseYoutubeIdRegExp = new RegExp('^[A-Za-z0-9_-]{11}$');
 
 
 export const Daily007AdminSetVideoActiveResponse = zod.object({
   "id": zod.string().uuid(),
   "title": zod.string().min(1).max(daily007AdminSetVideoActiveResponseTitleMax),
+  "topic": zod.string().min(1).max(daily007AdminSetVideoActiveResponseTopicMax),
   "youtubeId": zod.string().regex(daily007AdminSetVideoActiveResponseYoutubeIdRegExp),
   "url": zod.string().url(),
   "active": zod.boolean(),

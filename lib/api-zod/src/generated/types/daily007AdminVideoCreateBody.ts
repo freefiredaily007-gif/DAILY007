@@ -29,6 +29,11 @@ export interface Daily007AdminVideoCreateBody {
      * @maxLength 120
      */
   title: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  topic: string;
   /** @maxLength 500 */
   url: string;
 }

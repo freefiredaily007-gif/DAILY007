@@ -1,5 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
+import {
+  Daily007AdminCreateVideoBody,
+  Daily007AdminCreateVideoResponse,
+  Daily007AdminListVideosResponse,
+  Daily007AdminSetVideoActiveResponse,
+  Daily007ListVideosResponse,
+} from "@workspace/api-zod";
 import { authenticate, requireAdmin, requireTournamentAdmin } from "./daily007-v2";
 import { isAssignableTournamentRole } from "../lib/daily007-roles";
 import {
@@ -985,17 +992,17 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
 
 router.get("/videos", async (_req, res): Promise<void> => {
   const result = await pool.query(
-    `SELECT id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+    `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
        FROM daily007_v2_videos
       WHERE active = true
       ORDER BY created_at DESC, id`,
   );
-  res.json({
+  res.json(Daily007ListVideosResponse.parse({
     videos: result.rows.map((video: any) => ({
       ...video,
       url: `https://youtu.be/${video.youtubeId}`,
     })),
-  });
+  }));
 });
 
 router.get("/admin/videos", authenticate, async (req, res): Promise<void> => {
@@ -1004,45 +1011,49 @@ router.get("/admin/videos", authenticate, async (req, res): Promise<void> => {
   // Carry the existing featured player into the managed list once. Admins can
   // deactivate it after adding their replacement or additional videos.
   await pool.query(
-    `INSERT INTO daily007_v2_videos (title, youtube_id, active)
-     SELECT $1, $2, true
+    `INSERT INTO daily007_v2_videos (title, topic, youtube_id, active)
+     SELECT $1, $2, $3, true
       WHERE NOT EXISTS (SELECT 1 FROM daily007_v2_videos)
      ON CONFLICT (youtube_id) DO NOTHING`,
-    ["Daily007 featured video", "opKbUpusuTc"],
+    ["Daily007 featured video", "General", "opKbUpusuTc"],
   );
   const result = await pool.query(
-    `SELECT id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+    `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
        FROM daily007_v2_videos
       ORDER BY created_at DESC, id`,
   );
-  res.json({
+  res.json(Daily007AdminListVideosResponse.parse({
     videos: result.rows.map((video: any) => ({
       ...video,
       url: `https://youtu.be/${video.youtubeId}`,
     })),
-  });
+  }));
 });
 
 router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
-  const body = req.body as unknown;
-  if (!isObject(body)) {
-    error(res, 400, "Expected a video title and YouTube URL."); return;
+  const parsedBody = Daily007AdminCreateVideoBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    error(res, 400, "Enter a title, topic, and valid YouTube video URL."); return;
   }
-  const title = text(body.title, 1, 120);
-  const youtubeId = youtubeVideoIdFromUrl(body.url);
-  if (!title || !youtubeId) {
-    error(res, 400, "Enter a title up to 120 characters and a valid YouTube video URL."); return;
+  const title = text(parsedBody.data.title, 1, 120);
+  const topic = text(parsedBody.data.topic, 1, 80);
+  const youtubeId = youtubeVideoIdFromUrl(parsedBody.data.url);
+  if (!title || !topic || !youtubeId) {
+    error(res, 400, "Enter a title, topic up to 80 characters, and valid YouTube video URL."); return;
   }
   try {
     const result = await pool.query(
-      `INSERT INTO daily007_v2_videos (title, youtube_id, created_by)
-       VALUES ($1, $2, $3)
-       RETURNING id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
-      [title, youtubeId, userId(req)],
+      `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
+      [title, topic, youtubeId, userId(req)],
     );
     const video: any = result.rows[0];
-    res.status(201).json({ ...video, url: `https://youtu.be/${video.youtubeId}` });
+    res.status(201).json(Daily007AdminCreateVideoResponse.parse({
+      ...video,
+      url: `https://youtu.be/${video.youtubeId}`,
+    }));
   } catch (e) {
     if ((e as { code?: string }).code === "23505") {
       error(res, 409, "This YouTube video is already in the managed list."); return;
@@ -1062,12 +1073,15 @@ router.patch("/admin/videos/:id/active", authenticate, async (req, res): Promise
     `UPDATE daily007_v2_videos
         SET active = $2
       WHERE id = $1
-      RETURNING id, title, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
+      RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
     [id, body.active],
   );
   const video: any = result.rows[0];
   if (!video) { error(res, 404, "Video not found."); return; }
-  res.json({ ...video, url: `https://youtu.be/${video.youtubeId}` });
+  res.json(Daily007AdminSetVideoActiveResponse.parse({
+    ...video,
+    url: `https://youtu.be/${video.youtubeId}`,
+  }));
 });
 
 router.post("/videos/watch/start", authenticate, async (req, res): Promise<void> => {

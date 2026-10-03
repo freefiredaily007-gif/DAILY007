@@ -595,6 +595,11 @@ export interface Daily007Video {
      * @maxLength 120
      */
   title: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  topic: string;
   /** @pattern ^[A-Za-z0-9_-]{11}$ */
   youtubeId: string;
   url: string;
@@ -645,6 +650,11 @@ export interface Daily007AdminVideoCreateBody {
      * @maxLength 120
      */
   title: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  topic: string;
   /** @maxLength 500 */
   url: string;
 }

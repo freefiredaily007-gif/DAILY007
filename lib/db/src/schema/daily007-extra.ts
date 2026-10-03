@@ -141,12 +141,14 @@ export const daily007YoutubeSubscribeClaimsTable = pgTable("daily007_v2_youtube_
 export const daily007VideosTable = pgTable("daily007_v2_videos", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),
+  topic: text("topic").notNull().default("General"),
   youtubeId: text("youtube_id").notNull().unique(),
   active: boolean("active").notNull().default(true),
   createdBy: uuid("created_by").references(() => daily007UsersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_video_title_valid", sql`length(btrim(${table.title})) BETWEEN 1 AND 120`),
+  check("daily007_video_topic_valid", sql`length(btrim(${table.topic})) BETWEEN 1 AND 80`),
   check("daily007_video_youtube_id_valid", sql`${table.youtubeId} ~ '^[A-Za-z0-9_-]{11}$'`),
   index("daily007_video_active_created_idx").on(table.active, table.createdAt),
 ]);

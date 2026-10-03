@@ -1169,11 +1169,12 @@ components:
       properties:
         id: { type: string, format: uuid }
         title: { type: string, minLength: 1, maxLength: 120 }
+        topic: { type: string, minLength: 1, maxLength: 80 }
         youtubeId: { type: string, pattern: "^[A-Za-z0-9_-]{11}$" }
         url: { type: string, format: uri }
         active: { type: boolean }
         createdAt: { type: string, format: date-time }
-      required: [id, title, youtubeId, url, active, createdAt]
+      required: [id, title, topic, youtubeId, url, active, createdAt]
     Daily007VideoList:
       type: object
       properties:
@@ -1218,8 +1219,9 @@ components:
       additionalProperties: false
       properties:
         title: { type: string, minLength: 1, maxLength: 120 }
+        topic: { type: string, minLength: 1, maxLength: 80 }
         url: { type: string, format: uri, maxLength: 500 }
-      required: [title, url]
+      required: [title, topic, url]
     Daily007AdminVideoActiveBody:
       type: object
       additionalProperties: false

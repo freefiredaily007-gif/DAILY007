@@ -23,6 +23,7 @@ import { apiError } from '../lib/api';
 type ManagedVideo = {
   id: string;
   title: string;
+  topic: string;
   youtubeId: string;
   url: string;
   active: boolean;
@@ -35,19 +36,25 @@ export default function AdminVideos() {
   const { mutateAsync: setVideoActive, isPending: isUpdating } = useDaily007AdminSetVideoActive();
   const toast = useToast();
   const [title, setTitle] = useState('');
+  const [topic, setTopic] = useState('');
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const videos: ManagedVideo[] = (videosQuery.data?.videos ?? []) as ManagedVideo[];
 
   const addVideo = async () => {
-    if (!title.trim() || !url.trim()) {
-      setError('Enter a title and YouTube video link.');
+    if (!title.trim() || !topic.trim() || !url.trim()) {
+      setError('Enter a title, topic, and YouTube video link.');
+      return;
+    }
+    if (title.trim().length > 120 || topic.trim().length > 80) {
+      setError('Title must be 120 characters or fewer and topic 80 characters or fewer.');
       return;
     }
     setError('');
     try {
-      await createVideo({ data: { title: title.trim(), url: url.trim() } });
+      await createVideo({ data: { title: title.trim(), topic: topic.trim(), url: url.trim() } });
       setTitle('');
+      setTopic('');
       setUrl('');
       toast('Video added.', 'success');
       await videosQuery.refetch();
@@ -84,6 +91,13 @@ export default function AdminVideos() {
           placeholder="Video title"
           autoCapitalize="sentences"
         />
+        <Text style={styles.fieldLabel}>TOPIC</Text>
+        <Input
+          value={topic}
+          onChangeText={setTopic}
+          placeholder="e.g. Match join"
+          autoCapitalize="sentences"
+        />
         <Text style={styles.fieldLabel}>YOUTUBE VIDEO LINK</Text>
         <Input
           value={url}
@@ -102,7 +116,7 @@ export default function AdminVideos() {
           testID="admin-video-add"
         />
         <Text style={styles.help}>
-          Use a YouTube watch, youtu.be, Shorts, or embed link. Turn a video off to hide it without deleting its reward history.
+          Add a short topic players can search. Use a YouTube watch, youtu.be, Shorts, or embed link. Turn a video off to hide it without deleting its reward history.
         </Text>
       </Card>
 
@@ -127,6 +141,7 @@ export default function AdminVideos() {
           <View style={styles.videoHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.videoTitle}>{video.title}</Text>
+              <Text style={styles.videoTopic}>TOPIC · {video.topic}</Text>
               <Text numberOfLines={1} style={styles.videoUrl}>{video.url}</Text>
             </View>
             <View style={[styles.status, video.active ? styles.statusActive : styles.statusInactive]}>
@@ -167,6 +182,7 @@ const styles = {
   error: { color: A.danger, fontSize: 12, lineHeight: 17, marginBottom: 10 },
   videoHeader: { flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 10, marginBottom: 12 },
   videoTitle: { color: A.text, fontSize: 13, lineHeight: 18, fontWeight: '800' as const },
+  videoTopic: { color: A.gold, fontSize: 10, fontWeight: '800' as const, marginTop: 4 },
   videoUrl: { color: A.sub, fontSize: 10, marginTop: 4 },
   status: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
   statusActive: { backgroundColor: 'rgba(46,204,113,0.12)', borderColor: 'rgba(46,204,113,0.45)' },

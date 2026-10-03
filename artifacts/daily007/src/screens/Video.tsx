@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -27,6 +28,7 @@ const ENDED_STATE = 0;
 type VideoItem = {
   id: string;
   title: string;
+  topic: string;
   youtubeId: string;
   url: string;
   active: boolean;
@@ -122,7 +124,16 @@ export default function Video() {
   const videosQuery = useDaily007ListVideos();
   const videos: VideoItem[] = (videosQuery.data?.videos ?? []) as VideoItem[];
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
+  const filteredVideos = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return videos;
+    return videos.filter((video) =>
+      `${video.title} ${video.topic}`.toLowerCase().includes(query),
+    );
+  }, [searchQuery, videos]);
   const { refresh } = useApp();
   const { mutateAsync: startVideoWatch } = useDaily007StartVideoWatch();
   const { mutateAsync: completeVideoWatch } = useDaily007CompleteVideoWatch();
@@ -180,6 +191,7 @@ export default function Video() {
   }, [claimViewReward]);
 
   const handlePlayerMessage = useCallback((rawMessage: unknown) => {
+    if (!showPlayer) return;
     let payload: PlayerMessage | null = null;
     if (typeof rawMessage === 'string') {
       try {
@@ -277,7 +289,7 @@ export default function Video() {
     const nextPercent = Math.max(progressPercentRef.current, estimated);
     progressPercentRef.current = nextPercent;
     setProgressPercent(nextPercent);
-  }, [finishCurrentPlayback, selectedVideo?.id, startVideoWatch]);
+  }, [finishCurrentPlayback, selectedVideo?.id, showPlayer, startVideoWatch]);
 
   const playerDocument = useMemo(
     () => createYouTubeDocument(selectedVideo?.youtubeId ?? '', colors.background),
@@ -298,23 +310,23 @@ export default function Video() {
     setRewardMessage('');
     setRewardError('');
     setRetrySession(null);
-  }, [selectedVideo?.id]);
+  }, [selectedVideo?.id, showPlayer]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web') return undefined;
+    if (Platform.OS !== 'web' || !showPlayer) return undefined;
     const onMessage = (event: MessageEvent) => {
       if (event.source !== webFrameRef.current?.contentWindow) return;
       handlePlayerMessage(event.data);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [handlePlayerMessage]);
+  }, [handlePlayerMessage, showPlayer]);
 
   useEffect(() => {
-    if (!selectedVideo || playerReady || playerFailed) return undefined;
+    if (!showPlayer || !selectedVideo || playerReady || playerFailed) return undefined;
     const timer = setTimeout(() => setPlayerFailed(true), 20_000);
     return () => clearTimeout(timer);
-  }, [playerReady, playerFailed, selectedVideo?.id]);
+  }, [playerReady, playerFailed, selectedVideo?.id, showPlayer]);
 
   const openOnYouTube = useCallback(async () => {
     if (!selectedVideo) return;
@@ -357,57 +369,28 @@ export default function Video() {
   const reachedWatchMark = progressPercent >= WATCH_MARK_PERCENT;
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.scrollContent}>
-      {videosQuery.isLoading ? (
-        <View style={styles.emptyCard}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={styles.errorText}>Loading videos…</Text>
-        </View>
-      ) : null}
-      {videosQuery.isError ? (
-        <View style={styles.errorCard}>
-          <Feather name="alert-circle" size={18} color={colors.destructive} />
-          <Text style={styles.errorText}>Could not load videos. Check your connection and try again.</Text>
-          <Pressable onPress={() => { void videosQuery.refetch(); }} accessibilityRole="button" accessibilityLabel="Reload videos">
-            <Feather name="refresh-cw" size={18} color={colors.primary} />
-          </Pressable>
-        </View>
-      ) : null}
-      {!videosQuery.isLoading && !videosQuery.isError && videos.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Feather name="video" size={22} color={colors.accent} />
-          <Text style={styles.errorText}>No videos are available yet.</Text>
-        </View>
-      ) : null}
-
-      {videos.length > 1 ? (
-        <ScrollView
-          horizontal
-          style={styles.videoChoices}
-          contentContainerStyle={styles.videoChoicesContent}
-          showsHorizontalScrollIndicator={false}
-          accessibilityLabel="Choose a video"
-        >
-          {videos.map((video, index) => {
-            const selected = video.id === selectedVideo?.id;
-            return (
-              <Pressable
-                key={video.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                accessibilityLabel={`Select video ${index + 1}`}
-                onPress={() => setSelectedVideoId(video.id)}
-                style={[styles.videoChoice, selected && styles.videoChoiceSelected]}
-              >
-                <Feather name={selected ? 'play-circle' : 'video'} size={17} color={selected ? colors.primary : colors.mutedForeground} />
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
-
-      {selectedVideo ? (
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+    >
+      {showPlayer && selectedVideo ? (
         <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to videos"
+            testID="video-catalog-back"
+            onPress={() => setShowPlayer(false)}
+            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+          >
+            <Feather name="arrow-left" size={17} color={colors.primary} />
+            <Text style={styles.backText}>BACK TO VIDEOS</Text>
+          </Pressable>
+          <View style={styles.playerVideoHeader}>
+            <Text style={styles.playerTitle}>{selectedVideo.title}</Text>
+            <Text style={styles.playerTopic}>TOPIC · {selectedVideo.topic}</Text>
+          </View>
+
           <View style={styles.playerShell}>
             {player}
             {!playerReady && !playerFailed ? (
@@ -497,7 +480,90 @@ export default function Video() {
             <Text style={styles.externalButtonText}>OPEN ON YOUTUBE</Text>
           </Pressable>
         </>
-      ) : null}
+      ) : (
+        <>
+          {videosQuery.isLoading ? (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={styles.errorText}>Loading videos…</Text>
+            </View>
+          ) : null}
+          {videosQuery.isError ? (
+            <View style={styles.errorCard}>
+              <Feather name="alert-circle" size={18} color={colors.destructive} />
+              <Text style={styles.errorText}>Could not load videos. Check your connection and try again.</Text>
+              <Pressable
+                onPress={() => { void videosQuery.refetch(); }}
+                accessibilityRole="button"
+                accessibilityLabel="Reload videos"
+              >
+                <Feather name="refresh-cw" size={18} color={colors.primary} />
+              </Pressable>
+            </View>
+          ) : null}
+          {!videosQuery.isLoading && !videosQuery.isError && videos.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Feather name="video" size={22} color={colors.accent} />
+              <Text style={styles.errorText}>No videos are available yet.</Text>
+            </View>
+          ) : null}
+
+          {videos.length > 0 ? (
+            <>
+              <View style={styles.catalogSearch}>
+                <Feather name="search" size={17} color={colors.mutedForeground} />
+                <TextInput
+                  accessibilityLabel="Search videos by title or topic"
+                  testID="video-catalog-search"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search by topic or title..."
+                  placeholderTextColor={colors.mutedForeground}
+                  style={styles.catalogSearchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+              <Text style={styles.catalogHeading}>Tutorial Videos ({filteredVideos.length})</Text>
+
+              {filteredVideos.map((video) => (
+                <Pressable
+                  key={video.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${video.title}, topic ${video.topic}`}
+                  accessibilityHint="Opens the in-app YouTube player"
+                  testID={`video-catalog-card-${video.id}`}
+                  onPress={() => {
+                    setSelectedVideoId(video.id);
+                    setShowPlayer(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.videoCatalogCard,
+                    pressed && { opacity: 0.78 },
+                  ]}
+                >
+                  <View style={styles.catalogPlayIcon}>
+                    <Feather name="play" size={18} color={colors.primary} />
+                  </View>
+                  <View style={styles.catalogCardContent}>
+                    <Text style={styles.catalogTitle}>{video.title}</Text>
+                    <Text style={styles.catalogTopic}>Topic: {video.topic}</Text>
+                    <Text style={styles.catalogTap}>Tap to watch in YouTube</Text>
+                  </View>
+                </Pressable>
+              ))}
+
+              {filteredVideos.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Feather name="search" size={18} color={colors.accent} />
+                  <Text style={styles.errorText}>No videos match your search.</Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -513,19 +579,68 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       ...webInsets,
     },
     scrollContent: { paddingBottom: 24 },
-    videoChoices: { flexGrow: 0, marginBottom: 12 },
-    videoChoicesContent: { gap: 8 },
-    videoChoice: {
-      width: 44,
-      height: 44,
+    catalogSearch: {
+      minHeight: 48,
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
+      gap: 10,
+      paddingHorizontal: 13,
+      marginBottom: 18,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
       borderRadius: colors.radius,
+    },
+    catalogSearchInput: {
+      flex: 1,
+      minWidth: 0,
+      color: colors.foreground,
+      fontSize: 14,
+      paddingVertical: 10,
+    },
+    catalogHeading: {
+      color: colors.foreground,
+      fontSize: 18,
+      lineHeight: 24,
+      fontWeight: '800',
+      marginBottom: 12,
+    },
+    videoCatalogCard: {
+      minHeight: 96,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      paddingHorizontal: 15,
+      paddingVertical: 14,
+      marginBottom: 11,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.card,
+      borderRadius: colors.radius,
     },
-    videoChoiceSelected: { borderColor: colors.primary, backgroundColor: colors.secondary },
+    catalogPlayIcon: {
+      width: 46,
+      height: 46,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 23,
+      backgroundColor: colors.secondary,
+    },
+    catalogCardContent: { flex: 1, gap: 3 },
+    catalogTitle: { color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: '800' },
+    catalogTopic: { color: colors.accent, fontSize: 11, lineHeight: 16, fontWeight: '800' },
+    catalogTap: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, marginTop: 2 },
+    backButton: {
+      minHeight: 42,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 8,
+    },
+    backText: { color: colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
+    playerVideoHeader: { marginBottom: 12, gap: 3 },
+    playerTitle: { color: colors.foreground, fontSize: 16, lineHeight: 22, fontWeight: '800' },
+    playerTopic: { color: colors.accent, fontSize: 11, lineHeight: 16, fontWeight: '800' },
     emptyCard: {
       minHeight: 62,
       flexDirection: 'row',
