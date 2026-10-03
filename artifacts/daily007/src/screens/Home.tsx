@@ -46,7 +46,6 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [links, setLinks] = useState<any>({});
-  const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
   const [page, setPage] = useState(0);
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
@@ -113,7 +112,6 @@ export default function Home() {
   }, [upcomingItems.length]);
   const onRefresh = async () => {
     setRefreshing(true);
-    setLeaderboardRefreshKey((key) => key + 1);
     await load();
     setRefreshing(false);
   };
@@ -285,10 +283,7 @@ export default function Home() {
         </GCard>
       ))}
 
-      <HomeLeaderboards
-        refreshKey={leaderboardRefreshKey}
-        onOpen={(cycleType) => nav.navigate('LeaderboardDetails', { cycleType })}
-      />
+      <HomeLeaderboards onOpen={() => nav.navigate('LeaderboardDetails', { cycleType: 'weekly' })} />
 
       {/* ===== SOCIAL ===== */}
       <SectionTitle accent={C.blue}>JOIN THE COMMUNITY</SectionTitle>
