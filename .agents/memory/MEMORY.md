@@ -19,6 +19,7 @@
 - [Daily007 tournament auto-confirmation](daily007-tournament-auto-confirm.md) — new joins confirm immediately, with any entry-fee deduction in the same transaction.
 - [Daily007 automatic tournament cancellation](daily007-auto-cancellation.md) — only underfilled Clash Squad/Lone Wolf matches cancel at start, refunding each original payer once.
 - [Daily007 room credential release](daily007-room-credentials.md) — saving credentials schedules access at five minutes before the tournament’s scheduled start, for approved registrants only.
+- [Daily007 public participant rosters](daily007-public-participant-roster.md) — show team names and Free Fire handles only; keep account details and UIDs private.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.
 - [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — keep payout UPI IDs visible and easy for admins to copy from withdrawal requests.
 - [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — attribute awards by scheduled IST match time; configure top-three prizes before end and settle them automatically.

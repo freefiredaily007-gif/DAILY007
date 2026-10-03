@@ -344,6 +344,57 @@ router.get("/tournaments", async (req, res): Promise<void> => {
   res.json((await getMatches(undefined, enabledOnly)).map((row) => tournament(row)));
 });
 
+type PublicTournamentParticipant = {
+  teamName: string | null;
+  players: string[];
+  status: "approved" | "pending";
+};
+
+async function getPublicTournamentParticipants(tournamentId: string): Promise<PublicTournamentParticipant[]> {
+  const result = await pool.query<{
+    registration_id: string;
+    status: "approved" | "pending";
+    team_name: string | null;
+    captain_game_name: string;
+    position: number | null;
+    member_name: string | null;
+  }>(
+    `SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name,
+            r.captain_game_name, roster.position, roster.member_name
+       FROM daily007_v2_registrations r
+       LEFT JOIN daily007_v2_roster roster ON roster.registration_id = r.id
+      WHERE r.match_id = $1 AND r.status IN ('approved', 'pending')
+      ORDER BY r.created_at, r.id, roster.position`,
+    [tournamentId],
+  );
+  const byRegistration = new Map<string, PublicTournamentParticipant>();
+  for (const row of result.rows) {
+    let participant = byRegistration.get(row.registration_id);
+    if (!participant) {
+      participant = {
+        teamName: row.team_name?.trim() || null,
+        players: row.captain_game_name.trim() ? [row.captain_game_name.trim()] : [],
+        status: row.status,
+      };
+      byRegistration.set(row.registration_id, participant);
+    }
+    const teammateName = row.member_name?.trim();
+    if (row.position !== null && teammateName) participant.players.push(teammateName);
+  }
+  return [...byRegistration.values()];
+}
+
+router.get("/tournaments/:id/participants", async (req, res): Promise<void> => {
+  const id = idFrom(req);
+  if (!id) return fail(res, 400, "Tournament id must be a UUID.");
+  const match = await pool.query<{ id: string }>(
+    "SELECT id FROM daily007_v2_matches WHERE id = $1",
+    [id],
+  );
+  if (!match.rows[0]) return fail(res, 404, "Tournament not found.");
+  res.json({ tournamentId: id, participants: await getPublicTournamentParticipants(id) });
+});
+
 router.get("/tournaments/:id", async (req, res): Promise<void> => {
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");

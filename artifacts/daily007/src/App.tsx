@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { setBaseUrl } from '@workspace/api-client-react';
 import { ReadableText as Text } from './components/typography';
 import { NavigationContainer, DarkTheme, useNavigation, useRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -30,6 +32,11 @@ import { useClerk } from '@clerk/expo';
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
 const Ctx = React.createContext<Ctx>(null as any);
 export const useApp = () => React.useContext(Ctx);
+
+setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 20_000 } },
+});
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -166,30 +173,32 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   return (
     <Ctx.Provider value={{ user, refresh, logout }}>
-      <NavigationContainer theme={navTheme}>
-        <Stack.Navigator screenOptions={{
-          headerStyle: { backgroundColor: '#0d1220' },
-          headerTintColor: '#70B8FF',
-          headerTitleStyle: { color: '#FFD54D', fontSize: 18, fontWeight: '700', fontFamily: 'Inter_700Bold' },
-          contentStyle: { backgroundColor: '#070a12' },
-        }}>
-          {user.role === 'admin' || user.role === 'tournament_admin' ? (
-            <Stack.Screen name="Admin" component={AdminApp} options={{ headerShown: false }} />
-          ) : (
-            <>
-              <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-              <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: 'MATCHES' }} />
-              <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: 'MY MATCHES' }} />
-              <Stack.Screen name="TDetail" component={TDetail} options={{ title: 'TOURNAMENT' }} />
-              <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: 'REGISTER', presentation: 'modal' }} />
-              <Stack.Screen name="LeaderboardDetails" component={LeaderboardDetails} options={{ title: 'Leaderboard' }} />
-              <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: 'LEADERBOARD' }} />
-              <Stack.Screen name="Notifications" component={Notifications} options={{ title: 'NOTIFICATIONS' }} />
-              <Stack.Screen name="EditProfile" component={EditProfile} options={{ title: 'EDIT PROFILE' }} />
-            </>
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
+      <QueryClientProvider client={queryClient}>
+        <NavigationContainer theme={navTheme}>
+          <Stack.Navigator screenOptions={{
+            headerStyle: { backgroundColor: '#0d1220' },
+            headerTintColor: '#70B8FF',
+            headerTitleStyle: { color: '#FFD54D', fontSize: 18, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+            contentStyle: { backgroundColor: '#070a12' },
+          }}>
+            {user.role === 'admin' || user.role === 'tournament_admin' ? (
+              <Stack.Screen name="Admin" component={AdminApp} options={{ headerShown: false }} />
+            ) : (
+              <>
+                <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
+                <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: 'MATCHES' }} />
+                <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: 'MY MATCHES' }} />
+                <Stack.Screen name="TDetail" component={TDetail} options={{ title: 'TOURNAMENT' }} />
+                <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: 'REGISTER', presentation: 'modal' }} />
+                <Stack.Screen name="LeaderboardDetails" component={LeaderboardDetails} options={{ title: 'Leaderboard' }} />
+                <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: 'LEADERBOARD' }} />
+                <Stack.Screen name="Notifications" component={Notifications} options={{ title: 'NOTIFICATIONS' }} />
+                <Stack.Screen name="EditProfile" component={EditProfile} options={{ title: 'EDIT PROFILE' }} />
+              </>
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      </QueryClientProvider>
     </Ctx.Provider>
   );
 }

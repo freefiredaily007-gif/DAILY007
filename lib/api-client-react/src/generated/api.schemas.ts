@@ -116,6 +116,27 @@ export interface TournamentSlot {
   teamName?: string | null;
 }
 
+export type TournamentParticipantStatus = typeof TournamentParticipantStatus[keyof typeof TournamentParticipantStatus];
+
+
+export const TournamentParticipantStatus = {
+  approved: 'approved',
+  pending: 'pending',
+} as const;
+
+export interface TournamentParticipant {
+  /** @nullable */
+  teamName: string | null;
+  /** Free Fire in-game names, with the captain first. */
+  players: string[];
+  status: TournamentParticipantStatus;
+}
+
+export interface TournamentParticipantsResponse {
+  tournamentId: string;
+  participants: TournamentParticipant[];
+}
+
 export type TournamentSlotsResponseMode = typeof TournamentSlotsResponseMode[keyof typeof TournamentSlotsResponseMode];
 
 

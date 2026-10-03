@@ -75,6 +75,7 @@ import type {
   Daily007YoutubeSubscribeTaskStatus,
   HealthStatus,
   TournamentLifecycleUpdate,
+  TournamentParticipantsResponse,
   TournamentResultDraft,
   TournamentResultsView,
   TournamentSlotsResponse,
@@ -3883,6 +3884,84 @@ export const useDaily007AdminSaveWalletSettings = <TError = ErrorType<void>,
       > => {
       return useMutation(getDaily007AdminSaveWalletSettingsMutationOptions(options));
     }
+
+export const getGetTournamentParticipantsUrl = (id: string,) => {
+
+
+
+
+  return `/api/tournaments/${id}/participants`
+}
+
+/**
+ * Lists active approved and pending registrations with Free Fire in-game names only; account IDs, contact details, game UIDs, and application profile names are not exposed.
+ * @summary List the joined public player names and teams for a tournament
+ */
+export const getTournamentParticipants = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<TournamentParticipantsResponse> => {
+
+  return customFetch<TournamentParticipantsResponse>(getGetTournamentParticipantsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTournamentParticipantsQueryKey = (id: string,) => {
+    return [
+    `/api/tournaments/${id}/participants`
+    ] as const;
+    }
+
+
+export const getGetTournamentParticipantsQueryOptions = <TData = Awaited<ReturnType<typeof getTournamentParticipants>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTournamentParticipants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTournamentParticipantsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTournamentParticipants>>> = ({ signal }) => getTournamentParticipants(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTournamentParticipants>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTournamentParticipantsQueryResult = NonNullable<Awaited<ReturnType<typeof getTournamentParticipants>>>
+export type GetTournamentParticipantsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List the joined public player names and teams for a tournament
+ */
+
+export function useGetTournamentParticipants<TData = Awaited<ReturnType<typeof getTournamentParticipants>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTournamentParticipants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTournamentParticipantsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetTournamentSlotsUrl = (id: string,) => {
 

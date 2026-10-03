@@ -1,5 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
+import {
+  getGetTournamentParticipantsQueryKey,
+  useGetTournamentParticipants,
+} from '@workspace/api-client-react';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
@@ -12,6 +16,15 @@ export default function TDetail() {
   const route: any = useRoute();
   const id = route?.params?.id;
   const { user } = useApp();
+  const tournamentId = String(id ?? '');
+  const participantsQuery = useGetTournamentParticipants(tournamentId, {
+    query: {
+      queryKey: getGetTournamentParticipantsQueryKey(tournamentId),
+      enabled: Boolean(id),
+      refetchOnMount: 'always',
+      retry: 1,
+    },
+  });
   const [t, setT] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -34,7 +47,10 @@ export default function TDetail() {
     } catch (e: any) { setErr(e?.message || 'Failed to load'); }
     setLoading(false);
   }, [id]);
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const refreshAll = useCallback(async () => {
+    await Promise.all([load(), participantsQuery.refetch()]);
+  }, [load, participantsQuery.refetch]);
+  useFocusEffect(useCallback(() => { void refreshAll(); }, [refreshAll]));
 
   if (loading) return <View style={s.root} />;
   if (!t) return <View style={[s.root, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ color: C.sub }}>Tournament not found.</Text></View>;
@@ -43,6 +59,8 @@ export default function TDetail() {
   const joined = !!t?.joined;
   const teamType = String(t.teamType || '').toLowerCase();
   const mode = String(t.mode || '').toLowerCase();
+  const teamTournament = Number(t.teamSize ?? 1) > 1;
+  const participants = participantsQuery.data?.participants ?? [];
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const tournamentStatus = String(t.status || '').toLowerCase();
@@ -56,7 +74,7 @@ export default function TDetail() {
 
   return (
     <ScrollView style={s.root} contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={C.neon} />}>
+      refreshControl={<RefreshControl refreshing={loading || participantsQuery.isFetching} onRefresh={refreshAll} tintColor={C.neon} />}>
       {/* HERO */}
       <GCard glowColor={st.key === 'ongoing' ? C.neon : C.orange} style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
@@ -102,6 +120,60 @@ export default function TDetail() {
         <KV k="Version" v={t.version || '—'} />
         {!!t.rules && <Text style={s.rules}>{t.rules}</Text>}
       </Card>
+
+      <SectionTitle accent={C.orange} icon={teamTournament ? 'users' : 'user'}>
+        {teamTournament ? `JOINED TEAMS · ${participants.length}` : `JOINED PLAYERS · ${participants.length}`}
+      </SectionTitle>
+      {participantsQuery.isLoading && !participantsQuery.data ? (
+        <Card style={s.participantsLoading}>
+          <ActivityIndicator color={C.neon} />
+          <Text style={s.participantsHint}>Loading participants…</Text>
+        </Card>
+      ) : participantsQuery.isError ? (
+        <Card>
+          <Text style={s.participantsHint}>Participant list couldn’t be loaded. Pull down to retry.</Text>
+        </Card>
+      ) : participants.length === 0 ? (
+        <Card>
+          <Text style={s.participantsHint}>
+            {teamTournament ? 'No teams have joined this match yet.' : 'No players have joined this match yet.'}
+          </Text>
+        </Card>
+      ) : (
+        participants.map((participant, index) => {
+          const playerNames = participant.players;
+          const title = teamTournament
+            ? participant.teamName?.trim() || playerNames[0] || `Team ${index + 1}`
+            : playerNames[0] || `Player ${index + 1}`;
+          return (
+            <Card key={`${participant.teamName ?? 'player'}-${index}`} style={s.participantCard}>
+              <View style={s.participantHeader}>
+                <View style={s.participantNumber}>
+                  <Text style={s.participantNumberText}>{String(index + 1).padStart(2, '0')}</Text>
+                </View>
+                <View style={s.participantTitleWrap}>
+                  <Text style={s.participantName}>{title}</Text>
+                  {participant.status === 'pending' && (
+                    <Text style={s.participantPending}>AWAITING APPROVAL</Text>
+                  )}
+                </View>
+              </View>
+              {teamTournament && playerNames.length > 0 && (
+                <View style={s.memberList}>
+                  {playerNames.map((playerName, playerIndex) => (
+                    <View key={`${playerIndex}-${playerName}`} style={s.memberRow}>
+                      <View style={s.memberDot} />
+                      <Text style={s.memberName}>
+                        {playerIndex === 0 ? 'CAPTAIN' : `PLAYER ${playerIndex + 1}`} · {playerName}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </Card>
+          );
+        })
+      )}
 
       {t.roomId ? (
         <>
@@ -150,4 +222,20 @@ const s = StyleSheet.create({
   statV: { fontSize: 17, fontWeight: '900', marginTop: 3 },
   statSub: { color: C.dim, fontSize: 9, marginTop: 2 },
   rules: { color: C.sub, fontSize: 12, marginTop: 10, lineHeight: 18 },
+  participantsLoading: { alignItems: 'center' },
+  participantsHint: { color: C.sub, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  participantCard: { padding: 12, marginBottom: 8 },
+  participantHeader: { flexDirection: 'row', alignItems: 'center' },
+  participantNumber: {
+    width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    marginRight: 10, backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1,
+  },
+  participantNumberText: { color: C.orange, fontSize: 12, fontWeight: '900' },
+  participantTitleWrap: { flex: 1, minWidth: 0 },
+  participantName: { color: C.text, fontSize: 14, fontWeight: '900' },
+  participantPending: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 0.5, marginTop: 3 },
+  memberList: { borderTopWidth: 1, borderTopColor: C.border, marginTop: 10, paddingTop: 7 },
+  memberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
+  memberDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.blue, marginRight: 8 },
+  memberName: { color: C.sub, fontSize: 11, fontWeight: '800', flexShrink: 1 },
 });

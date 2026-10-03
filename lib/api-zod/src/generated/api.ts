@@ -1132,6 +1132,24 @@ export const Daily007AdminSaveWalletSettingsResponse = zod.unknown()
 
 
 /**
+ * Lists active approved and pending registrations with Free Fire in-game names only; account IDs, contact details, game UIDs, and application profile names are not exposed.
+ * @summary List the joined public player names and teams for a tournament
+ */
+export const GetTournamentParticipantsParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const GetTournamentParticipantsResponse = zod.object({
+  "tournamentId": zod.string().uuid(),
+  "participants": zod.array(zod.object({
+  "teamName": zod.string().nullable(),
+  "players": zod.array(zod.string()).describe('Free Fire in-game names, with the captain first.'),
+  "status": zod.enum(['approved', 'pending'])
+}))
+})
+
+
+/**
  * @summary List public slot or team occupancy without exposing room credentials
  */
 export const GetTournamentSlotsParams = zod.object({
