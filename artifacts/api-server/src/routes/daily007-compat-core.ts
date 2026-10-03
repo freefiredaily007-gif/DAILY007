@@ -6,6 +6,7 @@ import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials } from "../lib/daily007-room-access";
+import { parsePasswordChangeInput, passwordHashesMatch } from "../lib/daily007-password-change";
 import {
   cancelUnderfilledTournamentAndRefund,
   tournamentCancellationError,
@@ -307,6 +308,46 @@ router.get("/auth/me", authenticate, (req, res): void => {
   const account = req.daily007Account;
   if (!account) return fail(res, 401, "Authentication is required.");
   res.json(asLegacyUser(account));
+});
+
+router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> => {
+  const account = req.daily007Account;
+  const input = parsePasswordChangeInput(req.body as unknown);
+  if (!account || !input) {
+    fail(res, 400, "Enter your current password and a new password of 8–200 characters.");
+    return;
+  }
+
+  const credentials = await pool.query<{ password_salt: string; password_hash: string }>(
+    "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+    [account.id],
+  );
+  const stored = credentials.rows[0];
+  if (!stored) {
+    fail(res, 404, "Account not found.");
+    return;
+  }
+
+  const candidate = await hashPassword(input.currentPassword, Buffer.from(stored.password_salt, "hex"));
+  if (!passwordHashesMatch(Buffer.from(candidate.hash, "hex"), Buffer.from(stored.password_hash, "hex"))) {
+    fail(res, 401, "Current password is incorrect.");
+    return;
+  }
+
+  const replacement = await hashPassword(input.newPassword);
+  const updated = await pool.query<{ id: string }>(
+    `UPDATE daily007_v2_users
+        SET password_salt = $2, password_hash = $3
+      WHERE id = $1 AND password_salt = $4 AND password_hash = $5
+      RETURNING id`,
+    [account.id, replacement.salt, replacement.hash, stored.password_salt, stored.password_hash],
+  );
+  if (!updated.rows[0]) {
+    fail(res, 409, "The password changed in another session. Sign in again and retry.");
+    return;
+  }
+
+  res.json({ message: "Password changed. Other signed-in sessions remain active." });
 });
 
 router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {

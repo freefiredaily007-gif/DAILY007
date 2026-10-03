@@ -713,6 +713,23 @@ export interface Daily007AdminUserRoleBody {
   role: Daily007AdminUserRoleBodyRole;
 }
 
+export interface Daily007ChangePasswordBody {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  currentPassword: string;
+  /**
+     * @minLength 8
+     * @maxLength 200
+     */
+  newPassword: string;
+}
+
+export interface Daily007ChangePasswordResult {
+  message: string;
+}
+
 export interface Daily007GoogleRecoveryRequestAccepted {
   message: string;
 }

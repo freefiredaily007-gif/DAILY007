@@ -7,10 +7,12 @@ import { useApp } from '../App';
 import { Api, apiError } from '../lib/api';
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
+import { useDaily007ChangePassword } from '@workspace/api-client-react';
 
 export default function Profile() {
   const { user, logout, refresh } = useApp();
   const nav = useNavigation<any>();
+  const { mutateAsync: changePassword, isPending: passwordBusy } = useDaily007ChangePassword();
   const [bootstrapAvailable, setBootstrapAvailable] = React.useState(false);
   const [bootstrapStatusError, setBootstrapStatusError] = React.useState('');
   const [setupVisible, setSetupVisible] = React.useState(false);
@@ -20,6 +22,12 @@ export default function Profile() {
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
   const [googleConnectError, setGoogleConnectError] = React.useState('');
   const [googleConnected, setGoogleConnected] = React.useState(false);
+  const [passwordModalVisible, setPasswordModalVisible] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState('');
+  const [newPassword, setNewPassword] = React.useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = React.useState('');
+  const [passwordError, setPasswordError] = React.useState('');
+  const [passwordMessage, setPasswordMessage] = React.useState('');
 
   React.useEffect(() => {
     let active = true;
@@ -70,6 +78,51 @@ export default function Profile() {
     }
   };
 
+  const openPasswordModal = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setPasswordError('');
+    setPasswordMessage('');
+    setPasswordModalVisible(true);
+  };
+
+  const closePasswordModal = () => {
+    if (passwordBusy) return;
+    setPasswordModalVisible(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setPasswordError('');
+  };
+
+  const submitPasswordChange = async () => {
+    setPasswordError('');
+    if (!currentPassword || currentPassword.length > 200) {
+      setPasswordError('Enter your current Daily007 password.');
+      return;
+    }
+    if (newPassword.length < 8 || newPassword.length > 200) {
+      setPasswordError('Your new password must be 8–200 characters.');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('The new passwords do not match.');
+      return;
+    }
+
+    try {
+      await changePassword({ data: { currentPassword, newPassword } });
+      setPasswordMessage('Password changed. Other signed-in sessions remain active.');
+      setPasswordModalVisible(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (e) {
+      setPasswordError(apiError(e));
+    }
+  };
+
   return (
     <>
     <ScrollView style={s.wrap} contentContainerStyle={{ padding: 14, gap: 12 }}>
@@ -114,6 +167,14 @@ export default function Profile() {
         {googleConnected && <Text style={s.connected}>Google connection confirmed.</Text>}
       </Card>
 
+      <SectionTitle accent={C.gold}>SECURITY</SectionTitle>
+      <Card>
+        <Text style={s.connectTitle}>DAILY007 PASSWORD</Text>
+        <Text style={s.connectDescription}>Change your Daily007 password. This does not change your Google password.</Text>
+        <Btn title="CHANGE PASSWORD" kind="ghost" onPress={openPasswordModal} />
+        {!!passwordMessage && <Text style={s.connected}>{passwordMessage}</Text>}
+      </Card>
+
       <Btn title="🎮 MY MATCHES" kind="ghost" onPress={() => nav.navigate('MyMatches')} />
       <Btn title="✏️ EDIT PROFILE" kind="ghost" onPress={() => nav.navigate('EditProfile')} />
       <Btn title="🔔 NOTIFICATIONS" kind="ghost" onPress={() => nav.navigate('Notifications')} />
@@ -152,6 +213,61 @@ export default function Profile() {
           {!!bootstrapError && <Text style={s.modalError}>{bootstrapError}</Text>}
           <Btn title="COMPLETE ADMIN SETUP" kind="gold" loading={bootstrapBusy} onPress={submitBootstrap} />
           <Btn title="CANCEL" kind="ghost" disabled={bootstrapBusy} onPress={closeSetup} />
+        </View>
+      </View>
+    </Modal>
+    <Modal
+      visible={passwordModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={closePasswordModal}
+    >
+      <View style={s.modalOverlay}>
+        <View style={s.modalCard}>
+          <Text style={s.modalTitle}>CHANGE PASSWORD</Text>
+          <Text style={s.modalDescription}>
+            Enter your current Daily007 password. This does not change Google sign-in, and other signed-in sessions remain active.
+          </Text>
+          <Input
+            value={currentPassword}
+            onChangeText={(value) => { setCurrentPassword(value); setPasswordError(''); }}
+            placeholder="Current password"
+            accessibilityLabel="Current Daily007 password"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={200}
+            editable={!passwordBusy}
+            returnKeyType="next"
+          />
+          <Input
+            value={newPassword}
+            onChangeText={(value) => { setNewPassword(value); setPasswordError(''); }}
+            placeholder="New password (8–200 characters)"
+            accessibilityLabel="New Daily007 password"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={200}
+            editable={!passwordBusy}
+            returnKeyType="next"
+          />
+          <Input
+            value={confirmNewPassword}
+            onChangeText={(value) => { setConfirmNewPassword(value); setPasswordError(''); }}
+            placeholder="Confirm new password"
+            accessibilityLabel="Confirm new Daily007 password"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={200}
+            editable={!passwordBusy}
+            returnKeyType="done"
+            onSubmitEditing={submitPasswordChange}
+          />
+          {!!passwordError && <Text style={s.modalError}>{passwordError}</Text>}
+          <Btn title="UPDATE PASSWORD" kind="gold" loading={passwordBusy} onPress={submitPasswordChange} />
+          <Btn title="CANCEL" kind="ghost" disabled={passwordBusy} onPress={closePasswordModal} />
         </View>
       </View>
     </Modal>

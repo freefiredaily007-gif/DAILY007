@@ -49,6 +49,8 @@ import type {
   Daily007AdminVideoActiveBody,
   Daily007AdminVideoCreateBody,
   Daily007AdminYoutubeSubscribeClaims,
+  Daily007ChangePasswordBody,
+  Daily007ChangePasswordResult,
   Daily007GoogleOwnerRecoveryBody,
   Daily007GoogleOwnerRecoveryResult,
   Daily007GoogleRecoveryRequestAccepted,
@@ -340,6 +342,97 @@ export const useDaily007V2Login = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007V2LoginMutationOptions(options));
+    }
+
+export const getDaily007ChangePasswordUrl = () => {
+
+
+
+
+  return `/api/auth/me/password`
+}
+
+/**
+ * Requires the current Daily007 password. Updates only the local Daily007
+ * password; Google credentials are unchanged. Existing signed-in sessions
+ * remain valid.
+ * @summary Change the signed-in Daily007 account password
+ */
+export const daily007ChangePassword = async (daily007ChangePasswordBody: Daily007ChangePasswordBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007ChangePasswordResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007ChangePasswordResult>(getDaily007ChangePasswordUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007ChangePasswordBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007ChangePasswordMutationKey = () => ['daily007ChangePassword'] as const;
+
+export const getDaily007ChangePasswordMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007ChangePassword>>, TError,Daily007ChangePasswordMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007ChangePassword>>, TError,Daily007ChangePasswordMutationVariables, TContext> => {
+
+const mutationKey = getDaily007ChangePasswordMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007ChangePassword>>, Daily007ChangePasswordMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007ChangePassword(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007ChangePasswordMutationResult = NonNullable<Awaited<ReturnType<typeof daily007ChangePassword>>>
+    export type Daily007ChangePasswordMutationBody = BodyType<Daily007ChangePasswordBody>
+    export type Daily007ChangePasswordMutationError = ErrorType<void>
+    export type Daily007ChangePasswordMutationVariables = {data: BodyType<Daily007ChangePasswordBody>}
+
+    /**
+ * @summary Change the signed-in Daily007 account password
+ */
+export const useDaily007ChangePassword = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007ChangePassword>>, TError,Daily007ChangePasswordMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007ChangePassword>>,
+        TError,
+        Daily007ChangePasswordMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007ChangePasswordMutationOptions(options));
     }
 
 export const getDaily007GoogleSignInUrl = () => {

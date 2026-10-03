@@ -57,6 +57,31 @@ paths:
       responses:
         "200": { description: Bearer token and account }
         "401": { description: Invalid credentials }
+  /auth/me/password:
+    patch:
+      operationId: daily007ChangePassword
+      summary: Change the signed-in Daily007 account password
+      description: |
+        Requires the current Daily007 password. Updates only the local Daily007
+        password; Google credentials are unchanged. Existing signed-in sessions
+        remain valid.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007ChangePasswordBody" }
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007ChangePasswordResult" }
+        "400": { description: Invalid password-change request }
+        "401": { description: "Missing or invalid bearer token, or current password is incorrect" }
+        "403": { description: Account is blocked }
+        "404": { description: Account not found }
+        "409": { description: Password changed concurrently; retry with the current password }
   /auth/google:
     post:
       operationId: daily007GoogleSignIn
@@ -1416,6 +1441,18 @@ components:
       properties:
         role: { type: string, enum: [user, tournament_admin] }
       required: [role]
+    Daily007ChangePasswordBody:
+      type: object
+      additionalProperties: false
+      properties:
+        currentPassword: { type: string, minLength: 1, maxLength: 200 }
+        newPassword: { type: string, minLength: 8, maxLength: 200 }
+      required: [currentPassword, newPassword]
+    Daily007ChangePasswordResult:
+      type: object
+      properties:
+        message: { type: string }
+      required: [message]
     Daily007GoogleRecoveryRequestAccepted:
       type: object
       properties:

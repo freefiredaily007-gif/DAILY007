@@ -48,6 +48,29 @@ export const Daily007V2LoginResponse = zod.unknown()
 
 
 /**
+ * Requires the current Daily007 password. Updates only the local Daily007
+ * password; Google credentials are unchanged. Existing signed-in sessions
+ * remain valid.
+ * @summary Change the signed-in Daily007 account password
+ */
+export const daily007ChangePasswordBodyCurrentPasswordMax = 200;
+
+export const daily007ChangePasswordBodyNewPasswordMin = 8;
+export const daily007ChangePasswordBodyNewPasswordMax = 200;
+
+
+
+export const Daily007ChangePasswordBody = zod.object({
+  "currentPassword": zod.string().min(1).max(daily007ChangePasswordBodyCurrentPasswordMax),
+  "newPassword": zod.string().min(daily007ChangePasswordBodyNewPasswordMin).max(daily007ChangePasswordBodyNewPasswordMax)
+})
+
+export const Daily007ChangePasswordResponse = zod.object({
+  "message": zod.string()
+})
+
+
+/**
  * Requires a Clerk session bearer token. The server fetches the Clerk user
  * and accepts only a Google external account with a verified email; client
  * email and provider identity values are never trusted. Existing local
