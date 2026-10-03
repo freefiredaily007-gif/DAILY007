@@ -330,7 +330,7 @@ export default function Video() {
         key: selectedVideo.id,
         ref: webFrameRef,
         srcDoc: playerDocument,
-        title: selectedVideo.title,
+        title: 'Video player',
         allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
         allowFullScreen: true,
         style: { width: '100%', height: '100%', border: 0, display: 'block' },
@@ -358,9 +358,6 @@ export default function Video() {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.scrollContent}>
-      <Text style={styles.title}>VIDEO</Text>
-      <Text style={styles.subtitle}>WATCH & EARN</Text>
-
       {videosQuery.isLoading ? (
         <View style={styles.emptyCard}>
           <ActivityIndicator color={colors.accent} />
@@ -383,32 +380,34 @@ export default function Video() {
         </View>
       ) : null}
 
-      {videos.length > 0 ? (
-        <View style={styles.videoChoices}>
-          {videos.map((video) => {
+      {videos.length > 1 ? (
+        <ScrollView
+          horizontal
+          style={styles.videoChoices}
+          contentContainerStyle={styles.videoChoicesContent}
+          showsHorizontalScrollIndicator={false}
+          accessibilityLabel="Choose a video"
+        >
+          {videos.map((video, index) => {
             const selected = video.id === selectedVideo?.id;
             return (
               <Pressable
                 key={video.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
+                accessibilityLabel={`Select video ${index + 1}`}
                 onPress={() => setSelectedVideoId(video.id)}
                 style={[styles.videoChoice, selected && styles.videoChoiceSelected]}
               >
                 <Feather name={selected ? 'play-circle' : 'video'} size={17} color={selected ? colors.primary : colors.mutedForeground} />
-                <Text numberOfLines={2} style={[styles.videoChoiceTitle, selected && styles.videoChoiceTitleSelected]}>
-                  {video.title}
-                </Text>
-                {selected ? <Feather name="check" size={16} color={colors.primary} /> : null}
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
       ) : null}
 
       {selectedVideo ? (
         <>
-          <Text style={styles.selectedTitle}>{selectedVideo.title}</Text>
           <View style={styles.playerShell}>
             {player}
             {!playerReady && !playerFailed ? (
@@ -514,43 +513,19 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       ...webInsets,
     },
     scrollContent: { paddingBottom: 24 },
-    title: {
-      color: colors.foreground,
-      fontSize: 20,
-      fontWeight: '900',
-      letterSpacing: 1,
-    },
-    subtitle: {
-      color: colors.accent,
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 1.2,
-      marginTop: 5,
-      marginBottom: 14,
-    },
-    videoChoices: { gap: 8, marginBottom: 16 },
+    videoChoices: { flexGrow: 0, marginBottom: 12 },
+    videoChoicesContent: { gap: 8 },
     videoChoice: {
-      minHeight: 48,
-      flexDirection: 'row',
+      width: 44,
+      height: 44,
       alignItems: 'center',
-      gap: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
+      justifyContent: 'center',
       borderRadius: colors.radius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.card,
     },
-    videoChoiceSelected: { borderColor: colors.primary },
-    videoChoiceTitle: { flex: 1, color: colors.mutedForeground, fontSize: 12, fontWeight: '700' },
-    videoChoiceTitleSelected: { color: colors.foreground },
-    selectedTitle: {
-      color: colors.foreground,
-      fontSize: 15,
-      lineHeight: 21,
-      fontWeight: '800',
-      marginBottom: 9,
-    },
+    videoChoiceSelected: { borderColor: colors.primary, backgroundColor: colors.secondary },
     emptyCard: {
       minHeight: 62,
       flexDirection: 'row',
