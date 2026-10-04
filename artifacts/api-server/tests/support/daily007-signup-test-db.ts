@@ -186,6 +186,22 @@ class MemorySignupDatabase {
         password_hash: user.password_hash,
       }] : [];
     } else if (normalized.startsWith(
+      "SELECT id, name, email, phone, game_uid, role, status, wallet_coins, password_salt, password_hash FROM daily007_v2_users",
+    )) {
+      const user = [...this.users.values()].find((entry) => entry.email === first);
+      rows = user ? [{
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        game_uid: user.game_uid,
+        role: user.role,
+        status: user.status,
+        wallet_coins: user.wallet_coins,
+        password_salt: user.password_salt,
+        password_hash: user.password_hash,
+      }] : [];
+    } else if (normalized.startsWith(
       "INSERT INTO daily007_v2_referral_codes (user_id, code)",
     )) {
       const [userId, code] = values.map(String);
