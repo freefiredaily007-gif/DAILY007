@@ -8,3 +8,5 @@ Referral invites should be directly usable: the shared link is a clickable HTTPS
 **Why:** The user reported referral links were not clickable and referral codes were too long to remember, then clarified that invitees must use Daily007 in Chrome without an Expo launch or app redirect.
 
 **How to apply:** Serve the web export at `/` and keep native Expo manifests on their existing routes; use the explicit browser API for the in-app open action; preserve HTTPS query parameters, old app-scheme links, legacy referral codes, and the existing reward policy.
+
+On 2026-10-04, the user confirmed that the installed Android app's **OPEN INVITE** action opened the HTTPS signup page in a browser rather than an Expo launcher, and signup applied the exact referral code shown in Earn.
