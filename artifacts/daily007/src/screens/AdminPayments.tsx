@@ -6,6 +6,7 @@ import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
 import { ConfirmDialog, PromptDialog } from '../components/adminKit';
+import { copyWithdrawalUpi, getWithdrawalUpiCopyLabel } from '../lib/withdrawal-upi-copy';
 
 const TABS = ['pending', 'approved', 'rejected'] as const;
 
@@ -84,19 +85,6 @@ export default function AdminPayments() {
     finally { setProofLoading(null); }
   };
 
-  const copyWithdrawalUpi = async (requestId: string, upiId: string) => {
-    const value = upiId;
-    if (!value.trim()) return;
-    setCopiedUpiId(null);
-    try {
-      await Clipboard.setStringAsync(value);
-      setCopiedUpiId(requestId);
-      setErr('');
-    } catch {
-      setErr('Could not copy this UPI ID.');
-    }
-  };
-
   const markPaid = async () => {
     if (!payoutTarget) return;
     setPayoutBusy(true); setErr(''); setOkMsg('');
@@ -135,12 +123,20 @@ export default function AdminPayments() {
               </Text>
               {String(p.method || '').toLowerCase() === 'upi' && p.account ? (
                 <Btn
-                  title={copiedUpiId === p.id ? 'COPIED' : 'COPY UPI'}
+                  title={getWithdrawalUpiCopyLabel(String(p.id), copiedUpiId)}
                   small
                   kind="ghost"
                   accessibilityLabel="Copy withdrawal UPI ID"
                   testID={`copy-withdrawal-upi-${p.id}`}
-                  onPress={() => { void copyWithdrawalUpi(String(p.id), String(p.account)); }}
+                  onPress={() => {
+                    void copyWithdrawalUpi(
+                      String(p.id),
+                      String(p.account),
+                      Clipboard,
+                      setCopiedUpiId,
+                      setErr,
+                    );
+                  }}
                 />
               ) : null}
             </View>
