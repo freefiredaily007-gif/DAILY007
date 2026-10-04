@@ -268,7 +268,7 @@ class MemoryTournamentResultsDatabase {
         captain_user_id: registration.captain_user_id,
         prize_pool: this.match.prize_pool,
         prize_distribution: this.match.prize_distribution,
-        has_started: true,
+        has_started: this.match.starts_at.getTime() <= Date.now() + 5.5 * 60 * 60 * 1000,
         match_status: this.match.status,
       }] : [];
     } else if (normalized.startsWith(

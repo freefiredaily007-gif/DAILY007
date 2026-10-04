@@ -69,6 +69,39 @@ async function call(
   return { status: response.status, body: await response.json() };
 }
 
+async function createResultsTournament(origin: string): Promise<void> {
+  const startsAt = new Date(Date.now() + 86_400_000);
+  const createdTournament = await call(origin, TEST_ADMIN_ID, "/tournaments", "POST", {
+    name: "Prize verification tournament",
+    mode: "battle_royale",
+    teamType: "solo",
+    entryCoins: 0,
+    prizePool: 2_100,
+    rules: "Test-only prize verification.",
+    banner: "br",
+    date: startsAt.toISOString().slice(0, 10),
+    time: startsAt.toISOString().slice(11, 16),
+    prizeDist: "1st: 1,500 coins\n2nd: 600 coins",
+  });
+  assert.equal(createdTournament.status, 201);
+  assert.equal(createdTournament.body.id, TEST_MATCH_ID);
+  assert.equal(createdTournament.body.prizeDist, "1st: 1,500 coins\n2nd: 600 coins");
+  tournamentResultsTestDb.approveTestRegistrations();
+}
+
+function captureSettlementState() {
+  return {
+    wallets: Array.from(
+      tournamentResultsTestDb.users,
+      ([id, user]) => ({ id, walletCoins: user.wallet_coins }),
+    ),
+    ledger: structuredClone(tournamentResultsTestDb.ledger),
+    stats: structuredClone(tournamentResultsTestDb.stats),
+    awards: structuredClone(tournamentResultsTestDb.awards),
+    match: structuredClone(tournamentResultsTestDb.match),
+  };
+}
+
 test("admin result prize display follows each saved rank amount", () => {
   const tournament = {
     prizePool: 2_100,
@@ -85,23 +118,8 @@ test("saved-prize results reject duplicate retries and competing winners without
   tournamentResultsTestDb.reset();
 
   await withServer(async (origin) => {
-    const startsAt = new Date(Date.now() + 86_400_000);
-    const createdTournament = await call(origin, TEST_ADMIN_ID, "/tournaments", "POST", {
-      name: "Prize verification tournament",
-      mode: "battle_royale",
-      teamType: "solo",
-      entryCoins: 0,
-      prizePool: 2_100,
-      rules: "Test-only prize verification.",
-      banner: "br",
-      date: startsAt.toISOString().slice(0, 10),
-      time: `${startsAt.toISOString().slice(11, 16)}`,
-      prizeDist: "1st: 1,500 coins\n2nd: 600 coins",
-    });
-    assert.equal(createdTournament.status, 201);
-    assert.equal(createdTournament.body.id, TEST_MATCH_ID);
-    assert.equal(createdTournament.body.prizeDist, "1st: 1,500 coins\n2nd: 600 coins");
-    tournamentResultsTestDb.approveTestRegistrations();
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
 
     const runnerUp = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
       tournamentId: TEST_MATCH_ID,
@@ -168,13 +186,7 @@ test("saved-prize results reject duplicate retries and competing winners without
       ],
     );
 
-    const sideEffectsBeforeRetry = {
-      wallets: Array.from(tournamentResultsTestDb.users, ([id, user]) => [id, user.wallet_coins]),
-      ledger: structuredClone(tournamentResultsTestDb.ledger),
-      stats: structuredClone(tournamentResultsTestDb.stats),
-      awards: structuredClone(tournamentResultsTestDb.awards),
-      match: structuredClone(tournamentResultsTestDb.match),
-    };
+    const sideEffectsBeforeRetry = captureSettlementState();
 
     const duplicateWinner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
       tournamentId: TEST_MATCH_ID,
@@ -189,13 +201,7 @@ test("saved-prize results reject duplicate retries and competing winners without
     const standingsAfterRetry = await call(origin, TEST_ADMIN_ID, `/tournaments/${TEST_MATCH_ID}/results`, "GET");
     assert.equal(standingsAfterRetry.status, 200);
     assert.deepEqual(standingsAfterRetry.body, standings.body);
-    assert.deepEqual({
-      wallets: Array.from(tournamentResultsTestDb.users, ([id, user]) => [id, user.wallet_coins]),
-      ledger: tournamentResultsTestDb.ledger,
-      stats: tournamentResultsTestDb.stats,
-      awards: tournamentResultsTestDb.awards,
-      match: tournamentResultsTestDb.match,
-    }, sideEffectsBeforeRetry);
+    assert.deepEqual(captureSettlementState(), sideEffectsBeforeRetry);
 
     const competingWinner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
       tournamentId: TEST_MATCH_ID,
@@ -210,12 +216,56 @@ test("saved-prize results reject duplicate retries and competing winners without
     const standingsAfterCompetition = await call(origin, TEST_ADMIN_ID, `/tournaments/${TEST_MATCH_ID}/results`, "GET");
     assert.equal(standingsAfterCompetition.status, 200);
     assert.deepEqual(standingsAfterCompetition.body, standings.body);
-    assert.deepEqual({
-      wallets: Array.from(tournamentResultsTestDb.users, ([id, user]) => [id, user.wallet_coins]),
-      ledger: tournamentResultsTestDb.ledger,
-      stats: tournamentResultsTestDb.stats,
-      awards: tournamentResultsTestDb.awards,
-      match: tournamentResultsTestDb.match,
-    }, sideEffectsBeforeRetry);
+    assert.deepEqual(captureSettlementState(), sideEffectsBeforeRetry);
+  });
+});
+
+test("result publishing is rejected before tournament start without settlement changes", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    const before = captureSettlementState();
+
+    const result = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, "Results can only be published after the tournament starts.");
+    assert.deepEqual(captureSettlementState(), before);
+    assert.equal(tournamentResultsTestDb.awards.length, 0);
+    assert.equal(tournamentResultsTestDb.stats.size, 0);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+  });
+});
+
+test("result publishing is rejected for cancelled tournaments without settlement changes", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+    tournamentResultsTestDb.match.status = "cancelled";
+    const before = captureSettlementState();
+
+    const result = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, "Results cannot be published for a cancelled tournament.");
+    assert.deepEqual(captureSettlementState(), before);
+    assert.equal(tournamentResultsTestDb.awards.length, 0);
+    assert.equal(tournamentResultsTestDb.stats.size, 0);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
   });
 });
