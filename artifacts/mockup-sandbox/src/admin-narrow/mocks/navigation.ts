@@ -5,7 +5,13 @@ export function useFocusEffect(effect: () => void | (() => void)) {
 }
 
 export function useNavigation() {
-  return { navigate: () => undefined };
+  return {
+    navigate: (...args: unknown[]) => {
+      const preview = globalThis as typeof globalThis & { __previewNavigations?: unknown[][] };
+      preview.__previewNavigations ??= [];
+      preview.__previewNavigations.push(args);
+    },
+  };
 }
 
 export function useRoute() {

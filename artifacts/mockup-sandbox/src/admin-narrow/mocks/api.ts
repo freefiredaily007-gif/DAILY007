@@ -96,6 +96,7 @@ let tournamentReadCount = 0;
 
 export const Api = {
   me: async () => ({ ...previewAdmin }),
+  settings: async () => ({ settings: { ...settings } }),
   adminStats: async () => ({ ...stats, stats: { ...stats } }),
   adminSettings: async () => ({ ...settings, settings: { ...settings } }),
   adminSaveSettings: async () => ({ ...settings, settings: { ...settings } }),

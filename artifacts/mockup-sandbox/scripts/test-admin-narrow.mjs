@@ -22,6 +22,7 @@ const adminTabs = [
   ["settings", "Settings"],
 ];
 const resumeOnly = process.argv.includes("--resume-only");
+const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -362,13 +363,69 @@ async function checkTournamentResume() {
   await assertText("IST Start Boundary", "the Admin tournament after resume");
 }
 
+async function checkHomeCarousel() {
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true",
+    "Home to initialize",
+  );
+  await waitForCondition(
+    "document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+    "Home to show the near-future tournament and two later tournaments",
+  );
+  await assertText("Starting at IST", "the tournament before its scheduled start");
+  await assertText("Later Tournament One");
+  await assertText("Later Tournament Two");
+
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.didStartTimerFire() && window.__daily007HomeCarouselTest.getFakeNow() >= window.__daily007HomeCarouselTest.scheduledStartMs && !document.querySelector('[data-testid=\"home-upcoming-card-starting-soon\"]') && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 2",
+    "Home to remove the tournament at its scheduled IST start",
+  );
+  await assertText("Later Tournament One");
+  await assertText("Later Tournament Two");
+
+  const carouselState = await evaluate(`(() => {
+    const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
+    const indicators = document.querySelector('[data-testid="home-upcoming-page-indicators"]');
+    if (!carousel || !indicators) return null;
+    const remaining = [...carousel.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    const maxScroll = carousel.scrollWidth - carousel.clientWidth;
+    carousel.scrollLeft = maxScroll;
+    carousel.dispatchEvent(new Event("scroll", { bubbles: true }));
+    return {
+      remainingIds: remaining.map((item) => item.getAttribute("data-testid")),
+      indicatorCount: indicators.children.length,
+      maxScroll,
+      scrollLeft: carousel.scrollLeft,
+    };
+  })()`);
+  assert(carouselState, "The remaining Home carousel and page indicators should stay mounted.");
+  assert(carouselState.remainingIds.length === 2, "Both later tournaments should remain in the carousel.");
+  assert(carouselState.indicatorCount === 2, "Page indicators should match the two remaining tournaments.");
+  assert(carouselState.maxScroll > 0, "The remaining carousel should still have horizontal content to browse.");
+  await waitForCondition(
+    "document.querySelector('[data-testid=\"home-upcoming-carousel\"]')?.scrollLeft > 0",
+    "The remaining Home carousel to scroll to a later card",
+  );
+
+  await clickSelector('[data-testid="home-upcoming-card-later-two"]', "remaining tournament card");
+  const navigations = await evaluate("globalThis.__previewNavigations ?? []");
+  assert(
+    JSON.stringify(navigations.at(-1)) === JSON.stringify(["TDetail", { id: "later-two" }]),
+    "The remaining Home tournament card should still open its details.",
+  );
+}
+
 let vitePort;
 
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = resumeOnly ? "tournament-resume-preview.html" : "admin-narrow-preview.html";
+  const previewPath = resumeOnly
+    ? "tournament-resume-preview.html"
+    : homeCarouselOnly
+      ? "home-carousel-preview.html"
+      : "admin-narrow-preview.html";
 
   vite = spawn(
     "pnpm",
@@ -422,17 +479,23 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (resumeOnly) {
+  if (resumeOnly || homeCarouselOnly) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: 800,
-      height: 1000,
+      width: homeCarouselOnly ? 390 : 800,
+      height: homeCarouselOnly ? 844 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
-    await waitForPage("player and Admin tournament screens");
-    await checkTournamentResume();
-    assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);
-    console.log("PASS — player and Admin tournament lists refetch after resume across an IST start without manual refresh.");
+    await waitForPage(homeCarouselOnly ? "Home carousel" : "player and Admin tournament screens");
+    if (homeCarouselOnly) {
+      await checkHomeCarousel();
+      assert(browserErrors.length === 0, `Browser errors during Home carousel checks: ${browserErrors.join(" | ")}`);
+      console.log("PASS — Home removes a tournament at its scheduled IST start and keeps remaining carousel cards usable.");
+    } else {
+      await checkTournamentResume();
+      assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);
+      console.log("PASS — player and Admin tournament lists refetch after resume across an IST start without manual refresh.");
+    }
   } else {
     await setViewport(360);
     await checkAdminTabs(360);

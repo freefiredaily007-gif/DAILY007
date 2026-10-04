@@ -177,6 +177,7 @@ export default function Home() {
         <>
           <ScrollView
             ref={carouselRef}
+            testID="home-upcoming-carousel"
             horizontal pagingEnabled showsHorizontalScrollIndicator={false}
             onScroll={onCarouselScroll} scrollEventThrottle={16}
             style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16 }}
@@ -204,7 +205,13 @@ export default function Home() {
                 ? capacityFull ? 'JOINED · SLOTS FULL' : 'JOINED'
                 : ongoing ? 'VIEW MATCH' : capacityFull ? 'SLOTS FULL' : 'JOIN NOW ›';
         return (
-          <GCard key={t.id} onPress={() => goStack('tdetail:' + t.id)} glowColor={ongoing ? C.red : br ? C.orange : C.purple} style={s.matchCard}>
+          <GCard
+            key={t.id}
+            testID={`home-upcoming-card-${t.id}`}
+            onPress={() => goStack('tdetail:' + t.id)}
+            glowColor={ongoing ? C.red : br ? C.orange : C.purple}
+            style={s.matchCard}
+          >
             <View style={showBattleRoyalePoster ? s.mPosterBanner : showFormatArt ? s.mFormatBanner : s.mBanner}>
               <Image
                 source={showBattleRoyalePoster ? formatPresentation.image : showFormatArt ? formatPresentation.image : br ? bannerSquad : bannerClash}
@@ -279,9 +286,9 @@ export default function Home() {
             ); })}
           </ScrollView>
           {upcomingItems.length > 1 && (
-            <View style={s.dots}>
+            <View testID="home-upcoming-page-indicators" style={s.dots}>
               {upcomingItems.slice(0, 8).map((_, i) => (
-                <View key={i} style={[s.dot, i === page && { backgroundColor: C.neon, width: 16 }]} />
+                <View key={i} testID={`home-upcoming-page-dot-${i}`} style={[s.dot, i === page && { backgroundColor: C.neon, width: 16 }]} />
               ))}
             </View>
           )}

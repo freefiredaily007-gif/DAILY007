@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:admin-narrow": "node scripts/test-admin-narrow.mjs",
-    "test:tournament-resume": "node scripts/test-admin-narrow.mjs --resume-only"
+    "test:tournament-resume": "node scripts/test-admin-narrow.mjs --resume-only",
+    "test:home-carousel": "node scripts/test-admin-narrow.mjs --home-carousel-only"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
