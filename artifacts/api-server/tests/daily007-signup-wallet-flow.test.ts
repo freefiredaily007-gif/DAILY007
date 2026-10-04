@@ -152,3 +152,55 @@ test("password signup returns one 10-coin bonus through wallet history, and repe
     assert.equal(signupTestDb.ledger.length, 2);
   });
 });
+
+test("unknown referral code rolls back signup so the same email can register with a valid code", async () => {
+  signupTestDb.reset();
+
+  await withServer(async (origin) => {
+    const email = "retry-after-invalid-referral@example.test";
+    const invalidRegistration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      {
+        name: "Retry referral player",
+        email,
+        password: "test-password-123",
+        referralCode: "NOTREAL",
+      },
+    );
+
+    assert.equal(invalidRegistration.status, 400);
+    assert.deepEqual(invalidRegistration.body, {
+      error: "Referral code is not recognized.",
+    });
+    assert.equal([...signupTestDb.users.values()].some((user) => user.email === email), false);
+    assert.equal(signupTestDb.users.size, 1);
+    assert.equal(signupTestDb.shortCodesByUser.size, 1);
+    assert.equal(signupTestDb.shortCodeOwners.size, 1);
+    assert.equal(signupTestDb.referrals.length, 0);
+    assert.equal(signupTestDb.ledger.length, 0);
+
+    const validRegistration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      {
+        name: "Retry referral player",
+        email,
+        password: "test-password-123",
+        referralCode: SIGNUP_TEST_REFERRAL_CODE,
+      },
+    );
+
+    assert.equal(validRegistration.status, 201);
+    assert.equal(validRegistration.body.account.email, email);
+    assert.equal(validRegistration.body.account.wallet_coins, 10);
+    const accountId = validRegistration.body.account.id as string;
+    assert.equal(signupTestDb.users.get(accountId)?.email, email);
+    assert.equal(signupTestDb.referrals.length, 1);
+    assert.equal(signupTestDb.referrals[0]?.referred_user_id, accountId);
+    assert.equal(signupTestDb.ledger.length, 1);
+    assert.equal(signupTestDb.ledger[0]?.user_id, accountId);
+  });
+});
