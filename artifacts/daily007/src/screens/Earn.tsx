@@ -9,12 +9,12 @@ import {
   ScrollView,
   Share,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
+import { ReadableText as Text } from '../components/typography';
 import {
   useDaily007GetMyReferrals,
   useDaily007GetYoutubeSubscribeTask,

@@ -6,12 +6,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
+import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { useColors } from '@/hooks/useColors';
 import {
   useDaily007CompleteVideoWatch,

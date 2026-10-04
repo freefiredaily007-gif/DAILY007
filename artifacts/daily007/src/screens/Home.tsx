@@ -132,12 +132,12 @@ export default function Home() {
           <View style={[s.logoBadge, glow(C.neon, 14)]}>
             <Image source={logoImg} style={s.logoImg} resizeMode="cover" />
           </View>
-          <View>
+          <View style={s.logoText}>
             <Text style={s.logo}>FREE FIRE</Text>
             <Text style={s.logoSub}>DAILY007 TOURNAMENTS</Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={s.headerActions}>
           <Pressable
             style={[s.bellBtn, glow(C.neon, 8)]}
             onPress={() => nav.navigate('Notifications')}
@@ -355,19 +355,21 @@ const s = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: '#70b8ff06',
   },
   head: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 12,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 12, paddingBottom: 12,
     backgroundColor: '#0d1226', borderBottomWidth: 0, overflow: 'hidden',
   },
   headGlow: { position: 'absolute', top: -60, right: -40, width: 200, height: 200, borderRadius: 100, backgroundColor: C.neon + '14' },
   headLine: { height: 2, backgroundColor: C.neon + '55', shadowColor: C.neon, shadowOpacity: 0.8, shadowRadius: 8 },
-  logoWrap: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logoWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  logoText: { flex: 1, minWidth: 0 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   logoBadge: {
-    width: 48, height: 48, borderRadius: 14, backgroundColor: '#1a0d10', borderWidth: 1.5,
+    width: 40, height: 40, borderRadius: 12, backgroundColor: '#1a0d10', borderWidth: 1.5,
     borderColor: C.neon, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
-  logoImg: { width: 48, height: 48 },
-  logo: { color: C.text, fontWeight: '900', fontSize: 18, letterSpacing: 2, textShadowColor: C.neon + '88', textShadowRadius: 10 },
-  logoSub: { color: C.gold, fontWeight: '900', fontSize: 9, letterSpacing: 3, marginTop: 1 },
+  logoImg: { width: 40, height: 40 },
+  logo: { color: C.text, fontWeight: '900', fontSize: 16, letterSpacing: 1.5, textShadowColor: C.neon + '88', textShadowRadius: 10 },
+  logoSub: { color: C.gold, fontWeight: '900', fontSize: 8, letterSpacing: 1, marginTop: 1 },
   bellBtn: {
     width: 38, height: 38, borderRadius: 12, backgroundColor: '#70b8ff0a', borderWidth: 1,
     borderColor: C.border, alignItems: 'center', justifyContent: 'center',
