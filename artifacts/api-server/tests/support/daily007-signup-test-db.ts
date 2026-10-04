@@ -11,6 +11,7 @@ type SignupUser = {
   password_salt: string;
   password_hash: string;
   referral_code: string | null;
+  clerk_user_id: string | null;
 };
 
 type SignupLedgerEntry = {
@@ -83,6 +84,7 @@ class MemorySignupDatabase {
       password_salt: "",
       password_hash: "",
       referral_code: null,
+      clerk_user_id: null,
     };
     this.users = new Map([[referrer.id, referrer]]);
     this.shortCodesByUser = new Map([[referrer.id, SIGNUP_TEST_REFERRAL_CODE]]);
@@ -151,7 +153,13 @@ class MemorySignupDatabase {
     let rows: unknown[] = [];
 
     if (normalized.startsWith("INSERT INTO daily007_v2_users")) {
-      const [name, email, passwordSalt, passwordHash, phone, gameUid, referralCode] = values;
+      const googleSignup = normalized.includes(
+        "(name, email, password_salt, password_hash, referral_code, clerk_user_id)",
+      );
+      const [name, email, passwordSalt, passwordHash, phone, gameUid, referralCode, clerkUserId] =
+        googleSignup
+          ? [values[0], values[1], values[2], values[3], null, null, values[4], values[5]]
+          : [values[0], values[1], values[2], values[3], values[4], values[5], values[6], null];
       if ([...this.users.values()].some((user) => user.email === email)) {
         throw duplicateError("duplicate signup email");
       }
@@ -168,9 +176,22 @@ class MemorySignupDatabase {
         password_salt: String(passwordSalt),
         password_hash: String(passwordHash),
         referral_code: referralCode == null ? null : String(referralCode),
+        clerk_user_id: clerkUserId == null ? null : String(clerkUserId),
       };
       this.users.set(user.id, user);
       rows = [this.accountRow(user)];
+    } else if (normalized.startsWith("SELECT pg_advisory_xact_lock(")) {
+      rows = [];
+    } else if (
+      normalized.startsWith(
+        "SELECT id, name, email, role, wallet_coins, status, clerk_user_id, auth_version FROM daily007_v2_users WHERE clerk_user_id = $1",
+      )
+    ) {
+      const user = [...this.users.values()].find((entry) => entry.clerk_user_id === first);
+      rows = user ? [this.accountRow(user)] : [];
+    } else if (normalized.startsWith("SELECT id FROM daily007_v2_users WHERE email = $1")) {
+      const user = [...this.users.values()].find((entry) => entry.email === first);
+      rows = user ? [{ id: user.id }] : [];
     } else if (normalized.startsWith(
       "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
     )) {
@@ -307,6 +328,7 @@ class MemorySignupDatabase {
       game_uid: user.game_uid,
       status: user.status,
       auth_version: user.auth_version,
+      clerk_user_id: user.clerk_user_id,
     };
   }
 }
