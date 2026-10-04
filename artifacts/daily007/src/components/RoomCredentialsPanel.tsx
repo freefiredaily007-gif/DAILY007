@@ -29,7 +29,7 @@ export function RoomCredentialsPanel({
   const message = !schedule
     ? 'Tournament start time is unavailable. Room details remain hidden.'
     : now < schedule.releaseAtMs
-      ? `Room ID & Password will be available at ${fmtTime12(schedule.releaseTime24)} IST.`
+      ? `Room ID & Password will show here at ${fmtTime12(schedule.releaseTime24)} IST.`
       : !configured
         ? 'The admin has not shared room details yet.'
         : 'Room details will be available soon.';
