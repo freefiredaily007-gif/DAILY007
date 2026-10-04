@@ -20,3 +20,9 @@ For React Native Web checks that shrink the viewport to simulate an open keyboar
 **Why:** React Native Web needs the screen's parent to participate in flex layout before a viewport resize behaves like the native app's available-height change.
 
 **How to apply:** Put any preview-only header outside `#root`, keep `min-height: 0`, and make `#root` a flex column before testing scroll-container dimensions across keyboard-open and restored viewport sizes.
+
+**Rule:** Scope Vite dependency scanning to the active preview page when its aliases use focused test stubs; verify emulated CSS viewport dimensions only after navigating to a document with its viewport meta tag.
+
+**Why:** The sandbox contains multiple independent HTML previews, so default scanning can evaluate unrelated screens against narrow mocks. Before navigation, Chromium's mobile layout viewport may not match the emulated device dimensions.
+
+**How to apply:** Set `optimizeDeps.entries` to the single preview entry, apply device metrics before navigation, then assert `innerWidth` and `innerHeight` after the page loads.
