@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
   ActivityIndicator,
+  BackHandler,
   Linking,
   Platform,
   Pressable,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
+import { useFocusEffect } from '@react-navigation/native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { useColors } from '@/hooks/useColors';
 import {
@@ -130,6 +132,22 @@ export default function Video() {
   const [showPlayer, setShowPlayer] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
+  const closePlayer = useCallback(() => {
+    setShowPlayer(false);
+    setSelectedVideoId(null);
+    setRetrySession(null);
+    void videosQuery.refetch();
+  }, [videosQuery.refetch]);
+
+  useFocusEffect(useCallback(() => {
+    if (!showPlayer) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      closePlayer();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [closePlayer, showPlayer]));
+
   const filteredVideos = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return videos;
@@ -403,12 +421,7 @@ export default function Video() {
             accessibilityRole="button"
             accessibilityLabel="Back to videos"
             testID="video-catalog-back"
-            onPress={() => {
-              setShowPlayer(false);
-              setSelectedVideoId(null);
-              setRetrySession(null);
-              void videosQuery.refetch();
-            }}
+            onPress={closePlayer}
             style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
           >
             <Feather name="arrow-left" size={17} color={colors.primary} />
