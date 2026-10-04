@@ -257,6 +257,24 @@ const tournamentFormatArt = {
   squad: require('../assets/media/tournament-squad-showdown.jpg'),
 };
 
+export function getTournamentFormatPresentation(t: any) {
+  const teamType = String(t?.teamType || '').trim().toLowerCase();
+  const format: keyof typeof tournamentFormatArt =
+    teamType === 'duo' || teamType === 'squad' ? teamType : 'solo';
+  const modeKey = String(t?.gameMode || t?.mode || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  return {
+    format,
+    label: format.toUpperCase(),
+    matchup: format === 'solo' ? '1 VS 1' : format === 'duo' ? '2 VS 2' : '4 VS 4',
+    image: tournamentFormatArt[format],
+    showFormatBanner: ['clash_squad', 'lone_wolf', 'clash', 'clashsquad', 'lonewolf'].includes(modeKey),
+  };
+}
+
 export function fmtTime12(t?: string) {
   if (!t) return '';
   const value = String(t).trim();
@@ -300,17 +318,11 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
   const total = t?.totalSlots ?? 0;
   const requestedImageUrl = typeof t?.imageUrl === 'string' ? t.imageUrl.trim() : '';
   const customImageUrl = /^https:\/\/\S+$/i.test(requestedImageUrl) ? requestedImageUrl : '';
-  const teamType = String(t?.teamType || '').trim().toLowerCase();
-  const format = teamType === 'duo' || teamType === 'squad' ? teamType : 'solo';
-  const playerMatchup = format === 'solo' ? '1 VS 1' : format === 'duo' ? '2 VS 2' : '4 VS 4';
-  const modeKey = String(t?.gameMode || t?.mode || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-  const showFormatBanner = ['clash_squad', 'lone_wolf', 'clash', 'clashsquad', 'lonewolf'].includes(modeKey);
+  const formatPresentation = getTournamentFormatPresentation(t);
+  const { format, showFormatBanner } = formatPresentation;
   const imageSource = customImageUrl && failedImageUrl !== customImageUrl
     ? { uri: customImageUrl }
-    : tournamentFormatArt[format];
+    : formatPresentation.image;
   const slotUnit = t?.slotUnit === 'player' ? 'players' : 'teams';
   const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
@@ -342,7 +354,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
               <Feather name="users" size={11} color={C.text} />
               <Text style={mc.formatText}>{format.toUpperCase()}</Text>
               <View style={mc.matchupBadge}>
-                <Text style={mc.matchupText}>{playerMatchup}</Text>
+                <Text style={mc.matchupText}>{formatPresentation.matchup}</Text>
               </View>
             </View>
             <Badge text={s.label} color={s.color} />

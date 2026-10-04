@@ -10,7 +10,7 @@ import modeClashLogo from '../assets/mode-clash-logo.jpg';
 import { useNavigation } from '@react-navigation/native';
 import { api, Api } from '../lib/api';
 import { useApp } from '../App';
-import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12 } from '../components/ui';
+import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12, getTournamentFormatPresentation } from '../components/ui';
 import { inr } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { HOME_GAME_MODE_CARDS, homeModeRouteParams } from '../lib/tournamentFilters';
@@ -182,11 +182,16 @@ export default function Home() {
             style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16 }}
             decelerationRate="fast">
             {upcomingItems.slice(0, 8).map((t) => {
-        const filled = t.filledSlots ?? t.filled ?? 0;
-        const total = t.totalSlots ?? tournamentModeFallback(t);
-        const stt = statusOf(t, clockNow);
-        const br = t.mode === 'Battle Royale';
-        const ongoing = stt.key === 'ONGOING';
+              const filled = t.filledSlots ?? t.filled ?? 0;
+              const total = t.totalSlots ?? tournamentModeFallback(t);
+              const stt = statusOf(t, clockNow);
+              const br = t.mode === 'Battle Royale';
+              const ongoing = stt.key === 'ONGOING';
+              const formatPresentation = getTournamentFormatPresentation(t);
+              const showFormatArt = formatPresentation.showFormatBanner;
+              const tournamentModeLabel = String(t.mode || t.gameMode || 'CLASH SQUAD')
+                .replace(/[_-]+/g, ' ')
+                .toUpperCase();
               const capacityFull = stt.key === 'FULL' ||
                 ['full', 'setup_needed'].includes(String(t.status ?? '').toLowerCase()) ||
                 (Number(total) > 0 && Number(filled) >= Number(total));
@@ -196,16 +201,31 @@ export default function Home() {
                 : ongoing ? 'VIEW MATCH' : capacityFull ? 'SLOTS FULL' : 'JOIN NOW ›';
         return (
           <GCard key={t.id} onPress={() => goStack('tdetail:' + t.id)} glowColor={ongoing ? C.red : br ? C.orange : C.purple} style={s.matchCard}>
-            <View style={s.mBanner}>
-              <Image source={br ? bannerSquad : bannerClash} style={s.mBannerImg} resizeMode="cover" />
+            <View style={showFormatArt ? s.mFormatBanner : s.mBanner}>
+              <Image
+                source={showFormatArt ? formatPresentation.image : br ? bannerSquad : bannerClash}
+                style={s.mBannerImg}
+                resizeMode={showFormatArt ? 'contain' : 'cover'}
+              />
               <View style={s.mBannerShade} />
               <View style={s.mBadgeRow}>
                 {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
                 <View style={[s.modeBadge, { borderColor: br ? C.orange : C.purple }]}>
-                  <Text style={[s.modeBadgeT, { color: br ? C.orange : C.purple }]}>{br ? 'BATTLE ROYALE' : 'CLASH SQUAD'}</Text>
+                  <Text style={[s.modeBadgeT, { color: br ? C.orange : C.purple }]}>
+                    {br ? 'BATTLE ROYALE' : showFormatArt ? tournamentModeLabel : 'CLASH SQUAD'}
+                  </Text>
                 </View>
               </View>
-              <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+              {showFormatArt ? (
+                <View style={s.mFormatBottomRow}>
+                  <Text style={s.mFormatTitle} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                  <View style={s.mFormatBadge}>
+                    <Text style={s.mFormatBadgeT}>{formatPresentation.label} · {formatPresentation.matchup}</Text>
+                  </View>
+                </View>
+              ) : (
+                <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+              )}
             </View>
             <View style={{ padding: 12 }}>
               <Text style={s.mSub}>{t.teamType ?? ''} • {fmtDate(t.date)} • <Text style={s.mTime}>{fmtTime12(t.time)} IST</Text></Text>
@@ -365,12 +385,17 @@ const s = StyleSheet.create({
   secTitle: { color: C.text, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
   viewAll: { color: C.neon, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
   mBanner: { height: 110, backgroundColor: '#0a0e1e' },
+  mFormatBanner: { width: '100%', aspectRatio: 16 / 9, backgroundColor: C.bg2, overflow: 'hidden' },
   mBannerImg: { width: '100%', height: '100%' },
   mBannerShade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, backgroundColor: '#00000088' },
   mBadgeRow: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modeBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#000000aa' },
   modeBadgeT: { fontSize: 8.5, fontWeight: '900', letterSpacing: 1 },
   mTitleOnImg: { position: 'absolute', bottom: 8, left: 10, right: 10, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
+  mFormatBottomRow: { position: 'absolute', bottom: 8, left: 10, right: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  mFormatTitle: { flex: 1, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
+  mFormatBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, backgroundColor: C.gold },
+  mFormatBadgeT: { color: C.bg, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
   joinBtn: { marginTop: 10, backgroundColor: C.neon, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   joinBtnT: { color: C.bg, fontWeight: '900', letterSpacing: 1.5, fontSize: 12.5 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 14, marginTop: 8 },
