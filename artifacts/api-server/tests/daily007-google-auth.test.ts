@@ -16,7 +16,10 @@ import {
   resetMockGoogleUser,
 } from "./support/daily007-google-auth-clerk-mock";
 import type { User as MockGoogleUser } from "./support/daily007-google-auth-clerk-mock";
-import { signupTestDb } from "./support/daily007-signup-test-db";
+import {
+  SIGNUP_TEST_REFERRAL_CODE,
+  signupTestDb,
+} from "./support/daily007-signup-test-db";
 
 const GOOGLE_CLERK_USER_ID = "clerk-google-signup-test";
 const TEST_AUTH_SECRET = "google-signup-reward-tests-only-secret-at-least-32-chars";
@@ -88,8 +91,12 @@ async function postJson(
   return { status: response.status, body: await response.json() };
 }
 
-function googleAuth(origin: string, dailyToken?: string): Promise<JsonResult> {
-  return postJson(origin, "/auth/google", {}, {
+function googleAuth(
+  origin: string,
+  dailyToken?: string,
+  referralCode?: string,
+): Promise<JsonResult> {
+  return postJson(origin, "/auth/google", referralCode ? { referralCode } : {}, {
     authorization: "Bearer mocked-clerk-session",
     ...(dailyToken ? { "X-Daily007-Token": dailyToken } : {}),
   });
@@ -253,6 +260,88 @@ test("first and repeated Google sign-ins keep one Daily007 account and one signu
         headers: { authorization: `Bearer ${String(signup.token)}` },
       });
       assert.equal(replacedWalletResponse.status, 401, "repeat Google sign-in should replace the older session");
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("referred Google signup receives one 10-coin referral reward and no welcome reward", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signupResponse = await googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE);
+      const signup = signupResponse.body;
+
+      assert.equal(signupResponse.status, 201);
+      assert.equal(signup.coins, 10);
+      assert.equal(typeof signup.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+
+      const userId = String(signup.id);
+      const account = signupTestDb.users.get(userId);
+      assert.ok(account, "referred Google signup should create a Daily007 account");
+      assert.equal(account.clerk_user_id, GOOGLE_CLERK_USER_ID);
+      assert.equal(account.wallet_coins, 10);
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer, "the isolated fixture should contain the test referrer");
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: userId,
+          code: SIGNUP_TEST_REFERRAL_CODE,
+        }],
+      );
+
+      const signupRewards = signupTestDb.ledger.filter((entry) => entry.user_id === userId);
+      assert.equal(signupRewards.length, 1, "the referred account should receive only one signup reward");
+      assert.deepEqual(
+        signupRewards.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+      assert.equal(
+        signupRewards.filter((entry) => entry.reason === "Welcome Signup Bonus").length,
+        0,
+        "a referral signup must not also receive a Welcome Signup Bonus",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(signup.token)}` },
+      });
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(walletResponse.status, 200);
+      assert.equal(walletHistory.length, 1);
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
     });
   } finally {
     signupTestDb.reset();
