@@ -8,3 +8,11 @@ For Daily007 tournaments, saving the Room ID and password arms automatic release
 **Why:** The user requires room details to become available only to registered participants at the five-minute threshold, without manual publishing. Existing room entries should not need to be resaved just to adopt the new automatic-release behavior.
 
 **How to apply:** Preserve the registration check and scheduled-start threshold when changing admin, player, compatibility, or v2 room flows.
+
+## Native Android validation
+
+On 2026-10-04, the user confirmed on an iQOO Neo 10 running Android 16 that approved test room details stayed hidden before start-minus-five-minutes and appeared at/after the boundary both while My Matches remained open and after leaving and reopening it.
+
+**Why:** Server tests verify the access boundary, but only a native device exercises the on-screen timer and navigation focus refresh together.
+
+**How to apply:** Repeat both real-device checks after changes to room timing or My Matches refresh behavior; use only non-production test registrations and fake room credentials.
