@@ -1,0 +1,225 @@
+type TestUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "user" | "tournament_admin";
+  wallet_coins: number;
+  phone: string | null;
+  game_uid: string | null;
+  status: "active";
+  auth_version: number;
+};
+
+type TestMatch = {
+  id: string;
+  title: string;
+  mode: string;
+  game_mode: string;
+  team_type: string;
+  capacity: number;
+  entry_coins: number;
+  prize_pool: number;
+  starts_at: Date;
+  status: string;
+  is_full: boolean;
+  rules: string;
+  banner: string;
+  image_url: string | null;
+  prize_distribution: string;
+  enabled: boolean;
+  room_id: string | null;
+  room_password: string | null;
+  room_time: string;
+  room_published: boolean;
+};
+
+type TestRegistration = {
+  id: string;
+  match_id: string;
+  captain_user_id: string;
+  captain_name: string;
+  captain_game_name: string;
+  captain_game_uid: string;
+  team_name: string;
+  entry_coins_paid: number;
+  status: "approved" | "pending" | "rejected";
+  created_at: Date;
+};
+
+export const TEST_ADMIN_ID = "82000000-0000-4000-8000-000000000001";
+export const TEST_PLAYER_ID = "82000000-0000-4000-8000-000000000002";
+export const TEST_MATCH_ID = "82000000-0000-4000-8000-000000000100";
+export const TEST_REGISTRATION_ID = "82000000-0000-4000-8000-000000000101";
+
+class RoomAccessTestDatabase {
+  users = new Map<string, TestUser>();
+  match!: TestMatch;
+  registrations: TestRegistration[] = [];
+
+  constructor() {
+    this.reset();
+  }
+
+  reset(): void {
+    this.users = new Map([
+      [TEST_ADMIN_ID, {
+        id: TEST_ADMIN_ID,
+        name: "Tournament Admin",
+        email: "room-admin@example.test",
+        role: "tournament_admin",
+        wallet_coins: 0,
+        phone: null,
+        game_uid: null,
+        status: "active",
+        auth_version: 0,
+      }],
+      [TEST_PLAYER_ID, {
+        id: TEST_PLAYER_ID,
+        name: "Approved Player",
+        email: "room-player@example.test",
+        role: "user",
+        wallet_coins: 25,
+        phone: null,
+        game_uid: "FF-ROOM-001",
+        status: "active",
+        auth_version: 0,
+      }],
+    ]);
+    this.match = {
+      id: TEST_MATCH_ID,
+      title: "Room Access Test",
+      mode: "solo",
+      game_mode: "battle_royale",
+      team_type: "solo",
+      capacity: 48,
+      entry_coins: 5,
+      prize_pool: 100,
+      starts_at: new Date("2020-01-01T00:00:00.000Z"),
+      status: "ongoing",
+      is_full: false,
+      rules: "Isolated API test fixture",
+      banner: "",
+      image_url: null,
+      prize_distribution: "[]",
+      enabled: true,
+      room_id: "TEST-ROOM-820",
+      room_password: "fixture-only-password",
+      room_time: "12:00 AM",
+      room_published: true,
+    };
+    this.registrations = [{
+      id: TEST_REGISTRATION_ID,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_PLAYER_ID,
+      captain_name: "Approved Player",
+      captain_game_name: "RoomCaptain",
+      captain_game_uid: "FF-ROOM-001",
+      team_name: "",
+      entry_coins_paid: 5,
+      status: "approved",
+      created_at: new Date("2020-01-01T00:00:00.000Z"),
+    }];
+  }
+
+  async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    const first = String(values[0] ?? "");
+    let rows: unknown[] = [];
+
+    if (normalized.startsWith(
+      "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
+    )) {
+      const user = this.users.get(first);
+      rows = user ? [structuredClone(user)] : [];
+    } else if (normalized.startsWith(
+      "SELECT m.room_id, m.room_password, m.starts_at, m.status AS tournament_status",
+    )) {
+      const playerId = String(values[1] ?? "");
+      if (first === this.match.id) {
+        rows = [{
+          room_id: this.match.room_id,
+          room_password: this.match.room_password,
+          starts_at: this.match.starts_at,
+          tournament_status: this.match.status,
+          registered: this.registrations.some((registration) =>
+            registration.match_id === this.match.id &&
+            registration.captain_user_id === playerId &&
+            registration.status === "approved",
+          ),
+        }];
+      }
+    } else if (normalized.startsWith(
+      "SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,",
+    )) {
+      const player = this.users.get(first);
+      rows = this.registrations
+        .filter((registration) => registration.captain_user_id === first)
+        .map((registration) => ({
+          ...structuredClone(registration),
+          name: player?.name,
+          email: player?.email,
+          title: this.match.title,
+          mode: this.match.mode,
+          game_mode: this.match.game_mode,
+          team_type: this.match.team_type,
+          capacity: this.match.capacity,
+          starts_at: this.match.starts_at,
+          match_entry_coins: this.match.entry_coins,
+          match_status: this.match.status,
+          prize_pool: this.match.prize_pool,
+          rules: this.match.rules,
+          banner: this.match.banner,
+          image_url: this.match.image_url,
+          prize_distribution: this.match.prize_distribution,
+          enabled: this.match.enabled,
+          is_full: this.match.is_full,
+          room_id: this.match.room_id,
+          room_password: this.match.room_password,
+          room_time: this.match.room_time,
+          room_published: this.match.room_published,
+          match_has_started: this.match.starts_at.getTime() <= Date.now() + 5.5 * 60 * 60 * 1000,
+          match_has_winner: false,
+          result_rank: null,
+          result_kills: null,
+          result_prize_coins: null,
+          match_results: null,
+          registered_count: this.registrations.filter((entry) =>
+            entry.match_id === this.match.id &&
+            ["approved", "pending"].includes(entry.status),
+          ).length,
+        }));
+    } else if (normalized.startsWith(
+      "SELECT position, member_name, member_uid FROM daily007_v2_roster WHERE registration_id = $1",
+    )) {
+      rows = [];
+    } else if (normalized.startsWith(
+      "UPDATE daily007_v2_matches SET room_id = NULL, room_password = NULL, room_published = false",
+    )) {
+      if (first === this.match.id) {
+        this.match.room_id = null;
+        this.match.room_password = null;
+        this.match.room_published = false;
+        rows = [{ id: this.match.id }];
+      }
+    } else {
+      throw new Error(`Unexpected room-access test SQL: ${normalized}`);
+    }
+
+    return { rows: rows as T[] };
+  }
+
+  async connect() {
+    return {
+      query: <T = unknown>(sql: string, values?: unknown[]) =>
+        this.query<T>(sql, values ?? []),
+      release: () => {},
+    };
+  }
+}
+
+export const roomAccessTestDb = new RoomAccessTestDatabase();
+export const pool = {
+  query: <T = unknown>(sql: string, values?: unknown[]) =>
+    roomAccessTestDb.query<T>(sql, values ?? []),
+  connect: () => roomAccessTestDb.connect(),
+};
