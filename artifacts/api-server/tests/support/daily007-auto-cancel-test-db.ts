@@ -48,6 +48,10 @@ type TestDatabaseSeed = {
   matches: TestMatch[];
   registrations: TestRegistration[];
   accounts: TestAccount[];
+  ledger?: {
+    idempotencyKey: string;
+    entry: TestLedgerEntry;
+  }[];
 };
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -64,13 +68,22 @@ class Daily007AutoCancelTestDatabase {
   registrations: TestRegistration[] = [];
   accounts = new Map<string, TestAccount>();
   ledger = new Map<string, TestLedgerEntry>();
+  // Kept outside transaction snapshots so tests can verify that a later failure
+  // happened after an earlier wallet or ledger write had been attempted.
+  readonly mutationTrace: string[] = [];
 
   reset(seed: TestDatabaseSeed): void {
     this.nowMs = seed.nowMs;
     this.matches = new Map(seed.matches.map((match) => [match.id, structuredClone(match)]));
     this.registrations = structuredClone(seed.registrations);
     this.accounts = new Map(seed.accounts.map((account) => [account.id, structuredClone(account)]));
-    this.ledger = new Map();
+    this.ledger = new Map(
+      (seed.ledger ?? []).map(({ idempotencyKey, entry }) => [
+        idempotencyKey,
+        structuredClone(entry),
+      ]),
+    );
+    this.mutationTrace.length = 0;
   }
 
   setNow(nowMs: number): void {
@@ -193,6 +206,7 @@ class Daily007AutoCancelTestDatabase {
       const account = this.accounts.get(String(values[0]));
       if (!account) throw new Error(`Unknown test account: ${String(values[0])}`);
       account.wallet_coins = Number(values[1]);
+      this.mutationTrace.push(`wallet:${String(values[0])}`);
     } else if (normalized.includes("INSERT INTO daily007_v2_wallet_ledger")) {
       const [userId, amount, balanceAfter, matchId, registrationId, idempotencyKey] = values;
       const key = String(idempotencyKey);
@@ -205,6 +219,7 @@ class Daily007AutoCancelTestDatabase {
           matchId: String(matchId),
           registrationId: String(registrationId),
         });
+        this.mutationTrace.push(`ledger:${String(registrationId)}`);
         rows = [{ id: `ledger-${this.ledger.size}` }];
       }
     } else if (normalized.startsWith("UPDATE daily007_v2_matches")) {

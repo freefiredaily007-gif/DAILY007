@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  cancelUnderfilledTournamentAndRefund,
   cancelUnderfilledTournamentTransaction,
   type CancellationSqlClient,
 } from "../src/lib/daily007-tournament-cancellation.ts";
+import { autoCancellationTestDb } from "./support/daily007-auto-cancel-test-db";
 
 type Match = {
   id: string;
@@ -138,4 +140,181 @@ test("automatic cancellation skips full tournaments and all other game modes", a
   assert.equal(battleRoyale, null);
   assert.equal(battleRoyaleClient.match.status, "open");
   assert.equal(battleRoyaleClient.ledger.size, 0);
+});
+
+const ATOMIC_MATCH_ID = "atomic-cancel-match";
+const FIRST_PAYER_ID = "payer-01";
+const SECOND_PAYER_ID = "payer-02";
+const FIRST_REGISTRATION_ID = "registration-01";
+const SECOND_REGISTRATION_ID = "registration-02";
+
+function resetAtomicCancellationFixture({
+  includeSecondPayer = true,
+  secondPayerBalance = 200,
+  ledger = [],
+}: {
+  includeSecondPayer?: boolean;
+  secondPayerBalance?: number;
+  ledger?: {
+    idempotencyKey: string;
+    entry: {
+      userId: string;
+      amount: number;
+      balanceAfter: number;
+      reason: string;
+      matchId: string;
+      registrationId: string;
+    };
+  }[];
+} = {}): void {
+  const nowMs = Date.parse("2035-04-05T14:30:00.000Z");
+  autoCancellationTestDb.reset({
+    nowMs,
+    matches: [{
+      id: ATOMIC_MATCH_ID,
+      title: "Atomic Cancellation Test",
+      mode: "clash",
+      game_mode: "clash_squad",
+      status: "open",
+      capacity: 3,
+      startsAtWallMs: nowMs - 1_000,
+      hasWinner: false,
+      enabled: true,
+      isFull: false,
+      roomId: "room-before-cancel",
+      roomPassword: "room-password-before-cancel",
+      roomPublished: true,
+    }],
+    registrations: [
+      {
+        id: FIRST_REGISTRATION_ID,
+        match_id: ATOMIC_MATCH_ID,
+        captain_user_id: FIRST_PAYER_ID,
+        entry_coins_paid: 25,
+        status: "approved",
+      },
+      {
+        id: SECOND_REGISTRATION_ID,
+        match_id: ATOMIC_MATCH_ID,
+        captain_user_id: SECOND_PAYER_ID,
+        entry_coins_paid: 40,
+        status: "pending",
+      },
+    ],
+    accounts: [
+      { id: FIRST_PAYER_ID, wallet_coins: 100 },
+      ...(includeSecondPayer ? [{ id: SECOND_PAYER_ID, wallet_coins: secondPayerBalance }] : []),
+    ],
+    ledger,
+  });
+}
+
+function atomicCancellationSnapshot() {
+  return structuredClone({
+    matches: autoCancellationTestDb.matches,
+    registrations: autoCancellationTestDb.registrations,
+    accounts: autoCancellationTestDb.accounts,
+    ledger: autoCancellationTestDb.ledger,
+  });
+}
+
+test("a later missing payer rolls back prior refunds and a repaired retry refunds each payer once", async () => {
+  resetAtomicCancellationFixture({ includeSecondPayer: false });
+  const before = atomicCancellationSnapshot();
+
+  await assert.rejects(
+    cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID, true),
+    /A paying account was not found or has an invalid wallet balance/,
+  );
+
+  assert.deepEqual(autoCancellationTestDb.mutationTrace, [
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+  ]);
+  assert.deepEqual(atomicCancellationSnapshot(), before);
+
+  autoCancellationTestDb.accounts.set(SECOND_PAYER_ID, {
+    id: SECOND_PAYER_ID,
+    wallet_coins: 200,
+  });
+  const beforeRetryTraceLength = autoCancellationTestDb.mutationTrace.length;
+  const retry = await cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID, true);
+
+  assert.deepEqual(retry, {
+    id: ATOMIC_MATCH_ID,
+    status: "cancelled",
+    registrationsRefunded: 2,
+    accountsRefunded: 2,
+    coinsRefunded: 65,
+  });
+  assert.equal(autoCancellationTestDb.matches.get(ATOMIC_MATCH_ID)?.status, "cancelled");
+  assert.deepEqual(autoCancellationTestDb.registrations, before.registrations);
+  assert.equal(autoCancellationTestDb.accounts.get(FIRST_PAYER_ID)?.wallet_coins, 125);
+  assert.equal(autoCancellationTestDb.accounts.get(SECOND_PAYER_ID)?.wallet_coins, 240);
+  assert.deepEqual(
+    autoCancellationTestDb.mutationTrace.slice(beforeRetryTraceLength),
+    [
+      `wallet:${FIRST_PAYER_ID}`,
+      `ledger:${FIRST_REGISTRATION_ID}`,
+      `wallet:${SECOND_PAYER_ID}`,
+      `ledger:${SECOND_REGISTRATION_ID}`,
+    ],
+  );
+  assert.deepEqual(
+    [...autoCancellationTestDb.ledger.values()]
+      .map(({ userId, amount, balanceAfter, registrationId }) => ({
+        userId,
+        amount,
+        balanceAfter,
+        registrationId,
+      }))
+      .sort((a, b) => a.userId.localeCompare(b.userId)),
+    [
+      {
+        userId: FIRST_PAYER_ID,
+        amount: 25,
+        balanceAfter: 125,
+        registrationId: FIRST_REGISTRATION_ID,
+      },
+      {
+        userId: SECOND_PAYER_ID,
+        amount: 40,
+        balanceAfter: 240,
+        registrationId: SECOND_REGISTRATION_ID,
+      },
+    ],
+  );
+
+  const afterRetry = atomicCancellationSnapshot();
+  assert.equal(await cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID, true), null);
+  assert.deepEqual(atomicCancellationSnapshot(), afterRetry);
+});
+
+test("an existing later refund record rolls back earlier cancellation credits and ledger rows", async () => {
+  resetAtomicCancellationFixture({
+    secondPayerBalance: 240,
+    ledger: [{
+      idempotencyKey: "existing-refund-for-registration-02",
+      entry: {
+        userId: SECOND_PAYER_ID,
+        amount: 40,
+        balanceAfter: 240,
+        reason: "tournament_cancel_refund",
+        matchId: ATOMIC_MATCH_ID,
+        registrationId: SECOND_REGISTRATION_ID,
+      },
+    }],
+  });
+  const before = atomicCancellationSnapshot();
+
+  await assert.rejects(
+    cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID, true),
+    /A registration already has a refund record/,
+  );
+
+  assert.deepEqual(autoCancellationTestDb.mutationTrace, [
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+  ]);
+  assert.deepEqual(atomicCancellationSnapshot(), before);
 });
