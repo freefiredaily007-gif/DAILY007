@@ -55,6 +55,38 @@ test("video reward completion requires 75% playback and at least 70% of the repo
   }), false);
 });
 
+test("video completion before the minimum elapsed time cannot credit the wallet", async () => {
+  const now = Date.UTC(2026, 9, 2, 12);
+  const session: any = {
+    id: "session-id",
+    video_id: "video-id",
+    duration_seconds: 100,
+    started_at: new Date(now - 69_000),
+    completed_at: null,
+    reward_ledger_id: null,
+    active: true,
+  };
+  let walletWrites = 0;
+  let ledgerWrites = 0;
+  const client = {
+    async query<T = unknown>(sql: string) {
+      if (sql.includes("FROM daily007_v2_video_watch_sessions s")) {
+        return { rows: [{ ...session }] as T[] };
+      }
+      if (sql.includes("UPDATE daily007_v2_users SET wallet_coins")) walletWrites += 1;
+      if (sql.includes("INSERT INTO daily007_v2_wallet_ledger")) ledgerWrites += 1;
+      return { rows: [] as T[] };
+    },
+  };
+
+  await assert.rejects(
+    completeDaily007VideoWatch(client, "user-id", "session-id", 100, now),
+    (error: any) => error.status === 409,
+  );
+  assert.equal(walletWrites, 0);
+  assert.equal(ledgerWrites, 0);
+});
+
 test("a completed playback session credits one coin once and writes one ledger row", async () => {
   const now = Date.UTC(2026, 9, 2, 12);
   const session: any = {

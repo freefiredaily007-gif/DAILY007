@@ -8,6 +8,7 @@
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:video-watch-progress": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-watch-progress.test.mjs",
     "test:leaderboard-refresh-policy": "node --test scripts/leaderboard-refresh-policy.test.mjs"
   },
   "devDependencies": {

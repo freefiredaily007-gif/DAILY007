@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppState,
   ActivityIndicator,
   Linking,
   Platform,
@@ -19,6 +20,10 @@ import {
 } from '@workspace/api-client-react';
 import { useApp } from '../App';
 import { apiError } from '../lib/api';
+import {
+  getCreditedVideoWatchSeconds,
+  type VideoPlaybackSample,
+} from '../lib/video-watch-progress';
 
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
@@ -41,8 +46,6 @@ type PlayerMessage = {
   playing?: boolean;
   state?: number;
 };
-
-type PlaybackSample = { currentTime: number; receivedAt: number };
 
 function createYouTubeDocument(videoId: string, backgroundColor: string): string {
   const safeVideoId = videoId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -137,12 +140,16 @@ export default function Video() {
   const { mutateAsync: startVideoWatch } = useDaily007StartVideoWatch();
   const { mutateAsync: completeVideoWatch } = useDaily007CompleteVideoWatch();
   const webFrameRef = useRef<any>(null);
-  const lastSampleRef = useRef<PlaybackSample | null>(null);
+  const lastSampleRef = useRef<VideoPlaybackSample | null>(null);
   const watchedSecondBucketsRef = useRef<Set<number>>(new Set());
   const currentSessionRef = useRef<string | null>(null);
   const startingSessionRef = useRef(false);
   const sessionStartFailedRef = useRef(false);
   const playbackCycleRef = useRef(0);
+  const appLifecycleCycleRef = useRef(0);
+  const appIsActiveRef = useRef(
+    AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+  );
   const progressPercentRef = useRef(0);
   const [progressPercent, setProgressPercent] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
@@ -223,6 +230,11 @@ export default function Video() {
     }
     if (payload.type !== 'progress') return;
 
+    if (!appIsActiveRef.current) {
+      lastSampleRef.current = null;
+      return;
+    }
+
     const currentTime = Number(payload.currentTime);
     const duration = Number(payload.duration);
     if (!payload.playing || !Number.isFinite(currentTime) ||
@@ -249,12 +261,15 @@ export default function Video() {
       setRewardMessage('');
       setRewardError('');
       lastSampleRef.current = null;
+      const appLifecycleCycle = appLifecycleCycleRef.current;
       void startVideoWatch({
         data: { videoId: selectedVideo.id, durationSeconds },
       }).then((session) => {
         if (cycle !== playbackCycleRef.current) return;
         currentSessionRef.current = session.sessionId;
-        lastSampleRef.current = { currentTime, receivedAt: Date.now() };
+        if (appIsActiveRef.current && appLifecycleCycle === appLifecycleCycleRef.current) {
+          lastSampleRef.current = { currentTime, receivedAt: Date.now() };
+        }
       }).catch((error) => {
         if (cycle === playbackCycleRef.current) {
           sessionStartFailedRef.current = true;
@@ -268,18 +283,9 @@ export default function Video() {
     if (startingSessionRef.current) return;
 
     const previous = lastSampleRef.current;
-    if (previous) {
-      const elapsedSeconds = Math.max(0, (now - previous.receivedAt) / 1000);
-      const advanceSeconds = currentTime - previous.currentTime;
-      const plausibleAdvance = advanceSeconds > 0 &&
-        advanceSeconds <= elapsedSeconds * 2.1 + 0.75;
-      if (plausibleAdvance) {
-        const firstSecond = Math.max(0, Math.floor(previous.currentTime));
-        const lastSecondExclusive = Math.min(Math.floor(currentTime), Math.ceil(duration));
-        for (let second = firstSecond; second < lastSecondExclusive; second += 1) {
-          watchedSecondBucketsRef.current.add(second);
-        }
-      }
+    const creditedSeconds = getCreditedVideoWatchSeconds(previous, currentTime, now, duration);
+    for (const second of creditedSeconds) {
+      watchedSecondBucketsRef.current.add(second);
     }
     lastSampleRef.current = { currentTime, receivedAt: now };
 
@@ -310,6 +316,18 @@ export default function Video() {
     setRewardError('');
     setRetrySession(null);
   }, [selectedVideo?.id, showPlayer]);
+
+  useEffect(() => {
+    appIsActiveRef.current =
+      AppState.currentState !== 'background' && AppState.currentState !== 'inactive';
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const isActive = nextState === 'active';
+      if (appIsActiveRef.current !== isActive) appLifecycleCycleRef.current += 1;
+      appIsActiveRef.current = isActive;
+      if (!isActive) lastSampleRef.current = null;
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !showPlayer) return undefined;
