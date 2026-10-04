@@ -15,6 +15,9 @@ export default defineConfig({
   root: sandboxRoot,
   base: "/",
   plugins: [react()],
+  optimizeDeps: {
+    entries: ["player-largest-text-preview.html"],
+  },
   resolve: {
     alias: [
       { find: /^react-native$/, replacement: mock("react-native-large-text.tsx") },

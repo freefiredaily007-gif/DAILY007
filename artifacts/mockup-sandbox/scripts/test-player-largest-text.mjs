@@ -27,6 +27,11 @@ const screens = [
   { name: "Wallet", ready: "WALLET", control: '[data-testid="wallet-open-recharge"]' },
   { name: "Profile", ready: "PROFILE", control: '[data-testid="profile-change-password"]' },
   { name: "Leaderboard", ready: "LEADERBOARD", control: '[data-testid="preview-back-button"]' },
+  {
+    name: "LeaderboardDetails",
+    ready: "WEEKLY PRIZES",
+    control: '[data-testid="leaderboard-details-tab-monthly"]',
+  },
   { name: "Notifications", ready: "NOTIFICATIONS", control: '[data-testid="preview-back-button"]' },
   { name: "EditProfile", ready: "EDIT PROFILE", control: '[data-testid="edit-profile-save"]' },
   { name: "JoinForm", ready: "SOLO REGISTRATION", control: '[data-testid="join-form-submit"]' },
@@ -379,6 +384,194 @@ async function checkScreen(screen) {
       "document.body.innerText.includes('International Tournament Competitor 12')",
       "the final leaderboard row",
     );
+  } else if (screen.name === "LeaderboardDetails") {
+    const getPodiumState = () => evaluate(`(() => ({
+      text: document.querySelector('[data-testid="leaderboard-top-three"]')?.innerText ?? '',
+      entries: [...document.querySelectorAll('[data-testid^="leaderboard-podium-"]')].map((entry) => {
+        const rect = entry.getBoundingClientRect();
+        const leaves = [...entry.querySelectorAll('*')]
+          .filter((node) => node.children.length === 0 && node.textContent?.trim())
+          .map((node) => {
+            const box = node.getBoundingClientRect();
+            return { text: node.textContent.trim(), bounds: [box.left, box.right, box.top, box.bottom] };
+          });
+        return {
+          rank: entry.getAttribute('data-testid'),
+          bounds: [rect.left, rect.right, rect.top, rect.bottom],
+          clientHeight: entry.clientHeight,
+          scrollHeight: entry.scrollHeight,
+          leaves,
+        };
+      })
+    }))()`);
+    const assertPodiumGeometry = (entries, cycle) => {
+      assert(entries.length === 3, `The ${cycle} podium does not show all three ranks.`);
+      assert(
+        entries.every((entry) => entry.scrollHeight <= entry.clientHeight + 1),
+        `The ${cycle} podium clips text inside an entry: ${JSON.stringify(entries)}`,
+      );
+      assert(
+        entries.every((entry, index) => index === 0 || entries[index - 1].bounds[3] <= entry.bounds[2] + 1),
+        `The ${cycle} podium entries overlap: ${JSON.stringify(entries.map((entry) => entry.bounds))}`,
+      );
+      assert(
+        entries.every((entry) => entry.leaves.every((leaf) =>
+          leaf.bounds[0] >= entry.bounds[0] - 1
+            && leaf.bounds[1] <= entry.bounds[1] + 1
+            && leaf.bounds[2] >= entry.bounds[2] - 1
+            && leaf.bounds[3] <= entry.bounds[3] + 1
+        )),
+        `The ${cycle} podium text escapes its entry: ${JSON.stringify(entries)}`,
+      );
+    };
+    const weeklyPodium = await getPodiumState();
+    assert(
+      weeklyPodium.text.includes("Weekly Champion With A Long Display Name"),
+      `The weekly podium name is missing at 2× text: ${weeklyPodium.text}`,
+    );
+    assertPodiumGeometry(weeklyPodium.entries, "weekly");
+    const weeklyScreenshot = await cdp("Page.captureScreenshot", { format: "png" });
+    await writeFile("/tmp/daily007-weekly-leaderboard-podium-2x.png", Buffer.from(weeklyScreenshot.data, "base64"));
+
+    await clickSelector('[data-testid="leaderboard-top20-toggle"]', "weekly Top 20 toggle");
+    await waitForCondition(
+      "Boolean(document.querySelector('[data-testid=\"leaderboard-player-20\"]'))",
+      "expanded weekly ranks through 20",
+    );
+    const weeklyExpanded = await inspectLayout(screen.name);
+    assert(
+      weeklyExpanded.textIssues.length === 0,
+      `The weekly expanded leaderboard clips text at 2× scale: ${JSON.stringify(weeklyExpanded.textIssues.slice(0, 8))}`,
+    );
+    const weeklyRow = await evaluate(`(() => {
+      const row = document.querySelector('[data-testid="leaderboard-player-4"]');
+      if (!row) return null;
+      const main = row.firstElementChild;
+      const score = row.lastElementChild;
+      const children = [...(main?.children ?? [])];
+      const boxes = children.map((node) => node.getBoundingClientRect());
+      const mainBox = main?.getBoundingClientRect();
+      const scoreBox = score?.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      return {
+        text: row.innerText,
+        children: boxes.map((box) => [box.left, box.right, box.top, box.bottom]),
+        mainBottom: mainBox?.bottom,
+        scoreTop: scoreBox?.top,
+        scoreBounds: scoreBox && [scoreBox.left, scoreBox.right, scoreBox.top, scoreBox.bottom],
+        rowBounds: [rowBox.left, rowBox.right, rowBox.top, rowBox.bottom],
+      };
+    })()`);
+    assert(weeklyRow, "The weekly expanded rank-four row is missing.");
+    assert(
+      weeklyRow.text.includes("#4")
+        && weeklyRow.text.includes("International Tournament Competitor With A Player Name That Wraps Across Multiple Lines")
+        && weeklyRow.text.includes("17,076 Coins"),
+      `The weekly expanded row omits its rank, full player name, or score: ${weeklyRow.text}`,
+    );
+    assert(
+      weeklyRow.children.length === 3
+        && weeklyRow.children.every((box, index, boxes) => index === 0 || boxes[index - 1][1] <= box[0] + 1)
+        && weeklyRow.mainBottom <= weeklyRow.scoreTop + 1
+        && weeklyRow.scoreBounds[0] >= weeklyRow.rowBounds[0] - 1
+        && weeklyRow.scoreBounds[1] <= weeklyRow.rowBounds[1] + 1,
+      `The weekly rank, name, and score overlap or escape the row: ${JSON.stringify(weeklyRow)}`,
+    );
+    await checkReachable('[data-testid="leaderboard-player-4"]', "expanded weekly rank-four row");
+    const expandedRowScreenshot = await cdp("Page.captureScreenshot", { format: "png" });
+    await writeFile(
+      "/tmp/daily007-weekly-leaderboard-expanded-row-2x.png",
+      Buffer.from(expandedRowScreenshot.data, "base64"),
+    );
+
+    const checkRankTwentyReachable = async (cycle) => {
+      const state = await evaluate(`(() => {
+        const target = document.querySelector('[data-testid="leaderboard-player-20"]');
+        if (!target) return null;
+        let parent = target.parentElement;
+        let scroll = null;
+        while (parent && parent !== document.body) {
+          const style = getComputedStyle(parent);
+          if (/(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 1) {
+            scroll = parent;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+        if (!scroll) return { missingScroll: true };
+        scroll.scrollTop = scroll.scrollHeight;
+        target.scrollIntoView({ block: 'end', inline: 'nearest' });
+        const row = target.getBoundingClientRect();
+        const viewport = scroll.getBoundingClientRect();
+        return {
+          scrollTop: scroll.scrollTop,
+          rowText: target.innerText,
+          row: [row.top, row.bottom],
+          viewport: [viewport.top, viewport.bottom],
+        };
+      })()`);
+      assert(state && !state.missingScroll && state.scrollTop > 0, `The ${cycle} leaderboard did not scroll.`);
+      assert(
+        state.row[0] >= state.viewport[0] - 1 && state.row[1] <= state.viewport[1] + 1,
+        `Rank 20 is not reachable in the ${cycle} leaderboard: ${JSON.stringify(state)}`,
+      );
+      assert(
+        state.rowText.includes("#20") && state.rowText.includes("Rank Twenty Final Player") && state.rowText.includes("12,34,567 Coins"),
+        `Rank 20 is missing its readable rank, name, or score for ${cycle}: ${state.rowText}`,
+      );
+    };
+    await checkRankTwentyReachable("weekly");
+
+    await clickSelector('[data-testid="leaderboard-details-tab-monthly"]', "monthly leaderboard tab");
+    await waitForCondition(
+      "document.querySelector('[data-testid=\"leaderboard-rewards-monthly\"]') && document.body.innerText.includes('Monthly Champion With A Long Display Name')",
+      "monthly prizes and podium",
+    );
+    await evaluate(`(() => {
+      const scroller = document.querySelector('[data-testid="leaderboard-details-scroll"]');
+      if (scroller) scroller.scrollTop = 0;
+    })()`);
+    const monthlyToggle = await evaluate(
+      `document.querySelector('[data-testid="leaderboard-top20-toggle"]')?.innerText ?? ''`,
+    );
+    assert(
+      monthlyToggle.includes("VIEW TOP 20 PLAYERS"),
+      `Switching to monthly did not collapse its expanded rows: ${monthlyToggle}`,
+    );
+    const monthlyPodium = await getPodiumState();
+    assert(
+      monthlyPodium.text.includes("Monthly Champion With A Long Display Name"),
+      `The monthly podium name is missing at 2× text: ${monthlyPodium.text}`,
+    );
+    assertPodiumGeometry(monthlyPodium.entries, "monthly");
+    const monthlyScreenshot = await cdp("Page.captureScreenshot", { format: "png" });
+    await writeFile("/tmp/daily007-monthly-leaderboard-podium-2x.png", Buffer.from(monthlyScreenshot.data, "base64"));
+    const monthlyLayout = await inspectLayout(screen.name);
+    assert(
+      monthlyLayout.textIssues.length === 0,
+      `The monthly podium clips text at 2× scale: ${JSON.stringify(monthlyLayout.textIssues.slice(0, 8))}`,
+    );
+
+    await clickSelector('[data-testid="leaderboard-top20-toggle"]', "monthly Top 20 toggle");
+    await waitForCondition(
+      "Boolean(document.querySelector('[data-testid=\"leaderboard-player-20\"]'))",
+      "expanded monthly ranks through 20",
+    );
+    const monthlyExpanded = await inspectLayout(screen.name);
+    assert(
+      monthlyExpanded.textIssues.length === 0,
+      `The monthly expanded leaderboard clips text at 2× scale: ${JSON.stringify(monthlyExpanded.textIssues.slice(0, 8))}`,
+    );
+    const monthlyRankFour = await evaluate(
+      `document.querySelector('[data-testid="leaderboard-player-4"]')?.innerText ?? ''`,
+    );
+    assert(
+      monthlyRankFour.includes("#4")
+        && monthlyRankFour.includes("International Tournament Competitor With A Player Name That Wraps Across Multiple Lines")
+        && monthlyRankFour.includes("17,076 Coins"),
+      `The monthly expanded row omits its readable rank, full player name, or score: ${monthlyRankFour}`,
+    );
+    await checkRankTwentyReachable("monthly");
   } else if (screen.name === "Notifications") {
     await waitForCondition(
       "document.body.innerText.includes('Your prize coins were added to your wallet')",
@@ -495,7 +688,7 @@ try {
     `A bottom-tab label is clipped: ${JSON.stringify(navState.labels)}.`,
   );
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — all eleven player screens, join rejection messaging, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
+  console.log("PASS — all twelve player screens, join rejection messaging, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);

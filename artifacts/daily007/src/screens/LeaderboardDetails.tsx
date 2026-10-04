@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import {
   getDaily007ListLeaderboardsQueryKey,
@@ -67,35 +67,88 @@ function dateRange(period: Period): string {
 function PodiumEntry({
   rank,
   standing,
+  largeText,
 }: {
   rank: 1 | 2 | 3;
   standing?: Standing;
+  largeText: boolean;
 }) {
+  const { width: screenWidth, fontScale } = useWindowDimensions();
+  const podiumName = standing?.name || "Awaiting player";
+  const textScale = Math.max(1, fontScale);
+  const nameWidth = Math.max(80, screenWidth - 144);
+  const charactersPerLine = Math.max(8, Math.floor(nameWidth / (13.64 * textScale * 0.52)));
+  const estimatedNameLines = Math.max(
+    1,
+    Math.ceil(podiumName.length / charactersPerLine)
+      + (podiumName.length > charactersPerLine && /\s/.test(podiumName) ? 1 : 0),
+  );
+  // Reserve room for the wrapped name plus its rank, score, and card padding.
+  const largeTextMinHeight = Math.ceil(
+    (12.4 + estimatedNameLines * 13.64 + 16.12) * textScale * 1.2
+      + 8
+      + (rank === 1 ? 24 : 20),
+  );
   const color = rank === 1 ? C.gold : rank === 2 ? C.sub : C.orange;
 
   return (
-    <View style={[styles.podiumEntry, rank === 1 && styles.podiumWinner]}>
+    <View
+      testID={`leaderboard-podium-${rank}`}
+      style={[
+        styles.podiumEntry,
+        rank === 1 && styles.podiumWinner,
+        largeText && styles.podiumEntryLarge,
+        largeText && rank === 1 && styles.podiumWinnerLarge,
+        largeText && { minHeight: largeTextMinHeight },
+      ]}
+    >
       <View
         style={[
           styles.podiumAvatar,
           rank === 1 && styles.podiumAvatarWinner,
+          largeText && styles.podiumAvatarLarge,
+          largeText && rank === 1 && styles.podiumAvatarWinnerLarge,
           { backgroundColor: standing ? avatarColor(standing.userId) : C.card },
         ]}
       >
-        <Text style={[styles.podiumInitial, rank === 1 && styles.podiumInitialWinner]}>
+        <Text
+          style={[
+            styles.podiumInitial,
+            rank === 1 && styles.podiumInitialWinner,
+            largeText && styles.podiumInitialLarge,
+            largeText && rank === 1 && styles.podiumInitialWinnerLarge,
+          ]}
+        >
           {standing ? initials(standing.name) : "—"}
         </Text>
       </View>
-      <Text style={[styles.podiumRank, { color }]}>#{rank}</Text>
-      <Text numberOfLines={1} style={styles.podiumName}>
-        {standing?.name || "Awaiting player"}
-      </Text>
-      <View style={styles.podiumCoins}>
-        <Text style={styles.coinEmoji}>🪙</Text>
-        <Text style={styles.podiumCoinsText}>
-          {standing ? standing.points.toLocaleString("en-IN") : "—"}
-        </Text>
-      </View>
+      {largeText ? (
+        <View style={styles.podiumDetailsLarge}>
+          <Text style={[styles.podiumRank, styles.podiumRankLarge, { color }]}>#{rank}</Text>
+          <Text style={[styles.podiumName, styles.podiumNameLarge]}>
+            {standing?.name || "Awaiting player"}
+          </Text>
+          <View style={[styles.podiumCoins, styles.podiumCoinsLarge]}>
+            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text style={styles.podiumCoinsText}>
+              {standing ? standing.points.toLocaleString("en-IN") : "—"}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <>
+          <Text style={[styles.podiumRank, { color }]}>#{rank}</Text>
+          <Text style={styles.podiumName}>
+            {standing?.name || "Awaiting player"}
+          </Text>
+          <View style={styles.podiumCoins}>
+            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text style={styles.podiumCoinsText}>
+              {standing ? standing.points.toLocaleString("en-IN") : "—"}
+            </Text>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -103,34 +156,58 @@ function PodiumEntry({
 function PlayerRow({
   standing,
   cycle,
+  largeText,
 }: {
   standing: Standing;
   cycle: CycleType;
+  largeText: boolean;
 }) {
   const color = cycle === "weekly" ? C.blue : C.purple;
 
   return (
     <View
-      style={styles.playerRow}
+      style={[styles.playerRow, largeText && styles.playerRowLarge]}
       testID={`leaderboard-player-${standing.rank}`}
       accessible
       accessibilityRole="text"
       accessibilityLabel={`Rank ${standing.rank}, ${standing.name}, ${standing.points.toLocaleString("en-IN")} coins`}
     >
-      <Text style={[styles.playerRank, { color }]}>#{standing.rank}</Text>
-      <View style={[styles.playerAvatar, { backgroundColor: avatarColor(standing.userId) }]}>
-        <Text style={styles.playerInitial}>{initials(standing.name)}</Text>
-      </View>
-      <Text numberOfLines={1} style={styles.playerName}>{standing.name}</Text>
-      <View style={styles.playerCoins}>
-        <Text style={styles.coinEmoji}>🪙</Text>
-        <Text style={styles.playerCoinsText}>{standing.points.toLocaleString("en-IN")}</Text>
-      </View>
+      {largeText ? (
+        <>
+          <View style={styles.playerMainLarge}>
+            <Text style={[styles.playerRank, styles.playerRankLarge, { color }]}>#{standing.rank}</Text>
+            <View style={[styles.playerAvatar, styles.playerAvatarLarge, { backgroundColor: avatarColor(standing.userId) }]}>
+              <Text style={[styles.playerInitial, styles.playerInitialLarge]}>{initials(standing.name)}</Text>
+            </View>
+            <Text style={[styles.playerName, styles.playerNameLarge]}>{standing.name}</Text>
+          </View>
+          <View style={styles.playerCoinsLarge}>
+            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text style={styles.playerCoinsText}>
+              {standing.points.toLocaleString("en-IN")} Coins
+            </Text>
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={[styles.playerRank, { color }]}>#{standing.rank}</Text>
+          <View style={[styles.playerAvatar, { backgroundColor: avatarColor(standing.userId) }]}>
+            <Text style={styles.playerInitial}>{initials(standing.name)}</Text>
+          </View>
+          <Text numberOfLines={1} style={styles.playerName}>{standing.name}</Text>
+          <View style={styles.playerCoins}>
+            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text style={styles.playerCoinsText}>{standing.points.toLocaleString("en-IN")}</Text>
+          </View>
+        </>
+      )}
     </View>
   );
 }
 
 export default function LeaderboardDetails({ navigation, route }: any) {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.5;
   const query = useDaily007ListLeaderboards({
     query: {
       queryKey: getDaily007ListLeaderboardsQueryKey(),
@@ -248,9 +325,9 @@ export default function LeaderboardDetails({ navigation, route }: any) {
           <>
             <Text style={styles.range}>{dateRange(period)}</Text>
             <View style={styles.podiumPanel} testID="leaderboard-top-three">
-              <View style={styles.podium}>
+              <View style={[styles.podium, largeText && styles.podiumLarge]}>
                 {podium.map(({ rank, standing }) => (
-                  <PodiumEntry key={rank} rank={rank} standing={standing} />
+                  <PodiumEntry key={rank} rank={rank} standing={standing} largeText={largeText} />
                 ))}
               </View>
             </View>
@@ -278,16 +355,23 @@ export default function LeaderboardDetails({ navigation, route }: any) {
 
             {showTop20 ? (
               <>
-                <View style={styles.columnHeader}>
-                  <Text style={styles.rankColumn}>RANK</Text>
-                  <Text style={styles.playerColumn}>PLAYER</Text>
-                  <Text style={styles.coinsColumn}>COINS</Text>
-                </View>
+                {!largeText ? (
+                  <View style={styles.columnHeader}>
+                    <Text style={styles.rankColumn}>RANK</Text>
+                    <Text style={styles.playerColumn}>PLAYER</Text>
+                    <Text style={styles.coinsColumn}>COINS</Text>
+                  </View>
+                ) : null}
 
                 {remainingPlayers.length > 0 ? (
                   <View style={styles.playerRows}>
                     {remainingPlayers.map((standing) => (
-                      <PlayerRow key={standing.userId} standing={standing} cycle={cycle} />
+                      <PlayerRow
+                        key={standing.userId}
+                        standing={standing}
+                        cycle={cycle}
+                        largeText={largeText}
+                      />
                     ))}
                   </View>
                 ) : (
@@ -363,23 +447,36 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   podium: { flexDirection: "row", alignItems: "flex-end", gap: 4 },
+  podiumLarge: { flexDirection: "column", alignItems: "stretch", gap: 8 },
   podiumEntry: {
     flex: 1,
     minWidth: 0,
-    height: 174,
+    minHeight: 174,
     alignItems: "center",
     justifyContent: "flex-end",
     paddingHorizontal: 3,
     paddingBottom: 5,
   },
+  podiumEntryLarge: {
+    width: "100%",
+    minHeight: 84,
+    flex: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   podiumWinner: {
-    height: 192,
+    minHeight: 192,
     borderRadius: 14,
     backgroundColor: C.card,
     borderWidth: 1,
     borderColor: C.gold + "55",
     paddingBottom: 8,
   },
+  podiumWinnerLarge: { minHeight: 96, paddingVertical: 12 },
   podiumAvatar: {
     width: 62,
     height: 62,
@@ -389,11 +486,19 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
   podiumAvatarWinner: { width: 78, height: 78, borderRadius: 39, marginBottom: 8 },
+  podiumAvatarLarge: { width: 48, height: 48, borderRadius: 24, marginBottom: 0 },
+  podiumAvatarWinnerLarge: { width: 58, height: 58, borderRadius: 29 },
   podiumInitial: { color: C.text, fontSize: 24, fontWeight: "700" },
   podiumInitialWinner: { fontSize: 32 },
+  podiumInitialLarge: { fontSize: 16 },
+  podiumInitialWinnerLarge: { fontSize: 19 },
   podiumRank: { fontSize: 10, fontWeight: "900", marginBottom: 7 },
-  podiumName: { color: C.text, fontSize: 11, fontWeight: "800", maxWidth: "100%" },
+  podiumRankLarge: { marginBottom: 0 },
+  podiumName: { color: C.text, fontSize: 11, fontWeight: "800", maxWidth: "100%", textAlign: "center" },
+  podiumNameLarge: { flex: 1, minWidth: 0, textAlign: "left" },
+  podiumDetailsLarge: { flex: 1, minWidth: 0, gap: 4 },
   podiumCoins: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  podiumCoinsLarge: { maxWidth: "100%", flexWrap: "wrap", justifyContent: "flex-start", marginTop: 0 },
   coinEmoji: { fontSize: 13 },
   podiumCoinsText: { color: C.text, fontSize: 13, fontWeight: "900" },
   columnHeader: {
@@ -418,7 +523,17 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     backgroundColor: C.card,
   },
+  playerRowLarge: {
+    width: "100%",
+    minWidth: 0,
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 10,
+    paddingVertical: 12,
+  },
+  playerMainLarge: { width: "100%", minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8 },
   playerRank: { width: 42, fontSize: 13, fontWeight: "900" },
+  playerRankLarge: { width: 66, flexShrink: 0 },
   playerAvatar: {
     width: 34,
     height: 34,
@@ -426,9 +541,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  playerAvatarLarge: { width: 38, height: 38, borderRadius: 19, flexShrink: 0 },
   playerInitial: { color: C.text, fontSize: 15, fontWeight: "800" },
+  playerInitialLarge: { fontSize: 12 },
   playerName: { flex: 1, minWidth: 0, color: C.text, fontSize: 13, fontWeight: "800" },
+  playerNameLarge: { width: 0, flexGrow: 1, flexShrink: 1 },
   playerCoins: { width: 88, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5 },
+  playerCoinsLarge: {
+    width: "100%",
+    minWidth: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 5,
+  },
   playerCoinsText: { color: C.text, fontSize: 13, fontWeight: "900" },
   noMorePlayers: {
     paddingHorizontal: 10,

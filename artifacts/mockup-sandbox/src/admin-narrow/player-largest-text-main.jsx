@@ -13,6 +13,7 @@ import Leaderboard from "../../../daily007/src/screens/Leaderboard";
 import Notifications from "../../../daily007/src/screens/Notifications";
 import EditProfile from "../../../daily007/src/screens/EditProfile";
 import JoinForm from "../../../daily007/src/screens/JoinForm";
+import LeaderboardDetails from "../../../daily007/src/screens/LeaderboardDetails";
 import { getPlayerTabBarHeight } from "../../../daily007/src/lib/playerTabBarSizing";
 import { configurePlayerLargestTextPreview, configureWalletFormPreview } from "./mocks/api";
 
@@ -58,6 +59,7 @@ const screens = {
   Notifications,
   EditProfile,
   JoinForm: JoinFormServerErrorPreview,
+  LeaderboardDetails,
 };
 
 const titles = {
@@ -67,6 +69,7 @@ const titles = {
   Notifications: "NOTIFICATIONS",
   EditProfile: "EDIT PROFILE",
   JoinForm: "REGISTER",
+  LeaderboardDetails: "LEADERBOARD DETAILS",
 };
 
 const tabScreens = ["Home", "Video", "Earn", "Wallet", "Profile"];
@@ -156,6 +159,7 @@ function PreviewStackHeader({ title }) {
 
 function PlayerLargeTextPreview() {
   const { fontScale } = useWindowDimensions();
+  const [leaderboardCycleType, setLeaderboardCycleType] = React.useState("weekly");
   const hasTabBar = tabScreens.includes(screenName);
 
   return (
@@ -165,7 +169,14 @@ function PlayerLargeTextPreview() {
     >
       {!hasTabBar ? <PreviewStackHeader title={titles[screenName] || screenName.toUpperCase()} /> : null}
       <View testID="player-screen" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <Screen />
+        {screenName === "LeaderboardDetails" ? (
+          <Screen
+            route={{ params: { cycleType: leaderboardCycleType } }}
+            navigation={{ setParams: (params) => setLeaderboardCycleType(params.cycleType) }}
+          />
+        ) : (
+          <Screen />
+        )}
       </View>
       {hasTabBar ? <PreviewTabBar fontScale={fontScale} /> : null}
     </View>

@@ -7,7 +7,7 @@
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
 - [Mockup sandbox typecheck conflicts](mockup-sandbox-typecheck.md) — unrelated React type-version conflicts in shared sandbox UI can fail typecheck while an isolated Vite browser test passes.
-- [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — locate non-role Pressables by focusable wrappers and normalize locale-formatted values in browser assertions.
+- [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — check control reachability, locale-formatted values, and child/card bounds; clipped roots can hide overflow.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.

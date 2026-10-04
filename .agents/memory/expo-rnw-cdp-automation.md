@@ -14,3 +14,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** In the 2× Wallet form preview, the recharge button remained below the viewport until the actual modal scroll container was advanced and the sheet was positioned within the visible area.
 
 **How to apply:** Find the nearest ancestor whose vertical overflow is scrollable and whose content exceeds its viewport, adjust that element's `scrollTop`, then compare the action's bounds with the visible viewport.
+
+**Rule:** Large-text layout checks should compare text bounds with their own card bounds and check neighboring cards for overlap; document overflow alone can miss both.
+
+**Why:** In the Daily007 2× preview, the screen root clipped horizontal overflow while podium text still escaped its card and overlapped adjacent entries.
+
+**How to apply:** For scaled or expanded React Native Web content, assert child text remains within its card, cards remain separated, and the last result can be scrolled into the viewport.
