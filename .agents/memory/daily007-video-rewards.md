@@ -8,3 +8,11 @@ description: Product rule for Full Admin-managed YouTube videos and repeatable p
 **Why:** The user explicitly asked for a coin on each completed video view, including repeat views, Full Admin management, and a 75% playback threshold. They selected the searchable title/topic card design, required card selection to stay in-app so reward tracking remains available, and said Admins should decide between hiding and permanent deletion. Admins can disable videos during playback, so a session's start-time state cannot authorize a later reward.
 
 **How to apply:** Preserve role boundaries and per-session reward idempotency in future Daily007 video and wallet changes; lock the video row and recheck active state in the completion transaction before writes; keep title/topic search and the in-app player flow; block destructive edits when they would detach existing watch/reward history; describe playback qualification honestly. Count watch progress only between foreground playback samples, clear the sample baseline when app state leaves active, and never extrapolate across a long sample gap.
+
+## Native Android player validation
+
+On 2026-10-04, the user verified on an iQOO Neo running Android 16 that a filtered catalog card opened inside Daily007, YouTube controls rendered and playback started, and system Back returned to the same filtered catalog with its search text intact.
+
+**Why:** React Native Web's iframe path does not exercise the native WebView, external-app routing, or Android hardware Back.
+
+**How to apply:** Keep catalog taps in the in-app player, handle Android Back while the Video tab is focused and the player is open, and leave the catalog search state unchanged. Repeat this device check after changes to native playback or navigation.
