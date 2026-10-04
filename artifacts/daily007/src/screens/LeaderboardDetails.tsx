@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabText: { color: C.sub, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
-  range: { color: C.sub, fontSize: 11, marginBottom: 10 },
+  range: { color: C.text, fontSize: 14, fontWeight: "800", marginBottom: 10 },
   podiumPanel: {
     padding: 12,
     borderRadius: 16,
