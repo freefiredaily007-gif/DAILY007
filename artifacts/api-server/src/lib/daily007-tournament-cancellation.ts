@@ -190,7 +190,7 @@ export async function cancelUnderfilledTournamentTransaction(
         "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
         [registration.captain_user_id, nextBalance],
       );
-      const description = `Refund for Cancelled Tournament #${matchId}`;
+      const description = `Entry fee refunded — ${match.title} (tournament cancelled)`;
       const ledger = await client.query<{ id: string }>(
         `INSERT INTO daily007_v2_wallet_ledger
            (user_id, amount, balance_after, reason, match_id, registration_id, idempotency_key, details)

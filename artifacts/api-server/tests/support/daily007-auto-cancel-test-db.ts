@@ -34,6 +34,8 @@ type TestLedgerEntry = {
   reason: string;
   matchId: string;
   registrationId: string;
+  details?: Record<string, unknown>;
+  createdAt?: Date;
 };
 
 type TestDatabaseSnapshot = {
@@ -199,6 +201,42 @@ class Daily007AutoCancelTestDatabase {
         entry.registrationId === registrationId && REFUND_REASONS.has(entry.reason),
       );
       rows = priorRefund ? [{ id: "prior-refund" }] : [];
+    } else if (
+      normalized.includes("FROM daily007_v2_wallet_ledger") &&
+      normalized.includes("user_id = $1")
+    ) {
+      const userId = String(values[0]);
+      rows = [...this.ledger.entries()]
+        .filter(([, entry]) => entry.userId === userId)
+        .sort(([, left], [, right]) =>
+          (right.createdAt?.getTime() ?? 0) - (left.createdAt?.getTime() ?? 0),
+        )
+        .slice(0, 500)
+        .map(([idempotencyKey, entry]) => ({
+          id: `ledger-${idempotencyKey}`,
+          amount: entry.amount,
+          balanceAfter: entry.balanceAfter,
+          reason: entry.reason,
+          details: entry.details ?? {},
+          createdAt: entry.createdAt ?? new Date(this.nowMs),
+        }));
+    } else if (
+      normalized.startsWith(
+        "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
+      )
+    ) {
+      const account = this.accounts.get(String(values[0]));
+      rows = account ? [{
+        id: account.id,
+        name: "Test Wallet Player",
+        email: `${account.id}@example.test`,
+        role: "user",
+        wallet_coins: account.wallet_coins,
+        phone: null,
+        game_uid: null,
+        status: "active",
+        auth_version: 0,
+      }] : [];
     } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {
       const account = this.accounts.get(String(values[0]));
       rows = account ? [{ wallet_coins: account.wallet_coins }] : [];
@@ -218,6 +256,8 @@ class Daily007AutoCancelTestDatabase {
           reason: "tournament_cancel_refund",
           matchId: String(matchId),
           registrationId: String(registrationId),
+          details: JSON.parse(String(values[6])) as Record<string, unknown>,
+          createdAt: new Date(this.nowMs),
         });
         this.mutationTrace.push(`ledger:${String(registrationId)}`);
         rows = [{ id: `ledger-${this.ledger.size}` }];

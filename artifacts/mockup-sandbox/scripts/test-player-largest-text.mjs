@@ -31,6 +31,8 @@ const screens = [
   { name: "EditProfile", ready: "EDIT PROFILE", control: '[data-testid="edit-profile-save"]' },
   { name: "JoinForm", ready: "SOLO REGISTRATION", control: '[data-testid="join-form-submit"]' },
 ];
+const walletCancellationRefundDescription =
+  "Entry fee refunded — Daily007 Clash Finals (tournament cancelled)";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -332,6 +334,31 @@ async function checkScreen(screen) {
     );
     await checkReachable('[data-testid="video-open-youtube"]', "Open YouTube control");
   } else if (screen.name === "Wallet") {
+    const refundVisible = `document.body.innerText.includes(${JSON.stringify(walletCancellationRefundDescription)})`;
+    await waitForCondition(refundVisible, "cancellation refund reason in Wallet history");
+    await waitForCondition("document.body.innerText.includes('+35')", "cancellation refund amount in Wallet history");
+
+    const assertSingleRefundVisible = async (when) => {
+      const counts = await evaluate(`(() => {
+        const text = document.body.innerText;
+        const description = ${JSON.stringify(walletCancellationRefundDescription)};
+        return {
+          description: text.split(description).length - 1,
+          amount: text.split("+35").length - 1,
+        };
+      })()`);
+      assert(
+        counts.description === 1 && counts.amount === 1,
+        `Wallet must show one readable cancellation refund ${when}: ${JSON.stringify(counts)}`,
+      );
+    };
+    await assertSingleRefundVisible("before refresh");
+
+    await cdp("Page.reload", { ignoreCache: true });
+    await waitForCondition(refundVisible, "cancellation refund reason after Wallet refresh");
+    await waitForCondition("document.body.innerText.includes('+35')", "cancellation refund amount after Wallet refresh");
+    await assertSingleRefundVisible("after refresh");
+
     await clickSelector('[data-testid="wallet-open-recharge"]', "Wallet recharge action");
     await waitForCondition(
       "Boolean(document.querySelector('[data-testid=\"wallet-form-scroll\"]') && document.querySelector('[data-testid=\"wallet-recharge-submit\"]'))",

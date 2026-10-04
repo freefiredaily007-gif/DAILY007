@@ -129,6 +129,8 @@ const largestTextRegistrations = [
     },
   },
 ];
+const walletCancellationRefundDescription =
+  "Entry fee refunded — Daily007 Clash Finals (tournament cancelled)";
 
 export function configurePlayerLargestTextPreview() {
   playerLargestTextPreview = true;
@@ -156,15 +158,13 @@ export const Api = {
   settings: async () => ({ settings: { ...settings } }),
   transactions: async () => playerLargestTextPreview
     ? [{
-        id: "largest-text-payment",
-        amount: 500,
-        coins: 500,
-        description: "Manual UPI recharge submitted for administrator review",
+        id: "largest-text-cancellation-refund",
+        amount: 35,
+        balanceAfter: 155,
+        reason: "tournament_cancel_refund",
+        details: { description: walletCancellationRefundDescription },
+        description: walletCancellationRefundDescription,
         createdAt: new Date(now).toISOString(),
-        isRequest: true,
-        requestType: "payment",
-        status: "pending",
-        reference: "DAILY007-TRANSACTION-REFERENCE-2026",
       }]
     : empty(),
   myPayments: empty,
