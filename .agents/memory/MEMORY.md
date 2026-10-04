@@ -21,6 +21,7 @@
 - [Daily007 admin styling scope](daily007-admin-visual-only.md) — keep admin restyles appearance-only; preserve settings, actions, permissions, data, and player-facing screens.
 - [Daily007 tournament artwork](daily007-tournament-artwork.md) — map Battle Royale posters to existing tournament cards, including Home’s upcoming carousel, not its game-mode card or a new selector.
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
+- [Daily007 Full Admin role changes](daily007-full-admin-role-changes.md) — serialize role demotions and re-check the remaining-admin rule inside the transaction, not only at request authorization.
 - [Daily007 database CHECK constraints](daily007-role-constraint-verification.md) — compare dev/prod definitions; rename same-name stale checks to make Publish detect expression drift.
 - [Drizzle CHECK constraint drift](drizzle-check-constraints.md) — after changing a Drizzle CHECK, verify the live PostgreSQL definition; a successful push can leave it stale.
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.

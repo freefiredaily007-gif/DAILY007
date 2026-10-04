@@ -11,3 +11,8 @@ export function hasTournamentAdminAccess(role: unknown): role is "admin" | "tour
 export function isAssignableTournamentRole(role: unknown): role is "user" | "tournament_admin" {
   return role === "user" || role === "tournament_admin";
 }
+
+export function wouldRemoveLastFullAdmin(role: unknown, fullAdminCount: number): boolean {
+  return isFullAdminRole(role) &&
+    (!Number.isSafeInteger(fullAdminCount) || fullAdminCount <= 1);
+}

@@ -9,6 +9,7 @@ import router from "../src/routes/daily007-compat-extra";
 import {
   TEST_ADMIN_ID,
   TEST_PLAYER_ID,
+  TEST_SECOND_ADMIN_ID,
   walletTestDb,
 } from "./support/daily007-wallet-test-db";
 
@@ -48,7 +49,7 @@ async function call(
   origin: string,
   actorId: string,
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH",
   body?: Record<string, unknown>,
 ): Promise<JsonResult> {
   const token = makeToken(actorId, 0);
@@ -63,6 +64,42 @@ async function call(
   });
   return { status: response.status, body: await response.json() };
 }
+
+test("a stale admin request cannot remove the last Full Admin, and the row remains Full Admin after reload", async () => {
+  walletTestDb.reset();
+  walletTestDb.users.set(TEST_SECOND_ADMIN_ID, {
+    id: TEST_SECOND_ADMIN_ID,
+    name: "Second Test Admin",
+    email: "second-admin@example.test",
+    role: "admin",
+    wallet_coins: 0,
+    phone: null,
+    game_uid: null,
+    status: "active",
+    auth_version: 0,
+  });
+
+  await withServer(async (origin) => {
+    // Simulate another authorized role change committing after this request's
+    // authentication check but before its transaction acquires the admin lock.
+    walletTestDb.demoteUserBeforeNextTransaction(TEST_ADMIN_ID);
+    const rejected = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/admin/users/${TEST_SECOND_ADMIN_ID}/role`,
+      "PATCH",
+      { role: "tournament_admin" },
+    );
+
+    assert.equal(rejected.status, 409);
+    assert.equal(rejected.body.error, "At least one full administrator must remain.");
+
+    const refreshedUsers = await call(origin, TEST_SECOND_ADMIN_ID, "/admin/users", "GET");
+    const survivingAdmin = refreshedUsers.body.find((user: any) => user.id === TEST_SECOND_ADMIN_ID);
+    assert.equal(survivingAdmin.role, "admin");
+    assert.equal(walletTestDb.users.get(TEST_SECOND_ADMIN_ID)?.role, "admin");
+  });
+});
 
 test("pending deposits do not change coins and approval credits the configured amount once", async () => {
   walletTestDb.reset({ settings: { coinToMoneyRate: "2.5" } });

@@ -2,7 +2,7 @@ type WalletUser = {
   id: string;
   name: string;
   email: string;
-  role: "user" | "admin";
+  role: "user" | "admin" | "tournament_admin";
   wallet_coins: number;
   phone: null;
   game_uid: null;
@@ -67,6 +67,7 @@ type DatabaseSnapshot = {
 
 export const TEST_PLAYER_ID = "10000000-0000-4000-8000-000000000001";
 export const TEST_ADMIN_ID = "10000000-0000-4000-8000-000000000002";
+export const TEST_SECOND_ADMIN_ID = "10000000-0000-4000-8000-000000000003";
 
 const DEFAULT_SETTINGS = {
   rechargeEnabled: "true",
@@ -97,6 +98,7 @@ class MemoryWalletDatabase {
   settings: Record<string, string> = {};
   private nextPaymentId = 1;
   private nextWithdrawalId = 1;
+  private demoteBeforeNextTransaction: string | null = null;
 
   reset({ playerBalance = 700, settings = {} }: {
     playerBalance?: number;
@@ -133,6 +135,11 @@ class MemoryWalletDatabase {
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
     this.nextPaymentId = 1;
     this.nextWithdrawalId = 1;
+    this.demoteBeforeNextTransaction = null;
+  }
+
+  demoteUserBeforeNextTransaction(userId: string): void {
+    this.demoteBeforeNextTransaction = userId;
   }
 
   private snapshot(): DatabaseSnapshot {
@@ -165,6 +172,11 @@ class MemoryWalletDatabase {
       query: async <T = unknown>(sql: string, values: unknown[] = []) => {
         const normalized = sql.replace(/\s+/g, " ").trim();
         if (normalized === "BEGIN") {
+          if (this.demoteBeforeNextTransaction) {
+            const user = this.users.get(this.demoteBeforeNextTransaction);
+            if (user) user.role = "tournament_admin";
+            this.demoteBeforeNextTransaction = null;
+          }
           transactionSnapshot = this.snapshot();
           return { rows: [] as T[] };
         }
@@ -193,6 +205,32 @@ class MemoryWalletDatabase {
     )) {
       const user = this.users.get(userId);
       rows = user ? [structuredClone(user)] : [];
+    } else if (normalized.startsWith("SELECT id, id AS \"$id\", name, email, phone, game_uid AS \"gameUid\", role")) {
+      rows = [...this.users.values()].map((user) => ({
+        id: user.id,
+        $id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        gameUid: user.game_uid,
+        role: user.role,
+        status: user.status,
+        coins: user.wallet_coins,
+        createdAt: null,
+      }));
+    } else if (normalized === "SELECT pg_advisory_xact_lock(740073)") {
+      rows = [];
+    } else if (normalized === "SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
+      const user = this.users.get(userId);
+      rows = user ? [{ role: user.role }] : [];
+    } else if (normalized === "SELECT count(*)::text AS count FROM daily007_v2_users WHERE role = 'admin'") {
+      rows = [{ count: String([...this.users.values()].filter((user) => user.role === "admin").length) }];
+    } else if (normalized.startsWith("UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role")) {
+      const user = this.users.get(userId);
+      if (user) {
+        user.role = String(values[1]) as WalletUser["role"];
+        rows = [{ id: user.id, role: user.role }];
+      }
     } else if (normalized === "SELECT settings FROM daily007_v2_settings WHERE id = 1") {
       rows = [{ settings: structuredClone(this.settings) }];
     } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {

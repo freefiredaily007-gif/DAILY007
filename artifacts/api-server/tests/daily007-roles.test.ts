@@ -4,6 +4,7 @@ import {
   hasTournamentAdminAccess,
   isAssignableTournamentRole,
   isFullAdminRole,
+  wouldRemoveLastFullAdmin,
 } from "../src/lib/daily007-roles.ts";
 
 test("Tournament Admin can access tournament operations but not full-admin operations", () => {
@@ -20,4 +21,12 @@ test("only player and Tournament Admin roles can be assigned through User Manage
   assert.equal(isAssignableTournamentRole("tournament_admin"), true);
   assert.equal(isAssignableTournamentRole("admin"), false);
   assert.equal(isAssignableTournamentRole("owner"), false);
+});
+
+test("User Management cannot remove the last Full Admin", () => {
+  assert.equal(wouldRemoveLastFullAdmin("admin", 1), true);
+  assert.equal(wouldRemoveLastFullAdmin("admin", 0), true);
+  assert.equal(wouldRemoveLastFullAdmin("admin", 2), false);
+  assert.equal(wouldRemoveLastFullAdmin("tournament_admin", 1), false);
+  assert.equal(wouldRemoveLastFullAdmin("admin", Number.NaN), true);
 });

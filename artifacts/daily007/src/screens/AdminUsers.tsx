@@ -61,7 +61,18 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       toast(granting ? `${u.name} is now a Tournament Admin` : `${u.name} is now a player`, 'success');
       await load();
     } catch (e) {
-      toast(errMessage(e), 'error');
+      const message = errMessage(e);
+      if (message === 'At least one full administrator must remain.') {
+        try {
+          setUsers((await Api.adminUsers()) ?? []);
+        } catch (refreshError) {
+          toast(`${message} User list refresh failed: ${errMessage(refreshError)}`, 'error');
+          return;
+        }
+        toast('At least one Full Admin must remain. This account was not changed.', 'error');
+      } else {
+        toast(message, 'error');
+      }
     } finally {
       setBusy(null);
     }
@@ -110,6 +121,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
                   kind={u.role === 'tournament_admin' ? 'danger' : 'ghost'}
                   onPress={() => setTournamentAdmin(u)}
                   loading={busy === u.$id}
+                  testID={`change-user-role-${u.$id}`}
                 />
               </View>
             )}
@@ -118,11 +130,15 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       })}
       <ConfirmDialog
         visible={roleChangeTarget !== null}
-        title={roleChangeTarget?.role === 'tournament_admin' ? 'Remove tournament admin access?' : 'Make this user a Tournament Admin?'}
+        title={roleChangeTarget?.role === 'tournament_admin'
+          ? 'Remove tournament admin access?'
+          : roleChangeTarget?.role === 'admin' ? 'Restrict this Full Admin?' : 'Make this user a Tournament Admin?'}
         message={roleChangeTarget?.role === 'tournament_admin'
           ? `${roleChangeTarget.name} will return to regular player access.`
-          : `${roleChangeTarget?.name} can manage tournaments, registrations, rooms, results, and winner rewards only.`}
-        confirmTitle={roleChangeTarget?.role === 'tournament_admin' ? 'REMOVE ACCESS' : 'GRANT ACCESS'}
+          : roleChangeTarget?.role === 'admin'
+            ? `${roleChangeTarget.name} will lose Full Admin access. At least one Full Admin must remain, or the change will be rejected.`
+            : `${roleChangeTarget?.name} can manage tournaments, registrations, rooms, results, and winner rewards only.`}
+        confirmTitle={roleChangeTarget?.role === 'tournament_admin' ? 'REMOVE ACCESS' : roleChangeTarget?.role === 'admin' ? 'RESTRICT ACCESS' : 'GRANT ACCESS'}
         danger={roleChangeTarget?.role === 'tournament_admin'}
         onCancel={() => setRoleChangeTarget(null)}
         onConfirm={() => { void confirmTournamentAdminChange(); }}

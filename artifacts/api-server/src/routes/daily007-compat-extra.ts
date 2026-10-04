@@ -10,7 +10,7 @@ import {
   Daily007ListVideosResponse,
 } from "@workspace/api-zod";
 import { authenticate, requireAdmin, requireTournamentAdmin } from "./daily007-v2";
-import { isAssignableTournamentRole } from "../lib/daily007-roles";
+import { isAssignableTournamentRole, wouldRemoveLastFullAdmin } from "../lib/daily007-roles";
 import {
   isValidYoutubeChannelUrl,
   normalizePaymentReference,
@@ -556,7 +556,7 @@ router.patch("/admin/users/:id/role", authenticate, async (req, res): Promise<vo
         const admins = await client.query<{ count: string }>(
           "SELECT count(*)::text AS count FROM daily007_v2_users WHERE role = 'admin'",
         );
-        if (Number(admins.rows[0]?.count ?? 0) <= 1) {
+        if (wouldRemoveLastFullAdmin(currentRole, Number(admins.rows[0]?.count ?? 0))) {
           throw Object.assign(new Error("At least one full administrator must remain."), { status: 409 });
         }
       }
