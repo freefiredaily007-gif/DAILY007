@@ -1,6 +1,7 @@
 {
   "expo": {
     "name": "Daily007",
+    "displayName": "Daily007",
     "slug": "daily007",
     "version": "1.0.1",
     "platforms": ["ios", "android", "web"],

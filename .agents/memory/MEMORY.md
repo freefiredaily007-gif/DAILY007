@@ -1,5 +1,6 @@
 - [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
+- [Daily007 withdrawable purchases](daily007-withdrawable-purchases.md) — purchased coins must remain withdrawable; do not substitute ordinary store consumables for an approved gateway.
 - [Daily007 Google auth bridge](google-auth-bridge.md) — Same-email sign-in never links automatically; recovery needs another Full Admin or the sole-admin owner code.
 - [Daily007 single-session policy](daily007-single-session.md) — a new sign-in replaces prior sessions; Google linking preserves the current one.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
@@ -20,6 +21,7 @@
 - [Daily007 tournament artwork](daily007-tournament-artwork.md) — map Battle Royale posters to existing tournament cards, including Home’s upcoming carousel, not its game-mode card or a new selector.
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
 - [Daily007 database CHECK constraints](daily007-role-constraint-verification.md) — compare dev/prod definitions; rename same-name stale checks to make Publish detect expression drift.
+- [Drizzle CHECK constraint drift](drizzle-check-constraints.md) — after changing a Drizzle CHECK, verify the live PostgreSQL definition; a successful push can leave it stale.
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.
 - [Daily007 tournament captain name](daily007-tournament-captain-name.md) — use the read-only Daily007 profile name for the captain instead of asking for a separate real name.
 - [Daily007 tournament auto-confirmation](daily007-tournament-auto-confirm.md) — new joins confirm immediately, with any entry-fee deduction in the same transaction.

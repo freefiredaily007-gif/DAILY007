@@ -43,6 +43,7 @@ export const daily007WithdrawalsTable = pgTable("daily007_v2_withdrawals", {
   reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
 }, (table) => [
   check("daily007_withdrawal_coins_valid", sql`${table.coins} BETWEEN 1 AND 2147483647`),
   check("daily007_withdrawal_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected', 'deleted')`),
