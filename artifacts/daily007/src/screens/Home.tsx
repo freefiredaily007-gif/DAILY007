@@ -7,9 +7,6 @@ import bannerClash from '../assets/banner-clash.jpg';
 import modeSoloLogo from '../assets/mode-solo-logo.jpg';
 import modeSquadLogo from '../assets/mode-squad-logo.jpg';
 import modeClashLogo from '../assets/mode-clash-logo.jpg';
-import battleRoyaleSoloPoster from '../assets/battle-royale-solo-poster.jpg';
-import battleRoyaleDuoPoster from '../assets/battle-royale-duo-poster.jpg';
-import battleRoyaleSquadPoster from '../assets/battle-royale-squad-poster.jpg';
 import { useNavigation } from '@react-navigation/native';
 import { api, Api } from '../lib/api';
 import { useApp } from '../App';
@@ -20,12 +17,6 @@ import { HOME_GAME_MODE_CARDS, homeModeRouteParams } from '../lib/tournamentFilt
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 import HomeLeaderboards from './HomeLeaderboards';
-
-const BATTLE_ROYALE_POSTERS = [
-  { format: 'SOLO', image: battleRoyaleSoloPoster },
-  { format: 'DUO', image: battleRoyaleDuoPoster },
-  { format: 'SQUAD', image: battleRoyaleSquadPoster },
-] as const;
 
 function fmtDate(d?: string) {
   if (!d) return '';
@@ -287,53 +278,34 @@ export default function Home() {
         { ...HOME_GAME_MODE_CARDS[1], img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: 'SOLO · DUO · SQUAD', accent: C.neon },
         { ...HOME_GAME_MODE_CARDS[2], img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: 'SOLO · DUO · SQUAD', accent: C.purple },
       ].map((m) => {
-        const isBattleRoyale = m.gameMode === 'battle_royale';
         return (
           <GCard
             key={m.gameMode}
-            onPress={() => nav.navigate('Tournaments', homeModeRouteParams(m))}
-            accessibilityLabel={`Open ${m.mode} tournaments`}
-            accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
+            onPress={() => m.gameMode === 'battle_royale'
+              ? nav.navigate('ModeSubmodes', { gameMode: m.gameMode })
+              : nav.navigate('Tournaments', homeModeRouteParams(m))}
+            accessibilityLabel={m.gameMode === 'battle_royale' ? 'Choose a Battle Royale tournament format' : `Open ${m.mode} tournaments`}
+            accessibilityHint={m.gameMode === 'battle_royale'
+              ? 'Choose Solo, Duo, or Squad to see matching Battle Royale tournaments'
+              : 'Shows upcoming, ongoing, and completed tournaments for this game mode'}
             testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
             glowColor={m.accent}
-            style={[s.modeCard, isBattleRoyale && s.brPosterModeCard, { borderLeftColor: m.accent }]}
+            style={[s.modeCard, { borderLeftColor: m.accent }]}
           >
-            {isBattleRoyale ? (
-              <View style={s.brPosterModeContent}>
-                <View>
-                  <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
-                  <Text style={s.modeTitle}>{m.title}</Text>
-                </View>
-                <View style={s.brPosterRow}>
-                  {BATTLE_ROYALE_POSTERS.map((poster) => (
-                    <View key={poster.format} style={s.brPosterTile}>
-                      <Image source={poster.image} style={s.brPosterImage} resizeMode="contain" />
-                    </View>
-                  ))}
-                </View>
-                <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
-                  <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
-                  <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
-                </View>
+            <View style={s.modeArtWrap}>
+              <Image source={m.img} style={s.modeBanner} resizeMode="contain" />
+            </View>
+            <View style={s.modeBody}>
+              <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
+              <Text style={s.modeTitle}>{m.title}</Text>
+              <View style={[s.modeCapacityBadge, { borderColor: m.accent + '66', backgroundColor: m.accent + '14' }]}>
+                <Text style={[s.modeCapacity, { color: m.accent }]} numberOfLines={1}>{m.capacity}</Text>
               </View>
-            ) : (
-              <>
-                <View style={s.modeArtWrap}>
-                  <Image source={m.img} style={s.modeBanner} resizeMode="contain" />
-                </View>
-                <View style={s.modeBody}>
-                  <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
-                  <Text style={s.modeTitle}>{m.title}</Text>
-                  <View style={[s.modeCapacityBadge, { borderColor: m.accent + '66', backgroundColor: m.accent + '14' }]}>
-                    <Text style={[s.modeCapacity, { color: m.accent }]} numberOfLines={1}>{m.capacity}</Text>
-                  </View>
-                  <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
-                    <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
-                    <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
-                  </View>
-                </View>
-              </>
-            )}
+              <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
+                <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
+                <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
+              </View>
+            </View>
           </GCard>
         );
       })}
@@ -452,14 +424,6 @@ const s = StyleSheet.create({
     backgroundColor: '#11182a', borderRadius: 16, borderWidth: 1,
     borderColor: '#28314b', borderLeftWidth: 4,
   },
-  brPosterModeCard: { flexDirection: 'column', alignItems: 'stretch' },
-  brPosterModeContent: { width: '100%' },
-  brPosterRow: { flexDirection: 'row', gap: 8, width: '100%', marginTop: 10 },
-  brPosterTile: {
-    flex: 1, aspectRatio: 1, overflow: 'hidden', borderRadius: 10,
-    backgroundColor: C.bg2, borderWidth: 1, borderColor: C.gold + '66',
-  },
-  brPosterImage: { width: '100%', height: '100%' },
   modeArtWrap: {
     width: 104, height: 124, borderRadius: 12, overflow: 'hidden',
     backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
