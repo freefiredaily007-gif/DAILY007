@@ -15,6 +15,7 @@ import { useApp } from '../App';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { resolveTournamentWinnerState } from '../lib/tournament-winner-details';
 
 export default function TDetail() {
   const nav: any = useNavigation();
@@ -100,7 +101,12 @@ export default function TDetail() {
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const tournamentStatus = String(t.status || '').toLowerCase();
-  const winner = resultsQuery.data?.entries.find((entry) => Number(entry.rank) === 1);
+  const winnerState = resolveTournamentWinnerState(
+    resultsQuery.isLoading,
+    resultsQuery.isError,
+    resultsQuery.data?.entries,
+  );
+  const winner = winnerState.kind === 'winner' ? winnerState.entry : undefined;
   const winnerGameName = winner?.gameName?.trim() ?? '';
   const winnerTeamName = winner?.teamName?.trim() ?? '';
   const winnerName = winnerTeamName || winnerGameName || 'Winner';
@@ -228,16 +234,26 @@ export default function TDetail() {
       {isCompleted && (
         <>
           <SectionTitle accent={C.gold}>WINNER &amp; PRIZE</SectionTitle>
-          {resultsQuery.isLoading && !resultsQuery.data ? (
+          {winnerState.kind === 'loading' ? (
             <Card style={s.participantsLoading}>
               <ActivityIndicator color={C.gold} />
               <Text style={s.participantsHint}>Loading winner details…</Text>
             </Card>
-          ) : resultsQuery.isError ? (
+          ) : winnerState.kind === 'error' ? (
             <Card>
-              <Text style={s.participantsHint}>Winner and prize details couldn’t be loaded. Pull down to retry.</Text>
+              <Text style={s.participantsHint}>
+                Winner and prize details couldn’t be loaded. Retry here or pull down to try again.
+              </Text>
+              <Btn
+                title="RETRY WINNER DETAILS"
+                kind="ghost"
+                onPress={() => { void resultsQuery.refetch(); }}
+                loading={resultsQuery.isFetching}
+                style={{ marginTop: 10 }}
+                testID="winner-results-retry"
+              />
             </Card>
-          ) : winner ? (
+          ) : winnerState.kind === 'winner' && winner ? (
             <Card style={s.winnerCard}>
               <View style={s.winnerBadge}>
                 <Text style={s.winnerBadgeText}>#1</Text>
@@ -257,7 +273,9 @@ export default function TDetail() {
             </Card>
           ) : (
             <Card>
-              <Text style={s.participantsHint}>Winner and prize details are not available for this match.</Text>
+              <Text style={s.participantsHint}>
+                No winner was recorded for this completed match.
+              </Text>
             </Card>
           )}
         </>
