@@ -26,12 +26,12 @@ export function RoomCredentialsPanel({
   const password = roomPassword?.trim() ?? '';
   const released = configured && !!schedule && now >= schedule.releaseAtMs;
   const credentialsReady = released && !!id && !!password;
-  const message = !configured
-    ? 'Room details have not been shared yet. Once added, they unlock five minutes before the scheduled start.'
-    : !schedule
-      ? 'Tournament start time is unavailable. Room details remain hidden.'
-      : now < schedule.releaseAtMs
-        ? `Room ID & Password will be available at ${fmtTime12(schedule.releaseTime24)} IST.`
+  const message = !schedule
+    ? 'Tournament start time is unavailable. Room details remain hidden.'
+    : now < schedule.releaseAtMs
+      ? `Room ID & Password will be available at ${fmtTime12(schedule.releaseTime24)} IST.`
+      : !configured
+        ? 'The admin has not shared room details yet.'
         : 'Room details will be available soon.';
 
   const copy = async (label: string, value: string) => {
