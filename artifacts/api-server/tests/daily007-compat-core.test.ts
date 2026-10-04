@@ -21,6 +21,7 @@ import {
   isAutomaticTournamentCancellationMode,
   shouldAutomaticallyCancelTournament,
 } from "../src/lib/daily007-tournament-cancellation.ts";
+import { getTournamentLifecycleState } from "../../daily007/src/lib/tournamentLifecycle";
 
 test("legacy tournament modes map to the fixed v2 mode capacities", () => {
   assert.equal(legacyMode({ mode: "Battle Royale", teamType: "Solo" }), "solo");
@@ -46,6 +47,36 @@ test("tournament wall times use IST while timestamps convert to the correct inst
   assert.equal(parseStart("2999-02-30", "08:00 PM"), null);
   assert.equal(parseStart("2999-03-15", "25:00"), null);
   assert.equal(parseStart("2000-01-01", "08:00 PM"), null);
+});
+
+test("API and mobile tournament lists move to Ongoing at the exact scheduled IST start", () => {
+  const scheduledInstant = new Date("2999-03-15T14:30:00.000Z");
+  const storedWallTime = storedTournamentTimeFromInstant(scheduledInstant);
+  const apiStartsAt = tournamentInstantFromStored(storedWallTime).toISOString();
+  const tournament = { startsAt: apiStartsAt, status: "open", enabled: true };
+  const oneMillisecondBefore = scheduledInstant.getTime() - 1;
+  const atStart = scheduledInstant.getTime();
+  const hasStartedBefore = !isTournamentStartInFuture(storedWallTime, oneMillisecondBefore);
+
+  assert.equal(hasStartedBefore, false);
+  assert.equal(effectiveTournamentStatus({
+    has_winner: false,
+    has_started: hasStartedBefore,
+    enabled: true,
+    status: "open",
+  }), "open");
+  assert.equal(getTournamentLifecycleState(tournament, oneMillisecondBefore), "upcoming");
+
+  const hasStartedAt = !isTournamentStartInFuture(storedWallTime, atStart);
+  assert.equal(hasStartedAt, true);
+  assert.equal(effectiveTournamentStatus({
+    has_winner: false,
+    has_started: hasStartedAt,
+    enabled: true,
+    status: "open",
+  }), "ongoing");
+  assert.equal(getTournamentLifecycleState(tournament, atStart), "ongoing");
+  assert.equal(getTournamentLifecycleState(tournament, atStart + 1), "ongoing");
 });
 
 test("signup referral response stays pending until a separate verification reward flow", () => {
