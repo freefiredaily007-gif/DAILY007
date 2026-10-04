@@ -8,6 +8,7 @@ import {
 } from '@workspace/api-client-react';
 import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
+import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
@@ -653,22 +654,33 @@ export default function AdminTournaments() {
                     <Text style={st.lbl}>SELECT PLAYER</Text>
                     {eligibleResultRegs.map((registration) => {
                         const selected = selectedRegistrationId === registration.id;
+                        const playerLabel = `${registration.playerName}${registration.teamName ? ` — ${registration.teamName}` : ''}`;
                         return (
-                          <Pressable
+                          <View
                             key={registration.id}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected }}
-                            testID={`result-registration-${registration.id}`}
-                            onPress={() => {
-                              setSelectedRegistrationId(registration.id);
-                              setResultError('');
-                            }}
                             style={[st.playerOption, selected && st.playerOptionSelected]}
                           >
-                            <Text style={[st.playerOptionText, selected && st.playerOptionTextSelected]}>
-                              {selected ? '✓ ' : ''}{registration.playerName}{registration.teamName ? ` — ${registration.teamName}` : ''} (UID {registration.gameUid})
-                            </Text>
-                          </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Select ${playerLabel} for result entry`}
+                              accessibilityState={{ selected }}
+                              testID={`result-registration-${registration.id}`}
+                              onPress={() => {
+                                setSelectedRegistrationId(registration.id);
+                                setResultError('');
+                              }}
+                              style={st.playerOptionSelect}
+                            >
+                              <Text style={[st.playerOptionText, selected && st.playerOptionTextSelected]}>
+                                {selected ? '✓ ' : ''}{playerLabel}
+                              </Text>
+                              <Text style={st.playerOptionUid}>UID {registration.gameUid || '—'}</Text>
+                            </Pressable>
+                            <CopyUidButton
+                              uid={registration.gameUid}
+                              testID={`copy-result-uid-${registration.id}`}
+                            />
+                          </View>
                         );
                       })}
                     <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -766,10 +778,15 @@ const st = StyleSheet.create({
   actionTitle: { color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 0.8, marginBottom: 8 },
   actionStatus: { color: C.neon, fontSize: 10, fontWeight: '800', marginBottom: 6 },
   actionHint: { color: C.sub, fontSize: 11, lineHeight: 16, marginBottom: 8 },
-  playerOption: { padding: 10, marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  playerOption: {
+    padding: 10, marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.card, flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
   playerOptionSelected: { borderColor: C.neon, backgroundColor: C.neon + '20' },
+  playerOptionSelect: { flex: 1, minWidth: 0, justifyContent: 'center' },
   playerOptionText: { color: C.text, fontWeight: '800', fontSize: 12 },
   playerOptionTextSelected: { color: C.neon },
+  playerOptionUid: { color: C.sub, fontSize: 10, fontWeight: '700', marginTop: 3 },
   prizeBox: { backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 5 },
   prizeValue: { color: C.gold, fontWeight: '900', fontSize: 17 },
   prizeHint: { color: C.sub, fontSize: 11, marginBottom: 10 },

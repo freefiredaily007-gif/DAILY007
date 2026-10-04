@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
+import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { configuredPrizeForRank } from '../lib/tournamentPrizes';
@@ -149,13 +150,27 @@ export default function AdminResults({
           {!regs ? <Loading /> : regs.length === 0 ? <Empty text="No approved registrations." /> : (
             <View style={{ marginBottom: 10 }}>
               <Text style={st.lbl}>SELECT PLAYER</Text>
-              {regs.map((r) => (
-                <Card key={r.id} style={{ padding: 10, marginBottom: 6, borderColor: regId === r.id ? C.neon : C.border }}>
-                  <Text onPress={() => setRegId(r.id)} style={{ color: regId === r.id ? C.neon : C.text, fontWeight: '800', fontSize: 13 }}>
-                    {regId === r.id ? '✓ ' : ''}{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''} (UID {r.gameUid})
-                  </Text>
-                </Card>
-              ))}
+              {regs.map((r) => {
+                const selected = regId === r.id;
+                const playerLabel = `${r.playerName}${r.teamName ? ` — ${r.teamName}` : ''}`;
+                return (
+                  <Card key={r.id} style={[st.playerOptionRow, { borderColor: selected ? C.neon : C.border }]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${playerLabel} for result entry`}
+                      accessibilityState={{ selected }}
+                      onPress={() => setRegId(r.id)}
+                      style={st.playerOptionSelect}
+                    >
+                      <Text style={{ color: selected ? C.neon : C.text, fontWeight: '800', fontSize: 13 }}>
+                        {selected ? '✓ ' : ''}{playerLabel}
+                      </Text>
+                      <Text style={st.playerOptionUid}>UID {r.gameUid || '—'}</Text>
+                    </Pressable>
+                    <CopyUidButton uid={r.gameUid} testID={`copy-result-uid-${r.id}`} />
+                  </Card>
+                );
+              })}
             </View>
           )}
           <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -188,6 +203,11 @@ const st = StyleSheet.create({
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   tName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  playerOptionRow: {
+    padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  playerOptionSelect: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  playerOptionUid: { color: C.sub, fontSize: 10, fontWeight: '700', marginTop: 3 },
   inrNote: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   prizeBox: { backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 5 },
   prizeValue: { color: C.gold, fontWeight: '900', fontSize: 17 },

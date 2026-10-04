@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test, { after } from "node:test";
 import express from "express";
 import type { Server } from "node:http";
@@ -58,6 +59,95 @@ async function request(
   });
   return { status: response.status, body: await response.json() };
 }
+
+function makeLegacyToken(userId: string): string {
+  const payload = Buffer.from(JSON.stringify({
+    sub: userId,
+    exp: Math.floor(Date.now() / 1000) + 60,
+  })).toString("base64url");
+  const signature = createHmac("sha256", TEST_AUTH_SECRET).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+test("a pre-rollout token stays valid until the account's next successful password login", async () => {
+  signupTestDb.reset();
+
+  await withServer(async (origin) => {
+    const email = "legacy-session@example.test";
+    const password = "legacy-session-regression-password";
+    const registration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      { name: "Legacy Session Test", email, password },
+    );
+
+    assert.equal(registration.status, 201);
+    const accountId = registration.body.account.id as string;
+    assert.equal(signupTestDb.users.get(accountId)?.auth_version, 0);
+
+    const legacyToken = makeLegacyToken(accountId);
+    const legacyClaims = JSON.parse(Buffer.from(legacyToken.split(".")[0], "base64url").toString("utf8"));
+    assert.equal("sv" in legacyClaims, false, "legacy token must not contain a session-version claim");
+
+    const beforeLogin = await request(
+      origin,
+      "/daily007/v2/auth/me",
+      "GET",
+      undefined,
+      legacyToken,
+    );
+    assert.equal(beforeLogin.status, 200, "pre-rollout token should work while auth_version is zero");
+    assert.equal(beforeLogin.body.id, accountId);
+
+    const failedLogin = await request(
+      origin,
+      "/daily007/v2/auth/login",
+      "POST",
+      { email, password: `${password}-incorrect` },
+    );
+    assert.equal(failedLogin.status, 401);
+    assert.equal(signupTestDb.users.get(accountId)?.auth_version, 0);
+
+    const afterFailedLogin = await request(
+      origin,
+      "/daily007/v2/auth/me",
+      "GET",
+      undefined,
+      legacyToken,
+    );
+    assert.equal(afterFailedLogin.status, 200, "a rejected password attempt must not replace a legacy session");
+
+    const login = await request(
+      origin,
+      "/daily007/v2/auth/login",
+      "POST",
+      { email, password },
+    );
+    assert.equal(login.status, 200);
+    assert.equal(typeof login.body.token, "string");
+    assert.equal(signupTestDb.users.get(accountId)?.auth_version, 1);
+
+    const oldSession = await request(
+      origin,
+      "/daily007/v2/auth/me",
+      "GET",
+      undefined,
+      legacyToken,
+    );
+    assert.equal(oldSession.status, 401, "successful sign-in should replace the pre-rollout token");
+
+    const newSession = await request(
+      origin,
+      "/daily007/v2/auth/me",
+      "GET",
+      undefined,
+      login.body.token,
+    );
+    assert.equal(newSession.status, 200, "token from the successful sign-in should remain valid");
+    assert.equal(newSession.body.id, accountId);
+  });
+});
 
 test("wrong passwords preserve a valid session while successful logins replace it", async () => {
   signupTestDb.reset();
