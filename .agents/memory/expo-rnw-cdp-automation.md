@@ -1,0 +1,10 @@
+---
+name: Expo React Native Web browser checks
+description: CDP locator and value-assertion quirks for interactive Expo screens rendered through React Native Web.
+---
+
+**Rule:** Some React Native Web `Pressable` wrappers are focusable but do not expose `role="button"` when the component omits `accessibilityRole`. Also normalize locale-formatted values before comparing them in browser assertions.
+
+**Why:** In the Daily007 Admin UI, the Rewards navigation rendered as a `tabindex` element without a button role, and coin amounts used Indian thousands separators. Role-only selectors missed the navigation, and an unformatted string check missed a valid refresh.
+
+**How to apply:** In isolated mobile-width CDP tests, inspect the rendered DOM, locate such controls through their visible text and focusable wrapper, and parse or format displayed values using the app's locale.
