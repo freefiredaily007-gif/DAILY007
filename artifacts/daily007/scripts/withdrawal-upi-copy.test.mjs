@@ -15,7 +15,7 @@ const copyHelperSource = await readFile(
   'utf8',
 );
 
-test('the withdrawal card wires its stored account and request ID to the copy action', () => {
+test('the withdrawal copy button reports errors and stays separate from payout actions', () => {
   const copyPress = screenSource.match(
     /onPress=\{\(\) => \{([\s\S]*?)\n\s*\}\}\s*\/>/,
   );
@@ -29,6 +29,8 @@ test('the withdrawal card wires its stored account and request ID to the copy ac
     copyPress[1],
     /void copyWithdrawalUpi\(\s*String\(p\.id\),\s*String\(p\.account\),\s*Clipboard,/,
   );
+  assert.match(copyPress[1], /setCopiedUpiId,\s*setErr,/);
+  assert.match(screenSource, /<Msg kind="err" text=\{err\} \/>/);
   assert.doesNotMatch(
     copyPress[1],
     /\bApi\.|adminWithdrawalAction|adminPaymentAction|adminMarkWithdrawalPaid/,
@@ -124,6 +126,53 @@ test('a clipboard failure never marks the request as copied', async () => {
     getWithdrawalUpiCopyLabel('withdrawal-failed', copiedRequestId),
     'COPY UPI',
   );
+});
+
+test('a rejected repeat copy clears earlier COPIED feedback and reports the failure', async () => {
+  const requestId = 'withdrawal-previously-copied';
+  const account = 'player@bank';
+  const events = [];
+  let copiedRequestId = null;
+  let rejectNextWrite = false;
+  const clipboard = {
+    async setStringAsync(value) {
+      events.push(['clipboard', value]);
+      if (rejectNextWrite) throw new Error('clipboard unavailable');
+      return true;
+    },
+  };
+  const setCopiedUpiId = (id) => {
+    copiedRequestId = id;
+    events.push(['copied', id]);
+  };
+  const setErr = (message) => events.push(['error', message]);
+
+  await copyWithdrawalUpi(
+    requestId,
+    account,
+    clipboard,
+    setCopiedUpiId,
+    setErr,
+  );
+  assert.equal(getWithdrawalUpiCopyLabel(requestId, copiedRequestId), 'COPIED');
+
+  events.length = 0;
+  rejectNextWrite = true;
+  await copyWithdrawalUpi(
+    requestId,
+    account,
+    clipboard,
+    setCopiedUpiId,
+    setErr,
+  );
+
+  assert.deepEqual(events, [
+    ['copied', null],
+    ['clipboard', account],
+    ['error', 'Could not copy this UPI ID.'],
+  ]);
+  assert.equal(copiedRequestId, null);
+  assert.equal(getWithdrawalUpiCopyLabel(requestId, copiedRequestId), 'COPY UPI');
 });
 
 test('a clipboard write that resolves false never marks the request as copied', async () => {
