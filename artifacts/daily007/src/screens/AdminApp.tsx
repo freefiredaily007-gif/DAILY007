@@ -124,6 +124,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
               return (
                 <Pressable
                   key={n.key}
+                  testID={`admin-tab-${n.key}`}
                   onLayout={(event) => { navItemOffsets.current[n.key] = event.nativeEvent.layout.x; }}
                   onPress={() => navigate(n.key)}
                   style={[st.navItem, active && st.navActive]}
