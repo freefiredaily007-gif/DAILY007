@@ -295,11 +295,16 @@ export default function Home() {
         { ...HOME_GAME_MODE_CARDS[1], img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: 'SOLO · DUO · SQUAD', accent: C.neon },
         { ...HOME_GAME_MODE_CARDS[2], img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: 'SOLO · DUO · SQUAD', accent: C.purple },
       ].map((m) => {
+        const spokenCapacity = m.capacity
+          .split('·')
+          .map((size) => size.trim().toLowerCase())
+          .filter(Boolean)
+          .join(', ');
         return (
           <GCard
             key={m.gameMode}
             onPress={() => nav.navigate('Tournaments', homeModeRouteParams(m))}
-            accessibilityLabel={`Open ${m.mode} tournaments`}
+            accessibilityLabel={`Open ${m.mode} tournaments. Available team sizes: ${spokenCapacity}.`}
             accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
             testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
             glowColor={m.accent}
