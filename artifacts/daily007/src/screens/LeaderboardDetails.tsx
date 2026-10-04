@@ -9,6 +9,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { ReadableText as Text } from "../components/typography";
 import { C, Loading } from "../components/ui";
 import { apiError } from "../lib/api";
+import {
+  LEADERBOARD_REFRESH_POLICY,
+  refetchLeaderboardOnFocus,
+} from "../lib/leaderboardRefreshPolicy";
 
 type CycleType = "weekly" | "monthly";
 type Standing = {
@@ -124,13 +128,12 @@ export default function LeaderboardDetails({ navigation, route }: any) {
   const query = useDaily007ListLeaderboards({
     query: {
       queryKey: getDaily007ListLeaderboardsQueryKey(),
-      refetchInterval: 30_000,
-      refetchOnMount: "always",
+      ...LEADERBOARD_REFRESH_POLICY,
     },
   });
   useFocusEffect(
     React.useCallback(() => {
-      void query.refetch();
+      refetchLeaderboardOnFocus(query.refetch);
     }, [query.refetch]),
   );
   const [showTop20, setShowTop20] = React.useState(false);

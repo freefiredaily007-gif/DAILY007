@@ -344,6 +344,37 @@ class MemoryLeaderboardDatabase {
       return Promise.resolve(rows<T>());
     }
     if (
+      normalized.startsWith("INSERT INTO daily007_v2_leaderboard_reward_settings") &&
+      normalized.includes("ON CONFLICT (cycle_type) DO UPDATE SET")
+    ) {
+      const cycleType = String(values[0]) as "weekly" | "monthly";
+      this.rewardSettings.set(
+        cycleType,
+        this.rewardSetting(
+          cycleType,
+          Number(values[1]),
+          Number(values[2]),
+          Number(values[3]),
+        ),
+      );
+      return Promise.resolve(rows<T>());
+    }
+    if (
+      normalized.startsWith("SELECT starts_at, ends_at FROM daily007_v2_leaderboard_periods")
+    ) {
+      const cycleType = String(values[0]);
+      const period = [...this.periods.values()]
+        .filter((candidate) =>
+          candidate.cycle_type === cycleType &&
+          candidate.status !== "finalized" &&
+          candidate.ends_at.getTime() > Date.now()
+        )
+        .sort((a, b) => b.starts_at.getTime() - a.starts_at.getTime())[0];
+      return Promise.resolve(rows<T>(
+        period ? [{ starts_at: period.starts_at, ends_at: period.ends_at }] : [],
+      ));
+    }
+    if (
       normalized.startsWith("SELECT cycle_type, first_place_coins, second_place_coins, third_place_coins FROM daily007_v2_leaderboard_reward_settings")
     ) {
       const setting = this.rewardSettings.get(String(values[0]));
@@ -367,6 +398,24 @@ class MemoryLeaderboardDatabase {
           final_standings: [],
           payout_configuration: JSON.parse(String(payoutConfiguration)) as unknown,
         });
+      }
+      return Promise.resolve(rows<T>());
+    }
+    if (
+      normalized.startsWith("UPDATE daily007_v2_leaderboard_periods") &&
+      normalized.includes("SET payout_configuration = $2::jsonb")
+    ) {
+      const cycleType = String(values[0]);
+      const payoutConfiguration = JSON.parse(String(values[1])) as unknown;
+      const cutoff = new Date(String(values[2])).getTime();
+      for (const period of this.periods.values()) {
+        if (
+          period.cycle_type === cycleType &&
+          ["active", "pending_activation", "pending_approval"].includes(period.status) &&
+          period.ends_at.getTime() > cutoff
+        ) {
+          period.payout_configuration = structuredClone(payoutConfiguration);
+        }
       }
       return Promise.resolve(rows<T>());
     }

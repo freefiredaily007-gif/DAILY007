@@ -77,13 +77,19 @@ async function call(
   origin: string,
   actorId: string,
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
+  body?: unknown,
 ): Promise<JsonResult> {
   const token = makeToken(actorId, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
+  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  const request: RequestInit = { method, headers };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    request.body = JSON.stringify(body);
+  }
   const response = await fetch(`${origin}${path}`, {
-    method,
-    headers: { authorization: `Bearer ${token}` },
+    ...request,
   });
   return { status: response.status, body: await response.json() };
 }
@@ -517,4 +523,75 @@ test("Full Admin approval pays only configured ranks once and rolls back a faile
     assert.equal(daily007LeaderboardTestDb.users.get(TEST_PLAYER_FOUR_ID)?.wallet_coins, 100);
     assert.equal(daily007LeaderboardTestDb.ledger.size, 4);
   });
+});
+
+test("Full Admin prize saves reach the player API immediately and remain available after reopening", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const savedRewards = {
+    weekly: { firstPlaceCoins: 111, secondPlaceCoins: 222, thirdPlaceCoins: 333 },
+    monthly: { firstPlaceCoins: 444, secondPlaceCoins: 555, thirdPlaceCoins: 666 },
+  };
+  const expectedWeekly = [
+    { rank: 1, coins: 111 },
+    { rank: 2, coins: 222 },
+    { rank: 3, coins: 333 },
+  ];
+  const expectedMonthly = [
+    { rank: 1, coins: 444 },
+    { rank: 2, coins: 555 },
+    { rank: 3, coins: 666 },
+  ];
+
+  try {
+    await withServer(async (origin) => {
+      const saveStartedAt = Date.now();
+      const adminSave = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        savedRewards,
+      );
+      assert.equal(adminSave.status, 200);
+      assert.deepEqual(
+        {
+          firstPlaceCoins: adminSave.body.weekly.firstPlaceCoins,
+          secondPlaceCoins: adminSave.body.weekly.secondPlaceCoins,
+          thirdPlaceCoins: adminSave.body.weekly.thirdPlaceCoins,
+        },
+        savedRewards.weekly,
+      );
+      assert.deepEqual(
+        {
+          firstPlaceCoins: adminSave.body.monthly.firstPlaceCoins,
+          secondPlaceCoins: adminSave.body.monthly.secondPlaceCoins,
+          thirdPlaceCoins: adminSave.body.monthly.thirdPlaceCoins,
+        },
+        savedRewards.monthly,
+      );
+
+      const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(playerRead.status, 200);
+      const playerView = await playerRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+      assert.ok(Date.now() - saveStartedAt < 30_000);
+      assert.deepEqual(playerView.weekly.rewards, expectedWeekly);
+      assert.deepEqual(playerView.monthly.rewards, expectedMonthly);
+
+      const reopenedRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(reopenedRead.status, 200);
+      const reopenedView = await reopenedRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+      assert.deepEqual(reopenedView.weekly.rewards, expectedWeekly);
+      assert.deepEqual(reopenedView.monthly.rewards, expectedMonthly);
+    });
+  } finally {
+    // The test runs only against its in-memory fixture and leaves it at baseline.
+    daily007LeaderboardTestDb.reset();
+  }
 });
