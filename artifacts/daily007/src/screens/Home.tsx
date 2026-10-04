@@ -185,10 +185,14 @@ export default function Home() {
               const filled = t.filledSlots ?? t.filled ?? 0;
               const total = t.totalSlots ?? tournamentModeFallback(t);
               const stt = statusOf(t, clockNow);
-              const br = t.mode === 'Battle Royale';
               const ongoing = stt.key === 'ONGOING';
               const formatPresentation = getTournamentFormatPresentation(t);
               const showFormatArt = formatPresentation.showFormatBanner;
+              const showBattleRoyalePoster = formatPresentation.showBattleRoyalePoster;
+              const br = showBattleRoyalePoster;
+              const matchMetaDate = showBattleRoyalePoster
+                ? fmtDate(t.date)
+                : `${t.teamType ?? ''} • ${fmtDate(t.date)}`;
               const tournamentModeLabel = String(t.mode || t.gameMode || 'CLASH SQUAD')
                 .replace(/[_-]+/g, ' ')
                 .toUpperCase();
@@ -201,34 +205,47 @@ export default function Home() {
                 : ongoing ? 'VIEW MATCH' : capacityFull ? 'SLOTS FULL' : 'JOIN NOW ›';
         return (
           <GCard key={t.id} onPress={() => goStack('tdetail:' + t.id)} glowColor={ongoing ? C.red : br ? C.orange : C.purple} style={s.matchCard}>
-            <View style={showFormatArt ? s.mFormatBanner : s.mBanner}>
+            <View style={showBattleRoyalePoster ? s.mPosterBanner : showFormatArt ? s.mFormatBanner : s.mBanner}>
               <Image
-                source={showFormatArt ? formatPresentation.image : br ? bannerSquad : bannerClash}
-                style={s.mBannerImg}
-                resizeMode={showFormatArt ? 'contain' : 'cover'}
+                source={showBattleRoyalePoster ? formatPresentation.image : showFormatArt ? formatPresentation.image : br ? bannerSquad : bannerClash}
+                style={showBattleRoyalePoster ? s.mPosterBannerImg : s.mBannerImg}
+                resizeMode={showBattleRoyalePoster || showFormatArt ? 'contain' : 'cover'}
               />
-              <View style={s.mBannerShade} />
-              <View style={s.mBadgeRow}>
-                {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
-                <View style={[s.modeBadge, { borderColor: br ? C.orange : C.purple }]}>
-                  <Text style={[s.modeBadgeT, { color: br ? C.orange : C.purple }]}>
-                    {br ? 'BATTLE ROYALE' : showFormatArt ? tournamentModeLabel : 'CLASH SQUAD'}
-                  </Text>
-                </View>
-              </View>
-              {showFormatArt ? (
-                <View style={s.mFormatBottomRow}>
-                  <Text style={s.mFormatTitle} numberOfLines={1}>{t.name ?? 'Match'}</Text>
-                  <View style={s.mFormatBadge}>
-                    <Text style={s.mFormatBadgeT}>{formatPresentation.label} · {formatPresentation.matchup}</Text>
+              {!showBattleRoyalePoster && (
+                <>
+                  <View style={s.mBannerShade} />
+                  <View style={s.mBadgeRow}>
+                    {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
+                    <View style={[s.modeBadge, { borderColor: br ? C.orange : C.purple }]}>
+                      <Text style={[s.modeBadgeT, { color: br ? C.orange : C.purple }]}>
+                        {br ? 'BATTLE ROYALE' : showFormatArt ? tournamentModeLabel : 'CLASH SQUAD'}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-              ) : (
-                <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                  {showFormatArt ? (
+                    <View style={s.mFormatBottomRow}>
+                      <Text style={s.mFormatTitle} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                      <View style={s.mFormatBadge}>
+                        <Text style={s.mFormatBadgeT}>{formatPresentation.label} · {formatPresentation.matchup}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                  )}
+                </>
               )}
             </View>
             <View style={{ padding: 12 }}>
-              <Text style={s.mSub}>{t.teamType ?? ''} • {fmtDate(t.date)} • <Text style={s.mTime}>{fmtTime12(t.time)} IST</Text></Text>
+              {showBattleRoyalePoster && (
+                <View style={s.mPosterHeader}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={s.mMode}>BATTLE ROYALE • {String(t.teamType ?? 'SOLO').toUpperCase()}</Text>
+                    <Text style={s.mTitle} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                  </View>
+                  {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
+                </View>
+              )}
+              <Text style={s.mSub}>{matchMetaDate} • <Text style={s.mTime}>{fmtTime12(t.time)} IST</Text></Text>
               <View style={s.mStats}>
                 <View style={s.mStat}>
                   <Text style={s.mStatL}>ENTRY</Text>
@@ -388,7 +405,9 @@ const s = StyleSheet.create({
   viewAll: { color: C.neon, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
   mBanner: { height: 110, backgroundColor: '#0a0e1e' },
   mFormatBanner: { width: '100%', aspectRatio: 16 / 9, backgroundColor: C.bg2, overflow: 'hidden' },
+  mPosterBanner: { width: '100%', aspectRatio: 1, backgroundColor: C.bg2, overflow: 'hidden' },
   mBannerImg: { width: '100%', height: '100%' },
+  mPosterBannerImg: { width: '100%', height: '100%' },
   mBannerShade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, backgroundColor: '#00000088' },
   mBadgeRow: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modeBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#000000aa' },
@@ -405,6 +424,7 @@ const s = StyleSheet.create({
   mTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   mMode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
   mTitle: { color: C.text, fontWeight: '900', fontSize: 15, marginTop: 2 },
+  mPosterHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   mSub: { color: C.sub, fontSize: 11, marginTop: 3 },
   mTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   mDivider: { height: 1, backgroundColor: C.border, marginVertical: 10 },
