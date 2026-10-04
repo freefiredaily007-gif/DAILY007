@@ -1,13 +1,10 @@
 import React from 'react';
-import { View, ScrollView, StyleSheet, Image } from 'react-native';
+import { View, ScrollView, StyleSheet } from 'react-native';
 import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, GCard, SectionTitle } from '../components/ui';
 import { submodeRouteParams } from '../lib/tournamentFilters';
-import battleRoyaleSoloPoster from '../assets/battle-royale-solo-poster.jpg';
-import battleRoyaleDuoPoster from '../assets/battle-royale-duo-poster.jpg';
-import battleRoyaleSquadPoster from '../assets/battle-royale-squad-poster.jpg';
 
 type ModeKey = 'battle_royale' | 'clash_squad' | 'lone_wolf';
 type TeamType = 'solo' | 'duo' | 'squad';
@@ -23,12 +20,6 @@ const FORMATS: { type: TeamType; title: string; size: number; accent: string }[]
   { type: 'duo', title: 'DUO', size: 2, accent: C.orange },
   { type: 'squad', title: 'SQUAD', size: 4, accent: C.purple },
 ];
-
-const BATTLE_ROYALE_POSTERS: Record<TeamType, typeof battleRoyaleSoloPoster> = {
-  solo: battleRoyaleSoloPoster,
-  duo: battleRoyaleDuoPoster,
-  squad: battleRoyaleSquadPoster,
-};
 
 function capacityFor(gameMode: ModeKey, type: TeamType, playersPerTeam: number) {
   if (gameMode === 'battle_royale') {
@@ -46,7 +37,6 @@ export default function ModeSubmodes() {
   const route: any = useRoute();
   const gameMode = String(route.params?.gameMode || '') as ModeKey;
   const mode = MODES[gameMode];
-  const isBattleRoyale = gameMode === 'battle_royale';
 
   if (!mode) {
     return (
@@ -71,7 +61,7 @@ export default function ModeSubmodes() {
       </View>
 
       <SectionTitle accent={mode.accent}>SELECT YOUR FORMAT</SectionTitle>
-      <View style={isBattleRoyale ? styles.posterFormats : styles.formats}>
+      <View style={styles.formats}>
         {FORMATS.map((format) => {
           const capacity = capacityFor(gameMode, format.type, format.size);
           const displayAccent = swapThemeColor(format.accent);
@@ -86,27 +76,17 @@ export default function ModeSubmodes() {
                 submodeRouteParams(gameMode, format.type, mode.title),
               )}
               glowColor={displayAccent}
-              style={isBattleRoyale ? styles.posterFormatCard : styles.formatCard}
+              style={styles.formatCard}
             >
-              {isBattleRoyale ? (
-                <Image
-                  source={BATTLE_ROYALE_POSTERS[format.type]}
-                  style={styles.posterFormatImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <>
-                  <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
-                    <Text style={[styles.sizeText, { color: format.accent }]}>{format.size}P</Text>
-                  </View>
-                  <View style={styles.formatInfo}>
-                    <Text style={styles.formatName}>{format.title}</Text>
-                    <Text style={styles.formatPlayers}>{format.size} {format.size === 1 ? 'player' : 'players'} per team</Text>
-                    <Text style={styles.capacity}>{capacity.label}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color={C.sub} />
-                </>
-              )}
+              <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
+                <Text style={[styles.sizeText, { color: format.accent }]}>{format.size}P</Text>
+              </View>
+              <View style={styles.formatInfo}>
+                <Text style={styles.formatName}>{format.title}</Text>
+                <Text style={styles.formatPlayers}>{format.size} {format.size === 1 ? 'player' : 'players'} per team</Text>
+                <Text style={styles.capacity}>{capacity.label}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={C.sub} />
             </GCard>
           );
         })}
@@ -128,12 +108,6 @@ const styles = StyleSheet.create({
   title: { color: C.text, fontSize: 19, fontWeight: '900', marginTop: 3 },
   subtitle: { color: C.sub, fontSize: 12, marginTop: 3 },
   formats: { gap: 11 },
-  posterFormats: { flexDirection: 'row', gap: 9 },
-  posterFormatCard: {
-    flex: 1, aspectRatio: 1, padding: 0, marginBottom: 0, overflow: 'hidden',
-    borderRadius: 12, borderWidth: 1, borderColor: C.gold + '88', backgroundColor: C.card,
-  },
-  posterFormatImage: { width: '100%', height: '100%' },
   formatCard: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 14, marginBottom: 0 },
   sizeBadge: { width: 46, height: 46, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sizeText: { fontSize: 12, fontWeight: '900' },

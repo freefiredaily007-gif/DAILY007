@@ -257,6 +257,12 @@ const tournamentFormatArt = {
   squad: require('../assets/media/tournament-squad-showdown.jpg'),
 };
 
+const battleRoyalePosterArt = {
+  solo: require('../assets/battle-royale-solo-poster.jpg'),
+  duo: require('../assets/battle-royale-duo-poster.jpg'),
+  squad: require('../assets/battle-royale-squad-poster.jpg'),
+};
+
 export function getTournamentFormatPresentation(t: any) {
   const teamType = String(t?.teamType || '').trim().toLowerCase();
   const format: keyof typeof tournamentFormatArt =
@@ -265,13 +271,15 @@ export function getTournamentFormatPresentation(t: any) {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
+  const isBattleRoyale = modeKey === 'battle_royale';
 
   return {
     format,
     label: format.toUpperCase(),
     matchup: format === 'solo' ? '1 VS 1' : format === 'duo' ? '2 VS 2' : '4 VS 4',
-    image: tournamentFormatArt[format],
-    showFormatBanner: ['clash_squad', 'lone_wolf', 'clash', 'clashsquad', 'lonewolf'].includes(modeKey),
+    image: isBattleRoyale ? battleRoyalePosterArt[format] : tournamentFormatArt[format],
+    showBattleRoyalePoster: isBattleRoyale,
+    showFormatBanner: !isBattleRoyale && ['clash_squad', 'lone_wolf', 'clash', 'clashsquad', 'lonewolf'].includes(modeKey),
   };
 }
 
@@ -319,13 +327,14 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
   const requestedImageUrl = typeof t?.imageUrl === 'string' ? t.imageUrl.trim() : '';
   const customImageUrl = /^https:\/\/\S+$/i.test(requestedImageUrl) ? requestedImageUrl : '';
   const formatPresentation = getTournamentFormatPresentation(t);
-  const { format, showFormatBanner } = formatPresentation;
   const imageSource = customImageUrl && failedImageUrl !== customImageUrl
     ? { uri: customImageUrl }
     : formatPresentation.image;
   const slotUnit = t?.slotUnit === 'player' ? 'players' : 'teams';
   const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
+  const { format, showFormatBanner, showBattleRoyalePoster } = formatPresentation;
+  const usesArtCard = showFormatBanner || showBattleRoyalePoster;
   const ctaText = joined
     ? s.key === 'full' ? 'Joined · Slots Full' : 'Joined'
     : s.key === 'ongoing' ? 'VIEW MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →';
@@ -336,8 +345,20 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
     <GCard
       onPress={onPress}
       glowColor={s.key === 'ongoing' ? C.neon : undefined}
-      style={showFormatBanner ? mc.cardWithArt : { marginBottom: 12 }}
+      style={usesArtCard ? mc.cardWithArt : { marginBottom: 12 }}
     >
+      {showBattleRoyalePoster && (
+        <View style={mc.brPosterArtwork}>
+          <Image
+            source={imageSource}
+            onError={() => {
+              if (customImageUrl && failedImageUrl !== customImageUrl) setFailedImageUrl(customImageUrl);
+            }}
+            resizeMode="contain"
+            style={mc.brPosterImage}
+          />
+        </View>
+      )}
       {showFormatBanner ? (
         <View style={mc.artwork}>
           <Image
@@ -365,7 +386,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
           </View>
         </View>
       ) : (
-        <View style={mc.topRow}>
+        <View style={[mc.topRow, showBattleRoyalePoster && mc.brPosterTopRow]}>
           <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={mc.mode}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
             <Text style={mc.name} numberOfLines={1}>{t?.name || t?.title || 'Tournament'}</Text>
@@ -373,7 +394,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
           <Badge text={s.label} color={s.color} />
         </View>
       )}
-      <View style={showFormatBanner ? mc.bannerBody : undefined}>
+      <View style={usesArtCard ? mc.bannerBody : undefined}>
         {!showFormatBanner && <View style={mc.sep} />}
         <View style={mc.metaRow}>
           <Text style={mc.meta}>
@@ -408,6 +429,9 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
 const mc = StyleSheet.create({
   cardWithArt: { padding: 0, paddingVertical: 0, overflow: 'hidden', marginBottom: 12, borderRadius: 16 },
   artwork: { width: '100%', aspectRatio: 16 / 9, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
+  brPosterArtwork: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: C.bg2 },
+  brPosterImage: { width: '100%', height: '100%' },
+  brPosterTopRow: { paddingHorizontal: 14, paddingTop: 12 },
   artImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: C.bg2 },
   artShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,8,16,0.42)', borderBottomWidth: 1, borderBottomColor: '#ffffff12' },
   artTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

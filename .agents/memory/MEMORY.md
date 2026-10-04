@@ -16,7 +16,7 @@
 - [Daily007 API workflow recovery](daily007-api-workflow-recovery.md) — after an API restart hits EADDRINUSE, stop the stale service and verify port 8080 is clear before retrying.
 - [Daily007 production startup checks](daily007-production-startup-checks.md) — treat healthcheck 500s during service launch as transient only after `/api/healthz` returns 200.
 - [Daily007 admin styling scope](daily007-admin-visual-only.md) — keep admin restyles appearance-only; preserve settings, actions, permissions, data, and player-facing screens.
-- [Daily007 tournament artwork](daily007-tournament-artwork.md) — keep Battle Royale posters off Home; show selectable Solo, Duo, and Squad poster cards only on its format page.
+- [Daily007 tournament artwork](daily007-tournament-artwork.md) — map Battle Royale Solo/Duo/Squad posters to existing admin-created tournament cards, not Home or a new selector.
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
 - [Daily007 database CHECK constraints](daily007-role-constraint-verification.md) — compare dev/prod definitions; rename same-name stale checks to make Publish detect expression drift.
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.
