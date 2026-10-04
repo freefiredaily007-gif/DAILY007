@@ -1,6 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { authenticate, requireAdmin } from "./daily007-v2";
 import {
+  approveDaily007LeaderboardPeriod,
+  getDaily007LeaderboardApprovals,
   getDaily007LeaderboardRewardSettings,
   getDaily007Leaderboards,
   updateDaily007LeaderboardRewardSettings,
@@ -9,6 +11,7 @@ import {
 const router: IRouter = Router();
 const MAX_INT = 2_147_483_647;
 const REWARD_KEYS = ["firstPlaceCoins", "secondPlaceCoins", "thirdPlaceCoins"] as const;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -42,6 +45,42 @@ router.get(
     if (!requireAdmin(req, res)) return;
     try {
       res.json(await getDaily007LeaderboardRewardSettings());
+    } catch (cause) {
+      respondFailure(res, cause);
+    }
+  },
+);
+
+router.get(
+  "/daily007/v2/admin/leaderboards/approvals",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      res.json(await getDaily007LeaderboardApprovals());
+    } catch (cause) {
+      respondFailure(res, cause);
+    }
+  },
+);
+
+router.post(
+  "/daily007/v2/admin/leaderboards/periods/:periodId/approve",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireAdmin(req, res)) return;
+    const adminId = req.daily007Account?.id;
+    const periodId = req.params.periodId;
+    if (!adminId) {
+      error(res, 400, "A Full Admin account is required.");
+      return;
+    }
+    if (typeof periodId !== "string" || !UUID_PATTERN.test(periodId)) {
+      error(res, 400, "Leaderboard period id must be a UUID.");
+      return;
+    }
+    try {
+      res.json(await approveDaily007LeaderboardPeriod(periodId, adminId));
     } catch (cause) {
       respondFailure(res, cause);
     }

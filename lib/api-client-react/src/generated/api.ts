@@ -41,7 +41,9 @@ import type {
   Daily007AdminAccountRecoveryRequest,
   Daily007AdminAccountRecoveryReviewBody,
   Daily007AdminAccountRecoveryReviewResult,
+  Daily007AdminApproveLeaderboardPeriodResponse,
   Daily007AdminGetRechargeProofUrl200,
+  Daily007AdminLeaderboardApprovalsResponse,
   Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
   Daily007AdminUpdateLeaderboardRewardsBody,
@@ -1097,7 +1099,7 @@ export const getDaily007AdminUpdateLeaderboardRewardsUrl = () => {
 }
 
 /**
- * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. Closed cycles settle automatically.
+ * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. At cycle end, standings and rewards are snapshotted and await Full Admin approval before wallet credits.
  * @summary Set top-three weekly and monthly reward amounts
  */
 export const daily007AdminUpdateLeaderboardRewards = async (daily007AdminUpdateLeaderboardRewardsBody: Daily007AdminUpdateLeaderboardRewardsBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardRewardsResponse> => {
@@ -1175,6 +1177,159 @@ export const useDaily007AdminUpdateLeaderboardRewards = <TError = ErrorType<void
         TContext
       > => {
       return useMutation(getDaily007AdminUpdateLeaderboardRewardsMutationOptions(options));
+    }
+
+export const getDaily007AdminGetLeaderboardApprovalsUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/admin/leaderboards/approvals`
+}
+
+/**
+ * Full Admin only. Each period includes the standings snapshot and configured rewards that will be paid on approval.
+ * @summary List weekly and monthly leaderboard cycles awaiting approval
+ */
+export const daily007AdminGetLeaderboardApprovals = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardApprovalsResponse> => {
+
+  return customFetch<Daily007AdminLeaderboardApprovalsResponse>(getDaily007AdminGetLeaderboardApprovalsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminGetLeaderboardApprovalsQueryKey = () => {
+    return [
+    `/api/daily007/v2/admin/leaderboards/approvals`
+    ] as const;
+    }
+
+
+export const getDaily007AdminGetLeaderboardApprovalsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminGetLeaderboardApprovalsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>> = ({ signal }) => daily007AdminGetLeaderboardApprovals({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminGetLeaderboardApprovalsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>>
+export type Daily007AdminGetLeaderboardApprovalsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List weekly and monthly leaderboard cycles awaiting approval
+ */
+
+export function useDaily007AdminGetLeaderboardApprovals<TData = Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetLeaderboardApprovals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminGetLeaderboardApprovalsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminApproveLeaderboardPeriodUrl = (periodId: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/leaderboards/periods/${periodId}/approve`
+}
+
+/**
+ * Full Admin only. Credits configured rank rewards, records resulting wallet balances, and finalizes the period atomically. Repeating the request is idempotent.
+ * @summary Approve and pay a completed leaderboard cycle
+ */
+export const daily007AdminApproveLeaderboardPeriod = async (periodId: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminApproveLeaderboardPeriodResponse> => {
+
+  return customFetch<Daily007AdminApproveLeaderboardPeriodResponse>(getDaily007AdminApproveLeaderboardPeriodUrl(periodId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminApproveLeaderboardPeriodMutationKey = () => ['daily007AdminApproveLeaderboardPeriod'] as const;
+
+export const getDaily007AdminApproveLeaderboardPeriodMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, TError,Daily007AdminApproveLeaderboardPeriodMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, TError,Daily007AdminApproveLeaderboardPeriodMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminApproveLeaderboardPeriodMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, Daily007AdminApproveLeaderboardPeriodMutationVariables> = (props) => {
+          const {periodId} = props ?? {};
+
+          return  daily007AdminApproveLeaderboardPeriod(periodId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminApproveLeaderboardPeriodMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>>
+
+    export type Daily007AdminApproveLeaderboardPeriodMutationError = ErrorType<void>
+    export type Daily007AdminApproveLeaderboardPeriodMutationVariables = {periodId: string}
+
+    /**
+ * @summary Approve and pay a completed leaderboard cycle
+ */
+export const useDaily007AdminApproveLeaderboardPeriod = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>, TError,Daily007AdminApproveLeaderboardPeriodMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminApproveLeaderboardPeriod>>,
+        TError,
+        Daily007AdminApproveLeaderboardPeriodMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminApproveLeaderboardPeriodMutationOptions(options));
     }
 
 export const getDaily007V2CreateMatchUrl = () => {

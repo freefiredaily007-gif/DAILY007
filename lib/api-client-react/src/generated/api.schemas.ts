@@ -889,6 +889,49 @@ export interface Daily007AdminLeaderboardRewardsResponse {
   monthly: Daily007AdminLeaderboardRewardSchedule;
 }
 
+export interface Daily007AdminLeaderboardApprovalsResponse {
+  periods: Daily007LeaderboardPeriod[];
+}
+
+export interface Daily007AdminLeaderboardApprovedPayout {
+  /**
+     * @minimum 1
+     * @maximum 3
+     */
+  rank: number;
+  userId: string;
+  name: string;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  coins: number;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  balanceAfter: number;
+}
+
+export type Daily007AdminApproveLeaderboardPeriodResponseCycleType = typeof Daily007AdminApproveLeaderboardPeriodResponseCycleType[keyof typeof Daily007AdminApproveLeaderboardPeriodResponseCycleType];
+
+
+export const Daily007AdminApproveLeaderboardPeriodResponseCycleType = {
+  weekly: 'weekly',
+  monthly: 'monthly',
+} as const;
+
+export interface Daily007AdminApproveLeaderboardPeriodResponse {
+  periodId: string;
+  cycleType: Daily007AdminApproveLeaderboardPeriodResponseCycleType;
+  alreadyApproved: boolean;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  standings: Daily007LeaderboardStanding[];
+  rewards: Daily007LeaderboardPayout[];
+  payouts: Daily007AdminLeaderboardApprovedPayout[];
+}
+
 export type Daily007V2SetRoomBody = {
   /**
      * @minLength 1

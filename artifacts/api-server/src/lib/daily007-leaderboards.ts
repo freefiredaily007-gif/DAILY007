@@ -34,6 +34,8 @@ type PeriodRow = {
   previous_period_id: string | null;
   final_standings: unknown;
   payout_configuration: unknown;
+  approved_by?: string | null;
+  approved_at?: Date | string | null;
 };
 
 type RewardSettingsRow = {
@@ -283,8 +285,9 @@ async function reconcileCycle(
       const previous = previousResult.rows[0];
       if (previous && previous.status !== "finalized") {
         if (asDate(previous.ends_at).getTime() > nowMs) return;
-        await settleEndedPeriod(client, previous, now);
-        continue;
+        if (previous.status !== "pending_approval") {
+          await prepareEndedPeriod(client, previous, now);
+        }
       }
       await client.query(
         `UPDATE daily007_v2_leaderboard_periods
@@ -295,19 +298,23 @@ async function reconcileCycle(
       period = { ...period, status: "active" };
     }
 
-    if (period.status === "pending_approval" && nowMs < endsAt.getTime()) {
-      await client.query(
-        `UPDATE daily007_v2_leaderboard_periods
-            SET status = 'active'
-          WHERE id = $1 AND status = 'pending_approval'`,
-        [period.id],
-      );
-      period = { ...period, status: "active" };
+    if (period.status === "pending_approval") {
+      if (nowMs < endsAt.getTime()) return;
+      const next = await nextPeriodFor(client, period);
+      if (next.status !== "active") {
+        await client.query(
+          `UPDATE daily007_v2_leaderboard_periods
+              SET status = 'active'
+            WHERE id = $1 AND status <> 'finalized'`,
+          [next.id],
+        );
+      }
+      return;
     }
 
     if (nowMs < endsAt.getTime()) return;
-    const finalized = await settleEndedPeriod(client, period, now);
-    const next = await nextPeriodFor(client, finalized);
+    const awaitingApproval = await prepareEndedPeriod(client, period, now);
+    const next = await nextPeriodFor(client, awaitingApproval);
     if (next.status !== "active") {
       await client.query(
         `UPDATE daily007_v2_leaderboard_periods
@@ -316,6 +323,7 @@ async function reconcileCycle(
         [next.id],
       );
     }
+    return;
   }
 
   throw new Error(`Leaderboard ${cycleType} cycle catch-up exceeded its safety limit.`);
@@ -370,85 +378,39 @@ async function queryStandings(
   })));
 }
 
-async function settleEndedPeriod(
+async function prepareEndedPeriod(
   client: SqlClient,
   period: PeriodRow,
-  settledAt: Date,
+  endedAt: Date,
 ): Promise<PeriodRow> {
   if (period.status === "finalized") return period;
+  if (period.status === "pending_approval" && savedStandings(period.final_standings)) {
+    return period;
+  }
   const { startsAt, endsAt } = periodDates(period);
-  if (endsAt.getTime() > settledAt.getTime()) {
+  if (endsAt.getTime() > endedAt.getTime()) {
     throw Object.assign(new Error("This leaderboard cycle has not ended yet."), { status: 409 });
   }
 
   const standings = await queryStandings(client, startsAt, endsAt);
   const rewards = normalizeRewards(period.payout_configuration);
-  const recipients = leaderboardRewardRecipients(standings, rewards);
-  let paidCount = 0;
-
-  for (const recipient of recipients) {
-    const account = await client.query<{ wallet_coins: number | string }>(
-      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
-      [recipient.userId],
-    );
-    const currentBalance = account.rows[0]?.wallet_coins;
-    if (currentBalance === undefined) {
-      throw new Error("A leaderboard winner account no longer exists.");
-    }
-    const walletCoins = parseSafeInteger(currentBalance, "Winner wallet balance") + recipient.coins;
-    if (!Number.isSafeInteger(walletCoins) || walletCoins > MAX_INT) {
-      throw new Error(`Rank ${recipient.rank}'s wallet would exceed its supported range.`);
-    }
-
-    const reason = leaderboardRewardDescription(period.cycle_type, recipient.rank);
-    const inserted = await client.query<{ id: string }>(
-      `INSERT INTO daily007_v2_wallet_ledger
-         (user_id, amount, balance_after, reason, idempotency_key, details)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-       ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING id`,
-      [
-        recipient.userId,
-        recipient.coins,
-        walletCoins,
-        reason,
-        `leaderboard-cycle:${period.id}:rank:${recipient.rank}`,
-        JSON.stringify({
-          description: reason,
-          periodId: period.id,
-          cycleType: period.cycle_type,
-          rank: recipient.rank,
-          points: standings.find((standing) => standing.rank === recipient.rank)?.points ?? 0,
-        }),
-      ],
-    );
-    if (!inserted.rows[0]) continue;
-
-    await client.query(
-      "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
-      [recipient.userId, walletCoins],
-    );
-    paidCount += 1;
-  }
-
   const normalizedStandings = JSON.stringify(standings);
   const normalizedRewards = JSON.stringify(rewards);
   await client.query(
     `UPDATE daily007_v2_leaderboard_periods
-        SET status = 'finalized',
-            settled_at = $2,
-            final_standings = $3::jsonb,
-            payout_configuration = $4::jsonb
+        SET status = 'pending_approval',
+            final_standings = $2::jsonb,
+            payout_configuration = $3::jsonb
       WHERE id = $1`,
-    [period.id, settledAt.toISOString(), normalizedStandings, normalizedRewards],
+    [period.id, normalizedStandings, normalizedRewards],
   );
   logger.info(
-    { cycleType: period.cycle_type, periodId: period.id, paidCount },
-    "Daily007 leaderboard cycle settled automatically",
+    { cycleType: period.cycle_type, periodId: period.id },
+    "Daily007 leaderboard cycle is awaiting Full Admin approval",
   );
   return {
     ...period,
-    status: "finalized",
+    status: "pending_approval",
     final_standings: standings,
     payout_configuration: rewards,
   };
@@ -464,7 +426,7 @@ async function periodView(
   queryable: Queryable = pool,
 ): Promise<Record<string, unknown>> {
   const { startsAt, endsAt } = periodDates(period);
-  const standings = period.status === "finalized"
+  const standings = period.status === "finalized" || period.status === "pending_approval"
     ? savedStandings(period.final_standings) ?? await queryStandings(queryable, startsAt, endsAt)
     : await queryStandings(queryable, startsAt, endsAt);
   return {
@@ -512,6 +474,206 @@ export async function getDaily007Leaderboards(): Promise<{
     visiblePeriod("monthly"),
   ]);
   return { weekly, monthly };
+}
+
+export async function getDaily007LeaderboardApprovals(): Promise<{
+  periods: Record<string, unknown>[];
+}> {
+  await reconcileDaily007LeaderboardPeriods();
+  const result = await pool.query<PeriodRow>(
+    `SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,
+            final_standings, payout_configuration
+       FROM daily007_v2_leaderboard_periods
+      WHERE status = 'pending_approval'
+      ORDER BY ends_at DESC
+      LIMIT 100`,
+  );
+  return {
+    periods: await Promise.all(result.rows.map((period) => periodView(period))),
+  };
+}
+
+export async function approveDaily007LeaderboardPeriod(
+  periodId: string,
+  adminId: string,
+  approvedAt = new Date(),
+): Promise<{
+  periodId: string;
+  cycleType: LeaderboardCycleType;
+  alreadyApproved: boolean;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  standings: LeaderboardStanding[];
+  rewards: LeaderboardPayout[];
+  payouts: {
+    rank: number;
+    userId: string;
+    name: string;
+    coins: number;
+    balanceAfter: number;
+  }[];
+}> {
+  if (!Number.isFinite(approvedAt.getTime())) {
+    throw new RangeError("Leaderboard approval date must be valid.");
+  }
+  return transaction(async (client) => {
+    const result = await client.query<PeriodRow>(
+      `SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,
+              final_standings, payout_configuration, approved_by, approved_at
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = $1
+        FOR UPDATE`,
+      [periodId],
+    );
+    const period = result.rows[0];
+    if (!period) {
+      throw Object.assign(new Error("Leaderboard cycle not found."), { status: 404 });
+    }
+
+    const standings = savedStandings(period.final_standings) ?? [];
+    const rewards = normalizeRewards(period.payout_configuration);
+    if (period.status === "finalized") {
+      return {
+        periodId: period.id,
+        cycleType: period.cycle_type,
+        alreadyApproved: true,
+        approvedBy: period.approved_by ?? null,
+        approvedAt: period.approved_at
+          ? asDate(period.approved_at).toISOString()
+          : null,
+        standings,
+        rewards,
+        payouts: [],
+      };
+    }
+    if (period.status !== "pending_approval") {
+      throw Object.assign(
+        new Error("This leaderboard cycle is not awaiting approval."),
+        { status: 409 },
+      );
+    }
+    if (asDate(period.ends_at).getTime() > approvedAt.getTime()) {
+      throw Object.assign(
+        new Error("This leaderboard cycle has not ended yet."),
+        { status: 409 },
+      );
+    }
+    if (!savedStandings(period.final_standings)) {
+      throw Object.assign(
+        new Error("The leaderboard standings snapshot is missing."),
+        { status: 409 },
+      );
+    }
+
+    const recipients = leaderboardRewardRecipients(standings, rewards);
+    const payouts: {
+      rank: number;
+      userId: string;
+      name: string;
+      coins: number;
+      balanceAfter: number;
+    }[] = [];
+    for (const recipient of recipients) {
+      const account = await client.query<{ wallet_coins: number | string }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [recipient.userId],
+      );
+      const currentBalance = account.rows[0]?.wallet_coins;
+      if (currentBalance === undefined) {
+        throw Object.assign(
+          new Error("A leaderboard winner account no longer exists."),
+          { status: 409 },
+        );
+      }
+      const walletCoins = parseSafeInteger(currentBalance, "Winner wallet balance") +
+        recipient.coins;
+      if (!Number.isSafeInteger(walletCoins) || walletCoins > MAX_INT) {
+        throw Object.assign(
+          new Error(`Rank ${recipient.rank}'s wallet would exceed its supported range.`),
+          { status: 409 },
+        );
+      }
+
+      const reason = leaderboardRewardDescription(period.cycle_type, recipient.rank);
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO daily007_v2_wallet_ledger
+           (user_id, amount, balance_after, reason, idempotency_key, details)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [
+          recipient.userId,
+          recipient.coins,
+          walletCoins,
+          reason,
+          `leaderboard-cycle:${period.id}:rank:${recipient.rank}`,
+          JSON.stringify({
+            description: reason,
+            periodId: period.id,
+            cycleType: period.cycle_type,
+            rank: recipient.rank,
+            points: standings.find((standing) => standing.rank === recipient.rank)?.points ?? 0,
+          }),
+        ],
+      );
+      if (!inserted.rows[0]) {
+        throw Object.assign(
+          new Error("A payout already exists for this leaderboard rank."),
+          { status: 409 },
+        );
+      }
+
+      await client.query(
+        "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+        [recipient.userId, walletCoins],
+      );
+      payouts.push({
+        ...recipient,
+        name: standings.find((standing) => standing.userId === recipient.userId)?.name ?? "",
+        balanceAfter: walletCoins,
+      });
+    }
+
+    const finalized = await client.query<{ id: string }>(
+      `UPDATE daily007_v2_leaderboard_periods
+          SET status = 'finalized',
+              approved_by = $2,
+              approved_at = $3,
+              settled_at = $3,
+              final_standings = $4::jsonb,
+              payout_configuration = $5::jsonb
+        WHERE id = $1 AND status = 'pending_approval'
+        RETURNING id`,
+      [
+        period.id,
+        adminId,
+        approvedAt.toISOString(),
+        JSON.stringify(standings),
+        JSON.stringify(rewards),
+      ],
+    );
+    if (!finalized.rows[0]) {
+      throw Object.assign(
+        new Error("This leaderboard cycle changed before approval completed."),
+        { status: 409 },
+      );
+    }
+
+    logger.info(
+      { cycleType: period.cycle_type, periodId: period.id, adminId, payoutCount: payouts.length },
+      "Daily007 leaderboard cycle approved and paid",
+    );
+    return {
+      periodId: period.id,
+      cycleType: period.cycle_type,
+      alreadyApproved: false,
+      approvedBy: adminId,
+      approvedAt: approvedAt.toISOString(),
+      standings,
+      rewards,
+      payouts,
+    };
+  });
 }
 
 async function rewardScheduleView(

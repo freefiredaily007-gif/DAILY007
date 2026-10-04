@@ -290,7 +290,7 @@ export const Daily007AdminGetLeaderboardRewardsResponse = zod.object({
 
 
 /**
- * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. Closed cycles settle automatically.
+ * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. At cycle end, standings and rewards are snapshotted and await Full Admin approval before wallet credits.
  * @summary Set top-three weekly and monthly reward amounts
  */
 export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMin = 0;
@@ -362,6 +362,116 @@ export const Daily007AdminUpdateLeaderboardRewardsResponse = zod.object({
 }).and(zod.object({
   "currentPeriodStartsAt": zod.coerce.date().nullable(),
   "currentPeriodEndsAt": zod.coerce.date().nullable()
+}))
+})
+
+
+/**
+ * Full Admin only. Each period includes the standings snapshot and configured rewards that will be paid on approval.
+ * @summary List weekly and monthly leaderboard cycles awaiting approval
+ */
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemPointsMin = 0;
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemEarningsMin = 0;
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemWinsMin = 0;
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemKillsMin = 0;
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemMatchesMin = 0;
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemRewardsItemRankMax = 3;
+
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemRewardsItemCoinsMin = 0;
+export const daily007AdminGetLeaderboardApprovalsResponsePeriodsItemRewardsItemCoinsMax = 2147483647;
+
+
+
+export const Daily007AdminGetLeaderboardApprovalsResponse = zod.object({
+  "periods": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "cycleType": zod.enum(['weekly', 'monthly']),
+  "status": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "standings": zod.array(zod.object({
+  "rank": zod.number().int().min(1),
+  "userId": zod.string().uuid(),
+  "name": zod.string(),
+  "points": zod.number().int().min(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemPointsMin).describe('Total match prize coins earned during this period'),
+  "earnings": zod.number().int().min(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemEarningsMin),
+  "wins": zod.number().int().min(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemWinsMin),
+  "kills": zod.number().int().min(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemKillsMin),
+  "matches": zod.number().int().min(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemStandingsItemMatchesMin)
+})),
+  "rewards": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemRewardsItemRankMax),
+  "coins": zod.number().int().min(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemRewardsItemCoinsMin).max(daily007AdminGetLeaderboardApprovalsResponsePeriodsItemRewardsItemCoinsMax)
+}))
+}))
+})
+
+
+/**
+ * Full Admin only. Credits configured rank rewards, records resulting wallet balances, and finalizes the period atomically. Repeating the request is idempotent.
+ * @summary Approve and pay a completed leaderboard cycle
+ */
+export const Daily007AdminApproveLeaderboardPeriodParams = zod.object({
+  "periodId": zod.coerce.string().uuid()
+})
+
+
+export const daily007AdminApproveLeaderboardPeriodResponseStandingsItemPointsMin = 0;
+
+export const daily007AdminApproveLeaderboardPeriodResponseStandingsItemEarningsMin = 0;
+
+export const daily007AdminApproveLeaderboardPeriodResponseStandingsItemWinsMin = 0;
+
+export const daily007AdminApproveLeaderboardPeriodResponseStandingsItemKillsMin = 0;
+
+export const daily007AdminApproveLeaderboardPeriodResponseStandingsItemMatchesMin = 0;
+
+export const daily007AdminApproveLeaderboardPeriodResponseRewardsItemRankMax = 3;
+
+export const daily007AdminApproveLeaderboardPeriodResponseRewardsItemCoinsMin = 0;
+export const daily007AdminApproveLeaderboardPeriodResponseRewardsItemCoinsMax = 2147483647;
+
+export const daily007AdminApproveLeaderboardPeriodResponsePayoutsItemRankMax = 3;
+
+export const daily007AdminApproveLeaderboardPeriodResponsePayoutsItemCoinsMax = 2147483647;
+
+export const daily007AdminApproveLeaderboardPeriodResponsePayoutsItemBalanceAfterMin = 0;
+export const daily007AdminApproveLeaderboardPeriodResponsePayoutsItemBalanceAfterMax = 2147483647;
+
+
+
+export const Daily007AdminApproveLeaderboardPeriodResponse = zod.object({
+  "periodId": zod.string().uuid(),
+  "cycleType": zod.enum(['weekly', 'monthly']),
+  "alreadyApproved": zod.boolean(),
+  "approvedBy": zod.string().uuid().nullable(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "standings": zod.array(zod.object({
+  "rank": zod.number().int().min(1),
+  "userId": zod.string().uuid(),
+  "name": zod.string(),
+  "points": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponseStandingsItemPointsMin).describe('Total match prize coins earned during this period'),
+  "earnings": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponseStandingsItemEarningsMin),
+  "wins": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponseStandingsItemWinsMin),
+  "kills": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponseStandingsItemKillsMin),
+  "matches": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponseStandingsItemMatchesMin)
+})),
+  "rewards": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodResponseRewardsItemRankMax),
+  "coins": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponseRewardsItemCoinsMin).max(daily007AdminApproveLeaderboardPeriodResponseRewardsItemCoinsMax)
+})),
+  "payouts": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodResponsePayoutsItemRankMax),
+  "userId": zod.string().uuid(),
+  "name": zod.string(),
+  "coins": zod.number().int().min(1).max(daily007AdminApproveLeaderboardPeriodResponsePayoutsItemCoinsMax),
+  "balanceAfter": zod.number().int().min(daily007AdminApproveLeaderboardPeriodResponsePayoutsItemBalanceAfterMin).max(daily007AdminApproveLeaderboardPeriodResponsePayoutsItemBalanceAfterMax)
 }))
 })
 
