@@ -9,6 +9,8 @@ import compatExtraRouter from "../src/routes/daily007-compat-extra";
 import {
   TEST_ADMIN_ID,
   TEST_MATCH_ID,
+  TEST_PENDING_PLAYER_ID,
+  TEST_PENDING_REGISTRATION_ID,
   TEST_RUNNER_UP_ID,
   TEST_RUNNER_UP_REGISTRATION_ID,
   TEST_WINNER_ID,
@@ -98,6 +100,7 @@ function captureSettlementState() {
     ledger: structuredClone(tournamentResultsTestDb.ledger),
     stats: structuredClone(tournamentResultsTestDb.stats),
     awards: structuredClone(tournamentResultsTestDb.awards),
+    registrations: structuredClone(tournamentResultsTestDb.registrations),
     match: structuredClone(tournamentResultsTestDb.match),
   };
 }
@@ -238,6 +241,37 @@ test("result publishing is rejected before tournament start without settlement c
     assert.equal(result.status, 409);
     assert.equal(result.body.error, "Results can only be published after the tournament starts.");
     assert.deepEqual(captureSettlementState(), before);
+    assert.equal(tournamentResultsTestDb.awards.length, 0);
+    assert.equal(tournamentResultsTestDb.stats.size, 0);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+  });
+});
+
+test("result publishing is rejected for pending registrations without settlement changes", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+    tournamentResultsTestDb.addPendingTestRegistration();
+    assert.equal(
+      tournamentResultsTestDb.registrations.find((registration) => registration.id === TEST_PENDING_REGISTRATION_ID)?.status,
+      "pending",
+    );
+    const before = captureSettlementState();
+
+    const result = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_PENDING_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+
+    assert.equal(result.status, 404);
+    assert.equal(result.body.error, "Registration was not found for this tournament/match.");
+    assert.deepEqual(captureSettlementState(), before);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_PENDING_PLAYER_ID)?.wallet_coins, 300);
     assert.equal(tournamentResultsTestDb.awards.length, 0);
     assert.equal(tournamentResultsTestDb.stats.size, 0);
     assert.equal(tournamentResultsTestDb.ledger.length, 0);

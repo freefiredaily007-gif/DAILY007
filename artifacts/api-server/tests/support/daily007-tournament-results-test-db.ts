@@ -17,7 +17,7 @@ type TestRegistration = {
   captain_name: string;
   captain_game_name: string;
   team_name: string | null;
-  status: "approved";
+  status: "approved" | "pending" | "rejected";
 };
 
 type TestAward = {
@@ -65,9 +65,11 @@ type TestLedgerEntry = {
 export const TEST_ADMIN_ID = "70000000-0000-4000-8000-000000000004";
 export const TEST_WINNER_ID = "70000000-0000-4000-8000-000000000005";
 export const TEST_RUNNER_UP_ID = "70000000-0000-4000-8000-000000000006";
+export const TEST_PENDING_PLAYER_ID = "70000000-0000-4000-8000-000000000007";
 export const TEST_MATCH_ID = "70000000-0000-4000-8000-000000000001";
 export const TEST_WINNER_REGISTRATION_ID = "70000000-0000-4000-8000-000000000002";
 export const TEST_RUNNER_UP_REGISTRATION_ID = "70000000-0000-4000-8000-000000000003";
+export const TEST_PENDING_REGISTRATION_ID = "70000000-0000-4000-8000-000000000008";
 
 const PRIZE_DISTRIBUTION = "1st: 1,500 coins\n2nd: 600 coins";
 
@@ -84,6 +86,7 @@ class MemoryTournamentResultsDatabase {
       [TEST_ADMIN_ID, this.user(TEST_ADMIN_ID, "Test Admin", "admin@example.test", "admin", 0)],
       [TEST_WINNER_ID, this.user(TEST_WINNER_ID, "First Place", "winner@example.test", "user", 100)],
       [TEST_RUNNER_UP_ID, this.user(TEST_RUNNER_UP_ID, "Second Place", "runner-up@example.test", "user", 200)],
+      [TEST_PENDING_PLAYER_ID, this.user(TEST_PENDING_PLAYER_ID, "Pending Player", "pending@example.test", "user", 300)],
     ]);
     this.registrations = [];
     this.awards = [];
@@ -113,6 +116,18 @@ class MemoryTournamentResultsDatabase {
         status: "approved",
       },
     ];
+  }
+
+  addPendingTestRegistration(): void {
+    this.registrations.push({
+      id: TEST_PENDING_REGISTRATION_ID,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_PENDING_PLAYER_ID,
+      captain_name: "Pending Player",
+      captain_game_name: "PendingFF",
+      team_name: null,
+      status: "pending",
+    });
   }
 
   async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
