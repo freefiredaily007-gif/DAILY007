@@ -27,6 +27,7 @@ test("credentials are not returned to unregistered, pending, cancelled, or unpre
   const releaseTime = startsAt.getTime() - 5 * 60 * 1000;
 
   assert.equal(canRevealRoomCredentials(eligible, releaseTime), true);
+  assert.equal(canRevealRoomCredentials({ ...eligible, registrationStatus: "none" }, releaseTime), false);
   assert.equal(canRevealRoomCredentials({ ...eligible, registrationStatus: "pending" }, releaseTime), false);
   assert.equal(canRevealRoomCredentials({ ...eligible, registrationStatus: "rejected" }, releaseTime), false);
   assert.equal(canRevealRoomCredentials({ ...eligible, tournamentStatus: "cancelled" }, releaseTime), false);
