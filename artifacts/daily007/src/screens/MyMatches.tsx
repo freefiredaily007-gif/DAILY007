@@ -5,10 +5,10 @@ import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
 import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';
+import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
+import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
-
-const ROOM_CREDENTIAL_REVEAL_LEAD_MS = 5 * 60 * 1000;
 
 export default function MyMatches() {
   const navigation: any = useNavigation();
@@ -38,11 +38,11 @@ export default function MyMatches() {
   useEffect(() => {
     const transitions = regs.flatMap((registration) => {
       const startsAt = registration.tournament?.startsAt ?? registration.startsAt;
-      const startMs = Date.parse(String(startsAt ?? ''));
+      const schedule = getRoomCredentialSchedule(startsAt);
       return [
         getTeamEditCutoff(startsAt),
-        startMs - ROOM_CREDENTIAL_REVEAL_LEAD_MS,
-        startMs,
+        schedule?.releaseAtMs ?? null,
+        schedule?.startsAtMs ?? null,
       ];
     });
     const nextTransition = transitions
@@ -52,7 +52,7 @@ export default function MyMatches() {
     const timer = setTimeout(() => {
       setClockNow(Date.now());
       void load();
-    }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow + 20));
+    }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow));
     return () => clearTimeout(timer);
   }, [regs, clockNow, load]);
 
@@ -96,11 +96,13 @@ export default function MyMatches() {
             const matchFinished = lifecycle === 'completed' || cancelled;
             const roomId = item.roomId ?? t.roomId;
             const roomPassword = item.roomPassword ?? t.roomPassword;
-            const published = item.roomPublished === true || (item.roomPublished == null && t.roomPublished === true);
             const startsAt = t.startsAt ?? item.startsAt;
-            const startMs = startsAt ? new Date(startsAt).getTime() : Number.NaN;
-            const roomWindowOpen = Number.isFinite(startMs) && clockNow >= startMs - ROOM_CREDENTIAL_REVEAL_LEAD_MS;
-            const roomReady = status === 'approved' && published && !!roomId && !!roomPassword && roomWindowOpen;
+            const schedule = getRoomCredentialSchedule(startsAt);
+            const startMs = schedule?.startsAtMs ?? Number.NaN;
+            const roomConfigured = item.roomPublished === true || t.roomPublished === true;
+            const roomWindowOpen = !!schedule && clockNow >= schedule.releaseAtMs;
+            const roomReady = status === 'approved' && !cancelled && roomConfigured &&
+              !!roomId && !!roomPassword && roomWindowOpen;
             const registrationActive = ['approved', 'pending'].includes(status);
             const editEligible = registrationActive && t.enabled !== false && lifecycle === 'upcoming';
             const canEditTeam = editEligible && canEditRegistrationTeam(t, status, clockNow);
@@ -122,7 +124,7 @@ export default function MyMatches() {
                       color={cancelled ? C.red : matchFinished ? C.gold : lifecycle === 'ongoing' ? C.red : status === 'approved' ? C.green : status === 'rejected' ? C.red : C.gold}
                     />
                 </View>
-                <Text style={s.meta}>📅 {fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(t.time)} IST</Text></Text>
+                <Text style={s.meta}>SCHEDULED START: {schedule?.date ?? fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(schedule?.startTime24 ?? t.time)} IST</Text></Text>
                 {cancelled ? <Text style={s.meta}>Any entry fee paid was refunded to the paying account.</Text> : null}
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
                 {canEditTeam ? (
@@ -137,30 +139,25 @@ export default function MyMatches() {
                 ) : teamEditLocked ? (
                   <Btn title="TEAM EDITING LOCKED" kind="ghost" small disabled style={{ marginTop: 10 }} />
                 ) : null}
-                <View style={s.room}>
-                  {roomReady ? (
-                    <>
-                       <Text style={s.roomLine}>ROOM ID: <Text style={s.roomVal}>{roomId}</Text></Text>
-                       <Text style={s.roomLine}>PASSWORD: <Text style={s.roomVal}>{roomPassword}</Text></Text>
-                    </>
-                  ) : (
+                {status === 'approved' && !cancelled ? (
+                  <RoomCredentialsPanel
+                    startsAt={startsAt}
+                    now={clockNow}
+                    configured={roomConfigured}
+                    roomId={roomId}
+                    roomPassword={roomPassword}
+                  />
+                ) : !cancelled ? (
+                  <View style={s.room}>
                     <Text style={s.roomLocked}>
-                       {status === 'approved'
-                         ? !published
-                           ? '🔒 Room details have not been saved yet.'
-                           : !Number.isFinite(startMs)
-                             ? '🔒 Match start time is unavailable; room details remain hidden.'
-                             : !roomWindowOpen
-                               ? '🔒 Room details unlock automatically five minutes before scheduled start.'
-                               : '🔒 Room credentials are not available.'
-                        : status === 'pending'
-                          ? 'Entry is pending admin approval.'
-                          : status === 'rejected'
-                            ? 'Registration rejected; the entry fee was refunded.'
-                            : 'Registration status is unavailable.'}
+                      {status === 'pending'
+                        ? 'Entry is pending admin approval.'
+                        : status === 'rejected'
+                          ? 'Registration rejected; the entry fee was refunded.'
+                          : 'Registration status is unavailable.'}
                     </Text>
-                  )}
-                </View>
+                  </View>
+                ) : null}
                   {results.length > 0 ? (
                     <View style={s.results}>
                       <Text style={s.resultsTitle}>TOURNAMENT RESULTS</Text>
@@ -234,9 +231,7 @@ const s = StyleSheet.create({
   tName: { color: C.text, fontWeight: '900', fontSize: 16, marginTop: 2 },
   meta: { color: C.sub, fontSize: 12, marginTop: 4 },
   timeMeta: { color: C.gold, fontSize: 15, fontWeight: '900' },
-  room: { backgroundColor: '#0d1120', borderRadius: 10, padding: 10, marginTop: 10, borderWidth: 1, borderColor: C.border },
-  roomLine: { color: C.sub, fontSize: 12, fontWeight: '700', marginTop: 2 },
-  roomVal: { color: '#22c55e', fontWeight: '900' },
+  room: { backgroundColor: C.bg2, borderRadius: 10, padding: 10, marginTop: 10, borderWidth: 1, borderColor: C.border },
   roomLocked: { color: '#f59e0b', fontSize: 12, fontWeight: '600' },
   results: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
   resultsTitle: { color: '#fbbf24', fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 4 },

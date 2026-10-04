@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
@@ -12,6 +12,9 @@ import { api } from '../lib/api';
 import { C, Btn, Card, Chip, Input, KV, Msg, Badge, SectionTitle, GCard, fmtDate, fmtTime12, statusOf } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { useApp } from '../App';
+import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
+import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+import { MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 export default function TDetail() {
   const nav: any = useNavigation();
@@ -24,6 +27,7 @@ export default function TDetail() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
   const isCompleted = String(t?.status ?? '').toLowerCase() === 'completed';
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
@@ -65,7 +69,24 @@ export default function TDetail() {
       ...(isCompleted ? [resultsQuery.refetch()] : []),
     ]);
   }, [load, participantsQuery.refetch, resultsQuery.refetch, isCompleted]);
-  useFocusEffect(useCallback(() => { void refreshAll(); }, [refreshAll]));
+  useFocusEffect(useCallback(() => {
+    setClockNow(Date.now());
+    void refreshAll();
+  }, [refreshAll]));
+
+  useEffect(() => {
+    const schedule = getRoomCredentialSchedule(t?.startsAt);
+    if (!schedule) return undefined;
+    const nextTransition = [schedule.releaseAtMs, schedule.startsAtMs]
+      .filter((time) => time > clockNow)
+      .sort((a, b) => a - b)[0];
+    if (nextTransition === undefined) return undefined;
+    const timer = setTimeout(() => {
+      setClockNow(Date.now());
+      void load();
+    }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow));
+    return () => clearTimeout(timer);
+  }, [t?.startsAt, clockNow, load]);
 
   if (loading) return <View style={s.root} />;
   if (!t) return <View style={[s.root, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ color: C.sub }}>Tournament not found.</Text></View>;
@@ -84,6 +105,12 @@ export default function TDetail() {
   const winnerTeamName = winner?.teamName?.trim() ?? '';
   const winnerName = winnerTeamName || winnerGameName || 'Winner';
   const full = st.key === 'full' || tournamentStatus === 'setup_needed' || (totalSlots > 0 && filledSlots >= totalSlots);
+  const schedule = getRoomCredentialSchedule(t.startsAt);
+  const registrationStatus = String(t.myRegistration?.status ?? '').toLowerCase();
+  const canViewRoomDetails = registrationStatus === 'approved' && tournamentStatus !== 'cancelled';
+  const scheduledStart = schedule
+    ? `${schedule.date} · ${fmtTime12(schedule.startTime24)} IST`
+    : `${fmtDate(t.date)} · ${fmtTime12(t.time)} IST`;
   const coins = user?.coins ?? 0;
   const short = coins < (t.entryCoins ?? 0);
 
@@ -104,7 +131,7 @@ export default function TDetail() {
           <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={s.mode}>{(t.mode || 'BATTLE ROYALE').toUpperCase()}</Text>
             <Text style={s.name}>{t.name || t.title}</Text>
-            <Text style={s.meta}>📅 {fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(t.time)} IST</Text></Text>
+            <Text style={s.meta}>SCHEDULED START: {scheduledStart}</Text>
           </View>
           <Badge text={st.label} color={st.color} />
         </View>
@@ -236,14 +263,14 @@ export default function TDetail() {
         </>
       )}
 
-      {t.roomId ? (
-        <>
-          <SectionTitle accent={C.green}>ROOM DETAILS</SectionTitle>
-          <Card glowColor={C.green}>
-            <KV k="Room ID" v={t.roomId} color={C.green} />
-            <KV k="Password" v={t.roomPass || '—'} color={C.green} />
-          </Card>
-        </>
+      {canViewRoomDetails ? (
+        <RoomCredentialsPanel
+          startsAt={t.startsAt}
+          now={clockNow}
+          configured={t.myRegistration?.roomPublished === true}
+          roomId={t.myRegistration?.roomId}
+          roomPassword={t.myRegistration?.roomPassword}
+        />
       ) : null}
 
       <Msg kind="err" text={err} />
