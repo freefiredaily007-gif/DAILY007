@@ -595,3 +595,114 @@ test("Full Admin prize saves reach the player API immediately and remain availab
     daily007LeaderboardTestDb.reset();
   }
 });
+
+test("new weekly and monthly periods use the latest saved Full Admin prizes", async () => {
+  daily007LeaderboardTestDb.reset();
+  const now = new Date();
+  const previousPeriodIds = {
+    weekly: "74000000-0000-4000-8000-000000000001",
+    monthly: "74000000-0000-4000-8000-000000000002",
+  };
+  const originalRewards = {
+    weekly: [
+      { rank: 1, coins: 50 },
+      { rank: 2, coins: 40 },
+      { rank: 3, coins: 30 },
+    ],
+    monthly: [
+      { rank: 1, coins: 90 },
+      { rank: 2, coins: 60 },
+      { rank: 3, coins: 30 },
+    ],
+  };
+  for (const cycleType of ["weekly", "monthly"] as const) {
+    const currentWindow = leaderboardPeriodWindow(cycleType, now);
+    const previousWindow = leaderboardPeriodWindow(
+      cycleType,
+      new Date(currentWindow.startsAt.getTime() - 1),
+    );
+    assert.equal(previousWindow.endsAt.getTime(), currentWindow.startsAt.getTime());
+    period(
+      previousPeriodIds[cycleType],
+      cycleType,
+      previousWindow.startsAt,
+      previousWindow.endsAt,
+      "pending_approval",
+      [],
+      originalRewards[cycleType],
+    );
+  }
+
+  const savedRewards = {
+    weekly: { firstPlaceCoins: 117, secondPlaceCoins: 238, thirdPlaceCoins: 359 },
+    monthly: { firstPlaceCoins: 471, secondPlaceCoins: 582, thirdPlaceCoins: 693 },
+  };
+  const expectedWeekly = [
+    { rank: 1, coins: 117 },
+    { rank: 2, coins: 238 },
+    { rank: 3, coins: 359 },
+  ];
+  const expectedMonthly = [
+    { rank: 1, coins: 471 },
+    { rank: 2, coins: 582 },
+    { rank: 3, coins: 693 },
+  ];
+
+  try {
+    await withServer(async (origin) => {
+      const adminSave = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        savedRewards,
+      );
+      assert.equal(adminSave.status, 200);
+
+      const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(playerRead.status, 200);
+      const playerView = await playerRead.json() as {
+        weekly: {
+          id: string;
+          cycleType: string;
+          status: string;
+          startsAt: string;
+          rewards: RewardSeed[];
+        };
+        monthly: {
+          id: string;
+          cycleType: string;
+          status: string;
+          startsAt: string;
+          rewards: RewardSeed[];
+        };
+      };
+
+      for (const [cycleType, expectedRewards] of [
+        ["weekly", expectedWeekly],
+        ["monthly", expectedMonthly],
+      ] as const) {
+        const previousId = previousPeriodIds[cycleType];
+        const previous = daily007LeaderboardTestDb.periods.get(previousId);
+        const createdPeriod = [...daily007LeaderboardTestDb.periods.values()].find(
+          (candidate) => candidate.previous_period_id === previousId,
+        );
+        const playerPeriod = playerView[cycleType];
+
+        assert.ok(previous, `${cycleType} previous period should remain in the in-memory fixture`);
+        assert.deepEqual(previous.payout_configuration, originalRewards[cycleType]);
+        assert.ok(createdPeriod, `${cycleType} next period should be created`);
+        assert.equal(createdPeriod.cycle_type, cycleType);
+        assert.equal(createdPeriod.status, "active");
+        assert.deepEqual(createdPeriod.payout_configuration, expectedRewards);
+        assert.equal(playerPeriod.id, createdPeriod.id);
+        assert.equal(playerPeriod.cycleType, cycleType);
+        assert.equal(playerPeriod.status, "active");
+        assert.deepEqual(playerPeriod.rewards, expectedRewards);
+      }
+    });
+  } finally {
+    // The test uses only the in-memory fixture and restores its baseline.
+    daily007LeaderboardTestDb.reset();
+  }
+});
