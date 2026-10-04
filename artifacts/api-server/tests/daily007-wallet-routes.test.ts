@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import express from "express";
 import type { Server } from "node:http";
+import { depositAmountInr } from "../../daily007/src/lib/coins";
 
 import { makeToken } from "../src/lib/daily007-session-token";
 import router from "../src/routes/daily007-compat-extra";
@@ -108,7 +109,22 @@ test("pending deposits do not change coins and approval credits the configured a
     assert.equal(walletTestDb.notifications.length, 1);
     assert.equal(walletTestDb.notifications[0].title, "Coin deposit approved");
     assert.match(walletTestDb.notifications[0].body, /120 coins have been added/);
+
+    const playerHistory = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
+    assert.equal(playerHistory.status, 200);
+    assert.equal(playerHistory.body[0].coins, 120);
+    assert.equal(playerHistory.body[0].amount, 300);
+    assert.equal(playerHistory.body[0].status, "approved");
+    assert.equal(
+      depositAmountInr(playerHistory.body[0].coins, playerHistory.body[0].amount, 1),
+      "₹300",
+    );
   });
+});
+
+test("deposit display prefers the stored rupee amount over a changed conversion rate", () => {
+  assert.equal(depositAmountInr(120, 300, 1), "₹300");
+  assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");
 });
 
 test("deposit rejection preserves its reason without crediting coins, including on retry", async () => {

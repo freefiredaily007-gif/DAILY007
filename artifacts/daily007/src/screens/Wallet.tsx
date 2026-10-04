@@ -9,7 +9,7 @@ import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
-import { inr } from '../lib/coins';
+import { depositAmountInr, inr } from '../lib/coins';
 
 const DEFAULT_MIN_WITHDRAW = 100;
 const DEFAULT_MAX_WITHDRAW = 5000;
@@ -232,6 +232,8 @@ export default function Wallet() {
                   )}
                 </View>
                 <Text style={s.txDate}>{String(item.createdAt ?? '').slice(0, 16).replace('T', ' ')}</Text>
+                {item.isRequest && item.requestType === 'payment' &&
+                  <Text style={s.txDate}>{item.coins} coins</Text>}
                 {!item.isRequest && item.balanceAfter !== undefined &&
                   <Text style={s.txDate}>Balance after: {item.balanceAfter} coins</Text>}
                 {!item.isRequest && item.details?.referredUserName && (
@@ -248,7 +250,11 @@ export default function Wallet() {
                 {item.isRequest && item.reviewReason && <Text style={s.reviewText}>Reason: {item.reviewReason}</Text>}
               </View>
               <Text style={[s.txAmount, { color: pos ? C.green : C.red }]}>
-                {item.isRequest ? `${item.coins} 🪙` : `${pos ? '+' : ''}${item.amount}`}
+                {item.isRequest
+                  ? item.requestType === 'payment'
+                    ? depositAmountInr(item.coins, item.amount, coinToMoneyRate)
+                    : `${item.coins} 🪙`
+                  : `${pos ? '+' : ''}${item.amount}`}
               </Text>
             </Card>
           );

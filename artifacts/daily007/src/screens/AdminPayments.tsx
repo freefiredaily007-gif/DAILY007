@@ -4,7 +4,7 @@ import { ReadableText as Text } from '../components/typography';
 import * as Clipboard from 'expo-clipboard';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
-import { inr } from '../lib/coins';
+import { depositAmountInr, inr } from '../lib/coins';
 import { ConfirmDialog, PromptDialog } from '../components/adminKit';
 
 const TABS = ['pending', 'approved', 'rejected'] as const;
@@ -120,7 +120,12 @@ export default function AdminPayments() {
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} requests.`} /> : list.map((p) => (
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>
-          <Text style={st.pName}>{p.kind === 'withdrawal' ? 'WITHDRAW' : 'ADD'} {p.coins ?? p.amount} coins — {inr(p.coins ?? p.amount, coinToMoneyRate)}</Text>
+          <Text style={st.pName}>
+            {p.kind === 'withdrawal' ? 'WITHDRAW' : 'ADD'} {p.coins ?? p.amount} coins —{' '}
+            {p.kind === 'payment'
+              ? depositAmountInr(Number(p.coins ?? p.amount ?? 0), p.amount, coinToMoneyRate)
+              : inr(Number(p.coins ?? p.amount ?? 0), coinToMoneyRate)}
+          </Text>
           <Text style={st.sub}>{p.userName || 'Player'} · User ID: {p.userId}</Text>
           {p.kind === 'withdrawal' && <Text style={st.sub}>Estimated manual payout: {inr(p.coins, coinToMoneyRate)}</Text>}
           {p.kind === 'withdrawal' ? (
