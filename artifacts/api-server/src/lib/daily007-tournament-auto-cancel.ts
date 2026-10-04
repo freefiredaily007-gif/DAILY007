@@ -8,7 +8,7 @@ const AUTO_CANCEL_BATCH_SIZE = 100;
 let schedulerTimer: NodeJS.Timeout | undefined;
 let sweepRunning = false;
 
-async function sweepUnderfilledTournaments(): Promise<void> {
+export async function runDaily007AutoCancellationSweep(): Promise<void> {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
@@ -60,8 +60,8 @@ async function sweepUnderfilledTournaments(): Promise<void> {
 
 export function startDaily007AutoCancellationScheduler(): void {
   if (schedulerTimer) return;
-  void sweepUnderfilledTournaments();
-  schedulerTimer = setInterval(() => void sweepUnderfilledTournaments(), AUTO_CANCEL_INTERVAL_MS);
+  void runDaily007AutoCancellationSweep();
+  schedulerTimer = setInterval(() => void runDaily007AutoCancellationSweep(), AUTO_CANCEL_INTERVAL_MS);
   schedulerTimer.unref();
   logger.info({ intervalMs: AUTO_CANCEL_INTERVAL_MS }, "Daily007 underfilled tournament cancellation scheduler started");
 }
