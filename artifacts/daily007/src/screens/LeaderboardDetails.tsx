@@ -133,6 +133,7 @@ export default function LeaderboardDetails({ navigation, route }: any) {
       void query.refetch();
     }, [query.refetch]),
   );
+  const [showTop20, setShowTop20] = React.useState(false);
   const cycle: CycleType = route?.params?.cycleType === "monthly" ? "monthly" : "weekly";
   const data = query.data as unknown as {
     weekly?: Period;
@@ -166,7 +167,10 @@ export default function LeaderboardDetails({ navigation, route }: any) {
                 accessibilityState={{ selected }}
                 accessibilityLabel={`${key} top 20 players`}
                 testID={`leaderboard-details-tab-${key}`}
-                onPress={() => navigation.setParams({ cycleType: key })}
+                onPress={() => {
+                  setShowTop20(false);
+                  navigation.setParams({ cycleType: key });
+                }}
                 style={[
                   styles.tab,
                   selected && {
@@ -240,21 +244,46 @@ export default function LeaderboardDetails({ navigation, route }: any) {
               </View>
             </View>
 
-            <View style={styles.columnHeader}>
-              <Text style={styles.rankColumn}>RANK</Text>
-              <Text style={styles.playerColumn}>PLAYER</Text>
-              <Text style={styles.coinsColumn}>COINS</Text>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showTop20 ? "Hide top 20 players" : "View top 20 players"}
+              accessibilityState={{ expanded: showTop20 }}
+              testID="leaderboard-top20-toggle"
+              onPress={() => setShowTop20((expanded) => !expanded)}
+              style={({ pressed }) => [
+                styles.top20Toggle,
+                { borderColor: accent, opacity: pressed ? 0.82 : 1 },
+              ]}
+            >
+              <Text style={[styles.top20ToggleText, { color: accent }]}>
+                {showTop20 ? "HIDE TOP 20 PLAYERS" : "VIEW TOP 20 PLAYERS"}
+              </Text>
+              <Feather
+                name={showTop20 ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={accent}
+              />
+            </Pressable>
 
-            {remainingPlayers.length > 0 ? (
-              <View style={styles.playerRows}>
-                {remainingPlayers.map((standing) => (
-                  <PlayerRow key={standing.userId} standing={standing} cycle={cycle} />
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.noMorePlayers}>No additional ranked players yet.</Text>
-            )}
+            {showTop20 ? (
+              <>
+                <View style={styles.columnHeader}>
+                  <Text style={styles.rankColumn}>RANK</Text>
+                  <Text style={styles.playerColumn}>PLAYER</Text>
+                  <Text style={styles.coinsColumn}>COINS</Text>
+                </View>
+
+                {remainingPlayers.length > 0 ? (
+                  <View style={styles.playerRows}>
+                    {remainingPlayers.map((standing) => (
+                      <PlayerRow key={standing.userId} standing={standing} cycle={cycle} />
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.noMorePlayers}>No additional ranked players yet.</Text>
+                )}
+              </>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -301,6 +330,19 @@ const styles = StyleSheet.create({
   },
   tabText: { color: C.sub, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
   range: { color: C.text, fontSize: 14, fontWeight: "800", marginBottom: 10 },
+  top20Toggle: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: C.card,
+  },
+  top20ToggleText: { fontSize: 12, fontWeight: "900", letterSpacing: 0.6 },
   podiumPanel: {
     padding: 12,
     borderRadius: 16,
