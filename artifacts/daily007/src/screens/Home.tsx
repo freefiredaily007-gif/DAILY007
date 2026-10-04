@@ -301,30 +301,42 @@ export default function Home() {
           .filter(Boolean)
           .join(', ');
         return (
-          <GCard
-            key={m.gameMode}
-            onPress={() => nav.navigate('Tournaments', homeModeRouteParams(m))}
-            accessibilityLabel={`Open ${m.mode} tournaments. Available team sizes: ${spokenCapacity}.`}
-            accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
-            testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
-            glowColor={m.accent}
-            style={[s.modeCard, { borderLeftColor: m.accent }]}
-          >
-            <View style={s.modeArtWrap}>
-              <Image source={m.img} style={s.modeBanner} resizeMode="contain" />
-            </View>
-            <View style={s.modeBody}>
-              <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
-              <Text style={s.modeTitle}>{m.title}</Text>
-              <View style={[s.modeCapacityBadge, { borderColor: m.accent + '66', backgroundColor: m.accent + '14' }]}>
-                <Text style={[s.modeCapacity, { color: m.accent }]} numberOfLines={1}>{m.capacity}</Text>
+          <View key={m.gameMode}>
+            <GCard
+              onPress={() => nav.navigate('Tournaments', homeModeRouteParams(m))}
+              accessibilityLabel={`Open ${m.mode} tournaments. Available team sizes: ${spokenCapacity}.`}
+              accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
+              testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
+              glowColor={m.accent}
+              style={[s.modeCard, { borderLeftColor: m.accent }]}
+            >
+              <View style={s.modeArtWrap}>
+                <Image source={m.img} style={s.modeBanner} resizeMode="contain" />
               </View>
-              <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
-                <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
-                <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
+              <View style={s.modeBody}>
+                <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
+                <Text style={s.modeTitle}>{m.title}</Text>
+                <View style={[s.modeCapacityBadge, { borderColor: m.accent + '66', backgroundColor: m.accent + '14' }]}>
+                  <Text style={[s.modeCapacity, { color: m.accent }]} numberOfLines={1}>{m.capacity}</Text>
+                </View>
+                <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
+                  <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
+                  <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
+                </View>
               </View>
-            </View>
-          </GCard>
+            </GCard>
+            <Pressable
+              style={s.formatLink}
+              onPress={() => nav.navigate('ModeSubmodes', homeModeRouteParams(m))}
+              accessibilityRole="button"
+              accessibilityLabel={`Choose Solo, Duo, or Squad ${m.mode} tournaments`}
+              accessibilityHint="Opens the tournament format choices"
+              testID={`home-format-${m.gameMode}`}
+            >
+              <Text style={s.formatLinkText}>CHOOSE FORMAT · SOLO / DUO / SQUAD</Text>
+              <Text style={s.formatLinkArrow} accessibilityElementsHidden>›</Text>
+            </Pressable>
+          </View>
         );
       })}
 
@@ -447,6 +459,13 @@ const s = StyleSheet.create({
     backgroundColor: '#11182a', borderRadius: 16, borderWidth: 1,
     borderColor: '#28314b', borderLeftWidth: 4,
   },
+  formatLink: {
+    minHeight: 34, marginHorizontal: 16, marginTop: -6, marginBottom: 12,
+    paddingHorizontal: 12, borderRadius: 9, borderWidth: 1, borderColor: C.blue + '55',
+    backgroundColor: C.bg2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  formatLinkText: { color: C.blue, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
+  formatLinkArrow: { color: C.blue, fontSize: 17, fontWeight: '900', lineHeight: 17 },
   modeArtWrap: {
     width: 104, height: 124, borderRadius: 12, overflow: 'hidden',
     backgroundColor: '#090d18', borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
