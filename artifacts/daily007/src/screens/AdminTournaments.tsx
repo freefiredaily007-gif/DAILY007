@@ -581,7 +581,9 @@ export default function AdminTournaments() {
                       {roomMeta.roomPublished ? 'SAVED · AUTO-RELEASES 5 MIN BEFORE START' : 'NOT SAVED · HIDDEN FROM PLAYERS'}
                     </Text>
                     <Text style={st.actionHint}>Save the Room ID and Password. They are shown only to registered players, automatically from five minutes before the scheduled start.</Text>
+                    <Text style={st.lbl}>ROOM ID</Text>
                     <Input placeholder="Room ID" value={roomForm.roomId} onChangeText={(roomId) => setRoomForm((current) => ({ ...current, roomId }))} />
+                    <Text style={st.lbl}>ROOM PASSWORD</Text>
                     <Input placeholder="Room Password" value={roomForm.roomPassword} onChangeText={(roomPassword) => setRoomForm((current) => ({ ...current, roomPassword }))} />
                     <Msg kind="err" text={roomError} />
                     <Msg kind="ok" text={roomSuccess} />
@@ -659,9 +661,11 @@ export default function AdminTournaments() {
                       })}
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <View style={{ flex: 1 }}>
+                        <Text style={st.lbl}>RANK</Text>
                         <Input placeholder="Rank *" value={resultRank} onChangeText={setResultRank} keyboardType="number-pad" />
                       </View>
                       <View style={{ flex: 1 }}>
+                        <Text style={st.lbl}>KILLS</Text>
                         <Input placeholder="Kills" value={resultKills} onChangeText={setResultKills} keyboardType="number-pad" />
                       </View>
                     </View>

@@ -92,13 +92,15 @@ export default function AdminSettings() {
       <Text style={st.notice}>Coin payments and withdrawals require manual review. Recharge approval is the only way coins are credited; payouts are sent separately.</Text>
       <Card>
         {FIELDS.map(([k, label, ph]) => (
-          <Input
-            key={k}
-            placeholder={`${label} — ${ph}`}
-            value={vals[k] ?? ''}
-            keyboardType={k === 'coinToMoneyRate' ? 'decimal-pad' : ['minPurchase', 'maxPurchase', 'minWithdrawal', 'maxWithdrawal', 'youtubeTaskReward'].includes(k) ? 'number-pad' : 'default'}
-            onChangeText={(v) => setVals((s) => ({ ...s, [k]: v }))}
-          />
+          <View key={k}>
+            <Text style={st.fieldLabel}>{label}</Text>
+            <Input
+              placeholder={ph}
+              value={vals[k] ?? ''}
+              keyboardType={k === 'coinToMoneyRate' ? 'decimal-pad' : ['minPurchase', 'maxPurchase', 'minWithdrawal', 'maxWithdrawal', 'youtubeTaskReward'].includes(k) ? 'number-pad' : 'default'}
+              onChangeText={(v) => setVals((s) => ({ ...s, [k]: v }))}
+            />
+          </View>
         ))}
         <View style={st.switchRow}>
           <View style={{ flex: 1 }}>
@@ -159,6 +161,7 @@ const st = StyleSheet.create({
   switchTitle: { color: C.text, fontWeight: '800', fontSize: 13 },
   switchNote: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 3, marginBottom: 8 },
   fieldTitle: { color: C.text, fontWeight: '800', fontSize: 13, marginTop: 14, marginBottom: 4 },
+  fieldLabel: { color: C.sub, fontWeight: '800', fontSize: 10, letterSpacing: 0.8, marginBottom: 5 },
   taskSettings: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: C.line },
   qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#70B8FF', borderRadius: 10, marginVertical: 8 },
 });

@@ -57,7 +57,7 @@ export function StatCard({ icon, value, label, tint, onPress, trend }: { icon: k
     <Pressable onPress={onPress} style={({ pressed }) => [s.stat, pressed && { transform: [{ scale: 0.97 }] }]}>
       <View style={[s.statIcon, { backgroundColor: displayTint + '18', borderColor: displayTint + '55' }]}><Feather name={icon} size={15} color={displayTint} /></View>
       <Text style={s.statVal}>{value}</Text>
-      <Text style={s.statLabel} numberOfLines={1}>{label}</Text>
+      <Text style={s.statLabel} numberOfLines={2}>{label}</Text>
       {!!trend && <Text style={[s.statTrend, { color: tint }]}>{trend}</Text>}
     </Pressable>
   );
@@ -166,7 +166,7 @@ export function Input({ value, onChangeText, placeholder, keyboardType, multilin
 export function SectionTitle({ children, right, title, sub, icon }: { children?: React.ReactNode; right?: React.ReactNode; title?: string; sub?: string; icon?: keyof typeof Feather.glyphMap }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <View>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
           {icon ? <Feather name={icon} size={14} color={A.orange} /> : null}
           <Text style={s.sectionTitle}>{title ?? children}</Text>

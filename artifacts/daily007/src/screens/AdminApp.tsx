@@ -1,5 +1,5 @@
 // Admin shell — premium header + bottom nav hosting all admin screens
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
@@ -43,8 +43,22 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const [user, setUser] = useState<User | null>(null);
   const [err, setErr] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const navScrollRef = useRef<ScrollView | null>(null);
+  const navItemOffsets = useRef<Record<string, number>>({});
+  const navSelection = user?.role === 'tournament_admin' && !TOURNAMENT_ADMIN_SCREENS.has(screen)
+    ? 'tournaments'
+    : screen;
 
   useEffect(() => { Api.me().then(setUser).catch((e) => setErr(apiError(e))); }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const targetX = navItemOffsets.current[navSelection];
+      if (targetX !== undefined) {
+        navScrollRef.current?.scrollTo({ x: Math.max(0, targetX - 8), animated: true });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [navSelection]);
 
   if (err) return <View style={st.center}><Text style={{ color: '#fca5a5' }}>{err}</Text></View>;
   if (!user) return <Loading />;
@@ -104,11 +118,16 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
 
         {/* BOTTOM NAV */}
         <View style={st.navWrap}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.nav}>
+          <ScrollView ref={navScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.nav}>
             {visibleNav.map((n) => {
               const active = activeScreen === n.key;
               return (
-                <Pressable key={n.key} onPress={() => navigate(n.key)} style={[st.navItem, active && st.navActive]}>
+                <Pressable
+                  key={n.key}
+                  onLayout={(event) => { navItemOffsets.current[n.key] = event.nativeEvent.layout.x; }}
+                  onPress={() => navigate(n.key)}
+                  style={[st.navItem, active && st.navActive]}
+                >
                   <View style={[st.navIcon, active && st.navIconActive]}>
                     {active && <View style={st.navIconGlow} />}
                     <Feather name={n.icon} size={19} color={active ? A.gold : A.sub} />
