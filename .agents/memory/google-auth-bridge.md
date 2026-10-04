@@ -15,7 +15,7 @@ As of 2026-10-03, the production Daily007 account has one Full Admin. That admin
 
 **How to apply:** Keep ordinary recovery under a different Full Admin's review. For the sole Full Admin, allow recovery only with a separate high-entropy owner code plus a freshly verified Google identity; restrict that route to the sole active Full Admin, record its method in the audit row, and never persist or log the code.
 
-The user reported that the Android flow completed, and a Google-linked account appeared in the development backend. This confirms the additive bridge can complete on Android; a future production build should still be checked against its own redirect and provider configuration.
+On 2026-10-04, the user reported a real Android Profile → Connect Google run with a Development password account: the same Daily007 account and wallet remained active, and Wallet loaded afterward. This confirms the additive link preserved the current session for authenticated reads; a future production build should still be checked against its own redirect and provider configuration.
 
 For Expo Google SSO, treat the returned session ID and the active Clerk session as separate states: await the `setActive` function returned by `startSSOFlow` before reading the Clerk session or requesting its token, then verify that the active session ID matches.
 
