@@ -30,7 +30,7 @@ export default function HomeLeaderboards({ onOpen }: { onOpen: () => void }) {
           <View style={styles.trophyRows}>
             {TROPHY_RANKS.map((rank) => (
               <View key={rank.id} style={styles.trophyRow}>
-              <Text numberOfLines={1} style={[styles.trophyRowText, { color: rank.color }]}>
+              <Text style={[styles.trophyRowText, { color: rank.color }]}>
                 {rank.label}
               </Text>
               </View>

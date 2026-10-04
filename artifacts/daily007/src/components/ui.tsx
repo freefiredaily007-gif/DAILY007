@@ -390,14 +390,14 @@ export function MatchCard({
           </View>
           <View style={mc.artTitle}>
             <Text style={mc.artMode}>{String(t?.mode || t?.gameMode || '').toUpperCase()}</Text>
-            <Text style={mc.artName} numberOfLines={1}>{t?.name || t?.title || 'Tournament'}</Text>
+            <Text style={mc.artName}>{t?.name || t?.title || 'Tournament'}</Text>
           </View>
         </View>
       ) : (
         <View style={[mc.topRow, showBattleRoyalePoster && mc.brPosterTopRow]}>
-          <View style={{ flex: 1, marginRight: 8 }}>
+            <View style={mc.nameWrap}>
             <Text style={mc.mode}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
-            <Text style={mc.name} numberOfLines={1}>{t?.name || t?.title || 'Tournament'}</Text>
+            <Text style={mc.name}>{t?.name || t?.title || 'Tournament'}</Text>
           </View>
           <Badge text={s.label} color={s.color} />
         </View>
@@ -437,13 +437,13 @@ export function MatchCard({
 
 const mc = StyleSheet.create({
   cardWithArt: { padding: 0, paddingVertical: 0, overflow: 'hidden', marginBottom: 12, borderRadius: 16 },
-  artwork: { width: '100%', aspectRatio: 16 / 9, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
+  artwork: { width: '100%', minHeight: 180, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
   brPosterArtwork: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: C.bg2 },
   brPosterImage: { width: '100%', height: '100%' },
   brPosterTopRow: { paddingHorizontal: 14, paddingTop: 12 },
   artImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: C.bg2 },
   artShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,8,16,0.42)', borderBottomWidth: 1, borderBottomColor: '#ffffff12' },
-  artTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  artTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', rowGap: 8 },
   formatPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(7,10,18,0.82)', borderColor: '#ffffff55', borderWidth: 1, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
   formatText: { color: C.text, fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
   matchupBadge: { backgroundColor: C.gold, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
@@ -452,7 +452,8 @@ const mc = StyleSheet.create({
   artMode: { color: '#ffc06b', fontSize: 9, fontWeight: '900', letterSpacing: 1.7, marginBottom: 3 },
   artName: { color: C.text, fontSize: 17, fontWeight: '900', textShadowColor: '#000000aa', textShadowRadius: 6, textShadowOffset: { width: 0, height: 1 } },
   bannerBody: { padding: 14, paddingTop: 10 },
-  topRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
+  nameWrap: { flex: 1, minWidth: 0, marginRight: 8 },
   mode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
   name: { color: C.text, fontSize: 16, fontWeight: '900', marginTop: 2 },
   sep: { height: 1, backgroundColor: C.border, marginVertical: 10 },

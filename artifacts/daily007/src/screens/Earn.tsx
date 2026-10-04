@@ -273,7 +273,7 @@ export default function Earn() {
                 onPress={openReferralLink}
                 style={s.linkButton}
               >
-                <Text selectable numberOfLines={2} style={s.linkText}>{dashboard.referralLink}</Text>
+                <Text selectable style={s.linkText}>{dashboard.referralLink}</Text>
                 <Feather name="external-link" size={16} color={C.gold} />
               </Pressable>
               <Pressable
@@ -382,7 +382,7 @@ const s = StyleSheet.create({
   youtubeButtonText: { color: C.text, fontWeight: '900', fontSize: 11, letterSpacing: 0.4 },
   claimButton: { minHeight: 44, backgroundColor: C.gold, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8, paddingHorizontal: 8 },
   claimButtonDisabled: { opacity: 0.45 },
-  claimButtonText: { color: C.bg, fontWeight: '900', fontSize: 10, letterSpacing: 0.25 },
+  claimButtonText: { flex: 1, minWidth: 0, flexShrink: 1, textAlign: 'center', color: C.bg, fontWeight: '900', fontSize: 10, letterSpacing: 0.25 },
   loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 18 },
   muted: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 4 },
   error: { color: C.red, fontSize: 12, lineHeight: 18, marginBottom: 10 },
@@ -391,8 +391,8 @@ const s = StyleSheet.create({
   codeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   code: { flex: 1, color: C.gold, fontWeight: '900', fontSize: 17, letterSpacing: 1.4, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, textAlign: 'center', paddingVertical: 12 },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  linkButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 8 },
-  linkText: { flex: 1, color: C.blue, fontSize: 11, lineHeight: 16, textDecorationLine: 'underline' },
+  linkButton: { minHeight: 48, flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 8 },
+  linkText: { flex: 1, minWidth: 0, flexShrink: 1, color: C.blue, fontSize: 11, lineHeight: 16, textDecorationLine: 'underline' },
   iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   shareButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.gold, borderRadius: 10, paddingVertical: 12, marginTop: 10 },
   shareButtonText: { color: C.bg, fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },

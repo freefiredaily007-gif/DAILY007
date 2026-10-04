@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { AppState, View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { AppState, View, ActivityIndicator, StyleSheet, Alert, useWindowDimensions } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { ReadableText as Text } from './components/typography';
@@ -28,6 +28,7 @@ import { VideoIconActive, VideoIconInactive } from './components/VideoIcon';
 import { ProfileIconActive, ProfileIconInactive } from './components/ProfileIcon';
 import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
+import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
@@ -43,15 +44,19 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function Tabs() {
+  const { fontScale } = useWindowDimensions();
   return (
     <Tab.Navigator screenOptions={{
       headerShown: false,
       tabBarStyle: {
-        backgroundColor: '#0d1220ee', borderTopColor: '#2a3558', height: 65, paddingBottom: 8.5, paddingTop: 6.5,
+        backgroundColor: '#0d1220ee', borderTopColor: '#2a3558', height: getPlayerTabBarHeight(fontScale), paddingBottom: 8.5, paddingTop: 6.5,
         shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
       },
       tabBarActiveTintColor: '#FFD54D', tabBarInactiveTintColor: '#F5F7FF',
-      tabBarLabelStyle: { fontSize: 11.8, fontWeight: '900', letterSpacing: 0.5, fontFamily: 'Inter_700Bold' },
+      tabBarLabelStyle: {
+        width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center',
+        fontSize: 11.8, fontWeight: '900', letterSpacing: 0.5, fontFamily: 'Inter_700Bold',
+      },
     }}>
       <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: 'HOME', tabBarIcon: ({ focused }) => focused ? <HomeIconActive /> : <HomeIconInactive /> }} />
       <Tab.Screen name="Video" component={Video} options={{ tabBarLabel: 'VIDEO', tabBarIcon: ({ focused }) => focused ? <VideoIconActive /> : <VideoIconInactive /> }} />

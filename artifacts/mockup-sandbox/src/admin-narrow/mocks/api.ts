@@ -93,7 +93,46 @@ const stats = {
 
 const empty = async () => [];
 let tournamentReadCount = 0;
+let playerLargestTextPreview = false;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
+
+const longTournamentName =
+  "Daily007 International Free Fire Championship Grand Finals";
+const largestTextTournaments = previewTournaments.map((tournament) => ({
+  ...tournament,
+  name: longTournamentName,
+}));
+const largestTextRegistrations = [
+  {
+    id: "largest-text-upcoming-registration",
+    tournamentId: "preview-upcoming",
+    status: "approved",
+    teamName: "Unstoppable Champions of the Daily007 International League",
+    tournament: { ...largestTextTournaments[0] },
+  },
+  {
+    id: "largest-text-completed-registration",
+    tournamentId: "preview-completed",
+    status: "approved",
+    tournament: {
+      ...largestTextTournaments[2],
+      results: [
+        {
+          rank: 1,
+          kills: 12,
+          prizeCoins: 2500,
+          gameName: "Champion With A Long In-Game Name",
+          playerName: "A Player Name That Needs Several Lines",
+          teamName: "Daily007 Finals Champions",
+        },
+      ],
+    },
+  },
+];
+
+export function configurePlayerLargestTextPreview() {
+  playerLargestTextPreview = true;
+}
 
 export function configureWalletFormPreview() {
   Object.assign(settings, {
@@ -115,7 +154,19 @@ export function configureWalletFormPreview() {
 export const Api = {
   me: async () => ({ ...previewAdmin }),
   settings: async () => ({ settings: { ...settings } }),
-  transactions: empty,
+  transactions: async () => playerLargestTextPreview
+    ? [{
+        id: "largest-text-payment",
+        amount: 500,
+        coins: 500,
+        description: "Manual UPI recharge submitted for administrator review",
+        createdAt: new Date(now).toISOString(),
+        isRequest: true,
+        requestType: "payment",
+        status: "pending",
+        reference: "DAILY007-TRANSACTION-REFERENCE-2026",
+      }]
+    : empty(),
   myPayments: empty,
   myWithdrawals: empty,
   createPayment: async (payload: unknown) => {
@@ -133,6 +184,7 @@ export const Api = {
   adminStats: async () => ({ ...stats, stats: { ...stats } }),
   adminSettings: async () => ({ ...settings, settings: { ...settings } }),
   adminSaveSettings: async () => ({ ...settings, settings: { ...settings } }),
+  adminBootstrapStatus: async () => ({ available: false }),
   adminRegistrations: empty,
   adminPayments: empty,
   adminWithdrawals: empty,
@@ -140,9 +192,40 @@ export const Api = {
   adminUsers: empty,
   tournaments: async () => {
     tournamentReadCount += 1;
-    return previewTournaments.map((tournament) => ({ ...tournament }));
+    const tournaments = playerLargestTextPreview ? largestTextTournaments : previewTournaments;
+    return tournaments.map((tournament) => ({ ...tournament }));
   },
-  myRegistrations: empty,
+  myRegistrations: async () => playerLargestTextPreview
+    ? largestTextRegistrations.map((registration) => ({ ...registration }))
+    : empty(),
+  leaderboard: async () => playerLargestTextPreview
+    ? Array.from({ length: 12 }, (_, index) => ({
+        id: `largest-text-player-${index + 1}`,
+        name: index === 0
+          ? "Daily007 Championship Player With A Long Display Name"
+          : `International Tournament Competitor ${index + 1}`,
+        matches: 12345 - index,
+        wins: 2345 - index,
+        kills: 98765 - index,
+        prizeCoins: 54321 - index,
+      }))
+    : empty(),
+  notifications: async () => playerLargestTextPreview
+    ? [
+        {
+          id: "largest-text-notification-1",
+          title: "Your tournament registration has been approved",
+          body: "You are confirmed for the Daily007 International Free Fire Championship Grand Finals. Room details will be available shortly before the scheduled start.",
+          createdAt: new Date(now).toISOString(),
+        },
+        {
+          id: "largest-text-notification-2",
+          title: "Your prize coins were added to your wallet",
+          body: "The administrator approved your completed tournament result and credited the prize to your Daily007 balance.",
+          createdAt: new Date(now - 3_600_000).toISOString(),
+        },
+      ]
+    : empty(),
   adminRoom: async (tournamentId: string) => ({
     tournamentId,
     roomId: "TEST-ROOM-01",

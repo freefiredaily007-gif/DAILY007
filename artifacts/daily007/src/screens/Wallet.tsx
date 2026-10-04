@@ -1,6 +1,6 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useState } from 'react';
-import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable } from 'react-native';
+import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
@@ -15,7 +15,15 @@ import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScr
 const DEFAULT_MIN_WITHDRAW = 100;
 const DEFAULT_MAX_WITHDRAW = 5000;
 
+function formatWalletCoins(value: unknown, allowBreaks: boolean) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return String(value ?? 0);
+  const formatted = new Intl.NumberFormat('en-IN').format(amount);
+  return allowBreaks ? formatted.replace(/,/g, ',\u200B') : formatted;
+}
+
 export default function Wallet() {
+  const { fontScale } = useWindowDimensions();
   const { user, refresh } = useApp();
   const [txns, setTxns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -188,12 +196,17 @@ export default function Wallet() {
           <>
             <GCard glowColor={C.gold} style={s.balCard}>
               <Text style={s.balLabel}>AVAILABLE COINS</Text>
-              <Text style={[s.bal, glow(C.gold, 12)]}>🪙 {user?.coins ?? 0}</Text>
+              <Text
+                accessibilityLabel={`Available coins: ${formatWalletCoins(user?.coins, false)}`}
+                style={[s.bal, fontScale >= 1.5 && s.balLarge, glow(C.gold, 12)]}
+              >
+                🪙 {formatWalletCoins(user?.coins, fontScale >= 1.5)}
+              </Text>
               <Text style={s.rateNote}>1 coin = {inr(1, coinToMoneyRate)}</Text>
-              <View style={s.row}>
-                <View style={s.stat}><Text style={s.statV}>{pendingDepositCoins}</Text><Text style={s.statL}>PENDING DEPOSITS</Text></View>
-                <View style={s.stat}><Text style={s.statV}>{totalDeposited}</Text><Text style={s.statL}>TOTAL DEPOSITED</Text></View>
-                <View style={s.stat}><Text style={s.statV}>{totalWithdrawn}</Text><Text style={s.statL}>TOTAL WITHDRAWN</Text></View>
+              <View style={[s.row, fontScale >= 1.5 && s.rowLarge]}>
+                <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(pendingDepositCoins, fontScale >= 1.5)}</Text><Text style={s.statL}>PENDING DEPOSITS</Text></View>
+                <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(totalDeposited, fontScale >= 1.5)}</Text><Text style={s.statL}>TOTAL DEPOSITED</Text></View>
+                <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(totalWithdrawn, fontScale >= 1.5)}</Text><Text style={s.statL}>TOTAL WITHDRAWN</Text></View>
               </View>
               <View style={s.btnRow}>
                 <View style={{ flex: 1 }}><Btn title="+ ADD COINS" testID="wallet-open-recharge" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
@@ -216,11 +229,12 @@ export default function Wallet() {
           return (
             <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={s.txTitle}>{item.description ?? (pos ? 'Coins added' : 'Tournament entry')}</Text>
+                <View style={[s.txHeader, fontScale >= 1.5 && s.txHeaderLarge]}>
+                  <Text style={[s.txTitle, fontScale >= 1.5 && s.txTitleLarge]}>{item.description ?? (pos ? 'Coins added' : 'Tournament entry')}</Text>
                   {item.isRequest && (
                     <View style={[
                       s.pendingTag,
+                      fontScale >= 1.5 && s.pendingTagLarge,
                       item.status === 'approved' && s.approvedTag,
                       item.status === 'rejected' && s.rejectedTag,
                     ]}>
@@ -263,7 +277,7 @@ export default function Wallet() {
       />
 
       <Modal visible={showSheet} animationType="slide" transparent>
-        <View style={s.modalBg}>
+        <View style={[s.modalBg, fontScale >= 1.5 && s.modalBgLarge]}>
           <KeyboardAwareScrollViewCompat
             testID="wallet-form-scroll"
             style={s.modal}
@@ -326,7 +340,7 @@ export default function Wallet() {
                     {proof && (
                       <View style={s.proofPreview}>
                         <Image source={{ uri: proof.uri }} resizeMode="cover" style={s.proofImage} />
-                        <Text style={s.proofName} numberOfLines={1}>{proof.fileName || 'Payment screenshot attached'}</Text>
+                        <Text style={s.proofName}>{proof.fileName || 'Payment screenshot attached'}</Text>
                       </View>
                     )}
                   </>
@@ -383,15 +397,22 @@ const s = StyleSheet.create({
   balCard: { alignItems: 'center', borderWidth: 1, borderColor: C.gold + '44' },
   balLabel: { color: C.sub, fontSize: 11, letterSpacing: 2, fontWeight: '800' },
   bal: { color: C.gold, fontSize: 40, fontWeight: '900', marginVertical: 8 },
+  balLarge: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center' },
   row: { flexDirection: 'row', gap: 12, alignSelf: 'stretch', marginBottom: 14 },
+  rowLarge: { flexWrap: 'wrap' },
   stat: { flex: 1, backgroundColor: C.bg2, borderRadius: 10, padding: 10, alignItems: 'center' },
+  statLarge: { flexBasis: '48%', minWidth: 0 },
   statV: { color: C.text, fontWeight: '900', fontSize: 16 },
-  statL: { color: C.sub, fontSize: 10, letterSpacing: 1, marginTop: 2 },
+  statL: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center', color: C.sub, fontSize: 10, letterSpacing: 1, marginTop: 2 },
   btnRow: { flexDirection: 'row', gap: 10, alignSelf: 'stretch' },
   txTitle: { color: C.text, fontWeight: '700', fontSize: 14 },
+  txHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  txHeaderLarge: { flexDirection: 'column', alignItems: 'flex-start', width: '100%' },
+  txTitleLarge: { width: '100%', maxWidth: '100%', flexShrink: 1 },
   txDate: { color: C.dim, fontSize: 11, marginTop: 3 },
   txAmount: { fontWeight: '900', fontSize: 16 },
   modalBg: { flex: 1, backgroundColor: '#000a', justifyContent: 'flex-end' },
+  modalBgLarge: { paddingBottom: 12 },
   modal: { backgroundColor: C.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, maxHeight: '85%' },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: C.line, alignItems: 'center', backgroundColor: C.bg },
@@ -410,14 +431,15 @@ const s = StyleSheet.create({
   minWarn: { color: C.red, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
   rateNote: { color: C.sub, fontSize: 11, marginBottom: 10, letterSpacing: 0.5 },
   pendingTag: { backgroundColor: C.gold + '22', borderColor: C.gold, borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  pendingTagText: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+  pendingTagLarge: { maxWidth: '100%', flexWrap: 'wrap' },
+  pendingTagText: { maxWidth: '100%', flexShrink: 1, color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   approvedTag: { backgroundColor: C.green + '22', borderColor: C.green },
   rejectedTag: { backgroundColor: C.red + '22', borderColor: C.red },
   reviewText: { color: C.red, fontSize: 11, marginTop: 3, lineHeight: 15 },
   pendingNote: { color: C.gold, fontSize: 11, marginTop: 8, lineHeight: 15, textAlign: 'center' },
   qr: { width: 190, height: 190, alignSelf: 'center', backgroundColor: '#70B8FF', borderRadius: 10, marginBottom: 10 },
   upiRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  proofPreview: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, marginTop: 8, backgroundColor: C.bg, borderRadius: 10 },
+  proofPreview: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: 8, marginTop: 8, backgroundColor: C.bg, borderRadius: 10 },
   proofImage: { width: 58, height: 58, borderRadius: 7 },
-  proofName: { color: C.sub, flex: 1, fontSize: 11 },
+  proofName: { color: C.sub, flex: 1, minWidth: 0, fontSize: 11 },
 });

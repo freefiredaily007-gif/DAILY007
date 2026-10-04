@@ -1,6 +1,6 @@
 // My Matches — upcoming / live / completed tabs with room details
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl, Pressable, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
@@ -11,6 +11,7 @@ import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindo
 import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 
 export default function MyMatches() {
+  const { fontScale } = useWindowDimensions();
   const navigation: any = useNavigation();
   const [regs, setRegs] = useState<any[]>([]);
   const [tab, setTab] = useState<'upcoming' | 'ongoing' | 'completed'>('upcoming');
@@ -74,7 +75,17 @@ export default function MyMatches() {
       <SectionTitle accent={C.purple}>MY MATCHES</SectionTitle>
       <View style={s.tabs}>
         {(['upcoming', 'ongoing', 'completed'] as const).map((t) => (
-          <Text key={t} onPress={() => setTab(t)} style={[s.tab, tab === t && s.tabOn]}>{t.toUpperCase()}</Text>
+          <Pressable
+            key={t}
+            testID={`my-matches-tab-${t}`}
+            accessibilityRole="button"
+            accessibilityLabel={`${t} matches`}
+            accessibilityState={{ selected: tab === t }}
+            onPress={() => setTab(t)}
+            style={[s.tab, tab === t && s.tabOn]}
+          >
+            <Text style={[s.tabText, tab === t && s.tabTextOn]}>{t.toUpperCase()}</Text>
+          </Pressable>
         ))}
       </View>
       {loading ? <Loading /> : error ? (
@@ -186,7 +197,11 @@ export default function MyMatches() {
                         return (
                           <View
                             key={`${entry.rank ?? 'rank'}-${index}`}
-                            style={[s.resultRow, index === results.length - 1 && s.resultRowLast]}
+                            style={[
+                              s.resultRow,
+                              fontScale >= 1.5 && s.resultRowLarge,
+                              index === results.length - 1 && s.resultRowLast,
+                            ]}
                           >
                             <View style={[s.rankMedal, rankStyle]}>
                               <Text style={s.rankNumber}>{rank}</Text>
@@ -195,11 +210,11 @@ export default function MyMatches() {
                               <Text style={s.resultAvatarInitial}>{avatarName.charAt(0).toUpperCase()}</Text>
                             </View>
                             <View style={s.resultIdentity}>
-                              <Text style={s.resultName} numberOfLines={1}>{winnerName}</Text>
-                              {!!secondaryName && <Text style={s.resultSub} numberOfLines={1}>{secondaryName}</Text>}
-                              {!!resultMeta && <Text style={s.resultKills} numberOfLines={1}>{resultMeta}</Text>}
+                              <Text style={s.resultName}>{winnerName}</Text>
+                              {!!secondaryName && <Text style={s.resultSub}>{secondaryName}</Text>}
+                              {!!resultMeta && <Text style={s.resultKills}>{resultMeta}</Text>}
                             </View>
-                            <View style={s.prizeWrap}>
+                              <View style={[s.prizeWrap, fontScale >= 1.5 && s.prizeWrapLarge]}>
                               <View style={s.prizeAmountRow}>
                                 <View style={s.coinIcon}><Text style={s.coinStar}>★</Text></View>
                                 <Text style={s.prizeAmount}>{entry.prizeCoins ?? 0}</Text>
@@ -223,9 +238,11 @@ export default function MyMatches() {
 const s = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
   h1: { color: C.text, fontSize: 22, fontWeight: '900', letterSpacing: 1, padding: 14, paddingBottom: 4 },
-  tabs: { flexDirection: 'row', paddingHorizontal: 14, gap: 8, marginBottom: 6 },
-  tab: { color: C.sub, fontWeight: '800', fontSize: 11, letterSpacing: 1, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: '#151a29' },
-  tabOn: { color: C.bg, backgroundColor: C.neon },
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, gap: 8, marginBottom: 6 },
+  tab: { flexGrow: 1, flexShrink: 1, minWidth: 96, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 14, backgroundColor: '#151a29' },
+  tabText: { color: C.sub, fontWeight: '800', fontSize: 11, letterSpacing: 1, textAlign: 'center' },
+  tabTextOn: { color: C.bg },
+  tabOn: { backgroundColor: C.neon },
   err: { color: '#ef4444', textAlign: 'center', marginTop: 40, paddingHorizontal: 20 },
   mode: { color: C.orange, fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
   tName: { color: C.text, fontWeight: '900', fontSize: 16, marginTop: 2 },
@@ -237,6 +254,7 @@ const s = StyleSheet.create({
   resultsTitle: { color: '#fbbf24', fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 4 },
   result: { color: '#fbbf24', fontWeight: '800', marginTop: 8, fontSize: 13 },
   resultRow: { flexDirection: 'row', alignItems: 'center', minHeight: 78, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#343842', gap: 8 },
+  resultRowLarge: { flexWrap: 'wrap', alignItems: 'flex-start' },
   resultRowLast: { borderBottomWidth: 0 },
   rankMedal: { width: 34, height: 34, borderRadius: 17, borderWidth: 3, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   rankGold: { backgroundColor: '#f6bf24', borderColor: '#ffe17c' },
@@ -251,6 +269,7 @@ const s = StyleSheet.create({
   resultSub: { color: '#848994', fontSize: 11, fontWeight: '600', letterSpacing: 0.2, marginTop: 4 },
   resultKills: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 0.4, marginTop: 3 },
   prizeWrap: { minWidth: 66, alignItems: 'flex-end', flexShrink: 0 },
+  prizeWrapLarge: { marginLeft: 84, alignItems: 'flex-start' },
   prizeAmountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 },
   coinIcon: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#ffcc42', backgroundColor: '#e79b00', alignItems: 'center', justifyContent: 'center' },
   coinStar: { color: '#fff3ad', fontSize: 10, fontWeight: '900', lineHeight: 12 },

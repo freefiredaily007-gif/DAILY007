@@ -3,8 +3,14 @@ name: Expo React Native Web browser checks
 description: CDP locator and value-assertion quirks for interactive Expo screens rendered through React Native Web.
 ---
 
-**Rule:** Some React Native Web `Pressable` wrappers are focusable but do not expose `role="button"` when the component omits `accessibilityRole`. Also normalize locale-formatted values before comparing them in browser assertions.
+**Rule:** Some React Native Web `Pressable` wrappers are focusable but do not expose `role="button"` when the component omits `accessibilityRole`. Normalize locale-formatted values before comparing them in browser assertions.
 
 **Why:** In the Daily007 Admin UI, the Rewards navigation rendered as a `tabindex` element without a button role, and coin amounts used Indian thousands separators. Role-only selectors missed the navigation, and an unformatted string check missed a valid refresh.
 
 **How to apply:** In isolated mobile-width CDP tests, inspect the rendered DOM, locate such controls through their visible text and focusable wrapper, and parse or format displayed values using the app's locale.
+
+**Rule:** For nested React Native Web scroll areas, move the nearest scrollable ancestor directly before measuring whether an action is reachable; `scrollIntoView` alone may not scroll keyboard-aware forms far enough.
+
+**Why:** In the 2× Wallet form preview, the recharge button remained below the viewport until the actual modal scroll container was advanced and the sheet was positioned within the visible area.
+
+**How to apply:** Find the nearest ancestor whose vertical overflow is scrollable and whose content exceeds its viewport, adjust that element's `scrollTop`, then compare the action's bounds with the visible viewport.

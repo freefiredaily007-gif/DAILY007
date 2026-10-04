@@ -1,6 +1,6 @@
 // Profile — avatar, stats, edit profile, notifications, leaderboard, logout
 import React from 'react';
-import { View, ScrollView, StyleSheet, Modal } from 'react-native';
+import { View, ScrollView, StyleSheet, Modal, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../App';
@@ -10,7 +10,12 @@ import GoogleSSOButton from '../components/GoogleSSOButton';
 import { useDaily007ChangePassword } from '@workspace/api-client-react';
 
 export default function Profile() {
+  const { fontScale } = useWindowDimensions();
   const { user, logout, refresh } = useApp();
+  const profileEmail = String(user?.email ?? '');
+  const displayProfileEmail = fontScale >= 1.5
+    ? profileEmail.replace(/([@._+-])/g, '$1\u200B')
+    : profileEmail;
   const nav = useNavigation<any>();
   const { mutateAsync: changePassword, isPending: passwordBusy } = useDaily007ChangePassword();
   const [bootstrapAvailable, setBootstrapAvailable] = React.useState(false);
@@ -129,15 +134,15 @@ export default function Profile() {
       <Card style={s.head}>
         <View style={s.avatar}><Text style={s.avatarTxt}>{(user?.name ?? 'P').charAt(0).toUpperCase()}</Text></View>
         <Text style={s.name}>{user?.name ?? 'Player'}</Text>
-        <Text style={s.email}>{user?.email ?? ''}</Text>
+        <Text style={s.email} accessibilityLabel={profileEmail}>{displayProfileEmail}</Text>
         {user?.gameUid ? <Text style={s.uid}>FF UID: {user.gameUid}</Text> : null}
       </Card>
 
-      <View style={s.stats}>
-        <View style={s.stat}><Text style={s.statV}>{statsUnavailable ? '—' : user?.matches ?? 0}</Text><Text style={s.statL}>MATCHES</Text></View>
-        <View style={s.stat}><Text style={s.statV}>{statsUnavailable ? '—' : user?.wins ?? 0}</Text><Text style={s.statL}>WINS</Text></View>
-        <View style={s.stat}><Text style={s.statV}>{statsUnavailable ? '—' : user?.kills ?? 0}</Text><Text style={s.statL}>KILLS</Text></View>
-        <View style={s.stat}><Text style={s.statV}>🪙{statsUnavailable ? '—' : user?.prizeCoins ?? 0}</Text><Text style={s.statL}>PRIZES</Text></View>
+      <View style={[s.stats, fontScale >= 1.5 && s.statsLarge]}>
+        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{statsUnavailable ? '—' : user?.matches ?? 0}</Text><Text style={s.statL}>MATCHES</Text></View>
+        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{statsUnavailable ? '—' : user?.wins ?? 0}</Text><Text style={s.statL}>WINS</Text></View>
+        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{statsUnavailable ? '—' : user?.kills ?? 0}</Text><Text style={s.statL}>KILLS</Text></View>
+        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>🪙{statsUnavailable ? '—' : user?.prizeCoins ?? 0}</Text><Text style={s.statL}>PRIZES</Text></View>
       </View>
       {user?.statsError
         ? <Text style={s.statsError}>Profile statistics unavailable: {user.statsError}</Text>
@@ -171,7 +176,7 @@ export default function Profile() {
       <Card>
         <Text style={s.connectTitle}>DAILY007 PASSWORD</Text>
         <Text style={s.connectDescription}>Change your Daily007 password. This does not change your Google password.</Text>
-        <Btn title="CHANGE PASSWORD" kind="ghost" onPress={openPasswordModal} />
+        <Btn testID="profile-change-password" title="CHANGE PASSWORD" kind="ghost" onPress={openPasswordModal} />
         {!!passwordMessage && <Text style={s.connected}>{passwordMessage}</Text>}
       </Card>
 
@@ -222,7 +227,11 @@ export default function Profile() {
       animationType="fade"
       onRequestClose={closePasswordModal}
     >
-      <View style={s.modalOverlay}>
+      <ScrollView
+        style={s.passwordModalScroll}
+        contentContainerStyle={s.passwordModalContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={s.modalCard}>
           <Text style={s.modalTitle}>CHANGE PASSWORD</Text>
           <Text style={s.modalDescription}>
@@ -266,10 +275,10 @@ export default function Profile() {
             onSubmitEditing={submitPasswordChange}
           />
           {!!passwordError && <Text style={s.modalError}>{passwordError}</Text>}
-          <Btn title="UPDATE PASSWORD" kind="gold" loading={passwordBusy} onPress={submitPasswordChange} />
+          <Btn testID="profile-password-submit" title="UPDATE PASSWORD" kind="gold" loading={passwordBusy} onPress={submitPasswordChange} />
           <Btn title="CANCEL" kind="ghost" disabled={passwordBusy} onPress={closePasswordModal} />
         </View>
-      </View>
+      </ScrollView>
     </Modal>
     </>
   );
@@ -281,17 +290,21 @@ const s = StyleSheet.create({
   avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: C.neon, alignItems: 'center', justifyContent: 'center' },
   avatarTxt: { color: '#fff', fontSize: 32, fontWeight: '900' },
   name: { color: C.text, fontSize: 20, fontWeight: '900', marginTop: 10 },
-  email: { color: C.sub, fontSize: 13, marginTop: 2 },
+  email: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center', color: C.sub, fontSize: 13, marginTop: 2 },
   uid: { color: C.gold, fontSize: 12, marginTop: 6, fontWeight: '700' },
   connectTitle: { color: C.text, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   connectDescription: { color: C.sub, fontSize: 12, lineHeight: 17, marginTop: 5 },
   connected: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: 8 },
   stats: { flexDirection: 'row', gap: 8 },
+  statsLarge: { flexWrap: 'wrap' },
   stat: { flex: 1, backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: 'center' },
+  statLarge: { flexBasis: '45%', minWidth: 0 },
   statV: { color: C.text, fontWeight: '900', fontSize: 16 },
   statL: { color: C.sub, fontSize: 9, letterSpacing: 1, marginTop: 3 },
   statsError: { color: C.red, fontSize: 11, lineHeight: 16 },
   modalOverlay: { flex: 1, backgroundColor: '#000000bb', justifyContent: 'center', padding: 20 },
+  passwordModalScroll: { flex: 1, backgroundColor: '#000000bb' },
+  passwordModalContent: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   modalCard: { backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.gold + '88', padding: 18, gap: 12 },
   modalTitle: { color: C.gold, fontSize: 16, fontWeight: '900', letterSpacing: 1 },
   modalDescription: { color: C.sub, fontSize: 12, lineHeight: 18 },

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Daily007 largest Android text preview</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        background: #070a12;
+        font-family: Arial, sans-serif;
+      }
+
+      #root {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+    </style>
+    <script>
+      window.__daily007LargeTextScale = 2;
+      window.__playerLargestTextPreview = true;
+      window.require = () => ({ default: null });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/admin-narrow/player-largest-text-main.jsx"></script>
+  </body>
+</html>

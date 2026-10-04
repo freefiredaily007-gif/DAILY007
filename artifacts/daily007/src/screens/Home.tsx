@@ -1,6 +1,6 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import bannerSquad from '../assets/banner-squad.jpg';
 import bannerClash from '../assets/banner-clash.jpg';
@@ -40,6 +40,7 @@ function tournamentModeFallback(t: any): number {
   return 48;
 }
 export default function Home() {
+  const { fontScale } = useWindowDimensions();
   const { user } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,18 +127,18 @@ export default function Home() {
       <View style={s.gridBg} pointerEvents="none" />
 
       {/* ===== TOP HEADER ===== */}
-      <View style={s.head}>
+      <View style={[s.head, fontScale >= 1.5 && s.headLarge]}>
         <View style={s.headGlow} pointerEvents="none" />
-        <View style={s.logoWrap}>
+        <View style={[s.logoWrap, fontScale >= 1.5 && s.logoWrapLarge]}>
           <View style={[s.logoBadge, glow(C.neon, 14)]}>
             <Image source={logoImg} style={s.logoImg} resizeMode="cover" />
           </View>
-          <View style={s.logoText}>
+          <View style={[s.logoText, fontScale >= 1.5 && s.logoTextLarge]}>
             <Text style={s.logo}>FREE FIRE</Text>
             <Text style={s.logoSub}>DAILY007 TOURNAMENTS</Text>
           </View>
         </View>
-        <View style={s.headerActions}>
+        <View style={[s.headerActions, fontScale >= 1.5 && s.headerActionsLarge]}>
           <Pressable
             style={[s.bellBtn, glow(C.neon, 8)]}
             onPress={() => nav.navigate('Notifications')}
@@ -165,9 +166,9 @@ export default function Home() {
         <Text style={s.myMatchesButtonText}>🎮 MY MATCHES</Text>
         <Text style={s.myMatchesButtonHint}>ROOM DETAILS & RESULTS →</Text>
       </Pressable>
-      <View style={s.secRow}>
+      <View style={[s.secRow, fontScale >= 1.5 && s.secRowLarge]}>
         <Text style={s.secTitle}>🔥 UPCOMING MATCHES</Text>
-        <Pressable onPress={() => goTab('tournaments')} hitSlop={8}>
+        <Pressable onPress={() => goTab('tournaments')} hitSlop={8} style={fontScale >= 1.5 && s.viewAllPressableLarge}>
           <Text style={s.viewAll}>VIEW ALL →</Text>
         </Pressable>
       </View>
@@ -212,7 +213,16 @@ export default function Home() {
             glowColor={ongoing ? C.red : br ? C.orange : C.purple}
             style={s.matchCard}
           >
-            <View style={showBattleRoyalePoster ? s.mPosterBanner : showFormatArt ? s.mFormatBanner : s.mBanner}>
+            <View
+              style={[
+                showBattleRoyalePoster ? s.mPosterBanner : showFormatArt ? s.mFormatBanner : s.mBanner,
+                showFormatArt
+                  ? { height: Math.max(194, 160 * fontScale) }
+                  : !showBattleRoyalePoster
+                    ? { height: Math.max(110, 120 * fontScale) }
+                    : null,
+              ]}
+            >
               <Image
                 source={showBattleRoyalePoster ? formatPresentation.image : showFormatArt ? formatPresentation.image : br ? bannerSquad : bannerClash}
                 style={showBattleRoyalePoster ? s.mPosterBannerImg : s.mBannerImg}
@@ -220,7 +230,7 @@ export default function Home() {
               />
               {!showBattleRoyalePoster && (
                 <>
-                  <View style={s.mBannerShade} />
+                  <View style={[s.mBannerShade, { height: Math.max(60, 80 * fontScale) }]} />
                   <View style={s.mBadgeRow}>
                     {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
                     <View style={[s.modeBadge, { borderColor: br ? C.orange : C.purple }]}>
@@ -231,13 +241,13 @@ export default function Home() {
                   </View>
                   {showFormatArt ? (
                     <View style={s.mFormatBottomRow}>
-                      <Text style={s.mFormatTitle} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                      <Text style={s.mFormatTitle}>{t.name ?? 'Match'}</Text>
                       <View style={s.mFormatBadge}>
                         <Text style={s.mFormatBadgeT}>{formatPresentation.label} · {formatPresentation.matchup}</Text>
                       </View>
                     </View>
                   ) : (
-                    <Text style={s.mTitleOnImg} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                    <Text style={s.mTitleOnImg}>{t.name ?? 'Match'}</Text>
                   )}
                 </>
               )}
@@ -247,7 +257,7 @@ export default function Home() {
                 <View style={s.mPosterHeader}>
                   <View style={{ flex: 1, marginRight: 8 }}>
                     <Text style={s.mMode}>BATTLE ROYALE • {String(t.teamType ?? 'SOLO').toUpperCase()}</Text>
-                    <Text style={s.mTitle} numberOfLines={1}>{t.name ?? 'Match'}</Text>
+                    <Text style={s.mTitle}>{t.name ?? 'Match'}</Text>
                   </View>
                   {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
                 </View>
@@ -324,7 +334,7 @@ export default function Home() {
                 <Text style={[s.modeKicker, { color: m.accent }]}>{m.category}</Text>
                 <Text style={s.modeTitle}>{m.title}</Text>
                 <View style={[s.modeCapacityBadge, { borderColor: m.accent + '66', backgroundColor: m.accent + '14' }]}>
-                  <Text style={[s.modeCapacity, { color: m.accent }]} numberOfLines={1}>{m.capacity}</Text>
+                  <Text style={[s.modeCapacity, { color: m.accent }]}>{m.capacity}</Text>
                 </View>
                 <View style={[s.modeBtn, { backgroundColor: m.accent }, glow(m.accent, 8)]}>
                   <Text style={s.modeBtnT}>BROWSE TOURNAMENTS</Text>
@@ -382,11 +392,15 @@ const s = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 12, paddingBottom: 12,
     backgroundColor: '#0d1226', borderBottomWidth: 0, overflow: 'hidden',
   },
+  headLarge: { flexWrap: 'wrap', alignItems: 'flex-start' },
   headGlow: { position: 'absolute', top: -60, right: -40, width: 200, height: 200, borderRadius: 100, backgroundColor: C.neon + '14' },
   headLine: { height: 2, backgroundColor: C.neon + '55', shadowColor: C.neon, shadowOpacity: 0.8, shadowRadius: 8 },
   logoWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  logoWrapLarge: { flexBasis: '100%', width: '100%' },
   logoText: { flex: 1, minWidth: 0 },
+  logoTextLarge: { minWidth: 0 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+  headerActionsLarge: { width: '100%', flexWrap: 'wrap', justifyContent: 'flex-start', marginTop: 10 },
   logoBadge: {
     width: 40, height: 40, borderRadius: 12, backgroundColor: '#1a0d10', borderWidth: 1.5,
     borderColor: C.neon, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
@@ -427,6 +441,8 @@ const s = StyleSheet.create({
   heroBtnText: { color: C.bg, fontWeight: '900', letterSpacing: 1.5, fontSize: 13 },
   matchCard: { width: 340, marginRight: 12, padding: 0, overflow: 'hidden' },
   secRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 14, marginBottom: 8 },
+  secRowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
+  viewAllPressableLarge: { alignSelf: 'flex-end' },
   secTitle: { color: C.text, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
   viewAll: { color: C.neon, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
   mBanner: { height: 110, backgroundColor: '#0a0e1e' },
@@ -439,8 +455,8 @@ const s = StyleSheet.create({
   modeBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#000000aa' },
   modeBadgeT: { fontSize: 8.5, fontWeight: '900', letterSpacing: 1 },
   mTitleOnImg: { position: 'absolute', bottom: 8, left: 10, right: 10, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
-  mFormatBottomRow: { position: 'absolute', bottom: 8, left: 10, right: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  mFormatTitle: { flex: 1, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
+  mFormatBottomRow: { position: 'absolute', bottom: 8, left: 10, right: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 8 },
+  mFormatTitle: { flex: 1, minWidth: 0, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
   mFormatBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, backgroundColor: C.gold },
   mFormatBadgeT: { color: C.bg, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
   joinBtn: { marginTop: 10, backgroundColor: C.neon, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
@@ -492,7 +508,7 @@ const s = StyleSheet.create({
     marginTop: 9, minHeight: 36, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 9,
     alignItems: 'center', justifyContent: 'space-between', flexDirection: 'row',
   },
-  modeBtnT: { color: '#090b12', fontWeight: '900', letterSpacing: 0.65, fontSize: 9.5 },
+  modeBtnT: { flex: 1, minWidth: 0, flexShrink: 1, textAlign: 'center', color: '#090b12', fontWeight: '900', letterSpacing: 0.65, fontSize: 9.5 },
   modeBtnArrow: { color: '#090b12', fontSize: 17, fontWeight: '900', lineHeight: 17 },
   socialBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12,

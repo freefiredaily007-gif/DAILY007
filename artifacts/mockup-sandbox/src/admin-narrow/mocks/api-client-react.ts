@@ -33,8 +33,81 @@ const noQuery = <T,>(data: T) => ({
   isError: false,
   isLoading: false,
   isPending: false,
+  isRefetching: false,
   refetch: async () => ({ data }),
 });
+
+const largestTextReferrals = {
+  code: "D7MAX",
+  referralLink: "https://daily007.example.invalid/signup?ref=D7MAX&source=invite",
+  totalPeopleReferred: 123456,
+  successfulReferrals: 12345,
+  pendingReferrals: 2345,
+  totalReferralCoinsEarned: 987654,
+  referrals: [
+    {
+      id: "largest-text-referral",
+      referredName: "International Tournament Player With A Long Name",
+      referredUserId: "daily007-user-12345678901234567890",
+      referrerRewardStatus: "credited",
+      firstRechargeStatus: "awaiting_approval",
+      signupStatus: "complete",
+      signupBonusStatus: "credited",
+      qualifyingPaymentId: "UPI-RECHARGE-REFERENCE-12345678901234567890",
+    },
+  ],
+};
+
+const largestTextVideos = [
+  {
+    id: "large-video-01",
+    title: "How to Join the Daily007 International Free Fire Championship",
+    topic: "Tournament registration and complete player account setup",
+    youtubeId: "preview-video-01",
+    url: "https://www.youtube.com/watch?v=preview-video-01",
+  },
+  {
+    id: "large-video-02",
+    title: "How to Claim Your Approved Tournament Prize Coins",
+    topic: "Wallet balance, match results, and prize history",
+    youtubeId: "preview-video-02",
+    url: "https://www.youtube.com/watch?v=preview-video-02",
+  },
+];
+
+export function useDaily007ListVideos() {
+  return noQuery({ videos: largestTextVideos });
+}
+
+export function useDaily007StartVideoWatch() {
+  return noMutation();
+}
+
+export function useDaily007CompleteVideoWatch() {
+  return noMutation();
+}
+
+export function useDaily007GetMyReferrals() {
+  return noQuery(largestTextReferrals);
+}
+
+export function useDaily007GetYoutubeSubscribeTask() {
+  return noQuery({
+    enabled: true,
+    completed: false,
+    rewardCoins: 2,
+    channelUrl: "https://www.youtube.com/@daily007",
+    claim: null,
+  });
+}
+
+export function useDaily007SubmitYoutubeSubscribeClaim() {
+  return noMutation();
+}
+
+export function useDaily007ChangePassword() {
+  return noMutation();
+}
 
 export const getDaily007ListAdminResultLogsQueryKey = () => [
   "isolated-admin-preview",

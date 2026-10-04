@@ -139,7 +139,7 @@ export default function Tournaments() {
                     onPress={() => setTab(value)}
                     style={[s.tab, selected && s.tabOn]}
                   >
-                    <Text numberOfLines={1} style={[s.tabText, selected && s.tabTextOn]}>
+                    <Text style={[s.tabText, selected && s.tabTextOn]}>
                       {tabLabel[value]} <Text style={[s.tabCount, selected && s.tabTextOn]}>{displayedCount}</Text>
                     </Text>
                   </Pressable>
