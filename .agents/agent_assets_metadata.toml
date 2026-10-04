@@ -14,3 +14,45 @@ mtime_ms = 1790920917734
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/886bd4b5-696b-45b8-a189-a1cf26e47330/5f1f1a73-5cc5-4301-8059-96e7824c6177"
 storage_version_token = "1790922772968060"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "YhES7wp8-YIC88OhMNGAn"
+uri = "file://attached_assets/generated_images/daily007-battle-royale-solo-poster.png"
+type = "image"
+title = "Battle Royale — Solo poster"
+description = "Square 1024×1024 esports poster with one operator and only the title SOLO."
+logical_id = "5eb8fc2b-aa2a-4d90-8733-195f18f23567"
+content_hash = "sha256:84b2c8e18e14d9bc4a48954910c92b63df844af65ee0c6ae7b5a1eba2cfb9584"
+size = 1662751
+mtime_ms = 1791087690710
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/5eb8fc2b-aa2a-4d90-8733-195f18f23567/3d9ebadf-3f7c-48f2-b789-b6489ff940ef"
+storage_version_token = "1791087735335219"
+content_type = "image/png"
+
+[[outputs]]
+id = "hD3rIdhPfD07XsrGGX4TJ"
+uri = "file://attached_assets/generated_images/daily007-battle-royale-duo-poster.png"
+type = "image"
+title = "Battle Royale — Duo poster"
+description = "Square 1024×1024 esports poster with two operators and only the title DUO."
+logical_id = "c26ddd36-ae2d-4f96-8b52-956fe8aede6d"
+content_hash = "sha256:4323caa8e30c6e406c022627cc19ae9fd445af0711137cdd93ae9f22d2eed718"
+size = 1413496
+mtime_ms = 1791087691706
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/c26ddd36-ae2d-4f96-8b52-956fe8aede6d/0e5dcc00-9ae2-4c82-b71a-c86c967bdb55"
+storage_version_token = "1791087736618357"
+content_type = "image/png"
+
+[[outputs]]
+id = "uHTFl0loQCf-2WchkGNLx"
+uri = "file://attached_assets/generated_images/daily007-battle-royale-squad-poster.png"
+type = "image"
+title = "Battle Royale — Squad poster"
+description = "Square 1024×1024 esports poster with four operators and only the title SQUAD."
+logical_id = "fd47d601-80a4-4268-b650-0bdf41861e26"
+content_hash = "sha256:9a88a1a763fe6d9c2b2ea0dba073189df3b57f66e4025e3777ab6df4fbef5e80"
+size = 1603398
+mtime_ms = 1791087692646
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/fd47d601-80a4-4268-b650-0bdf41861e26/68e5e46a-d65b-46ea-9559-089ef0b71be2"
+storage_version_token = "1791087737952453"
+content_type = "image/png"
