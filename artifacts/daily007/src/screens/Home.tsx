@@ -281,13 +281,9 @@ export default function Home() {
         return (
           <GCard
             key={m.gameMode}
-            onPress={() => m.gameMode === 'battle_royale'
-              ? nav.navigate('ModeSubmodes', { gameMode: m.gameMode })
-              : nav.navigate('Tournaments', homeModeRouteParams(m))}
-            accessibilityLabel={m.gameMode === 'battle_royale' ? 'Choose a Battle Royale tournament format' : `Open ${m.mode} tournaments`}
-            accessibilityHint={m.gameMode === 'battle_royale'
-              ? 'Choose Solo, Duo, or Squad to see matching Battle Royale tournaments'
-              : 'Shows upcoming, ongoing, and completed tournaments for this game mode'}
+            onPress={() => nav.navigate('Tournaments', homeModeRouteParams(m))}
+            accessibilityLabel={`Open ${m.mode} tournaments`}
+            accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
             testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
             glowColor={m.accent}
             style={[s.modeCard, { borderLeftColor: m.accent }]}
