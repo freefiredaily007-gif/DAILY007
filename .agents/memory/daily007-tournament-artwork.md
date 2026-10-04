@@ -1,12 +1,14 @@
 ---
 name: Daily007 tournament artwork
-description: Required player-count visuals and display behavior for Clash Squad and Lone Wolf tournament cards.
+description: Required player-count visuals for Clash Squad/Lone Wolf and static Battle Royale posters on Home.
 ---
 
-For Daily007 tournament cards, Solo must clearly show 1 VS 1, Duo 2 VS 2, and Squad 4 VS 4. Use gaming-style artwork that depicts those team counts, keep the complete banner visible, and apply the new presentation only to Clash Squad and Lone Wolf; Battle Royale cards retain their existing layout.
+For Daily007 tournament cards, Solo must clearly show 1 VS 1, Duo 2 VS 2, and Squad 4 VS 4. Use gaming-style artwork that depicts those team counts, keep the complete banner visible, and apply that matchup-count presentation to Clash Squad and Lone Wolf tournament cards.
 
-Render the exact matchup count as UI text over the image rather than relying on generated lettering.
+The Home Game Modes section displays a static row of three square Battle Royale posters for Solo, Duo, and Squad. Keep each full poster visible and do not change the existing Battle Royale card navigation.
 
-**Why:** The user said the earlier generic artwork did not show the formats clearly and asked for the complete matchup to remain visible; generated image text may be inaccurate.
+Render exact matchup counts as UI text over Clash Squad and Lone Wolf tournament images rather than relying on generated lettering.
 
-**How to apply:** When revising tournament art or its card component, preserve the format-to-count mapping and aspect-fit behavior, while keeping the matchup label legible on phone-sized cards.
+**Why:** The user asked for matchup counts to be clear on team-mode tournament cards and later requested separate Battle Royale format posters on Home without changing navigation; generated image text may be inaccurate.
+
+**How to apply:** Preserve the 1 VS 1 / 2 VS 2 / 4 VS 4 mapping on Clash Squad and Lone Wolf tournament cards. Keep Home's Battle Royale poster row static, aspect-fit, and inside the existing card action.
