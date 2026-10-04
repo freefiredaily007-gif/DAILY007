@@ -27,7 +27,7 @@ export function RoomCredentialsPanel({
   const released = configured && !!schedule && now >= schedule.releaseAtMs;
   const credentialsReady = released && !!id && !!password;
   const message = !configured
-    ? 'Room details will be available soon.'
+    ? 'Room details have not been shared yet. Once added, they unlock five minutes before the scheduled start.'
     : !schedule
       ? 'Tournament start time is unavailable. Room details remain hidden.'
       : now < schedule.releaseAtMs
@@ -78,7 +78,10 @@ function CredentialRow({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Copy ${label}`}
-        onPress={onCopy}
+        onPress={(event) => {
+          event.stopPropagation();
+          onCopy();
+        }}
         style={styles.copyButton}
       >
         <Feather name="copy" size={15} color={C.green} />

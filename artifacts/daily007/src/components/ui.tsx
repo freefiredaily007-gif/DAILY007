@@ -318,7 +318,15 @@ export function statusOf(t: any): { key: string; label: string; color: string } 
   return { key: 'upcoming', label: 'UPCOMING', color: C.green };
 }
 
-export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
+export function MatchCard({
+  t,
+  onPress,
+  roomDetails,
+}: {
+  t: any;
+  onPress?: () => void;
+  roomDetails?: React.ReactNode;
+}) {
   const s = statusOf(t);
   const [failedImageUrl, setFailedImageUrl] = useState('');
   const joined = t?.joined === true;
@@ -418,6 +426,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
             <Text style={{ color: C.dim, fontSize: 9, marginTop: 2 }}>{filledPlayers}/{totalPlayers} players</Text>
           </View>
         </View>
+        {roomDetails}
         <View style={[mc.joinBtn, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}>
           <Text style={[mc.joinText, { color: ctaColor }]}>{ctaText}</Text>
         </View>

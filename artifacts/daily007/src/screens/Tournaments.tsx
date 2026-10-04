@@ -5,6 +5,8 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { api } from '../lib/api';
 import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
+import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
+import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { filterTournamentsForRoute, tournamentListEmptyMessage } from '../lib/tournamentFilters';
 import {
   compareTournamentStartTime,
@@ -35,15 +37,22 @@ export default function Tournaments() {
         api.tournaments(),
         api.myRegistrations(),
       ]);
-      const joinedIds = new Set(
-        (Array.isArray(registrations) ? registrations : [])
-          .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
-          .map((registration: any) => String(registration.tournamentId)),
-      );
-      setItems((Array.isArray(list) ? list : []).map((tournament: any) => ({
-        ...tournament,
-        joined: joinedIds.has(String(tournament.id)),
-      })));
+      const registrationByTournament = new Map<string, any>();
+      for (const registration of Array.isArray(registrations) ? registrations : []) {
+        const status = String(registration.status ?? '').toLowerCase();
+        const tournamentId = String(registration.tournamentId ?? '');
+        if (!tournamentId || !['approved', 'pending'].includes(status)) continue;
+        const previous = registrationByTournament.get(tournamentId);
+        if (!previous || status === 'approved') registrationByTournament.set(tournamentId, registration);
+      }
+      setItems((Array.isArray(list) ? list : []).map((tournament: any) => {
+        const myRegistration = registrationByTournament.get(String(tournament.id));
+        return {
+          ...tournament,
+          joined: Boolean(myRegistration),
+          myRegistration,
+        };
+      }));
       setClockNow(Date.now());
       setError('');
     } catch (e) { setError(apiError(e)); }
@@ -53,15 +62,24 @@ export default function Tournaments() {
 
   useEffect(() => {
     const now = Date.now();
-    const nextStart = items
-      .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming')
-      .map((tournament) => Date.parse(String(tournament.startsAt ?? '')))
-      .filter((start) => Number.isFinite(start) && start > now)
+    const transitions = items.flatMap((tournament) => {
+      const schedule = getRoomCredentialSchedule(tournament.startsAt);
+      if (!schedule) return [];
+      const releaseTransition = String(tournament.myRegistration?.status ?? '').toLowerCase() === 'approved'
+        ? [schedule.releaseAtMs]
+        : [];
+      return [...releaseTransition, schedule.startsAtMs];
+    });
+    const nextTransition = transitions
+      .filter((time) => Number.isFinite(time) && time > now)
       .sort((a, b) => a - b)[0];
-    if (nextStart === undefined) return;
-    const timer = setTimeout(() => setClockNow(Date.now()), Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    if (nextTransition === undefined) return;
+    const timer = setTimeout(() => {
+      setClockNow(Date.now());
+      void load();
+    }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextTransition - now + 20)));
     return () => clearTimeout(timer);
-  }, [items, clockNow]);
+  }, [items, clockNow, load]);
 
   const filtered = filterTournamentsForRoute(items, {
     gameMode: gameMode || legacyMode,
@@ -124,9 +142,25 @@ export default function Tournaments() {
           const cardItem = state === 'ongoing' && item.status !== 'ongoing'
             ? { ...item, status: 'ongoing' }
             : item;
+          const registration = item.myRegistration;
+          const registrationStatus = String(registration?.status ?? '').toLowerCase();
+          const roomDetails = registrationStatus === 'approved' ? (
+            <RoomCredentialsPanel
+              startsAt={item.startsAt}
+              now={clockNow}
+              configured={registration.roomPublished === true}
+              roomId={registration.roomId}
+              roomPassword={registration.roomPassword}
+            />
+          ) : registrationStatus === 'pending' ? (
+            <View style={s.roomPending}>
+              <Text style={s.roomPendingText}>Your entry is awaiting approval. Room details are available only after approval.</Text>
+            </View>
+          ) : undefined;
           return (
           <MatchCard
             t={cardItem}
+            roomDetails={roomDetails}
             onPress={() => nav.navigate('TDetail', { id: item.id })}
           />
           );
@@ -147,4 +181,13 @@ const s = StyleSheet.create({
   tabText: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.2 },
   tabTextOn: { color: C.text },
   tabCount: { color: C.dim, fontSize: 9, fontWeight: '700' },
+  roomPending: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: C.bg2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  roomPendingText: { color: C.gold, fontSize: 12, fontWeight: '700', lineHeight: 18 },
 });
