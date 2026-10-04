@@ -22,6 +22,7 @@ import {
 } from '@workspace/api-client-react';
 import { C } from '../components/ui';
 import { apiError } from '../lib/api';
+import { openReferralInBrowser } from '../lib/referral-invite';
 
 const rechargeStatusLabel: Record<string, string> = {
   rewarded: 'Approved recharge · reward credited',
@@ -89,7 +90,10 @@ export default function Earn() {
     if (!dashboard?.referralLink) return;
     setActionError('');
     try {
-      await WebBrowser.openBrowserAsync(dashboard.referralLink);
+      await openReferralInBrowser(
+        dashboard.referralLink,
+        (url) => WebBrowser.openBrowserAsync(url),
+      );
     } catch {
       setActionError('Could not open the invite link. Copy or share it and open it in a browser.');
     }

@@ -12,6 +12,7 @@ import {
 import { Btn, C, Input, Msg } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
+import { referralSignupFromUrl } from '../lib/referral-invite';
 
 
 export default function Auth({ onDone, notice }: { onDone: (u: User) => void; notice?: string }) {
@@ -26,25 +27,16 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
 
   React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
-      if (!url) return;
-      try {
-        const parsed = new URL(url);
-        const isAppLink = parsed.protocol === 'daily007:';
-        const isCurrentWebPage = Platform.OS === 'web' &&
-          typeof window !== 'undefined' &&
-          parsed.origin === window.location.origin;
-        const isConfiguredWebInvite = parsed.protocol === 'https:' &&
-          !!process.env.EXPO_PUBLIC_DOMAIN &&
-          parsed.hostname === process.env.EXPO_PUBLIC_DOMAIN;
-        const isWebInvite = isCurrentWebPage || isConfiguredWebInvite;
-        if (!isAppLink && !isWebInvite) return;
-        const code = parsed.searchParams.get('ref') ?? parsed.searchParams.get('referralCode');
-        if (!code?.trim()) return;
-        setRefCode((current) => current || code.trim().toUpperCase());
-        setMode('signup');
-      } catch {
-        // Ignore malformed or unrelated incoming links.
-      }
+      const invite = referralSignupFromUrl(url, {
+        platform: Platform.OS === 'web' ? 'web' : 'native',
+        currentWebOrigin: Platform.OS === 'web' && typeof window !== 'undefined'
+          ? window.location.origin
+          : undefined,
+        configuredDomain: process.env.EXPO_PUBLIC_DOMAIN,
+      });
+      if (!invite) return;
+      setRefCode((current) => current || invite.referralCode);
+      setMode(invite.mode);
     };
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       applyReferralUrl(window.location.href);
