@@ -85,8 +85,9 @@ export default function AdminPayments() {
   };
 
   const copyWithdrawalUpi = async (requestId: string, upiId: string) => {
-    const value = upiId.trim();
-    if (!value) return;
+    const value = upiId;
+    if (!value.trim()) return;
+    setCopiedUpiId(null);
     try {
       await Clipboard.setStringAsync(value);
       setCopiedUpiId(requestId);
