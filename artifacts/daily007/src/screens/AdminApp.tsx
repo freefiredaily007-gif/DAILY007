@@ -3,9 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ScrollView, Image } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
-import { Api, apiError, User } from '../lib/api';
 import { useApp } from '../App';
-import { A, AdminToastHost, Loading } from '../components/adminKit';
+import { A, AdminToastHost } from '../components/adminKit';
 import { AdminUiProvider } from '../components/ui';
 import AdminDashboard from './AdminDashboard';
 import AdminTournaments from './AdminTournaments';
@@ -37,11 +36,9 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
 const TOURNAMENT_ADMIN_SCREENS = new Set(['tournaments', 'registrations']);
 
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {
-  const { logout: ctxLogout } = useApp();
+  const { user, refresh, logout: ctxLogout } = useApp();
   const onLogout = onLogoutProp || ctxLogout;
   const [screen, setScreen] = useState('dashboard');
-  const [user, setUser] = useState<User | null>(null);
-  const [err, setErr] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const navScrollRef = useRef<ScrollView | null>(null);
   const navItemOffsets = useRef<Record<string, number>>({});
@@ -49,7 +46,6 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
     ? 'tournaments'
     : screen;
 
-  useEffect(() => { Api.me().then(setUser).catch((e) => setErr(apiError(e))); }, []);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const targetX = navItemOffsets.current[navSelection];
@@ -59,9 +55,6 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
     });
     return () => cancelAnimationFrame(frame);
   }, [navSelection]);
-
-  if (err) return <View style={st.center}><Text style={{ color: '#fca5a5' }}>{err}</Text></View>;
-  if (!user) return <Loading />;
 
   const tournamentOnly = user.role === 'tournament_admin';
   const activeScreen = tournamentOnly && !TOURNAMENT_ADMIN_SCREENS.has(screen) ? 'tournaments' : screen;
@@ -88,7 +81,15 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
             <Text style={st.kicker}>FREE FIRE  /  ADMIN OPS</Text>
             <Text style={st.title}>DAILY<Text style={{ color: A.orange }}>007</Text></Text>
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Refresh admin screen" onPress={() => setRefreshKey((k) => k + 1)} style={st.hBtn}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Refresh admin access and screen"
+            onPress={() => {
+              setRefreshKey((k) => k + 1);
+              void refresh();
+            }}
+            style={st.hBtn}
+          >
             <Feather name="refresh-cw" size={16} color={A.gold} />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={onLogout} style={st.hBtn}>

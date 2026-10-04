@@ -1,12 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { AppState, View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { ReadableText as Text } from './components/typography';
 import { NavigationContainer, DarkTheme, useNavigation, useRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Api, getSession, setSession, setSessionExpiredHandler, User } from './lib/api';
+import { Api, currentUser, getSession, setSession, setSessionExpiredHandler, User } from './lib/api';
 import Auth from './screens/Auth';
 import Home from './screens/Home';
 import ModeSubmodes from './screens/ModeSubmodes';
@@ -120,6 +120,8 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [authNotice, setAuthNotice] = useState('');
+  const refreshRequest = useRef<Promise<User | null> | null>(null);
+  const accessRefreshRequest = useRef<Promise<User | null> | null>(null);
 
   useEffect(() => {
     const handleExpiredSession = () => {
@@ -151,18 +153,66 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     })();
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      const u = await Api.me();
-      if (u) { setSession(u); setUser(u); return u; }
-    } catch (e: any) {
-      if (e?.response?.status === 401 || e?.response?.status === 403) {
-        setSession(null);
-        setUser(null);
+  const refresh = useCallback((): Promise<User | null> => {
+    if (refreshRequest.current) return refreshRequest.current;
+    const request = (async () => {
+      try {
+        const u = await Api.me();
+        if (u) { setSession(u); setUser(u); return u; }
+      } catch (e: any) {
+        if (e?.response?.status === 401 || e?.response?.status === 403) {
+          setSession(null);
+          setUser(null);
+        }
       }
-    }
-    return null;
+      return null;
+    })();
+    refreshRequest.current = request;
+    void request.finally(() => {
+      if (refreshRequest.current === request) refreshRequest.current = null;
+    });
+    return request;
   }, []);
+
+  const refreshAccess = useCallback((): Promise<User | null> => {
+    if (accessRefreshRequest.current) return accessRefreshRequest.current;
+    const request = (async () => {
+      const previous = currentUser();
+      if (!previous) return null;
+      try {
+        const account = await Api.meAccount();
+        const updated = { ...previous, ...account, token: previous.token };
+        setSession(updated);
+        setUser(updated);
+        return updated;
+      } catch (e: any) {
+        if (e?.response?.status === 401 || e?.response?.status === 403) {
+          setSession(null);
+          setUser(null);
+        }
+        return null;
+      }
+    })();
+    accessRefreshRequest.current = request;
+    void request.finally(() => {
+      if (accessRefreshRequest.current === request) accessRefreshRequest.current = null;
+    });
+    return request;
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshAccess();
+    });
+    const interval = setInterval(() => {
+      if (AppState.currentState === 'active') void refreshAccess();
+    }, 30_000);
+    return () => {
+      subscription.remove();
+      clearInterval(interval);
+    };
+  }, [user?.id, refreshAccess]);
 
   const logout = useCallback(async () => {
     try {

@@ -142,6 +142,11 @@ async function authenticate(path: string, body: object): Promise<{ user: User; t
   return { user: normalizeUser(result, token), token };
 }
 
+async function currentAccount(): Promise<User> {
+  const savedSession = current ?? await getSession();
+  return normalizeUser(await unwrap(http.get('/auth/me')), savedSession?.token);
+}
+
 export const Api = {
   // auth
   register: (b: { name: string; email: string; phone?: string; password: string; gameUid?: string; referralCode?: string }) =>
@@ -190,9 +195,9 @@ export const Api = {
     `/admin/account-recovery-requests/${encodeURIComponent(id)}/${action}`,
     { reviewNote },
   )),
+  meAccount: currentAccount,
   me: async () => {
-    const savedSession = current ?? await getSession();
-    const user = normalizeUser(await unwrap(http.get('/auth/me')), savedSession?.token);
+    const user = await currentAccount();
     try {
       const response = await unwrap(http.get('/me/stats'));
       const stats = response?.stats ?? response;

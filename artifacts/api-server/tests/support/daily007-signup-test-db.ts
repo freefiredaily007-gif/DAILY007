@@ -2,7 +2,7 @@ type SignupUser = {
   id: string;
   name: string;
   email: string;
-  role: "user" | "admin";
+  role: "user" | "tournament_admin" | "admin";
   wallet_coins: number;
   phone: string | null;
   game_uid: string | null;
@@ -197,6 +197,21 @@ class MemorySignupDatabase {
     )) {
       const user = this.users.get(first);
       rows = user ? [this.accountRow(user)] : [];
+    } else if (normalized.startsWith("SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE")) {
+      const user = this.users.get(first);
+      rows = user ? [{ role: user.role }] : [];
+    } else if (normalized.startsWith(
+      "SELECT count(*)::text AS count FROM daily007_v2_users WHERE role = 'admin'",
+    )) {
+      rows = [{ count: String([...this.users.values()].filter((user) => user.role === "admin").length) }];
+    } else if (normalized.startsWith(
+      "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role",
+    )) {
+      const user = this.users.get(first);
+      if (user) {
+        user.role = values[1] as SignupUser["role"];
+        rows = [{ id: user.id, role: user.role }];
+      }
     } else if (normalized.startsWith(
       "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, password_salt, password_hash FROM daily007_v2_users",
     )) {
@@ -296,6 +311,21 @@ class MemorySignupDatabase {
         user.auth_version += 1;
         rows = [{ auth_version: user.auth_version }];
       }
+    } else if (normalized.startsWith(
+      `SELECT id, id AS "$id", name, email, phone, game_uid AS "gameUid", role, status, wallet_coins AS coins, created_at AS "createdAt" FROM daily007_v2_users`,
+    )) {
+      rows = [...this.users.values()].map((user) => ({
+        id: user.id,
+        $id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        gameUid: user.game_uid,
+        role: user.role,
+        status: user.status,
+        coins: user.wallet_coins,
+        createdAt: new Date(0),
+      }));
     } else if (normalized.startsWith(
       "SELECT id, amount, balance_after AS \"balanceAfter\", reason, details,",
     ) && normalized.includes("FROM daily007_v2_wallet_ledger WHERE user_id = $1")) {
