@@ -5,6 +5,10 @@ import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
 import { Api, apiError, setSession, User } from '../lib/api';
+import {
+  MAX_SIGNUP_PASSWORD_LENGTH,
+  signupPasswordError,
+} from '../lib/signup-password-policy';
 import { Btn, C, Input, Msg } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
@@ -54,7 +58,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
     setErr('');
     if (!email.trim() || !password) { setErr('Email and password are required.'); return; }
     if (mode === 'signup' && !name.trim()) { setErr('Name is required.'); return; }
-    if (mode === 'signup' && password.length < 8) { setErr('Password must be at least 8 characters long.'); return; }
+    if (mode === 'signup') {
+      const passwordError = signupPasswordError(password);
+      if (passwordError) { setErr(passwordError); return; }
+    }
     setBusy(true);
     try {
       const r: any = mode === 'login'
@@ -153,7 +160,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               ? <Text style={s.referralApplied}>Referral code {refCode.trim().toUpperCase()} applied</Text>
               : <Input placeholder="Referral Code (Optional)" value={refCode} onChangeText={setRefCode} autoCapitalize="characters" style={s.signupInput} />}
             <Input placeholder="Enter Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={s.signupInput} />
-            <Input placeholder="Password (at least 8 characters)" value={password} onChangeText={setPassword} secureTextEntry style={s.signupInputLast} />
+            <Input placeholder="Password (8–200 characters)" value={password} onChangeText={setPassword} secureTextEntry maxLength={MAX_SIGNUP_PASSWORD_LENGTH} style={s.signupInputLast} />
           </View>
         ) : (
           <>
