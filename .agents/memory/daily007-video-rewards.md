@@ -16,3 +16,9 @@ On 2026-10-04, the user verified on an iQOO Neo running Android 16 that a filter
 **Why:** React Native Web's iframe path does not exercise the native WebView, external-app routing, or Android hardware Back.
 
 **How to apply:** Keep catalog taps in the in-app player, handle Android Back while the Video tab is focused and the player is open, and leave the catalog search state unchanged. Repeat this device check after changes to native playback or navigation.
+
+On 2026-10-05, the user confirmed on Android that watch progress did not increase for time spent with the app locked or backgrounded, foreground playback advanced the estimate again, and a qualifying completed view credited exactly one coin.
+
+**Why:** The user reported passing the screen-lock, resumed-progress, and one-coin reward checks on a real Android device.
+
+**How to apply:** Repeat this device check after changes to the Video screen's AppState handling, embedded YouTube playback, or reward completion flow.
