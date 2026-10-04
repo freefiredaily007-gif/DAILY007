@@ -93,6 +93,7 @@ const stats = {
 
 const empty = async () => [];
 let tournamentReadCount = 0;
+let nextTournamentReadError: string | null = null;
 let playerLargestTextPreview = false;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
 
@@ -192,6 +193,11 @@ export const Api = {
   adminUsers: empty,
   tournaments: async () => {
     tournamentReadCount += 1;
+    if (nextTournamentReadError !== null) {
+      const error = nextTournamentReadError;
+      nextTournamentReadError = null;
+      throw new Error(error);
+    }
     const tournaments = playerLargestTextPreview ? largestTextTournaments : previewTournaments;
     return tournaments.map((tournament) => ({ ...tournament }));
   },
@@ -275,6 +281,10 @@ export function getTournamentReadCount() {
 
 export function resetTournamentReadCount() {
   tournamentReadCount = 0;
+}
+
+export function failNextTournamentRead(message = "Temporary network error") {
+  nextTournamentReadError = message;
 }
 
 export function apiError(error: unknown) {

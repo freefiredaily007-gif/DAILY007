@@ -356,12 +356,28 @@ async function checkTournamentResume() {
   );
 
   readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
   await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('IST Start Boundary')`,
-    "the Admin Ongoing list to refresh and show the tournament after resume",
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    "the failed Admin refresh to show a clear error",
   );
   await assertText("IST Start Boundary", "the Admin tournament after resume");
+
+  await evaluate(
+    "window.__daily007TournamentResume.updateTournament({ name: 'Updated IST Start Boundary' })",
+  );
+  readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('Updated IST Start Boundary')`,
+    "a later successful Admin refresh to update the tournament list",
+  );
+  await assertText("Updated IST Start Boundary", "the updated Admin tournament");
+  const refreshErrorVisible = await evaluate(
+    "document.body.innerText.includes('Could not refresh tournaments: Temporary network error')",
+  );
+  assert(!refreshErrorVisible, "A successful Admin refresh should clear the earlier refresh error.");
 }
 
 async function checkHomeCarousel() {

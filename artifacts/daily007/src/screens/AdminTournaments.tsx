@@ -86,6 +86,7 @@ export default function AdminTournaments() {
   const [loadError, setLoadError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
+  const hasLoadedList = useRef(false);
   const [expandedAction, setExpandedAction] = useState<TournamentAction | null>(null);
   const actionRequestId = useRef(0);
   const [roomMeta, setRoomMeta] = useState<any | null>(null);
@@ -114,11 +115,14 @@ export default function AdminTournaments() {
     try {
       const response = await Api.tournaments();
       setList(Array.isArray(response) ? response : []);
+      hasLoadedList.current = true;
       setClockNow(Date.now());
       setLoadError('');
     } catch (e: any) {
-      setList([]);
-      setLoadError(apiError(e));
+      setList((current) => current ?? []);
+      setLoadError(
+        `${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${apiError(e)}`,
+      );
     }
   }, []);
 
@@ -390,7 +394,7 @@ export default function AdminTournaments() {
       </View>
       <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
       <Msg kind="err" text={err} />
-      {!!loadError && <Msg kind="err" text={`Could not load tournaments: ${loadError}`} />}
+      {!!loadError && <Msg kind="err" text={loadError} />}
       <Msg kind="ok" text={okMsg} />
       <View style={st.tabs}>
         {TOURNAMENT_TABS.map(({ id, label }) => {

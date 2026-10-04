@@ -57,6 +57,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     ready: true,
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
+    failNextTournamentRead: apiMocks.failNextTournamentRead,
+    updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),
     startBackgroundCycle: () => {
       setVisibility("hidden");
       fakeNow = scheduledStartMs + 60 * 1000;
