@@ -2,6 +2,22 @@ export type TournamentLifecycleState = 'upcoming' | 'ongoing' | 'completed' | 'c
 
 export const MAX_TIMEOUT_MS = 2_147_000_000;
 export const MAX_COMPLETED_TOURNAMENTS = 10;
+export const HOME_TOURNAMENT_REFRESH_INTERVAL_MS = 30_000;
+
+export function shouldRefreshHomeTournaments(appState: string): boolean {
+  return appState === 'active';
+}
+
+export function startHomeTournamentRefreshPolling(
+  refresh: () => void,
+  canRefresh: () => boolean,
+  intervalMs = HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
+): () => void {
+  const interval = setInterval(() => {
+    if (canRefresh()) refresh();
+  }, intervalMs);
+  return () => clearInterval(interval);
+}
 
 type TournamentDates = {
   completedAt?: Date | string | null;

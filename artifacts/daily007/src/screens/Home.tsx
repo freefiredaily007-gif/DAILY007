@@ -1,18 +1,24 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, useWindowDimensions } from 'react-native';
+import { AppState, View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import bannerSquad from '../assets/banner-squad.jpg';
 import bannerClash from '../assets/banner-clash.jpg';
 import modeSoloLogo from '../assets/mode-solo-logo.jpg';
 import modeSquadLogo from '../assets/mode-squad-logo.jpg';
 import modeClashLogo from '../assets/mode-clash-logo.jpg';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { api, Api } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12, getTournamentFormatPresentation } from '../components/ui';
 import { inr } from '../lib/coins';
-import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import {
+  getTournamentLifecycleState,
+  HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
+  MAX_TIMEOUT_MS,
+  shouldRefreshHomeTournaments,
+  startHomeTournamentRefreshPolling,
+} from '../lib/tournamentLifecycle';
 import { HOME_GAME_MODE_CARDS, homeModeRouteParams } from '../lib/tournamentFilters';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
@@ -51,36 +57,66 @@ export default function Home() {
   const [page, setPage] = useState(0);
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
+  const activeRequestsRef = useRef(0);
+  const tournamentPollInFlightRef = useRef(false);
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const goStack = (k: string) => {
     if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
   };
-  const load = useCallback(async () => {
+  const load = useCallback(async (includeRegistrations = true) => {
+    activeRequestsRef.current += 1;
     try {
       const [r, registrations] = await Promise.all([
         api.tournaments('?enabled=true'),
-        api.myRegistrations(),
+        includeRegistrations ? api.myRegistrations() : Promise.resolve(null),
       ]);
       const list = Array.isArray(r) ? r : r?.tournaments || [];
-      const joinedIds = new Set(
-        (Array.isArray(registrations) ? registrations : [])
-          .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
-          .map((registration: any) => String(registration.tournamentId)),
-      );
-      setItems((Array.isArray(list) ? list : []).map((tournament: any) => ({
-        ...tournament,
-        joined: joinedIds.has(String(tournament.id)),
-      })));
+      const joinedIds = includeRegistrations
+        ? new Set(
+          (Array.isArray(registrations) ? registrations : [])
+            .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
+            .map((registration: any) => String(registration.tournamentId)),
+        )
+        : null;
+      setItems((currentItems) => {
+        const currentById = new Map(currentItems.map((tournament: any) => [String(tournament.id), tournament]));
+        return (Array.isArray(list) ? list : []).map((tournament: any) => ({
+          ...tournament,
+          joined: joinedIds
+            ? joinedIds.has(String(tournament.id))
+            : currentById.get(String(tournament.id))?.joined === true,
+        }));
+      });
       setClockNow(Date.now());
       setLoadError('');
     } catch (e: any) {
       setLoadError(e?.message || 'Could not load tournaments.');
+    } finally {
+      activeRequestsRef.current -= 1;
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
-  React.useEffect(() => { load(); Api.settings().then((st: any) => setLinks(st?.settings ?? st ?? {})).catch(() => {}); }, [load]);
+  useFocusEffect(useCallback(() => {
+    void load();
+    return startHomeTournamentRefreshPolling(
+      () => {
+        tournamentPollInFlightRef.current = true;
+        void load(false).finally(() => {
+          tournamentPollInFlightRef.current = false;
+        });
+      },
+      () => shouldRefreshHomeTournaments(AppState.currentState) &&
+        activeRequestsRef.current === 0 &&
+        !tournamentPollInFlightRef.current,
+      HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
+    );
+  }, [load]));
+
+  React.useEffect(() => {
+    Api.settings().then((st: any) => setLinks(st?.settings ?? st ?? {})).catch(() => {});
+  }, []);
   React.useEffect(() => {
     const now = Date.now();
     const nextStart = items
@@ -96,6 +132,15 @@ export default function Home() {
   const upcomingItems = items.filter(
     (tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming',
   );
+
+  React.useEffect(() => {
+    const lastPage = Math.min(upcomingItems.length, 8) - 1;
+    const nextPage = Math.max(0, Math.min(pageRef.current, lastPage));
+    if (nextPage === pageRef.current) return;
+    pageRef.current = nextPage;
+    setPage(nextPage);
+    carouselRef.current?.scrollTo({ x: nextPage * 390, animated: false });
+  }, [upcomingItems.length]);
 
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
