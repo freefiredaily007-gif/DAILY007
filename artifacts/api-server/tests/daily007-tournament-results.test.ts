@@ -81,7 +81,7 @@ test("admin result prize display follows each saved rank amount", () => {
   assert.equal(configuredPrizeForRank({ prizePool: 2_100, prizeDist: "" }, 1), 2_100);
 });
 
-test("saved tournament rank prizes determine display amounts, wallet credits, and finalized standings", async () => {
+test("saved-prize results reject duplicate retries and competing winners without extra side effects", async () => {
   tournamentResultsTestDb.reset();
 
   await withServer(async (origin) => {
@@ -167,5 +167,55 @@ test("saved tournament rank prizes determine display amounts, wallet credits, an
         },
       ],
     );
+
+    const sideEffectsBeforeRetry = {
+      wallets: Array.from(tournamentResultsTestDb.users, ([id, user]) => [id, user.wallet_coins]),
+      ledger: structuredClone(tournamentResultsTestDb.ledger),
+      stats: structuredClone(tournamentResultsTestDb.stats),
+      awards: structuredClone(tournamentResultsTestDb.awards),
+      match: structuredClone(tournamentResultsTestDb.match),
+    };
+
+    const duplicateWinner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+    assert.equal(duplicateWinner.status, 409);
+    assert.equal(duplicateWinner.body.error, "A result has already been published for this registration.");
+
+    const standingsAfterRetry = await call(origin, TEST_ADMIN_ID, `/tournaments/${TEST_MATCH_ID}/results`, "GET");
+    assert.equal(standingsAfterRetry.status, 200);
+    assert.deepEqual(standingsAfterRetry.body, standings.body);
+    assert.deepEqual({
+      wallets: Array.from(tournamentResultsTestDb.users, ([id, user]) => [id, user.wallet_coins]),
+      ledger: tournamentResultsTestDb.ledger,
+      stats: tournamentResultsTestDb.stats,
+      awards: tournamentResultsTestDb.awards,
+      match: tournamentResultsTestDb.match,
+    }, sideEffectsBeforeRetry);
+
+    const competingWinner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+      rank: 1,
+      kills: 9,
+      prizeCoins: 999_999,
+    });
+    assert.equal(competingWinner.status, 409);
+    assert.equal(competingWinner.body.error, "A winner has already been declared for this tournament.");
+
+    const standingsAfterCompetition = await call(origin, TEST_ADMIN_ID, `/tournaments/${TEST_MATCH_ID}/results`, "GET");
+    assert.equal(standingsAfterCompetition.status, 200);
+    assert.deepEqual(standingsAfterCompetition.body, standings.body);
+    assert.deepEqual({
+      wallets: Array.from(tournamentResultsTestDb.users, ([id, user]) => [id, user.wallet_coins]),
+      ledger: tournamentResultsTestDb.ledger,
+      stats: tournamentResultsTestDb.stats,
+      awards: tournamentResultsTestDb.awards,
+      match: tournamentResultsTestDb.match,
+    }, sideEffectsBeforeRetry);
   });
 });
