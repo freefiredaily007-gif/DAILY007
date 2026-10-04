@@ -405,7 +405,7 @@ const s = StyleSheet.create({
   viewAll: { color: C.neon, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
   mBanner: { height: 110, backgroundColor: '#0a0e1e' },
   mFormatBanner: { width: '100%', aspectRatio: 16 / 9, backgroundColor: C.bg2, overflow: 'hidden' },
-  mPosterBanner: { width: '100%', aspectRatio: 1, backgroundColor: C.bg2, overflow: 'hidden' },
+  mPosterBanner: { width: '100%', aspectRatio: 16 / 9, backgroundColor: C.bg2, overflow: 'hidden' },
   mBannerImg: { width: '100%', height: '100%' },
   mPosterBannerImg: { width: '100%', height: '100%' },
   mBannerShade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, backgroundColor: '#00000088' },

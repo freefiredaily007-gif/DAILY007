@@ -429,7 +429,7 @@ export function MatchCard({ t, onPress }: { t: any; onPress?: () => void }) {
 const mc = StyleSheet.create({
   cardWithArt: { padding: 0, paddingVertical: 0, overflow: 'hidden', marginBottom: 12, borderRadius: 16 },
   artwork: { width: '100%', aspectRatio: 16 / 9, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
-  brPosterArtwork: { width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: C.bg2 },
+  brPosterArtwork: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: C.bg2 },
   brPosterImage: { width: '100%', height: '100%' },
   brPosterTopRow: { paddingHorizontal: 14, paddingTop: 12 },
   artImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: C.bg2 },

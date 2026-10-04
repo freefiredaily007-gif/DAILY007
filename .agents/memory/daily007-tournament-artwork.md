@@ -11,4 +11,4 @@ Render exact matchup counts as UI text over Clash Squad and Lone Wolf tournament
 
 **Why:** The user clarified that posters belong inside existing tournament cards, including upcoming matches, not in Home's Game Modes card or a new selection page; generated matchup lettering may be inaccurate.
 
-**How to apply:** Preserve the 1 VS 1 / 2 VS 2 / 4 VS 4 mapping on Clash Squad and Lone Wolf cards. Display the matching Battle Royale poster as a full-width square with aspect-fit and no crop in both tournament-list cards and Home's upcoming carousel; keep card details outside the poster.
+**How to apply:** Preserve the 1 VS 1 / 2 VS 2 / 4 VS 4 mapping on Clash Squad and Lone Wolf cards. Display the full Battle Royale poster inside the same 16:9 banner size as those modes, using aspect-fit with no crop in tournament-list cards and Home's upcoming carousel; keep card details outside the poster.
