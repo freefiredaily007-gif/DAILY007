@@ -40,3 +40,11 @@ On 2026-10-03, the user asked to remove the Full Admin Recovery UI and the login
 **Why:** The user wants recovery controls out of the admin and login interfaces, while retaining backend recovery and its data.
 
 **How to apply:** Keep the Recovery tab and login-home recovery controls out of the UI while preserving server-side owner-code recovery and audit records.
+
+## Logout integrity
+
+**Rule:** Logging out must clear the local Daily007 session even if Clerk sign-out fails.
+
+**Why:** The user asked for automated coverage that keeps logout enforced; a provider sign-out problem must not leave the Daily007 wallet session active.
+
+**How to apply:** Always clear the stored Daily007 token and app user state after attempting Clerk sign-out. Report a Clerk failure separately, and keep protected API access dependent on a valid Daily007 token.

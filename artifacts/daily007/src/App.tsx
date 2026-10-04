@@ -29,6 +29,7 @@ import { ProfileIconActive, ProfileIconInactive } from './components/ProfileIcon
 import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
+import { logoutDaily007 } from './lib/logout';
 import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
@@ -221,11 +222,11 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   const logout = useCallback(async () => {
     try {
-      await signOutClerk?.();
-    } catch {
-      Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
+      const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => setSession(null));
+      if (clerkSignOutFailed) {
+        Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
+      }
     } finally {
-      setSession(null);
       setUser(null);
       setAuthNotice('');
     }

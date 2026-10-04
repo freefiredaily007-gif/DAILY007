@@ -189,9 +189,22 @@ class MemorySignupDatabase {
     ) {
       const user = [...this.users.values()].find((entry) => entry.clerk_user_id === first);
       rows = user ? [this.accountRow(user)] : [];
+    } else if (normalized.startsWith(
+      "SELECT id, name, email, role, wallet_coins, status, clerk_user_id, auth_version FROM daily007_v2_users WHERE id = $1",
+    )) {
+      const user = this.users.get(first);
+      rows = user ? [this.accountRow(user)] : [];
     } else if (normalized.startsWith("SELECT id FROM daily007_v2_users WHERE email = $1")) {
       const user = [...this.users.values()].find((entry) => entry.email === first);
       rows = user ? [{ id: user.id }] : [];
+    } else if (normalized.startsWith(
+      "UPDATE daily007_v2_users SET clerk_user_id = $2 WHERE id = $1 AND clerk_user_id IS NULL",
+    )) {
+      const user = this.users.get(first);
+      if (user && !user.clerk_user_id) {
+        user.clerk_user_id = String(values[1]);
+        rows = [this.accountRow(user)];
+      }
     } else if (normalized.startsWith(
       "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
     )) {
