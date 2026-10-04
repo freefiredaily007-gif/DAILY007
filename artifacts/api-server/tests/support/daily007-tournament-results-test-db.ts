@@ -353,6 +353,32 @@ class MemoryTournamentResultsDatabase {
           };
         })
         .sort((left, right) => left.rank - right.rank || left.created_at.getTime() - right.created_at.getTime());
+    } else if (normalized.startsWith(
+      'SELECT award.match_id AS "tournamentId", m.title AS "tournamentName",',
+    )) {
+      const hasWinner = this.awards.some((award) =>
+        award.match_id === this.match.id && award.rank === 1,
+      );
+      rows = this.match.status !== "cancelled" && !this.match.enabled && hasWinner
+        ? this.awards
+          .filter((award) => award.match_id === this.match.id)
+          .map((award) => {
+            const registration = this.registrations.find((entry) => entry.id === award.registration_id)!;
+            return {
+              tournamentId: this.match.id,
+              tournamentName: this.match.title,
+              registrationId: registration.id,
+              playerName: registration.captain_name,
+              gameName: registration.captain_game_name,
+              teamName: registration.team_name,
+              rank: award.rank,
+              kills: award.kills,
+              prizeCoins: award.prize_coins,
+              createdAt: award.created_at,
+            };
+          })
+          .sort((left, right) => left.rank - right.rank || left.createdAt.getTime() - right.createdAt.getTime())
+        : [];
     } else {
       throw new Error(`Unexpected tournament-results test SQL: ${normalized}`);
     }

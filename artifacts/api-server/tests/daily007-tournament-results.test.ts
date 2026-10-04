@@ -135,6 +135,21 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(runnerUp.body.prizeCoins, 600);
     assert.equal(runnerUp.body.walletCoins, 800);
     assert.equal(tournamentResultsTestDb.users.get(TEST_RUNNER_UP_ID)?.wallet_coins, 800);
+    assert.equal(tournamentResultsTestDb.match.enabled, true);
+
+    const incompleteStandings = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+      "GET",
+    );
+    assert.equal(incompleteStandings.status, 200);
+    assert.equal(incompleteStandings.body.status, "draft");
+    assert.equal(incompleteStandings.body.finalizedAt, null);
+    assert.deepEqual(incompleteStandings.body.entries, []);
+    const incompleteResultsList = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
+    assert.equal(incompleteResultsList.status, 200);
+    assert.deepEqual(incompleteResultsList.body.data, []);
 
     const winner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
       tournamentId: TEST_MATCH_ID,
@@ -186,6 +201,20 @@ test("saved-prize results reject duplicate retries and competing winners without
           prizeCoins: 600,
           gameName: "RunnerUpFF",
         },
+      ],
+    );
+
+    const completedResultsList = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
+    assert.equal(completedResultsList.status, 200);
+    assert.deepEqual(
+      completedResultsList.body.data.map((entry: any) => ({
+        tournamentId: entry.tournamentId,
+        rank: entry.rank,
+        prizeCoins: entry.prizeCoins,
+      })),
+      [
+        { tournamentId: TEST_MATCH_ID, rank: 1, prizeCoins: 1_500 },
+        { tournamentId: TEST_MATCH_ID, rank: 2, prizeCoins: 600 },
       ],
     );
 
