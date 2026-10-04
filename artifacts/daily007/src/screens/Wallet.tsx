@@ -135,6 +135,11 @@ export default function Wallet() {
     setTab(t); setShowSheet(true);
   };
 
+  const closeSheet = () => {
+    setShowSheet(false);
+    setError('');
+  };
+
   const coins = Math.floor(Number(amount) || 0);
 
   const pickProof = async () => {
@@ -276,7 +281,12 @@ export default function Wallet() {
         }}
       />
 
-      <Modal visible={showSheet} animationType="slide" transparent>
+      <Modal
+        visible={showSheet}
+        animationType="slide"
+        transparent
+        onRequestClose={closeSheet}
+      >
         <View style={[s.modalBg, fontScale >= 1.5 && s.modalBgLarge]}>
           <KeyboardAwareScrollViewCompat
             testID="wallet-form-scroll"
@@ -376,7 +386,7 @@ export default function Wallet() {
               </>
             )}
             <View style={{ height: 8 }} />
-            <Btn testID="wallet-close-form" title="CLOSE" kind="ghost" onPress={() => { setShowSheet(false); setError(''); }} />
+            <Btn testID="wallet-close-form" title="CLOSE" kind="ghost" onPress={closeSheet} />
           </KeyboardAwareScrollViewCompat>
         </View>
       </Modal>
