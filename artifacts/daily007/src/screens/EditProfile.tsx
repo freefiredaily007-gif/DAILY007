@@ -1,10 +1,11 @@
 // EditProfile — update name, phone, game UID
 import React, { useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, Btn } from '../components/ui';
+import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 export default function EditProfile() {
   const { user, refresh } = useApp();
@@ -26,24 +27,31 @@ export default function EditProfile() {
   };
 
   return (
-    <View style={s.wrap}>
+    <KeyboardAwareScrollViewCompat
+      testID="edit-profile-scroll"
+      style={s.wrap}
+      contentContainerStyle={s.content}
+      bottomOffset={64}
+      keyboardShouldPersistTaps="handled"
+    >
       <Card style={{ gap: 12 }}>
         <Text style={s.label}>NAME</Text>
-        <TextInput style={s.input} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={C.sub} />
+        <TextInput testID="edit-profile-name" style={s.input} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={C.sub} />
         <Text style={s.label}>PHONE</Text>
-        <TextInput style={s.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor={C.sub} />
+        <TextInput testID="edit-profile-phone" style={s.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor={C.sub} />
         <Text style={s.label}>FREE FIRE UID</Text>
-        <TextInput style={s.input} value={gameUid} onChangeText={setGameUid} placeholder="In-game UID" placeholderTextColor={C.sub} />
+        <TextInput testID="edit-profile-game-uid" style={s.input} value={gameUid} onChangeText={setGameUid} placeholder="In-game UID" placeholderTextColor={C.sub} />
         {saving
           ? <ActivityIndicator color={C.neon} style={{ marginTop: 8 }} />
-          : <Btn title="SAVE CHANGES" onPress={save} />}
+          : <Btn testID="edit-profile-save" title="SAVE CHANGES" onPress={save} />}
       </Card>
-    </View>
+    </KeyboardAwareScrollViewCompat>
   );
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: C.bg, padding: 14 },
+  wrap: { flex: 1, backgroundColor: C.bg },
+  content: { flexGrow: 1, padding: 14, paddingBottom: 24 },
   label: { color: C.sub, fontSize: 11, letterSpacing: 1, fontWeight: '700' },
   input: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
 });

@@ -93,10 +93,43 @@ const stats = {
 
 const empty = async () => [];
 let tournamentReadCount = 0;
+export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
+
+export function configureWalletFormPreview() {
+  Object.assign(settings, {
+    coinToMoneyRate: 1,
+    minPurchase: 1,
+    maxPurchase: 5000,
+    coinPackages: "",
+    minWithdrawal: 100,
+    maxWithdrawal: 5000,
+    rechargeEnabled: true,
+    withdrawalEnabled: true,
+    upiId: "daily007-preview@upi",
+    upiQrUrl: "data:image/gif;base64,R0lGODlhAQABAAAAACw=",
+    paymentNote: "",
+  });
+  walletPreviewCalls.length = 0;
+}
 
 export const Api = {
   me: async () => ({ ...previewAdmin }),
   settings: async () => ({ settings: { ...settings } }),
+  transactions: empty,
+  myPayments: empty,
+  myWithdrawals: empty,
+  createPayment: async (payload: unknown) => {
+    walletPreviewCalls.push({ method: "createPayment", payload });
+    return {};
+  },
+  withdrawCoins: async (payload: unknown) => {
+    walletPreviewCalls.push({ method: "withdrawCoins", payload });
+    return {};
+  },
+  updateProfile: async (payload: unknown) => {
+    walletPreviewCalls.push({ method: "updateProfile", payload });
+    return {};
+  },
   adminStats: async () => ({ ...stats, stats: { ...stats } }),
   adminSettings: async () => ({ ...settings, settings: { ...settings } }),
   adminSaveSettings: async () => ({ ...settings, settings: { ...settings } }),

@@ -23,6 +23,7 @@ const adminTabs = [
 ];
 const resumeOnly = process.argv.includes("--resume-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
+const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -415,6 +416,225 @@ async function checkHomeCarousel() {
   );
 }
 
+async function setKeyboardViewport(height) {
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width: 375,
+    height,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await delay(120);
+}
+
+async function setInputValue(selector, value) {
+  const updated = await evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    if (!setter) return false;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.focus();
+    return true;
+  })()`);
+  assert(updated, `Could not enter text into ${selector}.`);
+  await delay(90);
+}
+
+async function assertKeyboardReachability(scrollTestId, inputTestId, actionTestId, description) {
+  const state = await evaluate(`(() => {
+    const scrollSelector = ${JSON.stringify(`[data-testid="${scrollTestId}"]`)};
+    const inputSelector = ${JSON.stringify(`[data-testid="${inputTestId}"]`)};
+    const actionSelector = ${JSON.stringify(`[data-testid="${actionTestId}"]`)};
+    const scroll = document.querySelector(scrollSelector);
+    const input = document.querySelector(inputSelector);
+    const action = document.querySelector(actionSelector);
+    if (!scroll || !input || !action) return null;
+    input.focus();
+    scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+    scroll.dispatchEvent(new Event("scroll", { bubbles: true }));
+    const scrollRect = scroll.getBoundingClientRect();
+    const inputRect = input.getBoundingClientRect();
+    const actionRect = action.getBoundingClientRect();
+    return {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      scrollTop: scroll.scrollTop,
+      scrollHeight: scroll.scrollHeight,
+      clientHeight: scroll.clientHeight,
+      inputFocused: document.activeElement === input,
+      inputVisible: inputRect.top >= scrollRect.top - 1 && inputRect.bottom <= scrollRect.bottom + 1,
+      actionVisible: actionRect.top >= scrollRect.top - 1 && actionRect.bottom <= scrollRect.bottom + 1,
+      actionDisabled: action.disabled === true || action.getAttribute("aria-disabled") === "true",
+    };
+  })()`);
+  assert(state, `${description}: the input, scroll area, or primary action is missing.`);
+  assert(state.width === 375, `${description}: expected a 375px phone viewport.`);
+  assert(state.height <= 360, `${description}: the keyboard-open viewport was not applied.`);
+  assert(state.inputFocused, `${description}: the input could not receive focus.`);
+  assert(state.inputVisible, `${description}: the focused input is still hidden after scrolling.`);
+  assert(state.actionVisible, `${description}: the primary action is still behind the keyboard after scrolling.`);
+  assert(!state.actionDisabled, `${description}: the primary action is unexpectedly disabled.`);
+  return state;
+}
+
+async function assertLayoutRecovered(scrollTestId, minimumClientHeight, description) {
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(720);
+  const recovered = await evaluate(`(() => {
+    const scroll = document.querySelector(${JSON.stringify(`[data-testid="${scrollTestId}"]`)});
+    if (!scroll) return null;
+    return {
+      height: window.innerHeight,
+      clientHeight: scroll.clientHeight,
+      scrollHeight: scroll.scrollHeight,
+      top: scroll.getBoundingClientRect().top,
+      bottom: scroll.getBoundingClientRect().bottom,
+    };
+  })()`);
+  assert(recovered, `${description}: the form disappeared after dismissing the keyboard.`);
+  assert(recovered.height === 720, `${description}: the full phone viewport did not return.`);
+  assert(
+    recovered.clientHeight > minimumClientHeight,
+    `${description}: the form did not regain its height after dismissing the keyboard ` +
+      `(open=${minimumClientHeight}px, restored=${recovered.clientHeight}px, viewport=${recovered.height}px).`,
+  );
+  return recovered;
+}
+
+async function checkWalletAndProfileKeyboard() {
+  await waitForCondition(
+    "window.__daily007KeyboardForms?.ready === true",
+    "Wallet and Edit Profile preview initialization",
+  );
+  await waitForCondition(
+    `(() => {
+      const button = document.querySelector('[data-testid="wallet-open-recharge"]');
+      return button && button.getAttribute("aria-disabled") !== "true" && !button.disabled;
+    })()`,
+    "Wallet recharge settings to load",
+  );
+
+  await clickSelector('[data-testid="wallet-open-recharge"]', "Wallet recharge action");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="wallet-form-scroll"]') && document.querySelector('[data-testid="payer-upi-id"]'))`,
+    "the recharge form to open",
+  );
+  await setInputValue('[data-testid="wallet-amount"]', "250");
+  await setInputValue('[data-testid="payer-upi-id"]', "player@upi");
+  await setInputValue('[data-testid="wallet-transaction-id"]', "preview-utr-01");
+  await setKeyboardViewport(320);
+  const rechargeOpen = await assertKeyboardReachability(
+    "wallet-form-scroll",
+    "wallet-transaction-id",
+    "wallet-recharge-submit",
+    "Wallet recharge",
+  );
+  await assertLayoutRecovered("wallet-form-scroll", rechargeOpen.clientHeight, "Wallet recharge");
+
+  await setKeyboardViewport(320);
+  await assertKeyboardReachability(
+    "wallet-form-scroll",
+    "wallet-transaction-id",
+    "wallet-recharge-submit",
+    "Wallet recharge submit",
+  );
+  await clickSelector('[data-testid="wallet-recharge-submit"]', "Wallet recharge submit action");
+  await waitForCondition(
+    `window.__daily007KeyboardForms.getCalls().some((call) => call.method === "createPayment") && !document.querySelector('[data-testid="wallet-form-scroll"]')`,
+    "the recharge request to submit and the sheet to close",
+  );
+  let calls = await evaluate("window.__daily007KeyboardForms.getCalls()");
+  const recharge = calls.find((call) => call.method === "createPayment");
+  assert(
+    recharge?.payload?.coins === 250 &&
+      recharge?.payload?.payerUpiId === "player@upi" &&
+      recharge?.payload?.txnId === "preview-utr-01",
+    "The keyboard-open recharge action did not submit the entered values.",
+  );
+
+  await setKeyboardViewport(720);
+  await clickSelector('[data-testid="wallet-open-withdraw"]', "Wallet withdrawal action");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="wallet-form-scroll"]') && document.querySelector('[data-testid="wallet-withdraw-account"]'))`,
+    "the withdrawal form to open",
+  );
+  await setInputValue('[data-testid="wallet-amount"]', "100");
+  await setInputValue('[data-testid="wallet-withdraw-account"]', "payout@upi");
+  await setKeyboardViewport(320);
+  const withdrawOpen = await assertKeyboardReachability(
+    "wallet-form-scroll",
+    "wallet-withdraw-account",
+    "wallet-withdraw-submit",
+    "Wallet withdrawal",
+  );
+  await assertLayoutRecovered("wallet-form-scroll", withdrawOpen.clientHeight, "Wallet withdrawal");
+
+  await setKeyboardViewport(320);
+  await assertKeyboardReachability(
+    "wallet-form-scroll",
+    "wallet-withdraw-account",
+    "wallet-withdraw-submit",
+    "Wallet withdrawal submit",
+  );
+  await clickSelector('[data-testid="wallet-withdraw-submit"]', "Wallet withdrawal submit action");
+  await waitForCondition(
+    `window.__daily007KeyboardForms.getCalls().some((call) => call.method === "withdrawCoins") && !document.querySelector('[data-testid="wallet-form-scroll"]')`,
+    "the withdrawal request to submit and the sheet to close",
+  );
+  calls = await evaluate("window.__daily007KeyboardForms.getCalls()");
+  const withdrawal = calls.find((call) => call.method === "withdrawCoins");
+  assert(
+    withdrawal?.payload?.coins === 100 && withdrawal?.payload?.account === "payout@upi",
+    "The keyboard-open withdrawal action did not submit the entered values.",
+  );
+
+  await setKeyboardViewport(720);
+  await evaluate("window.__daily007KeyboardForms.showProfile()");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="edit-profile-name"]') && document.querySelector('[data-testid="edit-profile-save"]'))`,
+    "Edit Profile to render",
+  );
+  await setInputValue('[data-testid="edit-profile-name"]', "Preview Updated");
+  await setInputValue('[data-testid="edit-profile-phone"]', "9876543210");
+  await setInputValue('[data-testid="edit-profile-game-uid"]', "1234567890");
+  await setKeyboardViewport(320);
+  const profileOpen = await assertKeyboardReachability(
+    "edit-profile-scroll",
+    "edit-profile-game-uid",
+    "edit-profile-save",
+    "Edit Profile",
+  );
+  await assertLayoutRecovered("edit-profile-scroll", profileOpen.clientHeight, "Edit Profile");
+
+  await setKeyboardViewport(320);
+  await assertKeyboardReachability(
+    "edit-profile-scroll",
+    "edit-profile-game-uid",
+    "edit-profile-save",
+    "Edit Profile save",
+  );
+  await clickSelector('[data-testid="edit-profile-save"]', "Edit Profile save action");
+  await waitForCondition(
+    `window.__daily007KeyboardForms.getCalls().some((call) => call.method === "updateProfile")`,
+    "the profile update to submit",
+  );
+  calls = await evaluate("window.__daily007KeyboardForms.getCalls()");
+  const profile = calls.find((call) => call.method === "updateProfile");
+  assert(
+    profile?.payload?.name === "Preview Updated" &&
+      profile?.payload?.phone === "9876543210" &&
+      profile?.payload?.gameUid === "1234567890",
+    "The keyboard-open profile action did not submit the entered values.",
+  );
+  await setKeyboardViewport(720);
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="edit-profile-save"]') && document.querySelector('[data-testid="edit-profile-game-uid"]'))`,
+    "Edit Profile layout to remain usable after keyboard dismissal",
+  );
+}
+
 let vitePort;
 
 try {
@@ -425,7 +645,9 @@ try {
     ? "tournament-resume-preview.html"
     : homeCarouselOnly
       ? "home-carousel-preview.html"
-      : "admin-narrow-preview.html";
+      : keyboardFormsOnly
+        ? "keyboard-forms-preview.html"
+        : "admin-narrow-preview.html";
 
   vite = spawn(
     "pnpm",
@@ -479,15 +701,25 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (resumeOnly || homeCarouselOnly) {
+  if (resumeOnly || homeCarouselOnly || keyboardFormsOnly) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: homeCarouselOnly ? 390 : 800,
-      height: homeCarouselOnly ? 844 : 1000,
+      width: homeCarouselOnly ? 390 : keyboardFormsOnly ? 375 : 800,
+      height: homeCarouselOnly ? 844 : keyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
-    await waitForPage(homeCarouselOnly ? "Home carousel" : "player and Admin tournament screens");
-    if (homeCarouselOnly) {
+    await waitForPage(
+      homeCarouselOnly
+        ? "Home carousel"
+        : keyboardFormsOnly
+          ? "Wallet and Edit Profile"
+          : "player and Admin tournament screens",
+    );
+    if (keyboardFormsOnly) {
+      await checkWalletAndProfileKeyboard();
+      assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);
+      console.log("PASS — Wallet recharge/withdrawal and Edit Profile actions remain reachable at 375px with a simulated keyboard-open viewport.");
+    } else if (homeCarouselOnly) {
       await checkHomeCarousel();
       assert(browserErrors.length === 0, `Browser errors during Home carousel checks: ${browserErrors.join(" | ")}`);
       console.log("PASS — Home removes a tournament at its scheduled IST start and keeps remaining carousel cards usable.");
@@ -522,5 +754,7 @@ try {
     await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(2_000)]);
     if (child.exitCode === null) child.kill("SIGKILL");
   }
-  if (temporaryProfile) await rm(temporaryProfile, { recursive: true, force: true });
+  if (temporaryProfile) {
+    await rm(temporaryProfile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 }

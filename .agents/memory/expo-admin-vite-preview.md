@@ -14,3 +14,9 @@ If Vite/React Native Web begins failing on changing package-export errors in nat
 **Why:** React Native Web's transitive Expo and style packages can fail under Vite's dependency optimizer even while the Expo/Metro app workflow starts normally.
 
 **How to apply:** Keep these shims temporary; do not change application dependencies or production code just to silence a browser-preview-only error.
+
+For React Native Web checks that shrink the viewport to simulate an open keyboard, make the preview page and `#root` a height-constrained flex column. A block-only root can leave `flex: 1` screen content at its natural content height, making keyboard resize and dismissal checks misleading.
+
+**Why:** React Native Web needs the screen's parent to participate in flex layout before a viewport resize behaves like the native app's available-height change.
+
+**How to apply:** Put any preview-only header outside `#root`, keep `min-height: 0`, and make `#root` a flex column before testing scroll-container dimensions across keyboard-open and restored viewport sizes.

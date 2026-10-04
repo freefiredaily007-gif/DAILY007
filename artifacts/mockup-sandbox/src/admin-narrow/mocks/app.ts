@@ -1,11 +1,15 @@
+const previewUser = {
+  id: "preview-player",
+  name: "Preview Player",
+  phone: "",
+  gameUid: "",
+  coins: 1000,
+  role: "full_admin",
+};
+
+const previewRefresh = async () => ({ user: previewUser });
+const previewLogout = () => undefined;
+
 export function useApp() {
-  return {
-    user: {
-      id: "preview-player",
-      name: "Preview Player",
-      coins: 1000,
-      role: "full_admin",
-    },
-    logout: () => undefined,
-  };
+  return { user: previewUser, refresh: previewRefresh, logout: previewLogout };
 }

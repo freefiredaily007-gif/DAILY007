@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Daily007 keyboard form regression preview</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        background: #070a12;
+        font-family: Arial, sans-serif;
+      }
+
+      #preview-header {
+        height: 52px;
+        flex: 0 0 52px;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        color: #f5f7ff;
+        background: #111827;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      #root {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="preview-header">Daily007 · Wallet and Edit Profile</div>
+    <div id="root"></div>
+    <script type="module" src="/src/admin-narrow/keyboard-forms-main.jsx"></script>
+  </body>
+</html>

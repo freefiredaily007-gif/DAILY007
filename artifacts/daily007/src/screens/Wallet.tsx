@@ -1,6 +1,6 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useState } from 'react';
-import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
@@ -10,6 +10,7 @@ import { uploadWalletImage } from '../lib/walletImages';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
+import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 const DEFAULT_MIN_WITHDRAW = 100;
 const DEFAULT_MAX_WITHDRAW = 5000;
@@ -195,8 +196,8 @@ export default function Wallet() {
                 <View style={s.stat}><Text style={s.statV}>{totalWithdrawn}</Text><Text style={s.statL}>TOTAL WITHDRAWN</Text></View>
               </View>
               <View style={s.btnRow}>
-                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
-                <View style={{ flex: 1 }}><Btn title="↩ WITHDRAW" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
+                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" testID="wallet-open-recharge" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
+                <View style={{ flex: 1 }}><Btn title="↩ WITHDRAW" testID="wallet-open-withdraw" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
               </View>
               {!rechargeEnabled || !paymentUpi || !paymentQr
                 ? <Text style={s.minWarn}>Coin recharge is unavailable until an administrator enables it and configures a UPI ID and QR.</Text>
@@ -263,10 +264,16 @@ export default function Wallet() {
 
       <Modal visible={showSheet} animationType="slide" transparent>
         <View style={s.modalBg}>
-          <ScrollView style={s.modal} contentContainerStyle={{ padding: 18 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareScrollViewCompat
+            testID="wallet-form-scroll"
+            style={s.modal}
+            contentContainerStyle={{ padding: 18 }}
+            bottomOffset={64}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={s.tabs}>
-              <PressableTab label="ADD COINS" active={tab === 'add'} onPress={() => { setTab('add'); setError(''); }} />
-              <PressableTab label="WITHDRAW" active={tab === 'withdraw'} onPress={() => { setTab('withdraw'); setError(''); }} />
+              <PressableTab testID="wallet-tab-add" label="ADD COINS" active={tab === 'add'} onPress={() => { setTab('add'); setError(''); }} />
+              <PressableTab testID="wallet-tab-withdraw" label="WITHDRAW" active={tab === 'withdraw'} onPress={() => { setTab('withdraw'); setError(''); }} />
             </View>
 
             {tab === 'add' ? (
@@ -301,7 +308,7 @@ export default function Wallet() {
                         ))}
                       </View>
                     )}
-                    <Input placeholder={`Enter coins (${minPurchase}–${maxPurchase})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
+                    <Input testID="wallet-amount" placeholder={`Enter coins (${minPurchase}–${maxPurchase})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                     {coins > 0 && <Text style={s.amountHint}>You pay {inr(coins, coinToMoneyRate)} for {coins} coins</Text>}
                     <Input
                       accessibilityLabel="UPI ID used to make payment"
@@ -314,7 +321,7 @@ export default function Wallet() {
                       autoCorrect={false}
                       maxLength={200}
                     />
-                    <Input placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
+                    <Input testID="wallet-transaction-id" placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
                     <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT (OPTIONAL)'} kind="ghost" onPress={pickProof} />
                     {proof && (
                       <View style={s.proofPreview}>
@@ -326,6 +333,7 @@ export default function Wallet() {
                 )}
                 <Btn
                   title={hasPending ? 'PENDING' : `ADD COINS${coins > 0 ? ` (${inr(coins)})` : ''}`}
+                  testID="wallet-recharge-submit"
                   onPress={submitAdd}
                   loading={submitting}
                   disabled={hasPending || !rechargeEnabled || !paymentUpi || !paymentQr || submitting}
@@ -335,15 +343,16 @@ export default function Wallet() {
             ) : (
               <>
                 <Text style={s.mSub}>Withdraw between {minWithdraw} and {maxWithdraw} coins. Enter the UPI ID where you want to receive the payout. Requests are manually reviewed; the administrator sends payments separately.</Text>
-                <Input placeholder={`Enter coins (${minWithdraw}–${maxWithdraw})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
+                <Input testID="wallet-amount" placeholder={`Enter coins (${minWithdraw}–${maxWithdraw})`} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" />
                 {belowMinBalance && <Text style={s.minWarn}>Minimum balance required to withdraw is {minWithdraw} coins.</Text>}
                 {coins > 0 && coins < minWithdraw && <Text style={s.minWarn}>Minimum withdrawal amount is {minWithdraw} coins.</Text>}
                 {coins > maxWithdraw && <Text style={s.minWarn}>Maximum withdrawal amount is {maxWithdraw} coins.</Text>}
                 {coins > balance && <Text style={s.minWarn}>You cannot withdraw more than your available balance.</Text>}
                 {coins >= minWithdraw && coins <= maxWithdraw && coins <= balance && <Text style={s.amountHint}>You receive {inr(coins, coinToMoneyRate)}</Text>}
-                <Input placeholder="UPI ID" value={account} onChangeText={setAccount} />
+                <Input testID="wallet-withdraw-account" placeholder="UPI ID" value={account} onChangeText={setAccount} />
                 <Btn
                   title={hasPendingWithdraw ? 'PENDING' : `WITHDRAW${coins >= minWithdraw && coins <= balance ? ` (${coins} 🪙)` : ''}`}
+                  testID="wallet-withdraw-submit"
                   kind="gold"
                   onPress={submitWithdraw}
                   loading={submitting}
@@ -353,17 +362,17 @@ export default function Wallet() {
               </>
             )}
             <View style={{ height: 8 }} />
-            <Btn title="CLOSE" kind="ghost" onPress={() => { setShowSheet(false); setError(''); }} />
-          </ScrollView>
+            <Btn testID="wallet-close-form" title="CLOSE" kind="ghost" onPress={() => { setShowSheet(false); setError(''); }} />
+          </KeyboardAwareScrollViewCompat>
         </View>
       </Modal>
     </View>
   );
 }
 
-function PressableTab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function PressableTab({ label, active, onPress, testID }: { label: string; active: boolean; onPress: () => void; testID?: string }) {
   return (
-    <Pressable onPress={onPress} style={[s.tab, active && s.tabActive]}>
+    <Pressable testID={testID} onPress={onPress} style={[s.tab, active && s.tabActive]}>
       <Text style={[s.tabText, active && s.tabTextActive]}>{label}</Text>
     </Pressable>
   );
