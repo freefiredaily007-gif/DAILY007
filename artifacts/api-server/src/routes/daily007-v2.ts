@@ -436,9 +436,9 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
     return;
   }
   const legacy = req.path.startsWith("/tournaments/");
-  const captainName = cleanName(legacy ? body.playerName : body.captainName, "captainName");
+  const captainName = cleanName(account.name, "captainName");
   if (!captainName) {
-    fail(res, 400, "captainName must be 1–100 characters.");
+    fail(res, 400, "Add a Daily007 profile name between 1 and 100 characters before registering.");
     return;
   }
   const captainGameName = cleanName(body.captainGameName, "captainGameName");
