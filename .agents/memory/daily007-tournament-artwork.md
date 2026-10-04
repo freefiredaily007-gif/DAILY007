@@ -9,6 +9,6 @@ Show the Battle Royale Solo, Duo, and Squad posters in existing admin-created to
 
 Render exact matchup counts as UI text over Clash Squad and Lone Wolf tournament images rather than relying on generated lettering.
 
-**Why:** The user clarified that posters belong inside existing tournament cards, including upcoming matches, not in Home's Game Modes card or a new selection page; generated matchup lettering may be inaccurate.
+**Why:** The user clarified that posters belong inside existing tournament cards, including upcoming matches, not in Home's Game Modes card or a new selection page; generated matchup lettering may be inaccurate. Square Battle Royale art cannot fill a 16:9 banner without cropping or distorting its embedded title, so use an extended background instead.
 
-**How to apply:** Preserve the 1 VS 1 / 2 VS 2 / 4 VS 4 mapping on Clash Squad and Lone Wolf cards. Display the full Battle Royale poster inside the same 16:9 banner size as those modes, using aspect-fit with no crop in tournament-list cards and Home's upcoming carousel; keep card details outside the poster.
+**How to apply:** Preserve the 1 VS 1 / 2 VS 2 / 4 VS 4 mapping on Clash Squad and Lone Wolf cards. For square Battle Royale posters, center the original artwork unchanged over a dark, blurred full-bleed extension of that poster to create 16:9 banners; never crop or stretch the original. Use them in tournament-list cards and Home's upcoming carousel, keeping card details outside the poster.

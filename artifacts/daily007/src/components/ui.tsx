@@ -258,9 +258,9 @@ const tournamentFormatArt = {
 };
 
 const battleRoyalePosterArt = {
-  solo: require('../assets/battle-royale-solo-poster.jpg'),
-  duo: require('../assets/battle-royale-duo-poster.jpg'),
-  squad: require('../assets/battle-royale-squad-poster.jpg'),
+  solo: require('../assets/battle-royale-solo-poster-landscape.jpg'),
+  duo: require('../assets/battle-royale-duo-poster-landscape.jpg'),
+  squad: require('../assets/battle-royale-squad-poster-landscape.jpg'),
 };
 
 export function getTournamentFormatPresentation(t: any) {
