@@ -28,6 +28,7 @@ import {
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
 const ENDED_STATE = 0;
+const VIDEO_UNAVAILABLE_FOR_REWARDS = 'This video is no longer available for rewards.';
 
 type VideoItem = {
   id: string;
@@ -172,8 +173,13 @@ export default function Video() {
         setRewardError('The coin was recorded, but the wallet display did not refresh. Reopen Wallet to update it.');
       });
     } catch (error) {
-      setRewardError(apiError(error));
-      setRetrySession({ sessionId, percent: percentWatched });
+      const message = apiError(error);
+      setRewardError(message);
+      if (message === VIDEO_UNAVAILABLE_FOR_REWARDS) {
+        setRetrySession(null);
+      } else {
+        setRetrySession({ sessionId, percent: percentWatched });
+      }
     } finally {
       setRewardPending(false);
     }
@@ -397,7 +403,12 @@ export default function Video() {
             accessibilityRole="button"
             accessibilityLabel="Back to videos"
             testID="video-catalog-back"
-            onPress={() => setShowPlayer(false)}
+            onPress={() => {
+              setShowPlayer(false);
+              setSelectedVideoId(null);
+              setRetrySession(null);
+              void videosQuery.refetch();
+            }}
             style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
           >
             <Feather name="arrow-left" size={17} color={colors.primary} />
