@@ -92,6 +92,7 @@ const stats = {
 };
 
 const empty = async () => [];
+let tournamentReadCount = 0;
 
 export const Api = {
   me: async () => ({ ...previewAdmin }),
@@ -103,7 +104,11 @@ export const Api = {
   adminWithdrawals: empty,
   adminTransactions: empty,
   adminUsers: empty,
-  tournaments: async () => previewTournaments.map((tournament) => ({ ...tournament })),
+  tournaments: async () => {
+    tournamentReadCount += 1;
+    return previewTournaments.map((tournament) => ({ ...tournament }));
+  },
+  myRegistrations: empty,
   adminRoom: async (tournamentId: string) => ({
     tournamentId,
     roomId: "TEST-ROOM-01",
@@ -147,8 +152,17 @@ export const Api = {
   adminWithdrawalAction: async () => ({}),
 };
 
+export function getTournamentReadCount() {
+  return tournamentReadCount;
+}
+
+export function resetTournamentReadCount() {
+  tournamentReadCount = 0;
+}
+
 export function apiError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
 export const errMessage = apiError;
+export const api = Api;

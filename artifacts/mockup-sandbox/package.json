@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:admin-narrow": "node scripts/test-admin-narrow.mjs"
+    "test:admin-narrow": "node scripts/test-admin-narrow.mjs",
+    "test:tournament-resume": "node scripts/test-admin-narrow.mjs --resume-only"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

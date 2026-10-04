@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, View, FlatList, StyleSheet, RefreshControl, Pressable } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
@@ -26,6 +26,7 @@ export default function Tournaments() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const appState = useRef(AppState.currentState);
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
@@ -59,6 +60,18 @@ export default function Tournaments() {
     setLoading(false);
   }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const returnedToApp = appState.current !== 'active' && nextState === 'active';
+      appState.current = nextState;
+      if (returnedToApp) {
+        setClockNow(Date.now());
+        void load();
+      }
+    });
+    return () => subscription.remove();
+  }, [load]);
 
   useEffect(() => {
     const now = Date.now();

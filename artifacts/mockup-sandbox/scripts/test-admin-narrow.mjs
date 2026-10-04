@@ -21,6 +21,7 @@ const adminTabs = [
   ["notifications", "Notify"],
   ["settings", "Settings"],
 ];
+const resumeOnly = process.argv.includes("--resume-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -118,7 +119,7 @@ async function evaluate(expression) {
   return response.result?.value;
 }
 
-async function waitForPage() {
+async function waitForPage(label = "real Admin screen") {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     const ready = await evaluate("Boolean(document.querySelector('#root > *'))").catch(() => false);
@@ -130,7 +131,7 @@ async function waitForPage() {
     body: document.body.innerText.slice(0, 400),
     root: document.querySelector('#root')?.innerHTML.slice(0, 800) ?? '',
   }))()`).catch((error) => ({ evaluationError: String(error) }));
-  throw new Error(`The real Admin screen did not render in the isolated preview: ${JSON.stringify(state)}`);
+  throw new Error(`The ${label} did not render in the isolated preview: ${JSON.stringify(state)}`);
 }
 
 async function setViewport(width) {
@@ -182,6 +183,19 @@ async function assertText(text, label = text) {
     );
   })()`);
   assert(found, `Expected ${label} to be visible.`);
+}
+
+async function waitForCondition(expression, description) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (await evaluate(expression).catch(() => false)) return;
+    await delay(75);
+  }
+  const state = await evaluate(`(() => ({
+    body: document.body.innerText.slice(0, 1200),
+    reads: window.__daily007TournamentResume?.getTournamentReadCount?.() ?? null,
+  }))()`).catch((error) => ({ evaluationError: String(error) }));
+  throw new Error(`${description} did not occur: ${JSON.stringify(state)}`);
 }
 
 async function assertHorizontalFit(selector, description, width) {
@@ -303,12 +317,58 @@ async function checkTournamentStates(width) {
   );
 }
 
+async function checkTournamentResume() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "The player tournament screen to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
+    "The player list to load its upcoming IST tournament",
+  );
+
+  await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
+  await waitForCondition(
+    "document.body.innerText.includes('No ongoing tournaments are available right now.')",
+    "The player Ongoing list to be empty before the scheduled start",
+  );
+
+  let readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('IST Start Boundary')`,
+    "The player Ongoing list to refresh and show the tournament after resume",
+  );
+  await assertText("IST Start Boundary", "the player tournament after resume");
+
+  await evaluate("window.__daily007TournamentResume.prepareAdmin()");
+  await evaluate("window.__daily007TournamentResume.showAdmin()");
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
+    "the Admin tournament list to load before its background cycle",
+  );
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
+  await waitForCondition(
+    "document.body.innerText.includes('No ongoing tournaments.')",
+    "the Admin Ongoing list to be empty before the scheduled start",
+  );
+
+  readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('IST Start Boundary')`,
+    "the Admin Ongoing list to refresh and show the tournament after resume",
+  );
+  await assertText("IST Start Boundary", "the Admin tournament after resume");
+}
+
 let vitePort;
 
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
+  const previewPath = resumeOnly ? "tournament-resume-preview.html" : "admin-narrow-preview.html";
 
   vite = spawn(
     "pnpm",
@@ -347,7 +407,7 @@ try {
       "--remote-allow-origins=*",
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${temporaryProfile}`,
-      `http://127.0.0.1:${vitePort}/admin-narrow-preview.html`,
+      `http://127.0.0.1:${vitePort}/${previewPath}`,
     ],
     { stdio: "ignore" },
   );
@@ -362,17 +422,30 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  await setViewport(360);
-  await checkAdminTabs(360);
-  await checkTournamentStates(360);
-  assert(browserErrors.length === 0, `Browser errors at 360px: ${browserErrors.join(" | ")}`);
-  console.log("PASS 360px — all 11 Admin tabs and tournament creation, room setup, result entry, and completed details.");
+  if (resumeOnly) {
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width: 800,
+      height: 1000,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await waitForPage("player and Admin tournament screens");
+    await checkTournamentResume();
+    assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);
+    console.log("PASS — player and Admin tournament lists refetch after resume across an IST start without manual refresh.");
+  } else {
+    await setViewport(360);
+    await checkAdminTabs(360);
+    await checkTournamentStates(360);
+    assert(browserErrors.length === 0, `Browser errors at 360px: ${browserErrors.join(" | ")}`);
+    console.log("PASS 360px — all 11 Admin tabs and tournament creation, room setup, result entry, and completed details.");
 
-  await setViewport(375);
-  await checkAdminTabs(375);
-  await checkTournamentStates(375);
-  assert(browserErrors.length === 0, `Browser errors at 375px: ${browserErrors.join(" | ")}`);
-  console.log("PASS 375px — all 11 Admin tabs and tournament creation, room setup, result entry, and completed details.");
+    await setViewport(375);
+    await checkAdminTabs(375);
+    await checkTournamentStates(375);
+    assert(browserErrors.length === 0, `Browser errors at 375px: ${browserErrors.join(" | ")}`);
+    console.log("PASS 375px — all 11 Admin tabs and tournament creation, room setup, result entry, and completed details.");
+  }
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);

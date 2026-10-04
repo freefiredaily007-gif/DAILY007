@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Platform, View, StyleSheet, Pressable } from 'react-native';
+import { Alert, AppState, Platform, View, StyleSheet, Pressable } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
   getDaily007ListAdminResultLogsQueryKey,
@@ -84,6 +84,7 @@ export default function AdminTournaments() {
   const [okMsg, setOkMsg] = useState('');
   const [loadError, setLoadError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const appState = useRef(AppState.currentState);
   const [expandedAction, setExpandedAction] = useState<TournamentAction | null>(null);
   const actionRequestId = useRef(0);
   const [roomMeta, setRoomMeta] = useState<any | null>(null);
@@ -262,6 +263,17 @@ export default function AdminTournaments() {
     }
   };
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const returnedToApp = appState.current !== 'active' && nextState === 'active';
+      appState.current = nextState;
+      if (returnedToApp) {
+        setClockNow(Date.now());
+        void load();
+      }
+    });
+    return () => subscription.remove();
+  }, [load]);
   useEffect(() => {
     if (!list) return;
     const now = Date.now();

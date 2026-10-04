@@ -18,6 +18,7 @@ export default defineConfig({
       { find: /^react-native$/, replacement: path.join(daily007Root, "node_modules/react-native-web") },
       { find: /^@expo\/vector-icons$/, replacement: path.join(regressionRoot, "mocks/vector-icons.tsx") },
       { find: /^@workspace\/api-client-react$/, replacement: path.join(regressionRoot, "mocks/api-client-react.ts") },
+      { find: /^@react-navigation\/native$/, replacement: path.join(regressionRoot, "mocks/navigation.ts") },
       { find: /^\.\.\/lib\/api$/, replacement: path.join(regressionRoot, "mocks/api.ts") },
       { find: /^\.\.\/App$/, replacement: path.join(regressionRoot, "mocks/app.ts") },
       {
