@@ -220,10 +220,10 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
     const result = await pool.query(
       `INSERT INTO daily007_v2_payments
          (user_id, coins, amount, payer_upi_id, reference, reference_normalized, proof_object_path)
-       VALUES ($1, $2, $2, $3, $4, $5, $6)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, coins, amount, payer_upi_id AS "payerUpiId", reference AS "txnId", status,
                  created_at AS "createdAt"`,
-      [id, coins, payerUpiId, reference, normalized, proofObjectPath],
+      [id, coins, amount, payerUpiId, reference, normalized, proofObjectPath],
     );
     res.status(201).json(result.rows[0]);
   } catch (e) {
