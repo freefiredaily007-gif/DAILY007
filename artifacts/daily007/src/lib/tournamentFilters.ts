@@ -1,0 +1,60 @@
+export type TournamentModeFilter = {
+  gameMode?: unknown;
+  mode?: unknown;
+  teamType?: unknown;
+};
+
+export type TournamentModeItem = {
+  gameMode?: unknown;
+  game_mode?: unknown;
+  mode?: unknown;
+  teamType?: unknown;
+  team_type?: unknown;
+};
+
+export const HOME_GAME_MODE_CARDS = [
+  { mode: 'Battle Royale', gameMode: 'battle_royale' },
+  { mode: 'Clash Squad', gameMode: 'clash_squad' },
+  { mode: 'Lone Wolf', gameMode: 'lone_wolf' },
+] as const;
+
+export function homeModeRouteParams(card: { mode: string; gameMode: string }) {
+  return { gameMode: card.gameMode, gameModeLabel: card.mode };
+}
+
+export function submodeRouteParams(gameMode: string, teamType: string, gameModeLabel: string) {
+  return { gameMode, teamType, gameModeLabel };
+}
+
+function normalize(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function filterTournamentsForRoute<T extends TournamentModeItem>(
+  items: readonly T[],
+  filters: TournamentModeFilter,
+): T[] {
+  const requestedMode = normalize(filters.gameMode || filters.mode);
+  const requestedTeamType = normalize(filters.teamType);
+
+  return items.filter((tournament) => {
+    const tournamentMode = normalize(tournament.gameMode || tournament.game_mode || tournament.mode);
+    const tournamentTeamType = normalize(tournament.teamType || tournament.team_type);
+    return (!requestedMode || tournamentMode === requestedMode)
+      && (!requestedTeamType || tournamentTeamType === requestedTeamType);
+  });
+}
+
+export function tournamentListEmptyMessage(
+  hasError: boolean,
+  tabLabel: string,
+  modeLabel?: string,
+  teamType?: string,
+): string {
+  if (hasError) return 'Tournament data is unavailable right now. Pull to refresh and try again.';
+  const scope = [teamType, modeLabel]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return `No ${tabLabel.toLowerCase()}${scope ? ` ${scope}` : ''} tournaments are available right now.`;
+}

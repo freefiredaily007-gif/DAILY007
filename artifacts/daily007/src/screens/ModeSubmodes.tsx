@@ -4,6 +4,7 @@ import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, GCard, SectionTitle } from '../components/ui';
+import { submodeRouteParams } from '../lib/tournamentFilters';
 
 type ModeKey = 'battle_royale' | 'clash_squad' | 'lone_wolf';
 type TeamType = 'solo' | 'duo' | 'squad';
@@ -70,11 +71,10 @@ export default function ModeSubmodes() {
               testID={`format-${gameMode}-${format.type}`}
               accessibilityLabel={`${mode.title} ${format.title}, ${capacity.label}`}
               accessibilityHint="Opens available tournaments for this format"
-              onPress={() => navigation.navigate('Tournaments', {
-                gameMode,
-                teamType: format.type,
-                gameModeLabel: mode.title,
-              })}
+              onPress={() => navigation.navigate(
+                'Tournaments',
+                submodeRouteParams(gameMode, format.type, mode.title),
+              )}
               glowColor={displayAccent}
               style={styles.formatCard}
             >

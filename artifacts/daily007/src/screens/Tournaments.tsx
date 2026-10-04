@@ -5,6 +5,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { api } from '../lib/api';
 import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
+import { filterTournamentsForRoute, tournamentListEmptyMessage } from '../lib/tournamentFilters';
 import {
   compareTournamentStartTime,
   getTournamentLifecycleState,
@@ -25,6 +26,7 @@ export default function Tournaments() {
   const [clockNow, setClockNow] = useState(Date.now());
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
+  const teamType = route?.params?.teamType as string | undefined;
   const heading = route?.params?.gameModeLabel || legacyMode || gameMode;
 
   const load = useCallback(async () => {
@@ -61,11 +63,10 @@ export default function Tournaments() {
     return () => clearTimeout(timer);
   }, [items, clockNow]);
 
-  const normalize = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z]/g, '');
-  const requestedMode = normalize(gameMode || legacyMode);
-  const filtered = requestedMode
-    ? items.filter((tournament) => normalize(tournament.gameMode || tournament.mode) === requestedMode)
-    : items;
+  const filtered = filterTournamentsForRoute(items, {
+    gameMode: gameMode || legacyMode,
+    teamType,
+  });
   const lifecycleOf = (tournament: any) => getTournamentLifecycleState(tournament, clockNow);
   const visible = filtered.filter((tournament) => lifecycleOf(tournament) === tab);
   const orderedVisible = tab === 'completed'
@@ -117,7 +118,7 @@ export default function Tournaments() {
             {!!error && <Msg kind="err" text={`Could not load tournaments: ${error}`} />}
           </View>
         }
-        ListEmptyComponent={<Empty text={error ? 'Tournament data is unavailable right now. Pull to refresh and try again.' : `No ${tabLabel[tab].toLowerCase()} tournaments are available right now.`} />}
+        ListEmptyComponent={<Empty text={tournamentListEmptyMessage(Boolean(error), tabLabel[tab], heading, teamType)} />}
         renderItem={({ item }) => {
           const state = lifecycleOf(item);
           const cardItem = state === 'ongoing' && item.status !== 'ongoing'

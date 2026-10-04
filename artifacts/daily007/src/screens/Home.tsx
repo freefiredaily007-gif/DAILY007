@@ -13,6 +13,7 @@ import { useApp } from '../App';
 import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12 } from '../components/ui';
 import { inr } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { HOME_GAME_MODE_CARDS, homeModeRouteParams } from '../lib/tournamentFilters';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 import HomeLeaderboards from './HomeLeaderboards';
@@ -253,13 +254,13 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       {[
-        { img: modeSquadLogo, category: 'CLASSIC SURVIVAL', title: 'BATTLE ROYALE', capacity: 'SOLO · DUO · SQUAD', mode: 'Battle Royale', gameMode: 'battle_royale', accent: C.gold },
-        { img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: 'SOLO · DUO · SQUAD', mode: 'Clash Squad', gameMode: 'clash_squad', accent: C.neon },
-        { img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: 'SOLO · DUO · SQUAD', mode: 'Lone Wolf', gameMode: 'lone_wolf', accent: C.purple },
+        { ...HOME_GAME_MODE_CARDS[0], img: modeSquadLogo, category: 'CLASSIC SURVIVAL', title: 'BATTLE ROYALE', capacity: 'SOLO · DUO · SQUAD', accent: C.gold },
+        { ...HOME_GAME_MODE_CARDS[1], img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: 'SOLO · DUO · SQUAD', accent: C.neon },
+        { ...HOME_GAME_MODE_CARDS[2], img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: 'SOLO · DUO · SQUAD', accent: C.purple },
       ].map((m) => (
         <GCard
-          key={m.mode}
-          onPress={() => nav.navigate('Tournaments', { gameMode: m.gameMode, gameModeLabel: m.mode })}
+          key={m.gameMode}
+          onPress={() => nav.navigate('Tournaments', homeModeRouteParams(m))}
           accessibilityLabel={`Open ${m.mode} tournaments`}
           accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
           testID={`home-mode-${m.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
