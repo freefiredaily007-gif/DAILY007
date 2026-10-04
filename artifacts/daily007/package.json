@@ -12,6 +12,7 @@
     "test:leaderboard-refresh-policy": "node --test scripts/leaderboard-refresh-policy.test.mjs",
     "test:tournament-winner-details": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-winner-details.test.mjs",
     "test:referral-invite": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/referral-invite.test.mjs",
+    "test:session-verification": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/session-verification.test.mjs",
     "test:withdrawal-upi-copy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/withdrawal-upi-copy.test.mjs",
     "test:signup-keyboard": "node scripts/signup-keyboard.test.mjs"
   },

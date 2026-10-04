@@ -10,3 +10,9 @@ A successful new Daily007 sign-in replaces all previously issued Daily007 sessio
 **How to apply:** Enforce version matching on protected API requests and clear the app's local session when the server rejects an outdated token. An idle client notices replacement on its next authenticated request, not through a push notification.
 
 On 2026-10-04, the user confirmed that after closing and reopening the published Android app, the designated account remained signed in and Earn and Wallet loaded successfully.
+
+On cold-start session verification, clear a saved Daily007 token only after a 401 or 403 response. Network failures and server errors are inconclusive: keep the session and let the player retry.
+
+**Why:** A temporary API outage must not sign out an account whose token may still be valid, while rejected tokens still need to return to authentication.
+
+**How to apply:** Keep transport and 5xx failures separate from authorization rejection in session restore and retry flows.

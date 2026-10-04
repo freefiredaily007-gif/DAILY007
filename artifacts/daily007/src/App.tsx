@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { AppState, View, ActivityIndicator, StyleSheet, Alert, useWindowDimensions } from 'react-native';
+import { AppState, View, ActivityIndicator, StyleSheet, Alert, Pressable, useWindowDimensions } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { ReadableText as Text } from './components/typography';
@@ -30,6 +30,7 @@ import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
+import { restoreDaily007Session } from './lib/session-verification';
 import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
@@ -126,8 +127,11 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [authNotice, setAuthNotice] = useState('');
+  const [verificationSession, setVerificationSession] = useState<User | null>(null);
+  const [retryingVerification, setRetryingVerification] = useState(false);
   const refreshRequest = useRef<Promise<User | null> | null>(null);
   const accessRefreshRequest = useRef<Promise<User | null> | null>(null);
+  const verificationRequest = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const handleExpiredSession = () => {
@@ -141,23 +145,56 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   }, []);
 
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+    void (async () => {
       try {
-        const u = await getSession();
-        if (u) {
-          try {
-            const verified = await Api.me();
-            const session = { ...verified, token: u.token };
-            setSession(session);
-            setUser(session);
-          } catch {
-            setSession(null);
-          }
-        }
-      } catch {}
-      setBooting(false);
+        const result = await restoreDaily007Session(getSession, Api.me, setSession);
+        if (!mounted) return;
+        if (result.status === 'verified') setUser(result.session);
+        else if (result.status === 'retry') setVerificationSession(result.session);
+      } catch {
+        // A local storage read failure is not proof that the saved API session expired.
+      } finally {
+        if (mounted) setBooting(false);
+      }
     })();
+    return () => { mounted = false; };
   }, []);
+
+  const retrySessionVerification = useCallback((): Promise<void> => {
+    if (verificationRequest.current) return verificationRequest.current;
+    const savedSession = verificationSession;
+    if (!savedSession) return Promise.resolve();
+
+    setRetryingVerification(true);
+    const request = (async () => {
+      try {
+        const result = await restoreDaily007Session(
+          async () => savedSession,
+          Api.me,
+          setSession,
+        );
+        if (result.status === 'verified') {
+          setVerificationSession(null);
+          setUser(result.session);
+        } else if (result.status === 'rejected' || result.status === 'empty') {
+          setVerificationSession(null);
+          setUser(null);
+        } else {
+          setVerificationSession(result.session);
+        }
+      } catch {
+        setVerificationSession(savedSession);
+      } finally {
+        setRetryingVerification(false);
+      }
+    })();
+    verificationRequest.current = request;
+    void request.finally(() => {
+      if (verificationRequest.current === request) verificationRequest.current = null;
+    });
+    return request;
+  }, [verificationSession]);
 
   const refresh = useCallback((): Promise<User | null> => {
     if (refreshRequest.current) return refreshRequest.current;
@@ -239,6 +276,28 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     </View>
   );
 
+  if (!user && verificationSession) return (
+    <View style={s.boot}>
+      <Text style={s.verificationTitle}>SESSION VERIFICATION PAUSED</Text>
+      <Text style={s.verificationMessage}>
+        Daily007 could not verify your saved sign-in right now. Your session is still saved. Check your connection and try again.
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Retry session verification"
+        accessibilityState={{ disabled: retryingVerification }}
+        disabled={retryingVerification}
+        onPress={() => { void retrySessionVerification(); }}
+        style={[s.retryButton, retryingVerification && s.retryButtonDisabled]}
+        testID="session-verification-retry"
+      >
+        {retryingVerification
+          ? <ActivityIndicator color="#070a12" />
+          : <Text style={s.retryButtonText}>RETRY VERIFICATION</Text>}
+      </Pressable>
+    </View>
+  );
+
   if (!user) return <Auth
     notice={authNotice}
     onDone={(u) => { setAuthNotice(''); setSession(u); setUser(u); }}
@@ -291,4 +350,9 @@ export default function App() {
 const s = StyleSheet.create({
   boot: { flex: 1, backgroundColor: '#070a12', alignItems: 'center', justifyContent: 'center' },
   logo: { color: '#ff3d3d', fontSize: 30, fontWeight: '900', letterSpacing: 3, textShadowColor: '#ff3d3d66', textShadowRadius: 20 },
+  verificationTitle: { color: '#FFD54D', fontSize: 20, fontWeight: '900', textAlign: 'center', letterSpacing: 0.6 },
+  verificationMessage: { color: '#F5F7FF', fontSize: 15, lineHeight: 22, textAlign: 'center', maxWidth: 330, marginTop: 14, paddingHorizontal: 18 },
+  retryButton: { backgroundColor: '#ff3d3d', borderRadius: 12, minWidth: 210, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, paddingHorizontal: 20, marginTop: 24 },
+  retryButtonDisabled: { opacity: 0.72 },
+  retryButtonText: { color: '#070a12', fontWeight: '900', letterSpacing: 0.5 },
 });
