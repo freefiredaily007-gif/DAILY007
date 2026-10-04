@@ -25,6 +25,6 @@
 import type { Daily007LeaderboardRewardAmounts } from './daily007LeaderboardRewardAmounts';
 
 export interface Daily007AdminUpdateLeaderboardRewardsBody {
-  weekly: Daily007LeaderboardRewardAmounts;
-  monthly: Daily007LeaderboardRewardAmounts;
+  weekly?: Daily007LeaderboardRewardAmounts;
+  monthly?: Daily007LeaderboardRewardAmounts;
 }

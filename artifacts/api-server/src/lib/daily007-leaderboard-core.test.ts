@@ -4,6 +4,7 @@ import {
   leaderboardRewardDescription,
   leaderboardRewardRecipients,
   leaderboardPeriodWindow,
+  nextAdminStartedLeaderboardWindow,
   nextLeaderboardPeriodWindow,
   rankLeaderboardStandings,
 } from "./daily007-leaderboard-core";
@@ -29,6 +30,29 @@ test("monthly leaderboard windows follow India calendar months, including year r
   const january = leaderboardPeriodWindow("monthly", new Date("2026-12-31T19:00:00.000Z"));
   assert.equal(january.startsAt.toISOString(), "2026-12-31T18:30:00.000Z");
   assert.equal(january.endsAt.toISOString(), "2027-01-31T18:30:00.000Z");
+});
+
+test("admin-started cycles wait for the next IST calendar boundary", () => {
+  const weekly = nextAdminStartedLeaderboardWindow(
+    "weekly",
+    new Date("2026-10-07T12:00:00.000Z"),
+  );
+  assert.equal(weekly.startsAt.toISOString(), "2026-10-11T18:30:00.000Z");
+  assert.equal(weekly.endsAt.toISOString(), "2026-10-18T18:30:00.000Z");
+
+  const monthly = nextAdminStartedLeaderboardWindow(
+    "monthly",
+    new Date("2026-10-15T12:00:00.000Z"),
+  );
+  assert.equal(monthly.startsAt.toISOString(), "2026-10-31T18:30:00.000Z");
+  assert.equal(monthly.endsAt.toISOString(), "2026-11-30T18:30:00.000Z");
+});
+
+test("admin scheduling at an IST boundary uses that boundary immediately", () => {
+  const boundary = new Date("2026-10-11T18:30:00.000Z");
+  const weekly = nextAdminStartedLeaderboardWindow("weekly", boundary);
+  assert.equal(weekly.startsAt.toISOString(), boundary.toISOString());
+  assert.equal(weekly.endsAt.toISOString(), "2026-10-18T18:30:00.000Z");
 });
 
 test("standings score by prize coins and break ties by wins, kills, then player name", () => {

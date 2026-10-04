@@ -84,6 +84,17 @@ export function nextLeaderboardPeriodWindow(
   return next;
 }
 
+export function nextAdminStartedLeaderboardWindow(
+  cycleType: LeaderboardCycleType,
+  startedAt: Date,
+): LeaderboardWindow {
+  const current = leaderboardPeriodWindow(cycleType, startedAt);
+  const startsAt = current.startsAt.getTime() === startedAt.getTime()
+    ? current.startsAt
+    : current.endsAt;
+  return leaderboardPeriodWindow(cycleType, startsAt);
+}
+
 export function rankLeaderboardStandings(
   rows: Omit<LeaderboardStanding, "rank">[],
 ): LeaderboardStanding[] {

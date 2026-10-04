@@ -22,9 +22,14 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus } from './daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus';
+import type { Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus } from './daily007AdminLeaderboardRewardScheduleLatestPeriodStatus';
 import type { Daily007LeaderboardRewardAmounts } from './daily007LeaderboardRewardAmounts';
 
 export type Daily007AdminLeaderboardRewardSchedule = Daily007LeaderboardRewardAmounts & ({
   currentPeriodStartsAt: Date | null;
   currentPeriodEndsAt: Date | null;
+  currentPeriodStatus: Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus;
+  latestPeriodStatus: Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus;
+  canStartNextCycle: boolean;
 });

@@ -313,6 +313,17 @@ class MemoryLeaderboardDatabase {
       return Promise.resolve(rows<T>(period ? [this.periodRow(period)] : []));
     }
     if (
+      normalized.startsWith("SELECT id FROM daily007_v2_leaderboard_periods") &&
+      normalized.includes("WHERE cycle_type = $1 AND status = 'pending_approval'")
+    ) {
+      const period = [...this.periods.values()].find(
+        (candidate) =>
+          candidate.cycle_type === values[0] &&
+          candidate.status === "pending_approval",
+      );
+      return Promise.resolve(rows<T>(period ? [{ id: period.id }] : []));
+    }
+    if (
       normalized.startsWith("SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,") &&
       normalized.includes("FROM daily007_v2_leaderboard_periods") &&
       normalized.includes("WHERE id = $1")

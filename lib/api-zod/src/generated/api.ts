@@ -276,7 +276,10 @@ export const Daily007AdminGetLeaderboardRewardsResponse = zod.object({
   "thirdPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMax)
 }).and(zod.object({
   "currentPeriodStartsAt": zod.coerce.date().nullable(),
-  "currentPeriodEndsAt": zod.coerce.date().nullable()
+  "currentPeriodEndsAt": zod.coerce.date().nullable(),
+  "currentPeriodStatus": zod.enum(['active', 'pending_activation']).nullable(),
+  "latestPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']).nullable(),
+  "canStartNextCycle": zod.boolean()
 })),
   "monthly": zod.object({
   "firstPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMax),
@@ -284,14 +287,17 @@ export const Daily007AdminGetLeaderboardRewardsResponse = zod.object({
   "thirdPlaceCoins": zod.number().int().min(daily007AdminGetLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMin).max(daily007AdminGetLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMax)
 }).and(zod.object({
   "currentPeriodStartsAt": zod.coerce.date().nullable(),
-  "currentPeriodEndsAt": zod.coerce.date().nullable()
+  "currentPeriodEndsAt": zod.coerce.date().nullable(),
+  "currentPeriodStatus": zod.enum(['active', 'pending_activation']).nullable(),
+  "latestPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']).nullable(),
+  "canStartNextCycle": zod.boolean()
 }))
 })
 
 
 /**
- * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. At cycle end, standings and rewards are snapshotted and await Full Admin approval before wallet credits.
- * @summary Set top-three weekly and monthly reward amounts
+ * Full Admin only. Updates only the weekly or monthly cycle included in the request; values do not carry forward automatically. Ended-cycle payout snapshots cannot be changed.
+ * @summary Update rewards for an open or already scheduled cycle
  */
 export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMin = 0;
 export const daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMax = 2147483647;
@@ -318,12 +324,12 @@ export const Daily007AdminUpdateLeaderboardRewardsBody = zod.object({
   "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyWeeklyFirstPlaceCoinsMax),
   "secondPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyWeeklySecondPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyWeeklySecondPlaceCoinsMax),
   "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyWeeklyThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyWeeklyThirdPlaceCoinsMax)
-}),
+}).optional(),
   "monthly": zod.object({
   "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyMonthlyFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyMonthlyFirstPlaceCoinsMax),
   "secondPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyMonthlySecondPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyMonthlySecondPlaceCoinsMax),
   "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsBodyMonthlyThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsBodyMonthlyThirdPlaceCoinsMax)
-})
+}).optional()
 })
 
 export const daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneFirstPlaceCoinsMin = 0;
@@ -353,7 +359,10 @@ export const Daily007AdminUpdateLeaderboardRewardsResponse = zod.object({
   "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseWeeklyOneThirdPlaceCoinsMax)
 }).and(zod.object({
   "currentPeriodStartsAt": zod.coerce.date().nullable(),
-  "currentPeriodEndsAt": zod.coerce.date().nullable()
+  "currentPeriodEndsAt": zod.coerce.date().nullable(),
+  "currentPeriodStatus": zod.enum(['active', 'pending_activation']).nullable(),
+  "latestPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']).nullable(),
+  "canStartNextCycle": zod.boolean()
 })),
   "monthly": zod.object({
   "firstPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneFirstPlaceCoinsMax),
@@ -361,7 +370,80 @@ export const Daily007AdminUpdateLeaderboardRewardsResponse = zod.object({
   "thirdPlaceCoins": zod.number().int().min(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMin).max(daily007AdminUpdateLeaderboardRewardsResponseMonthlyOneThirdPlaceCoinsMax)
 }).and(zod.object({
   "currentPeriodStartsAt": zod.coerce.date().nullable(),
-  "currentPeriodEndsAt": zod.coerce.date().nullable()
+  "currentPeriodEndsAt": zod.coerce.date().nullable(),
+  "currentPeriodStatus": zod.enum(['active', 'pending_activation']).nullable(),
+  "latestPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']).nullable(),
+  "canStartNextCycle": zod.boolean()
+}))
+})
+
+
+/**
+ * Full Admin only. Requires all completed cycles of this type to be approved. The new cycle is scheduled for the next IST calendar boundary and activates then; reward values are not carried forward.
+ * @summary Set fresh prizes and schedule the next leaderboard cycle
+ */
+export const daily007AdminStartLeaderboardCycleBodyRewardsFirstPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleBodyRewardsFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleBodyRewardsSecondPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleBodyRewardsSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleBodyRewardsThirdPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleBodyRewardsThirdPlaceCoinsMax = 2147483647;
+
+
+
+export const Daily007AdminStartLeaderboardCycleBody = zod.object({
+  "cycleType": zod.enum(['weekly', 'monthly']),
+  "rewards": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleBodyRewardsFirstPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleBodyRewardsFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleBodyRewardsSecondPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleBodyRewardsSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleBodyRewardsThirdPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleBodyRewardsThirdPlaceCoinsMax)
+})
+})
+
+export const daily007AdminStartLeaderboardCycleResponseWeeklyOneFirstPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleResponseWeeklyOneFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleResponseWeeklyOneSecondPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleResponseWeeklyOneSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleResponseWeeklyOneThirdPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleResponseWeeklyOneThirdPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleResponseMonthlyOneFirstPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleResponseMonthlyOneFirstPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleResponseMonthlyOneSecondPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleResponseMonthlyOneSecondPlaceCoinsMax = 2147483647;
+
+export const daily007AdminStartLeaderboardCycleResponseMonthlyOneThirdPlaceCoinsMin = 0;
+export const daily007AdminStartLeaderboardCycleResponseMonthlyOneThirdPlaceCoinsMax = 2147483647;
+
+
+
+export const Daily007AdminStartLeaderboardCycleResponse = zod.object({
+  "weekly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleResponseWeeklyOneFirstPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleResponseWeeklyOneFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleResponseWeeklyOneSecondPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleResponseWeeklyOneSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleResponseWeeklyOneThirdPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleResponseWeeklyOneThirdPlaceCoinsMax)
+}).and(zod.object({
+  "currentPeriodStartsAt": zod.coerce.date().nullable(),
+  "currentPeriodEndsAt": zod.coerce.date().nullable(),
+  "currentPeriodStatus": zod.enum(['active', 'pending_activation']).nullable(),
+  "latestPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']).nullable(),
+  "canStartNextCycle": zod.boolean()
+})),
+  "monthly": zod.object({
+  "firstPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleResponseMonthlyOneFirstPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleResponseMonthlyOneFirstPlaceCoinsMax),
+  "secondPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleResponseMonthlyOneSecondPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleResponseMonthlyOneSecondPlaceCoinsMax),
+  "thirdPlaceCoins": zod.number().int().min(daily007AdminStartLeaderboardCycleResponseMonthlyOneThirdPlaceCoinsMin).max(daily007AdminStartLeaderboardCycleResponseMonthlyOneThirdPlaceCoinsMax)
+}).and(zod.object({
+  "currentPeriodStartsAt": zod.coerce.date().nullable(),
+  "currentPeriodEndsAt": zod.coerce.date().nullable(),
+  "currentPeriodStatus": zod.enum(['active', 'pending_activation']).nullable(),
+  "latestPeriodStatus": zod.enum(['active', 'pending_approval', 'pending_activation', 'finalized']).nullable(),
+  "canStartNextCycle": zod.boolean()
 }))
 })
 

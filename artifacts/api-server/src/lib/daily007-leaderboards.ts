@@ -4,7 +4,7 @@ import {
   leaderboardPeriodWindow,
   leaderboardRewardDescription,
   leaderboardRewardRecipients,
-  nextLeaderboardPeriodWindow,
+  nextAdminStartedLeaderboardWindow,
   parseSafeInteger,
   rankLeaderboardStandings,
   type LeaderboardCycleType,
@@ -17,7 +17,6 @@ const CYCLE_TYPES: LeaderboardCycleType[] = ["weekly", "monthly"];
 const MAX_INT = 2_147_483_647;
 const LOCK_NAME = "daily007-leaderboard-periods";
 const SCHEDULER_INTERVAL_MS = 60_000;
-const MAX_PERIOD_CATCHUP = 600;
 
 type QueryResult<T> = { rows: T[] };
 type Queryable = {
@@ -49,11 +48,6 @@ type RewardAmounts = {
   firstPlaceCoins: number;
   secondPlaceCoins: number;
   thirdPlaceCoins: number;
-};
-
-type PeriodRangeRow = {
-  starts_at: Date | string;
-  ends_at: Date | string;
 };
 
 type RawStanding = {
@@ -120,6 +114,21 @@ async function newestPeriod(
     [cycleType],
   );
   return result.rows[0] ?? null;
+}
+
+async function hasPendingApproval(
+  client: Queryable,
+  cycleType: LeaderboardCycleType,
+): Promise<boolean> {
+  const result = await client.query<{ id: string }>(
+    `SELECT id
+       FROM daily007_v2_leaderboard_periods
+      WHERE cycle_type = $1 AND status = 'pending_approval'
+      LIMIT 1
+      FOR UPDATE`,
+    [cycleType],
+  );
+  return result.rows.length > 0;
 }
 
 async function insertPeriod(
@@ -204,129 +213,44 @@ async function rewardSettingsForCycle(
   });
 }
 
-async function nextPeriodFor(
-  client: Queryable,
-  previous: PeriodRow,
-): Promise<PeriodRow> {
-  const existing = await client.query<PeriodRow>(
-    `SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,
-            final_standings, payout_configuration
-       FROM daily007_v2_leaderboard_periods
-      WHERE previous_period_id = $1
-      FOR UPDATE`,
-    [previous.id],
-  );
-  if (existing.rows[0]) return existing.rows[0];
-
-  const bounds = nextLeaderboardPeriodWindow(
-    previous.cycle_type,
-    asDate(previous.ends_at),
-  );
-  await insertPeriod(
-    client,
-    previous.cycle_type,
-    bounds.startsAt,
-    bounds.endsAt,
-    "active",
-    previous.id,
-  );
-  const created = await client.query<PeriodRow>(
-    `SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,
-            final_standings, payout_configuration
-       FROM daily007_v2_leaderboard_periods
-      WHERE previous_period_id = $1`,
-    [previous.id],
-  );
-  const next = created.rows[0];
-  if (!next) {
-    throw new Error("Could not create the next leaderboard period.");
-  }
-  return next;
-}
-
 async function reconcileCycle(
   client: SqlClient,
   cycleType: LeaderboardCycleType,
   now: Date,
 ): Promise<void> {
   const nowMs = now.getTime();
-  for (let step = 0; step < MAX_PERIOD_CATCHUP; step += 1) {
-    let period = await newestPeriod(client, cycleType);
-    if (!period) {
-      const current = leaderboardPeriodWindow(cycleType, now);
-      await insertPeriod(client, cycleType, current.startsAt, current.endsAt, "active", null);
-      return;
-    }
-
-    if (period.status === "finalized") {
-      period = await nextPeriodFor(client, period);
-      if (period.status !== "active") {
-        await client.query(
-          `UPDATE daily007_v2_leaderboard_periods
-              SET status = 'active'
-            WHERE id = $1 AND status <> 'finalized'`,
-          [period.id],
-        );
-      }
-      continue;
-    }
-
-    const endsAt = asDate(period.ends_at);
-
-    if (period.status === "pending_activation" && period.previous_period_id) {
-      const previousResult = await client.query<PeriodRow>(
-        `SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,
-                final_standings, payout_configuration
-           FROM daily007_v2_leaderboard_periods
-          WHERE id = $1
-          FOR UPDATE`,
-        [period.previous_period_id],
-      );
-      const previous = previousResult.rows[0];
-      if (previous && previous.status !== "finalized") {
-        if (asDate(previous.ends_at).getTime() > nowMs) return;
-        if (previous.status !== "pending_approval") {
-          await prepareEndedPeriod(client, previous, now);
-        }
-      }
-      await client.query(
-        `UPDATE daily007_v2_leaderboard_periods
-            SET status = 'active'
-          WHERE id = $1 AND status = 'pending_activation'`,
-        [period.id],
-      );
-      period = { ...period, status: "active" };
-    }
-
-    if (period.status === "pending_approval") {
-      if (nowMs < endsAt.getTime()) return;
-      const next = await nextPeriodFor(client, period);
-      if (next.status !== "active") {
-        await client.query(
-          `UPDATE daily007_v2_leaderboard_periods
-              SET status = 'active'
-            WHERE id = $1 AND status <> 'finalized'`,
-          [next.id],
-        );
-      }
-      return;
-    }
-
-    if (nowMs < endsAt.getTime()) return;
-    const awaitingApproval = await prepareEndedPeriod(client, period, now);
-    const next = await nextPeriodFor(client, awaitingApproval);
-    if (next.status !== "active") {
-      await client.query(
-        `UPDATE daily007_v2_leaderboard_periods
-            SET status = 'active'
-          WHERE id = $1 AND status <> 'finalized'`,
-        [next.id],
-      );
-    }
+  const period = await newestPeriod(client, cycleType);
+  if (!period) {
+    const current = leaderboardPeriodWindow(cycleType, now);
+    await insertPeriod(client, cycleType, current.startsAt, current.endsAt, "active", null);
     return;
   }
 
-  throw new Error(`Leaderboard ${cycleType} cycle catch-up exceeded its safety limit.`);
+  if (period.status === "finalized") return;
+
+  if (period.status === "pending_activation") {
+    if (nowMs < asDate(period.starts_at).getTime() || !period.previous_period_id) return;
+    const previousResult = await client.query<PeriodRow>(
+      `SELECT id, cycle_type, starts_at, ends_at, status, previous_period_id,
+              final_standings, payout_configuration
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = $1
+        FOR UPDATE`,
+      [period.previous_period_id],
+    );
+    if (previousResult.rows[0]?.status !== "finalized") return;
+    await client.query(
+      `UPDATE daily007_v2_leaderboard_periods
+          SET status = 'active'
+        WHERE id = $1 AND status = 'pending_activation'`,
+      [period.id],
+    );
+    return;
+  }
+
+  if (period.status === "pending_approval") return;
+  if (nowMs < asDate(period.ends_at).getTime()) return;
+  await prepareEndedPeriod(client, period, now);
 }
 
 export async function reconcileDaily007LeaderboardPeriods(now = new Date()): Promise<void> {
@@ -682,6 +606,9 @@ async function rewardScheduleView(
 ): Promise<RewardAmounts & {
   currentPeriodStartsAt: string | null;
   currentPeriodEndsAt: string | null;
+  currentPeriodStatus: "active" | "pending_activation" | null;
+  latestPeriodStatus: LeaderboardPeriodStatus | null;
+  canStartNextCycle: boolean;
 }> {
   const settingsResult = await client.query<RewardSettingsRow>(
     `SELECT cycle_type, first_place_coins, second_place_coins, third_place_coins
@@ -692,23 +619,24 @@ async function rewardScheduleView(
   const settings = settingsResult.rows[0];
   if (!settings) throw new Error(`Missing ${cycleType} leaderboard reward settings.`);
 
-  const periodResult = await client.query<PeriodRangeRow>(
-    `SELECT starts_at, ends_at
-       FROM daily007_v2_leaderboard_periods
-      WHERE cycle_type = $1
-        AND status <> 'finalized'
-        AND ends_at > now()
-      ORDER BY starts_at DESC
-      LIMIT 1`,
-    [cycleType],
-  );
-  const currentPeriod = periodResult.rows[0];
+  const latest = await newestPeriod(client, cycleType);
+  const pendingApproval = await hasPendingApproval(client, cycleType);
+  const currentPeriod = latest &&
+    (latest.status === "active" || latest.status === "pending_activation")
+    ? latest
+    : null;
   return {
     firstPlaceCoins: settings.first_place_coins,
     secondPlaceCoins: settings.second_place_coins,
     thirdPlaceCoins: settings.third_place_coins,
     currentPeriodStartsAt: currentPeriod ? asDate(currentPeriod.starts_at).toISOString() : null,
     currentPeriodEndsAt: currentPeriod ? asDate(currentPeriod.ends_at).toISOString() : null,
+    currentPeriodStatus: currentPeriod?.status === "active" ||
+      currentPeriod?.status === "pending_activation"
+      ? currentPeriod.status
+      : null,
+    latestPeriodStatus: latest?.status ?? null,
+    canStartNextCycle: latest?.status === "finalized" && !pendingApproval,
   };
 }
 
@@ -722,18 +650,20 @@ async function leaderboardRewardSettingsView(client: Queryable) {
 }
 
 export async function getDaily007LeaderboardRewardSettings() {
+  await reconcileDaily007LeaderboardPeriods();
   return transaction(leaderboardRewardSettingsView);
 }
 
 export async function updateDaily007LeaderboardRewardSettings(
   adminId: string,
-  settings: { weekly: RewardAmounts; monthly: RewardAmounts },
+  settings: Partial<Record<LeaderboardCycleType, RewardAmounts>>,
 ) {
   return transaction(async (client) => {
     await ensureRewardSettings(client);
     const now = new Date();
     for (const cycleType of CYCLE_TYPES) {
       const amounts = settings[cycleType];
+      if (!amounts) continue;
       const values = [
         amounts.firstPlaceCoins,
         amounts.secondPlaceCoins,
@@ -766,11 +696,77 @@ export async function updateDaily007LeaderboardRewardSettings(
         `UPDATE daily007_v2_leaderboard_periods
             SET payout_configuration = $2::jsonb
           WHERE cycle_type = $1
-            AND status IN ('active', 'pending_activation', 'pending_approval')
+            AND status IN ('active', 'pending_activation')
             AND ends_at > $3`,
         [cycleType, JSON.stringify(rewards), now.toISOString()],
       );
     }
+    return leaderboardRewardSettingsView(client);
+  });
+}
+
+export async function scheduleDaily007LeaderboardPeriod(
+  adminId: string,
+  cycleType: LeaderboardCycleType,
+  amounts: RewardAmounts,
+  startedAt = new Date(),
+) {
+  if (!Number.isFinite(startedAt.getTime())) {
+    throw new RangeError("Leaderboard schedule date must be valid.");
+  }
+  const values = [
+    amounts.firstPlaceCoins,
+    amounts.secondPlaceCoins,
+    amounts.thirdPlaceCoins,
+  ];
+  if (values.some((coins) =>
+    !Number.isSafeInteger(coins) || coins < 0 || coins > MAX_INT
+  )) {
+    throw Object.assign(
+      new Error("Reward amounts must be nonnegative whole numbers within the wallet limit."),
+      { status: 400 },
+    );
+  }
+
+  await reconcileDaily007LeaderboardPeriods(startedAt);
+  return transaction(async (client) => {
+    await ensureRewardSettings(client);
+    const latest = await newestPeriod(client, cycleType);
+    if (await hasPendingApproval(client, cycleType)) {
+      throw Object.assign(
+        new Error("Approve all completed periods before scheduling the next cycle."),
+        { status: 409 },
+      );
+    }
+    if (!latest || latest.status !== "finalized") {
+      throw Object.assign(
+        new Error("The latest cycle must be approved before scheduling a new one."),
+        { status: 409 },
+      );
+    }
+
+    const window = nextAdminStartedLeaderboardWindow(cycleType, startedAt);
+    await client.query(
+      `INSERT INTO daily007_v2_leaderboard_reward_settings
+         (cycle_type, first_place_coins, second_place_coins, third_place_coins,
+          updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (cycle_type) DO UPDATE SET
+         first_place_coins = EXCLUDED.first_place_coins,
+         second_place_coins = EXCLUDED.second_place_coins,
+         third_place_coins = EXCLUDED.third_place_coins,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = EXCLUDED.updated_at`,
+      [cycleType, ...values, adminId, startedAt.toISOString()],
+    );
+    await insertPeriod(
+      client,
+      cycleType,
+      window.startsAt,
+      window.endsAt,
+      "pending_activation",
+      latest.id,
+    );
     return leaderboardRewardSettingsView(client);
   });
 }

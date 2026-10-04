@@ -5,8 +5,10 @@ import {
   getDaily007LeaderboardApprovals,
   getDaily007LeaderboardRewardSettings,
   getDaily007Leaderboards,
+  scheduleDaily007LeaderboardPeriod,
   updateDaily007LeaderboardRewardSettings,
 } from "../lib/daily007-leaderboards";
+import type { LeaderboardCycleType } from "../lib/daily007-leaderboard-core";
 
 const router: IRouter = Router();
 const MAX_INT = 2_147_483_647;
@@ -65,6 +67,58 @@ router.get(
 );
 
 router.post(
+  "/daily007/v2/admin/leaderboards/cycles/start",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireAdmin(req, res)) return;
+    const adminId = req.daily007Account?.id;
+    if (!adminId) {
+      error(res, 400, "A Full Admin account is required.");
+      return;
+    }
+
+    const body = req.body as unknown;
+    if (
+      !isObject(body) ||
+      (body.cycleType !== "weekly" && body.cycleType !== "monthly") ||
+      !isObject(body.rewards)
+    ) {
+      error(res, 400, "Provide a weekly or monthly cycle and its three reward amounts.");
+      return;
+    }
+    const cycleType = body.cycleType as LeaderboardCycleType;
+    const rewards = {
+      firstPlaceCoins: body.rewards.firstPlaceCoins,
+      secondPlaceCoins: body.rewards.secondPlaceCoins,
+      thirdPlaceCoins: body.rewards.thirdPlaceCoins,
+    };
+    for (const value of Object.values(rewards)) {
+      if (
+        typeof value !== "number" ||
+        !Number.isSafeInteger(value) ||
+        value < 0 ||
+        value > MAX_INT
+      ) {
+        error(res, 400, "Each reward must be a whole number of coins from 0 to 2147483647.");
+        return;
+      }
+    }
+
+    try {
+      res.status(201).json(
+        await scheduleDaily007LeaderboardPeriod(adminId, cycleType, rewards as {
+          firstPlaceCoins: number;
+          secondPlaceCoins: number;
+          thirdPlaceCoins: number;
+        }),
+      );
+    } catch (cause) {
+      respondFailure(res, cause);
+    }
+  },
+);
+
+router.post(
   "/daily007/v2/admin/leaderboards/periods/:periodId/approve",
   authenticate,
   async (req, res): Promise<void> => {
@@ -99,8 +153,8 @@ router.put(
     }
 
     const body = req.body as unknown;
-    if (!isObject(body) || !isObject(body.weekly) || !isObject(body.monthly)) {
-      error(res, 400, "Provide weekly and monthly reward amounts.");
+    if (!isObject(body) || (!isObject(body.weekly) && !isObject(body.monthly))) {
+      error(res, 400, "Provide reward amounts for at least one cycle.");
       return;
     }
 
@@ -109,15 +163,16 @@ router.put(
       secondPlaceCoins: number;
       thirdPlaceCoins: number;
     };
-    const schedules: {
-      weekly: RewardAmountsInput;
-      monthly: RewardAmountsInput;
-    } = {
-      weekly: { firstPlaceCoins: 0, secondPlaceCoins: 0, thirdPlaceCoins: 0 },
-      monthly: { firstPlaceCoins: 0, secondPlaceCoins: 0, thirdPlaceCoins: 0 },
-    };
+    const schedules: Partial<Record<LeaderboardCycleType, RewardAmountsInput>> = {};
     for (const cycleType of ["weekly", "monthly"] as const) {
+      if (!isObject(body[cycleType])) continue;
       const schedule = body[cycleType] as Record<string, unknown>;
+      const amounts = {
+        firstPlaceCoins: 0,
+        secondPlaceCoins: 0,
+        thirdPlaceCoins: 0,
+      };
+      let valid = true;
       for (const key of REWARD_KEYS) {
         const value = schedule[key];
         if (
@@ -127,10 +182,13 @@ router.put(
           value > MAX_INT
         ) {
           error(res, 400, "Each reward must be a whole number of coins from 0 to 2147483647.");
-          return;
+          valid = false;
+          break;
         }
-        schedules[cycleType][key] = value;
+        amounts[key] = value;
       }
+      if (!valid) return;
+      schedules[cycleType] = amounts;
     }
 
     try {

@@ -4,6 +4,7 @@ import express from "express";
 import type { Server } from "node:http";
 import {
   leaderboardPeriodWindow,
+  nextAdminStartedLeaderboardWindow,
   type LeaderboardCycleType,
 } from "../src/lib/daily007-leaderboard-core";
 import {
@@ -99,7 +100,7 @@ function period(
   cycleType: LeaderboardCycleType,
   startsAt: Date,
   endsAt: Date,
-  status: "active" | "pending_approval",
+  status: "active" | "pending_approval" | "pending_activation" | "finalized",
   standings: StandingSeed[] = [],
   rewards: RewardSeed[] = [],
   previousPeriodId: string | null = null,
@@ -385,7 +386,7 @@ test("ended weekly and monthly cycles snapshot standings and wait for approval w
     const next = [...daily007LeaderboardTestDb.periods.values()].find(
       (candidate) => candidate.previous_period_id === previous.id,
     );
-    assert.equal(next?.status, "active");
+    assert.equal(next, undefined, "an ended cycle must not create its successor automatically");
   }
   assert.equal(daily007LeaderboardTestDb.users.get(TEST_PLAYER_ONE_ID)?.wallet_coins, 100);
   assert.equal(daily007LeaderboardTestDb.ledger.size, 0);
@@ -486,6 +487,13 @@ test("Full Admin approval pays only configured ranks once and rolls back a faile
     assert.equal(
       daily007LeaderboardTestDb.periods.get(TEST_WEEKLY_PERIOD_ID)?.approved_by,
       TEST_FULL_ADMIN_ID,
+    );
+    assert.equal(
+      [...daily007LeaderboardTestDb.periods.values()].some(
+        (candidate) => candidate.previous_period_id === TEST_WEEKLY_PERIOD_ID,
+      ),
+      false,
+      "approving payout must not start the next cycle automatically",
     );
 
     const repeatedApproval = await call(
@@ -596,7 +604,7 @@ test("Full Admin prize saves reach the player API immediately and remain availab
   }
 });
 
-test("new weekly and monthly periods use the latest saved Full Admin prizes", async () => {
+test("Full Admin must approve ended cycles and schedule fresh prizes before the next cycles start", async () => {
   daily007LeaderboardTestDb.reset();
   const now = new Date();
   const previousPeriodIds = {
@@ -628,7 +636,7 @@ test("new weekly and monthly periods use the latest saved Full Admin prizes", as
       previousWindow.startsAt,
       previousWindow.endsAt,
       "pending_approval",
-      [],
+      cycleType === "weekly" ? weeklySnapshot : monthlySnapshot,
       originalRewards[cycleType],
     );
   }
@@ -650,14 +658,37 @@ test("new weekly and monthly periods use the latest saved Full Admin prizes", as
 
   try {
     await withServer(async (origin) => {
-      const adminSave = await call(
+      const earlyStart = await call(
         origin,
         TEST_FULL_ADMIN_ID,
-        "/daily007/v2/admin/leaderboards/rewards",
-        "PUT",
-        savedRewards,
+        "/daily007/v2/admin/leaderboards/cycles/start",
+        "POST",
+        { cycleType: "weekly", rewards: savedRewards.weekly },
       );
-      assert.equal(adminSave.status, 200);
+      assert.equal(earlyStart.status, 409, "a pending payout must be approved first");
+
+      const tournamentAdminStart = await call(
+        origin,
+        TEST_TOURNAMENT_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/cycles/start",
+        "POST",
+        { cycleType: "weekly", rewards: savedRewards.weekly },
+      );
+      assert.equal(tournamentAdminStart.status, 403);
+
+      for (const cycleType of ["weekly", "monthly"] as const) {
+        const approval = await call(
+          origin,
+          TEST_FULL_ADMIN_ID,
+          `/daily007/v2/admin/leaderboards/periods/${previousPeriodIds[cycleType]}/approve`,
+          "POST",
+        );
+        assert.equal(approval.status, 200);
+        assert.equal(
+          daily007LeaderboardTestDb.periods.get(previousPeriodIds[cycleType])?.status,
+          "finalized",
+        );
+      }
 
       const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
       assert.equal(playerRead.status, 200);
@@ -678,27 +709,115 @@ test("new weekly and monthly periods use the latest saved Full Admin prizes", as
         };
       };
 
+      assert.equal(
+        [...daily007LeaderboardTestDb.periods.values()].some(
+          (candidate) => Object.values(previousPeriodIds).includes(candidate.previous_period_id ?? ""),
+        ),
+        false,
+        "payout approval must leave the new cycle unscheduled",
+      );
+
       for (const [cycleType, expectedRewards] of [
         ["weekly", expectedWeekly],
         ["monthly", expectedMonthly],
       ] as const) {
         const previousId = previousPeriodIds[cycleType];
         const previous = daily007LeaderboardTestDb.periods.get(previousId);
-        const createdPeriod = [...daily007LeaderboardTestDb.periods.values()].find(
-          (candidate) => candidate.previous_period_id === previousId,
-        );
         const playerPeriod = playerView[cycleType];
 
         assert.ok(previous, `${cycleType} previous period should remain in the in-memory fixture`);
         assert.deepEqual(previous.payout_configuration, originalRewards[cycleType]);
-        assert.ok(createdPeriod, `${cycleType} next period should be created`);
-        assert.equal(createdPeriod.cycle_type, cycleType);
-        assert.equal(createdPeriod.status, "active");
-        assert.deepEqual(createdPeriod.payout_configuration, expectedRewards);
-        assert.equal(playerPeriod.id, createdPeriod.id);
+        assert.equal(playerPeriod.id, previousId);
         assert.equal(playerPeriod.cycleType, cycleType);
-        assert.equal(playerPeriod.status, "active");
-        assert.deepEqual(playerPeriod.rewards, expectedRewards);
+        assert.equal(playerPeriod.status, "finalized");
+      }
+
+      const starts: Date[] = [];
+      for (const [cycleType, expectedRewards] of [
+        ["weekly", expectedWeekly],
+        ["monthly", expectedMonthly],
+      ] as const) {
+        const cycleRewards = cycleType === "weekly" ? savedRewards.weekly : savedRewards.monthly;
+        const schedulingAt = new Date();
+        const expectedWindow = nextAdminStartedLeaderboardWindow(cycleType, schedulingAt);
+        const start = await call(
+          origin,
+          TEST_FULL_ADMIN_ID,
+          "/daily007/v2/admin/leaderboards/cycles/start",
+          "POST",
+          { cycleType, rewards: cycleRewards },
+        );
+        assert.equal(start.status, 201);
+        assert.equal(start.body[cycleType].currentPeriodStatus, "pending_activation");
+        assert.equal(start.body[cycleType].canStartNextCycle, false);
+
+        const scheduled = [...daily007LeaderboardTestDb.periods.values()].find(
+          (candidate) => candidate.previous_period_id === previousPeriodIds[cycleType],
+        );
+        assert.ok(scheduled, `${cycleType} cycle should be scheduled`);
+        assert.equal(scheduled.status, "pending_activation");
+        assert.equal(scheduled.cycle_type, cycleType);
+        assert.deepEqual(scheduled.payout_configuration, expectedRewards);
+        assert.equal(scheduled.starts_at.toISOString(), expectedWindow.startsAt.toISOString());
+        assert.equal(scheduled.ends_at.toISOString(), expectedWindow.endsAt.toISOString());
+        starts.push(scheduled.starts_at);
+
+        const repeatedStart = await call(
+          origin,
+          TEST_FULL_ADMIN_ID,
+          "/daily007/v2/admin/leaderboards/cycles/start",
+          "POST",
+          { cycleType, rewards: cycleRewards },
+        );
+        assert.equal(repeatedStart.status, 409, "a cycle cannot be scheduled twice");
+      }
+
+      const scheduledPlayerView = await fetch(`${origin}/daily007/v2/leaderboards`).then((response) => response.json()) as {
+        weekly: { status: string; rewards: RewardSeed[] };
+        monthly: { status: string; rewards: RewardSeed[] };
+      };
+      assert.equal(scheduledPlayerView.weekly.status, "pending_activation");
+      assert.equal(scheduledPlayerView.monthly.status, "pending_activation");
+      assert.deepEqual(scheduledPlayerView.weekly.rewards, expectedWeekly);
+      assert.deepEqual(scheduledPlayerView.monthly.rewards, expectedMonthly);
+
+      const firstBoundary = starts.sort((left, right) => left.getTime() - right.getTime())[0];
+      assert.ok(firstBoundary);
+      await reconcileDaily007LeaderboardPeriods(new Date(firstBoundary.getTime() - 1));
+      assert.ok(
+        [...daily007LeaderboardTestDb.periods.values()]
+          .filter((candidate) => Object.values(previousPeriodIds).includes(candidate.previous_period_id ?? ""))
+          .every((candidate) => candidate.status === "pending_activation"),
+        "scheduled cycles must not activate before their IST boundary",
+      );
+
+      for (const boundary of starts) {
+        await reconcileDaily007LeaderboardPeriods(boundary);
+        for (const previousId of Object.values(previousPeriodIds)) {
+          const scheduled = [...daily007LeaderboardTestDb.periods.values()].find(
+            (candidate) => candidate.previous_period_id === previousId,
+          );
+          assert.ok(scheduled);
+          const expectedStatus = boundary.getTime() < scheduled.starts_at.getTime()
+            ? "pending_activation"
+            : boundary.getTime() < scheduled.ends_at.getTime()
+              ? "active"
+              : "pending_approval";
+          assert.equal(scheduled.status, expectedStatus);
+        }
+      }
+      for (const previousId of Object.values(previousPeriodIds)) {
+        const scheduled = [...daily007LeaderboardTestDb.periods.values()].find(
+          (candidate) => candidate.previous_period_id === previousId,
+        );
+        assert.ok(scheduled);
+        assert.equal(
+          [...daily007LeaderboardTestDb.periods.values()].some(
+            (candidate) => candidate.previous_period_id === scheduled.id,
+          ),
+          false,
+          "an ended scheduled cycle must not create a successor automatically",
+        );
       }
     });
   } finally {

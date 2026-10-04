@@ -5,6 +5,7 @@ import {
   useDaily007AdminApproveLeaderboardPeriod,
   useDaily007AdminGetLeaderboardApprovals,
   useDaily007AdminGetLeaderboardRewards,
+  useDaily007AdminStartLeaderboardCycle,
   useDaily007AdminUpdateLeaderboardRewards,
 } from "@workspace/api-client-react";
 import { ReadableText as Text } from "../components/typography";
@@ -29,6 +30,9 @@ type RewardAmounts = {
 type RewardSchedule = RewardAmounts & {
   currentPeriodStartsAt: string | null;
   currentPeriodEndsAt: string | null;
+  currentPeriodStatus: "active" | "pending_activation" | null;
+  latestPeriodStatus: "active" | "pending_approval" | "pending_activation" | "finalized" | null;
+  canStartNextCycle: boolean;
 };
 type RewardsResponse = { weekly: RewardSchedule; monthly: RewardSchedule };
 type LeaderboardStanding = {
@@ -64,9 +68,9 @@ type RewardDraft = Record<keyof RewardAmounts, string>;
 type Drafts = { weekly: RewardDraft; monthly: RewardDraft };
 
 const EMPTY_DRAFT: RewardDraft = {
-  firstPlaceCoins: "0",
-  secondPlaceCoins: "0",
-  thirdPlaceCoins: "0",
+  firstPlaceCoins: "",
+  secondPlaceCoins: "",
+  thirdPlaceCoins: "",
 };
 
 const PLACES: { key: keyof RewardAmounts; label: string }[] = [
@@ -92,17 +96,16 @@ function periodRange(startsAt: string | null, endsAt: string | null): string | n
 
 function toDraft(data?: RewardsResponse): Drafts {
   if (!data) return { weekly: { ...EMPTY_DRAFT }, monthly: { ...EMPTY_DRAFT } };
+  const draftFor = (schedule: RewardSchedule): RewardDraft => schedule.canStartNextCycle
+    ? { ...EMPTY_DRAFT }
+    : {
+        firstPlaceCoins: String(schedule.firstPlaceCoins),
+        secondPlaceCoins: String(schedule.secondPlaceCoins),
+        thirdPlaceCoins: String(schedule.thirdPlaceCoins),
+      };
   return {
-    weekly: {
-      firstPlaceCoins: String(data.weekly.firstPlaceCoins),
-      secondPlaceCoins: String(data.weekly.secondPlaceCoins),
-      thirdPlaceCoins: String(data.weekly.thirdPlaceCoins),
-    },
-    monthly: {
-      firstPlaceCoins: String(data.monthly.firstPlaceCoins),
-      secondPlaceCoins: String(data.monthly.secondPlaceCoins),
-      thirdPlaceCoins: String(data.monthly.thirdPlaceCoins),
-    },
+    weekly: draftFor(data.weekly),
+    monthly: draftFor(data.monthly),
   };
 }
 
@@ -113,11 +116,16 @@ export default function AdminLeaderboards() {
   const approvalsRef = useRef(approvalsQuery.refetch);
   const { mutateAsync: saveRewards, isPending: isSaving } =
     useDaily007AdminUpdateLeaderboardRewards();
+  const { mutateAsync: startLeaderboardCycle, isPending: isStarting } =
+    useDaily007AdminStartLeaderboardCycle();
   const { mutateAsync: approvePeriod, isPending: isApproving } =
     useDaily007AdminApproveLeaderboardPeriod();
   const toast = useToast();
   const [drafts, setDrafts] = useState<Drafts>(() => toDraft());
-  const [dirty, setDirty] = useState(false);
+  const [dirtyCycles, setDirtyCycles] = useState<Record<"weekly" | "monthly", boolean>>({
+    weekly: false,
+    monthly: false,
+  });
   const [error, setError] = useState("");
   const [confirmingPeriodId, setConfirmingPeriodId] = useState<string | null>(null);
   const [lastApproval, setLastApproval] = useState<ApprovalResult | null>(null);
@@ -141,16 +149,21 @@ export default function AdminLeaderboards() {
   }, []);
 
   useEffect(() => {
-    if (!data || dirty) return;
-    setDrafts(toDraft(data));
-  }, [data, dirty]);
+    if (!data) return;
+    const incoming = toDraft(data);
+    setDrafts((previous) => ({
+      weekly: dirtyCycles.weekly ? previous.weekly : incoming.weekly,
+      monthly: dirtyCycles.monthly ? previous.monthly : incoming.monthly,
+    }));
+  }, [data, dirtyCycles]);
 
   const updateAmount = (
     cycleType: "weekly" | "monthly",
     key: keyof RewardAmounts,
     value: string,
   ) => {
-    setDirty(true);
+    setError("");
+    setDirtyCycles((previous) => ({ ...previous, [cycleType]: true }));
     setDrafts((previous) => ({
       ...previous,
       [cycleType]: {
@@ -160,32 +173,72 @@ export default function AdminLeaderboards() {
     }));
   };
 
-  const save = async () => {
-    const payload = {
-      weekly: { firstPlaceCoins: 0, secondPlaceCoins: 0, thirdPlaceCoins: 0 },
-      monthly: { firstPlaceCoins: 0, secondPlaceCoins: 0, thirdPlaceCoins: 0 },
+  const parsedRewards = (cycleType: "weekly" | "monthly"): RewardAmounts | null => {
+    const amounts = {
+      firstPlaceCoins: 0,
+      secondPlaceCoins: 0,
+      thirdPlaceCoins: 0,
     };
-
-    for (const cycleType of ["weekly", "monthly"] as const) {
-      for (const { key } of PLACES) {
-        const raw = drafts[cycleType][key];
-        const coins = Number(raw);
-        if (!/^\d+$/.test(raw) || !Number.isSafeInteger(coins) || coins > 2_147_483_647) {
-          setError("Enter a whole coin amount from 0 to 2147483647 for every place.");
-          return;
-        }
-        payload[cycleType][key] = coins;
+    for (const { key } of PLACES) {
+      const raw = drafts[cycleType][key];
+      const coins = Number(raw);
+      if (!/^\d+$/.test(raw) || !Number.isSafeInteger(coins) || coins > 2_147_483_647) {
+        setError("Enter a whole coin amount from 0 to 2147483647 for every place.");
+        return null;
       }
+      amounts[key] = coins;
     }
+    return amounts;
+  };
 
+  const saveCycle = async (cycleType: "weekly" | "monthly") => {
+    const schedule = data?.[cycleType];
+    if (
+      !schedule ||
+      (schedule.currentPeriodStatus !== "active" &&
+        schedule.currentPeriodStatus !== "pending_activation")
+    ) return;
+    const rewards = parsedRewards(cycleType);
+    if (!rewards) return;
     setError("");
     try {
+      const payload = cycleType === "weekly" ? { weekly: rewards } : { monthly: rewards };
       await saveRewards({ data: payload });
       const refreshed = await rewardsQuery.refetch();
       const refreshedData = refreshed.data as unknown as RewardsResponse | undefined;
-      setDrafts(toDraft(refreshedData ?? data));
-      setDirty(false);
-      toast("Rewards saved for the open and future cycles.", "success");
+      setDrafts((previous) => ({
+        ...previous,
+        [cycleType]: toDraft(refreshedData ?? data)[cycleType],
+      }));
+      setDirtyCycles((previous) => ({ ...previous, [cycleType]: false }));
+      toast(`${cycleType} leaderboard rewards saved for this cycle.`, "success");
+    } catch (cause) {
+      setError(apiError(cause));
+    }
+  };
+
+  const startCycle = async (cycleType: "weekly" | "monthly") => {
+    if (!data?.[cycleType]?.canStartNextCycle) return;
+    const rewards = parsedRewards(cycleType);
+    if (!rewards) return;
+    setError("");
+    try {
+      await startLeaderboardCycle({ data: { cycleType, rewards } });
+      const refreshed = await rewardsQuery.refetch();
+      const refreshedData = refreshed.data as unknown as RewardsResponse | undefined;
+      setDrafts((previous) => ({
+        ...previous,
+        [cycleType]: toDraft(refreshedData ?? data)[cycleType],
+      }));
+      setDirtyCycles((previous) => ({ ...previous, [cycleType]: false }));
+      const range = periodRange(
+        refreshedData?.[cycleType].currentPeriodStartsAt ?? null,
+        refreshedData?.[cycleType].currentPeriodEndsAt ?? null,
+      );
+      toast(
+        `${cycleType} cycle scheduled${range ? ` for ${range}` : " for the next IST boundary"}.`,
+        "success",
+      );
     } catch (cause) {
       setError(apiError(cause));
     }
@@ -198,7 +251,16 @@ export default function AdminLeaderboards() {
       const approval = result as unknown as ApprovalResult;
       setLastApproval(approval);
       setConfirmingPeriodId(null);
-      await approvalsQuery.refetch();
+      const [, refreshedRewards] = await Promise.all([
+        approvalsQuery.refetch(),
+        rewardsQuery.refetch(),
+      ]);
+      const refreshedData = refreshedRewards.data as unknown as RewardsResponse | undefined;
+      setDrafts((previous) => ({
+        ...previous,
+        [approval.cycleType]: toDraft(refreshedData ?? data)[approval.cycleType],
+      }));
+      setDirtyCycles((previous) => ({ ...previous, [approval.cycleType]: false }));
       toast(
         approval.alreadyApproved
           ? "This cycle was already approved; no additional coins were credited."
@@ -217,7 +279,7 @@ export default function AdminLeaderboards() {
     }}>
       <SectionTitle
         title="Leaderboard rewards"
-        sub="Full Admin only · set rewards and approve completed cycles"
+        sub="Full Admin only · approve payouts, set fresh prizes, and schedule each cycle"
         icon="award"
       />
 
@@ -358,12 +420,32 @@ export default function AdminLeaderboards() {
             </Card>
           ) : null}
 
-          {(["weekly", "monthly"] as const).map((cycleType) => {
+           {(["weekly", "monthly"] as const).map((cycleType) => {
             const schedule = data?.[cycleType];
+             const isActive = schedule?.currentPeriodStatus === "active";
+             const isScheduled = schedule?.currentPeriodStatus === "pending_activation";
+             const canStart = schedule?.canStartNextCycle === true;
+             const canEdit = isActive || isScheduled || canStart;
             const currentRange = periodRange(
               schedule?.currentPeriodStartsAt ?? null,
               schedule?.currentPeriodEndsAt ?? null,
             );
+             const rangeLabel = isActive && currentRange
+               ? `Open cycle · ${currentRange}`
+               : isScheduled && currentRange
+                 ? `Scheduled · ${currentRange}`
+                 : canStart
+                   ? "Ready for fresh prizes"
+                   : schedule?.latestPeriodStatus === "pending_approval"
+                     ? "Awaiting payout approval"
+                     : "No cycle scheduled";
+             const statusLabel = isActive
+               ? "LIVE"
+               : isScheduled
+                 ? "SCHEDULED"
+                 : canStart
+                   ? "READY"
+                   : "WAITING";
           return (
             <Card key={cycleType} style={styles.periodCard}>
               <View style={styles.periodHeader}>
@@ -374,17 +456,23 @@ export default function AdminLeaderboards() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cycleName}>{cycleType.toUpperCase()} REWARDS</Text>
                     <Text style={styles.periodDates}>
-                      {currentRange ? `Open cycle · ${currentRange}` : "Applies to the next cycle"}
+                      {rangeLabel}
                     </Text>
                   </View>
                 </View>
                 <View style={styles.activeTag}>
-                  <Text style={styles.activeTagText}>{currentRange ? "LIVE" : "NEXT"}</Text>
+                  <Text style={styles.activeTagText}>{statusLabel}</Text>
                 </View>
               </View>
 
               <Text style={styles.explanation}>
-                Configure rewards before this cycle ends. Changes apply to its open period and carry forward to future {cycleType} periods. At cycle end, standings are locked and rewards wait for Full Admin approval.
+                {isActive
+                  ? "Changes apply only to this open cycle. At expiry, standings and rewards lock for Full Admin approval; the next cycle will not start automatically."
+                  : isScheduled
+                    ? "This cycle is scheduled for the next IST calendar boundary. You can adjust its rewards before it activates."
+                    : canStart
+                      ? `Enter fresh prizes for ranks 1–3. Scheduling starts the ${cycleType} cycle at the next IST calendar boundary (${cycleType === "weekly" ? "Monday" : "the 1st"}).`
+                      : "Approve all completed payouts above before setting fresh prizes and scheduling the next cycle."}
               </Text>
 
               <View style={styles.rewardFields}>
@@ -397,24 +485,33 @@ export default function AdminLeaderboards() {
                       placeholder="0"
                       keyboardType="number-pad"
                       maxLength={10}
+                      editable={canEdit}
                       accessibilityLabel={`${cycleType} ${label.toLowerCase()} reward coins`}
                     />
                   </View>
                 ))}
               </View>
               <Text style={styles.payoutHint}>Enter 0 to disable a place reward.</Text>
+              {canStart ? (
+                <Btn
+                  title={`SCHEDULE NEXT ${cycleType.toUpperCase()} CYCLE`}
+                  onPress={() => void startCycle(cycleType)}
+                  disabled={!dirtyCycles[cycleType] || isStarting || isSaving}
+                  loading={isStarting}
+                  kind="gold"
+                />
+              ) : isActive || isScheduled ? (
+                <Btn
+                  title={`SAVE ${cycleType.toUpperCase()} REWARDS`}
+                  onPress={() => void saveCycle(cycleType)}
+                  disabled={!dirtyCycles[cycleType] || isSaving || isStarting}
+                  loading={isSaving}
+                  kind="gold"
+                />
+              ) : null}
             </Card>
           );
           })}
-          <View style={styles.saveButton}>
-            <Btn
-              title="SAVE REWARD SETTINGS"
-              onPress={() => void save()}
-              disabled={!dirty || isSaving}
-              loading={isSaving}
-              kind="gold"
-            />
-          </View>
         </>
       )}
     </ScreenWrap>

@@ -213,15 +213,15 @@ paths:
       security: [{ bearerAuth: [] }]
       responses:
         "200":
-          description: Reward amounts and the active cycle date ranges
+          description: Reward amounts, cycle status, and whether the next cycle can be scheduled
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007AdminLeaderboardRewardsResponse" }
         "403": { description: Full Admin required }
     put:
       operationId: daily007AdminUpdateLeaderboardRewards
-      summary: Set top-three weekly and monthly reward amounts
-      description: Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. At cycle end, standings and rewards are snapshotted and await Full Admin approval before wallet credits.
+      summary: Update rewards for an open or already scheduled cycle
+      description: Full Admin only. Updates only the weekly or monthly cycle included in the request; values do not carry forward automatically. Ended-cycle payout snapshots cannot be changed.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -230,12 +230,32 @@ paths:
             schema: { $ref: "#/components/schemas/Daily007AdminUpdateLeaderboardRewardsBody" }
       responses:
         "200":
-          description: Saved weekly and monthly reward settings
+          description: Current weekly and monthly settings and lifecycle status
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007AdminLeaderboardRewardsResponse" }
         "400": { description: Reward values must be whole coin amounts from 0 to 2147483647 }
         "403": { description: Full Admin required }
+  /daily007/v2/admin/leaderboards/cycles/start:
+    post:
+      operationId: daily007AdminStartLeaderboardCycle
+      summary: Set fresh prizes and schedule the next leaderboard cycle
+      description: Full Admin only. Requires all completed cycles of this type to be approved. The new cycle is scheduled for the next IST calendar boundary and activates then; reward values are not carried forward.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminStartLeaderboardCycleBody" }
+      responses:
+        "201":
+          description: New cycle scheduled for its next IST calendar boundary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminLeaderboardRewardsResponse" }
+        "400": { description: Invalid cycle type or reward amount }
+        "403": { description: Full Admin required }
+        "409": { description: A previous cycle still needs approval or a cycle is already open or scheduled }
   /daily007/v2/admin/leaderboards/approvals:
     get:
       operationId: daily007AdminGetLeaderboardApprovals
@@ -1576,10 +1596,17 @@ components:
     Daily007AdminUpdateLeaderboardRewardsBody:
       type: object
       additionalProperties: false
+      minProperties: 1
       properties:
         weekly: { $ref: "#/components/schemas/Daily007LeaderboardRewardAmounts" }
         monthly: { $ref: "#/components/schemas/Daily007LeaderboardRewardAmounts" }
-      required: [weekly, monthly]
+    Daily007AdminStartLeaderboardCycleBody:
+      type: object
+      additionalProperties: false
+      properties:
+        cycleType: { type: string, enum: [weekly, monthly] }
+        rewards: { $ref: "#/components/schemas/Daily007LeaderboardRewardAmounts" }
+      required: [cycleType, rewards]
     Daily007AdminLeaderboardRewardSchedule:
       allOf:
         - { $ref: "#/components/schemas/Daily007LeaderboardRewardAmounts" }
@@ -1587,7 +1614,16 @@ components:
           properties:
             currentPeriodStartsAt: { type: string, format: date-time, nullable: true }
             currentPeriodEndsAt: { type: string, format: date-time, nullable: true }
-          required: [currentPeriodStartsAt, currentPeriodEndsAt]
+            currentPeriodStatus:
+              type: string
+              enum: [active, pending_activation]
+              nullable: true
+            latestPeriodStatus:
+              type: string
+              enum: [active, pending_approval, pending_activation, finalized]
+              nullable: true
+            canStartNextCycle: { type: boolean }
+          required: [currentPeriodStartsAt, currentPeriodEndsAt, currentPeriodStatus, latestPeriodStatus, canStartNextCycle]
     Daily007AdminLeaderboardRewardsResponse:
       type: object
       properties:

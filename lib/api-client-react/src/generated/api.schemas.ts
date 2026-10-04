@@ -875,13 +875,47 @@ export interface Daily007LeaderboardRewardAmounts {
 }
 
 export interface Daily007AdminUpdateLeaderboardRewardsBody {
-  weekly: Daily007LeaderboardRewardAmounts;
-  monthly: Daily007LeaderboardRewardAmounts;
+  weekly?: Daily007LeaderboardRewardAmounts;
+  monthly?: Daily007LeaderboardRewardAmounts;
 }
+
+export type Daily007AdminStartLeaderboardCycleBodyCycleType = typeof Daily007AdminStartLeaderboardCycleBodyCycleType[keyof typeof Daily007AdminStartLeaderboardCycleBodyCycleType];
+
+
+export const Daily007AdminStartLeaderboardCycleBodyCycleType = {
+  weekly: 'weekly',
+  monthly: 'monthly',
+} as const;
+
+export interface Daily007AdminStartLeaderboardCycleBody {
+  cycleType: Daily007AdminStartLeaderboardCycleBodyCycleType;
+  rewards: Daily007LeaderboardRewardAmounts;
+}
+
+export type Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus = typeof Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus[keyof typeof Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus] | null;
+
+
+export const Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus = {
+  active: 'active',
+  pending_activation: 'pending_activation',
+} as const;
+
+export type Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus = typeof Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus[keyof typeof Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus] | null;
+
+
+export const Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus = {
+  active: 'active',
+  pending_approval: 'pending_approval',
+  pending_activation: 'pending_activation',
+  finalized: 'finalized',
+} as const;
 
 export type Daily007AdminLeaderboardRewardSchedule = Daily007LeaderboardRewardAmounts & ({
   currentPeriodStartsAt: string | null;
   currentPeriodEndsAt: string | null;
+  currentPeriodStatus: Daily007AdminLeaderboardRewardScheduleCurrentPeriodStatus;
+  latestPeriodStatus: Daily007AdminLeaderboardRewardScheduleLatestPeriodStatus;
+  canStartNextCycle: boolean;
 });
 
 export interface Daily007AdminLeaderboardRewardsResponse {

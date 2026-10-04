@@ -46,6 +46,7 @@ import type {
   Daily007AdminLeaderboardApprovalsResponse,
   Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
+  Daily007AdminStartLeaderboardCycleBody,
   Daily007AdminUpdateLeaderboardRewardsBody,
   Daily007AdminUserRoleBody,
   Daily007AdminVideoActiveBody,
@@ -1099,8 +1100,8 @@ export const getDaily007AdminUpdateLeaderboardRewardsUrl = () => {
 }
 
 /**
- * Full Admin only. Settings update the current open cycle and are copied to future cycles when they start. At cycle end, standings and rewards are snapshotted and await Full Admin approval before wallet credits.
- * @summary Set top-three weekly and monthly reward amounts
+ * Full Admin only. Updates only the weekly or monthly cycle included in the request; values do not carry forward automatically. Ended-cycle payout snapshots cannot be changed.
+ * @summary Update rewards for an open or already scheduled cycle
  */
 export const daily007AdminUpdateLeaderboardRewards = async (daily007AdminUpdateLeaderboardRewardsBody: Daily007AdminUpdateLeaderboardRewardsBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardRewardsResponse> => {
 
@@ -1166,7 +1167,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type Daily007AdminUpdateLeaderboardRewardsMutationVariables = {data: BodyType<Daily007AdminUpdateLeaderboardRewardsBody>}
 
     /**
- * @summary Set top-three weekly and monthly reward amounts
+ * @summary Update rewards for an open or already scheduled cycle
  */
 export const useDaily007AdminUpdateLeaderboardRewards = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateLeaderboardRewards>>, TError,Daily007AdminUpdateLeaderboardRewardsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1177,6 +1178,95 @@ export const useDaily007AdminUpdateLeaderboardRewards = <TError = ErrorType<void
         TContext
       > => {
       return useMutation(getDaily007AdminUpdateLeaderboardRewardsMutationOptions(options));
+    }
+
+export const getDaily007AdminStartLeaderboardCycleUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/admin/leaderboards/cycles/start`
+}
+
+/**
+ * Full Admin only. Requires all completed cycles of this type to be approved. The new cycle is scheduled for the next IST calendar boundary and activates then; reward values are not carried forward.
+ * @summary Set fresh prizes and schedule the next leaderboard cycle
+ */
+export const daily007AdminStartLeaderboardCycle = async (daily007AdminStartLeaderboardCycleBody: Daily007AdminStartLeaderboardCycleBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminLeaderboardRewardsResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007AdminLeaderboardRewardsResponse>(getDaily007AdminStartLeaderboardCycleUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminStartLeaderboardCycleBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminStartLeaderboardCycleMutationKey = () => ['daily007AdminStartLeaderboardCycle'] as const;
+
+export const getDaily007AdminStartLeaderboardCycleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminStartLeaderboardCycle>>, TError,Daily007AdminStartLeaderboardCycleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminStartLeaderboardCycle>>, TError,Daily007AdminStartLeaderboardCycleMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminStartLeaderboardCycleMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminStartLeaderboardCycle>>, Daily007AdminStartLeaderboardCycleMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007AdminStartLeaderboardCycle(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminStartLeaderboardCycleMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminStartLeaderboardCycle>>>
+    export type Daily007AdminStartLeaderboardCycleMutationBody = BodyType<Daily007AdminStartLeaderboardCycleBody>
+    export type Daily007AdminStartLeaderboardCycleMutationError = ErrorType<void>
+    export type Daily007AdminStartLeaderboardCycleMutationVariables = {data: BodyType<Daily007AdminStartLeaderboardCycleBody>}
+
+    /**
+ * @summary Set fresh prizes and schedule the next leaderboard cycle
+ */
+export const useDaily007AdminStartLeaderboardCycle = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminStartLeaderboardCycle>>, TError,Daily007AdminStartLeaderboardCycleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminStartLeaderboardCycle>>,
+        TError,
+        Daily007AdminStartLeaderboardCycleMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminStartLeaderboardCycleMutationOptions(options));
     }
 
 export const getDaily007AdminGetLeaderboardApprovalsUrl = () => {
