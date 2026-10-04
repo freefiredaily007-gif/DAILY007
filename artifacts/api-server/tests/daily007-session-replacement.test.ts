@@ -59,7 +59,7 @@ async function request(
   return { status: response.status, body: await response.json() };
 }
 
-test("a second password login invalidates the first session and keeps the new session valid", async () => {
+test("wrong passwords preserve a valid session while successful logins replace it", async () => {
   signupTestDb.reset();
 
   await withServer(async (origin) => {
@@ -92,6 +92,35 @@ test("a second password login invalidates the first session and keeps the new se
       const firstLogin = await request(origin, route.loginPath, "POST", { email, password });
       assert.equal(firstLogin.status, 200, `${route.label} first login`);
       assert.equal(typeof firstLogin.body.token, "string");
+
+      const authVersionAfterSuccessfulLogin = signupTestDb.users.get(accountId)?.auth_version;
+      const failedLogin = await request(
+        origin,
+        route.loginPath,
+        "POST",
+        { email, password: `${password}-incorrect` },
+      );
+      assert.equal(failedLogin.status, 401, `${route.label} incorrect password should be rejected`);
+      assert.match(String(failedLogin.body.error), /incorrect/i);
+      assert.equal(
+        signupTestDb.users.get(accountId)?.auth_version,
+        authVersionAfterSuccessfulLogin,
+        `${route.label} failed login must not advance the session version`,
+      );
+
+      const sessionAfterFailedLogin = await request(
+        origin,
+        route.mePath,
+        "GET",
+        undefined,
+        firstLogin.body.token,
+      );
+      assert.equal(
+        sessionAfterFailedLogin.status,
+        200,
+        `${route.label} original token should remain valid after a wrong password`,
+      );
+      assert.equal(sessionAfterFailedLogin.body.id, accountId);
 
       const secondLogin = await request(origin, route.loginPath, "POST", { email, password });
       assert.equal(secondLogin.status, 200, `${route.label} second login`);
