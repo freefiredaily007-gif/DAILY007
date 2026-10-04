@@ -176,8 +176,9 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     filledPlayerSlots: filledSlots * mode.teamSize,
     availableSlots: Math.max(0, row.capacity - filledSlots),
     capacityLabel: tournamentModeCapacityLabel({ ...mode, capacity: row.capacity }),
-    ...(includeRoomCredentials ? { roomId: row.room_id, roomPassword: row.room_password } : {}),
-    roomTime: row.room_time,
+    ...(includeRoomCredentials
+      ? { roomId: row.room_id, roomPassword: row.room_password, roomTime: row.room_time }
+      : {}),
     roomPublished: row.room_published,
   };
 }

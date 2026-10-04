@@ -21,6 +21,11 @@ import {
   ROOM_CREDENTIAL_REVEAL_LEAD_MS,
   type RoomCredentialAccessState,
 } from "../src/lib/daily007-room-access.ts";
+import { storedTournamentTimeFromInstant } from "../src/lib/daily007-schedule-time";
+
+function setMatchStartInstant(instant: Date): void {
+  roomAccessTestDb.match.starts_at = storedTournamentTimeFromInstant(instant);
+}
 
 const startsAt = new Date("2030-04-05T12:00:00.000Z");
 const eligible: RoomCredentialAccessState = {
@@ -101,9 +106,7 @@ async function request(
 
 test("compat registrations are caller-scoped and hide room credentials before release", async () => {
   roomAccessTestDb.reset();
-  roomAccessTestDb.match.starts_at = new Date(
-    Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000,
-  );
+  setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000));
 
   const playerToken = makeToken(TEST_PLAYER_ID, 0);
   const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
@@ -152,14 +155,30 @@ test("compat registrations are caller-scoped and hide room credentials before re
         );
       }
     }
+
+    const boundaryNow = Date.now();
+    setMatchStartInstant(new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS));
+    const playerAtBoundary = await request(origin, "/my/registrations", "GET", playerToken);
+    assert.equal(playerAtBoundary.status, 200);
+    assert.equal(playerAtBoundary.body[0].roomId, "TEST-ROOM-820");
+    assert.equal(playerAtBoundary.body[0].roomPassword, "fixture-only-password");
+    assert.equal(playerAtBoundary.body[0].roomTime, "12:00 AM");
+    assert.equal(playerAtBoundary.body[0].tournament.roomId, "TEST-ROOM-820");
+    assert.equal(playerAtBoundary.body[0].tournament.roomPassword, "fixture-only-password");
+    assert.equal(playerAtBoundary.body[0].tournament.roomTime, "12:00 AM");
+
+    const pendingAtBoundary = await request(origin, "/my/registrations", "GET", pendingPlayerToken);
+    assert.equal(pendingAtBoundary.status, 200);
+    for (const field of ["roomId", "roomPassword", "roomTime"]) {
+      assert.equal(field in pendingAtBoundary.body[0], false);
+      assert.equal(field in pendingAtBoundary.body[0].tournament, false);
+    }
   });
 });
 
 test("v2 room endpoint requires approval and an open release window", async () => {
   roomAccessTestDb.reset();
-  roomAccessTestDb.match.starts_at = new Date(
-    Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000,
-  );
+  setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000));
 
   const playerToken = makeToken(TEST_PLAYER_ID, 0);
   const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
@@ -178,7 +197,7 @@ test("v2 room endpoint requires approval and an open release window", async () =
     );
 
     const boundaryNow = Date.now();
-    roomAccessTestDb.match.starts_at = new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS);
+    setMatchStartInstant(new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS));
     const approvedAtBoundary = await request(origin, path, "GET", playerToken);
     assert.equal(approvedAtBoundary.status, 200);
     assert.deepEqual(approvedAtBoundary.body, {
