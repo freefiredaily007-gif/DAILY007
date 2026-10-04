@@ -12,8 +12,39 @@ import Profile from "../../../daily007/src/screens/Profile";
 import Leaderboard from "../../../daily007/src/screens/Leaderboard";
 import Notifications from "../../../daily007/src/screens/Notifications";
 import EditProfile from "../../../daily007/src/screens/EditProfile";
+import JoinForm from "../../../daily007/src/screens/JoinForm";
 import { getPlayerTabBarHeight } from "../../../daily007/src/lib/playerTabBarSizing";
 import { configurePlayerLargestTextPreview, configureWalletFormPreview } from "./mocks/api";
+
+function JoinFormServerErrorPreview() {
+  return (
+    <JoinForm
+      tournament={{
+        id: "join-error-preview-match",
+        name: "Server error test match",
+        mode: "Battle Royale",
+        teamType: "Solo",
+        teamSize: 1,
+        slotUnit: "player",
+        status: "open",
+        enabled: true,
+        capacity: 8,
+        totalSlots: 8,
+        filledSlots: 1,
+        remainingSlots: 7,
+        entryCoins: 7,
+        startsAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      }}
+      user={{ name: "Test Player", gameUid: "FF-TEST-PLAYER" }}
+      onCancel={() => {}}
+      onSubmit={async () => {
+        const error = new Error("Request failed with status code 409");
+        error.response = { data: { error: "Insufficient wallet balance: this entry costs 7 coins." } };
+        throw error;
+      }}
+    />
+  );
+}
 
 const screens = {
   Home,
@@ -26,6 +57,7 @@ const screens = {
   Leaderboard,
   Notifications,
   EditProfile,
+  JoinForm: JoinFormServerErrorPreview,
 };
 
 const titles = {
@@ -34,6 +66,7 @@ const titles = {
   Leaderboard: "LEADERBOARD",
   Notifications: "NOTIFICATIONS",
   EditProfile: "EDIT PROFILE",
+  JoinForm: "REGISTER",
 };
 
 const tabScreens = ["Home", "Video", "Earn", "Wallet", "Profile"];

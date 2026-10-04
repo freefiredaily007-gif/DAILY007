@@ -129,6 +129,7 @@ class RegistrationCapacityTestDatabase {
   private nextRegistrationNumber = 11;
   private readonly matchRowLock = new AsyncMutex();
   private lockHold: MatchLockHold | null = null;
+  private failNextLedgerInsert = false;
 
   constructor() {
     this.reset();
@@ -175,6 +176,11 @@ class RegistrationCapacityTestDatabase {
     }];
     this.nextRegistrationNumber = 11;
     this.lockHold = null;
+    this.failNextLedgerInsert = false;
+  }
+
+  failOnNextLedgerInsert(): void {
+    this.failNextLedgerInsert = true;
   }
 
   holdNextMatchRowLock(): MatchLockHold {
@@ -349,6 +355,10 @@ class RegistrationCapacityTestDatabase {
       const user = this.users.get(String(values[0]));
       if (user) user.wallet_coins = Number(values[1]);
     } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
+      if (this.failNextLedgerInsert) {
+        this.failNextLedgerInsert = false;
+        throw new Error("Injected wallet ledger insert failure.");
+      }
       const [userId, amount, balanceAfter, matchId, registrationId] = values;
       this.ledger.push({
         user_id: String(userId),

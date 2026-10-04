@@ -29,6 +29,7 @@ const screens = [
   { name: "Leaderboard", ready: "LEADERBOARD", control: '[data-testid="preview-back-button"]' },
   { name: "Notifications", ready: "NOTIFICATIONS", control: '[data-testid="preview-back-button"]' },
   { name: "EditProfile", ready: "EDIT PROFILE", control: '[data-testid="edit-profile-save"]' },
+  { name: "JoinForm", ready: "SOLO REGISTRATION", control: '[data-testid="join-form-submit"]' },
 ];
 
 function assert(condition, message) {
@@ -152,6 +153,23 @@ async function clickSelector(selector, description) {
   })()`);
   assert(clicked, `Could not find ${description}.`);
   await delay(120);
+}
+
+async function setInputValue(selector, value, description) {
+  const updated = await evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!input) return false;
+    const prototype = input instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (!setter) return false;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })()`);
+  assert(updated, `Could not enter ${description}.`);
 }
 
 async function inspectLayout(screenName) {
@@ -341,6 +359,27 @@ async function checkScreen(screen) {
     );
   } else if (screen.name === "EditProfile") {
     await checkReachable('[data-testid="edit-profile-save"]', "Edit Profile save action");
+  } else if (screen.name === "JoinForm") {
+    await setInputValue(
+      'input[placeholder="Captain Free Fire in-game name"]',
+      "Test Captain",
+      "captain game name",
+    );
+    await setInputValue(
+      'input[placeholder="Captain Free Fire UID"]',
+      "FF-TEST-PLAYER",
+      "captain game UID",
+    );
+    await clickSelector('[data-testid="join-form-submit"]', "join form submit action");
+    await waitForCondition(
+      "document.body.innerText.includes('Insufficient wallet balance: this entry costs 7 coins.')",
+      "server join error",
+    );
+    const joinText = await evaluate("document.body.innerText");
+    assert(
+      !joinText.includes("Registration confirmed") && !joinText.includes("Your slot is confirmed"),
+      "A rejected join displayed a success confirmation.",
+    );
   }
 
   console.log(`PASS — ${screen.name} at 375px and 2× Android text scale.`);
@@ -429,7 +468,7 @@ try {
     `A bottom-tab label is clipped: ${JSON.stringify(navState.labels)}.`,
   );
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — all ten player screens, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
+  console.log("PASS — all eleven player screens, join rejection messaging, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);

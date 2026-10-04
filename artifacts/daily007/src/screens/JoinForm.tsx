@@ -216,6 +216,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
           onPress={submit}
           loading={busy}
           disabled={isUnavailable}
+          testID={editing ? 'join-form-save-team' : 'join-form-submit'}
         />
         <Btn title="CANCEL" kind="ghost" onPress={onCancel} style={{ marginTop: 9 }} />
       </View>
