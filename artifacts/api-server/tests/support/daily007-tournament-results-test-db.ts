@@ -1,0 +1,355 @@
+type TestUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "user";
+  wallet_coins: number;
+  phone: null;
+  game_uid: null;
+  status: "active";
+  auth_version: number;
+};
+
+type TestRegistration = {
+  id: string;
+  match_id: string;
+  captain_user_id: string;
+  captain_name: string;
+  captain_game_name: string;
+  team_name: string | null;
+  status: "approved";
+};
+
+type TestAward = {
+  id: string;
+  match_id: string;
+  registration_id: string;
+  user_id: string;
+  rank: number;
+  kills: number;
+  prize_coins: number;
+  created_at: Date;
+};
+
+type TestMatch = {
+  id: string;
+  title: string;
+  mode: string;
+  game_mode: string;
+  team_type: string;
+  capacity: number;
+  entry_coins: number;
+  prize_pool: number;
+  starts_at: Date;
+  status: string;
+  is_full: boolean;
+  rules: string;
+  banner: string;
+  image_url: string | null;
+  prize_distribution: string;
+  enabled: boolean;
+  room_id: null;
+  room_password: null;
+  room_time: null;
+  room_published: boolean;
+};
+
+type TestStats = { matches: number; wins: number; kills: number; prize_coins: number };
+type TestLedgerEntry = {
+  userId: string;
+  amount: number;
+  balanceAfter: number;
+  reason: string;
+};
+
+export const TEST_ADMIN_ID = "70000000-0000-4000-8000-000000000004";
+export const TEST_WINNER_ID = "70000000-0000-4000-8000-000000000005";
+export const TEST_RUNNER_UP_ID = "70000000-0000-4000-8000-000000000006";
+export const TEST_MATCH_ID = "70000000-0000-4000-8000-000000000001";
+export const TEST_WINNER_REGISTRATION_ID = "70000000-0000-4000-8000-000000000002";
+export const TEST_RUNNER_UP_REGISTRATION_ID = "70000000-0000-4000-8000-000000000003";
+
+const PRIZE_DISTRIBUTION = "1st: 1,500 coins\n2nd: 600 coins";
+
+class MemoryTournamentResultsDatabase {
+  users = new Map<string, TestUser>();
+  registrations: TestRegistration[] = [];
+  awards: TestAward[] = [];
+  stats = new Map<string, TestStats>();
+  ledger: TestLedgerEntry[] = [];
+  match: TestMatch = this.emptyMatch();
+
+  reset(): void {
+    this.users = new Map([
+      [TEST_ADMIN_ID, this.user(TEST_ADMIN_ID, "Test Admin", "admin@example.test", "admin", 0)],
+      [TEST_WINNER_ID, this.user(TEST_WINNER_ID, "First Place", "winner@example.test", "user", 100)],
+      [TEST_RUNNER_UP_ID, this.user(TEST_RUNNER_UP_ID, "Second Place", "runner-up@example.test", "user", 200)],
+    ]);
+    this.registrations = [];
+    this.awards = [];
+    this.stats = new Map();
+    this.ledger = [];
+    this.match = this.emptyMatch();
+  }
+
+  approveTestRegistrations(): void {
+    this.registrations = [
+      {
+        id: TEST_WINNER_REGISTRATION_ID,
+        match_id: TEST_MATCH_ID,
+        captain_user_id: TEST_WINNER_ID,
+        captain_name: "First Place",
+        captain_game_name: "WinnerFF",
+        team_name: null,
+        status: "approved",
+      },
+      {
+        id: TEST_RUNNER_UP_REGISTRATION_ID,
+        match_id: TEST_MATCH_ID,
+        captain_user_id: TEST_RUNNER_UP_ID,
+        captain_name: "Second Place",
+        captain_game_name: "RunnerUpFF",
+        team_name: null,
+        status: "approved",
+      },
+    ];
+  }
+
+  async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
+    return this.execute<T>(sql, values);
+  }
+
+  async connect() {
+    let beforeTransaction: ReturnType<MemoryTournamentResultsDatabase["snapshot"]> | null = null;
+    return {
+      query: async <T = unknown>(sql: string, values: unknown[] = []) => {
+        const normalized = sql.replace(/\s+/g, " ").trim();
+        if (normalized === "BEGIN") {
+          beforeTransaction = this.snapshot();
+          return { rows: [] as T[] };
+        }
+        if (normalized === "COMMIT") {
+          beforeTransaction = null;
+          return { rows: [] as T[] };
+        }
+        if (normalized === "ROLLBACK") {
+          if (beforeTransaction) this.restore(beforeTransaction);
+          beforeTransaction = null;
+          return { rows: [] as T[] };
+        }
+        return this.execute<T>(normalized, values);
+      },
+      release: () => {},
+    };
+  }
+
+  private user(
+    id: string,
+    name: string,
+    email: string,
+    role: TestUser["role"],
+    wallet_coins: number,
+  ): TestUser {
+    return { id, name, email, role, wallet_coins, phone: null, game_uid: null, status: "active", auth_version: 0 };
+  }
+
+  private emptyMatch(): TestMatch {
+    return {
+      id: TEST_MATCH_ID,
+      title: "Prize verification tournament",
+      mode: "solo",
+      game_mode: "battle_royale",
+      team_type: "solo",
+      capacity: 48,
+      entry_coins: 0,
+      prize_pool: 2_100,
+      starts_at: new Date(Date.now() + 86_400_000),
+      status: "open",
+      is_full: false,
+      rules: "",
+      banner: "br",
+      image_url: null,
+      prize_distribution: "",
+      enabled: true,
+      room_id: null,
+      room_password: null,
+      room_time: null,
+      room_published: false,
+    };
+  }
+
+  private snapshot() {
+    return {
+      users: structuredClone(this.users),
+      registrations: structuredClone(this.registrations),
+      awards: structuredClone(this.awards),
+      stats: structuredClone(this.stats),
+      ledger: structuredClone(this.ledger),
+      match: structuredClone(this.match),
+    };
+  }
+
+  private restore(snapshot: ReturnType<MemoryTournamentResultsDatabase["snapshot"]>): void {
+    this.users = snapshot.users;
+    this.registrations = snapshot.registrations;
+    this.awards = snapshot.awards;
+    this.stats = snapshot.stats;
+    this.ledger = snapshot.ledger;
+    this.match = snapshot.match;
+  }
+
+  private async execute<T>(sql: string, values: unknown[]): Promise<{ rows: T[] }> {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    let rows: unknown[] = [];
+
+    if (normalized.startsWith(
+      "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
+    )) {
+      const user = this.users.get(String(values[0]));
+      rows = user ? [structuredClone(user)] : [];
+    } else if (normalized.startsWith("INSERT INTO daily007_v2_matches")) {
+      const [
+        title,
+        mode,
+        gameMode,
+        teamType,
+        capacity,
+        entryCoins,
+        prizePool,
+        startsAt,
+        rules,
+        banner,
+        imageUrl,
+        prizeDistribution,
+        enabled,
+      ] = values;
+      this.match = {
+        ...this.emptyMatch(),
+        title: String(title),
+        mode: String(mode),
+        game_mode: String(gameMode),
+        team_type: String(teamType),
+        capacity: Number(capacity),
+        entry_coins: Number(entryCoins),
+        prize_pool: Number(prizePool),
+        starts_at: startsAt instanceof Date ? startsAt : new Date(String(startsAt)),
+        rules: String(rules),
+        banner: String(banner),
+        image_url: imageUrl == null ? null : String(imageUrl),
+        prize_distribution: String(prizeDistribution),
+        enabled: Boolean(enabled),
+      };
+      rows = [{ id: this.match.id }];
+    } else if (normalized.startsWith(
+      "SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at",
+    )) {
+      rows = values.length === 0 || values[0] === this.match.id
+        ? [{
+          ...structuredClone(this.match),
+          has_started: false,
+          has_winner: false,
+          completed_at: null,
+          registered_count: this.registrations.filter((registration) =>
+            ["approved", "pending"].includes(registration.status),
+          ).length,
+        }]
+        : [];
+    } else if (normalized.startsWith(
+      "SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution",
+    )) {
+      const registration = this.registrations.find((entry) =>
+        entry.id === values[0] &&
+        entry.match_id === values[1] &&
+        entry.status === "approved",
+      );
+      rows = registration ? [{
+        id: registration.id,
+        match_id: registration.match_id,
+        captain_user_id: registration.captain_user_id,
+        prize_pool: this.match.prize_pool,
+        prize_distribution: this.match.prize_distribution,
+        has_started: true,
+        match_status: this.match.status,
+      }] : [];
+    } else if (normalized.startsWith(
+      "SELECT registration_id FROM daily007_v2_result_awards WHERE match_id = $1 AND rank = 1",
+    )) {
+      const winner = this.awards.find((award) => award.match_id === values[0] && award.rank === 1);
+      rows = winner ? [{ registration_id: winner.registration_id }] : [];
+    } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {
+      const user = this.users.get(String(values[0]));
+      rows = user ? [{ wallet_coins: user.wallet_coins }] : [];
+    } else if (normalized.startsWith("INSERT INTO daily007_v2_result_awards")) {
+      const [matchId, registrationId, userId, rank, kills, prizeCoins] = values;
+      if (this.awards.some((award) => award.registration_id === registrationId)) {
+        throw Object.assign(new Error("duplicate result award"), { code: "23505" });
+      }
+      const award: TestAward = {
+        id: `award-${this.awards.length + 1}`,
+        match_id: String(matchId),
+        registration_id: String(registrationId),
+        user_id: String(userId),
+        rank: Number(rank),
+        kills: Number(kills),
+        prize_coins: Number(prizeCoins),
+        created_at: new Date(Date.now() + this.awards.length),
+      };
+      this.awards.push(award);
+      rows = [{ id: award.id }];
+    } else if (normalized.startsWith("INSERT INTO daily007_v2_user_stats")) {
+      const [userId, wins, kills, prizeCoins] = values;
+      const previous = this.stats.get(String(userId)) ?? { matches: 0, wins: 0, kills: 0, prize_coins: 0 };
+      this.stats.set(String(userId), {
+        matches: previous.matches + 1,
+        wins: previous.wins + Number(wins),
+        kills: previous.kills + Number(kills),
+        prize_coins: previous.prize_coins + Number(prizeCoins),
+      });
+    } else if (normalized.startsWith("UPDATE daily007_v2_users SET wallet_coins")) {
+      const user = this.users.get(String(values[0]));
+      if (user) user.wallet_coins = Number(values[1]);
+    } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
+      rows = [];
+      this.ledger.push({
+        userId: String(values[0]),
+        amount: Number(values[1]),
+        balanceAfter: Number(values[2]),
+        reason: "match_prize",
+      });
+    } else if (normalized.startsWith("UPDATE daily007_v2_matches SET enabled = false")) {
+      if (this.match.id === values[0]) this.match.enabled = false;
+    } else if (normalized === "SELECT enabled FROM daily007_v2_matches WHERE id = $1") {
+      rows = this.match.id === values[0] ? [{ enabled: this.match.enabled }] : [];
+    } else if (normalized.startsWith(
+      "SELECT award.registration_id, award.rank, award.kills, award.prize_coins, COALESCE",
+    )) {
+      rows = this.awards
+        .filter((award) => award.match_id === values[0])
+        .map((award) => {
+          const registration = this.registrations.find((entry) => entry.id === award.registration_id)!;
+          return {
+            registration_id: award.registration_id,
+            rank: award.rank,
+            kills: award.kills,
+            prize_coins: award.prize_coins,
+            game_name: registration.captain_game_name,
+            team_name: registration.team_name,
+            created_at: award.created_at,
+          };
+        })
+        .sort((left, right) => left.rank - right.rank || left.created_at.getTime() - right.created_at.getTime());
+    } else {
+      throw new Error(`Unexpected tournament-results test SQL: ${normalized}`);
+    }
+
+    return { rows: rows as T[] };
+  }
+}
+
+export const tournamentResultsTestDb = new MemoryTournamentResultsDatabase();
+tournamentResultsTestDb.reset();
+
+export const pool = {
+  query: <T = unknown>(sql: string, values?: unknown[]) => tournamentResultsTestDb.query<T>(sql, values),
+  connect: () => tournamentResultsTestDb.connect(),
+};

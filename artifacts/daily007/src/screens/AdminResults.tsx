@@ -5,14 +5,7 @@ import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
-
-function configuredPrizeForRank(tournament: Tournament, rank: number): number {
-  const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
-  for (const match of String(tournament.prizeDist ?? '').matchAll(configured)) {
-    if (Number(match[1]) === rank) return Number(match[2].replace(/,/g, ''));
-  }
-  return rank === 1 ? Number(tournament.prizePool) || 0 : 0;
-}
+import { configuredPrizeForRank } from '../lib/tournamentPrizes';
 
 export default function AdminResults({
   initialTournamentId,
