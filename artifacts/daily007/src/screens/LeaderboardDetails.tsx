@@ -110,7 +110,13 @@ function PlayerRow({
   const color = cycle === "weekly" ? C.blue : C.purple;
 
   return (
-    <View style={styles.playerRow} testID={`leaderboard-player-${standing.rank}`}>
+    <View
+      style={styles.playerRow}
+      testID={`leaderboard-player-${standing.rank}`}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`Rank ${standing.rank}, ${standing.name}, ${standing.points.toLocaleString("en-IN")} coins`}
+    >
       <Text style={[styles.playerRank, { color }]}>#{standing.rank}</Text>
       <View style={[styles.playerAvatar, { backgroundColor: avatarColor(standing.userId) }]}>
         <Text style={styles.playerInitial}>{initials(standing.name)}</Text>
@@ -143,7 +149,9 @@ export default function LeaderboardDetails({ navigation, route }: any) {
     monthly?: Period;
   } | undefined;
   const period = data?.[cycle];
-  const standings = period?.standings.slice(0, 20) ?? [];
+  const standings = [...(period?.standings ?? [])]
+    .sort((left, right) => left.rank - right.rank)
+    .slice(0, 20);
   const podium = [
     { rank: 2 as const, standing: standings.find((standing) => standing.rank === 2) },
     { rank: 1 as const, standing: standings.find((standing) => standing.rank === 1) },
@@ -249,7 +257,7 @@ export default function LeaderboardDetails({ navigation, route }: any) {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={showTop20 ? "Hide top 20 players" : "View top 20 players"}
+              accessibilityLabel="Top 20 players"
               accessibilityState={{ expanded: showTop20 }}
               testID="leaderboard-top20-toggle"
               onPress={() => setShowTop20((expanded) => !expanded)}
