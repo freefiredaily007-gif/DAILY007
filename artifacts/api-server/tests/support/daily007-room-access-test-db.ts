@@ -48,8 +48,11 @@ type TestRegistration = {
 
 export const TEST_ADMIN_ID = "82000000-0000-4000-8000-000000000001";
 export const TEST_PLAYER_ID = "82000000-0000-4000-8000-000000000002";
+export const TEST_PENDING_PLAYER_ID = "82000000-0000-4000-8000-000000000003";
+export const TEST_UNREGISTERED_PLAYER_ID = "82000000-0000-4000-8000-000000000004";
 export const TEST_MATCH_ID = "82000000-0000-4000-8000-000000000100";
 export const TEST_REGISTRATION_ID = "82000000-0000-4000-8000-000000000101";
+export const TEST_PENDING_REGISTRATION_ID = "82000000-0000-4000-8000-000000000102";
 
 class RoomAccessTestDatabase {
   users = new Map<string, TestUser>();
@@ -81,6 +84,28 @@ class RoomAccessTestDatabase {
         wallet_coins: 25,
         phone: null,
         game_uid: "FF-ROOM-001",
+        status: "active",
+        auth_version: 0,
+      }],
+      [TEST_PENDING_PLAYER_ID, {
+        id: TEST_PENDING_PLAYER_ID,
+        name: "Pending Player",
+        email: "pending-room-player@example.test",
+        role: "user",
+        wallet_coins: 0,
+        phone: null,
+        game_uid: "FF-PENDING-001",
+        status: "active",
+        auth_version: 0,
+      }],
+      [TEST_UNREGISTERED_PLAYER_ID, {
+        id: TEST_UNREGISTERED_PLAYER_ID,
+        name: "Unregistered Player",
+        email: "unregistered-room-player@example.test",
+        role: "user",
+        wallet_coins: 0,
+        phone: null,
+        game_uid: "FF-NONE-001",
         status: "active",
         auth_version: 0,
       }],
@@ -118,6 +143,17 @@ class RoomAccessTestDatabase {
       entry_coins_paid: 5,
       status: "approved",
       created_at: new Date("2020-01-01T00:00:00.000Z"),
+    }, {
+      id: TEST_PENDING_REGISTRATION_ID,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_PENDING_PLAYER_ID,
+      captain_name: "Pending Player",
+      captain_game_name: "PendingCaptain",
+      captain_game_uid: "FF-PENDING-001",
+      team_name: "",
+      entry_coins_paid: 0,
+      status: "pending",
+      created_at: new Date("2020-01-02T00:00:00.000Z"),
     }];
   }
 

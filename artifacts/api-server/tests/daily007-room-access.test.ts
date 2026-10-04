@@ -9,12 +9,16 @@ import {
   roomAccessTestDb,
   TEST_ADMIN_ID,
   TEST_MATCH_ID,
+  TEST_PENDING_PLAYER_ID,
+  TEST_PENDING_REGISTRATION_ID,
   TEST_PLAYER_ID,
   TEST_REGISTRATION_ID,
+  TEST_UNREGISTERED_PLAYER_ID,
 } from "./support/daily007-room-access-test-db";
 import {
   canRevealRoomCredentials,
   isRoomCredentialReleaseOpen,
+  ROOM_CREDENTIAL_REVEAL_LEAD_MS,
   type RoomCredentialAccessState,
 } from "../src/lib/daily007-room-access.ts";
 
@@ -94,6 +98,118 @@ async function request(
   });
   return { status: response.status, body: await response.json() };
 }
+
+test("compat registrations are caller-scoped and hide room credentials before release", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.starts_at = new Date(
+    Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000,
+  );
+
+  const playerToken = makeToken(TEST_PLAYER_ID, 0);
+  const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
+  const unregisteredPlayerToken = makeToken(TEST_UNREGISTERED_PLAYER_ID, 0);
+  assert.ok(playerToken);
+  assert.ok(pendingPlayerToken);
+  assert.ok(unregisteredPlayerToken);
+
+  await withServer(async (origin) => {
+    const playerRegistrations = await request(origin, "/my/registrations", "GET", playerToken);
+    assert.equal(playerRegistrations.status, 200);
+    assert.deepEqual(playerRegistrations.body.map((registration: any) => registration.id), [
+      TEST_REGISTRATION_ID,
+    ]);
+
+    const pendingRegistrations = await request(
+      origin,
+      "/my/registrations",
+      "GET",
+      pendingPlayerToken,
+    );
+    assert.equal(pendingRegistrations.status, 200);
+    assert.deepEqual(pendingRegistrations.body.map((registration: any) => registration.id), [
+      TEST_PENDING_REGISTRATION_ID,
+    ]);
+
+    const unregisteredRegistrations = await request(
+      origin,
+      "/my/registrations",
+      "GET",
+      unregisteredPlayerToken,
+    );
+    assert.equal(unregisteredRegistrations.status, 200);
+    assert.deepEqual(unregisteredRegistrations.body, []);
+
+    for (const registration of [
+      playerRegistrations.body[0],
+      pendingRegistrations.body[0],
+    ]) {
+      for (const field of ["roomId", "roomPassword", "roomTime"]) {
+        assert.equal(field in registration, false, `${field} should be omitted from the registration`);
+        assert.equal(
+          field in registration.tournament,
+          false,
+          `${field} should be omitted from the nested tournament`,
+        );
+      }
+    }
+  });
+});
+
+test("v2 room endpoint requires approval and an open release window", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.starts_at = new Date(
+    Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000,
+  );
+
+  const playerToken = makeToken(TEST_PLAYER_ID, 0);
+  const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
+  const unregisteredPlayerToken = makeToken(TEST_UNREGISTERED_PLAYER_ID, 0);
+  assert.ok(playerToken);
+  assert.ok(pendingPlayerToken);
+  assert.ok(unregisteredPlayerToken);
+
+  await withServer(async (origin) => {
+    const path = `/daily007/v2/matches/${TEST_MATCH_ID}/room`;
+    const beforeRelease = await request(origin, path, "GET", playerToken);
+    assert.equal(beforeRelease.status, 403);
+    assert.equal(
+      beforeRelease.body.error,
+      "Room credentials become available five minutes before the match starts.",
+    );
+
+    const boundaryNow = Date.now();
+    roomAccessTestDb.match.starts_at = new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS);
+    const approvedAtBoundary = await request(origin, path, "GET", playerToken);
+    assert.equal(approvedAtBoundary.status, 200);
+    assert.deepEqual(approvedAtBoundary.body, {
+      roomId: "TEST-ROOM-820",
+      roomPassword: "fixture-only-password",
+    });
+
+    for (const token of [pendingPlayerToken, unregisteredPlayerToken]) {
+      const denied = await request(origin, path, "GET", token);
+      assert.equal(denied.status, 403);
+      assert.equal(denied.body.error, "Room credentials are available only to registered users.");
+    }
+
+    roomAccessTestDb.match.status = "cancelled";
+    const cancelled = await request(origin, path, "GET", playerToken);
+    assert.equal(cancelled.status, 404);
+    assert.equal(cancelled.body.error, "Room credentials are not available for this match.");
+
+    roomAccessTestDb.match.status = "ongoing";
+    roomAccessTestDb.match.room_id = null;
+    const missingRoomId = await request(origin, path, "GET", playerToken);
+    assert.equal(missingRoomId.status, 404);
+    assert.equal(missingRoomId.body.error, "Room credentials are not available for this match.");
+
+    roomAccessTestDb.match.room_id = "TEST-ROOM-820";
+    roomAccessTestDb.match.room_password = null;
+    const missingPassword = await request(origin, path, "GET", playerToken);
+    assert.equal(missingPassword.status, 404);
+    assert.equal(missingPassword.body.error, "Room credentials are not available for this match.");
+  });
+});
 
 test("clearing room credentials blocks approved-player access without changing tournament registrations", async () => {
   roomAccessTestDb.reset();
