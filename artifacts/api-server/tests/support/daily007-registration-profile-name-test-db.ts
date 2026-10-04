@@ -2,7 +2,7 @@ type TestUser = {
   id: string;
   name: string;
   email: string;
-  role: "user";
+  role: "user" | "tournament_admin";
   wallet_coins: number;
   phone: null;
   game_uid: null;
@@ -12,14 +12,25 @@ type TestUser = {
 
 type TestMatch = {
   id: string;
+  title: string;
   mode: string;
   game_mode: string;
   team_type: string;
   capacity: number;
   status: string;
   entry_coins: number;
+  prize_pool: number;
+  rules: string;
+  banner: string;
+  image_url: string | null;
+  prize_distribution: string;
   starts_at: Date;
   enabled: boolean;
+  is_full: boolean;
+  room_id: string | null;
+  room_password: string | null;
+  room_time: string;
+  room_published: boolean;
 };
 
 export type CapturedRegistration = {
@@ -32,6 +43,7 @@ export type CapturedRegistration = {
   team_name: string;
   entry_coins_paid: number;
   status: "approved";
+  created_at: Date;
 };
 
 export type CapturedRosterMember = {
@@ -52,9 +64,11 @@ export type CapturedLedgerEntry = {
 
 export const TEST_PLAYER_ID = "74000000-0000-4000-8000-000000000001";
 export const TEST_MATCH_ID = "74000000-0000-4000-8000-000000000002";
+export const TEST_TOURNAMENT_ADMIN_ID = "74000000-0000-4000-8000-000000000003";
 
 class RegistrationProfileTestDatabase {
   user!: TestUser;
+  tournamentAdmin!: TestUser;
   match!: TestMatch;
   registrations: CapturedRegistration[] = [];
   roster: CapturedRosterMember[] = [];
@@ -77,16 +91,38 @@ class RegistrationProfileTestDatabase {
       status: "active",
       auth_version: 0,
     };
+    this.tournamentAdmin = {
+      id: TEST_TOURNAMENT_ADMIN_ID,
+      name: "Test Tournament Admin",
+      email: "tournament-admin@example.test",
+      role: "tournament_admin",
+      wallet_coins: 0,
+      phone: null,
+      game_uid: null,
+      status: "active",
+      auth_version: 0,
+    };
     this.match = {
       id: TEST_MATCH_ID,
+      title: "Captain Profile Test Match",
       mode: "squad",
       game_mode: "battle_royale",
-      team_type: "duo",
-      capacity: 24,
+      team_type: "squad",
+      capacity: 12,
       status: "open",
       entry_coins: 7,
+      prize_pool: 100,
+      rules: "Test rules",
+      banner: "",
+      image_url: null,
+      prize_distribution: "[]",
       starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
       enabled: true,
+      is_full: false,
+      room_id: null,
+      room_password: null,
+      room_time: "",
+      room_published: false,
     };
     this.registrations = [];
     this.roster = [];
@@ -115,7 +151,107 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users")
     ) {
-      result = String(values[0]) === this.user.id ? [structuredClone(this.user)] : [];
+      const account = [this.user, this.tournamentAdmin].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = account ? [structuredClone(account)] : [];
+    } else if (
+      normalized.startsWith("SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name,")
+    ) {
+      result = this.registrations
+        .filter((registration) => registration.captain_user_id === String(values[0]))
+        .map((registration) => ({
+          ...structuredClone(registration),
+          title: this.match.title,
+          mode: this.match.mode,
+          game_mode: this.match.game_mode,
+          team_type: this.match.team_type,
+          capacity: this.match.capacity,
+          starts_at: this.match.starts_at,
+          match_entry_coins: this.match.entry_coins,
+          match_status: this.match.status,
+          prize_pool: this.match.prize_pool,
+          rules: this.match.rules,
+          banner: this.match.banner,
+          image_url: this.match.image_url,
+          prize_distribution: this.match.prize_distribution,
+          enabled: this.match.enabled,
+          is_full: this.match.is_full,
+          room_id: this.match.room_id,
+          room_password: this.match.room_password,
+          room_time: this.match.room_time,
+          room_published: this.match.room_published,
+          match_has_started: false,
+          match_has_winner: false,
+          match_results: null,
+          result_rank: null,
+          result_kills: null,
+          result_prize_coins: null,
+          registered_count: this.registrations.filter((candidate) =>
+            candidate.match_id === this.match.id &&
+            ["approved", "pending"].includes(candidate.status)
+          ).length,
+        }));
+    } else if (
+      normalized.startsWith("SELECT position, member_name, member_uid FROM daily007_v2_roster")
+    ) {
+      result = this.roster
+        .filter((member) => member.registration_id === String(values[0]))
+        .sort((left, right) => left.position - right.position)
+        .map((member) => structuredClone(member));
+    } else if (
+      normalized.startsWith("SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name,")
+    ) {
+      result = this.registrations
+        .filter((registration) =>
+          registration.match_id === String(values[0]) &&
+          ["approved", "pending"].includes(registration.status)
+        )
+        .flatMap((registration) => {
+          const roster = this.roster
+            .filter((member) => member.registration_id === registration.id)
+            .sort((left, right) => left.position - right.position);
+          return (roster.length ? roster : [null]).map((member) => ({
+            registration_id: registration.id,
+            status: registration.status,
+            team_name: registration.team_name.trim() || null,
+            captain_game_name: registration.captain_game_name,
+            position: member?.position ?? null,
+            member_name: member?.member_name ?? null,
+          }));
+        });
+    } else if (
+      normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1"
+    ) {
+      result = String(values[0]) === this.match.id ? [{ id: this.match.id }] : [];
+    } else if (
+      normalized === "SELECT title FROM daily007_v2_matches WHERE id = $1"
+    ) {
+      result = String(values[0]) === this.match.id ? [{ title: this.match.title }] : [];
+    } else if (
+      normalized.startsWith("SELECT r.id AS registration_id, r.captain_name, r.captain_game_name,")
+    ) {
+      result = this.registrations
+        .filter((registration) =>
+          registration.match_id === String(values[0]) && registration.status === "approved"
+        )
+        .flatMap((registration) => {
+          const roster = this.roster
+            .filter((member) => member.registration_id === registration.id)
+            .sort((left, right) => left.position - right.position);
+          return (roster.length ? roster : [null]).map((member) => ({
+            registration_id: registration.id,
+            captain_name: registration.captain_name,
+            captain_game_name: registration.captain_game_name,
+            captain_game_uid: registration.captain_game_uid,
+            team_name: registration.team_name,
+            email: this.user.email,
+            created_at: registration.created_at,
+            position: member?.position ?? null,
+            member_name: member?.member_name ?? null,
+            member_uid: member?.member_uid ?? null,
+          }));
+        });
     } else if (
       normalized.startsWith("SELECT id, mode, game_mode, team_type, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches")
     ) {
@@ -165,6 +301,7 @@ class RegistrationProfileTestDatabase {
         team_name: String(teamName),
         entry_coins_paid: Number(entryCoinsPaid),
         status: "approved",
+        created_at: new Date(),
       });
       result = [{ id }];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_roster")) {

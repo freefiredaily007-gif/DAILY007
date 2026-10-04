@@ -9,6 +9,7 @@ import {
   registrationProfileTestDb,
   TEST_MATCH_ID,
   TEST_PLAYER_ID,
+  TEST_TOURNAMENT_ADMIN_ID,
 } from "./support/daily007-registration-profile-name-test-db";
 
 const TEST_AUTH_SECRET = "captain-profile-name-registration-test-secret";
@@ -18,6 +19,10 @@ const CAPTAIN_GAME_UID = "FF-CAPTAIN-017";
 const TEAM_NAME = "Blue Fire";
 const TEAMMATE_NAME = "FireMate";
 const TEAMMATE_UID = "FF-MATE-029";
+const TEAMMATE_TWO_NAME = "FireMateTwo";
+const TEAMMATE_TWO_UID = "FF-MATE-030";
+const TEAMMATE_THREE_NAME = "FireMateThree";
+const TEAMMATE_THREE_UID = "FF-MATE-031";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -41,7 +46,11 @@ const registrationRequests: RegistrationRequest[] = [
       captainGameName: CAPTAIN_GAME_NAME,
       captainGameUid: CAPTAIN_GAME_UID,
       teamName: TEAM_NAME,
-      teammates: [{ name: TEAMMATE_NAME, uid: TEAMMATE_UID }],
+      teammates: [
+        { name: TEAMMATE_NAME, uid: TEAMMATE_UID },
+        { name: TEAMMATE_TWO_NAME, uid: TEAMMATE_TWO_UID },
+        { name: TEAMMATE_THREE_NAME, uid: TEAMMATE_THREE_UID },
+      ],
     },
   },
   {
@@ -55,6 +64,8 @@ const registrationRequests: RegistrationRequest[] = [
       teamMembers: JSON.stringify([
         { name: CAPTAIN_GAME_NAME, uid: CAPTAIN_GAME_UID },
         { name: TEAMMATE_NAME, uid: TEAMMATE_UID },
+        { name: TEAMMATE_TWO_NAME, uid: TEAMMATE_TWO_UID },
+        { name: TEAMMATE_THREE_NAME, uid: TEAMMATE_THREE_UID },
       ]),
     },
   },
@@ -101,8 +112,19 @@ async function sendRegistration(
   };
 }
 
+async function getWithToken(origin: string, path: string, token: string): Promise<Response> {
+  return fetch(`${origin}${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
+function parseCsvRow(line: string): string[] {
+  return [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)]
+    .map(([, value]) => value.replaceAll('""', '"'));
+}
+
 for (const request of registrationRequests) {
-  test(`${request.label} registration persists the authenticated profile name separately from Free Fire fields`, async () => {
+  test(`${request.label} registration views preserve separate profile, Free Fire, team, and roster details`, async () => {
     registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
     try {
       await withServer(async (origin) => {
@@ -124,15 +146,143 @@ for (const request of registrationRequests) {
             team_name: TEAM_NAME,
           },
         );
-        assert.deepEqual(registrationProfileTestDb.roster, [{
-          registration_id: registration.id,
-          position: 1,
-          member_uid: TEAMMATE_UID,
-          member_name: TEAMMATE_NAME,
-        }]);
+        assert.deepEqual(
+          registrationProfileTestDb.roster.map((member) => ({
+            registration_id: member.registration_id,
+            position: member.position,
+            member_uid: member.member_uid,
+            member_name: member.member_name,
+          })),
+          [
+            {
+              registration_id: registration.id,
+              position: 1,
+              member_uid: TEAMMATE_UID,
+              member_name: TEAMMATE_NAME,
+            },
+            {
+              registration_id: registration.id,
+              position: 2,
+              member_uid: TEAMMATE_TWO_UID,
+              member_name: TEAMMATE_TWO_NAME,
+            },
+            {
+              registration_id: registration.id,
+              position: 3,
+              member_uid: TEAMMATE_THREE_UID,
+              member_name: TEAMMATE_THREE_NAME,
+            },
+          ],
+        );
         assert.equal(registrationProfileTestDb.user.wallet_coins, 93);
         assert.equal(registrationProfileTestDb.ledger.length, 1);
         assert.equal(registrationProfileTestDb.connectCount, 1);
+
+        const playerToken = makeToken(TEST_PLAYER_ID, 0);
+        assert.ok(playerToken);
+        const playerRegistrationsResponse = await getWithToken(
+          origin,
+          "/my/registrations",
+          playerToken,
+        );
+        assert.equal(playerRegistrationsResponse.status, 200);
+        const playerRegistrations = await playerRegistrationsResponse.json() as {
+          playerName: string;
+          captainGameName: string;
+          gameUid: string;
+          teamName: string;
+          teamMembers: string;
+        }[];
+        assert.equal(playerRegistrations.length, 1);
+        assert.deepEqual(
+          {
+            playerName: playerRegistrations[0].playerName,
+            captainGameName: playerRegistrations[0].captainGameName,
+            gameUid: playerRegistrations[0].gameUid,
+            teamName: playerRegistrations[0].teamName,
+            teamMembers: JSON.parse(playerRegistrations[0].teamMembers).map(
+              (member: { name: string; uid: string }) => ({
+                name: member.name,
+                uid: member.uid,
+              }),
+            ),
+          },
+          {
+            playerName: PROFILE_NAME,
+            captainGameName: CAPTAIN_GAME_NAME,
+            gameUid: CAPTAIN_GAME_UID,
+            teamName: TEAM_NAME,
+            teamMembers: [
+              { name: CAPTAIN_GAME_NAME, uid: CAPTAIN_GAME_UID },
+              { name: TEAMMATE_NAME, uid: TEAMMATE_UID },
+              { name: TEAMMATE_TWO_NAME, uid: TEAMMATE_TWO_UID },
+              { name: TEAMMATE_THREE_NAME, uid: TEAMMATE_THREE_UID },
+            ],
+          },
+        );
+
+        const participantsResponse = await fetch(
+          `${origin}/tournaments/${TEST_MATCH_ID}/participants`,
+        );
+        assert.equal(participantsResponse.status, 200);
+        const participants = await participantsResponse.json() as {
+          tournamentId: string;
+          participants: { teamName: string; players: string[]; status: string }[];
+        };
+        assert.equal(participants.tournamentId, TEST_MATCH_ID);
+        assert.deepEqual(participants.participants, [{
+          teamName: TEAM_NAME,
+          players: [
+            CAPTAIN_GAME_NAME,
+            TEAMMATE_NAME,
+            TEAMMATE_TWO_NAME,
+            TEAMMATE_THREE_NAME,
+          ],
+          status: "approved",
+        }]);
+        assert.equal(JSON.stringify(participants).includes(PROFILE_NAME), false);
+        assert.equal(JSON.stringify(participants).includes(CAPTAIN_GAME_UID), false);
+        assert.equal(JSON.stringify(participants).includes(TEAMMATE_UID), false);
+
+        const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+        assert.ok(adminToken);
+        const csvResponse = await getWithToken(
+          origin,
+          `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+          adminToken,
+        );
+        assert.equal(csvResponse.status, 200);
+        assert.match(csvResponse.headers.get("content-type") ?? "", /text\/csv/i);
+        const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
+        assert.deepEqual(parseCsvRow(csvLines[0]), [
+          "captain_profile_name",
+          "captain_game_name",
+          "captain_game_uid",
+          "captain_email",
+          "team_name",
+          "teammate_1_name",
+          "teammate_1_game_uid",
+          "teammate_2_name",
+          "teammate_2_game_uid",
+          "teammate_3_name",
+          "teammate_3_game_uid",
+          "registered_at",
+        ]);
+        const csvRow = parseCsvRow(csvLines[1]);
+        assert.deepEqual(csvRow.slice(0, -1), [
+          PROFILE_NAME,
+          CAPTAIN_GAME_NAME,
+          CAPTAIN_GAME_UID,
+          "captain-profile-test@example.test",
+          TEAM_NAME,
+          TEAMMATE_NAME,
+          TEAMMATE_UID,
+          TEAMMATE_TWO_NAME,
+          TEAMMATE_TWO_UID,
+          TEAMMATE_THREE_NAME,
+          TEAMMATE_THREE_UID,
+        ]);
+        assert.ok(Number.isFinite(Date.parse(csvRow[11])));
       });
     } finally {
       registrationProfileTestDb.reset();

@@ -784,10 +784,12 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
   }
   const registrations = await pool.query<{
     registration_id: string; captain_name: string; captain_game_name: string; captain_game_uid: string;
+    team_name: string;
     email: string; created_at: Date; position: number | null;
     member_name: string | null; member_uid: string | null;
   }>(
-    `SELECT r.id AS registration_id, r.captain_name, r.captain_game_name, r.captain_game_uid, u.email, r.created_at,
+    `SELECT r.id AS registration_id, r.captain_name, r.captain_game_name, r.captain_game_uid,
+            r.team_name, u.email, r.created_at,
             ro.position, ro.member_name, ro.member_uid
        FROM daily007_v2_registrations r
        JOIN daily007_v2_users u ON u.id = r.captain_user_id
@@ -797,7 +799,8 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
     [id],
   );
   const rosterRows: {
-    captainName: string; captainGameName: string; captainGameUid: string; email: string; registeredAt: string;
+    captainName: string; captainGameName: string; captainGameUid: string; teamName: string;
+    email: string; registeredAt: string;
     teammates: ({ name: string; uid: string | null } | null)[];
   }[] = [];
   let currentRegistrationId: string | null = null;
@@ -807,6 +810,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
         captainName: row.captain_name,
         captainGameName: row.captain_game_name,
         captainGameUid: row.captain_game_uid,
+        teamName: row.team_name,
         email: row.email,
         registeredAt: row.created_at.toISOString(),
         teammates: [null, null, null],
@@ -820,7 +824,8 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
   }
   const lines = [
     [
-      "captain_real_name", "captain_game_name", "captain_game_uid", "captain_email",
+      "captain_profile_name", "captain_game_name", "captain_game_uid", "captain_email",
+      "team_name",
       "teammate_1_name", "teammate_1_game_uid",
       "teammate_2_name", "teammate_2_game_uid",
       "teammate_3_name", "teammate_3_game_uid",
@@ -831,6 +836,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
       row.captainGameName,
       row.captainGameUid,
       row.email,
+      row.teamName,
       ...row.teammates.flatMap((teammate) => [teammate?.name ?? "", teammate?.uid ?? ""]),
       row.registeredAt,
     ].map(csvCell).join(",")),
