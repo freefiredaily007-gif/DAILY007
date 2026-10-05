@@ -186,6 +186,10 @@ export function useDaily007AdminGetLeaderboardApprovals() {
   return noQuery({ periods: [] });
 }
 
+export function useDaily007AdminStartLeaderboardCycle() {
+  return noMutation();
+}
+
 export function useDaily007AdminApproveLeaderboardPeriod() {
   return noMutation();
 }

@@ -26,3 +26,9 @@ For React Native Web checks that shrink the viewport to simulate an open keyboar
 **Why:** The sandbox contains multiple independent HTML previews, so default scanning can evaluate unrelated screens against narrow mocks. Before navigation, Chromium's mobile layout viewport may not match the emulated device dimensions.
 
 **How to apply:** Set `optimizeDeps.entries` to the single preview entry, apply device metrics before navigation, then assert `innerWidth` and `innerHeight` after the page loads.
+
+**Rule:** The isolated Admin API-client mock must export hooks imported by every tab in `AdminApp`, including tabs not selected by the preview.
+
+**Why:** `AdminApp` statically imports its screens, so one missing named hook prevents the whole preview from rendering before a tab is selected.
+
+**How to apply:** When an Admin screen adds a generated API hook, add a no-network query or mutation stub to the mock API client used by the Admin preview.

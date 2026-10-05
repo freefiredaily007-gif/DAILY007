@@ -13,6 +13,9 @@ export default defineConfig({
   root: sandboxRoot,
   base: "/",
   plugins: [react()],
+  optimizeDeps: {
+    entries: ["admin-narrow-preview.html"],
+  },
   resolve: {
     alias: [
       { find: /^react-native$/, replacement: path.join(daily007Root, "node_modules/react-native-web") },

@@ -91,6 +91,114 @@ const stats = {
   todayRevenue: 0,
 };
 
+const previewAdminUsers = [
+  {
+    $id: "preview-user-ananya-championship-2026",
+    name: "Ananya Daily007 Championship Champion With A Long Name",
+    email: "ananya.champion.with.a.long.fake.address@example.invalid",
+    coins: 987654321,
+    status: "active",
+    role: "user",
+    createdAt: "2026-09-18T09:30:00.000Z",
+  },
+  {
+    $id: "preview-user-rohan-free-fire-2026",
+    name: "Rohan Free Fire Strategist",
+    email: "rohan.preview.player@example.invalid",
+    coins: 425000,
+    status: "blocked",
+    role: "tournament_admin",
+    createdAt: "2026-08-02T14:15:00.000Z",
+  },
+];
+
+const previewAdminRegistrations = [
+  {
+    id: "preview-registration-pending-long-identifier-2026",
+    userId: previewAdminUsers[0].$id,
+    playerName: "Ananya Daily007 Championship Champion With A Long Name",
+    teamName: "International Free Fire Finals Squad",
+    captainGameName: "Ananya_ClutchMaster_001",
+    gameUid: "FFUID-99887766554433221100",
+    tournamentId: "preview-tournament-international-grand-finals-2026",
+    tournamentName: "Daily007 International Free Fire Championship Grand Finals",
+    mode: "Battle Royale",
+    teamType: "Squad",
+    entryCoins: 123456,
+    status: "pending",
+    createdAt: "2026-10-05T08:45:00.000Z",
+  },
+  {
+    id: "preview-registration-approved-2026",
+    userId: previewAdminUsers[1].$id,
+    playerName: "Rohan Free Fire Strategist",
+    teamName: "Preview Approved Team",
+    captainGameName: "RohanStrategist",
+    gameUid: "FFUID-11223344556677889900",
+    tournamentId: "preview-tournament-international-grand-finals-2026",
+    tournamentName: "Daily007 International Free Fire Championship Grand Finals",
+    mode: "Battle Royale",
+    teamType: "Squad",
+    entryCoins: 123456,
+    status: "approved",
+    createdAt: "2026-10-04T18:20:00.000Z",
+  },
+  {
+    id: "preview-registration-rejected-2026",
+    userId: previewAdminUsers[0].$id,
+    playerName: "Preview Rejected Player",
+    teamName: "Preview Rejected Team",
+    captainGameName: "RejectedPreview",
+    gameUid: "FFUID-00998877665544332211",
+    tournamentId: "preview-tournament-international-grand-finals-2026",
+    tournamentName: "Daily007 International Free Fire Championship Grand Finals",
+    mode: "Battle Royale",
+    teamType: "Squad",
+    entryCoins: 123456,
+    status: "rejected",
+    createdAt: "2026-10-03T11:10:00.000Z",
+  },
+];
+
+const previewAdminPayments = [
+  {
+    id: "preview-payment-pending-long-reference-2026",
+    userId: "preview-user-ananya-championship-account-2026",
+    userName: "Ananya Championship Participant With A Long Display Name",
+    coins: 987654321,
+    amount: 987654321,
+    payerUpiId: "ananya.daily007.preview.payer@upi",
+    txnId: "PREVIEW-UTR-20261005-998877665544332211",
+    status: "pending",
+    proofAvailable: false,
+    createdAt: "2026-10-05T09:10:00.000Z",
+  },
+];
+
+const previewAdminWithdrawals = [
+  {
+    id: "preview-withdrawal-pending-long-reference-2026",
+    userId: "preview-user-rohan-championship-account-2026",
+    userName: "Rohan International Tournament Champion",
+    coins: 456789123,
+    amount: 456789123,
+    method: "upi",
+    account: "rohan.daily007.long.preview.payout.handle@upi",
+    status: "pending",
+    createdAt: "2026-10-05T09:25:00.000Z",
+  },
+];
+
+const previewAdminTransactions = [
+  {
+    $id: "preview-wallet-transaction-long-identifier-2026",
+    title: "International Free Fire Grand Finals entry fee refunded to player wallet",
+    note: "Preview-only transaction",
+    coins: -987654321,
+    createdAt: "2026-10-05T09:35:00.000Z",
+  },
+];
+
 const empty = async () => [];
 let tournamentReadCount = 0;
 let nextTournamentReadError: string | null = null;
@@ -186,11 +294,11 @@ export const Api = {
   adminSettings: async () => ({ ...settings, settings: { ...settings } }),
   adminSaveSettings: async () => ({ ...settings, settings: { ...settings } }),
   adminBootstrapStatus: async () => ({ available: false }),
-  adminRegistrations: empty,
-  adminPayments: empty,
-  adminWithdrawals: empty,
-  adminTransactions: empty,
-  adminUsers: empty,
+  adminRegistrations: async () => previewAdminRegistrations.map((registration) => ({ ...registration })),
+  adminPayments: async () => previewAdminPayments.map((payment) => ({ ...payment })),
+  adminWithdrawals: async () => previewAdminWithdrawals.map((withdrawal) => ({ ...withdrawal })),
+  adminTransactions: async () => previewAdminTransactions.map((transaction) => ({ ...transaction })),
+  adminUsers: async () => previewAdminUsers.map((user) => ({ ...user })),
   tournaments: async () => {
     tournamentReadCount += 1;
     if (nextTournamentReadError !== null) {

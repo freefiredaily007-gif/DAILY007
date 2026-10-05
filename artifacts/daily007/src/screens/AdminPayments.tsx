@@ -118,7 +118,7 @@ export default function AdminPayments() {
           {p.kind === 'withdrawal' && <Text style={st.sub}>Estimated manual payout: {inr(p.coins, coinToMoneyRate)}</Text>}
           {p.kind === 'withdrawal' ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text selectable style={[st.sub, { flex: 1 }]}>
+              <Text selectable style={[st.sub, { flex: 1, minWidth: 0 }]}>
                 {String(p.method || '').toLowerCase() === 'upi' ? 'UPI ID' : p.method || 'Account'}: {p.account || '—'}
               </Text>
               {String(p.method || '').toLowerCase() === 'upi' && p.account ? (

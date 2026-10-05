@@ -177,6 +177,19 @@ async function clickButton(text) {
   await delay(130);
 }
 
+async function clickTextLabel(text) {
+  const clicked = await evaluate(`(() => {
+    const label = [...document.querySelectorAll('*')].find((item) =>
+      item.children.length === 0 && item.textContent.trim() === ${JSON.stringify(text)}
+    );
+    if (!label) return false;
+    label.click();
+    return true;
+  })()`);
+  assert(clicked, `Could not find the "${text}" label.`);
+  await delay(130);
+}
+
 async function assertText(text, label = text) {
   const found = await evaluate(`(() => {
     const nodes = [...document.querySelectorAll('body *')];
@@ -184,7 +197,10 @@ async function assertText(text, label = text) {
       node.children.length === 0 && node.textContent.trim() === ${JSON.stringify(text)}
     );
   })()`);
-  assert(found, `Expected ${label} to be visible.`);
+  if (!found) {
+    const body = await evaluate("document.body.innerText.slice(-1000)");
+    throw new Error(`Expected ${label} to be visible. Current page text: ${JSON.stringify(body)}`);
+  }
 }
 
 async function waitForCondition(expression, description) {
@@ -267,6 +283,166 @@ async function checkAdminTabs(width) {
   }
 }
 
+async function assertAdminRowActionsFit(marker, actions, width, description) {
+  const result = await evaluate(`(() => {
+    const marker = ${JSON.stringify(marker)};
+    const matches = [...document.querySelectorAll('*')]
+      .filter((element) => element.children.length === 0 && element.textContent.trim() === marker);
+    const markerElement = matches[0];
+    if (!markerElement) return null;
+
+    let row = markerElement;
+    const hasActions = (element) => {
+      const labels = [...element.querySelectorAll('[role="button"], button, [tabindex="0"]')]
+        .map((button) => button.textContent.trim().replace(/\\\\s+/g, ' '));
+      return ${JSON.stringify(actions)}.every((action) => labels.includes(action));
+    };
+    while (row && !hasActions(row)) row = row.parentElement;
+    if (!row) return { markerFound: true, rowFound: false };
+
+    const rowRect = row.getBoundingClientRect();
+    const buttons = [...row.querySelectorAll('[role="button"], button, [tabindex="0"]')];
+    const actionRects = ${JSON.stringify(actions)}.map((action) => {
+      const button = buttons.find((item) => item.textContent.trim().replace(/\\\\s+/g, ' ') === action);
+      if (!button) return null;
+      const rect = button.getBoundingClientRect();
+      return {
+        label: action,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        clientWidth: button.clientWidth,
+        scrollWidth: button.scrollWidth,
+      };
+    });
+    return {
+      markerFound: true,
+      rowFound: true,
+      row: {
+        left: rowRect.left,
+        right: rowRect.right,
+        clientWidth: row.clientWidth,
+        scrollWidth: row.scrollWidth,
+      },
+      overflowing: [row, ...row.querySelectorAll('*')]
+        .filter((element) => element.scrollWidth > element.clientWidth + 2)
+        .slice(0, 6)
+        .map((element) => ({
+          tag: element.tagName,
+          text: element.textContent.trim().slice(0, 140),
+          left: element.getBoundingClientRect().left,
+          right: element.getBoundingClientRect().right,
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+        })),
+      actions: actionRects,
+    };
+  })()`);
+  assert(result?.markerFound, `${description}: the fake row content is not visible at ${width}px.`);
+  assert(result.rowFound, `${description}: the main row actions are missing at ${width}px.`);
+  assert(
+    result.row.left >= -1 && result.row.right <= width + 1,
+    `${description}: the populated row extends beyond the ${width}px viewport.`,
+  );
+  assert(
+    result.row.scrollWidth <= result.row.clientWidth + 2,
+    `${description}: row content is clipped horizontally at ${width}px ` +
+      `(content ${result.row.scrollWidth}px, box ${result.row.clientWidth}px; ` +
+      `overflow: ${JSON.stringify(result.overflowing)}).`,
+  );
+  for (const action of result.actions) {
+    assert(action, `${description}: a main action is missing at ${width}px.`);
+    assert(
+      action.width > 0 && action.left >= result.row.left - 1 && action.right <= result.row.right + 1,
+      `${description}: the "${action.label}" action does not fit inside its row at ${width}px.`,
+    );
+    assert(
+      action.scrollWidth <= action.clientWidth + 2,
+      `${description}: the "${action.label}" label is clipped at ${width}px.`,
+    );
+  }
+  const pageWidth = await evaluate("document.documentElement.scrollWidth");
+  assert(pageWidth <= width + 1, `The page is horizontally wider than ${width}px on ${description}.`);
+}
+
+async function checkPopulatedAdminLists(width) {
+  await clickSelector('[data-testid="admin-tab-registrations"]', "Registrations tab");
+  await waitForCondition(
+    "document.body.innerText.includes('Ananya Daily007 Championship Champion With A Long Name')",
+    "the fake pending registration to load",
+  );
+  await assertAdminRowActionsFit(
+    "Ananya Daily007 Championship Champion With A Long Name — International Free Fire Finals Squad",
+    ["APPROVE", "REJECT"],
+    width,
+    "Pending registration",
+  );
+
+  await clickTextLabel("APPROVED");
+  await assertAdminRowActionsFit(
+    "Rohan Free Fire Strategist — Preview Approved Team",
+    ["DELETE"],
+    width,
+    "Approved registration",
+  );
+  await clickTextLabel("REJECTED");
+  await assertAdminRowActionsFit(
+    "Preview Rejected Player — Preview Rejected Team",
+    ["DELETE"],
+    width,
+    "Rejected registration",
+  );
+
+  await clickSelector('[data-testid="admin-tab-payments"]', "Payments tab");
+  await waitForCondition(
+    "document.body.innerText.includes('Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026')",
+    "the fake pending deposit to load",
+  );
+  await assertAdminRowActionsFit(
+    "Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026",
+    ["APPROVE", "REJECT"],
+    width,
+    "Pending deposit",
+  );
+  await assertAdminRowActionsFit(
+    "Rohan International Tournament Champion · User ID: preview-user-rohan-championship-account-2026",
+    ["APPROVE", "REJECT", "COPY UPI"],
+    width,
+    "Pending withdrawal",
+  );
+
+  await clickSelector('[data-testid="admin-tab-wallet"]', "Wallet tab");
+  await waitForCondition(
+    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    "the fake Wallet user to load",
+  );
+  await assertAdminRowActionsFit(
+    "ananya.champion.with.a.long.fake.address@example.invalid",
+    ["+ ADD", "− DEDUCT"],
+    width,
+    "Wallet user",
+  );
+  await assertText("-987654321 COINS", "the fake Wallet transaction amount");
+  await assertAdminRowActionsFit(
+    "International Free Fire Grand Finals entry fee refunded to player wallet",
+    [],
+    width,
+    "Wallet transaction",
+  );
+
+  await clickSelector('[data-testid="admin-tab-users"]', "Users tab");
+  await waitForCondition(
+    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    "the fake Admin user to load",
+  );
+  await assertAdminRowActionsFit(
+    "ananya.champion.with.a.long.fake.address@example.invalid",
+    ["+ COINS", "− COINS", "BLOCK", "MAKE TOURNAMENT ADMIN"],
+    width,
+    "Admin user",
+  );
+}
+
 async function checkTournamentStates(width) {
   await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments tab");
 
@@ -297,7 +473,8 @@ async function checkTournamentStates(width) {
   assert(resultPanel, `Result entry did not open at ${width}px.`);
   await assertText("RESULT ENTRY");
   await assertText("SELECT PLAYER");
-  await assertText("Preview Player One (UID TEST-UID-001)");
+  await assertText("Preview Player One");
+  await assertText("UID TEST-UID-001");
   await assertText("RANK");
   await assertText("KILLS");
   await assertText("PRIZE COINS · FROM SAVED TOURNAMENT SETTINGS");
@@ -747,15 +924,17 @@ try {
   } else {
     await setViewport(360);
     await checkAdminTabs(360);
+    await checkPopulatedAdminLists(360);
     await checkTournamentStates(360);
     assert(browserErrors.length === 0, `Browser errors at 360px: ${browserErrors.join(" | ")}`);
-    console.log("PASS 360px — all 11 Admin tabs and tournament creation, room setup, result entry, and completed details.");
+    console.log("PASS 360px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
 
     await setViewport(375);
     await checkAdminTabs(375);
+    await checkPopulatedAdminLists(375);
     await checkTournamentStates(375);
     assert(browserErrors.length === 0, `Browser errors at 375px: ${browserErrors.join(" | ")}`);
-    console.log("PASS 375px — all 11 Admin tabs and tournament creation, room setup, result entry, and completed details.");
+    console.log("PASS 375px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
   }
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
