@@ -9,6 +9,9 @@ import { fileURLToPath } from "node:url";
 const sandboxRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = path.resolve(sandboxRoot, "../..");
 const browserErrors = [];
+const ignoredWebOnlyConsoleErrors = new Set([
+  "BackHandler is not supported on web and should not be used.",
+]);
 const pending = new Map();
 let viteOutput = "";
 let vite;
@@ -42,6 +45,47 @@ const walletCancellationRefundDescription =
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
+
+function browserErrorForCdpEvent(method, params = {}) {
+  if (method === "Runtime.exceptionThrown") {
+    const details = params.exceptionDetails;
+    return details?.exception?.description ?? details?.text ?? "Browser exception.";
+  }
+  if (method !== "Runtime.consoleAPICalled" || params.type !== "error") return null;
+
+  const message = params.args?.map((arg) => arg.value ?? arg.description ?? "").join(" ")
+    || "Browser console error.";
+  return ignoredWebOnlyConsoleErrors.has(message) ? null : message;
+}
+
+function verifyBrowserErrorPolicy() {
+  assert(
+    browserErrorForCdpEvent("Runtime.consoleAPICalled", {
+      type: "error",
+      args: [{ value: "BackHandler is not supported on web and should not be used." }],
+    }) === null,
+    "The exact React Native Web BackHandler warning should be ignored by the browser harness.",
+  );
+  assert(
+    browserErrorForCdpEvent("Runtime.consoleAPICalled", {
+      type: "error",
+      args: [{ value: "Unexpected browser console failure." }],
+    }) === "Unexpected browser console failure.",
+    "Unexpected browser console errors must remain fatal.",
+  );
+  assert(
+    browserErrorForCdpEvent("Runtime.exceptionThrown", {
+      exceptionDetails: {
+        exception: { description: "TypeError: Unexpected browser exception." },
+        text: "Uncaught",
+      },
+    }) === "TypeError: Unexpected browser exception.",
+    "Browser exceptions must remain fatal.",
+  );
+  console.log("PASS — only the exact React Native Web BackHandler console error is ignored.");
+}
+
+verifyBrowserErrorPolicy();
 
 async function getFreePort() {
   const server = net.createServer();
@@ -82,16 +126,8 @@ function connectCdp(url) {
       clearTimeout(timer);
       socket.addEventListener("message", ({ data }) => {
         const message = JSON.parse(String(data));
-        if (message.method === "Runtime.exceptionThrown") {
-          const details = message.params.exceptionDetails;
-          browserErrors.push(details?.exception?.description ?? details?.text ?? "Browser exception.");
-        }
-        if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
-          browserErrors.push(
-            message.params.args?.map((arg) => arg.value ?? arg.description ?? "").join(" ")
-              || "Browser console error.",
-          );
-        }
+        const browserError = browserErrorForCdpEvent(message.method, message.params);
+        if (browserError !== null) browserErrors.push(browserError);
         if (!message.id) return;
         const request = pending.get(message.id);
         if (!request) return;
