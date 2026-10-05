@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing, Image } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
+import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
 export { default as TimePicker } from './TimePicker';
 
 export const C = {
@@ -280,23 +281,10 @@ const battleRoyalePosterArt = {
 };
 
 export function getTournamentFormatPresentation(t: any) {
-  const teamType = String(t?.teamType || '').trim().toLowerCase();
-  const format: keyof typeof tournamentFormatArt =
-    teamType === 'duo' || teamType === 'squad' ? teamType : 'solo';
-  const modeKey = String(t?.gameMode || t?.mode || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-  const isBattleRoyale = modeKey === 'battle_royale';
-
-  return {
-    format,
-    label: format.toUpperCase(),
-    matchup: format === 'solo' ? '1 VS 1' : format === 'duo' ? '2 VS 2' : '4 VS 4',
-    image: isBattleRoyale ? battleRoyalePosterArt[format] : tournamentFormatArt[format],
-    showBattleRoyalePoster: isBattleRoyale,
-    showFormatBanner: !isBattleRoyale && ['clash_squad', 'lone_wolf', 'clash', 'clashsquad', 'lonewolf'].includes(modeKey),
-  };
+  return selectTournamentFormatPresentation(t, {
+    tournamentFormatArt,
+    battleRoyalePosterArt,
+  });
 }
 
 export function fmtTime12(t?: string) {

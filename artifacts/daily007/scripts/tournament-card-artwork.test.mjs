@@ -1,0 +1,79 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+import { getTournamentFormatPresentation } from '../src/lib/tournamentFormatPresentation.ts';
+
+const uiPath = new URL('../src/components/ui.tsx', import.meta.url);
+const tournamentsPath = new URL('../src/screens/Tournaments.tsx', import.meta.url);
+const uiSource = await readFile(uiPath, 'utf8');
+const tournamentsSource = await readFile(tournamentsPath, 'utf8');
+const matchCardSource = uiSource.slice(
+  uiSource.indexOf('export function MatchCard('),
+  uiSource.indexOf('const mc = StyleSheet.create'),
+);
+
+const tournamentFormatArt = {
+  solo: 'tournament-solo-showdown.jpg',
+  duo: 'tournament-duo-showdown.jpg',
+  squad: 'tournament-squad-showdown.jpg',
+};
+const battleRoyalePosterArt = {
+  solo: 'battle-royale-solo-poster-landscape.jpg',
+  duo: 'battle-royale-duo-poster-landscape.jpg',
+  squad: 'battle-royale-squad-poster-landscape.jpg',
+};
+
+test('Battle Royale Solo, Duo, and Squad select their matching landscape posters', () => {
+  for (const format of ['solo', 'duo', 'squad']) {
+    const presentation = getTournamentFormatPresentation(
+      { gameMode: 'battle_royale', teamType: format },
+      { tournamentFormatArt, battleRoyalePosterArt },
+    );
+
+    assert.equal(presentation.image, battleRoyalePosterArt[format]);
+    assert.equal(presentation.format, format);
+    assert.equal(presentation.showBattleRoyalePoster, true);
+    assert.equal(presentation.showFormatBanner, false);
+  }
+
+  for (const [format, filename] of Object.entries(battleRoyalePosterArt)) {
+    assert.ok(uiSource.includes(`${format}: require('../assets/${filename}')`));
+  }
+  assert.match(
+    uiSource,
+    /export function getTournamentFormatPresentation\(t: any\) \{\s*return selectTournamentFormatPresentation\(t,\s*\{\s*tournamentFormatArt,\s*battleRoyalePosterArt,\s*\}\);\s*\}/,
+  );
+});
+
+test('non-Battle-Royale tournaments keep their format art and banner behavior', () => {
+  for (const format of ['solo', 'duo', 'squad']) {
+    const presentation = getTournamentFormatPresentation(
+      { gameMode: 'clash_squad', teamType: format },
+      { tournamentFormatArt, battleRoyalePosterArt },
+    );
+
+    assert.equal(presentation.image, tournamentFormatArt[format]);
+    assert.equal(presentation.showBattleRoyalePoster, false);
+    assert.equal(presentation.showFormatBanner, true);
+  }
+
+  const loneWolf = getTournamentFormatPresentation(
+    { mode: 'Lone Wolf', teamType: 'Solo' },
+    { tournamentFormatArt, battleRoyalePosterArt },
+  );
+  assert.equal(loneWolf.image, tournamentFormatArt.solo);
+  assert.equal(loneWolf.showFormatBanner, true);
+});
+
+test('the tournament card retains its title, status, values, slot counts, and Join navigation', () => {
+  assert.match(matchCardSource, /t\?\.name \|\| t\?\.title \|\| 'Tournament'/);
+  assert.match(matchCardSource, /<Badge text=\{s\.label\} color=\{s\.color\} \/>/);
+  assert.match(matchCardSource, /ENTRY[\s\S]*t\?\.entryCoins \?\? 0/);
+  assert.match(matchCardSource, /PRIZE POOL[\s\S]*t\?\.prizePool \?\? 0/);
+  assert.match(matchCardSource, /\{filled\}\/\{total\} \{slotUnit\}/);
+  assert.match(matchCardSource, /'JOIN NOW →'/);
+  assert.match(
+    tournamentsSource,
+    /<MatchCard[\s\S]*?onPress=\{\(\) => nav\.push\('TDetail', \{ id: item\.id \}\)\}/,
+  );
+});
