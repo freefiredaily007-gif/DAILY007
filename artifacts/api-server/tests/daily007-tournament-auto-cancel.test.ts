@@ -134,3 +134,67 @@ test("scheduled sweep refunds underfilled Clash Squad and Lone Wolf once at the 
   );
   assert.equal(autoCancellationTestDb.ledger.size, ledgerCountAfterRefund);
 });
+
+test("a later payer failure rolls back one tournament without stopping the sweep", async () => {
+  const failingMatch = match("refund-failure-match", "clash_squad", "clash", 3);
+  failingMatch.startsAtWallMs = scheduledStartWallTime - 1_000;
+  const followingMatch = match("following-match", "lone_wolf", "clash", 2);
+
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [failingMatch, followingMatch],
+    registrations: [
+      registration("failure-first-reg", "refund-failure-match", "payer-a-first", 25, "approved"),
+      registration("failure-later-reg", "refund-failure-match", "payer-z-missing", 40, "pending"),
+      registration("following-reg", "following-match", "payer-following", 18, "approved"),
+    ],
+    accounts: [
+      { id: "payer-a-first", wallet_coins: 120 },
+      { id: "payer-following", wallet_coins: 70 },
+    ],
+  });
+
+  const failingMatchBefore = structuredClone(autoCancellationTestDb.matches.get("refund-failure-match"));
+  const firstPayerBalanceBefore = autoCancellationTestDb.accounts.get("payer-a-first")?.wallet_coins;
+  const missingPayerBefore = autoCancellationTestDb.accounts.get("payer-z-missing");
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.deepEqual(
+    autoCancellationTestDb.mutationTrace,
+    [
+      "wallet:payer-a-first",
+      "ledger:failure-first-reg",
+      "wallet:payer-following",
+      "ledger:following-reg",
+    ],
+    "the first refund was attempted before its later payer failed, and the next tournament still refunded",
+  );
+  assert.deepEqual(
+    autoCancellationTestDb.matches.get("refund-failure-match"),
+    failingMatchBefore,
+    "the failed tournament status and room details must roll back",
+  );
+  assert.equal(autoCancellationTestDb.accounts.get("payer-a-first")?.wallet_coins, firstPayerBalanceBefore);
+  assert.deepEqual(autoCancellationTestDb.accounts.get("payer-z-missing"), missingPayerBefore);
+  assert.deepEqual(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === "refund-failure-match"),
+    [],
+    "the failed tournament must not retain any refund ledger entries",
+  );
+
+  assert.equal(autoCancellationTestDb.matches.get("following-match")?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get("payer-following")?.wallet_coins, 88);
+  assert.deepEqual(
+    [...autoCancellationTestDb.ledger.values()].map(({ userId, amount, balanceAfter, matchId, registrationId }) => ({
+      userId, amount, balanceAfter, matchId, registrationId,
+    })),
+    [{
+      userId: "payer-following",
+      amount: 18,
+      balanceAfter: 88,
+      matchId: "following-match",
+      registrationId: "following-reg",
+    }],
+  );
+});
