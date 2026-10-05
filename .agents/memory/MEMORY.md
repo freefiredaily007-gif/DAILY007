@@ -46,6 +46,7 @@
 - [Daily007 Home mode-card screen readers](daily007-home-mode-screen-reader.md) — VoiceOver and TalkBack announce mode and all team sizes in one stop, without decorative stops.
 - [Daily007 room-detail TalkBack](daily007-room-details-talkback.md) — iQOO Neo 10 / Android 16 confirmed labeled room values, distinct copy controls, and spoken copy feedback.
 - [Daily007 full-capacity TalkBack](daily007-full-capacity-talkback.md) — iQOO Neo 10 / Android 16 confirmed one rejection-and-capacity announcement without repetition or focus movement.
+- [Daily007 admin results TalkBack](daily007-admin-results-talkback.md) — iQOO Neo 10 / Android 16 confirmed TalkBack support from player selection through publishing state.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — QueryObserver disables polling in Node server mode; client tests need a browser-like global before import.
 - [Daily007 paired Home refresh lock](daily007-home-poll-lock.md) — Keep tournament and registration reads in-flight until both settle, even if one fails early.
