@@ -17,6 +17,12 @@ As of 2026-10-03, the production Daily007 account has one Full Admin. That admin
 
 On 2026-10-04, the user reported a real Android Profile → Connect Google run with a Development password account: the same Daily007 account and wallet remained active, and Wallet loaded afterward. This confirms the additive link preserved the current session for authenticated reads; a future production build should still be checked against its own redirect and provider configuration.
 
+On 2026-10-05, the user confirmed a real Android Google signup opened Wallet with 10 coins and one welcome-bonus entry.
+
+**Why:** Mocked server tests cannot prove the native OAuth handoff and subsequent Wallet history load work together on a phone.
+
+**How to apply:** Preserve the verified Clerk-session activation, Daily007 session setup, and Wallet refresh sequence. Recheck signup-to-Wallet behavior on Android after changing the SSO callback, session handling, or signup reward display.
+
 For Expo Google SSO, treat the returned session ID and the active Clerk session as separate states: await the `setActive` function returned by `startSSOFlow` before reading the Clerk session or requesting its token, then verify that the active session ID matches.
 
 **Why:** `startSSOFlow` can return a completed session without making it the active session automatically. Reading the active session first can produce an intermittent missing or stale session.
