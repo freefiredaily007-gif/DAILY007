@@ -45,4 +45,5 @@
 - [Daily007 room-detail TalkBack](daily007-room-details-talkback.md) — iQOO Neo 10 / Android 16 confirmed labeled room values, distinct copy controls, and spoken copy feedback.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — QueryObserver disables polling in Node server mode; client tests need a browser-like global before import.
+- [Daily007 paired Home refresh lock](daily007-home-poll-lock.md) — Keep tournament and registration reads in-flight until both settle, even if one fails early.
 - [Task concurrency](task-concurrency.md) — work on one assigned task at a time; keep other queued tasks unstarted.

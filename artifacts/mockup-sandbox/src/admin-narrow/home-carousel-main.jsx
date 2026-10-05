@@ -10,6 +10,8 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Home carousel preview root is missing.");
 
 const root = createRoot(rootElement);
+const realSetInterval = globalThis.setInterval.bind(globalThis);
+const homePollIntervals = [];
 const scheduledStartMs = Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
 let fakeNow = scheduledStartMs - 60_000;
 let startTimerFired = false;
@@ -70,13 +72,39 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     tournament("later-one", "Later Tournament One", scheduledStartMs + 60 * 60 * 1000),
     tournament("later-two", "Later Tournament Two", scheduledStartMs + 2 * 60 * 60 * 1000),
   );
+  apiMocks.configureHomeCarouselRegistrationPreview();
 
-  const { default: Home } = await import("../../../daily007/src/screens/Home");
+  const [{ default: Home, mergeHomeTournamentItems }, { HOME_TOURNAMENT_REFRESH_INTERVAL_MS }] =
+    await Promise.all([
+      import("../../../daily007/src/screens/Home"),
+      import("../../../daily007/src/lib/tournamentLifecycle"),
+    ]);
+  globalThis.setInterval = (callback, intervalMs, ...args) => {
+    if (intervalMs === HOME_TOURNAMENT_REFRESH_INTERVAL_MS) {
+      homePollIntervals.push({ callback, intervalMs });
+    }
+    return realSetInterval(callback, intervalMs, ...args);
+  };
   window.__daily007HomeCarouselTest = {
     ready: true,
     scheduledStartMs,
     getFakeNow: () => fakeNow,
     didStartTimerFire: () => startTimerFired,
+    getHomePollCount: () => homePollIntervals.length,
+    getHomePollIntervalMs: () => homePollIntervals[0]?.intervalMs ?? null,
+    fireHomePoll: () => {
+      const homePoll = homePollIntervals[0];
+      if (!homePoll) return false;
+      homePoll.callback();
+      return true;
+    },
+    getTournamentReadCount: apiMocks.getTournamentReadCount,
+    getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
+    setRegistrations: apiMocks.setHomeCarouselRegistrationPreview,
+    failNextTournamentRead: apiMocks.failNextTournamentRead,
+    deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
+    releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
+    mergeHomeTournamentItems,
   };
   root.render(React.createElement(Home));
 });

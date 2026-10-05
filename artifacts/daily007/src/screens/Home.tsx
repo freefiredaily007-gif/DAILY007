@@ -45,6 +45,42 @@ function tournamentModeFallback(t: any): number {
   if (String(t?.teamType || '').toLowerCase() === 'squad') return 12;
   return 48;
 }
+
+type HomeTournamentItem = Record<string, any> & { id: string | number; joined: boolean };
+type HomeTournamentResponse = Record<string, any> & { id: string | number };
+
+function hasSameHomeTournamentData(
+  current: HomeTournamentItem,
+  incoming: HomeTournamentResponse,
+): boolean {
+  const currentKeys = Object.keys(current).filter((key) => key !== 'joined');
+  const incomingKeys = Object.keys(incoming).filter((key) => key !== 'joined');
+  return currentKeys.length === incomingKeys.length &&
+    incomingKeys.every((key) => Object.is(current[key], incoming[key]));
+}
+
+export function mergeHomeTournamentItems(
+  currentItems: HomeTournamentItem[],
+  incomingTournaments: HomeTournamentResponse[],
+  joinedIds: ReadonlySet<string>,
+): HomeTournamentItem[] {
+  const currentById = new Map(
+    currentItems.map((tournament) => [String(tournament.id), tournament] as const),
+  );
+  const nextItems = incomingTournaments.map((tournament) => {
+    const current = currentById.get(String(tournament.id));
+    const joined = joinedIds.has(String(tournament.id));
+    if (current && current.joined === joined && hasSameHomeTournamentData(current, tournament)) {
+      return current;
+    }
+    return { ...tournament, joined };
+  });
+  return nextItems.length === currentItems.length &&
+    nextItems.every((tournament, index) => tournament === currentItems[index])
+    ? currentItems
+    : nextItems;
+}
+
 export default function Home() {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
@@ -59,36 +95,34 @@ export default function Home() {
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
   const activeRequestsRef = useRef(0);
-  const tournamentPollInFlightRef = useRef(false);
+  const homePollInFlightRef = useRef(false);
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const goStack = (k: string) => {
     if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
   };
-  const load = useCallback(async (includeRegistrations = true) => {
+  const load = useCallback(async () => {
     activeRequestsRef.current += 1;
     try {
-      const [r, registrations] = await Promise.all([
+      const [tournamentsResult, registrationsResult] = await Promise.allSettled([
         api.tournaments('?enabled=true'),
-        includeRegistrations ? api.myRegistrations() : Promise.resolve(null),
+        api.myRegistrations(),
       ]);
+      if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;
+      if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
+      const r = tournamentsResult.value;
+      const registrations = registrationsResult.value;
       const list = Array.isArray(r) ? r : r?.tournaments || [];
-      const joinedIds = includeRegistrations
-        ? new Set(
-          (Array.isArray(registrations) ? registrations : [])
-            .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
-            .map((registration: any) => String(registration.tournamentId)),
-        )
-        : null;
-      setItems((currentItems) => {
-        const currentById = new Map(currentItems.map((tournament: any) => [String(tournament.id), tournament]));
-        return (Array.isArray(list) ? list : []).map((tournament: any) => ({
-          ...tournament,
-          joined: joinedIds
-            ? joinedIds.has(String(tournament.id))
-            : currentById.get(String(tournament.id))?.joined === true,
-        }));
-      });
+      const joinedIds = new Set(
+        (Array.isArray(registrations) ? registrations : [])
+          .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
+          .map((registration: any) => String(registration.tournamentId)),
+      );
+      setItems((currentItems) => mergeHomeTournamentItems(
+        currentItems,
+        Array.isArray(list) ? list : [],
+        joinedIds,
+      ));
       setClockNow(Date.now());
       setLoadError('');
     } catch (e: any) {
@@ -103,14 +137,14 @@ export default function Home() {
     void load();
     return startHomeTournamentRefreshPolling(
       () => {
-        tournamentPollInFlightRef.current = true;
-        void load(false).finally(() => {
-          tournamentPollInFlightRef.current = false;
+        homePollInFlightRef.current = true;
+        void load().finally(() => {
+          homePollInFlightRef.current = false;
         });
       },
       () => shouldRefreshHomeTournaments(AppState.currentState) &&
         activeRequestsRef.current === 0 &&
-        !tournamentPollInFlightRef.current,
+        !homePollInFlightRef.current,
       HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
     );
   }, [load]));

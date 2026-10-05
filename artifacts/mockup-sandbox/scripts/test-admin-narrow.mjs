@@ -728,6 +728,135 @@ async function checkHomeCarousel() {
     JSON.stringify(navigations.at(-1)) === JSON.stringify(["TDetail", { id: "later-two" }]),
     "The remaining Home tournament card should still open its details.",
   );
+
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.getHomePollCount() === 1 && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === 1",
+    "Home to install one bounded registration-aware refresh after the initial load",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.getHomePollIntervalMs() === 30000"),
+    "Home should refresh tournament and registration data no more often than its existing 30-second interval.",
+  );
+
+  const initialTargetText = await evaluate(
+    "document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText ?? ''",
+  );
+  assert(initialTargetText.includes("JOIN NOW"), "An unregistered Home card should initially offer JOIN NOW.");
+  await evaluate(`(() => {
+    window.__daily007HomeCarouselTest.unaffectedCardNode =
+      document.querySelector('[data-testid="home-upcoming-card-later-two"]');
+    return Boolean(window.__daily007HomeCarouselTest.unaffectedCardNode);
+  })()`);
+  assert(
+    await evaluate("Boolean(window.__daily007HomeCarouselTest.unaffectedCardNode)"),
+    "The unaffected Home card should be available before registration refreshes.",
+  );
+
+  const readsBeforeApproval = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+  ])`);
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "The Home polling callback should be available.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeApproval.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "Home to show an Admin-approved registration on its next scheduled refresh",
+  );
+  const readsAfterApproval = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsAfterApproval.tournaments === readsBeforeApproval.tournaments + 1 &&
+      readsAfterApproval.registrations === readsBeforeApproval.registrations + 1,
+    "One Home poll should issue only one tournament read and one registration read.",
+  );
+
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "rejected" }
+  ])`);
+  await evaluate("window.__daily007HomeCarouselTest.failNextTournamentRead('Temporary tournament refresh failure')");
+  await evaluate("window.__daily007HomeCarouselTest.deferNextRegistrationRead()");
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "The Home polling callback should remain available.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsAfterApproval.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsAfterApproval.registrations + 1}`,
+    "Home to start exactly one tournament and registration read",
+  );
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText.includes('JOINED')"),
+    "A failed tournament refresh must keep the previously displayed joined state.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "The existing Home polling callback should remain available while a request is pending.",
+  );
+  await delay(120);
+  const readsWhilePending = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsWhilePending.tournaments === readsAfterApproval.tournaments + 1 &&
+      readsWhilePending.registrations === readsAfterApproval.registrations + 1,
+    "A slow registration read must prevent a second Home refresh, even after the tournament request fails.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
+    "The deferred registration response should be released so the failed poll can settle.",
+  );
+  await delay(120);
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText.includes('JOINED')"),
+    "The rejected status should not replace cards when its paired tournament refresh fails.",
+  );
+  const readsBeforeRejectionRefresh = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRejectionRefresh.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW')`,
+    "Home to remove the joined label after an Admin rejection is returned successfully",
+  );
+  const readsAfterRejection = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsAfterRejection.tournaments === readsBeforeRejectionRefresh.tournaments + 1 &&
+      readsAfterRejection.registrations === readsBeforeRejectionRefresh.registrations + 1,
+    "The recovered Home poll should perform only one read per endpoint.",
+  );
+  assert(
+    await evaluate(`window.__daily007HomeCarouselTest.unaffectedCardNode === document.querySelector('[data-testid="home-upcoming-card-later-two"]')`),
+    "Approval and rejection refreshes should not remount an unaffected tournament card.",
+  );
+
+  const mergeIdentity = await evaluate(`(() => {
+    const changed = { id: "changed", name: "Changed card", joined: false };
+    const unchanged = { id: "unchanged", name: "Unaffected card", joined: false };
+    const current = [changed, unchanged];
+    const incoming = [
+      { id: "changed", name: "Changed card" },
+      { id: "unchanged", name: "Unaffected card" },
+    ];
+    const same = window.__daily007HomeCarouselTest.mergeHomeTournamentItems(current, incoming, new Set());
+    const approved = window.__daily007HomeCarouselTest.mergeHomeTournamentItems(
+      current,
+      incoming,
+      new Set(["changed"]),
+    );
+    return {
+      sameListReused: same === current,
+      changedCardUpdated: approved[0] !== changed && approved[0].joined === true,
+      unaffectedCardReused: approved[1] === unchanged,
+    };
+  })()`);
+  assert(mergeIdentity?.sameListReused, "An unchanged refresh should reuse the current Home list.");
+  assert(mergeIdentity?.changedCardUpdated, "A joined-status change should update only its tournament card.");
+  assert(mergeIdentity?.unaffectedCardReused, "A joined-status change should preserve unaffected card objects.");
 }
 
 async function setKeyboardViewport(height) {
@@ -1047,7 +1176,7 @@ try {
     } else if (homeCarouselOnly) {
       await checkHomeCarousel();
       assert(browserErrors.length === 0, `Browser errors during Home carousel checks: ${browserErrors.join(" | ")}`);
-      console.log("PASS — Home removes a tournament at its scheduled IST start and keeps remaining carousel cards usable.");
+      console.log("PASS — Home updates joined status after Admin approval/rejection on its 30-second poll, preserves unaffected cards, and keeps the scheduled-start carousel usable.");
     } else {
       await checkTournamentResume();
       assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);

@@ -203,6 +203,13 @@ const empty = async () => [];
 let tournamentReadCount = 0;
 let nextTournamentReadError: string | null = null;
 let playerLargestTextPreview = false;
+let myRegistrationReadCount = 0;
+let homeCarouselRegistrationPreview: any[] | null = null;
+let deferredHomeRegistrationRead: {
+  promise: Promise<any[]>;
+  resolve: (registrations: any[]) => void;
+  claimed: boolean;
+} | null = null;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
 
 const longTournamentName =
@@ -309,9 +316,20 @@ export const Api = {
     const tournaments = playerLargestTextPreview ? largestTextTournaments : previewTournaments;
     return tournaments.map((tournament) => ({ ...tournament }));
   },
-  myRegistrations: async () => playerLargestTextPreview
-    ? largestTextRegistrations.map((registration) => ({ ...registration }))
-    : empty(),
+  myRegistrations: async () => {
+    myRegistrationReadCount += 1;
+    if (playerLargestTextPreview) {
+      return largestTextRegistrations.map((registration) => ({ ...registration }));
+    }
+    if (homeCarouselRegistrationPreview !== null) {
+      if (deferredHomeRegistrationRead && !deferredHomeRegistrationRead.claimed) {
+        deferredHomeRegistrationRead.claimed = true;
+        return deferredHomeRegistrationRead.promise;
+      }
+      return homeCarouselRegistrationPreview.map((registration) => ({ ...registration }));
+    }
+    return empty();
+  },
   leaderboard: async () => playerLargestTextPreview
     ? Array.from({ length: 12 }, (_, index) => ({
         id: `largest-text-player-${index + 1}`,
@@ -385,6 +403,35 @@ export const Api = {
 
 export function getTournamentReadCount() {
   return tournamentReadCount;
+}
+
+export function configureHomeCarouselRegistrationPreview(registrations: any[] = []) {
+  homeCarouselRegistrationPreview = registrations.map((registration) => ({ ...registration }));
+  myRegistrationReadCount = 0;
+}
+
+export function setHomeCarouselRegistrationPreview(registrations: any[]) {
+  homeCarouselRegistrationPreview = registrations.map((registration) => ({ ...registration }));
+}
+
+export function deferNextHomeCarouselRegistrationRead() {
+  let resolve!: (registrations: any[]) => void;
+  const promise = new Promise<any[]>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  deferredHomeRegistrationRead = { promise, resolve, claimed: false };
+}
+
+export function releaseHomeCarouselRegistrationRead() {
+  const deferred = deferredHomeRegistrationRead;
+  if (!deferred) return false;
+  deferredHomeRegistrationRead = null;
+  deferred.resolve((homeCarouselRegistrationPreview ?? []).map((registration) => ({ ...registration })));
+  return true;
+}
+
+export function getMyRegistrationReadCount() {
+  return myRegistrationReadCount;
 }
 
 export function resetTournamentReadCount() {
