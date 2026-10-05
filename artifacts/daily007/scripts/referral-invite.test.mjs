@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   copyReferralLinkToClipboard,
-  openReferralInBrowser,
+  openReferralInBrowserWithFallback,
+  referralBrowserOpenFallbackMessage,
   referralSignupFromUrl,
   shareReferralInvite,
 } from "../src/lib/referral-invite.ts";
@@ -11,21 +12,64 @@ import {
 const configuredDomain = "daily007.example.test";
 const nativeContext = { platform: "native", configuredDomain };
 
-test("Earn sends its HTTPS invite URL to Expo's browser opener", async () => {
+test("Earn opens the HTTPS invite URL successfully in Expo's browser without changing the flow", async () => {
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const openedUrls = [];
+  const fallbackMessages = [];
   const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
 
-  await openReferralInBrowser(referralLink, async (url) => {
-    openedUrls.push(url);
-    return { type: "opened" };
-  });
+  await openReferralInBrowserWithFallback(
+    referralLink,
+    async (url) => {
+      openedUrls.push(url);
+      return { type: "opened" };
+    },
+    (message) => fallbackMessages.push(message),
+  );
 
   assert.equal(new URL(openedUrls[0]).protocol, "https:");
   assert.deepEqual(openedUrls, [referralLink]);
+  assert.deepEqual(fallbackMessages, []);
   assert.match(earnSource, /WebBrowser\.openBrowserAsync\(url\)/);
-  assert.match(earnSource, /openReferralInBrowser\([\s\S]*?dashboard\.referralLink/);
+  assert.match(
+    earnSource,
+    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*\(url\) => WebBrowser\.openBrowserAsync\(url\),\s*setActionError/,
+  );
   assert.match(earnSource, /testID="referral-open-link"[\s\S]*?onPress=\{openReferralLink\}/);
+});
+
+test("a rejected browser open shows Earn's copy/share fallback without network or account requests", async (t) => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const openedUrls = [];
+  const fallbackMessages = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+  const inviteHelperSource = await readFile(new URL("../src/lib/referral-invite.ts", import.meta.url), "utf8");
+  const networkRequests = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("Unexpected network request");
+  });
+
+  await openReferralInBrowserWithFallback(
+    referralLink,
+    async (url) => {
+      openedUrls.push(url);
+      throw new Error("Browser unavailable");
+    },
+    (message) => fallbackMessages.push(message),
+  );
+
+  assert.deepEqual(openedUrls, [referralLink]);
+  assert.equal(networkRequests.mock.callCount(), 0);
+  assert.deepEqual(fallbackMessages, [referralBrowserOpenFallbackMessage]);
+  assert.doesNotMatch(inviteHelperSource, /\b(fetch|axios|useDaily007GetMyReferrals)\b/);
+  assert.match(
+    earnSource,
+    /openReferralInBrowserWithFallback\([\s\S]*?setActionError,\s*\);/,
+  );
+  assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.equal(
+    fallbackMessages[0],
+    "Could not open the invite link. Copy or share it and open it in a browser.",
+  );
 });
 
 test("Earn copies the server-provided HTTPS referral link without changing its code", async () => {

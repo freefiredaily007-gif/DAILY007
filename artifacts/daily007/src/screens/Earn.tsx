@@ -24,7 +24,7 @@ import { C } from '../components/ui';
 import { apiError } from '../lib/api';
 import {
   copyReferralLinkToClipboard,
-  openReferralInBrowser,
+  openReferralInBrowserWithFallback,
   shareReferralInvite,
 } from '../lib/referral-invite';
 
@@ -94,14 +94,11 @@ export default function Earn() {
   const openReferralLink = async () => {
     if (!dashboard?.referralLink) return;
     setActionError('');
-    try {
-      await openReferralInBrowser(
-        dashboard.referralLink,
-        (url) => WebBrowser.openBrowserAsync(url),
-      );
-    } catch {
-      setActionError('Could not open the invite link. Copy or share it and open it in a browser.');
-    }
+    await openReferralInBrowserWithFallback(
+      dashboard.referralLink,
+      (url) => WebBrowser.openBrowserAsync(url),
+      setActionError,
+    );
   };
 
   const copyReferralLink = async () => {

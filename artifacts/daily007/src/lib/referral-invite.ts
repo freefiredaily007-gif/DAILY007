@@ -44,6 +44,21 @@ export async function openReferralInBrowser(
   await openBrowser(referralLink);
 }
 
+export const referralBrowserOpenFallbackMessage =
+  'Could not open the invite link. Copy or share it and open it in a browser.';
+
+export async function openReferralInBrowserWithFallback(
+  referralLink: string,
+  openBrowser: OpenReferralBrowser,
+  showFallback: (message: string) => void,
+): Promise<void> {
+  try {
+    await openReferralInBrowser(referralLink, openBrowser);
+  } catch {
+    showFallback(referralBrowserOpenFallbackMessage);
+  }
+}
+
 export type ReferralShareContent = {
   message: string;
   url: string;
