@@ -55,6 +55,13 @@ type TestMatch = {
 };
 
 type TestStats = { matches: number; wins: number; kills: number; prize_coins: number };
+type FinalizationFailureObservation = {
+  awardCount: number;
+  ledgerCount: number;
+  stats: TestStats | null;
+  walletCoins: number | null;
+  matchEnabled: boolean;
+};
 type TestLedgerEntry = {
   userId: string;
   amount: number;
@@ -80,6 +87,8 @@ class MemoryTournamentResultsDatabase {
   stats = new Map<string, TestStats>();
   ledger: TestLedgerEntry[] = [];
   match: TestMatch = this.emptyMatch();
+  finalizationFailureObservation: FinalizationFailureObservation | null = null;
+  private failNextMatchFinalization = false;
 
   reset(): void {
     this.users = new Map([
@@ -93,6 +102,12 @@ class MemoryTournamentResultsDatabase {
     this.stats = new Map();
     this.ledger = [];
     this.match = this.emptyMatch();
+    this.finalizationFailureObservation = null;
+    this.failNextMatchFinalization = false;
+  }
+
+  failOnNextMatchFinalization(): void {
+    this.failNextMatchFinalization = true;
   }
 
   approveTestRegistrations(): void {
@@ -332,6 +347,29 @@ class MemoryTournamentResultsDatabase {
         reason: "match_prize",
       });
     } else if (normalized.startsWith("UPDATE daily007_v2_matches SET enabled = false")) {
+      if (this.failNextMatchFinalization) {
+        this.failNextMatchFinalization = false;
+        const matchId = String(values[0]);
+        const awards = this.awards.filter((award) => award.match_id === matchId);
+        const winningUserId = awards[0]?.user_id;
+        this.finalizationFailureObservation = {
+          awardCount: awards.length,
+          ledgerCount: winningUserId
+            ? this.ledger.filter((entry) => entry.userId === winningUserId).length
+            : 0,
+          stats: winningUserId
+            ? structuredClone(this.stats.get(winningUserId) ?? null)
+            : null,
+          walletCoins: winningUserId
+            ? this.users.get(winningUserId)?.wallet_coins ?? null
+            : null,
+          matchEnabled: this.match.enabled,
+        };
+        throw Object.assign(
+          new Error("Injected test database failure while finalizing tournament results."),
+          { code: "XX000" },
+        );
+      }
       if (this.match.id === values[0]) this.match.enabled = false;
     } else if (normalized === "SELECT enabled FROM daily007_v2_matches WHERE id = $1") {
       rows = this.match.id === values[0] ? [{ enabled: this.match.enabled }] : [];

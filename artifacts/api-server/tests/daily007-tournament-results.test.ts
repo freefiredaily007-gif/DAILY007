@@ -34,6 +34,14 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   app.use(express.json());
   app.use(compatCoreRouter);
   app.use(compatExtraRouter);
+  app.use((
+    _error: unknown,
+    _request: express.Request,
+    response: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    response.status(500).json({ error: "Internal server error." });
+  });
 
   const server = await new Promise<Server>((resolve, reject) => {
     const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
@@ -249,6 +257,109 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(standingsAfterCompetition.status, 200);
     assert.deepEqual(standingsAfterCompetition.body, standings.body);
     assert.deepEqual(captureSettlementState(), sideEffectsBeforeRetry);
+  });
+});
+
+test("failed result settlement rolls back every write and permits one valid retry", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+
+    const before = captureSettlementState();
+    const standingsBefore = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+      "GET",
+    );
+    const resultsBefore = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
+    assert.equal(standingsBefore.status, 200);
+    assert.equal(standingsBefore.body.status, "draft");
+    assert.deepEqual(standingsBefore.body.entries, []);
+    assert.equal(resultsBefore.status, 200);
+    assert.deepEqual(resultsBefore.body.data, []);
+
+    tournamentResultsTestDb.failOnNextMatchFinalization();
+    const failed = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+
+    assert.equal(failed.status, 500);
+    assert.deepEqual(tournamentResultsTestDb.finalizationFailureObservation, {
+      awardCount: 1,
+      ledgerCount: 1,
+      stats: { matches: 1, wins: 1, kills: 7, prize_coins: 1_500 },
+      walletCoins: 1_600,
+      matchEnabled: true,
+    }, "the injected failure must occur after all settlement writes but before match finalization");
+    assert.deepEqual(captureSettlementState(), before);
+
+    const standingsAfterFailure = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+      "GET",
+    );
+    const resultsAfterFailure = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
+    assert.equal(standingsAfterFailure.status, 200);
+    assert.equal(resultsAfterFailure.status, 200);
+    assert.deepEqual(standingsAfterFailure.body, standingsBefore.body);
+    assert.deepEqual(resultsAfterFailure.body, resultsBefore.body);
+
+    const retry = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+    assert.equal(retry.status, 201);
+    assert.equal(retry.body.prizeCoins, 1_500);
+    assert.equal(retry.body.walletCoins, 1_600);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_WINNER_ID)?.wallet_coins, 1_600);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_RUNNER_UP_ID)?.wallet_coins, 200);
+    assert.equal(tournamentResultsTestDb.awards.length, 1);
+    assert.equal(tournamentResultsTestDb.ledger.length, 1);
+    assert.equal(tournamentResultsTestDb.stats.size, 1);
+    assert.deepEqual(tournamentResultsTestDb.stats.get(TEST_WINNER_ID), {
+      matches: 1,
+      wins: 1,
+      kills: 7,
+      prize_coins: 1_500,
+    });
+    assert.deepEqual(tournamentResultsTestDb.ledger, [
+      { userId: TEST_WINNER_ID, amount: 1_500, balanceAfter: 1_600, reason: "match_prize" },
+    ]);
+    assert.equal(tournamentResultsTestDb.match.enabled, false);
+
+    const standingsAfterRetry = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+      "GET",
+    );
+    assert.equal(standingsAfterRetry.status, 200);
+    assert.equal(standingsAfterRetry.body.status, "finalized");
+    assert.deepEqual(
+      standingsAfterRetry.body.entries.map((entry: any) => ({
+        registrationId: entry.registrationId,
+        rank: entry.rank,
+        kills: entry.kills,
+        prizeCoins: entry.prizeCoins,
+      })),
+      [{
+        registrationId: TEST_WINNER_REGISTRATION_ID,
+        rank: 1,
+        kills: 7,
+        prizeCoins: 1_500,
+      }],
+    );
   });
 });
 
