@@ -494,6 +494,7 @@ export default function Video() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Retry the coin reward claim"
+              testID="video-retry-claim"
               disabled={rewardPending}
               onPress={() => { void claimViewReward(retrySession.sessionId, retrySession.percent); }}
               style={styles.retryButton}

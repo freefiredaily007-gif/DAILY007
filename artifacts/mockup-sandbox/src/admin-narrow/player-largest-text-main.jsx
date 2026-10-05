@@ -16,6 +16,7 @@ import JoinForm from "../../../daily007/src/screens/JoinForm";
 import LeaderboardDetails from "../../../daily007/src/screens/LeaderboardDetails";
 import { getPlayerTabBarHeight } from "../../../daily007/src/lib/playerTabBarSizing";
 import { configurePlayerLargestTextPreview, configureWalletFormPreview } from "./mocks/api";
+import { configureVideoRewardPreview } from "./mocks/api-client-react";
 
 function JoinFormServerErrorPreview() {
   return (
@@ -75,10 +76,19 @@ const titles = {
 const tabScreens = ["Home", "Video", "Earn", "Wallet", "Profile"];
 const tabLabels = ["HOME", "VIDEO", "EARN", "WALLET", "PROFILE"];
 const screenName = new URLSearchParams(window.location.search).get("screen") || "Home";
-const Screen = screens[screenName] || Home;
+const videoRewardPreviewMode = screenName === "VideoUnavailable"
+  ? "unavailable"
+  : screenName === "VideoTransient"
+    ? "transient"
+    : null;
+const Screen = screens[screenName === "VideoUnavailable" || screenName === "VideoTransient"
+  ? "Video"
+  : screenName] || Home;
 
 configurePlayerLargestTextPreview();
 configureWalletFormPreview();
+configureVideoRewardPreview(videoRewardPreviewMode);
+if (videoRewardPreviewMode) window.__videoRewardPreview = true;
 
 function PreviewTabBar({ fontScale, width }) {
   const height = getPlayerTabBarHeight(fontScale, width);

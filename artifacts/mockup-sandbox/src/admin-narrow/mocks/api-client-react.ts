@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react";
+
 const resultLogs = [
   {
     tournamentId: "preview-completed",
@@ -116,15 +118,117 @@ const largestTextVideos = [
   },
 ];
 
+const rewardPreviewVideos = [
+  {
+    id: "unavailable-video",
+    title: "Preview video that becomes unavailable",
+    topic: "Unavailable reward regression",
+    youtubeId: "preview-unavailable-video",
+    url: "https://www.youtube.com/watch?v=preview-unavailable-video",
+  },
+  {
+    id: "still-active-video",
+    title: "Preview video that remains available",
+    topic: "Catalog refresh regression",
+    youtubeId: "preview-active-video",
+    url: "https://www.youtube.com/watch?v=preview-active-video",
+  },
+];
+
+type VideoRewardPreviewMode = "unavailable" | "transient" | null;
+type VideoRewardPreviewCalls = {
+  starts: unknown[];
+  completions: unknown[];
+  listRefetches: number;
+};
+
+let videoRewardPreviewMode: VideoRewardPreviewMode = null;
+let transientCompletionFailures = 0;
+
+function getVideoRewardPreviewCalls(): VideoRewardPreviewCalls {
+  const preview = globalThis as typeof globalThis & {
+    __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
+  };
+  preview.__videoRewardPreviewCalls ??= { starts: [], completions: [], listRefetches: 0 };
+  return preview.__videoRewardPreviewCalls;
+}
+
+export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
+  videoRewardPreviewMode = mode;
+  transientCompletionFailures = 0;
+  const preview = globalThis as typeof globalThis & {
+    __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
+  };
+  preview.__videoRewardPreviewCalls = { starts: [], completions: [], listRefetches: 0 };
+}
+
 export function useDaily007ListVideos() {
+  const [refreshCount, setRefreshCount] = useState(0);
+  const mode = videoRewardPreviewMode;
+  const videos = mode
+    ? mode === "unavailable" && refreshCount > 0
+      ? rewardPreviewVideos.filter((video) => video.id !== "unavailable-video")
+      : rewardPreviewVideos
+    : largestTextVideos;
+  const refetch = useCallback(async () => {
+    getVideoRewardPreviewCalls().listRefetches += 1;
+    setRefreshCount((current) => current + 1);
+    return {
+      data: {
+        videos: mode === "unavailable"
+          ? rewardPreviewVideos.filter((video) => video.id !== "unavailable-video")
+          : rewardPreviewVideos,
+      },
+    };
+  }, [mode]);
+
+  if (mode) {
+    return {
+      ...noQuery({ videos }),
+      refetch,
+    };
+  }
   return noQuery({ videos: largestTextVideos });
 }
 
 export function useDaily007StartVideoWatch() {
+  if (videoRewardPreviewMode) {
+    return {
+      ...noMutation(),
+      mutateAsync: async (input: unknown) => {
+        getVideoRewardPreviewCalls().starts.push(input);
+        return { sessionId: "preview-video-watch-session" };
+      },
+    };
+  }
   return noMutation();
 }
 
 export function useDaily007CompleteVideoWatch() {
+  const mode = videoRewardPreviewMode;
+  if (mode) {
+    return {
+      ...noMutation(),
+      mutateAsync: async (input: unknown) => {
+        const calls = getVideoRewardPreviewCalls();
+        calls.completions.push(input);
+        if (mode === "unavailable") {
+          const error = new Error("Request failed with status code 409") as Error & {
+            response?: { data?: { error?: string } };
+          };
+          error.response = {
+            data: { error: "This video is no longer available for rewards." },
+          };
+          throw error;
+        }
+        if (transientCompletionFailures === 0) {
+          transientCompletionFailures += 1;
+          throw new Error("Temporary completion network failure.");
+        }
+        return { rewarded: true, message: "1 coin added to your wallet." };
+      },
+    };
+  }
   return noMutation();
 }
 

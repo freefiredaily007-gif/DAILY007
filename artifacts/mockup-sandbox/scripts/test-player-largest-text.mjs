@@ -162,6 +162,18 @@ async function clickSelector(selector, description) {
   await delay(120);
 }
 
+async function clickButtonWithText(text, description) {
+  const clicked = await evaluate(`(() => {
+    const target = [...document.querySelectorAll('button')]
+      .find((button) => button.innerText.includes(${JSON.stringify(text)}));
+    if (!target) return false;
+    target.click();
+    return true;
+  })()`);
+  assert(clicked, `Could not find ${description}.`);
+  await delay(120);
+}
+
 async function setInputValue(selector, value, description) {
   const updated = await evaluate(`(() => {
     const input = document.querySelector(${JSON.stringify(selector)});
@@ -634,6 +646,95 @@ async function checkScreen(screen, viewportWidth) {
   console.log(`PASS — ${screen.name} at ${viewportWidth}px and 2× Android text scale.`);
 }
 
+async function checkUnavailableVideoRewardFlow() {
+  await navigateToScreen("VideoUnavailable", "Tutorial Videos");
+  await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "unavailable test video");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "video playback start");
+  await waitForCondition(
+    "window.__videoRewardPreviewCalls?.starts.length === 1",
+    "server video-watch start request",
+  );
+  const startedWith = await evaluate("window.__videoRewardPreviewCalls.starts[0]");
+  assert(
+    startedWith?.data?.videoId === "unavailable-video" && startedWith.data.durationSeconds === 8,
+    `Playback did not start for the unavailable catalog item: ${JSON.stringify(startedWith)}`,
+  );
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "video completion simulator");
+  await waitForCondition(
+    "document.body.innerText.includes('This video is no longer available for rewards.')",
+    "unavailable-video completion message",
+  );
+  const unavailableState = await evaluate(`(() => ({
+    retry: [...document.querySelectorAll('button')]
+      .some((button) => button.innerText.includes('RETRY COIN CLAIM')),
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+  }))()`);
+  assert(
+    !unavailableState.retry && unavailableState.completions === 1,
+    `Unavailable video offered a stale retry or skipped its completion request: ${JSON.stringify(unavailableState)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-back"]', "return to video catalog");
+  await waitForCondition(
+    `document.body.innerText.includes('Preview video that remains available')
+      && !document.body.innerText.includes('Preview video that becomes unavailable')`,
+    "refreshed video catalog without the unavailable item",
+  );
+  const refreshedCatalog = await evaluate(`(() => ({
+    remainingCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+    unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
+    refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+  }))()`);
+  assert(
+    refreshedCatalog.remainingCard && !refreshedCatalog.unavailableCard && refreshedCatalog.refreshes === 1,
+    `The catalog did not refresh to the remaining active video: ${JSON.stringify(refreshedCatalog)}`,
+  );
+  console.log("PASS — unavailable video completion shows no retry and refreshes the catalog.");
+}
+
+async function checkTransientVideoRewardRetry() {
+  await navigateToScreen("VideoTransient", "Tutorial Videos");
+  await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "transient-failure test video");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator for transient failure",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "transient test playback start");
+  await waitForCondition(
+    "window.__videoRewardPreviewCalls?.starts.length === 1",
+    "transient test video-watch start request",
+  );
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "transient test completion");
+  await waitForCondition(
+    `document.body.innerText.includes('Temporary completion network failure.')
+      && [...document.querySelectorAll('button')]
+        .some((button) => button.innerText.includes('RETRY COIN CLAIM'))`,
+    "retry action after a transient completion failure",
+  );
+  await clickButtonWithText("RETRY COIN CLAIM", "retry coin claim action");
+  await waitForCondition(
+    `document.body.innerText.includes('1 coin added to your wallet.')
+      && ![...document.querySelectorAll('button')]
+        .some((button) => button.innerText.includes('RETRY COIN CLAIM'))`,
+    "successful retry after the transient failure",
+  );
+  const retryAttempts = await evaluate("window.__videoRewardPreviewCalls?.completions.length ?? 0");
+  assert(retryAttempts === 2, `Retry did not issue a second completion request: ${retryAttempts}`);
+  console.log("PASS — transient completion failures still offer a working retry.");
+}
+
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
@@ -702,6 +803,11 @@ try {
 
     for (const screen of screens) await checkScreen(screen, viewportWidth);
 
+    if (viewportWidth === 375) {
+      await checkUnavailableVideoRewardFlow();
+      await checkTransientVideoRewardRetry();
+    }
+
     await navigateToScreen("Home", "GAME MODES");
     const navState = await evaluate(`(() => ({
       bar: (() => {
@@ -743,7 +849,7 @@ try {
     }
   }
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — all twelve player screens at 375px and 320px, with join rejection messaging, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
+  console.log("PASS — all twelve player screens at 375px and 320px, with join rejection messaging, video reward failure recovery, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);

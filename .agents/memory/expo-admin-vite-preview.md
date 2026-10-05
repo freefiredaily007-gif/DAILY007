@@ -32,3 +32,9 @@ For React Native Web checks that shrink the viewport to simulate an open keyboar
 **Why:** `AdminApp` statically imports its screens, so one missing named hook prevents the whole preview from rendering before a tab is selected.
 
 **How to apply:** When an Admin screen adds a generated API hook, add a no-network query or mutation stub to the mock API client used by the Admin preview.
+
+**Rule:** In isolated React Native Web Android previews, prefer visible button text to locate and activate `Pressable` actions when accessibility or test selectors do not resolve.
+
+**Why:** An action can render visibly while its expected selector is not available to the browser-driven test, making the test fail on the harness rather than on the screen behavior.
+
+**How to apply:** Assert the action's rendered label and click the corresponding button node in preview tests; keep selectors for controls only when the DOM exposes them reliably.

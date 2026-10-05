@@ -396,6 +396,12 @@ export function failNextTournamentRead(message = "Temporary network error") {
 }
 
 export function apiError(error: unknown) {
+  const responseData = (error as {
+    response?: { data?: { error?: string; message?: string } };
+  } | null)?.response?.data;
+  if (responseData?.error || responseData?.message) {
+    return responseData.error || responseData.message || "Network error.";
+  }
   return error instanceof Error ? error.message : String(error);
 }
 
