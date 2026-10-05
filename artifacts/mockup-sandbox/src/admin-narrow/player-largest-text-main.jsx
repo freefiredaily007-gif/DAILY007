@@ -85,10 +85,13 @@ const videoRewardPreviewMode = screenName === "VideoUnavailable"
     ? "transient"
     : screenName === "VideoStartFailure"
       ? "startFailure"
+      : screenName === "VideoRefreshFailure"
+        ? "unavailableRefreshFailure"
       : null;
 const Screen = screens[screenName === "VideoUnavailable"
   || screenName === "VideoTransient"
   || screenName === "VideoStartFailure"
+  || screenName === "VideoRefreshFailure"
   ? "Video"
   : screenName] || Home;
 

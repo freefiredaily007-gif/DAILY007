@@ -134,8 +134,14 @@ const rewardPreviewVideos = [
     url: "https://www.youtube.com/watch?v=preview-active-video",
   },
 ];
+const activeRewardPreviewVideos = rewardPreviewVideos.filter((video) => video.id !== "unavailable-video");
 
-type VideoRewardPreviewMode = "unavailable" | "transient" | "startFailure" | null;
+type VideoRewardPreviewMode =
+  | "unavailable"
+  | "unavailableRefreshFailure"
+  | "transient"
+  | "startFailure"
+  | null;
 type VideoRewardPreviewCalls = {
   starts: unknown[];
   sessions: string[];
@@ -167,27 +173,37 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
 
 export function useDaily007ListVideos() {
   const [refreshCount, setRefreshCount] = useState(0);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const mode = videoRewardPreviewMode;
+  const removesUnavailable = mode === "unavailable" || mode === "unavailableRefreshFailure";
   const videos = mode
-    ? mode === "unavailable" && refreshCount > 0
-      ? rewardPreviewVideos.filter((video) => video.id !== "unavailable-video")
+    ? removesUnavailable && refreshCount > 0
+      ? activeRewardPreviewVideos
       : rewardPreviewVideos
     : largestTextVideos;
   const refetch = useCallback(async () => {
-    getVideoRewardPreviewCalls().listRefetches += 1;
+    const calls = getVideoRewardPreviewCalls();
+    calls.listRefetches += 1;
+    if (mode === "unavailableRefreshFailure" && calls.listRefetches === 1) {
+      setRefreshFailed(true);
+      return { error: new Error("Temporary video catalog refresh failure.") };
+    }
+    setRefreshFailed(false);
     setRefreshCount((current) => current + 1);
     return {
       data: {
-        videos: mode === "unavailable"
-          ? rewardPreviewVideos.filter((video) => video.id !== "unavailable-video")
+        videos: removesUnavailable
+          ? activeRewardPreviewVideos
           : rewardPreviewVideos,
       },
     };
-  }, [mode]);
+  }, [mode, removesUnavailable]);
 
   if (mode) {
     return {
       ...noQuery({ videos }),
+      isError: refreshFailed,
+      error: refreshFailed ? new Error("Temporary video catalog refresh failure.") : null,
       refetch,
     };
   }
@@ -222,7 +238,7 @@ export function useDaily007CompleteVideoWatch() {
       mutateAsync: async (input: unknown) => {
         const calls = getVideoRewardPreviewCalls();
         calls.completions.push(input);
-        if (mode === "unavailable") {
+        if (mode === "unavailable" || mode === "unavailableRefreshFailure") {
           const error = new Error("Request failed with status code 409") as Error & {
             response?: { data?: { error?: string } };
           };

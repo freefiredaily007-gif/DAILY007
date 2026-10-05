@@ -833,6 +833,75 @@ async function checkUnavailableVideoRewardFlow() {
   console.log("PASS — unavailable video completion shows no retry and refreshes the catalog.");
 }
 
+async function checkUnavailableVideoCatalogRefreshFailure() {
+  const unavailableMessage = "This video is no longer available for rewards.";
+  const catalogError = "Could not load videos. Check your connection and try again.";
+  await navigateToScreen("VideoRefreshFailure", "Tutorial Videos");
+  await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "video that becomes unavailable");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator before unavailable-video completion",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "unavailable-video playback start");
+  await waitForCondition(
+    "window.__videoRewardPreviewCalls?.starts.length === 1",
+    "watch session for the unavailable-video flow",
+  );
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "complete the now-unavailable video");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(unavailableMessage)})`,
+    "unavailable-video completion response",
+  );
+  await clickSelector('[data-testid="video-catalog-back"]', "return to the catalog after unavailable completion");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))`,
+    "catalog refresh error and reload action",
+  );
+
+  const failedRefresh = await evaluate(`(() => ({
+    errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+    reloadVisible: document.querySelector('[data-testid="video-catalog-reload"]') !== null,
+    unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
+    activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+    refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+  }))()`);
+  assert(
+    failedRefresh.errorVisible
+      && failedRefresh.reloadVisible
+      && !failedRefresh.unavailableCard
+      && !failedRefresh.activeCard
+      && failedRefresh.refreshes === 1,
+    `A failed catalog refresh should show recovery instead of the stale list: ${JSON.stringify(failedRefresh)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-reload"]', "retry video catalog refresh");
+  await waitForCondition(
+    `document.body.innerText.includes('Preview video that remains available')
+      && !document.body.innerText.includes('Preview video that becomes unavailable')
+      && !document.body.innerText.includes(${JSON.stringify(catalogError)})`,
+    "refreshed catalog after retry",
+  );
+  const recoveredCatalog = await evaluate(`(() => ({
+    errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+    unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
+    activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+    refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+  }))()`);
+  assert(
+    !recoveredCatalog.errorVisible
+      && !recoveredCatalog.unavailableCard
+      && recoveredCatalog.activeCard
+      && recoveredCatalog.refreshes === 2,
+    `Retrying the catalog should remove only the unavailable video: ${JSON.stringify(recoveredCatalog)}`,
+  );
+  console.log("PASS — catalog reload recovers from an unavailable-video refresh failure.");
+}
+
 async function checkTransientVideoRewardRetry() {
   await navigateToScreen("VideoTransient", "Tutorial Videos");
   await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "transient-failure test video");
@@ -1100,6 +1169,7 @@ try {
 
     if (viewportWidth === 375) {
       await checkUnavailableVideoRewardFlow();
+      await checkUnavailableVideoCatalogRefreshFailure();
       await checkTransientVideoRewardRetry();
       await checkVideoWatchStartFailure();
     }

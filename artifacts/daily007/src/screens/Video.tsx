@@ -541,6 +541,7 @@ export default function Video() {
               <Feather name="alert-circle" size={18} color={colors.destructive} />
               <Text style={styles.errorText}>Could not load videos. Check your connection and try again.</Text>
               <Pressable
+                testID="video-catalog-reload"
                 onPress={() => { void videosQuery.refetch(); }}
                 accessibilityRole="button"
                 accessibilityLabel="Reload videos"
@@ -556,7 +557,7 @@ export default function Video() {
             </View>
           ) : null}
 
-          {videos.length > 0 ? (
+          {!videosQuery.isError && videos.length > 0 ? (
             <>
               <View style={styles.catalogSearch}>
                 <Feather name="search" size={17} color={colors.mutedForeground} />
