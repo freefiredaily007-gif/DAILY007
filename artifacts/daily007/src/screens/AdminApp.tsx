@@ -18,6 +18,7 @@ import AdminEarnTasks from './AdminEarnTasks';
 import AdminVideos from './AdminVideos';
 import AdminLeaderboards from './AdminLeaderboards';
 import logoImg from '../assets/logo.jpg';
+import { adminNavigationForRole, canNavigateAdminScreen } from '../lib/roleNavigation';
 
 const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
@@ -32,9 +33,6 @@ const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[]
   { key: 'notifications', label: 'Notify', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
-// Tournament Admins use the tournament cards for room and result actions.
-const TOURNAMENT_ADMIN_SCREENS = new Set(['tournaments', 'registrations']);
-
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {
   const { user, refresh, logout: ctxLogout } = useApp();
   const onLogout = onLogoutProp || ctxLogout;
@@ -42,9 +40,9 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   const [refreshKey, setRefreshKey] = useState(0);
   const navScrollRef = useRef<ScrollView | null>(null);
   const navItemOffsets = useRef<Record<string, number>>({});
-  const navSelection = user?.role === 'tournament_admin' && !TOURNAMENT_ADMIN_SCREENS.has(screen)
-    ? 'tournaments'
-    : screen;
+  const tournamentOnly = user.role === 'tournament_admin';
+  const navigation = adminNavigationForRole(user.role, screen, NAV);
+  const navSelection = navigation.activeScreen;
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -56,11 +54,10 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
     return () => cancelAnimationFrame(frame);
   }, [navSelection]);
 
-  const tournamentOnly = user.role === 'tournament_admin';
-  const activeScreen = tournamentOnly && !TOURNAMENT_ADMIN_SCREENS.has(screen) ? 'tournaments' : screen;
-  const visibleNav = tournamentOnly ? NAV.filter((item) => TOURNAMENT_ADMIN_SCREENS.has(item.key)) : NAV;
+  const activeScreen = navigation.activeScreen;
+  const visibleNav = NAV.filter((item) => navigation.visibleNavKeys.includes(item.key));
   const navigate = (next: string) => {
-    if (!tournamentOnly || TOURNAMENT_ADMIN_SCREENS.has(next)) setScreen(next);
+    if (canNavigateAdminScreen(user.role, next)) setScreen(next);
   };
   const Screen: any = {
     dashboard: AdminDashboard, leaderboards: AdminLeaderboards, tournaments: AdminTournaments, registrations: AdminRegs,

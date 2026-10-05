@@ -33,6 +33,7 @@ import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
 import { restoreDaily007Session } from './lib/session-verification';
+import { refreshUserAccountAccess, rootNavigationForRole } from './lib/roleNavigation';
 import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
@@ -259,10 +260,14 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
       const previous = currentUser();
       if (!previous) return null;
       try {
-        const account = await Api.meAccount();
-        const updated = { ...previous, ...account, token: previous.token };
-        setSession(updated);
-        setUser(updated);
+        const updated = await refreshUserAccountAccess(
+          previous,
+          () => Api.meAccount(),
+          (refreshedUser) => {
+            setSession(refreshedUser);
+            setUser(refreshedUser);
+          },
+        );
         return updated;
       } catch (e: any) {
         if (e?.response?.status === 401 || e?.response?.status === 403) {
@@ -339,6 +344,8 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     onDone={(u) => { setAuthNotice(''); setSession(u); setUser(u); }}
   />;
 
+  const rootNavigation = rootNavigationForRole(user.role);
+
   return (
     <Ctx.Provider value={{ user, refresh, logout }}>
       <QueryClientProvider client={queryClient}>
@@ -349,7 +356,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
             headerTitleStyle: { color: '#FFD54D', fontSize: 18, fontWeight: '700', fontFamily: 'Inter_700Bold' },
             contentStyle: { backgroundColor: '#070a12' },
           }}>
-            {user.role === 'admin' || user.role === 'tournament_admin' ? (
+            {rootNavigation === 'Admin' ? (
               <Stack.Screen name="Admin" component={AdminApp} options={{ headerShown: false }} />
             ) : (
               <>
