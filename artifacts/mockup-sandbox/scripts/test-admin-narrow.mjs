@@ -1605,26 +1605,16 @@ try {
       console.log("PASS — Player refresh recovery works; Admins can retry failed tournament refreshes in place without losing cards.");
     }
   } else {
-    await setViewport(320);
-    await checkAdminTabs(320);
-    await checkPopulatedAdminLists(320);
-    await checkTournamentStates(320);
-    assert(browserErrors.length === 0, `Browser errors at 320px: ${browserErrors.join(" | ")}`);
-    console.log("PASS 320px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
-
-    await setViewport(360);
-    await checkAdminTabs(360);
-    await checkPopulatedAdminLists(360);
-    await checkTournamentStates(360);
-    assert(browserErrors.length === 0, `Browser errors at 360px: ${browserErrors.join(" | ")}`);
-    console.log("PASS 360px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
-
-    await setViewport(375);
-    await checkAdminTabs(375);
-    await checkPopulatedAdminLists(375);
-    await checkTournamentStates(375);
-    assert(browserErrors.length === 0, `Browser errors at 375px: ${browserErrors.join(" | ")}`);
-    console.log("PASS 375px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
+    for (const width of [320, 360, 375, 390, 412, 430]) {
+      await setViewport(width);
+      await checkAdminTabs(width);
+      await checkPopulatedAdminLists(width);
+      await checkTournamentStates(width);
+      assert(browserErrors.length === 0, `Browser errors at ${width}px: ${browserErrors.join(" | ")}`);
+      console.log(
+        `PASS ${width}px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.`,
+      );
+    }
 
     await setViewport(320, 1.5);
     assert(
