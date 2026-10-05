@@ -6,6 +6,7 @@ import type { Server } from "node:http";
 import daily007V2Router from "../src/routes/daily007-v2";
 import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 import {
+  SIGNUP_TEST_LEGACY_REFERRAL_CODE,
   SIGNUP_TEST_REFERRAL_CODE,
   signupTestDb,
 } from "./support/daily007-signup-test-db";
@@ -150,6 +151,89 @@ test("password signup returns one 10-coin bonus through wallet history, and repe
 
     assert.equal(signupTestDb.referrals.length, 1);
     assert.equal(signupTestDb.ledger.length, 2);
+  });
+});
+
+test("legacy referral code signup creates one relationship and one 10-coin reward", async () => {
+  signupTestDb.reset();
+  const legacyCode = SIGNUP_TEST_LEGACY_REFERRAL_CODE;
+  const referrer = [...signupTestDb.users.values()].find(
+    (user) => user.email === "referrer@example.test",
+  );
+
+  assert.ok(referrer, "the in-memory fixture should seed a referral owner.");
+  assert.notEqual(legacyCode, SIGNUP_TEST_REFERRAL_CODE);
+  assert.equal(signupTestDb.legacyCodeOwners.get(legacyCode), referrer.id);
+  assert.equal(signupTestDb.shortCodeOwners.has(legacyCode), false);
+
+  await withServer(async (origin) => {
+    const email = "legacy-referral@example.test";
+    const registration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      {
+        name: "Legacy Referral Player",
+        email,
+        password: "test-password-123",
+        referralCode: legacyCode,
+      },
+    );
+
+    assert.equal(registration.status, 201);
+    assert.equal(registration.body.account.email, email);
+    assert.equal(registration.body.account.wallet_coins, 10);
+    const referredUserId = registration.body.account.id as string;
+    assert.equal(signupTestDb.users.get(referredUserId)?.wallet_coins, 10);
+    assert.equal(signupTestDb.users.size, 2);
+
+    assert.equal(signupTestDb.referrals.length, 1);
+    const referral = signupTestDb.referrals[0];
+    assert.ok(referral, "the legacy-code signup should create a referral relationship.");
+    assert.equal(referral.referrer_user_id, referrer.id);
+    assert.equal(referral.referred_user_id, referredUserId);
+    assert.equal(referral.code, legacyCode);
+
+    assert.equal(signupTestDb.ledger.length, 1);
+    const [rewardEntry] = signupTestDb.ledger;
+    assert.ok(rewardEntry);
+    assert.deepEqual(
+      {
+        userId: rewardEntry.user_id,
+        amount: rewardEntry.amount,
+        balanceAfter: rewardEntry.balance_after,
+        reason: rewardEntry.reason,
+        details: rewardEntry.details,
+      },
+      {
+        userId: referredUserId,
+        amount: 10,
+        balanceAfter: 10,
+        reason: "Referral Signup Bonus",
+        details: {
+          referrerUserId: referrer.id,
+          referralId: referral.id,
+          referralCode: legacyCode,
+        },
+      },
+    );
+
+    const walletHistory = await request(
+      origin,
+      "/wallet/transactions",
+      "GET",
+      undefined,
+      registration.body.token,
+    );
+    assert.equal(walletHistory.status, 200);
+    assert.deepEqual(
+      walletHistory.body.map((entry: any) => ({
+        amount: entry.amount,
+        balanceAfter: entry.balanceAfter,
+        reason: entry.reason,
+      })),
+      [{ amount: 10, balanceAfter: 10, reason: "Referral Signup Bonus" }],
+    );
   });
 });
 
