@@ -26,6 +26,7 @@ import {
   getCreditedVideoWatchSeconds,
   type VideoPlaybackSample,
 } from '../lib/video-watch-progress';
+import { openYouTubeVideo } from '../lib/video-links';
 
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
@@ -372,11 +373,16 @@ export default function Video() {
   const openOnYouTube = useCallback(async () => {
     if (!selectedVideo) return;
     try {
-      await Linking.openURL(selectedVideo.url);
+      await openYouTubeVideo(
+        Platform.OS,
+        selectedVideo.youtubeId,
+        selectedVideo.url,
+        (url) => Linking.openURL(url),
+      );
     } catch {
       setPlayerFailed(true);
     }
-  }, [selectedVideo?.url]);
+  }, [selectedVideo?.url, selectedVideo?.youtubeId]);
 
   const player = !selectedVideo ? null : Platform.OS === 'web'
     ? React.createElement('iframe' as any, {
