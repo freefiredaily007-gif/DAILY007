@@ -11,6 +11,7 @@
 - [Daily007 Android Back behavior](daily007-android-back.md) — hardware Back first hides the keyboard in Wallet/Edit Profile; values and second-Back behavior were confirmed on Android.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
+- [Daily007 API client tests](daily007-api-client-tests.md) — Node 24 tests that import the Expo API client need native module mocks and an extensionless TypeScript resolver.
 - [Daily007 UI asset test isolation](daily007-ui-asset-tests.md) — test selectors as pure TypeScript with injected sources; separately guard Metro asset wiring without importing React Native UI into Node.
 - [API PostgreSQL concurrency tests](api-postgres-concurrency-tests.md) — queued row-lock waiters can be blocked by an earlier queued transaction, not only the original lock holder.
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
