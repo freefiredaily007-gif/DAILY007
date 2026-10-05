@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   leaderboardPlayerAccessibilityLabel,
+  leaderboardPodiumAccessibilityLabel,
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
 } from "../src/lib/leaderboardStandings.ts";
@@ -46,6 +47,49 @@ test("expanded player rows announce rank, player, and coin score as one ordered 
     points: 120_000,
   });
   assert.equal(label, `Rank 4, Test Player, ${(120_000).toLocaleString("en-IN")} coins`);
+});
+
+test("podium entries announce one rank, player, and coin score without decorative stops", () => {
+  const start = screenSource.indexOf("function PodiumEntry(");
+  const end = screenSource.indexOf("\nfunction PlayerRow(", start);
+  assert.ok(start >= 0 && end > start, "The podium entry component must remain present.");
+  const podiumSource = screenSource.slice(start, end);
+
+  const rootStart = podiumSource.indexOf("<View");
+  const rootEnd = podiumSource.indexOf(">", rootStart);
+  assert.ok(rootStart >= 0 && rootEnd > rootStart, "Each podium entry needs an accessible root.");
+  const rootTag = podiumSource.slice(rootStart, rootEnd + 1);
+  assert.match(rootTag, /\baccessible\b/);
+  assert.match(rootTag, /accessibilityRole="text"/);
+  assert.match(rootTag, /testID=\{`leaderboard-podium-\$\{rank\}`\}/);
+  assert.match(rootTag, /accessibilityLabel=\{leaderboardPodiumAccessibilityLabel\(rank, standing\)\}/);
+
+  const avatarStyleIndex = podiumSource.indexOf("styles.podiumAvatar,");
+  const avatarStart = podiumSource.lastIndexOf("<View", avatarStyleIndex);
+  const avatarEnd = podiumSource.indexOf(">", avatarStart);
+  const avatarTag = podiumSource.slice(avatarStart, avatarEnd + 1);
+  assert.match(avatarTag, /accessibilityElementsHidden/);
+  assert.match(avatarTag, /importantForAccessibility="no-hide-descendants"/);
+
+  const initialsStyleIndex = podiumSource.indexOf("styles.podiumInitial,");
+  const initialsStart = podiumSource.lastIndexOf("<Text", initialsStyleIndex);
+  const initialsEnd = podiumSource.indexOf(">", initialsStart);
+  assert.match(podiumSource.slice(initialsStart, initialsEnd + 1), /accessible=\{false\}/);
+  assert.equal(
+    (podiumSource.match(/<Text accessible=\{false\} style=\{styles\.coinEmoji\}>🪙<\/Text>/g) ?? []).length,
+    2,
+    "Both podium layouts must hide the decorative coin icon.",
+  );
+
+  const label = leaderboardPodiumAccessibilityLabel(1, {
+    name: "Top Player",
+    points: 120_000,
+  });
+  assert.equal(label, `Rank 1, Top Player, ${(120_000).toLocaleString("en-IN")} coins`);
+  assert.equal(
+    leaderboardPodiumAccessibilityLabel(2),
+    "Rank 2, awaiting player, no coin score",
+  );
 });
 
 test("the Top 20 control exposes and toggles its expanded state", () => {

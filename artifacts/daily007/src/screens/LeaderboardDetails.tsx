@@ -15,6 +15,7 @@ import {
 } from "../lib/leaderboardRefreshPolicy";
 import {
   leaderboardPlayerAccessibilityLabel,
+  leaderboardPodiumAccessibilityLabel,
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
 } from "../lib/leaderboardStandings";
@@ -99,6 +100,9 @@ function PodiumEntry({
   return (
     <View
       testID={`leaderboard-podium-${rank}`}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={leaderboardPodiumAccessibilityLabel(rank, standing)}
       style={[
         styles.podiumEntry,
         rank === 1 && styles.podiumWinner,
@@ -115,8 +119,11 @@ function PodiumEntry({
           largeText && rank === 1 && styles.podiumAvatarWinnerLarge,
           { backgroundColor: standing ? avatarColor(standing.userId) : C.card },
         ]}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
         <Text
+          accessible={false}
           style={[
             styles.podiumInitial,
             rank === 1 && styles.podiumInitialWinner,
@@ -134,7 +141,7 @@ function PodiumEntry({
             {standing?.name || "Awaiting player"}
           </Text>
           <View style={[styles.podiumCoins, styles.podiumCoinsLarge]}>
-            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text accessible={false} style={styles.coinEmoji}>🪙</Text>
             <Text style={styles.podiumCoinsText}>
               {standing ? standing.points.toLocaleString("en-IN") : "—"}
             </Text>
@@ -147,7 +154,7 @@ function PodiumEntry({
             {standing?.name || "Awaiting player"}
           </Text>
           <View style={styles.podiumCoins}>
-            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text accessible={false} style={styles.coinEmoji}>🪙</Text>
             <Text style={styles.podiumCoinsText}>
               {standing ? standing.points.toLocaleString("en-IN") : "—"}
             </Text>

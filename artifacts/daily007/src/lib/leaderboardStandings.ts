@@ -25,3 +25,15 @@ export function leaderboardPlayerAccessibilityLabel(standing: {
 }): string {
   return `Rank ${standing.rank}, ${standing.name}, ${standing.points.toLocaleString("en-IN")} coins`;
 }
+
+export function leaderboardPodiumAccessibilityLabel(
+  rank: number,
+  standing?: {
+    name: string;
+    points: number;
+  },
+): string {
+  return standing
+    ? leaderboardPlayerAccessibilityLabel({ rank, ...standing })
+    : `Rank ${rank}, awaiting player, no coin score`;
+}
