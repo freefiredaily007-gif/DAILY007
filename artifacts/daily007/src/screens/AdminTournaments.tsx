@@ -34,6 +34,7 @@ const TOURNAMENT_TABS = [
 ] as const;
 type TournamentAdminTab = (typeof TOURNAMENT_TABS)[number]['id'];
 type TournamentAction = { tournamentId: string; kind: 'room' | 'results' };
+const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed.';
 
 function configuredPrizeForRank(tournament: Tournament, rank: number): number {
   const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
@@ -266,7 +267,7 @@ export default function AdminTournaments() {
       setResultKills('');
       if (rank === 1) {
         setExpandedAction(null);
-        setOkMsg('Winner published — prize credited and tournament completed.');
+        setOkMsg(WINNER_PUBLISH_SUCCESS_MESSAGE);
         await load();
         setTab('completed');
       } else {
@@ -421,7 +422,11 @@ export default function AdminTournaments() {
           />
         </View>
       )}
-      <Msg kind="ok" text={okMsg} />
+      <Msg
+        kind="ok"
+        text={okMsg}
+        accessibilityLiveRegion={okMsg === WINNER_PUBLISH_SUCCESS_MESSAGE ? 'polite' : undefined}
+      />
       <View testID="admin-tournament-status-tabs" style={st.tabs}>
         {TOURNAMENT_TABS.map(({ id, label }) => {
           const selected = tab === id;
@@ -675,8 +680,8 @@ export default function AdminTournaments() {
             {expandedAction?.tournamentId === t.id && expandedAction.kind === 'results' && ongoing && (
               <View testID={`inline-results-entry-${t.id}`} style={st.actionPanel}>
                 <Text style={st.actionTitle}>RESULT ENTRY</Text>
-                <Msg kind="err" text={resultError} />
-                <Msg kind="ok" text={resultSuccess} />
+                <Msg kind="err" text={resultError} accessibilityLiveRegion="polite" />
+                <Msg kind="ok" text={resultSuccess} accessibilityLiveRegion="polite" />
                 {resultRegs === null ? (
                   resultBusy ? <Loading /> : <Text style={st.actionHint}>Approved registrations could not be loaded. Close and reopen this panel to retry.</Text>
                 ) : eligibleResultRegs.length === 0 ? (

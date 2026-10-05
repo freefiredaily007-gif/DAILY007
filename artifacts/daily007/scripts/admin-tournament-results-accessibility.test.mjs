@@ -62,6 +62,34 @@ test('publish action names the player and rank, and exposes publishing state', (
   assert.match(uiSource, /accessibilityState=\{accessibilityState\}/);
 });
 
+test('result validation and API errors are politely announced', () => {
+  const errorMessage = screenSource.match(
+    /<Msg\s+kind="err"\s+text=\{resultError\}\s+accessibilityLiveRegion="polite"\s*\/>/,
+  )?.[0];
+
+  assert.ok(errorMessage, 'Result validation and API errors must use a polite live region.');
+  assert.match(screenSource, /setResultError\('Enter a valid rank\.'\)/);
+  assert.match(screenSource, /setResultError\(apiError\(e\)\)/);
+});
+
+test('placement and winner publication success messages are politely announced', () => {
+  const placementMessage = screenSource.match(
+    /<Msg\s+kind="ok"\s+text=\{resultSuccess\}\s+accessibilityLiveRegion="polite"\s*\/>/,
+  )?.[0];
+  const winnerMessage = screenSource.match(
+    /<Msg\s+kind="ok"\s+text=\{okMsg\}\s+accessibilityLiveRegion=\{okMsg === WINNER_PUBLISH_SUCCESS_MESSAGE \? 'polite' : undefined\}\s*\/>/,
+  )?.[0];
+
+  assert.ok(placementMessage, 'Placement success must use a polite live region.');
+  assert.ok(winnerMessage, 'Winner success must use a polite live region.');
+  assert.match(screenSource, /setResultSuccess\('Placement published\. The tournament stays ongoing until rank 1 is declared\.'\)/);
+  assert.match(
+    screenSource,
+    /const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed\.'/,
+  );
+  assert.match(screenSource, /setOkMsg\(WINNER_PUBLISH_SUCCESS_MESSAGE\)/);
+});
+
 test('the shared text input forwards its accessibility props to the native input', () => {
   assert.match(typographySource, /<NativeTextInput\s+ref=\{ref\}\s+\{\.\.\.props\}/);
 });
