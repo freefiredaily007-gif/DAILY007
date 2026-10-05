@@ -66,7 +66,10 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         try {
           setUsers((await Api.adminUsers()) ?? []);
         } catch (refreshError) {
-          toast(`${message} User list refresh failed: ${errMessage(refreshError)}`, 'error');
+          toast(
+            `At least one Full Admin must remain. This account was not changed. User list refresh failed: ${errMessage(refreshError)}`,
+            'error',
+          );
           return;
         }
         toast('At least one Full Admin must remain. This account was not changed.', 'error');

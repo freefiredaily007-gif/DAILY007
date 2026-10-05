@@ -37,9 +37,14 @@ export function AdminToastHost({ children }: { children: React.ReactNode }) {
       {children}
       {toast && (
         <View style={[s.toast, toast.kind === 'err' && { borderColor: A.danger, backgroundColor: 'rgba(60,10,10,0.95)' }]} pointerEvents="none">
-          <Text style={{ color: toast.kind === 'err' ? '#ffb4b4' : '#c9f7d4', fontWeight: '800', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>
+            <Text
+              accessibilityLabel={toast.msg}
+              accessibilityRole={toast.kind === 'err' ? 'alert' : undefined}
+              accessibilityLiveRegion={toast.kind === 'err' ? 'assertive' : undefined}
+              style={{ color: toast.kind === 'err' ? '#ffb4b4' : '#c9f7d4', fontWeight: '800', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}
+            >
             {toast.kind === 'err' ? '✕ ' : '✓ '}{toast.msg}
-          </Text>
+            </Text>
         </View>
       )}
     </AdminToastCtx.Provider>
