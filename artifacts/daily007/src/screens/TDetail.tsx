@@ -7,7 +7,7 @@ import {
   useGetTournamentResults,
 } from '@workspace/api-client-react';
 import { ReadableText as Text } from '../components/typography';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
 import { C, Btn, Card, Chip, Input, KV, Msg, Badge, SectionTitle, GCard, fmtDate, fmtTime12, statusOf } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
@@ -15,11 +15,15 @@ import { useApp } from '../App';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
-import { resolveTournamentWinnerState } from '../lib/tournament-winner-details';
+import {
+  getTournamentResultsRefreshInterval,
+  resolveTournamentWinnerState,
+} from '../lib/tournament-winner-details';
 
 export default function TDetail() {
   const nav: any = useNavigation();
   const route: any = useRoute();
+  const isFocused = useIsFocused();
   const id = route?.params?.id;
   const { user } = useApp();
   const tournamentId = String(id ?? '');
@@ -43,6 +47,7 @@ export default function TDetail() {
       queryKey: getGetTournamentResultsQueryKey(tournamentId),
       enabled: Boolean(id) && isCompleted,
       refetchOnMount: 'always',
+      refetchInterval: getTournamentResultsRefreshInterval(isCompleted, isFocused),
       retry: 1,
     },
   });
