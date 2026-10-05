@@ -414,6 +414,94 @@ test("a completion holding the PostgreSQL video lock rewards once before video d
   }
 });
 
+test("two concurrent completions for one watch session credit exactly once", async () => {
+  const fixture = await createFixture();
+  assert.ok(fixture.playerId && fixture.videoId && fixture.sessionId);
+  let sessionBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+  try {
+    await withServer(async (origin) => {
+      sessionBlocker = await pool.connect();
+      await sessionBlocker.query("BEGIN");
+      await sessionBlocker.query(
+        "SELECT id FROM daily007_v2_video_watch_sessions WHERE id = $1 FOR UPDATE",
+        [fixture.sessionId],
+      );
+      const blockerPid = await backendPid(sessionBlocker);
+
+      const firstCompletion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(firstCompletion);
+      const firstCompletionPid = await waitForBlockedBackend(
+        "daily007_v2_video_watch_sessions s",
+        [blockerPid],
+      );
+
+      const secondCompletion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(secondCompletion);
+      const secondCompletionPid = await waitForBlockedBackend(
+        "daily007_v2_video_watch_sessions s",
+        [firstCompletionPid],
+      );
+      assert.notEqual(secondCompletionPid, firstCompletionPid);
+
+      await sessionBlocker.query("COMMIT");
+      sessionBlocker.release();
+      sessionBlocker = null;
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        firstCompletion,
+        secondCompletion,
+      ]);
+      assert.equal(firstResponse.status, 200);
+      assert.equal(firstResponse.body.rewarded, true);
+      assert.equal(firstResponse.body.coins, 1);
+      assert.equal(firstResponse.body.walletCoins, 13);
+      assert.equal(typeof firstResponse.body.transactionId, "string");
+
+      assert.equal(secondResponse.status, 200);
+      assert.equal(secondResponse.body.rewarded, false);
+      assert.equal(secondResponse.body.coins, 0);
+      assert.equal(secondResponse.body.walletCoins, 13);
+      assert.equal(secondResponse.body.transactionId, firstResponse.body.transactionId);
+      assert.equal(secondResponse.body.message, "This view has already been rewarded.");
+    }, async () => {
+      if (sessionBlocker) {
+        await sessionBlocker.query("ROLLBACK").catch(() => undefined);
+        sessionBlocker.release();
+        sessionBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+
+    const state = await inspectFixture(fixture);
+    assert.equal(state.active, true);
+    assert.equal(state.walletCoins, 13);
+    assert.equal(state.ledgerCount, 1);
+    assert.ok(state.completedAt);
+    assert.equal(state.rewardLedgerId, state.ledgerId);
+    assert.equal(state.ledgerAmount, 1);
+    assert.equal(state.ledgerBalanceAfter, 13);
+  } finally {
+    if (sessionBlocker) {
+      await sessionBlocker.query("ROLLBACK").catch(() => undefined);
+      sessionBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
 test.after(async () => {
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
