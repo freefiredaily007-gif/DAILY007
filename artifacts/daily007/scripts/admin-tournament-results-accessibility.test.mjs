@@ -63,5 +63,5 @@ test('publish action names the player and rank, and exposes publishing state', (
 });
 
 test('the shared text input forwards its accessibility props to the native input', () => {
-  assert.match(typographySource, /<NativeTextInput\s+\{\.\.\.props\}/);
+  assert.match(typographySource, /<NativeTextInput\s+ref=\{ref\}\s+\{\.\.\.props\}/);
 });
