@@ -79,7 +79,9 @@ async function sendJson(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
-async function createFixture(): Promise<TestFixture> {
+async function createFixture(
+  options: { includeInitialSession?: boolean } = {},
+): Promise<TestFixture> {
   const fixture: TestFixture = { adminId: null, playerId: null, videoId: null, sessionId: null };
   const suffix = randomUUID();
   try {
@@ -112,15 +114,17 @@ async function createFixture(): Promise<TestFixture> {
     fixture.videoId = video.rows[0]?.id ?? null;
     assert.ok(fixture.videoId, "test video should be created");
 
-    const session = await pool.query<{ id: string }>(
-      `INSERT INTO daily007_v2_video_watch_sessions
-         (user_id, video_id, duration_seconds, started_at)
-       VALUES ($1, $2, 5, now() - interval '30 seconds')
-       RETURNING id`,
-      [fixture.playerId, fixture.videoId],
-    );
-    fixture.sessionId = session.rows[0]?.id ?? null;
-    assert.ok(fixture.sessionId, "test watch session should be created");
+    if (options.includeInitialSession ?? true) {
+      const session = await pool.query<{ id: string }>(
+        `INSERT INTO daily007_v2_video_watch_sessions
+           (user_id, video_id, duration_seconds, started_at)
+         VALUES ($1, $2, 5, now() - interval '30 seconds')
+         RETURNING id`,
+        [fixture.playerId, fixture.videoId],
+      );
+      fixture.sessionId = session.rows[0]?.id ?? null;
+      assert.ok(fixture.sessionId, "test watch session should be created");
+    }
     return fixture;
   } catch (error) {
     await cleanupFixture(fixture);
@@ -132,14 +136,23 @@ async function cleanupFixture(fixture: TestFixture): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (fixture.sessionId) {
-      await client.query("DELETE FROM daily007_v2_video_watch_sessions WHERE id = $1", [
-        fixture.sessionId,
-      ]);
-      await client.query(
-        "DELETE FROM daily007_v2_wallet_ledger WHERE idempotency_key = $1",
-        [`daily007-video-watch:${fixture.sessionId}`],
+    if (fixture.playerId && fixture.videoId) {
+      const sessions = await client.query<{ id: string }>(
+        `SELECT id FROM daily007_v2_video_watch_sessions
+          WHERE user_id = $1 AND video_id = $2`,
+        [fixture.playerId, fixture.videoId],
       );
+      const sessionIds = new Set(sessions.rows.map((session) => session.id));
+      if (fixture.sessionId) sessionIds.add(fixture.sessionId);
+      for (const sessionId of sessionIds) {
+        await client.query("DELETE FROM daily007_v2_video_watch_sessions WHERE id = $1", [
+          sessionId,
+        ]);
+        await client.query(
+          "DELETE FROM daily007_v2_wallet_ledger WHERE idempotency_key = $1",
+          [`daily007-video-watch:${sessionId}`],
+        );
+      }
     }
     if (fixture.videoId) {
       await client.query("DELETE FROM daily007_v2_videos WHERE id = $1", [fixture.videoId]);
@@ -238,6 +251,38 @@ async function inspectFixture(fixture: TestFixture): Promise<{
   );
   assert.ok(result.rows[0], "test fixture rows should still exist");
   return result.rows[0];
+}
+
+async function listFixtureWatchSessions(fixture: TestFixture): Promise<Array<{
+  id: string;
+  durationSeconds: number;
+  startedAt: Date | string;
+  completedAt: Date | string | null;
+  rewardLedgerId: string | null;
+  videoActive: boolean;
+}>> {
+  assert.ok(fixture.playerId && fixture.videoId);
+  const result = await pool.query<{
+    id: string;
+    durationSeconds: number;
+    startedAt: Date | string;
+    completedAt: Date | string | null;
+    rewardLedgerId: string | null;
+    videoActive: boolean;
+  }>(
+    `SELECT session.id,
+            session.duration_seconds AS "durationSeconds",
+            session.started_at AS "startedAt",
+            session.completed_at AS "completedAt",
+            session.reward_ledger_id AS "rewardLedgerId",
+            video.active AS "videoActive"
+       FROM daily007_v2_video_watch_sessions session
+       JOIN daily007_v2_videos video ON video.id = session.video_id
+      WHERE session.user_id = $1 AND session.video_id = $2
+      ORDER BY session.started_at, session.id`,
+    [fixture.playerId, fixture.videoId],
+  );
+  return result.rows;
 }
 
 test("a committed video disable wins the PostgreSQL completion race without reward writes", async () => {
@@ -500,6 +545,160 @@ test("two concurrent completions for one watch session credit exactly once", asy
     if (sessionBlocker) {
       await sessionBlocker.query("ROLLBACK").catch(() => undefined);
       sessionBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a committed video disable wins the PostgreSQL watch-start race without creating a session", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  let videoBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+  try {
+    await withServer(async (origin) => {
+      videoBlocker = await pool.connect();
+      await videoBlocker.query("BEGIN");
+      await videoBlocker.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+        [fixture.videoId],
+      );
+      const blockerPid = await backendPid(videoBlocker);
+
+      const disable = sendJson(
+        origin,
+        `/admin/videos/${fixture.videoId}/active`,
+        fixture.adminId,
+        "PATCH",
+        { active: false },
+      );
+      inFlight.push(disable);
+      const disablePid = await waitForBlockedBackend(
+        "UPDATE daily007_v2_videos",
+        [blockerPid],
+      );
+
+      const start = sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30 },
+      );
+      inFlight.push(start);
+      const startPid = await waitForBlockedBackend(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 AND active = true",
+        [disablePid],
+      );
+      assert.notEqual(startPid, disablePid);
+
+      await videoBlocker.query("COMMIT");
+      videoBlocker.release();
+      videoBlocker = null;
+
+      const [disabledResponse, startResponse] = await Promise.all([disable, start]);
+      if (typeof startResponse.body.sessionId === "string") {
+        fixture.sessionId = startResponse.body.sessionId;
+      }
+      assert.equal(disabledResponse.status, 200);
+      assert.equal(disabledResponse.body.active, false);
+      assert.equal(startResponse.status, 404);
+      assert.equal(startResponse.body.error, "This video is unavailable.");
+    }, async () => {
+      if (videoBlocker) {
+        await videoBlocker.query("ROLLBACK").catch(() => undefined);
+        videoBlocker.release();
+        videoBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+
+    const sessions = await listFixtureWatchSessions(fixture);
+    assert.equal(sessions.length, 0, "a disabled video must not create a watch session");
+  } finally {
+    if (videoBlocker) {
+      await videoBlocker.query("ROLLBACK").catch(() => undefined);
+      videoBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a committed watch start wins the PostgreSQL video-disable race before deactivation", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  let videoBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+  try {
+    await withServer(async (origin) => {
+      videoBlocker = await pool.connect();
+      await videoBlocker.query("BEGIN");
+      await videoBlocker.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+        [fixture.videoId],
+      );
+      const blockerPid = await backendPid(videoBlocker);
+
+      const start = sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30 },
+      );
+      inFlight.push(start);
+      const startPid = await waitForBlockedBackend(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 AND active = true",
+        [blockerPid],
+      );
+
+      const disable = sendJson(
+        origin,
+        `/admin/videos/${fixture.videoId}/active`,
+        fixture.adminId,
+        "PATCH",
+        { active: false },
+      );
+      inFlight.push(disable);
+      const disablePid = await waitForBlockedBackend(
+        "UPDATE daily007_v2_videos",
+        [startPid],
+      );
+      assert.notEqual(disablePid, startPid);
+
+      await videoBlocker.query("COMMIT");
+      videoBlocker.release();
+      videoBlocker = null;
+
+      const [startResponse, disabledResponse] = await Promise.all([start, disable]);
+      assert.equal(startResponse.status, 201);
+      assert.equal(typeof startResponse.body.sessionId, "string");
+      assert.equal(typeof startResponse.body.startedAt, "string");
+      fixture.sessionId = startResponse.body.sessionId as string;
+      assert.ok(Number.isFinite(Date.parse(startResponse.body.startedAt as string)));
+      assert.equal(disabledResponse.status, 200);
+      assert.equal(disabledResponse.body.active, false);
+    }, async () => {
+      if (videoBlocker) {
+        await videoBlocker.query("ROLLBACK").catch(() => undefined);
+        videoBlocker.release();
+        videoBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+
+    const sessions = await listFixtureWatchSessions(fixture);
+    assert.equal(sessions.length, 1, "a start committed first should create exactly one session");
+    assert.equal(sessions[0]?.id, fixture.sessionId);
+    assert.equal(sessions[0]?.durationSeconds, 30);
+    assert.ok(sessions[0]?.startedAt);
+    assert.equal(sessions[0]?.completedAt, null);
+    assert.equal(sessions[0]?.rewardLedgerId, null);
+    assert.equal(sessions[0]?.videoActive, false);
+  } finally {
+    if (videoBlocker) {
+      await videoBlocker.query("ROLLBACK").catch(() => undefined);
+      videoBlocker.release();
     }
     await cleanupFixture(fixture);
   }
