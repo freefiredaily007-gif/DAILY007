@@ -45,6 +45,30 @@ export function filterTournamentsForRoute<T extends TournamentModeItem>(
   });
 }
 
+export type TournamentLifecycleTab = 'upcoming' | 'ongoing' | 'completed';
+
+export function tournamentTabsForRoute<T extends TournamentModeItem>(
+  items: readonly T[],
+  filters: TournamentModeFilter,
+  lifecycleOf: (tournament: T) => string,
+): Record<TournamentLifecycleTab, T[]> {
+  const tabs: Record<TournamentLifecycleTab, T[]> = {
+    upcoming: [],
+    ongoing: [],
+    completed: [],
+  };
+  const filtered = filterTournamentsForRoute(items, filters);
+
+  for (const tournament of filtered) {
+    const lifecycle = lifecycleOf(tournament);
+    if (lifecycle === 'upcoming' || lifecycle === 'ongoing' || lifecycle === 'completed') {
+      tabs[lifecycle].push(tournament);
+    }
+  }
+
+  return tabs;
+}
+
 export function tournamentListEmptyMessage(
   hasError: boolean,
   tabLabel: string,

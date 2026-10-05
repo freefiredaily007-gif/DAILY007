@@ -7,7 +7,7 @@ import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/u
 import { apiError } from '../lib/api';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
-import { filterTournamentsForRoute, tournamentListEmptyMessage } from '../lib/tournamentFilters';
+import { tournamentListEmptyMessage, tournamentTabsForRoute } from '../lib/tournamentFilters';
 import {
   compareTournamentStartTime,
   getTournamentLifecycleState,
@@ -94,12 +94,12 @@ export default function Tournaments() {
     return () => clearTimeout(timer);
   }, [items, clockNow, load]);
 
-  const filtered = filterTournamentsForRoute(items, {
+  const lifecycleOf = (tournament: any) => getTournamentLifecycleState(tournament, clockNow);
+  const modeScopedTabs = tournamentTabsForRoute(items, {
     gameMode: gameMode || legacyMode,
     teamType,
-  });
-  const lifecycleOf = (tournament: any) => getTournamentLifecycleState(tournament, clockNow);
-  const visible = filtered.filter((tournament) => lifecycleOf(tournament) === tab);
+  }, lifecycleOf);
+  const visible = modeScopedTabs[tab];
   const orderedVisible = tab === 'completed'
     ? mostRecentCompletedTournaments(visible)
     : tab === 'ongoing' ? [...visible].sort(compareTournamentStartTime) : visible;
@@ -126,7 +126,7 @@ export default function Tournaments() {
             <SectionTitle accent={C.neon}>{heading ? `${String(heading).toUpperCase()} TOURNAMENTS` : 'ALL TOURNAMENTS'}</SectionTitle>
             <View style={s.tabs}>
               {tabs.map((value) => {
-                const count = filtered.filter((tournament) => lifecycleOf(tournament) === value).length;
+                const count = modeScopedTabs[value].length;
                 const displayedCount = value === 'completed' ? Math.min(count, MAX_COMPLETED_TOURNAMENTS) : count;
                 const selected = tab === value;
                 return (
