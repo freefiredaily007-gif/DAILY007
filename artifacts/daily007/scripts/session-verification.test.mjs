@@ -264,4 +264,10 @@ test("App shows a retry button instead of the authentication screen for transien
   assert.match(appSource, /Your session is still saved/);
   assert.match(appSource, /testID="session-verification-retry"/);
   assert.match(appSource, /restoreDaily007Session\(\s*async \(\) => savedSession/);
+  assert.match(appSource, /Network\.addNetworkStateListener\(retryIfOnline\)/);
+  assert.match(appSource, /Network\.getNetworkStateAsync\(\)\.then\(retryIfOnline\)/);
+  assert.match(appSource, /state !== 'active'/);
+  assert.match(appSource, /void retrySessionVerification\(\)/);
+  assert.match(appSource, /if \(verificationRequest\.current\) return verificationRequest\.current/);
+  assert.match(appSource, /onPress=\{\(\) => \{ void retrySessionVerification\(\); \}\}/);
 });

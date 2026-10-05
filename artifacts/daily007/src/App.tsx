@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { AppState, View, ActivityIndicator, StyleSheet, Alert, Pressable, useWindowDimensions } from 'react-native';
+import * as Network from 'expo-network';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { ReadableText as Text } from './components/typography';
@@ -201,6 +202,35 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     });
     return request;
   }, [verificationSession]);
+
+  useEffect(() => {
+    if (!verificationSession) return;
+
+    let active = true;
+    const retryIfOnline = (networkState: Network.NetworkState) => {
+      if (
+        active &&
+        networkState.isConnected === true &&
+        networkState.isInternetReachable !== false
+      ) {
+        void retrySessionVerification();
+      }
+    };
+    const networkSubscription = Network.addNetworkStateListener(retryIfOnline);
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void Network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
+    });
+
+    // Check the current state as well, in case connectivity returned before the listener was attached.
+    void Network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
+
+    return () => {
+      active = false;
+      networkSubscription.remove();
+      appStateSubscription.remove();
+    };
+  }, [verificationSession, retrySessionVerification]);
 
   const refresh = useCallback((): Promise<User | null> => {
     if (refreshRequest.current) return refreshRequest.current;
