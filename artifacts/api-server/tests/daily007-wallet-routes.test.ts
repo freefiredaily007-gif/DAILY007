@@ -159,6 +159,50 @@ test("pending deposits do not change coins and approval credits the configured a
   });
 });
 
+test("deposit retries cannot create duplicate pending payments or credit coins", async () => {
+  walletTestDb.reset({ settings: { coinToMoneyRate: "2.5" } });
+  const initialBalance = walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins;
+  assert.equal(initialBalance, 700);
+  const request = {
+    coins: 120,
+    payerUpiId: "retry-test@upi",
+    txnId: "test-reference-retry-1",
+  };
+
+  await withServer(async (origin) => {
+    const first = await call(origin, TEST_PLAYER_ID, "/payments", "POST", request);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.status, "pending");
+    assert.equal(walletTestDb.payments.size, 1);
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, initialBalance);
+    assert.deepEqual(walletTestDb.ledger, []);
+
+    const identicalRetry = await call(origin, TEST_PLAYER_ID, "/payments", "POST", request);
+    assert.equal(identicalRetry.status, 409);
+    assert.equal(identicalRetry.body.error, "This payment reference has already been submitted.");
+    assert.equal(walletTestDb.payments.size, 1);
+
+    const secondPendingRequest = await call(
+      origin,
+      TEST_PLAYER_ID,
+      "/payments",
+      "POST",
+      { ...request, txnId: "test-reference-retry-2" },
+    );
+    assert.equal(secondPendingRequest.status, 409);
+    assert.equal(secondPendingRequest.body.error, "You already have a pending coin recharge request.");
+    assert.equal(walletTestDb.payments.size, 1);
+
+    const history = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
+    assert.equal(history.status, 200);
+    assert.equal(history.body.length, 1);
+    assert.equal(history.body[0].id, first.body.id);
+    assert.equal(history.body[0].status, "pending");
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, initialBalance);
+    assert.deepEqual(walletTestDb.ledger, []);
+  });
+});
+
 test("deposit display prefers the stored rupee amount over a changed conversion rate", () => {
   assert.equal(depositAmountInr(120, 300, 1), "₹300");
   assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");
