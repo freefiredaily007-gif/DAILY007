@@ -69,9 +69,15 @@ class MemorySignupDatabase {
   legacyCodeOwners = new Map<string, string>();
   referrals: SignupReferral[] = [];
   ledger: SignupLedgerEntry[] = [];
+  referralSignupRewardLedgerFailureContext: {
+    accountExists: boolean;
+    referralExists: boolean;
+    walletCoins: number | null;
+  } | null = null;
   private nextUserId = 2;
   private nextLedgerId = 1;
   private nextReferralId = 1;
+  private shouldFailNextReferralSignupRewardLedgerWrite = false;
 
   reset(): void {
     const referrer: SignupUser = {
@@ -95,9 +101,16 @@ class MemorySignupDatabase {
     this.legacyCodeOwners = new Map([[SIGNUP_TEST_LEGACY_REFERRAL_CODE, referrer.id]]);
     this.referrals = [];
     this.ledger = [];
+    this.referralSignupRewardLedgerFailureContext = null;
+    this.shouldFailNextReferralSignupRewardLedgerWrite = false;
     this.nextUserId = 2;
     this.nextLedgerId = 1;
     this.nextReferralId = 1;
+  }
+
+  failNextReferralSignupRewardLedgerWrite(): void {
+    this.referralSignupRewardLedgerFailureContext = null;
+    this.shouldFailNextReferralSignupRewardLedgerWrite = true;
   }
 
   private snapshot(): Snapshot {
@@ -310,6 +323,19 @@ class MemorySignupDatabase {
       }
       const reason = normalized.match(/VALUES \(\$1, \$2, \$3, '([^']+)'/)?.[1];
       if (!reason) throw new Error(`Unexpected signup ledger insert: ${normalized}`);
+      if (reason === "Referral Signup Bonus" && this.shouldFailNextReferralSignupRewardLedgerWrite) {
+        const referredUserId = String(userId);
+        const referredUser = this.users.get(referredUserId);
+        this.referralSignupRewardLedgerFailureContext = {
+          accountExists: Boolean(referredUser),
+          referralExists: this.referrals.some(
+            (referral) => referral.referred_user_id === referredUserId,
+          ),
+          walletCoins: referredUser?.wallet_coins ?? null,
+        };
+        this.shouldFailNextReferralSignupRewardLedgerWrite = false;
+        throw new Error("Simulated referral signup reward ledger write failure.");
+      }
       const entry: SignupLedgerEntry = {
         id: `signup-ledger-${this.nextLedgerId++}`,
         user_id: String(userId),

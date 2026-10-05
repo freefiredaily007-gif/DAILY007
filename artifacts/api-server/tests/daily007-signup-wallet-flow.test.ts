@@ -20,7 +20,7 @@ after(() => {
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
 });
 
-type JsonResult = { status: number; body: any };
+type RequestResult = { status: number; body: any };
 
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
@@ -50,7 +50,7 @@ async function request(
   method: "GET" | "POST",
   body?: Record<string, unknown>,
   token?: string,
-): Promise<JsonResult> {
+): Promise<RequestResult> {
   const response = await fetch(`${origin}${path}`, {
     method,
     headers: {
@@ -59,7 +59,11 @@ async function request(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  return { status: response.status, body: await response.json() };
+  const responseText = await response.text();
+  const responseBody = response.headers.get("content-type")?.includes("application/json")
+    ? JSON.parse(responseText)
+    : responseText;
+  return { status: response.status, body: responseBody };
 }
 
 test("password signup returns one 10-coin bonus through wallet history, and repeat sign-in adds none", async () => {
@@ -286,5 +290,45 @@ test("unknown referral code rolls back signup so the same email can register wit
     assert.equal(signupTestDb.referrals[0]?.referred_user_id, accountId);
     assert.equal(signupTestDb.ledger.length, 1);
     assert.equal(signupTestDb.ledger[0]?.user_id, accountId);
+  });
+});
+
+test("referral reward ledger failure rolls back all signup writes", async () => {
+  signupTestDb.reset();
+  signupTestDb.failNextReferralSignupRewardLedgerWrite();
+
+  await withServer(async (origin) => {
+    const email = "referral-ledger-failure@example.test";
+    const failedSignup = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      {
+        name: "Ledger Failure Player",
+        email,
+        password: "test-password-123",
+        referralCode: SIGNUP_TEST_REFERRAL_CODE,
+      },
+    );
+
+    assert.equal(failedSignup.status, 500);
+    assert.deepEqual(signupTestDb.referralSignupRewardLedgerFailureContext, {
+      accountExists: true,
+      referralExists: true,
+      walletCoins: 10,
+    });
+
+    assert.equal([...signupTestDb.users.values()].some((user) => user.email === email), false);
+    assert.equal(signupTestDb.users.size, 1);
+    const referrer = [...signupTestDb.users.values()].find(
+      (user) => user.email === "referrer@example.test",
+    );
+    assert.ok(referrer);
+    assert.equal(referrer.wallet_coins, 0);
+    assert.equal(signupTestDb.shortCodesByUser.size, 1);
+    assert.equal(signupTestDb.shortCodeOwners.size, 1);
+    assert.equal(signupTestDb.legacyCodeOwners.size, 1);
+    assert.equal(signupTestDb.referrals.length, 0);
+    assert.equal(signupTestDb.ledger.length, 0);
   });
 });
