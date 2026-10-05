@@ -199,6 +199,75 @@ test("simultaneous joins to different tournaments serialize one player's wallet 
   });
 });
 
+test("simultaneous joins cannot spend more than one affordable entry fee", async () => {
+  registrationCapacityTestDb.reset();
+  registrationCapacityTestDb.users.get(FIRST_PLAYER_ID)!.wallet_coins = 7;
+  const rejectedMatchBefore = structuredClone(registrationCapacityTestDb.secondMatch);
+  const lockHold = registrationCapacityTestDb.holdNextWalletRowLock();
+
+  await withServer(async (origin) => {
+    const firstRequest = sendRegistration(origin, FIRST_PLAYER_ID, "FF-FIRST-PLAYER");
+    try {
+      const firstLocked = await Promise.race([
+        lockHold.firstAcquired.then(() => true),
+        firstRequest.then(() => false),
+      ]);
+      assert.equal(firstLocked, true, "the first join should hold the player's wallet row");
+
+      const secondRequest = sendRegistration(
+        origin,
+        FIRST_PLAYER_ID,
+        "FF-FIRST-PLAYER-SECOND-MATCH",
+        undefined,
+        TEST_SECOND_MATCH_ID,
+      );
+      const secondQueued = await Promise.race([
+        lockHold.secondQueued.then(() => true),
+        Promise.all([firstRequest, secondRequest]).then(() => false),
+      ]);
+      assert.equal(secondQueued, true, "the other tournament join should wait for the same wallet row");
+
+      lockHold.release();
+      const [first, second] = await Promise.all([firstRequest, secondRequest]);
+      assert.equal(first.status, 201);
+      assert.equal(second.status, 409);
+      assert.equal(second.body.error, "Insufficient wallet balance: this entry costs 7 coins.");
+
+      const endingBalance = registrationCapacityTestDb.users.get(FIRST_PLAYER_ID)?.wallet_coins;
+      assert.equal(endingBalance, 0);
+      assert.ok(endingBalance! >= 0, "the wallet balance must not become negative");
+      assert.equal(Number(first.body.walletCoins), 0);
+
+      const playerRegistrations = registrationCapacityTestDb.registrations.filter(
+        (registration) => registration.captain_user_id === FIRST_PLAYER_ID,
+      );
+      assert.equal(playerRegistrations.length, 1);
+      assert.equal(playerRegistrations[0].match_id, TEST_MATCH_ID);
+      assert.equal(
+        playerRegistrations.some((registration) => registration.match_id === TEST_SECOND_MATCH_ID),
+        false,
+        "the rejected tournament must not have a registration",
+      );
+
+      const playerLedgerEntries = registrationCapacityTestDb.ledger.filter(
+        (entry) => entry.user_id === FIRST_PLAYER_ID,
+      );
+      assert.equal(playerLedgerEntries.length, 1);
+      assert.equal(playerLedgerEntries[0].match_id, TEST_MATCH_ID);
+      assert.equal(playerLedgerEntries[0].amount, -7);
+      assert.equal(playerLedgerEntries[0].balance_after, 0);
+      assert.equal(
+        playerLedgerEntries.some((entry) => entry.match_id === TEST_SECOND_MATCH_ID),
+        false,
+        "the rejected tournament must not have a ledger entry",
+      );
+      assert.deepEqual(registrationCapacityTestDb.secondMatch, rejectedMatchBefore);
+    } finally {
+      lockHold.release();
+    }
+  });
+});
+
 test("simultaneous duo registrations cannot share the last tournament team slot", async () => {
   registrationCapacityTestDb.reset();
   registrationCapacityTestDb.match.mode = "squad";

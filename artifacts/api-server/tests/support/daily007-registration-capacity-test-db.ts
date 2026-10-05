@@ -307,9 +307,14 @@ class RegistrationCapacityTestDatabase {
         if (normalized === "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
           const hold = this.walletLockHold;
           const userId = String(values[0]);
+          let waitedForLock = false;
           const release = await this.lockFor(this.walletRowLocks, userId)
-            .acquire(() => hold?.secondQueuedSignal.resolve());
+            .acquire(() => {
+              waitedForLock = true;
+              hold?.secondQueuedSignal.resolve();
+            });
           releases.push(release);
+          if (waitedForLock) snapshot = this.snapshot();
           if (hold && !hold.paused) {
             hold.paused = true;
             hold.firstAcquiredSignal.resolve();
