@@ -32,6 +32,7 @@ export default function TDetail() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [retryingParticipants, setRetryingParticipants] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const isCompleted = String(t?.status ?? '').toLowerCase() === 'completed';
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
@@ -75,6 +76,14 @@ export default function TDetail() {
       ...(isCompleted ? [resultsQuery.refetch()] : []),
     ]);
   }, [load, participantsQuery.refetch, resultsQuery.refetch, isCompleted]);
+  const retryParticipants = async () => {
+    setRetryingParticipants(true);
+    try {
+      await participantsQuery.refetch();
+    } finally {
+      setRetryingParticipants(false);
+    }
+  };
   useFocusEffect(useCallback(() => {
     setClockNow(Date.now());
     void refreshAll();
@@ -185,14 +194,24 @@ export default function TDetail() {
       <SectionTitle accent={C.orange} icon={teamTournament ? 'users' : 'user'}>
         {teamTournament ? `JOINED TEAMS · ${participants.length}` : `JOINED PLAYERS · ${participants.length}`}
       </SectionTitle>
-      {participantsQuery.isLoading && !participantsQuery.data ? (
+      {participantsQuery.isLoading && !participantsQuery.data && !retryingParticipants ? (
         <Card style={s.participantsLoading}>
           <ActivityIndicator color={C.neon} />
           <Text style={s.participantsHint}>Loading participants…</Text>
         </Card>
-      ) : participantsQuery.isError ? (
+      ) : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (
         <Card>
-          <Text style={s.participantsHint}>Participant list couldn’t be loaded. Pull down to retry.</Text>
+          <Text style={s.participantsHint}>Participant list couldn’t be loaded. Try again here or pull down to retry.</Text>
+          <Btn
+            title="RETRY PARTICIPANTS"
+            kind="ghost"
+            onPress={retryParticipants}
+            loading={participantsQuery.isFetching}
+            accessibilityHint="Loads the latest list of joined players and teams."
+            accessibilityState={{ busy: participantsQuery.isFetching }}
+            style={{ marginTop: 10 }}
+            testID="participants-retry"
+          />
         </Card>
       ) : participants.length === 0 ? (
         <Card>

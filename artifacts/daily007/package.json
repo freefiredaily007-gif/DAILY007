@@ -17,6 +17,7 @@
     "test:leaderboard-refresh-policy": "node --test scripts/leaderboard-refresh-policy.test.mjs",
     "test:leaderboard-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/leaderboard-accessibility.test.mjs",
     "test:home-tournament-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/home-tournament-refresh.test.mjs",
+    "test:tournament-participant-retry": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-participant-retry.test.mjs",
     "test:tournament-winner-details": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-winner-details.test.mjs",
     "test:tournament-card-artwork": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-card-artwork.test.mjs",
     "test:referral-invite": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/referral-invite.test.mjs",
