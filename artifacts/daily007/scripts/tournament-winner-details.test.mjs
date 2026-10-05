@@ -1,10 +1,173 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
+import ts from "typescript";
+import { inr } from "../src/lib/coins.ts";
 import {
   getTournamentResultsRefreshInterval,
   resolveTournamentWinnerState,
   TOURNAMENT_RESULTS_REFRESH_INTERVAL_MS,
 } from "../src/lib/tournament-winner-details.ts";
+
+const detailSource = readFileSync(
+  new URL("../src/screens/TDetail.tsx", import.meta.url),
+  "utf8",
+);
+const detailSourceFile = ts.createSourceFile(
+  "TDetail.tsx",
+  detailSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+
+function findWinnerUiNodes() {
+  const initializers = new Map();
+  let participantsMap;
+  let winnerSection;
+
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
+      initializers.set(node.name.text, node.initializer);
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "participants" &&
+      node.expression.name.text === "map"
+    ) {
+      participantsMap = node;
+    }
+
+    if (
+      ts.isJsxExpression(node) &&
+      node.expression &&
+      ts.isBinaryExpression(node.expression) &&
+      node.expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      ts.isIdentifier(node.expression.left) &&
+      node.expression.left.text === "isCompleted"
+    ) {
+      winnerSection = node.expression;
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(detailSourceFile);
+  assert.ok(participantsMap, "TDetail should render its joined participants.");
+  assert.ok(winnerSection, "TDetail should gate winner details on completion.");
+  return { initializers, participantsMap, winnerSection };
+}
+
+function evaluateInitializer(name, scope, initializers) {
+  const initializer = initializers.get(name);
+  assert.ok(initializer, `TDetail should define ${name}.`);
+  const source = initializer.getText(detailSourceFile);
+  return new Function(...Object.keys(scope), `return (${source});`)(
+    ...Object.values(scope),
+  );
+}
+
+function renderJsxNode(node, scope) {
+  const source = `const __fixtureElement = (${node.getText(detailSourceFile)});`;
+  const javascript = ts.transpileModule(source, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.React,
+      module: ts.ModuleKind.None,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __fixtureElement;`,
+  )(...Object.values(scope));
+}
+
+function renderWinnerFixture(fixture) {
+  const { initializers, participantsMap, winnerSection } = findWinnerUiNodes();
+  assert.ok(
+    participantsMap.pos < winnerSection.pos,
+    "TDetail should place the winner section after joined participants.",
+  );
+
+  const styles = {
+    participantCard: { cardKind: "participant" },
+    winnerCard: { cardKind: "winner" },
+  };
+  const Card = ({ children, style }) => React.createElement(
+    "article",
+    { "data-card": style === styles.winnerCard ? "winner" : "participant" },
+    children,
+  );
+  const View = ({ children }) => React.createElement("div", null, children);
+  const Text = ({ children }) => React.createElement("span", null, children);
+  const SectionTitle = ({ children }) => React.createElement("h2", null, children);
+  const Btn = ({ children, title }) =>
+    React.createElement("button", null, children ?? title);
+  const ActivityIndicator = () => React.createElement("span", null, "Loading");
+
+  const isCompleted = evaluateInitializer(
+    "isCompleted",
+    { t: fixture.tournament },
+    initializers,
+  );
+  const winnerState = resolveTournamentWinnerState(false, false, fixture.results);
+  const winner = evaluateInitializer("winner", { winnerState }, initializers);
+  const winnerGameName = evaluateInitializer("winnerGameName", { winner }, initializers);
+  const winnerTeamName = evaluateInitializer("winnerTeamName", { winner }, initializers);
+  const winnerName = evaluateInitializer(
+    "winnerName",
+    { winnerTeamName, winnerGameName },
+    initializers,
+  );
+  const scope = {
+    React,
+    Card,
+    View,
+    Text,
+    SectionTitle,
+    C: { gold: "#gold" },
+    s: styles,
+    participants: fixture.participants,
+    teamTournament: fixture.teamTournament,
+    isCompleted,
+    winnerState,
+    winner,
+    winnerName,
+    winnerTeamName,
+    winnerGameName,
+    ActivityIndicator,
+    Btn,
+    resultsQuery: { isFetching: false, refetch: async () => {} },
+    inr,
+  };
+
+  const screenElements = [
+    { position: participantsMap.pos, element: renderJsxNode(participantsMap, scope) },
+    { position: winnerSection.pos, element: renderJsxNode(winnerSection, scope) },
+  ]
+    .sort((left, right) => left.position - right.position)
+    .map(({ element }) => element);
+  const markup = renderToStaticMarkup(
+    React.createElement(React.Fragment, null, ...screenElements),
+  );
+  return { isCompleted, markup, winnerState };
+}
+
+function getWinnerCardMarkup(markup) {
+  const start = markup.indexOf('<article data-card="winner">');
+  if (start < 0) return "";
+  const close = markup.indexOf("</article>", start);
+  return close < 0 ? "" : markup.slice(start, close + "</article>".length);
+}
 
 async function waitFor(predicate, message) {
   const deadline = Date.now() + 1_000;
@@ -13,6 +176,67 @@ async function waitFor(predicate, message) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+test("a completed solo winner shows the game name and coin/INR award after joined players", () => {
+  const rendered = renderWinnerFixture({
+    tournament: { status: "completed" },
+    participants: [{ players: ["Joined Solo Player"], status: "approved" }],
+    teamTournament: false,
+    results: [{ rank: 1, gameName: "Solo Champion", teamName: "", prizeCoins: 125 }],
+  });
+  const card = getWinnerCardMarkup(rendered.markup);
+
+  assert.equal(rendered.isCompleted, true);
+  assert.equal(rendered.winnerState.kind, "winner");
+  assert.ok(card.includes("Solo Champion"));
+  assert.ok(card.includes("125 coins"));
+  assert.ok(card.includes(inr(125)));
+  assert.ok(
+    rendered.markup.indexOf("Joined Solo Player") < rendered.markup.indexOf('data-card="winner"'),
+  );
+});
+
+test("a completed team winner shows its team, captain handle, and coin/INR award", () => {
+  const rendered = renderWinnerFixture({
+    tournament: { status: "completed" },
+    participants: [{
+      teamName: "Joined Squad",
+      players: ["Captain Handle", "Teammate Handle"],
+      status: "approved",
+    }],
+    teamTournament: true,
+    results: [{
+      rank: 1,
+      gameName: "Captain Handle",
+      teamName: "Sky Falcons",
+      prizeCoins: 375,
+    }],
+  });
+  const card = getWinnerCardMarkup(rendered.markup);
+
+  assert.equal(rendered.isCompleted, true);
+  assert.ok(card.includes("Sky Falcons"));
+  assert.ok(card.includes("CAPTAIN · Captain Handle"));
+  assert.ok(card.includes("375 coins"));
+  assert.ok(card.includes(inr(375)));
+  assert.ok(
+    rendered.markup.indexOf("Joined Squad") < rendered.markup.indexOf('data-card="winner"'),
+  );
+});
+
+test("an unfinished tournament does not render a winner card even if rank-one results exist", () => {
+  const rendered = renderWinnerFixture({
+    tournament: { status: "ongoing" },
+    participants: [{ players: ["Joined Player"], status: "approved" }],
+    teamTournament: false,
+    results: [{ rank: 1, gameName: "Premature Winner", prizeCoins: 999 }],
+  });
+
+  assert.equal(rendered.isCompleted, false);
+  assert.equal(rendered.winnerState.kind, "winner");
+  assert.equal(getWinnerCardMarkup(rendered.markup), "");
+  assert.doesNotMatch(rendered.markup, /WINNER &amp; PRIZE|TOURNAMENT WINNER|999 coins/);
+});
 
 test("a completed result set without rank one has a distinct no-winner state", () => {
   assert.deepEqual(
