@@ -100,9 +100,7 @@ export default function Home() {
   const appStateRef = useRef(AppState.currentState);
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
-  const goStack = (k: string) => {
-    if (k.startsWith('tdetail:')) nav.navigate('TDetail', { id: k.slice(8) });
-  };
+  const openTournamentDetail = (id: string) => nav.getParent().push('TDetail', { id });
   const load = useCallback(async () => {
     activeRequestsRef.current += 1;
     try {
@@ -312,7 +310,7 @@ export default function Home() {
           <GCard
             key={t.id}
             testID={`home-upcoming-card-${t.id}`}
-            onPress={() => goStack('tdetail:' + t.id)}
+            onPress={() => openTournamentDetail(t.id)}
             glowColor={ongoing ? C.red : br ? C.orange : C.purple}
             style={s.matchCard}
           >
@@ -391,7 +389,7 @@ export default function Home() {
                   !joined && capacityFull && !ongoing && { backgroundColor: C.card2, borderColor: C.border },
                   pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
                 ]}
-                onPress={() => goStack('tdetail:' + t.id)}>
+                onPress={() => openTournamentDetail(t.id)}>
                 <Text style={[s.joinBtnT, joined && { color: C.green }, !joined && capacityFull && !ongoing && { color: C.dim }]}>{ctaLabel}</Text>
               </Pressable>
             </View>

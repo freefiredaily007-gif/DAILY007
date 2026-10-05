@@ -16,6 +16,10 @@ const modeSubmodesSource = await readFile(
   new URL('../src/screens/ModeSubmodes.tsx', import.meta.url),
   'utf8',
 );
+const detailSource = await readFile(
+  new URL('../src/screens/TDetail.tsx', import.meta.url),
+  'utf8',
+);
 const tournamentsSource = await readFile(
   new URL('../src/screens/Tournaments.tsx', import.meta.url),
   'utf8',
@@ -164,6 +168,29 @@ test('opening a tournament pushes its detail above the filtered list for Android
   assert.match(
     appSource,
     /<Stack\.Screen name="Tournaments" component=\{Tournaments\}[^>]*\/>[\s\S]*<Stack\.Screen name="TDetail" component=\{TDetail\}/,
+  );
+});
+
+test('Home tournament shortcuts push the selected detail above Home', () => {
+  assert.match(
+    homeSource,
+    /const openTournamentDetail = \(id: string\) => nav\.getParent\(\)\.push\('TDetail', \{ id \}\);/,
+  );
+  assert.equal(
+    [...homeSource.matchAll(/onPress=\{\(\) => openTournamentDetail\(t\.id\)\}/g)].length,
+    2,
+    'both the upcoming card and its action should open the selected tournament',
+  );
+  assert.match(detailSource, /const id = route\?\.params\?\.id;/);
+  assert.match(
+    detailSource,
+    /const load = useCallback\(async \(\) => \{[\s\S]*api\.tournament\(id\)[\s\S]*\}, \[id\]\);/,
+    'the detail reloads data for the ID in its own route params',
+  );
+  assert.match(
+    appSource,
+    /<Stack\.Screen name="Tabs" component=\{Tabs\}[^>]*\/>[\s\S]*<Stack\.Screen name="TDetail" component=\{TDetail\}/,
+    'the pushed detail sits above the preserved Tabs/Home screen for Android Back',
   );
 });
 
