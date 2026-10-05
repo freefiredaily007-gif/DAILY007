@@ -13,6 +13,11 @@ import {
   LEADERBOARD_REFRESH_POLICY,
   refetchLeaderboardOnFocus,
 } from "../lib/leaderboardRefreshPolicy";
+import {
+  leaderboardPlayerAccessibilityLabel,
+  selectLeaderboardExpandedRows,
+  selectLeaderboardTopTwenty,
+} from "../lib/leaderboardStandings";
 
 type CycleType = "weekly" | "monthly";
 type Standing = {
@@ -170,7 +175,7 @@ function PlayerRow({
       testID={`leaderboard-player-${standing.rank}`}
       accessible
       accessibilityRole="text"
-      accessibilityLabel={`Rank ${standing.rank}, ${standing.name}, ${standing.points.toLocaleString("en-IN")} coins`}
+      accessibilityLabel={leaderboardPlayerAccessibilityLabel(standing)}
     >
       {largeText ? (
         <>
@@ -226,15 +231,13 @@ export default function LeaderboardDetails({ navigation, route }: any) {
     monthly?: Period;
   } | undefined;
   const period = data?.[cycle];
-  const standings = [...(period?.standings ?? [])]
-    .sort((left, right) => left.rank - right.rank)
-    .slice(0, 20);
+  const standings = selectLeaderboardTopTwenty(period?.standings);
   const podium = [
     { rank: 2 as const, standing: standings.find((standing) => standing.rank === 2) },
     { rank: 1 as const, standing: standings.find((standing) => standing.rank === 1) },
     { rank: 3 as const, standing: standings.find((standing) => standing.rank === 3) },
   ];
-  const remainingPlayers = standings.filter((standing) => standing.rank > 3).slice(0, 17);
+  const remainingPlayers = selectLeaderboardExpandedRows(standings);
   const accent = cycle === "weekly" ? C.blue : C.purple;
 
   return (
