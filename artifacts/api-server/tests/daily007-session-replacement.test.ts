@@ -69,6 +69,57 @@ function makeLegacyToken(userId: string): string {
   return `${payload}.${signature}`;
 }
 
+test("unknown emails and wrong passwords return the same public login error on both routes", async () => {
+  signupTestDb.reset();
+
+  await withServer(async (origin) => {
+    const email = "login-error-test@example.test";
+    const password = "login-error-regression-password";
+    const registration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      { name: "Login Error Test", email, password },
+    );
+
+    assert.equal(registration.status, 201);
+
+    const loginRoutes = [
+      { label: "Daily007 v2", loginPath: "/daily007/v2/auth/login" },
+      { label: "compatibility", loginPath: "/auth/login" },
+    ];
+
+    for (const route of loginRoutes) {
+      const unknownEmail = await request(origin, route.loginPath, "POST", {
+        email: "unknown-login-error-test@example.test",
+        password,
+      });
+      const wrongPassword = await request(origin, route.loginPath, "POST", {
+        email,
+        password: `${password}-incorrect`,
+      });
+
+      assert.equal(unknownEmail.status, 401, `${route.label} unknown email should be rejected`);
+      assert.equal(wrongPassword.status, 401, `${route.label} wrong password should be rejected`);
+      assert.equal(
+        unknownEmail.status,
+        wrongPassword.status,
+        `${route.label} must not expose whether the email is registered through the status`,
+      );
+      assert.equal(
+        unknownEmail.body.error,
+        "Email or password is incorrect.",
+        `${route.label} unknown-email public error`,
+      );
+      assert.equal(
+        wrongPassword.body.error,
+        unknownEmail.body.error,
+        `${route.label} must return the same public error for both failures`,
+      );
+    }
+  });
+});
+
 test("a pre-rollout token stays valid until the account's next successful password login", async () => {
   signupTestDb.reset();
 
