@@ -9,7 +9,7 @@ The catalog card opens the embedded player in Daily007. On Android, only the exp
 
 **How to apply:** Keep external navigation separate from catalog-card taps; do not clear or reset the search when the external app is opened or when the user returns.
 
-On 2026-10-05, the user confirmed on an iQOO Neo (specific generation not provided) running Android 16 that fullscreen YouTube controls worked, the first system Back returned to inline playback, and the next Back restored the same filtered catalog with search intact.
+On 2026-10-05, the user confirmed on an iQOO Neo 10 running Android 16 that fullscreen YouTube controls worked, the first system Back returned to inline playback, and the next Back restored the same filtered catalog with search intact.
 
 **Why:** Native WebView fullscreen and Android hardware-Back ordering cannot be verified from browser previews or inferred from JavaScript alone.
 
