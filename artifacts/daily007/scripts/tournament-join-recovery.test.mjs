@@ -1,16 +1,28 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { joinWithCapacityRefresh } from "../src/lib/tournamentJoinRecovery.ts";
 
-const fullMatchMessages = [
-  "This match is already full and is not accepting registrations.",
-  "This match is full.",
+const appSource = await readFile(
+  new URL("../src/App.tsx", import.meta.url),
+  "utf8",
+);
+
+const fullMatchErrors = [
+  {
+    code: "MATCH_FULL",
+    message: "This match is already full and is not accepting registrations.",
+  },
+  {
+    code: "MATCH_FULL",
+    message: "Registration failed because all tournament places are now taken.",
+  },
 ];
 
-for (const message of fullMatchMessages) {
-  test(`a full-match rejection refreshes tournament capacity and stays visible (${message})`, async () => {
+for (const { code, message } of fullMatchErrors) {
+  test(`a full-match code refreshes capacity and preserves the server message (${message})`, async () => {
     const joinError = Object.assign(new Error(message), {
-      response: { status: 409, data: { error: message } },
+      response: { status: 409, data: { code, error: message } },
     });
     const refreshedTournament = {
       id: "match-1",
@@ -37,16 +49,18 @@ for (const message of fullMatchMessages) {
     assert.deepEqual(fetchedIds, ["match-1"]);
     assert.equal(visibleTournament, refreshedTournament);
     assert.equal(visibleTournament.availableSlots, 0);
+    assert.equal(joinError.response.data.error, message);
   });
 }
 
-for (const [status, message] of [
-  [400, "Captain Free Fire UID is required."],
-  [409, "Insufficient wallet balance."],
+for (const [status, message, code] of [
+  [400, "Captain Free Fire UID is required.", "INVALID_REGISTRATION"],
+  [409, "Insufficient wallet balance.", "INSUFFICIENT_WALLET_BALANCE"],
+  [409, "This match is full.", undefined],
 ]) {
   test(`an unrelated join error remains visible without a tournament refresh (${status})`, async () => {
     const joinError = Object.assign(new Error(message), {
-      response: { status, data: { error: message } },
+      response: { status, data: { ...(code ? { code } : {}), error: message } },
     });
     const fetchedIds = [];
     let visibleTournament = null;
@@ -69,9 +83,25 @@ for (const [status, message] of [
   });
 }
 
+test("the wallet refresh remains after a successful and validated join response", () => {
+  const joinStart = appSource.indexOf("const result = await joinWithCapacityRefresh(");
+  const walletRefresh = appSource.indexOf("await refresh();", joinStart);
+  assert.ok(joinStart >= 0, "the join result should use capacity recovery");
+  assert.ok(walletRefresh > joinStart, "wallet data refresh should follow the join request");
+
+  const resultValidation = appSource.slice(joinStart, walletRefresh);
+  assert.match(resultValidation, /if \(result\?\.success === false \|\| result\?\.ok === false\)/);
+  assert.match(
+    resultValidation,
+    /if \(result\?\.status !== 'approved' && result\?\.status !== 'pending'\)/,
+  );
+  assert.doesNotMatch(resultValidation, /\bcatch\s*\(|\bfinally\s*\{/);
+});
+
 test("a failed capacity refresh preserves the original server rejection", async () => {
-  const joinError = Object.assign(new Error(fullMatchMessages[1]), {
-    response: { status: 409, data: { error: fullMatchMessages[1] } },
+  const message = "Capacity has been reached.";
+  const joinError = Object.assign(new Error(message), {
+    response: { status: 409, data: { code: "MATCH_FULL", error: message } },
   });
   const refreshError = new Error("Tournament refresh failed");
   let visibleTournament = {

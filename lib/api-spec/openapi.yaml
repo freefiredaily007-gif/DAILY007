@@ -336,7 +336,19 @@ paths:
         "201": { description: Registration and post-debit wallet balance }
         "200": { description: Existing registration receipt returned idempotently; no additional debit }
         "400": { description: Invalid input }
-        "409": { description: "Full match, or insufficient wallet balance" }
+        "409":
+          description: Full match or insufficient wallet balance; full-capacity rejections include the stable MATCH_FULL code.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code:
+                    type: string
+                    enum: [MATCH_FULL]
+                    description: Present when registration fails because the match has reached capacity.
+                required: [error]
   /daily007/v2/admin/users/{id}/wallet:
     post:
       operationId: daily007V2CreditWallet

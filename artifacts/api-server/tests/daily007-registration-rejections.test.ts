@@ -23,6 +23,7 @@ type JoinCase = {
   name: string;
   expectedStatus: number;
   expectedError?: string;
+  expectedCode?: string;
   prepare: () => void;
   body?: Record<string, unknown>;
 };
@@ -100,10 +101,22 @@ const rejectedJoins: JoinCase[] = [
     name: "full capacity",
     expectedStatus: 409,
     expectedError: "This match is already full and is not accepting registrations.",
+    expectedCode: "MATCH_FULL",
     prepare: () => {
       registrationCapacityTestDb.match.capacity = 1;
       registrationCapacityTestDb.match.status = "full";
       registrationCapacityTestDb.match.is_full = true;
+    },
+  },
+  {
+    name: "capacity count recheck while the match still appears open",
+    expectedStatus: 409,
+    expectedError: "This match is full.",
+    expectedCode: "MATCH_FULL",
+    prepare: () => {
+      registrationCapacityTestDb.match.capacity = 1;
+      registrationCapacityTestDb.match.status = "open";
+      registrationCapacityTestDb.match.is_full = false;
     },
   },
   {
@@ -142,6 +155,7 @@ test("rejected tournament joins leave registrations, wallet balance, and ledger 
 
         assert.equal(response.status, scenario.expectedStatus);
         if (scenario.expectedError) assert.equal(response.body.error, scenario.expectedError);
+        if (scenario.expectedCode) assert.equal(response.body.code, scenario.expectedCode);
         assert.deepEqual(registrationCapacityTestDb.users.get(FIRST_PLAYER_ID), before.user);
         assert.deepEqual(registrationCapacityTestDb.match, before.match);
         assert.deepEqual(registrationCapacityTestDb.registrations, before.registrations);

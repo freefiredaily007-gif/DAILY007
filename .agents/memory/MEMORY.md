@@ -6,6 +6,7 @@
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
+- [Expo Metro during API codegen](expo-metro-codegen.md) — confirm generated files and a later bundle before treating transient missing-module logs as a persistent failure.
 - [Mockup sandbox typecheck conflicts](mockup-sandbox-typecheck.md) — unrelated React type-version conflicts in shared sandbox UI can fail typecheck while an isolated Vite browser test passes.
 - [Admin large-text preview checks](daily007-admin-large-text-preview.md) — distinguish layout clipping from expected horizontal scrolling inside populated single-line inputs.
 - [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — separate native accessibility grouping from web roles; check control reachability, locale values, and card bounds.

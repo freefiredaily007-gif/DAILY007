@@ -966,6 +966,22 @@ export interface Daily007AdminApproveLeaderboardPeriodResponse {
   payouts: Daily007AdminLeaderboardApprovedPayout[];
 }
 
+/**
+ * Present when registration fails because the match has reached capacity.
+ */
+export type Daily007V2RegisterMatch409Code = typeof Daily007V2RegisterMatch409Code[keyof typeof Daily007V2RegisterMatch409Code];
+
+
+export const Daily007V2RegisterMatch409Code = {
+  MATCH_FULL: 'MATCH_FULL',
+} as const;
+
+export type Daily007V2RegisterMatch409 = {
+  error: string;
+  /** Present when registration fails because the match has reached capacity. */
+  code?: Daily007V2RegisterMatch409Code;
+};
+
 export type Daily007V2SetRoomBody = {
   /**
      * @minLength 1

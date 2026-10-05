@@ -14,10 +14,7 @@ type TournamentCapacity = {
   availableSlots?: number;
 };
 
-const FULL_MATCH_MESSAGES = new Set([
-  'This match is already full and is not accepting registrations.',
-  'This match is full.',
-]);
+const MATCH_FULL_ERROR_CODE = 'MATCH_FULL';
 
 function isFullMatchRejection(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -26,13 +23,8 @@ function isFullMatchRejection(error: unknown): boolean {
     return false;
   }
 
-  const data = response.data as { error?: unknown; message?: unknown };
-  const message = typeof data.error === 'string'
-    ? data.error
-    : typeof data.message === 'string'
-      ? data.message
-      : '';
-  return FULL_MATCH_MESSAGES.has(message);
+  const data = response.data as { code?: unknown };
+  return data.code === MATCH_FULL_ERROR_CODE;
 }
 
 export async function joinWithCapacityRefresh<Tournament extends TournamentCapacity, Result>(

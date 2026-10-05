@@ -22,6 +22,7 @@ const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PASSWORD_BYTES = 64;
+const MATCH_FULL_ERROR_CODE = "MATCH_FULL";
 
 export type Account = {
   id: string; name: string; email: string; role: Daily007Role; wallet_coins: number;
@@ -50,8 +51,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function fail(res: Response, status: number, error: string): void {
-  res.status(status).json({ error });
+function fail(res: Response, status: number, error: string, code?: string): void {
+  res.status(status).json({ error, ...(code ? { code } : {}) });
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
@@ -559,7 +560,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         throw Object.assign(new Error("This tournament is disabled and is not accepting registrations."), { status: 409 });
       }
       if (match.status !== "open") {
-        throw Object.assign(new Error("This match is already full and is not accepting registrations."), { status: 409 });
+        throw Object.assign(new Error("This match is already full and is not accepting registrations."), {
+          status: 409,
+          code: MATCH_FULL_ERROR_CODE,
+        });
       }
       let teammates: { name: string; uid: string | null }[] = [];
       let submittedTeamName = "";
@@ -619,7 +623,12 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         [matchId],
       );
       const currentCount = Number(countResult.rows[0].count);
-      if (currentCount >= match.capacity) throw Object.assign(new Error("This match is full."), { status: 409 });
+      if (currentCount >= match.capacity) {
+        throw Object.assign(new Error("This match is full."), {
+          status: 409,
+          code: MATCH_FULL_ERROR_CODE,
+        });
+      }
       const userResult = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
         [account.id],
@@ -676,7 +685,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   } catch (error) {
     const status = (error as { status?: number }).status;
     if (status) {
-      fail(res, status, (error as Error).message);
+      const code = (error as { code?: unknown }).code === MATCH_FULL_ERROR_CODE
+        ? MATCH_FULL_ERROR_CODE
+        : undefined;
+      fail(res, status, (error as Error).message, code);
       return;
     }
     if ((error as { code?: string }).code === "23505") {

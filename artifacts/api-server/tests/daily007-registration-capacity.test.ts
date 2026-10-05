@@ -98,6 +98,7 @@ test("simultaneous joins cannot charge both players for the last tournament slot
       assert.equal(first.status, 201);
       assert.equal(second.status, 409);
       assert.match(String(second.body.error), /full/i);
+      assert.equal(second.body.code, "MATCH_FULL");
       assert.equal(first.body.registeredCount, registrationCapacityTestDb.match.capacity);
       assert.equal(first.body.isFull, true);
       assert.equal(first.body.matchStatus, "full");
@@ -238,6 +239,7 @@ test("simultaneous duo registrations cannot share the last tournament team slot"
       assert.equal(first.status, 201);
       assert.equal(second.status, 409);
       assert.match(String(second.body.error), /full/i);
+      assert.equal(second.body.code, "MATCH_FULL");
       assert.equal(first.body.registeredCount, registrationCapacityTestDb.match.capacity);
       assert.equal(first.body.capacity, registrationCapacityTestDb.match.capacity);
       assert.equal(first.body.isFull, true);
