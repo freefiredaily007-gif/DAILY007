@@ -14,6 +14,9 @@ const typographySource = await readFile(
   new URL('../src/components/typography.tsx', import.meta.url),
   'utf8',
 );
+const roleChangeSuccessToast = usersSource.match(
+  /toast\(granting \? ([\s\S]*?), 'success'\);/,
+)?.[1] ?? '';
 
 test('admin error toasts expose the exact message as an assertive TalkBack alert', () => {
   assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
@@ -23,9 +26,26 @@ test('admin error toasts expose the exact message as an assertive TalkBack alert
   );
   assert.match(
     toastSource,
-    /accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : undefined\}/,
+    /accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
   );
   assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
+});
+
+test('successful toasts announce politely without including the decorative checkmark', () => {
+  assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
+  assert.match(
+    toastSource,
+    /accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+  );
+  assert.match(toastSource, /\{toast\.kind === 'err' \? '✕ ' : '✓ '\}\{toast\.msg\}/);
+});
+
+test('successful role grants name the affected user and resulting role', () => {
+  assert.match(roleChangeSuccessToast, /`\$\{u\.name\} is now a Tournament Admin`/);
+});
+
+test('successful role removals name the affected user and resulting player role', () => {
+  assert.match(roleChangeSuccessToast, /`\$\{u\.name\} is now a player`/);
 });
 
 test('last Full Admin rejection refreshes and keeps the user row available', () => {
