@@ -45,6 +45,9 @@ export default defineConfig({
         ]
       : []),
   ],
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
