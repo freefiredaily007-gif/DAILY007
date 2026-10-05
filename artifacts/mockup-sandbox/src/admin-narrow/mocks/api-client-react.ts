@@ -250,8 +250,49 @@ export function useDaily007SubmitYoutubeSubscribeClaim() {
   return noMutation();
 }
 
+type PasswordChangePreviewCalls = {
+  requests: { currentPassword: string; newPassword: string }[];
+};
+
+let passwordChangeConflictRemaining = 0;
+
+function getPasswordChangePreviewCalls(): PasswordChangePreviewCalls {
+  const preview = globalThis as typeof globalThis & {
+    __daily007PasswordChangePreview?: PasswordChangePreviewCalls;
+  };
+  preview.__daily007PasswordChangePreview ??= { requests: [] };
+  return preview.__daily007PasswordChangePreview;
+}
+
+export function configurePasswordChangePreview() {
+  passwordChangeConflictRemaining = 1;
+  const preview = globalThis as typeof globalThis & {
+    __daily007PasswordChangePreview?: PasswordChangePreviewCalls;
+  };
+  preview.__daily007PasswordChangePreview = { requests: [] };
+}
+
 export function useDaily007ChangePassword() {
-  return noMutation();
+  return {
+    ...noMutation(),
+    mutateAsync: async (input: { data: { currentPassword: string; newPassword: string } }) => {
+      getPasswordChangePreviewCalls().requests.push({
+        currentPassword: input.data.currentPassword,
+        newPassword: input.data.newPassword,
+      });
+      if (passwordChangeConflictRemaining > 0) {
+        passwordChangeConflictRemaining -= 1;
+        const error = new Error("Request failed with status code 409") as Error & {
+          response?: { data?: { error?: string } };
+        };
+        error.response = {
+          data: { error: "The password changed in another session. Sign in again and retry." },
+        };
+        throw error;
+      }
+      return { message: "Password changed. Other signed-in sessions remain active." };
+    },
+  };
 }
 
 export const getDaily007ListAdminResultLogsQueryKey = () => [

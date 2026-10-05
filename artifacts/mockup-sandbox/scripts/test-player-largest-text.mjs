@@ -463,12 +463,7 @@ async function checkScreen(screen, viewportWidth, fontScale = 2) {
     await writeFile(`/tmp/daily007-largest-text-wallet-${viewportWidth}.png`, Buffer.from(screenshot.data, "base64"));
     await checkReachable('[data-testid="wallet-recharge-submit"]', "Wallet recharge submit", true);
   } else if (screen.name === "Profile") {
-    await clickSelector('[data-testid="profile-change-password"]', "Profile change password action");
-    await waitForCondition(
-      "Boolean(document.querySelector('[data-testid=\"profile-password-submit\"]'))",
-      "password-change dialog",
-    );
-    await checkReachable('[data-testid="profile-password-submit"]', "Profile password submit", true);
+    await checkProfilePasswordConflictRetry();
   } else if (screen.name === "Leaderboard") {
     await waitForCondition(
       "document.body.innerText.includes('International Tournament Competitor 12')",
@@ -871,6 +866,69 @@ async function checkTransientVideoRewardRetry() {
   const retryAttempts = await evaluate("window.__videoRewardPreviewCalls?.completions.length ?? 0");
   assert(retryAttempts === 2, `Retry did not issue a second completion request: ${retryAttempts}`);
   console.log("PASS — transient completion failures still offer a working retry.");
+}
+
+async function checkProfilePasswordConflictRetry() {
+  const conflictMessage = "The password changed in another session. Sign in again and retry.";
+  const successMessage = "Password changed. Other sessions stay active until the next sign-in.";
+  const currentSelector = 'input[aria-label="Current Daily007 password"]';
+  const newSelector = 'input[aria-label="New Daily007 password"]';
+  const confirmSelector = 'input[placeholder="Confirm new password"]';
+
+  await clickSelector('[data-testid="profile-change-password"]', "Profile change password action");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"profile-password-submit\"]'))",
+    "password-change dialog",
+  );
+  await checkReachable('[data-testid="profile-password-submit"]', "Profile password submit", true);
+  await setInputValue(currentSelector, "wrong-current-password", "the current password");
+  await setInputValue(newSelector, "replacement-password", "the new password");
+  await setInputValue(confirmSelector, "replacement-password", "the confirmation password");
+  await clickSelector('[data-testid="profile-password-submit"]', "Profile password submit");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(conflictMessage)})`,
+    "password-change conflict message",
+  );
+
+  const afterConflict = await evaluate(`(() => ({
+    messageVisible: document.body.innerText.includes(${JSON.stringify(conflictMessage)}),
+    currentPassword: document.querySelector(${JSON.stringify(currentSelector)})?.value ?? null,
+    newPassword: document.querySelector(${JSON.stringify(newSelector)})?.value ?? null,
+    confirmPassword: document.querySelector(${JSON.stringify(confirmSelector)})?.value ?? null,
+    requests: window.__daily007PasswordChangePreview?.requests ?? [],
+  }))()`);
+  assert(afterConflict.messageVisible, "The password-change conflict must be visible in the Profile dialog.");
+  assert(
+    JSON.stringify({
+      currentPassword: afterConflict.currentPassword,
+      newPassword: afterConflict.newPassword,
+      confirmPassword: afterConflict.confirmPassword,
+    }) === JSON.stringify({
+      currentPassword: "wrong-current-password",
+      newPassword: "replacement-password",
+      confirmPassword: "replacement-password",
+    }),
+    "the dialog must preserve all entered values after the conflict",
+  );
+  assert(afterConflict.requests.length === 1, "the conflict should come from the first submitted request.");
+
+  await setInputValue(currentSelector, "correct-current-password", "the corrected current password");
+  await clickSelector('[data-testid="profile-password-submit"]', "Profile password retry");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(successMessage)})`,
+    "successful password-change retry",
+  );
+
+  const requests = await evaluate("window.__daily007PasswordChangePreview?.requests ?? []");
+  assert(requests.length === 2, "the corrected form should submit a second request.");
+  assert(
+    JSON.stringify(requests[1]) === JSON.stringify({
+      currentPassword: "correct-current-password",
+      newPassword: "replacement-password",
+    }),
+    "the retry should submit the corrected current password and retained new password.",
+  );
+  console.log("PASS — password conflicts preserve the form and allow a successful retry.");
 }
 
 try {

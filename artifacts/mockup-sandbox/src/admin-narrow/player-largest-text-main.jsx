@@ -16,7 +16,10 @@ import JoinForm from "../../../daily007/src/screens/JoinForm";
 import LeaderboardDetails from "../../../daily007/src/screens/LeaderboardDetails";
 import { getPlayerTabBarHeight } from "../../../daily007/src/lib/playerTabBarSizing";
 import { configurePlayerLargestTextPreview, configureWalletFormPreview } from "./mocks/api";
-import { configureVideoRewardPreview } from "./mocks/api-client-react";
+import {
+  configurePasswordChangePreview,
+  configureVideoRewardPreview,
+} from "./mocks/api-client-react";
 
 function JoinFormServerErrorPreview() {
   return (
@@ -88,6 +91,7 @@ const Screen = screens[screenName === "VideoUnavailable" || screenName === "Vide
 configurePlayerLargestTextPreview();
 configureWalletFormPreview();
 configureVideoRewardPreview(videoRewardPreviewMode);
+configurePasswordChangePreview();
 if (videoRewardPreviewMode) window.__videoRewardPreview = true;
 
 function PreviewTabBar({ fontScale, width }) {
