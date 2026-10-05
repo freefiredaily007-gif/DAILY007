@@ -24,6 +24,7 @@ const adminTabs = [
 const resumeOnly = process.argv.includes("--resume-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
+const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const browserErrors = [];
 let viteOutput = "";
@@ -906,6 +907,12 @@ async function setKeyboardViewport(height) {
   await delay(120);
 }
 
+async function openAdminKeyboardViewport(height = 450) {
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(height);
+  await evaluate("window.scrollTo(0, 0)");
+}
+
 async function setInputValue(selector, value) {
   const updated = await evaluate(`(() => {
     const input = document.querySelector(${JSON.stringify(selector)});
@@ -1115,6 +1122,186 @@ async function checkWalletAndProfileKeyboard() {
   );
 }
 
+async function assertAdminFormKeyboardReachability(inputSelector, actionSelector, scrollKey, description) {
+  const state = await evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(inputSelector)});
+    const actionRef = ${JSON.stringify(actionSelector)};
+    const action = actionRef.startsWith("text:")
+      ? [...document.querySelectorAll('[role="button"], button')]
+          .find((item) => item.textContent.trim() === actionRef.slice(5))
+      : document.querySelector(actionRef);
+    if (!input || !action) return { missingInput: !input, missingAction: !action };
+
+    let scroll = input.parentElement;
+    while (scroll && scroll !== document.body) {
+      const overflowY = getComputedStyle(scroll).overflowY;
+      if ((overflowY === "auto" || overflowY === "scroll") && scroll.contains(action)) break;
+      scroll = scroll.parentElement;
+    }
+    if (!scroll || scroll === document.body) return { missingScrollContainer: true };
+
+    scroll.dataset.keyboardTestScroll = ${JSON.stringify(scrollKey)};
+    input.focus({ preventScroll: true });
+    const scrollRect = scroll.getBoundingClientRect();
+    const inputRect = input.getBoundingClientRect();
+    const actionRect = action.getBoundingClientRect();
+    const visibleTop = Math.max(0, scrollRect.top);
+    const visibleBottom = Math.min(window.innerHeight, scrollRect.bottom);
+    const minimumMovement = Math.max(
+      visibleTop - inputRect.top,
+      visibleTop - actionRect.top,
+    );
+    const maximumMovement = Math.min(
+      visibleBottom - inputRect.bottom,
+      visibleBottom - actionRect.bottom,
+    );
+    if (minimumMovement <= maximumMovement) {
+      const movement = Math.max(minimumMovement, Math.min(maximumMovement, 0));
+      const maxScrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+      scroll.scrollTop = Math.max(0, Math.min(maxScrollTop, scroll.scrollTop - movement));
+    }
+    const scrolledRect = scroll.getBoundingClientRect();
+    const scrolledInputRect = input.getBoundingClientRect();
+    const scrolledActionRect = action.getBoundingClientRect();
+    const visibleScrollTop = Math.max(0, scrolledRect.top);
+    const visibleScrollBottom = Math.min(window.innerHeight, scrolledRect.bottom);
+    const fitsVisibleArea = (rect) =>
+      rect.top >= visibleScrollTop - 1 && rect.bottom <= visibleScrollBottom + 1;
+    return {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      scrollTop: scroll.scrollTop,
+      scrollHeight: scroll.scrollHeight,
+      clientHeight: scroll.clientHeight,
+      inputFocused: document.activeElement === input,
+      inputVisible: fitsVisibleArea(scrolledInputRect),
+      actionVisible: fitsVisibleArea(scrolledActionRect),
+      actionDisabled: action.disabled === true || action.getAttribute("aria-disabled") === "true",
+      inputBounds: { top: scrolledInputRect.top, bottom: scrolledInputRect.bottom },
+      actionBounds: { top: scrolledActionRect.top, bottom: scrolledActionRect.bottom },
+      scrollBounds: { top: scrolledRect.top, bottom: scrolledRect.bottom },
+      pageScrollY: window.scrollY,
+    };
+  })()`);
+  assert(state, `${description}: the form could not be inspected.`);
+  assert(!state.missingInput, `${description}: the final field is missing.`);
+  assert(!state.missingAction, `${description}: the primary action is missing.`);
+  assert(!state.missingScrollContainer, `${description}: no scroll area contains the field and primary action.`);
+  assert(state.width === 375, `${description}: expected a 375px phone viewport.`);
+  assert(
+    state.height > 360 && state.height <= 450,
+    `${description}: expected a reduced 361–450px keyboard-open viewport (actual=${state.height}px).`,
+  );
+  assert(state.inputFocused, `${description}: the final field could not receive focus.`);
+  assert(
+    state.inputVisible,
+    `${description}: the focused final field is hidden after scrolling (${JSON.stringify(state)}).`,
+  );
+  assert(
+    state.actionVisible,
+    `${description}: the primary action is behind the keyboard after scrolling (${JSON.stringify(state)}).`,
+  );
+  assert(!state.actionDisabled, `${description}: the primary action is unexpectedly disabled.`);
+  return state;
+}
+
+async function assertAdminFormLayoutRecovered(scrollKey, keyboardClientHeight, description) {
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(720);
+  const recovered = await evaluate(`(() => {
+    const scroll = document.querySelector('[data-keyboard-test-scroll="${scrollKey}"]');
+    if (!scroll) return null;
+    return {
+      height: window.innerHeight,
+      clientHeight: scroll.clientHeight,
+      scrollHeight: scroll.scrollHeight,
+    };
+  })()`);
+  assert(recovered, `${description}: the form's scroll area disappeared after dismissing the keyboard.`);
+  assert(recovered.height === 720, `${description}: the full phone viewport did not return.`);
+  assert(
+    recovered.clientHeight > keyboardClientHeight + 40,
+    `${description}: the form did not regain its height after keyboard dismissal ` +
+      `(open=${keyboardClientHeight}px, restored=${recovered.clientHeight}px).`,
+  );
+}
+
+async function checkAdminTournamentKeyboard() {
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tab-tournaments"]'))`,
+    "Admin navigation",
+  );
+  await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments Admin tab");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]'))`,
+    "Admin tournament screen",
+  );
+
+  await clickButton("NEW");
+  const createInput = 'textarea[placeholder="Prize distribution (e.g. 1st: 500 coins)"]';
+  await waitForCondition(`Boolean(document.querySelector(${JSON.stringify(createInput)}))`, "tournament creation form");
+  await setInputValue('input[placeholder="Tournament name *"]', "Keyboard preview tournament");
+  await setInputValue('input[placeholder="Entry coins *"]', "10");
+  await openAdminKeyboardViewport();
+  const createState = await assertAdminFormKeyboardReachability(
+    createInput,
+    "text:CREATE",
+    "create-tournament",
+    "Tournament creation",
+  );
+  await assertAdminFormLayoutRecovered("create-tournament", createState.clientHeight, "Tournament creation");
+  await clickButton("CLOSE");
+  await waitForCondition(`!document.querySelector(${JSON.stringify(createInput)})`, "tournament creation form to close");
+
+  await clickSelector('[data-testid="manage-room-preview-upcoming"]', "upcoming tournament room setup");
+  const roomInput = 'input[placeholder="Room Password"]';
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="inline-room-management-preview-upcoming"]') && document.querySelector(${JSON.stringify(roomInput)}))`,
+    "room setup form",
+  );
+  await openAdminKeyboardViewport();
+  const roomState = await assertAdminFormKeyboardReachability(
+    roomInput,
+    '[data-testid="inline-room-management-preview-upcoming"] [role="button"], [data-testid="inline-room-management-preview-upcoming"] button',
+    "room-setup",
+    "Room setup",
+  );
+  assert(
+    roomState.actionVisible && !roomState.actionDisabled,
+    "Room setup: the primary action is not reachable and enabled.",
+  );
+  await assertAdminFormLayoutRecovered("room-setup", roomState.clientHeight, "Room setup");
+  await clickSelector('[data-testid="manage-room-preview-upcoming"]', "close room setup");
+  await waitForCondition(
+    `!document.querySelector('[data-testid="inline-room-management-preview-upcoming"]')`,
+    "room setup form to close",
+  );
+
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "ongoing tournament tab");
+  const openResultsSelector = '[data-testid="finish-tournament-preview-ongoing"]';
+  await waitForCondition(`Boolean(document.querySelector(${JSON.stringify(openResultsSelector)}))`, "ongoing tournament");
+  await clickSelector(openResultsSelector, "tournament result-entry form");
+  const resultInput = 'input[data-testid="result-kills-preview-ongoing"]';
+  await waitForCondition(`Boolean(document.querySelector(${JSON.stringify(resultInput)}))`, "result-entry form");
+  await clickSelector('[data-testid="result-registration-preview-registration-1"]', "approved player for result entry");
+  const resultAction = '[data-testid="publish-result-preview-ongoing"]';
+  await waitForCondition(
+    `(() => {
+      const action = document.querySelector(${JSON.stringify(resultAction)});
+      return action && action.getAttribute("aria-disabled") !== "true" && !action.disabled;
+    })()`,
+    "result publication action to enable",
+  );
+  await openAdminKeyboardViewport();
+  const resultState = await assertAdminFormKeyboardReachability(
+    resultInput,
+    resultAction,
+    "result-entry",
+    "Tournament result entry",
+  );
+  await assertAdminFormLayoutRecovered("result-entry", resultState.clientHeight, "Tournament result entry");
+}
+
 let vitePort;
 
 try {
@@ -1183,10 +1370,10 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (resumeOnly || scheduledStartOnly || homeCarouselOnly || keyboardFormsOnly) {
+  if (resumeOnly || scheduledStartOnly || homeCarouselOnly || keyboardFormsOnly || adminKeyboardFormsOnly) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: homeCarouselOnly || scheduledStartOnly ? 390 : keyboardFormsOnly ? 375 : 800,
-      height: homeCarouselOnly || scheduledStartOnly ? 844 : keyboardFormsOnly ? 720 : 1000,
+      width: homeCarouselOnly || scheduledStartOnly ? 390 : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
+      height: homeCarouselOnly || scheduledStartOnly ? 844 : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
@@ -1197,9 +1384,18 @@ try {
           ? "scheduled-start Player and Admin tournament screens"
         : keyboardFormsOnly
           ? "Wallet and Edit Profile"
+        : adminKeyboardFormsOnly
+          ? "Admin tournament keyboard forms"
           : "player and Admin tournament screens",
     );
-    if (scheduledStartOnly) {
+    if (adminKeyboardFormsOnly) {
+      await checkAdminTournamentKeyboard();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin tournament keyboard checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Admin tournament creation, room setup, and result-entry actions remain visible and enabled at 375×450 with a simulated Android keyboard, and each layout recovers after dismissal.");
+    } else if (scheduledStartOnly) {
       await checkTournamentScheduledStart();
       assert(
         browserErrors.length === 0,

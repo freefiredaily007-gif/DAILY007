@@ -4,7 +4,7 @@ const previewUser = {
   phone: "",
   gameUid: "",
   coins: 1000,
-  role: "full_admin",
+  role: "admin",
 };
 
 const largestTextPreviewUser = {
