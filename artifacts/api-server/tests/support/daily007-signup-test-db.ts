@@ -339,6 +339,29 @@ class MemorySignupDatabase {
         coins: user.wallet_coins,
         createdAt: new Date(0),
       }));
+    } else if (
+      normalized.startsWith(
+        'SELECT ledger.id, ledger.amount, ledger.balance_after AS "balanceAfter", ledger.reason, ledger.details,',
+      ) &&
+      normalized.includes("FROM daily007_v2_wallet_ledger ledger") &&
+      normalized.includes(
+        "WHERE ledger.user_id = $1 ORDER BY ledger.created_at DESC LIMIT 500",
+      )
+    ) {
+      rows = this.ledger
+        .filter((entry) => entry.user_id === first)
+        .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+        .slice(0, 500)
+        .map((entry) => ({
+          id: entry.id,
+          amount: entry.amount,
+          balanceAfter: entry.balance_after,
+          reason: entry.reason,
+          details: structuredClone(entry.details),
+          createdAt: entry.created_at,
+          matchId: null,
+          tournamentTitle: null,
+        }));
     } else if (normalized.startsWith(
       "SELECT id, amount, balance_after AS \"balanceAfter\", reason, details,",
     ) && normalized.includes("FROM daily007_v2_wallet_ledger WHERE user_id = $1")) {

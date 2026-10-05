@@ -267,7 +267,7 @@ test("first and repeated Google sign-ins keep one Daily007 account and one signu
   }
 });
 
-test("referred Google signup receives one 10-coin referral reward and no welcome reward", async () => {
+test("referred Google signup and repeat sign-in keep one 10-coin referral reward", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
 
@@ -332,6 +332,47 @@ test("referred Google signup receives one 10-coin referral reward and no welcome
       assert.equal(walletHistory.length, 1);
       assert.deepEqual(
         walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+
+      const referralsBeforeRepeat = structuredClone(signupTestDb.referrals);
+      const ledgerBeforeRepeat = structuredClone(signupTestDb.ledger);
+      const repeat = await googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(repeat.status, 200);
+      assert.equal(repeat.body.id, userId);
+      assert.equal(repeat.body.coins, 10);
+      assert.equal(typeof repeat.body.token, "string");
+      assert.notEqual(repeat.body.token, signup.token);
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.equal(signupTestDb.users.size, 2, "repeat sign-in must reuse the existing account");
+      assert.equal(account.wallet_coins, 10, "repeat sign-in must preserve the original balance");
+      assert.deepEqual(
+        signupTestDb.referrals,
+        referralsBeforeRepeat,
+        "repeat sign-in must not create another referral relationship",
+      );
+      assert.deepEqual(
+        signupTestDb.ledger,
+        ledgerBeforeRepeat,
+        "repeat sign-in must not create another wallet ledger entry",
+      );
+
+      const repeatWalletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(repeat.body.token)}` },
+      });
+      const repeatWalletHistory = await repeatWalletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(repeatWalletResponse.status, 200);
+      assert.equal(repeatWalletHistory.length, 1);
+      assert.deepEqual(
+        repeatWalletHistory.map(({ amount, balanceAfter, reason }) => ({
           amount,
           balanceAfter,
           reason,
