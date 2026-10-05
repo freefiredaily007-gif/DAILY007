@@ -383,6 +383,18 @@ async function checkScreen(screen, viewportWidth) {
     const refundVisible = `document.body.innerText.includes(${JSON.stringify(walletCancellationRefundDescription)})`;
     await waitForCondition(refundVisible, "cancellation refund reason in Wallet history");
     await waitForCondition("document.body.innerText.includes('+35')", "cancellation refund amount in Wallet history");
+    const refundAccessibility = await evaluate(`(() => {
+      const row = document.querySelector('[data-testid="wallet-cancellation-refund-row"]');
+      return {
+        label: row?.getAttribute('aria-label') ?? '',
+      };
+    })()`);
+    assert(
+      refundAccessibility.label.includes("Daily007 Clash Finals")
+        && refundAccessibility.label.includes("tournament cancelled")
+        && refundAccessibility.label.includes("+35 coins credited"),
+      `Wallet cancellation refund screen-reader label is incomplete: ${JSON.stringify(refundAccessibility)}.`,
+    );
 
     const assertSingleRefundVisible = async (when) => {
       const counts = await evaluate(`(() => {

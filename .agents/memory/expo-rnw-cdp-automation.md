@@ -26,3 +26,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** At narrow widths and 2× text, a video card can become taller than the screen while remaining actionable through its visible portion.
 
 **How to apply:** After scrolling the nearest scroll container, require at least a 44px visible touch area in each dimension for oversized controls, while still requiring smaller controls to fit fully.
+
+**Rule:** React Native Web does not faithfully expose native `View` grouping through `accessible`, and `accessibilityRole="text"` maps to no web role. For grouped native text, verify the rendered label content and the source-level grouping props rather than requiring a browser role or tab stop.
+
+**Why:** A Wallet refund preview rendered its `aria-label`, but the web DOM omitted role and focus attributes even though the native component received `accessible` and `accessibilityRole`. Adding web-only focus props to satisfy that preview could change native behavior.
+
+**How to apply:** Keep React Native's native accessibility props for TalkBack, test their label content in the isolated RNW preview, and confirm actual TalkBack behavior separately when an Android device is available.

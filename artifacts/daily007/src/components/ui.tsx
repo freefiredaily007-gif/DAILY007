@@ -1,6 +1,6 @@
 // Shared UI kit — PREMIUM ESPORTS gaming theme (FREE FIRE DAILY007)
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing, Image } from 'react-native';
+import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing, Image, type ViewProps } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
 import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
@@ -124,10 +124,16 @@ export function Btn({
 }
 
 // ---------- glass card ----------
-export function Card({ children, style, glowColor }: { children: React.ReactNode; style?: any; glowColor?: string }) {
+type CardProps = {
+  children: React.ReactNode;
+  style?: any;
+  glowColor?: string;
+} & Pick<ViewProps, 'accessible' | 'accessibilityLabel' | 'accessibilityRole' | 'testID'>;
+
+export function Card({ children, style, glowColor, ...accessibilityProps }: CardProps) {
   const adminSurface = useAdminSurface();
   return (
-    <View style={[st.card, adminSurface && adminSt.card, glowColor ? [glow(glowColor, 10), { borderColor: glowColor + '55' }] : null, style]}>
+    <View {...accessibilityProps} style={[st.card, adminSurface && adminSt.card, glowColor ? [glow(glowColor, 10), { borderColor: glowColor + '55' }] : null, style]}>
       {children}
     </View>
   );

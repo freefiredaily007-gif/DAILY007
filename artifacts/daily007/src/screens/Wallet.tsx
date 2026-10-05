@@ -7,7 +7,11 @@ import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
-import { walletTransactionAmount, walletTransactionDescription } from '../lib/wallet-transaction-display';
+import {
+  walletTransactionAccessibilityLabel,
+  walletTransactionAmount,
+  walletTransactionDescription,
+} from '../lib/wallet-transaction-display';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
@@ -232,11 +236,18 @@ export default function Wallet() {
         ListEmptyComponent={loading ? <Loading /> : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />}
         renderItem={({ item }) => {
           const pos = item.amount > 0;
+          const isCancellationRefund = item.reason === 'tournament_cancel_refund';
           const description = walletTransactionDescription(item);
           const amountLabel = walletTransactionAmount(item);
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
-            <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Card
+              accessible={isCancellationRefund || undefined}
+              accessibilityRole={isCancellationRefund ? 'text' : undefined}
+              accessibilityLabel={isCancellationRefund ? walletTransactionAccessibilityLabel(item) : undefined}
+              testID={isCancellationRefund ? 'wallet-cancellation-refund-row' : undefined}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+            >
               <View style={{ flex: 1 }}>
                 <View style={[s.txHeader, fontScale >= 1.5 && s.txHeaderLarge]}>
                   <Text style={[s.txTitle, fontScale >= 1.5 && s.txTitleLarge]}>{description}</Text>
