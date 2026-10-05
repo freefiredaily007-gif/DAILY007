@@ -109,6 +109,37 @@ async function request(
   return { status: response.status, body: await response.json() };
 }
 
+async function requestPublic(origin: string, path: string): Promise<JsonResult> {
+  const response = await fetch(`${origin}${path}`);
+  return { status: response.status, body: await response.json() };
+}
+
+function resetPublicTournamentAtReleaseTime(): void {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.room_time = "PRIVATE-ROOM-TIME-820";
+  setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS - 60_000));
+}
+
+function assertPublicTournamentOmitsRoomCredentials(tournament: any): void {
+  assert.equal(
+    isRoomCredentialReleaseOpen(new Date(tournament.startsAt), Date.now()),
+    true,
+    "The fixture should be past the scheduled credential-release time.",
+  );
+  const serialized = JSON.stringify(tournament);
+  for (const field of ["roomId", "roomPassword", "roomTime"]) {
+    assert.equal(field in tournament, false, `${field} must be omitted from public tournament data`);
+  }
+  for (const secret of [
+    roomAccessTestDb.match.room_id,
+    roomAccessTestDb.match.room_password,
+    roomAccessTestDb.match.room_time,
+  ]) {
+    assert.ok(secret);
+    assert.equal(serialized.includes(secret), false, "Public tournament data must not contain room values");
+  }
+}
+
 test("compat registrations are caller-scoped and hide room credentials before release", async () => {
   roomAccessTestDb.reset();
   setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000));
@@ -178,6 +209,30 @@ test("compat registrations are caller-scoped and hide room credentials before re
       assert.equal(field in pendingAtBoundary.body[0], false);
       assert.equal(field in pendingAtBoundary.body[0].tournament, false);
     }
+  });
+});
+
+test("public compatibility tournament listing omits room fields after credential release", async () => {
+  resetPublicTournamentAtReleaseTime();
+
+  await withServer(async (origin) => {
+    const listing = await requestPublic(origin, "/tournaments");
+    assert.equal(listing.status, 200);
+    assert.equal(Array.isArray(listing.body), true);
+    assert.equal(listing.body.length, 1);
+    assert.equal(listing.body[0].id, TEST_MATCH_ID);
+    assertPublicTournamentOmitsRoomCredentials(listing.body[0]);
+  });
+});
+
+test("public compatibility tournament detail omits room fields after credential release", async () => {
+  resetPublicTournamentAtReleaseTime();
+
+  await withServer(async (origin) => {
+    const detail = await requestPublic(origin, `/tournaments/${TEST_MATCH_ID}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.id, TEST_MATCH_ID);
+    assertPublicTournamentOmitsRoomCredentials(detail.body);
   });
 });
 
