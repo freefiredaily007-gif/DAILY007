@@ -37,6 +37,7 @@
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.
 - [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — keep payout UPI IDs visible and easy for admins to copy from withdrawal requests.
 - [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — snapshot ended cycles for Full Admin payout approval; require fresh prizes and explicit next-boundary scheduling.
+- [Daily007 leaderboard large text](daily007-leaderboard-large-text.md) — preserve the 1.5× layout breakpoint; wrap compact podium scores and expanded names instead of truncating them.
 - [Daily007 Home mode-card screen readers](daily007-home-mode-screen-reader.md) — VoiceOver and TalkBack announce mode and all team sizes in one stop, without decorative stops.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — QueryObserver disables polling in Node server mode; client tests need a browser-like global before import.

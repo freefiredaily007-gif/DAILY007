@@ -28,7 +28,10 @@
       }
     </style>
     <script>
-      window.__daily007LargeTextScale = 2;
+      const requestedFontScale = Number(new URLSearchParams(window.location.search).get("fontScale"));
+      window.__daily007LargeTextScale = Number.isFinite(requestedFontScale) && requestedFontScale >= 1
+        ? requestedFontScale
+        : 2;
       window.__playerLargestTextPreview = true;
       window.require = () => ({ default: null });
     </script>

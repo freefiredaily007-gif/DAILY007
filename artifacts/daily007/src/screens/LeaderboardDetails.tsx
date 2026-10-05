@@ -169,10 +169,12 @@ function PlayerRow({
   standing,
   cycle,
   largeText,
+  fontScale,
 }: {
   standing: Standing;
   cycle: CycleType;
   largeText: boolean;
+  fontScale: number;
 }) {
   const color = cycle === "weekly" ? C.blue : C.purple;
 
@@ -206,7 +208,9 @@ function PlayerRow({
           <View style={[styles.playerAvatar, { backgroundColor: avatarColor(standing.userId) }]}>
             <Text style={styles.playerInitial}>{initials(standing.name)}</Text>
           </View>
-          <Text numberOfLines={1} style={styles.playerName}>{standing.name}</Text>
+          <Text numberOfLines={fontScale <= 1 ? 1 : undefined} style={styles.playerName}>
+            {standing.name}
+          </Text>
           <View style={styles.playerCoins}>
             <Text style={styles.coinEmoji}>🪙</Text>
             <Text style={styles.playerCoinsText}>{standing.points.toLocaleString("en-IN")}</Text>
@@ -381,6 +385,7 @@ export default function LeaderboardDetails({ navigation, route }: any) {
                         standing={standing}
                         cycle={cycle}
                         largeText={largeText}
+                        fontScale={fontScale}
                       />
                     ))}
                   </View>
@@ -507,7 +512,15 @@ const styles = StyleSheet.create({
   podiumName: { color: C.text, fontSize: 11, fontWeight: "800", maxWidth: "100%", textAlign: "center" },
   podiumNameLarge: { flex: 1, minWidth: 0, textAlign: "left" },
   podiumDetailsLarge: { flex: 1, minWidth: 0, gap: 4 },
-  podiumCoins: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  podiumCoins: {
+    maxWidth: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    marginTop: 6,
+  },
   podiumCoinsLarge: { maxWidth: "100%", flexWrap: "wrap", justifyContent: "flex-start", marginTop: 0 },
   coinEmoji: { fontSize: 13 },
   podiumCoinsText: { color: C.text, fontSize: 13, fontWeight: "900" },
