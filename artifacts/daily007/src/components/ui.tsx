@@ -69,10 +69,24 @@ export function Shimmer({ height = 90, style }: { height?: number; style?: any }
 }
 
 // ---------- buttons ----------
-export function Btn({ title, onPress, disabled, kind = 'primary', small, loading, style, accessibilityLabel, testID }: {
+export function Btn({
+  title,
+  onPress,
+  disabled,
+  kind = 'primary',
+  small,
+  loading,
+  style,
+  accessibilityLabel,
+  accessibilityHint,
+  accessibilityState,
+  testID,
+}: {
   title: string; onPress?: () => void; disabled?: boolean;
   kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean; style?: any;
-  accessibilityLabel?: string; testID?: string;
+  accessibilityLabel?: string; accessibilityHint?: string;
+  accessibilityState?: React.ComponentProps<typeof Pressable>['accessibilityState'];
+  testID?: string;
 }) {
   const adminSurface = useAdminSurface();
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
@@ -89,6 +103,8 @@ export function Btn({ title, onPress, disabled, kind = 'primary', small, loading
       disabled={disabled || loading}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || title}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={accessibilityState}
       testID={testID}
       style={({ pressed }) => [
         st.btn,

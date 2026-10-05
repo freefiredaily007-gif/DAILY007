@@ -503,6 +503,12 @@ export default function AdminTournaments() {
         const eligibleResultRegs = (resultRegs ?? []).filter(
           (registration) => !(publishedRegistrationIds[t.id] ?? []).includes(registration.id),
         );
+        const selectedResultRegistration = eligibleResultRegs.find(
+          (registration) => registration.id === selectedRegistrationId,
+        );
+        const selectedResultPlayerLabel = selectedResultRegistration
+          ? `${selectedResultRegistration.playerName}${selectedResultRegistration.teamName ? ` — ${selectedResultRegistration.teamName}` : ''}`
+          : 'selected player';
         const resultPrizeCoins = configuredPrizeForRank(
           t,
           /^\d+$/.test(resultRank) ? Number(resultRank) : 0,
@@ -665,9 +671,10 @@ export default function AdminTournaments() {
                             style={[st.playerOption, selected && st.playerOptionSelected]}
                           >
                             <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Select ${playerLabel} for result entry`}
-                              accessibilityState={{ selected }}
+                              accessibilityRole="radio"
+                              accessibilityLabel={`${selected ? 'Selected player' : 'Player choice'}: ${playerLabel}, Free Fire UID ${registration.gameUid || 'not available'}`}
+                              accessibilityHint="Selects this player for tournament result entry."
+                              accessibilityState={{ checked: selected }}
                               testID={`result-registration-${registration.id}`}
                               onPress={() => {
                                 setSelectedRegistrationId(registration.id);
@@ -690,15 +697,39 @@ export default function AdminTournaments() {
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={st.lbl}>RANK</Text>
-                        <Input placeholder="Rank *" value={resultRank} onChangeText={setResultRank} keyboardType="number-pad" />
+                        <Input
+                          placeholder="Rank *"
+                          accessibilityLabel="Rank, required"
+                          accessibilityHint="Enter the player's finishing position as a whole number greater than zero."
+                          testID={`result-rank-${t.id}`}
+                          value={resultRank}
+                          onChangeText={setResultRank}
+                          keyboardType="number-pad"
+                        />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={st.lbl}>KILLS</Text>
-                        <Input placeholder="Kills" value={resultKills} onChangeText={setResultKills} keyboardType="number-pad" />
+                        <Input
+                          placeholder="Kills, optional"
+                          accessibilityLabel="Kills, optional"
+                          accessibilityHint="Enter a non-negative whole number, or leave blank for zero."
+                          testID={`result-kills-${t.id}`}
+                          value={resultKills}
+                          onChangeText={setResultKills}
+                          keyboardType="number-pad"
+                        />
                       </View>
                     </View>
                     <Text style={st.lbl}>PRIZE COINS · FROM SAVED TOURNAMENT SETTINGS</Text>
-                    <View accessibilityLabel={`Prize amount: ${resultPrizeCoins} coins; cannot be edited`} style={st.prizeBox}>
+                    <View
+                      accessible
+                      accessibilityRole="text"
+                      accessibilityLabel={`Calculated prize: ${resultPrizeCoins.toLocaleString()} coins`}
+                      accessibilityHint={`Based on rank ${resultRank || 'not entered'} and the saved prize distribution. This value is read-only.`}
+                      accessibilityLiveRegion="polite"
+                      testID={`result-prize-${t.id}`}
+                      style={st.prizeBox}
+                    >
                       <Text style={st.prizeValue}>{resultPrizeCoins.toLocaleString()} coins</Text>
                       <Text style={st.inrNote}>
                         {inr(resultPrizeCoins)} INR ({COIN_RATE_TEXT})
@@ -707,6 +738,10 @@ export default function AdminTournaments() {
                     <Text style={st.prizeHint}>Auto-calculated for rank {resultRank || '—'} from the saved prize distribution.</Text>
                     <Btn
                       title={Number(resultRank) === 1 ? 'FINISH & PUBLISH WINNER' : 'PUBLISH PLACEMENT'}
+                      accessibilityLabel={`Publish ${Number(resultRank) === 1 ? 'winner' : 'placement'} for ${selectedResultPlayerLabel}, rank ${resultRank || 'not entered'}`}
+                      accessibilityHint="Publishes this player's tournament result and credits the calculated prize."
+                      accessibilityState={{ disabled: resultBusy, busy: resultBusy }}
+                      testID={`publish-result-${t.id}`}
                       onPress={() => { void publishResult(t); }}
                       loading={resultBusy}
                       disabled={resultBusy}
