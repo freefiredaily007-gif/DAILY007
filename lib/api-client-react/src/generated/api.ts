@@ -60,6 +60,7 @@ import type {
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
   Daily007LeaderboardsResponse,
+  Daily007ListAdminResultLogsParams,
   Daily007PaymentRequest,
   Daily007PublicSettings,
   Daily007RechargeRequestBody,
@@ -4973,20 +4974,27 @@ export function useGetAdminTournamentResults<TData = Awaited<ReturnType<typeof g
 
 
 
-export const getDaily007ListAdminResultLogsUrl = () => {
+export const getDaily007ListAdminResultLogsUrl = (params?: Daily007ListAdminResultLogsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/admin/results`
+  return stringifiedParams.length > 0 ? `/api/admin/results?${stringifiedParams}` : `/api/admin/results`
 }
 
 /**
- * @summary List published result entries for completed tournaments
+ * @summary List published tournament result entries
  */
-export const daily007ListAdminResultLogs = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminResultLogsResponse> => {
+export const daily007ListAdminResultLogs = async (params?: Daily007ListAdminResultLogsParams, options?: Parameters<typeof customFetch>[1]): Promise<AdminResultLogsResponse> => {
 
-  return customFetch<AdminResultLogsResponse>(getDaily007ListAdminResultLogsUrl(),
+  return customFetch<AdminResultLogsResponse>(getDaily007ListAdminResultLogsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -4999,23 +5007,23 @@ export const daily007ListAdminResultLogs = async ( options?: Parameters<typeof c
 
 
 
-export const getDaily007ListAdminResultLogsQueryKey = () => {
+export const getDaily007ListAdminResultLogsQueryKey = (params?: Daily007ListAdminResultLogsParams,) => {
     return [
-    `/api/admin/results`
+    `/api/admin/results`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getDaily007ListAdminResultLogsQueryOptions = <TData = Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getDaily007ListAdminResultLogsQueryOptions = <TData = Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError = ErrorType<void>>(params?: Daily007ListAdminResultLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getDaily007ListAdminResultLogsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getDaily007ListAdminResultLogsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007ListAdminResultLogs>>> = ({ signal }) => daily007ListAdminResultLogs({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007ListAdminResultLogs>>> = ({ signal }) => daily007ListAdminResultLogs(params, { signal, ...requestOptions });
 
 
 
@@ -5029,15 +5037,15 @@ export type Daily007ListAdminResultLogsQueryError = ErrorType<void>
 
 
 /**
- * @summary List published result entries for completed tournaments
+ * @summary List published tournament result entries
  */
 
 export function useDaily007ListAdminResultLogs<TData = Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError = ErrorType<void>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: Daily007ListAdminResultLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminResultLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getDaily007ListAdminResultLogsQueryOptions(options)
+  const queryOptions = getDaily007ListAdminResultLogsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

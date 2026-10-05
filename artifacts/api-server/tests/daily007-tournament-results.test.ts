@@ -166,6 +166,27 @@ test("saved-prize results reject duplicate retries and competing winners without
     const incompleteResultsList = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
     assert.equal(incompleteResultsList.status, 200);
     assert.deepEqual(incompleteResultsList.body.data, []);
+    const recoverableResultsList = await call(
+      origin,
+      TEST_ADMIN_ID,
+      "/admin/results?includeUnfinalized=true",
+      "GET",
+    );
+    assert.equal(recoverableResultsList.status, 200);
+    assert.deepEqual(
+      recoverableResultsList.body.data.map((entry: any) => ({
+        tournamentId: entry.tournamentId,
+        registrationId: entry.registrationId,
+        rank: entry.rank,
+        prizeCoins: entry.prizeCoins,
+      })),
+      [{
+        tournamentId: TEST_MATCH_ID,
+        registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+        rank: 2,
+        prizeCoins: 600,
+      }],
+    );
 
     const winner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
       tournamentId: TEST_MATCH_ID,

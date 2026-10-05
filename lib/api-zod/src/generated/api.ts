@@ -1544,8 +1544,12 @@ export const GetAdminTournamentResultsResponse = zod.object({
 
 
 /**
- * @summary List published result entries for completed tournaments
+ * @summary List published tournament result entries
  */
+export const Daily007ListAdminResultLogsQueryParams = zod.object({
+  "includeUnfinalized": zod.coerce.boolean().optional().describe('Include saved result entries for tournaments without a published winner.')
+})
+
 
 export const daily007ListAdminResultLogsResponseDataItemKillsMin = 0;
 

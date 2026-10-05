@@ -1022,3 +1022,10 @@ export type UpdateTournamentLifecycle200 = {
   data: UpdateTournamentLifecycle200Data;
 };
 
+export type Daily007ListAdminResultLogsParams = {
+/**
+ * Include saved result entries for tournaments without a published winner.
+ */
+includeUnfinalized?: boolean;
+};
+

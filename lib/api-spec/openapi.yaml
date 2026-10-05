@@ -1002,8 +1002,15 @@ paths:
   /admin/results:
     get:
       operationId: daily007ListAdminResultLogs
-      summary: List published result entries for completed tournaments
+      summary: List published tournament result entries
       security: [{ bearerAuth: [] }]
+      parameters:
+        - name: includeUnfinalized
+          in: query
+          required: false
+          description: Include saved result entries for tournaments without a published winner.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Published winner and placement entries with settlement details

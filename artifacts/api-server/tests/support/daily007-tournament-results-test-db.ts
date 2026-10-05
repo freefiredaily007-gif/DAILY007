@@ -403,8 +403,9 @@ class MemoryTournamentResultsDatabase {
     )) {
       const matches = [this.match, ...this.additionalMatches];
       const excludesCancelled = normalized.includes("m.status <> 'cancelled'");
-      const requiresDisabledMatch = normalized.includes("m.enabled = false");
-      const requiresWinner = normalized.includes(
+      const includeUnfinalized = values[0] === true;
+      const requiresDisabledMatch = !includeUnfinalized && normalized.includes("m.enabled = false");
+      const requiresWinner = !includeUnfinalized && normalized.includes(
         "EXISTS ( SELECT 1 FROM daily007_v2_result_awards winner",
       );
       rows = this.awards

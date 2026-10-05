@@ -69,7 +69,32 @@ test('result validation and API errors are politely announced', () => {
 
   assert.ok(errorMessage, 'Result validation and API errors must use a polite live region.');
   assert.match(screenSource, /setResultError\('Enter a valid rank\.'\)/);
-  assert.match(screenSource, /setResultError\(apiError\(e\)\)/);
+  assert.match(screenSource, /const publishError = apiError\(e\)/);
+});
+
+test('ambiguous submissions refresh saved results and show the stored rank and prize', () => {
+  const publishMethod = screenSource.slice(
+    screenSource.indexOf('const publishResult = async'),
+    screenSource.indexOf('\n  useEffect(() => { load(); }, [load]);'),
+  );
+  const catchBody = publishMethod.match(/} catch \(e: any\) \{([\s\S]*?)\n    } finally/)?.[1];
+
+  assert.ok(catchBody, 'The publish flow must handle and recover from submission errors.');
+  assert.match(screenSource, /const resultLogsParams = \{ includeUnfinalized: true \}/);
+  assert.match(catchBody, /await resultLogsQuery\.refetch\(\)/);
+  assert.match(
+    catchBody,
+    /entry\.tournamentId === tournament\.id && entry\.registrationId === registrationId/,
+  );
+  assert.match(
+    catchBody,
+    /\$\{RESULT_ALREADY_PUBLISHED_PREFIX\}\$\{playerLabel\} · rank \$\{savedRank\} · prize \$\{savedPrizeCoins\.toLocaleString\(\)\} coins\./,
+  );
+  assert.match(catchBody, /setSelectedRegistrationId\(''\)/);
+  assert.match(catchBody, /setPublishedRegistrationIds/);
+  assert.match(catchBody, /setResultError\(publishError\)/);
+  assert.match(catchBody, /Could not confirm whether this result was saved/);
+  assert.doesNotMatch(catchBody, /Api\.adminPublishResult/);
 });
 
 test('placement and winner publication success messages are politely announced', () => {
@@ -77,7 +102,7 @@ test('placement and winner publication success messages are politely announced',
     /<Msg\s+kind="ok"\s+text=\{resultSuccess\}\s+accessibilityLiveRegion="polite"\s*\/>/,
   )?.[0];
   const winnerMessage = screenSource.match(
-    /<Msg\s+kind="ok"\s+text=\{okMsg\}\s+accessibilityLiveRegion=\{okMsg === WINNER_PUBLISH_SUCCESS_MESSAGE \? 'polite' : undefined\}\s*\/>/,
+    /<Msg\s+kind="ok"\s+text=\{okMsg\}[\s\S]*?accessibilityLiveRegion=\{[\s\S]*?WINNER_PUBLISH_SUCCESS_MESSAGE[\s\S]*?RESULT_ALREADY_PUBLISHED_PREFIX[\s\S]*?\}\s*\/>/,
   )?.[0];
 
   assert.ok(placementMessage, 'Placement success must use a polite live region.');

@@ -1375,6 +1375,7 @@ function configuredPrizeForRank(prizePool: number, prizeDistribution: string, ra
 
 router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
+  const includeUnfinalized = req.query.includeUnfinalized === "true";
   const result = await pool.query<{
     tournamentId: string;
     tournamentName: string;
@@ -1394,12 +1395,19 @@ router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
        FROM daily007_v2_result_awards award
        JOIN daily007_v2_matches m ON m.id = award.match_id
        JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
-      WHERE m.status <> 'cancelled' AND m.enabled = false
-        AND EXISTS (
-          SELECT 1 FROM daily007_v2_result_awards winner
-           WHERE winner.match_id = m.id AND winner.rank = 1
-        )
-      ORDER BY m.starts_at DESC, award.rank ASC, award.created_at ASC, award.id ASC`,
+       WHERE m.status <> 'cancelled'
+         AND (
+           $1::boolean
+           OR (
+             m.enabled = false
+             AND EXISTS (
+               SELECT 1 FROM daily007_v2_result_awards winner
+                WHERE winner.match_id = m.id AND winner.rank = 1
+             )
+           )
+         )
+       ORDER BY m.starts_at DESC, award.rank ASC, award.created_at ASC, award.id ASC`,
+    [includeUnfinalized],
   );
   res.json({
     success: true,

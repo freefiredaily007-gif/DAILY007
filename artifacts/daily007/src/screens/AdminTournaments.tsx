@@ -35,6 +35,7 @@ const TOURNAMENT_TABS = [
 type TournamentAdminTab = (typeof TOURNAMENT_TABS)[number]['id'];
 type TournamentAction = { tournamentId: string; kind: 'room' | 'results' };
 const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed.';
+const RESULT_ALREADY_PUBLISHED_PREFIX = 'Result already published — ';
 
 function configuredPrizeForRank(tournament: Tournament, rank: number): number {
   const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
@@ -105,8 +106,12 @@ export default function AdminTournaments() {
   const [resultSuccess, setResultSuccess] = useState('');
   const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
-  const resultLogsQuery = useDaily007ListAdminResultLogs({
-    query: { enabled: tab === 'completed', queryKey: getDaily007ListAdminResultLogsQueryKey() },
+  const resultLogsParams = { includeUnfinalized: true };
+  const resultLogsQuery = useDaily007ListAdminResultLogs(resultLogsParams, {
+    query: {
+      enabled: tab === 'completed',
+      queryKey: getDaily007ListAdminResultLogsQueryKey(resultLogsParams),
+    },
   });
   const resultLogs = resultLogsQuery.data?.data ?? [];
   const visibleTournaments = (list ?? []).filter(
@@ -235,11 +240,16 @@ export default function AdminTournaments() {
 
   const publishResult = async (tournament: Tournament) => {
     setResultError(''); setResultSuccess('');
-    if (!selectedRegistrationId ||
-        !resultRegs?.some((registration) => registration.id === selectedRegistrationId && registration.status === 'approved')) {
+    const requestId = actionRequestId.current;
+    const registrationId = selectedRegistrationId;
+    const selectedRegistration = resultRegs?.find(
+      (registration) => registration.id === registrationId && registration.status === 'approved',
+    );
+    if (!registrationId || !selectedRegistration) {
       setResultError('Select an approved player for this tournament.');
       return;
     }
+    const playerLabel = `${selectedRegistration.playerName}${selectedRegistration.teamName ? ` — ${selectedRegistration.teamName}` : ''}`;
     const rank = Number(resultRank);
     const kills = Number(resultKills || 0);
     if (!Number.isInteger(rank) || rank < 1) {
@@ -254,13 +264,13 @@ export default function AdminTournaments() {
     try {
       await Api.adminPublishResult({
         tournamentId: tournament.id,
-        registrationId: selectedRegistrationId,
+        registrationId,
         rank,
         kills,
       });
       setPublishedRegistrationIds((current) => ({
         ...current,
-        [tournament.id]: [...(current[tournament.id] ?? []), selectedRegistrationId],
+        [tournament.id]: [...(current[tournament.id] ?? []), registrationId],
       }));
       setSelectedRegistrationId('');
       setResultRank('1');
@@ -274,9 +284,53 @@ export default function AdminTournaments() {
         setResultSuccess('Placement published. The tournament stays ongoing until rank 1 is declared.');
       }
     } catch (e: any) {
-      setResultError(apiError(e));
+      const publishError = apiError(e);
+      try {
+        const refreshedResults = await resultLogsQuery.refetch();
+        if (actionRequestId.current !== requestId) return;
+        const savedResult = refreshedResults.data?.data?.find(
+          (entry) => entry.tournamentId === tournament.id && entry.registrationId === registrationId,
+        );
+        if (savedResult) {
+          const savedRank = Number(savedResult.rank);
+          const savedPrizeCoins = Number(savedResult.prizeCoins) || 0;
+          const recoveredMessage =
+            `${RESULT_ALREADY_PUBLISHED_PREFIX}${playerLabel} · rank ${savedRank} · prize ${savedPrizeCoins.toLocaleString()} coins.`;
+          setPublishedRegistrationIds((current) => {
+            const existing = current[tournament.id] ?? [];
+            return existing.includes(registrationId)
+              ? current
+              : { ...current, [tournament.id]: [...existing, registrationId] };
+          });
+          setSelectedRegistrationId('');
+          setResultRank('1');
+          setResultKills('');
+          setResultError('');
+          if (savedRank === 1) {
+            setExpandedAction(null);
+            setOkMsg(recoveredMessage);
+            await load();
+            if (actionRequestId.current === requestId) setTab('completed');
+          } else {
+            setResultSuccess(recoveredMessage);
+          }
+          return;
+        }
+        if (refreshedResults.isError) {
+          setResultError(
+            `Could not confirm whether this result was saved. ${apiError(refreshedResults.error)} Refresh the result list before retrying.`,
+          );
+        } else {
+          setResultError(publishError);
+        }
+      } catch (refreshError: any) {
+        if (actionRequestId.current !== requestId) return;
+        setResultError(
+          `Could not confirm whether this result was saved. ${apiError(refreshError)} Refresh the result list before retrying.`,
+        );
+      }
     } finally {
-      setResultBusy(false);
+      if (actionRequestId.current === requestId) setResultBusy(false);
     }
   };
   useEffect(() => { load(); }, [load]);
@@ -425,7 +479,11 @@ export default function AdminTournaments() {
       <Msg
         kind="ok"
         text={okMsg}
-        accessibilityLiveRegion={okMsg === WINNER_PUBLISH_SUCCESS_MESSAGE ? 'polite' : undefined}
+        accessibilityLiveRegion={
+          okMsg === WINNER_PUBLISH_SUCCESS_MESSAGE || okMsg.startsWith(RESULT_ALREADY_PUBLISHED_PREFIX)
+            ? 'polite'
+            : undefined
+        }
       />
       <View testID="admin-tournament-status-tabs" style={st.tabs}>
         {TOURNAMENT_TABS.map(({ id, label }) => {
