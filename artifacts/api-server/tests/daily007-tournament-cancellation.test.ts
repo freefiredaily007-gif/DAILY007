@@ -318,3 +318,53 @@ test("an existing later refund record rolls back earlier cancellation credits an
   ]);
   assert.deepEqual(atomicCancellationSnapshot(), before);
 });
+
+test("overlapping cancellation attempts refund each registration only once", async () => {
+  resetAtomicCancellationFixture();
+
+  const attempts = await Promise.allSettled([
+    cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID),
+    cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID),
+  ]);
+
+  assert.equal(
+    autoCancellationTestDb.matchRowLockWaitCount(ATOMIC_MATCH_ID),
+    1,
+    "the overlapping attempt must wait for the tournament row lock",
+  );
+  const completed = attempts.find((attempt) => attempt.status === "fulfilled");
+  const rejected = attempts.find((attempt) => attempt.status === "rejected");
+  assert.ok(completed && completed.status === "fulfilled", "one attempt should complete the cancellation");
+  assert.ok(rejected && rejected.status === "rejected", "the waiting manual attempt should reject");
+  assert.match(String(rejected.reason), /Tournament is already cancelled/i);
+  assert.deepEqual(completed.value, {
+    id: ATOMIC_MATCH_ID,
+    status: "cancelled",
+    registrationsRefunded: 2,
+    accountsRefunded: 2,
+    coinsRefunded: 65,
+  });
+
+  assert.equal(autoCancellationTestDb.matches.get(ATOMIC_MATCH_ID)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get(FIRST_PAYER_ID)?.wallet_coins, 125);
+  assert.equal(autoCancellationTestDb.accounts.get(SECOND_PAYER_ID)?.wallet_coins, 240);
+  assert.deepEqual(autoCancellationTestDb.mutationTrace, [
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+    `wallet:${SECOND_PAYER_ID}`,
+    `ledger:${SECOND_REGISTRATION_ID}`,
+  ]);
+
+  const cancellationRefunds = [...autoCancellationTestDb.ledger.entries()]
+    .filter(([, entry]) =>
+      entry.matchId === ATOMIC_MATCH_ID && entry.reason === "tournament_cancel_refund",
+    );
+  assert.equal(cancellationRefunds.length, 2);
+  assert.deepEqual(
+    new Map(cancellationRefunds.map(([, entry]) => [entry.registrationId, entry.amount])),
+    new Map([
+      [FIRST_REGISTRATION_ID, 25],
+      [SECOND_REGISTRATION_ID, 40],
+    ]),
+  );
+});

@@ -64,12 +64,41 @@ function cloneMap<T>(source: Map<string, T>): Map<string, T> {
   return new Map([...source].map(([key, value]) => [key, structuredClone(value)]));
 }
 
+class InMemoryRowLock {
+  private locked = false;
+  private readonly waiters: (() => void)[] = [];
+  private waitAttempts = 0;
+
+  get waitCount(): number {
+    return this.waitAttempts;
+  }
+
+  async acquire(): Promise<() => void> {
+    if (this.locked) {
+      this.waitAttempts += 1;
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    } else {
+      this.locked = true;
+    }
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.waiters.shift();
+      if (next) next();
+      else this.locked = false;
+    };
+  }
+}
+
 class Daily007AutoCancelTestDatabase {
   nowMs = 0;
   matches = new Map<string, TestMatch>();
   registrations: TestRegistration[] = [];
   accounts = new Map<string, TestAccount>();
   ledger = new Map<string, TestLedgerEntry>();
+  private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
@@ -85,11 +114,25 @@ class Daily007AutoCancelTestDatabase {
         structuredClone(entry),
       ]),
     );
+    this.matchRowLocks.clear();
     this.mutationTrace.length = 0;
   }
 
   setNow(nowMs: number): void {
     this.nowMs = nowMs;
+  }
+
+  matchRowLockWaitCount(matchId: string): number {
+    return this.matchRowLocks.get(matchId)?.waitCount ?? 0;
+  }
+
+  private rowLockForMatch(matchId: string): InMemoryRowLock {
+    let lock = this.matchRowLocks.get(matchId);
+    if (!lock) {
+      lock = new InMemoryRowLock();
+      this.matchRowLocks.set(matchId, lock);
+    }
+    return lock;
   }
 
   private snapshot(): TestDatabaseSnapshot {
@@ -110,6 +153,12 @@ class Daily007AutoCancelTestDatabase {
 
   async connect() {
     let transactionSnapshot: TestDatabaseSnapshot | null = null;
+    const rowLockReleases: Array<() => void> = [];
+    const lockedMatchIds = new Set<string>();
+    const releaseRowLocks = () => {
+      for (const release of rowLockReleases.splice(0).reverse()) release();
+      lockedMatchIds.clear();
+    };
     return {
       query: async <T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> => {
         const normalized = sql.replace(/\s+/g, " ").trim();
@@ -119,16 +168,26 @@ class Daily007AutoCancelTestDatabase {
         }
         if (normalized === "COMMIT") {
           transactionSnapshot = null;
+          releaseRowLocks();
           return { rows: [] as T[] };
         }
         if (normalized === "ROLLBACK") {
           if (transactionSnapshot) this.restore(transactionSnapshot);
           transactionSnapshot = null;
+          releaseRowLocks();
           return { rows: [] as T[] };
+        }
+        if (normalized.includes("FOR UPDATE OF m")) {
+          const matchId = String(values[0]);
+          if (!lockedMatchIds.has(matchId)) {
+            rowLockReleases.push(await this.rowLockForMatch(matchId).acquire());
+            lockedMatchIds.add(matchId);
+            if (transactionSnapshot) transactionSnapshot = this.snapshot();
+          }
         }
         return this.query<T>(normalized, values);
       },
-      release: () => {},
+      release: releaseRowLocks,
     };
   }
 

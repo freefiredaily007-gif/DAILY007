@@ -15,6 +15,12 @@ description: Lock-order observations for integration tests that exercise API req
 
 **How to apply:** Before adding a concurrent test, identify each production `FOR UPDATE` row and give the fixture a corresponding keyed lock so it can prove which requests contend.
 
+**Rule:** A snapshot-based fake database should refresh a transaction's rollback baseline after it acquires a row lock it had to wait for.
+
+**Why:** A waiting transaction's begin-time snapshot can predate the lock owner's commit; restoring that stale whole-database snapshot on rollback can erase the earlier committed state.
+
+**How to apply:** In per-key lock fixtures, after a waiter acquires the row lock and before running the locked query, refresh its rollback baseline from the current state. Keep the lock keyed to the production row.
+
 **Local isolated clusters:** When starting a temporary PostgreSQL cluster in the Replit workspace, set `unix_socket_directories` to a writable directory owned by the test.
 
 **Why:** The default `/run/postgresql` directory is absent here, so `pg_ctl` can fail after PostgreSQL begins listening on loopback.
