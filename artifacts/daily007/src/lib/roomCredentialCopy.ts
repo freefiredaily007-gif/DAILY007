@@ -1,0 +1,21 @@
+export type RoomCredentialCopyFeedback = {
+  kind: 'success' | 'failure';
+  message: string;
+};
+
+export async function copyRoomCredentialToClipboard(
+  label: string,
+  value: string,
+  writeClipboard: (value: string) => Promise<boolean>,
+): Promise<RoomCredentialCopyFeedback> {
+  let copied = false;
+  try {
+    copied = await writeClipboard(value);
+  } catch {
+    copied = false;
+  }
+
+  return copied
+    ? { kind: 'success', message: `${label} copied to clipboard.` }
+    : { kind: 'failure', message: `Could not copy ${label}. Please try again.` };
+}

@@ -1,9 +1,10 @@
-import React from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from './typography';
 import { C, fmtTime12 } from './ui';
+import { copyRoomCredentialToClipboard, type RoomCredentialCopyFeedback } from '../lib/roomCredentialCopy';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 
 type Props = {
@@ -24,6 +25,7 @@ export function RoomCredentialsPanel({
   const schedule = getRoomCredentialSchedule(startsAt);
   const id = roomId?.trim() ?? '';
   const password = roomPassword?.trim() ?? '';
+  const [copyFeedback, setCopyFeedback] = useState<RoomCredentialCopyFeedback | null>(null);
   const released = configured && !!schedule && now >= schedule.releaseAtMs;
   const credentialsReady = released && !!id && !!password;
   const message = !schedule
@@ -34,13 +36,18 @@ export function RoomCredentialsPanel({
         ? 'The admin has not shared room details yet.'
         : 'Room details will be available soon.';
 
+  useEffect(() => {
+    setCopyFeedback(null);
+  }, [credentialsReady, id, password]);
+
   const copy = async (label: string, value: string) => {
-    try {
-      await Clipboard.setStringAsync(value);
-      Alert.alert('Copied', `${label} copied to clipboard.`);
-    } catch {
-      Alert.alert('Copy failed', `Could not copy ${label.toLowerCase()}.`);
-    }
+    const feedback = await copyRoomCredentialToClipboard(
+      label,
+      value,
+      (clipboardValue) => Clipboard.setStringAsync(clipboardValue),
+    );
+    setCopyFeedback(feedback);
+    AccessibilityInfo.announceForAccessibility(feedback.message);
   };
 
   return (
@@ -55,6 +62,18 @@ export function RoomCredentialsPanel({
         ) : (
           <Text style={styles.notice}>{message}</Text>
         )}
+        {credentialsReady && copyFeedback ? (
+          <Text
+            accessibilityRole="text"
+            testID="room-credential-copy-feedback"
+            style={[
+              styles.copyFeedback,
+              copyFeedback.kind === 'failure' && styles.copyFeedbackFailure,
+            ]}
+          >
+            {copyFeedback.message}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -71,21 +90,29 @@ function CredentialRow({
 }) {
   return (
     <View style={styles.credentialRow}>
-      <View style={styles.valueGroup}>
-        <Text style={styles.label}>{label.toUpperCase()}</Text>
-        <Text style={styles.value} selectable>{value}</Text>
+      <View
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={`${label}: ${value}`}
+        testID={`room-credential-value-${label.toLowerCase().replace(/\s+/g, '-')}`}
+        style={styles.valueGroup}
+      >
+        <Text accessible={false} style={styles.label}>{label.toUpperCase()}</Text>
+        <Text accessible={false} style={styles.value} selectable>{value}</Text>
       </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Copy ${label}`}
+        accessibilityHint="Copies this value to your clipboard."
         onPress={(event) => {
           event.stopPropagation();
           onCopy();
         }}
+        testID={`room-credential-copy-${label.toLowerCase().replace(/\s+/g, '-')}`}
         style={styles.copyButton}
       >
-        <Feather name="copy" size={15} color={C.green} />
-        <Text style={styles.copyText}>Copy {label}</Text>
+        <Feather accessible={false} name="copy" size={15} color={C.green} />
+        <Text accessible={false} style={styles.copyText}>Copy {label}</Text>
       </Pressable>
     </View>
   );
@@ -96,6 +123,8 @@ const styles = StyleSheet.create({
   title: { color: C.green, fontSize: 10, fontWeight: '900', letterSpacing: 1, marginBottom: 5 },
   panel: { backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   notice: { color: C.gold, fontSize: 12, fontWeight: '700', lineHeight: 19, paddingVertical: 4 },
+  copyFeedback: { color: C.green, fontSize: 11, fontWeight: '700', lineHeight: 16, marginTop: 6 },
+  copyFeedbackFailure: { color: C.red },
   credentialRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 6 },
   valueGroup: { flex: 1, minWidth: 0 },
   label: { color: C.sub, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
