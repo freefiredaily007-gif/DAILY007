@@ -184,6 +184,51 @@ class RoomAccessTestDatabase {
           ),
         }];
       }
+    } else if (
+      normalized.startsWith(
+        "SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at, m.status, m.is_full, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled, m.room_id, m.room_password, m.room_time, m.room_published,",
+      ) &&
+      normalized.includes(
+        "FROM daily007_v2_matches m LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id",
+      ) &&
+      normalized.endsWith("GROUP BY m.id ORDER BY m.starts_at ASC")
+    ) {
+      const detailId = normalized.includes("WHERE m.id = $1") ? first : null;
+      const enabledOnly = normalized.includes("m.enabled = true");
+      const isRequestedMatch = detailId
+        ? detailId === this.match.id
+        : this.match.status !== "cancelled";
+      if (isRequestedMatch && (!enabledOnly || this.match.enabled)) {
+        rows = [{
+          id: this.match.id,
+          title: this.match.title,
+          mode: this.match.mode,
+          game_mode: this.match.game_mode,
+          team_type: this.match.team_type,
+          capacity: this.match.capacity,
+          entry_coins: this.match.entry_coins,
+          prize_pool: this.match.prize_pool,
+          starts_at: this.match.starts_at,
+          status: this.match.status,
+          is_full: this.match.is_full,
+          rules: this.match.rules,
+          banner: this.match.banner,
+          image_url: this.match.image_url,
+          prize_distribution: this.match.prize_distribution,
+          enabled: this.match.enabled,
+          room_id: this.match.room_id,
+          room_password: this.match.room_password,
+          room_time: this.match.room_time,
+          room_published: this.match.room_published,
+          has_started: this.match.starts_at.getTime() <= Date.now() + 5.5 * 60 * 60 * 1000,
+          has_winner: false,
+          completed_at: null,
+          registered_count: this.registrations.filter((registration) =>
+            registration.match_id === this.match.id &&
+            ["approved", "pending"].includes(registration.status),
+          ).length,
+        }];
+      }
     } else if (normalized.startsWith(
       "SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,",
     )) {

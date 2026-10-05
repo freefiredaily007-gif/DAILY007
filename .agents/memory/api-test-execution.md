@@ -13,9 +13,9 @@ Route-level tests that import `@workspace/db` need an esbuild alias because Node
 
 **Why:** The package points at source that is valid for the workspace bundler but not Node's ESM directory-resolution rules.
 
-**How to apply:** For helper-only route tests, alias `@workspace/db` to a minimal pool stub. For route tests that exercise database writes, use a strict in-memory fixture under `tests/support` and make unknown SQL fail; never connect wallet tests to shared data or alter real balances/payment settings. When passing a package-relative alias target via `pnpm --filter @workspace/api-server exec`, prefix it with `./`; a bare `tests/...` target is not resolved.
+**How to apply:** For helper-only route tests, alias `@workspace/db` to a minimal pool stub. When a route test needs database-backed rows or writes, use a strict in-memory fixture under `tests/support` and make unexpected SQL fail; never connect wallet tests to shared data or alter real balances/payment settings. When passing a package-relative alias target via `pnpm --filter @workspace/api-server exec`, prefix it with `./`; a bare `tests/...` target is not resolved.
 
-**Why:** Wallet flows mutate financial state, so isolated fixtures protect shared accounts and settings. Esbuild treats a bare alias replacement like a package-style path, so a valid fixture under the API package can still fail to resolve.
+**Why:** Isolated fixtures let route tests exercise real response serialization without touching shared state, and protect wallet flows from mutating real balances or settings. Esbuild treats a bare alias replacement like a package-style path, so a valid fixture under the API package can still fail to resolve.
 
 When a bundled API test imports the shared logger, run the bundled Node test with `NODE_ENV=production`. The non-production Pino configuration initializes `pino-pretty` dynamically, which can fail from a temporary esbuild bundle.
 
