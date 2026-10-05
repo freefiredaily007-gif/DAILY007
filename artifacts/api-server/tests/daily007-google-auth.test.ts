@@ -17,6 +17,7 @@ import {
 } from "./support/daily007-google-auth-clerk-mock";
 import type { User as MockGoogleUser } from "./support/daily007-google-auth-clerk-mock";
 import {
+  SIGNUP_TEST_LEGACY_REFERRAL_CODE,
   SIGNUP_TEST_REFERRAL_CODE,
   signupTestDb,
 } from "./support/daily007-signup-test-db";
@@ -373,6 +374,90 @@ test("referred Google signup and repeat sign-in keep one 10-coin referral reward
       assert.equal(repeatWalletHistory.length, 1);
       assert.deepEqual(
         repeatWalletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("legacy referral code gives Google signup one 10-coin referral reward", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signupResponse = await googleAuth(
+        origin,
+        undefined,
+        SIGNUP_TEST_LEGACY_REFERRAL_CODE,
+      );
+      const signup = signupResponse.body;
+      assert.equal(signupResponse.status, 201);
+      assert.equal(signup.coins, 10);
+      assert.equal(typeof signup.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+
+      const userId = String(signup.id);
+      const account = signupTestDb.users.get(userId);
+      assert.ok(account, "legacy referred Google signup should create a Daily007 account");
+      assert.equal(account.clerk_user_id, GOOGLE_CLERK_USER_ID);
+      assert.equal(account.wallet_coins, 10);
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer, "the isolated fixture should contain the test referrer");
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: userId,
+          code: SIGNUP_TEST_LEGACY_REFERRAL_CODE,
+        }],
+      );
+
+      const signupRewards = signupTestDb.ledger.filter((entry) => entry.user_id === userId);
+      assert.deepEqual(
+        signupRewards.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+      assert.equal(
+        signupRewards.some((entry) => entry.reason === "Welcome Signup Bonus"),
+        false,
+        "a legacy referral signup must not also receive a Welcome Signup Bonus",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(signup.token)}` },
+      });
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(walletResponse.status, 200);
+      assert.equal(walletHistory.length, 1);
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
           amount,
           balanceAfter,
           reason,

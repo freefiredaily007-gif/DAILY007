@@ -1,3 +1,5 @@
+import { referralCodeForUserId } from "../../src/lib/daily007-compat-extra-validation";
+
 type SignupUser = {
   id: string;
   name: string;
@@ -46,6 +48,7 @@ type Snapshot = {
 
 export const SIGNUP_TEST_REFERRAL_CODE = "ABCDE";
 const REFERRER_ID = "40000000-0000-4000-8000-000000000001";
+export const SIGNUP_TEST_LEGACY_REFERRAL_CODE = referralCodeForUserId(REFERRER_ID);
 
 function cloneMap<T>(source: Map<string, T>): Map<string, T> {
   return new Map([...source].map(([key, value]) => [key, structuredClone(value)]));
@@ -89,7 +92,7 @@ class MemorySignupDatabase {
     this.users = new Map([[referrer.id, referrer]]);
     this.shortCodesByUser = new Map([[referrer.id, SIGNUP_TEST_REFERRAL_CODE]]);
     this.shortCodeOwners = new Map([[SIGNUP_TEST_REFERRAL_CODE, referrer.id]]);
-    this.legacyCodeOwners = new Map();
+    this.legacyCodeOwners = new Map([[SIGNUP_TEST_LEGACY_REFERRAL_CODE, referrer.id]]);
     this.referrals = [];
     this.ledger = [];
     this.nextUserId = 2;
