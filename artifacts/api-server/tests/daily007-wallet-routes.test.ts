@@ -208,7 +208,7 @@ test("deposit display prefers the stored rupee amount over a changed conversion 
   assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");
 });
 
-test("deposit rejection preserves its reason without crediting coins, including on retry", async () => {
+test("deposit rejection preserves its reason and reserves the payment reference", async () => {
   walletTestDb.reset({ settings: { coinToMoneyRate: "2.5" } });
   const initialBalance = walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins;
   assert.equal(initialBalance, 700);
@@ -245,8 +245,39 @@ test("deposit rejection preserves its reason without crediting coins, including 
     assert.equal(repeatedRejection.status, 200);
     assert.equal(repeatedRejection.body.alreadyReviewed, true);
 
+    const exactReferenceRetry = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
+      coins: 120,
+      payerUpiId: "player@upi",
+      txnId: "deposit-rejected-1",
+    });
+    assert.equal(exactReferenceRetry.status, 409);
+    assert.equal(exactReferenceRetry.body.error, "This payment reference has already been submitted.");
+
+    const normalizedReferenceRetry = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
+      coins: 120,
+      payerUpiId: "player@upi",
+      txnId: "  ＤＥＰＯＳＩＴ-ＲＥＪＥＣＴＥＤ-１  ",
+    });
+    assert.equal(normalizedReferenceRetry.status, 409);
+    assert.equal(normalizedReferenceRetry.body.error, "This payment reference has already been submitted.");
+
+    assert.equal(walletTestDb.payments.size, 1);
+    assert.deepEqual([...walletTestDb.payments.values()].map((payment) => ({
+      id: payment.id,
+      status: payment.status,
+      reference: payment.reference,
+      reference_normalized: payment.reference_normalized,
+    })), [{
+      id: paymentId,
+      status: "rejected",
+      reference: "deposit-rejected-1",
+      reference_normalized: "DEPOSIT-REJECTED-1",
+    }]);
+
     const playerHistory = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
     assert.equal(playerHistory.status, 200);
+    assert.equal(playerHistory.body.length, 1);
+    assert.equal(playerHistory.body[0].id, paymentId);
     const rejectedDeposit = playerHistory.body[0];
     assert.equal(rejectedDeposit.coins, 120);
     assert.equal(rejectedDeposit.amount, 300);
