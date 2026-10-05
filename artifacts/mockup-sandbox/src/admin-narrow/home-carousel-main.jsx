@@ -15,7 +15,17 @@ const homePollIntervals = [];
 const scheduledStartMs = Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
 let fakeNow = scheduledStartMs - 60_000;
 let startTimerFired = false;
+let appVisibility = "visible";
 Date.now = () => fakeNow;
+Object.defineProperty(document, "visibilityState", {
+  configurable: true,
+  get: () => appVisibility,
+});
+
+const setAppVisibility = (state) => {
+  appVisibility = state;
+  document.dispatchEvent(new Event("visibilitychange"));
+};
 
 const expectedStartTimerDelay = scheduledStartMs - fakeNow + 20;
 const realSetTimeout = globalThis.setTimeout.bind(globalThis);
@@ -105,6 +115,13 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
     releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
     mergeHomeTournamentItems,
+    setAppVisibility,
+    updateTournament: (id, updates) => {
+      const match = apiMocks.previewTournaments.find((tournament) => String(tournament.id) === String(id));
+      if (!match) return false;
+      Object.assign(match, updates);
+      return true;
+    },
   };
   root.render(React.createElement(Home));
 });

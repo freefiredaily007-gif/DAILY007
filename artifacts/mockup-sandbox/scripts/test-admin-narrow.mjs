@@ -738,6 +738,41 @@ async function checkHomeCarousel() {
     "Home should refresh tournament and registration data no more often than its existing 30-second interval.",
   );
 
+  const readsBeforeResume = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.setAppVisibility('hidden')");
+  assert(
+    await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', { name: 'Refreshed While Away' })`),
+    "The Home tournament fixture should accept updates made while the app is in the background.",
+  );
+  await evaluate("window.__daily007HomeCarouselTest.setAppVisibility('visible')");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeResume.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeResume.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Refreshed While Away')`,
+    "Home to issue one fresh tournament-list request and display changes immediately on return to the foreground",
+  );
+  const readsAfterResume = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsAfterResume.tournaments === readsBeforeResume.tournaments + 1 &&
+      readsAfterResume.registrations === readsBeforeResume.registrations + 1,
+    "One foreground transition should start only one paired Home refresh.",
+  );
+  await evaluate("window.__daily007HomeCarouselTest.setAppVisibility('visible')");
+  await delay(80);
+  const readsAfterDuplicateActive = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsAfterDuplicateActive.tournaments === readsAfterResume.tournaments &&
+      readsAfterDuplicateActive.registrations === readsAfterResume.registrations,
+    "A repeated active-state event should not trigger a second foreground refresh.",
+  );
+
   const initialTargetText = await evaluate(
     "document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText ?? ''",
   );
@@ -788,6 +823,8 @@ async function checkHomeCarousel() {
     await evaluate("document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText.includes('JOINED')"),
     "A failed tournament refresh must keep the previously displayed joined state.",
   );
+  await evaluate("window.__daily007HomeCarouselTest.setAppVisibility('hidden')");
+  await evaluate("window.__daily007HomeCarouselTest.setAppVisibility('visible')");
   assert(
     await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
     "The existing Home polling callback should remain available while a request is pending.",

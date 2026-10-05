@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  didAppReturnToForeground,
   getTournamentLifecycleState,
   HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
   shouldRefreshHomeTournaments,
@@ -12,6 +13,10 @@ test("Home polls only while active and stops polling when it loses focus", async
   assert.equal(shouldRefreshHomeTournaments("active"), true);
   assert.equal(shouldRefreshHomeTournaments("background"), false);
   assert.equal(shouldRefreshHomeTournaments("inactive"), false);
+  assert.equal(didAppReturnToForeground("background", "active"), true);
+  assert.equal(didAppReturnToForeground("inactive", "active"), true);
+  assert.equal(didAppReturnToForeground("active", "active"), false);
+  assert.equal(didAppReturnToForeground("active", "background"), false);
 
   let appState = "background";
   let refreshes = 0;

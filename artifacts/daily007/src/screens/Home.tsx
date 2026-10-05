@@ -13,6 +13,7 @@ import { useApp } from '../App';
 import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12, getTournamentFormatPresentation } from '../components/ui';
 import { inr } from '../lib/coins';
 import {
+  didAppReturnToForeground,
   getTournamentLifecycleState,
   HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
   MAX_TIMEOUT_MS,
@@ -96,6 +97,7 @@ export default function Home() {
   const pageRef = useRef(0);
   const activeRequestsRef = useRef(0);
   const homePollInFlightRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const goStack = (k: string) => {
@@ -133,21 +135,34 @@ export default function Home() {
     }
   }, []);
 
+  const refreshHomeIfIdle = useCallback(() => {
+    if (activeRequestsRef.current > 0 || homePollInFlightRef.current) return;
+    homePollInFlightRef.current = true;
+    void load().finally(() => {
+      homePollInFlightRef.current = false;
+    });
+  }, [load]);
+
   useFocusEffect(useCallback(() => {
-    void load();
-    return startHomeTournamentRefreshPolling(
-      () => {
-        homePollInFlightRef.current = true;
-        void load().finally(() => {
-          homePollInFlightRef.current = false;
-        });
-      },
+    appStateRef.current = AppState.currentState;
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      const returnedToApp = didAppReturnToForeground(appStateRef.current, nextState);
+      appStateRef.current = nextState;
+      if (returnedToApp) refreshHomeIfIdle();
+    });
+    const stopPolling = startHomeTournamentRefreshPolling(
+      refreshHomeIfIdle,
       () => shouldRefreshHomeTournaments(AppState.currentState) &&
         activeRequestsRef.current === 0 &&
         !homePollInFlightRef.current,
       HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
     );
-  }, [load]));
+    void load();
+    return () => {
+      appStateSubscription.remove();
+      stopPolling();
+    };
+  }, [load, refreshHomeIfIdle]));
 
   React.useEffect(() => {
     Api.settings().then((st: any) => setLinks(st?.settings ?? st ?? {})).catch(() => {});
