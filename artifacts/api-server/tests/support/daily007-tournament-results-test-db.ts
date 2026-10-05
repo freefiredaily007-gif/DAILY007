@@ -87,6 +87,7 @@ class MemoryTournamentResultsDatabase {
   stats = new Map<string, TestStats>();
   ledger: TestLedgerEntry[] = [];
   match: TestMatch = this.emptyMatch();
+  additionalMatches: TestMatch[] = [];
   finalizationFailureObservation: FinalizationFailureObservation | null = null;
   private failNextMatchFinalization = false;
 
@@ -102,6 +103,7 @@ class MemoryTournamentResultsDatabase {
     this.stats = new Map();
     this.ledger = [];
     this.match = this.emptyMatch();
+    this.additionalMatches = [];
     this.finalizationFailureObservation = null;
     this.failNextMatchFinalization = false;
   }
@@ -399,29 +401,40 @@ class MemoryTournamentResultsDatabase {
     } else if (normalized.startsWith(
       'SELECT award.match_id AS "tournamentId", m.title AS "tournamentName",',
     )) {
-      const hasWinner = this.awards.some((award) =>
-        award.match_id === this.match.id && award.rank === 1,
+      const matches = [this.match, ...this.additionalMatches];
+      const excludesCancelled = normalized.includes("m.status <> 'cancelled'");
+      const requiresDisabledMatch = normalized.includes("m.enabled = false");
+      const requiresWinner = normalized.includes(
+        "EXISTS ( SELECT 1 FROM daily007_v2_result_awards winner",
       );
-      rows = this.match.status !== "cancelled" && !this.match.enabled && hasWinner
-        ? this.awards
-          .filter((award) => award.match_id === this.match.id)
-          .map((award) => {
-            const registration = this.registrations.find((entry) => entry.id === award.registration_id)!;
-            return {
-              tournamentId: this.match.id,
-              tournamentName: this.match.title,
-              registrationId: registration.id,
-              playerName: registration.captain_name,
-              gameName: registration.captain_game_name,
-              teamName: registration.team_name,
-              rank: award.rank,
-              kills: award.kills,
-              prizeCoins: award.prize_coins,
-              createdAt: award.created_at,
-            };
-          })
-          .sort((left, right) => left.rank - right.rank || left.createdAt.getTime() - right.createdAt.getTime())
-        : [];
+      rows = this.awards
+        .filter((award) => {
+          const match = matches.find((candidate) => candidate.id === award.match_id);
+          if (!match) return false;
+          if (excludesCancelled && match.status === "cancelled") return false;
+          if (requiresDisabledMatch && match.enabled) return false;
+          if (requiresWinner && !this.awards.some((candidate) =>
+            candidate.match_id === match.id && candidate.rank === 1,
+          )) return false;
+          return true;
+        })
+        .map((award) => {
+          const match = matches.find((candidate) => candidate.id === award.match_id)!;
+          const registration = this.registrations.find((entry) => entry.id === award.registration_id)!;
+          return {
+            tournamentId: match.id,
+            tournamentName: match.title,
+            registrationId: registration.id,
+            playerName: registration.captain_name,
+            gameName: registration.captain_game_name,
+            teamName: registration.team_name,
+            rank: award.rank,
+            kills: award.kills,
+            prizeCoins: award.prize_coins,
+            createdAt: award.created_at,
+          };
+        })
+        .sort((left, right) => left.rank - right.rank || left.createdAt.getTime() - right.createdAt.getTime());
     } else {
       throw new Error(`Unexpected tournament-results test SQL: ${normalized}`);
     }

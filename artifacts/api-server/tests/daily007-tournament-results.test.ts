@@ -19,6 +19,9 @@ import {
 } from "./support/daily007-tournament-results-test-db";
 
 const TEST_AUTH_SECRET = "tournament-results-tests-only-secret-value-at-least-32-chars";
+const CANCELLED_MATCH_ID = "70000000-0000-4000-8000-000000000009";
+const CANCELLED_REGISTRATION_ID = "70000000-0000-4000-8000-000000000010";
+const CANCELLED_AWARD_ID = "70000000-0000-4000-8000-000000000011";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -262,6 +265,80 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(standingsAfterCompetition.status, 200);
     assert.deepEqual(standingsAfterCompetition.body, standings.body);
     assert.deepEqual(captureSettlementState(), sideEffectsBeforeRetry);
+  });
+});
+
+test("completed-results history excludes cancelled tournaments with existing awards", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+
+    const completedWinner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 8,
+      prizeCoins: 0,
+    });
+    assert.equal(completedWinner.status, 201);
+    assert.equal(tournamentResultsTestDb.match.enabled, false);
+    assert.notEqual(tournamentResultsTestDb.match.status, "cancelled");
+
+    const cancelledMatch = structuredClone(tournamentResultsTestDb.match);
+    cancelledMatch.id = CANCELLED_MATCH_ID;
+    cancelledMatch.title = "Cancelled tournament with historical award";
+    cancelledMatch.starts_at = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    cancelledMatch.status = "cancelled";
+    cancelledMatch.enabled = false;
+    tournamentResultsTestDb.additionalMatches.push(cancelledMatch);
+    tournamentResultsTestDb.registrations.push({
+      id: CANCELLED_REGISTRATION_ID,
+      match_id: CANCELLED_MATCH_ID,
+      captain_user_id: TEST_RUNNER_UP_ID,
+      captain_name: "Cancelled Account",
+      captain_game_name: "CancelledFF",
+      team_name: null,
+      status: "approved",
+    });
+    tournamentResultsTestDb.awards.push({
+      id: CANCELLED_AWARD_ID,
+      match_id: CANCELLED_MATCH_ID,
+      registration_id: CANCELLED_REGISTRATION_ID,
+      user_id: TEST_RUNNER_UP_ID,
+      rank: 1,
+      kills: 4,
+      prize_coins: 500,
+      created_at: new Date(Date.now() - 60 * 60 * 1000),
+    });
+    assert.ok(tournamentResultsTestDb.additionalMatches.some((match) =>
+      match.id === CANCELLED_MATCH_ID && match.status === "cancelled",
+    ));
+    assert.ok(tournamentResultsTestDb.awards.some((award) =>
+      award.match_id === CANCELLED_MATCH_ID && award.rank === 1,
+    ));
+
+    const history = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
+    assert.equal(history.status, 200);
+    assert.deepEqual(
+      history.body.data.map((entry: any) => ({
+        tournamentId: entry.tournamentId,
+        rank: entry.rank,
+        gameName: entry.gameName,
+        prizeCoins: entry.prizeCoins,
+      })),
+      [{
+        tournamentId: TEST_MATCH_ID,
+        rank: 1,
+        gameName: "WinnerFF",
+        prizeCoins: 1_500,
+      }],
+    );
+    assert.equal(
+      history.body.data.some((entry: any) => entry.tournamentId === CANCELLED_MATCH_ID),
+      false,
+    );
   });
 });
 
