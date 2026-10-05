@@ -469,13 +469,26 @@ const mc = StyleSheet.create({
 });
 
 // ---------- glowing coin capsule (header) ----------
-export function CoinCapsule({ value, onPress }: { value: number; onPress?: () => void }) {
+export function CoinCapsule({
+  value,
+  onPress,
+  wrapForNarrowScreen = false,
+}: {
+  value: number;
+  onPress?: () => void;
+  wrapForNarrowScreen?: boolean;
+}) {
   const adminSurface = useAdminSurface();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [st.capsule, glow(C.gold, 10), pressed && { opacity: 0.85 }]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [
+      st.capsule,
+      wrapForNarrowScreen && st.capsuleNarrow,
+      glow(C.gold, 10),
+      pressed && { opacity: 0.85 },
+    ]}>
       {adminSurface ? <Feather name="circle" size={14} color={C.gold} /> : <Text style={{ fontSize: 15 }}>🪙</Text>}
-      <Text style={st.capsuleText}>{value}</Text>
-      <Text style={st.capsuleUnit}>COINS</Text>
+      <Text style={[st.capsuleText, wrapForNarrowScreen && st.capsuleTextNarrow]}>{value}</Text>
+      <Text style={[st.capsuleUnit, wrapForNarrowScreen && st.capsuleUnitNarrow]}>COINS</Text>
     </Pressable>
   );
 }
@@ -503,7 +516,7 @@ const st = StyleSheet.create({
   emptyText: { color: C.dim, marginTop: 8, textAlign: 'center', fontSize: 13 },
   secRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 12 },
   secBar: { width: 4, height: 18, borderRadius: 2, marginRight: 8 },
-  secText: { color: C.text, fontSize: 16, fontWeight: '900', letterSpacing: 1.5 },
+  secText: { color: C.text, fontSize: 16, fontWeight: '900', letterSpacing: 1.5, flex: 1, minWidth: 0 },
    chip: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5.5, alignSelf: 'flex-start' },
   chipText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   kvRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border + '66' },
@@ -513,8 +526,11 @@ const st = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1408',
     borderWidth: 1.5, borderColor: C.gold, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 7,
   },
+  capsuleNarrow: { maxWidth: '100%', flexWrap: 'wrap' },
   capsuleText: { color: C.gold, fontWeight: '900', fontSize: 15, marginLeft: 5 },
+  capsuleTextNarrow: { minWidth: 0, flexShrink: 1 },
   capsuleUnit: { color: C.gold + '99', fontWeight: '800', fontSize: 9, letterSpacing: 1, marginLeft: 4 },
+  capsuleUnitNarrow: { flexShrink: 1 },
 });
 
 const adminSt = StyleSheet.create({

@@ -205,14 +205,31 @@ async function inspectLayout(screenName) {
       const style = getComputedStyle(node);
       const horizontalClip = node.scrollWidth > node.clientWidth + 2;
       const verticalClip = node.scrollHeight > node.clientHeight + 2;
-      const outsideRoot = rect.left < rootRect.left - 1 || rect.right > rootRect.right + 1;
-      if ((horizontalClip || verticalClip || (outsideRoot && !insideHorizontalScroll)) && text.length < 220) {
+      const outsideRoot = rect.left < rootRect.left - 2 || rect.right > rootRect.right + 2;
+      let clippedByAncestor = false;
+      parent = node.parentElement;
+      while (parent && parent !== root) {
+        const parentStyle = getComputedStyle(parent);
+        const parentRect = parent.getBoundingClientRect();
+        const clipsX = parentStyle.overflowX === 'hidden' || parentStyle.overflowX === 'clip';
+        const clipsY = parentStyle.overflowY === 'hidden' || parentStyle.overflowY === 'clip';
+        if (
+          (clipsX && (rect.left < parentRect.left - 2 || rect.right > parentRect.right + 2))
+          || (clipsY && (rect.top < parentRect.top - 2 || rect.bottom > parentRect.bottom + 2))
+        ) {
+          clippedByAncestor = true;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+      if (horizontalClip || verticalClip || clippedByAncestor || (outsideRoot && !insideHorizontalScroll)) {
         textIssues.push({
           text: text.slice(0, 100),
           rect: [rect.left, rect.top, rect.right, rect.bottom],
           client: [node.clientWidth, node.clientHeight],
           scroll: [node.scrollWidth, node.scrollHeight],
           overflow: [style.overflowX, style.overflowY],
+          clippedByAncestor,
           outsideRoot: outsideRoot && !insideHorizontalScroll,
         });
       }
@@ -260,6 +277,8 @@ async function checkReachable(selector, description, allowModalOverlay = false) 
     target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const rect = target.getBoundingClientRect();
     const rootRect = root?.getBoundingClientRect();
+    const viewTop = ${allowModalOverlay ? "0" : "(rootRect?.top ?? 0)"};
+    const viewBottom = ${allowModalOverlay ? "window.innerHeight" : "(rootRect?.bottom ?? window.innerHeight)"};
     const scrollParents = [];
     parent = target.parentElement;
     while (parent && parent !== document.body) {
@@ -285,8 +304,11 @@ async function checkReachable(selector, description, allowModalOverlay = false) 
       height: rect.height,
       rootTop: rootRect?.top ?? 0,
       rootBottom: rootRect?.bottom ?? window.innerHeight,
-      viewTop: ${allowModalOverlay ? "0" : "(rootRect?.top ?? 0)"},
-      viewBottom: ${allowModalOverlay ? "window.innerHeight" : "(rootRect?.bottom ?? window.innerHeight)"},
+      viewportWidth: window.innerWidth,
+      viewTop,
+      viewBottom,
+      visibleWidth: Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0)),
+      visibleHeight: Math.max(0, Math.min(rect.bottom, viewBottom) - Math.max(rect.top, viewTop)),
       text: target.textContent?.trim() ?? target.getAttribute('aria-label') ?? '',
       disabled: target.disabled === true || target.getAttribute('aria-disabled') === 'true',
       scrollParents,
@@ -294,21 +316,28 @@ async function checkReachable(selector, description, allowModalOverlay = false) 
   })()`);
   assert(state, `${description} is missing.`);
   assert(state.width > 0 && state.height > 0, `${description} has no tappable area.`);
-  assert(state.left >= -1 && state.right <= 376, `${description} extends outside the phone width.`);
-  assert(state.top >= state.viewTop - 1 && state.bottom <= state.viewBottom + 1, `${description} cannot be scrolled into view: ${JSON.stringify(state)}.`);
+  assert(
+    state.left >= -1 && state.right <= state.viewportWidth + 1,
+    `${description} extends outside the ${state.viewportWidth}px phone width.`,
+  );
+  assert(
+    state.visibleWidth >= Math.min(state.width, 44) - 1
+      && state.visibleHeight >= Math.min(state.height, 44) - 1,
+    `${description} has no usable tappable area after scrolling: ${JSON.stringify(state)}.`,
+  );
   return state;
 }
 
-async function checkScreen(screen) {
+async function checkScreen(screen, viewportWidth) {
   await navigateToScreen(screen.name, screen.ready);
   if (screen.name === "Home") {
     const screenshot = await cdp("Page.captureScreenshot", { format: "png" });
-    await writeFile("/tmp/daily007-largest-text-home.png", Buffer.from(screenshot.data, "base64"));
+    await writeFile(`/tmp/daily007-largest-text-home-${viewportWidth}.png`, Buffer.from(screenshot.data, "base64"));
   }
   const layout = await inspectLayout(screen.name);
   assert(!layout.missingRoot, `${screen.name} did not mount its screen root.`);
-  assert(layout.width === 375, `${screen.name} was not rendered at 375px.`);
-  assert(!layout.horizontalOverflow, `${screen.name} makes the document wider than 375px.`);
+  assert(layout.width === viewportWidth, `${screen.name} was not rendered at ${viewportWidth}px.`);
+  assert(!layout.horizontalOverflow, `${screen.name} makes the document wider than ${viewportWidth}px.`);
   assert(
     layout.textIssues.length === 0,
     `${screen.name} has text clipping or overflow: ${JSON.stringify(layout.textIssues.slice(0, 8))}`,
@@ -370,7 +399,7 @@ async function checkScreen(screen) {
       "recharge form and action",
     );
     const screenshot = await cdp("Page.captureScreenshot", { format: "png" });
-    await writeFile("/tmp/daily007-largest-text-wallet.png", Buffer.from(screenshot.data, "base64"));
+    await writeFile(`/tmp/daily007-largest-text-wallet-${viewportWidth}.png`, Buffer.from(screenshot.data, "base64"));
     await checkReachable('[data-testid="wallet-recharge-submit"]', "Wallet recharge submit", true);
   } else if (screen.name === "Profile") {
     await clickSelector('[data-testid="profile-change-password"]', "Profile change password action");
@@ -602,7 +631,7 @@ async function checkScreen(screen) {
     );
   }
 
-  console.log(`PASS — ${screen.name} at 375px and 2× Android text scale.`);
+  console.log(`PASS — ${screen.name} at ${viewportWidth}px and 2× Android text scale.`);
 }
 
 try {
@@ -662,33 +691,59 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  await cdp("Emulation.setDeviceMetricsOverride", {
-    width: 375,
-    height: 820,
-    deviceScaleFactor: 1,
-    mobile: true,
-  });
+  for (const viewportWidth of [375, 320]) {
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width: viewportWidth,
+      height: 820,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await delay(120);
 
-  for (const screen of screens) await checkScreen(screen);
+    for (const screen of screens) await checkScreen(screen, viewportWidth);
 
-  await navigateToScreen("Home", "GAME MODES");
-  const navState = await evaluate(`(() => ({
-    height: document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect().height,
-    labels: [...document.querySelectorAll('[data-testid^="player-tab-label-"]')].map((node) => ({
-      text: node.textContent.trim(),
-      scrollWidth: node.scrollWidth,
-      clientWidth: node.clientWidth,
-      scrollHeight: node.scrollHeight,
-      clientHeight: node.clientHeight
-    }))
-  }))()`);
-  assert(navState.height >= 90, `The tab bar did not grow for 2× text: ${JSON.stringify(navState)}.`);
-  assert(
-    navState.labels.every((label) => label.scrollWidth <= label.clientWidth + 2 && label.scrollHeight <= label.clientHeight + 2),
-    `A bottom-tab label is clipped: ${JSON.stringify(navState.labels)}.`,
-  );
+    await navigateToScreen("Home", "GAME MODES");
+    const navState = await evaluate(`(() => ({
+      bar: (() => {
+        const rect = document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect();
+        return rect ? { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right } : null;
+      })(),
+      height: document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect().height,
+      labels: [...document.querySelectorAll('[data-testid^="player-tab-label-"]')].map((node) => ({
+        text: node.textContent.trim(),
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+        bounds: (() => {
+          const rect = node.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+        })()
+      }))
+    }))()`);
+    assert(navState.bar, `The bottom tab bar is missing at ${viewportWidth}px.`);
+    const minimumTabBarHeight = viewportWidth <= 340 ? 148 : 90;
+    assert(
+      navState.height >= minimumTabBarHeight,
+      `The tab bar did not provide enough height for 2× text at ${viewportWidth}px: ${JSON.stringify(navState)}.`,
+    );
+    assert(
+      navState.labels.every((label) =>
+        label.scrollWidth <= label.clientWidth + 2
+          && label.scrollHeight <= label.clientHeight + 2
+          && label.bounds.left >= navState.bar.left - 1
+          && label.bounds.right <= navState.bar.right + 1
+          && label.bounds.top >= navState.bar.top - 1
+          && label.bounds.bottom <= navState.bar.bottom + 1
+      ),
+      `A bottom-tab label is clipped at ${viewportWidth}px: ${JSON.stringify(navState.labels)}.`,
+    );
+    for (const tab of ["home", "video", "earn", "wallet", "profile"]) {
+      await checkReachable(`[data-testid="player-tab-${tab}"]`, `${tab} bottom tab`, true);
+    }
+  }
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — all twelve player screens, join rejection messaging, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
+  console.log("PASS — all twelve player screens at 375px and 320px, with join rejection messaging, key actions, result rows, and bottom-tab labels at 2× Android text scale.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);

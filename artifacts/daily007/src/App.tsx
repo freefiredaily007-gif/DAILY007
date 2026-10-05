@@ -46,12 +46,12 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function Tabs() {
-  const { fontScale } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   return (
     <Tab.Navigator screenOptions={{
       headerShown: false,
       tabBarStyle: {
-        backgroundColor: '#0d1220ee', borderTopColor: '#2a3558', height: getPlayerTabBarHeight(fontScale), paddingBottom: 8.5, paddingTop: 6.5,
+        backgroundColor: '#0d1220ee', borderTopColor: '#2a3558', height: getPlayerTabBarHeight(fontScale, width), paddingBottom: 8.5, paddingTop: 6.5,
         shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
       },
       tabBarActiveTintColor: '#FFD54D', tabBarInactiveTintColor: '#F5F7FF',

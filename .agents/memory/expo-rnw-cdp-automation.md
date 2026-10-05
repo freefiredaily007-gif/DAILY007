@@ -20,3 +20,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** In the Daily007 2× preview, the screen root clipped horizontal overflow while podium text still escaped its card and overlapped adjacent entries.
 
 **How to apply:** For scaled or expanded React Native Web content, assert child text remains within its card, cards remain separated, and the last result can be scrolled into the viewport.
+
+**Rule:** A control taller than the available viewport cannot be fully scrolled into view; verify that a usable tap area remains visible instead of requiring the full control bounds to fit.
+
+**Why:** At narrow widths and 2× text, a video card can become taller than the screen while remaining actionable through its visible portion.
+
+**How to apply:** After scrolling the nearest scroll container, require at least a 44px visible touch area in each dimension for oversized controls, while still requiring smaller controls to fit fully.

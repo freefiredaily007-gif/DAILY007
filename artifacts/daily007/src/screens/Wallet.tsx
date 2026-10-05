@@ -23,7 +23,8 @@ function formatWalletCoins(value: unknown, allowBreaks: boolean) {
 }
 
 export default function Wallet() {
-  const { fontScale } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
+  const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const { user, refresh } = useApp();
   const [txns, setTxns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -213,9 +214,9 @@ export default function Wallet() {
                 <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(totalDeposited, fontScale >= 1.5)}</Text><Text style={s.statL}>TOTAL DEPOSITED</Text></View>
                 <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(totalWithdrawn, fontScale >= 1.5)}</Text><Text style={s.statL}>TOTAL WITHDRAWN</Text></View>
               </View>
-              <View style={s.btnRow}>
-                <View style={{ flex: 1 }}><Btn title="+ ADD COINS" testID="wallet-open-recharge" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
-                <View style={{ flex: 1 }}><Btn title="↩ WITHDRAW" testID="wallet-open-withdraw" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
+              <View style={[s.btnRow, narrowLargeText && s.btnRowLarge]}>
+                <View style={narrowLargeText ? s.btnWrapLarge : s.btnWrap}><Btn title="+ ADD COINS" testID="wallet-open-recharge" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
+                <View style={narrowLargeText ? s.btnWrapLarge : s.btnWrap}><Btn title="↩ WITHDRAW" testID="wallet-open-withdraw" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
               </View>
               {!rechargeEnabled || !paymentUpi || !paymentQr
                 ? <Text style={s.minWarn}>Coin recharge is unavailable until an administrator enables it and configures a UPI ID and QR.</Text>
@@ -415,6 +416,9 @@ const s = StyleSheet.create({
   statV: { color: C.text, fontWeight: '900', fontSize: 16 },
   statL: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center', color: C.sub, fontSize: 10, letterSpacing: 1, marginTop: 2 },
   btnRow: { flexDirection: 'row', gap: 10, alignSelf: 'stretch' },
+  btnRowLarge: { flexDirection: 'column', width: '100%' },
+  btnWrap: { flex: 1 },
+  btnWrapLarge: { width: '100%' },
   txTitle: { color: C.text, fontWeight: '700', fontSize: 14 },
   txHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   txHeaderLarge: { flexDirection: 'column', alignItems: 'flex-start', width: '100%' },

@@ -30,6 +30,12 @@ export const TextInput = React.forwardRef<any, any>((props, ref) => (
 ));
 TextInput.displayName = "LargeTextPreviewTextInput";
 
+export const BackHandler = {
+  addEventListener: () => ({ remove: () => {} }),
+  removeEventListener: () => {},
+  exitApp: () => {},
+};
+
 export const Platform = { ...Native.Platform, OS: "android", Version: 35 } as typeof Native.Platform;
 
 export const PixelRatio = {

@@ -80,8 +80,8 @@ const Screen = screens[screenName] || Home;
 configurePlayerLargestTextPreview();
 configureWalletFormPreview();
 
-function PreviewTabBar({ fontScale }) {
-  const height = getPlayerTabBarHeight(fontScale);
+function PreviewTabBar({ fontScale, width }) {
+  const height = getPlayerTabBarHeight(fontScale, width);
   return (
     <View
       testID="player-tab-bar"
@@ -158,7 +158,7 @@ function PreviewStackHeader({ title }) {
 }
 
 function PlayerLargeTextPreview() {
-  const { fontScale } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const [leaderboardCycleType, setLeaderboardCycleType] = React.useState("weekly");
   const hasTabBar = tabScreens.includes(screenName);
 
@@ -178,7 +178,7 @@ function PlayerLargeTextPreview() {
           <Screen />
         )}
       </View>
-      {hasTabBar ? <PreviewTabBar fontScale={fontScale} /> : null}
+      {hasTabBar ? <PreviewTabBar fontScale={fontScale} width={width} /> : null}
     </View>
   );
 }

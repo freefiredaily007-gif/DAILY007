@@ -46,7 +46,8 @@ function tournamentModeFallback(t: any): number {
   return 48;
 }
 export default function Home() {
-  const { fontScale } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
+  const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const { user } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,7 +194,11 @@ export default function Home() {
             <Text style={{ fontSize: 16 }}>🔔</Text>
             <View style={s.bellDot} />
           </Pressable>
-          <CoinCapsule value={user?.coins ?? 0} onPress={() => goTab('wallet')} />
+          <CoinCapsule
+            value={user?.coins ?? 0}
+            onPress={() => goTab('wallet')}
+            wrapForNarrowScreen={narrowLargeText}
+          />
           <Pressable style={[s.avatarBtn, glow(C.purple, 8)]} onPress={() => goTab('profile')}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14 }}>{(user?.name ?? 'P').charAt(0).toUpperCase()}</Text>
           </Pressable>
@@ -203,7 +208,11 @@ export default function Home() {
 
       {/* ===== UPCOMING MATCHES — auto carousel ===== */}
       <Pressable
-        style={({ pressed }) => [s.myMatchesButton, pressed && { opacity: 0.8 }]}
+        style={({ pressed }) => [
+          s.myMatchesButton,
+          narrowLargeText && s.myMatchesButtonLarge,
+          pressed && { opacity: 0.8 },
+        ]}
         onPress={() => goTab('mymatches')}
         accessibilityRole="button"
         accessibilityLabel="Open My Matches for your room details and results"
@@ -462,6 +471,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: '#10162b', borderWidth: 1, borderColor: C.neon + '66',
   },
+  myMatchesButtonLarge: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 4, paddingVertical: 10 },
   myMatchesButtonText: { color: C.text, fontWeight: '900', fontSize: 12, letterSpacing: 1 },
   myMatchesButtonHint: { color: C.neon, fontWeight: '800', fontSize: 9, letterSpacing: 0.7 },
   bellDot: { position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: 4, backgroundColor: C.red, shadowColor: C.red, shadowOpacity: 1, shadowRadius: 4 },

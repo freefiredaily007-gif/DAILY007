@@ -10,12 +10,17 @@ import GoogleSSOButton from '../components/GoogleSSOButton';
 import { useDaily007ChangePassword } from '@workspace/api-client-react';
 
 export default function Profile() {
-  const { fontScale } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
+  const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const { user, logout, refresh } = useApp();
   const profileEmail = String(user?.email ?? '');
   const displayProfileEmail = fontScale >= 1.5
     ? profileEmail.replace(/([@._+-])/g, '$1\u200B')
     : profileEmail;
+  const profileGameUid = String(user?.gameUid ?? '');
+  const displayProfileGameUid = narrowLargeText
+    ? profileGameUid.replace(/(.{4})/g, '$1\u200B')
+    : profileGameUid;
   const nav = useNavigation<any>();
   const { mutateAsync: changePassword, isPending: passwordBusy } = useDaily007ChangePassword();
   const [bootstrapAvailable, setBootstrapAvailable] = React.useState(false);
@@ -135,7 +140,14 @@ export default function Profile() {
         <View style={s.avatar}><Text style={s.avatarTxt}>{(user?.name ?? 'P').charAt(0).toUpperCase()}</Text></View>
         <Text style={s.name}>{user?.name ?? 'Player'}</Text>
         <Text style={s.email} accessibilityLabel={profileEmail}>{displayProfileEmail}</Text>
-        {user?.gameUid ? <Text style={s.uid}>FF UID: {user.gameUid}</Text> : null}
+        {user?.gameUid ? (
+          <Text
+            style={[s.uid, narrowLargeText && s.uidLarge]}
+            accessibilityLabel={`FF UID: ${profileGameUid}`}
+          >
+            FF UID: {displayProfileGameUid}
+          </Text>
+        ) : null}
       </Card>
 
       <View style={[s.stats, fontScale >= 1.5 && s.statsLarge]}>
@@ -292,6 +304,7 @@ const s = StyleSheet.create({
   name: { color: C.text, fontSize: 20, fontWeight: '900', marginTop: 10 },
   email: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center', color: C.sub, fontSize: 13, marginTop: 2 },
   uid: { color: C.gold, fontSize: 12, marginTop: 6, fontWeight: '700' },
+  uidLarge: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center' },
   connectTitle: { color: C.text, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   connectDescription: { color: C.sub, fontSize: 12, lineHeight: 17, marginTop: 5 },
   connected: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: 8 },
