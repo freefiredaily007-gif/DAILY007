@@ -18,6 +18,18 @@ const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const nativeFixtureSource = await readFile(
+  new URL("../src/screens/JoinRecoveryNativeTest.tsx", import.meta.url),
+  "utf8",
+);
+const insufficientBalanceFlow = await readFile(
+  new URL("../maestro/join-recovery/insufficient-balance.yaml", import.meta.url),
+  "utf8",
+);
+const lastSlotFlow = await readFile(
+  new URL("../maestro/join-recovery/last-slot-taken.yaml", import.meta.url),
+  "utf8",
+);
 
 const fullMatchErrors = [
   {
@@ -118,11 +130,47 @@ test("full-capacity rejection announces the refreshed state through the visible 
   assert.doesNotMatch(joinFormSource, /AccessibilityInfo\.announceForAccessibility/);
 });
 
+test("the Android regression route uses only local fixtures and is dev-only", () => {
+  const routeSource = nativeFixtureSource.match(
+    /export default function JoinRecoveryNativeTest\(\)[\s\S]*?\n}/,
+  )?.[0];
+  assert.ok(routeSource, "the native test route must have a production guard");
+  assert.match(routeSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  assert.match(nativeFixtureSource, /joinWithCapacityRefresh\(/);
+  assert.match(nativeFixtureSource, /INSUFFICIENT_WALLET_BALANCE/);
+  assert.match(nativeFixtureSource, /'MATCH_FULL'/);
+  assert.match(nativeFixtureSource, /otherPlayerFilledLastSlot\.current = true/);
+  assert.match(
+    nativeFixtureSource,
+    /LOCAL RESPONSES ONLY · NO NETWORK OR WALLET WRITES/,
+  );
+  assert.doesNotMatch(nativeFixtureSource, /\bApi\.|\bfetch\s*\(/);
+  assert.match(insufficientBalanceFlow, /join-form-error/);
+  assert.match(insufficientBalanceFlow, /join-recovery-confirmation/);
+  assert.match(insufficientBalanceFlow, /Submit attempts: 2/);
+  assert.match(lastSlotFlow, /11\/12 players/);
+  assert.match(lastSlotFlow, /12\/12 players/);
+  assert.match(lastSlotFlow, /This match is already full and is not accepting registrations/);
+  assert.match(lastSlotFlow, /join-recovery-confirmation/);
+  assert.match(joinFormSource, /accessibilityLabel="Captain Free Fire in-game name"[\s\S]*?testID="join-form-captain-game-name"/);
+  assert.match(joinFormSource, /accessibilityLabel="Captain Free Fire UID"[\s\S]*?testID="join-form-captain-game-uid"/);
+  assert.match(joinFormSource, /testID="join-form-error"/);
+  assert.match(uiSource, /<View\s+testID=\{testID\}/);
+});
+
 test("the wallet refresh remains after a successful and validated join response", () => {
   const joinStart = appSource.indexOf("const result = await joinWithCapacityRefresh(");
   const walletRefresh = appSource.indexOf("await refresh();", joinStart);
+  const registrationConfirmation = appSource.indexOf(
+    "Alert.alert('Registration confirmed', message)",
+    joinStart,
+  );
   assert.ok(joinStart >= 0, "the join result should use capacity recovery");
   assert.ok(walletRefresh > joinStart, "wallet data refresh should follow the join request");
+  assert.ok(
+    registrationConfirmation > walletRefresh,
+    "success confirmation must only appear after the join and wallet refresh succeed",
+  );
 
   const resultValidation = appSource.slice(joinStart, walletRefresh);
   assert.match(resultValidation, /if \(result\?\.success === false \|\| result\?\.ok === false\)/);
@@ -131,6 +179,11 @@ test("the wallet refresh remains after a successful and validated join response"
     /if \(result\?\.status !== 'approved' && result\?\.status !== 'pending'\)/,
   );
   assert.doesNotMatch(resultValidation, /\bcatch\s*\(|\bfinally\s*\{/);
+  assert.doesNotMatch(
+    appSource.slice(joinStart, registrationConfirmation),
+    /\bcatch\s*\(/,
+    "a failed request must escape before the success alert can run",
+  );
 });
 
 test("a failed capacity refresh preserves the original server rejection", async () => {

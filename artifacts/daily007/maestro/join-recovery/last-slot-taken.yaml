@@ -1,0 +1,46 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/join-recovery-test
+- extendedWaitUntil:
+    visible:
+      id: join-recovery-fixture-banner
+    timeout: 15000
+- tapOn:
+    id: join-recovery-scenario-last-slot
+- assertVisible:
+    text: "11/12 players"
+- tapOn:
+    id: join-form-captain-game-name
+- inputText: "Native Test Captain"
+- scrollUntilVisible:
+    element:
+      id: join-form-captain-game-uid
+    direction: DOWN
+- tapOn:
+    id: join-form-captain-game-uid
+- inputText: "987654321"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: join-form-submit
+    direction: DOWN
+- tapOn:
+    id: join-form-submit
+- extendedWaitUntil:
+    visible:
+      id: join-form-error
+    timeout: 10000
+- assertVisible:
+    text: "This match is already full and is not accepting registrations."
+- scrollUntilVisible:
+    element:
+      text: "12/12 players"
+    direction: UP
+- assertVisible:
+    text: "12/12 players"
+- assertVisible:
+    text: "Submit attempts: 1"
+- assertNotVisible:
+    id: join-recovery-confirmation
+- assertNotVisible: "Registration confirmed"

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
-import { User } from '../lib/api';
+import type { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildJoinFormPayload } from '../lib/joinFormPayload';
@@ -173,12 +173,16 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         />
         <Input
           placeholder="Captain Free Fire in-game name"
+          accessibilityLabel="Captain Free Fire in-game name"
+          testID="join-form-captain-game-name"
           value={captainGameName}
           onChangeText={setCaptainGameName}
           autoCapitalize="words"
         />
         <Input
           placeholder="Captain Free Fire UID"
+          accessibilityLabel="Captain Free Fire UID"
+          testID="join-form-captain-game-uid"
           value={captainGameUid}
           onChangeText={setCaptainGameUid}
           keyboardType="number-pad"
@@ -217,6 +221,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
       <Msg
         kind="err"
         text={err || disabledMessage}
+        testID="join-form-error"
         accessibilityLabel={capacityAnnouncement}
         accessibilityLiveRegion={fullCapacityFailure ? 'polite' : undefined}
       />

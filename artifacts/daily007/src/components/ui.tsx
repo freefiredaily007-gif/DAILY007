@@ -194,11 +194,13 @@ export const Input = React.forwardRef<
 export function Msg({
   kind,
   text,
+  testID,
   accessibilityLabel,
   accessibilityLiveRegion,
 }: {
   kind: 'ok' | 'err';
   text: string;
+  testID?: string;
   accessibilityLabel?: string;
   accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
@@ -206,7 +208,10 @@ export function Msg({
   if (!text) return null;
   const ok = kind === 'ok';
   return (
-    <View style={[st.msg, adminSurface && adminSt.msg, { borderColor: ok ? C.green + '66' : C.red + '66', backgroundColor: (ok ? C.green : C.red) + '14' }]}>
+    <View
+      testID={testID}
+      style={[st.msg, adminSurface && adminSt.msg, { borderColor: ok ? C.green + '66' : C.red + '66', backgroundColor: (ok ? C.green : C.red) + '14' }]}
+    >
       <Text
         accessibilityLabel={accessibilityLabel}
         accessibilityLiveRegion={accessibilityLiveRegion}
