@@ -14,6 +14,10 @@ const copyHelperSource = await readFile(
   new URL('../src/lib/withdrawal-upi-copy.ts', import.meta.url),
   'utf8',
 );
+const uiSource = await readFile(
+  new URL('../src/components/ui.tsx', import.meta.url),
+  'utf8',
+);
 
 test('the withdrawal copy button reports errors and stays separate from payout actions', () => {
   const copyPress = screenSource.match(
@@ -30,7 +34,11 @@ test('the withdrawal copy button reports errors and stays separate from payout a
     /void copyWithdrawalUpi\(\s*String\(p\.id\),\s*String\(p\.account\),\s*Clipboard,/,
   );
   assert.match(copyPress[1], /setCopiedUpiId,\s*setErr,/);
-  assert.match(screenSource, /<Msg kind="err" text=\{err\} \/>/);
+  assert.match(
+    screenSource,
+    /<Msg kind="err" text=\{err\} accessibilityLiveRegion="assertive" \/>/,
+  );
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
   assert.doesNotMatch(
     copyPress[1],
     /\bApi\.|adminWithdrawalAction|adminPaymentAction|adminMarkWithdrawalPaid/,
@@ -81,6 +89,7 @@ test('copy sends the exact account text and only shows COPIED after clipboard su
   button.onPress();
   assert.deepEqual(events, [
     ['copied', null],
+    ['error', ''],
     ['clipboard', account],
   ]);
   assert.equal(
@@ -92,9 +101,9 @@ test('copy sends the exact account text and only shows COPIED after clipboard su
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(events, [
     ['copied', null],
+    ['error', ''],
     ['clipboard', account],
     ['copied', requestId],
-    ['error', ''],
   ]);
   assert.equal(getWithdrawalUpiCopyLabel(requestId, copiedRequestId), 'COPIED');
   assert.equal(
@@ -103,7 +112,7 @@ test('copy sends the exact account text and only shows COPIED after clipboard su
   );
 });
 
-test('a clipboard failure never marks the request as copied', async () => {
+test('a rejected clipboard write reaches an assertive live region without marking copied', async () => {
   const events = [];
   let copiedRequestId = null;
 
@@ -120,8 +129,11 @@ test('a clipboard failure never marks the request as copied', async () => {
 
   assert.deepEqual(events, [
     ['copied', null],
+    ['error', ''],
     ['error', 'Could not copy this UPI ID.'],
   ]);
+  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="assertive" \/>/);
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
   assert.equal(
     getWithdrawalUpiCopyLabel('withdrawal-failed', copiedRequestId),
     'COPY UPI',
@@ -168,6 +180,7 @@ test('a rejected repeat copy clears earlier COPIED feedback and reports the fail
 
   assert.deepEqual(events, [
     ['copied', null],
+    ['error', ''],
     ['clipboard', account],
     ['error', 'Could not copy this UPI ID.'],
   ]);
@@ -192,6 +205,7 @@ test('a clipboard write that resolves false never marks the request as copied', 
 
   assert.deepEqual(events, [
     ['copied', null],
+    ['error', ''],
     ['error', 'Could not copy this UPI ID.'],
   ]);
   assert.equal(

@@ -181,13 +181,24 @@ export function Input(props: React.ComponentProps<typeof TextInput>) {
   );
 }
 
-export function Msg({ kind, text }: { kind: 'ok' | 'err'; text: string }) {
+export function Msg({
+  kind,
+  text,
+  accessibilityLiveRegion,
+}: {
+  kind: 'ok' | 'err';
+  text: string;
+  accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
+}) {
   const adminSurface = useAdminSurface();
   if (!text) return null;
   const ok = kind === 'ok';
   return (
     <View style={[st.msg, adminSurface && adminSt.msg, { borderColor: ok ? C.green + '66' : C.red + '66', backgroundColor: (ok ? C.green : C.red) + '14' }]}>
-      <Text style={[{ color: ok ? C.green : C.red, fontSize: 13, fontWeight: '600' }, adminSurface && adminSt.bodyText]}>
+      <Text
+        accessibilityLiveRegion={accessibilityLiveRegion}
+        style={[{ color: ok ? C.green : C.red, fontSize: 13, fontWeight: '600' }, adminSurface && adminSt.bodyText]}
+      >
         {ok ? '✓ ' : '!' }{text}
       </Text>
     </View>

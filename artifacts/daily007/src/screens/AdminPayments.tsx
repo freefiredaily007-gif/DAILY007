@@ -104,7 +104,7 @@ export default function AdminPayments() {
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
-      <Msg kind="err" text={err} />
+      <Msg kind="err" text={err} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} requests.`} /> : list.map((p) => (
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>

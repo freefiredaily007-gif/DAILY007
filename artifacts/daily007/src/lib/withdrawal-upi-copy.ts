@@ -19,12 +19,12 @@ export async function copyWithdrawalUpi(
   if (!upiId.trim()) return;
 
   setCopiedUpiId(null);
+  setErr('');
   try {
     if (!await clipboard.setStringAsync(upiId)) {
       throw new Error('Clipboard did not confirm the copy.');
     }
     setCopiedUpiId(requestId);
-    setErr('');
   } catch {
     setErr('Could not copy this UPI ID.');
   }
