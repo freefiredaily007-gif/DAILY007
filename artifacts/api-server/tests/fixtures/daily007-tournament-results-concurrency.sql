@@ -50,7 +50,8 @@ CREATE TABLE daily007_v2_result_awards (
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
   rank integer NOT NULL CHECK (rank BETWEEN 1 AND 2147483647),
   kills integer NOT NULL CHECK (kills BETWEEN 0 AND 2147483647),
-  prize_coins integer NOT NULL CHECK (prize_coins BETWEEN 0 AND 2147483647)
+  prize_coins integer NOT NULL CHECK (prize_coins BETWEEN 0 AND 2147483647),
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE daily007_v2_user_stats (

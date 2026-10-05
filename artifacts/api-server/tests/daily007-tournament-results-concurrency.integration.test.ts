@@ -5,6 +5,7 @@ import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
+import compatCoreRouter from "../src/routes/daily007-compat-core";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
 
 const TEST_AUTH_SECRET = "tournament-results-concurrency-tests-only-secret-at-least-32-chars";
@@ -50,6 +51,7 @@ after(async () => {
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
   app.use(express.json());
+  app.use(compatCoreRouter);
   app.use(compatExtraRouter);
   app.use((
     _error: unknown,
@@ -90,6 +92,7 @@ async function submitResult(
   adminId: string,
   matchId: string,
   player: PlayerFixture,
+  rank: number,
   kills: number,
 ): Promise<ResultResponse> {
   const response = await fetch(`${origin}/admin/results`, {
@@ -98,7 +101,7 @@ async function submitResult(
     body: JSON.stringify({
       tournamentId: matchId,
       registrationId: player.registrationId,
-      rank: 1,
+      rank,
       kills,
       prizeCoins: 0,
     }),
@@ -136,7 +139,7 @@ async function createFixture(): Promise<TournamentFixture> {
       `INSERT INTO daily007_v2_matches
          (id, title, mode, game_mode, team_type, capacity, prize_pool, prize_distribution, starts_at)
        VALUES ($1, 'Isolated result race', 'solo', 'battle_royale', 'solo', 48,
-               500, '1st: 500 coins', now() - interval '1 hour')`,
+                750, '1st: 500 coins\n2nd: 250 coins', now() - interval '1 hour')`,
       [fixture.matchId],
     );
     for (const [index, player] of fixture.players.entries()) {
@@ -264,8 +267,8 @@ test("concurrent first-place submissions serialize on the real tournament row lo
       const blockerPid = await backendPid(blocker);
 
       submissions = [
-        submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[0], 4),
-        submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[1], 9),
+        submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[0], 1, 4),
+        submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[1], 1, 9),
       ];
 
       try {
@@ -400,8 +403,8 @@ test("concurrent retries for the same registration publish and pay exactly once"
       const blockerPid = await backendPid(blocker);
 
       submissions = [
-        submitResult(origin, fixture.adminId, fixture.matchId, player, 4),
-        submitResult(origin, fixture.adminId, fixture.matchId, player, 4),
+        submitResult(origin, fixture.adminId, fixture.matchId, player, 1, 4),
+        submitResult(origin, fixture.adminId, fixture.matchId, player, 1, 4),
       ];
 
       try {
@@ -506,6 +509,197 @@ test("concurrent retries for the same registration publish and pay exactly once"
         [fixture.matchId],
       );
       assert.deepEqual(match.rows, [{ enabled: false }]);
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await Promise.allSettled(submissions);
+    await cleanupFixture(fixture);
+  }
+});
+
+test("concurrent first- and second-place results preserve both payouts and standings", async () => {
+  const fixture = await createFixture();
+  const winner = fixture.players[0];
+  const runnerUp = fixture.players[1];
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let submissions: Promise<ResultResponse>[] = [];
+
+  try {
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [fixture.matchId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      submissions = [
+        submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7),
+        submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3),
+      ];
+
+      try {
+        const waitingRequests = await waitForBlockedResultRequests(blockerPid, 2);
+        assert.equal(waitingRequests.length, 2);
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const results = await Promise.all(submissions);
+      assert.deepEqual(results.map((result) => result.status), [201, 201]);
+      assert.deepEqual(results.map((result) => ({
+        registrationId: result.body.registrationId,
+        userId: result.body.userId,
+        prizeCoins: result.body.prizeCoins,
+        walletCoins: result.body.walletCoins,
+      })), [
+        {
+          registrationId: winner.registrationId,
+          userId: winner.userId,
+          prizeCoins: 500,
+          walletCoins: 600,
+        },
+        {
+          registrationId: runnerUp.registrationId,
+          userId: runnerUp.userId,
+          prizeCoins: 250,
+          walletCoins: 350,
+        },
+      ]);
+
+      const standings = await fetch(`${origin}/tournaments/${fixture.matchId}/results`);
+      assert.equal(standings.status, 200);
+      const standingsBody = await standings.json() as {
+        tournamentId: string;
+        status: string;
+        finalizedAt: string | null;
+        entries: Array<Record<string, unknown>>;
+      };
+      assert.equal(standingsBody.tournamentId, fixture.matchId);
+      assert.equal(standingsBody.status, "finalized");
+      assert.ok(standingsBody.finalizedAt);
+      assert.match(standingsBody.finalizedAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
+      assert.deepEqual(standingsBody.entries, [
+        {
+          rank: 1,
+          kills: 7,
+          prizeCoins: 500,
+          gameName: "TestGame1",
+          teamName: null,
+        },
+        {
+          rank: 2,
+          kills: 3,
+          prizeCoins: 250,
+          gameName: "TestGame2",
+          teamName: null,
+        },
+      ]);
+
+      const awards = await pool.query<{
+        registration_id: string;
+        user_id: string;
+        rank: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT registration_id, user_id, rank, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1
+          ORDER BY rank`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(awards.rows, [
+        {
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 7,
+          prize_coins: 500,
+        },
+        {
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          rank: 2,
+          kills: 3,
+          prize_coins: 250,
+        },
+      ]);
+      assert.equal(awards.rows.filter((award) => award.rank === 1).length, 1);
+
+      const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+        "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [[winner.userId, runnerUp.userId]],
+      );
+      assert.deepEqual(wallets.rows, [
+        { id: winner.userId, wallet_coins: 600 },
+        { id: runnerUp.userId, wallet_coins: 350 },
+      ].sort((left, right) => left.id.localeCompare(right.id)));
+
+      const ledger = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [[winner.userId, runnerUp.userId]],
+      );
+      assert.deepEqual(ledger.rows, [
+        {
+          user_id: winner.userId,
+          amount: 500,
+          balance_after: 600,
+          reason: "match_prize",
+        },
+        {
+          user_id: runnerUp.userId,
+          amount: 250,
+          balance_after: 350,
+          reason: "match_prize",
+        },
+      ].sort((left, right) => left.user_id.localeCompare(right.user_id)));
+
+      const stats = await pool.query<{
+        user_id: string;
+        matches: number;
+        wins: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT user_id, matches, wins, kills, prize_coins
+           FROM daily007_v2_user_stats
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [[winner.userId, runnerUp.userId]],
+      );
+      assert.deepEqual(stats.rows, [
+        {
+          user_id: winner.userId,
+          matches: 1,
+          wins: 1,
+          kills: 7,
+          prize_coins: 500,
+        },
+        {
+          user_id: runnerUp.userId,
+          matches: 1,
+          wins: 0,
+          kills: 3,
+          prize_coins: 250,
+        },
+      ].sort((left, right) => left.user_id.localeCompare(right.user_id)));
     });
   } finally {
     if (blockerTransactionOpen) await blocker.query("ROLLBACK");
