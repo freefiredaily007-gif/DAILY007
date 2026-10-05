@@ -47,6 +47,48 @@ test('the tournament screen applies both route mode and team type filters', () =
   );
 });
 
+test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data', () => {
+  const loadStart = tournamentsSource.indexOf('const load = useCallback(async () => {');
+  const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'the tournament loader should be present');
+  assert.doesNotMatch(
+    tournamentsSource.slice(loadStart, loadEnd),
+    /setTab\s*\(/,
+    'refreshing data should not reset the selected lifecycle tab',
+  );
+  assert.match(
+    tournamentsSource,
+    /useFocusEffect\(useCallback\(\(\) => \{ void load\(\); \}, \[load\]\)\)/,
+  );
+  assert.match(
+    tournamentsSource,
+    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\(\);\s*\}/,
+  );
+  assert.match(
+    tournamentsSource,
+    /const onRefresh = async \(\) => \{ setRefreshing\(true\); await load\(\); setRefreshing\(false\); \};/,
+  );
+  assert.match(
+    tournamentsSource,
+    /setItems\(\(Array\.isArray\(list\) \? list : \[\]\)\.map/,
+  );
+  assert.match(
+    tournamentsSource,
+    /const modeScopedTabs = tournamentTabsForRoute\(items,\s*\{\s*gameMode:\s*gameMode \|\| legacyMode,\s*teamType,\s*\},\s*lifecycleOf\)/,
+  );
+  assert.match(tournamentsSource, /const visible = modeScopedTabs\[tab\]/);
+  assert.match(tournamentsSource, /const count = modeScopedTabs\[value\]\.length/);
+  assert.match(
+    tournamentsSource,
+    /accessibilityLabel=\{`\$\{tabLabel\[value\]\} tournaments, \$\{count\}`\}/,
+  );
+  assert.match(tournamentsSource, /data=\{orderedVisible\}/);
+  assert.match(
+    tournamentsSource,
+    /ListEmptyComponent=\{<Empty text=\{tournamentListEmptyMessage\(/,
+  );
+});
+
 test('opening a tournament pushes its detail above the filtered list for Android Back', () => {
   assert.match(
     tournamentsSource,

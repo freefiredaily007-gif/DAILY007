@@ -76,6 +76,74 @@ test("switching lifecycle tabs keeps results and counts scoped to each Home game
   }
 });
 
+test("focus, pull-to-refresh, and app-resume payloads keep tabs scoped to the selected mode", () => {
+  const selectedMode = "clash_squad";
+  const reloads = [
+    {
+      path: "focus",
+      payload: [
+        { id: "battle-upcoming-focus", gameMode: "battle_royale", lifecycle: "upcoming" },
+        { id: "clash-upcoming-focus", gameMode: selectedMode, lifecycle: "upcoming" },
+        { id: "lone-ongoing-focus", gameMode: "lone_wolf", lifecycle: "ongoing" },
+        { id: "clash-ongoing-focus", gameMode: selectedMode, lifecycle: "ongoing" },
+        { id: "battle-completed-focus", gameMode: "battle_royale", lifecycle: "completed" },
+        { id: "clash-completed-focus", gameMode: selectedMode, lifecycle: "completed" },
+      ],
+      expected: {
+        upcoming: ["clash-upcoming-focus"],
+        ongoing: ["clash-ongoing-focus"],
+        completed: ["clash-completed-focus"],
+      },
+    },
+    {
+      path: "pull-to-refresh",
+      payload: [
+        { id: "battle-ongoing-refresh", gameMode: "battle_royale", lifecycle: "ongoing" },
+        { id: "clash-upcoming-refresh", gameMode: selectedMode, lifecycle: "upcoming" },
+        { id: "lone-upcoming-refresh", gameMode: "lone_wolf", lifecycle: "upcoming" },
+        { id: "battle-completed-refresh", gameMode: "battle_royale", lifecycle: "completed" },
+        { id: "clash-completed-refresh", gameMode: selectedMode, lifecycle: "completed" },
+      ],
+      expected: {
+        upcoming: ["clash-upcoming-refresh"],
+        ongoing: [],
+        completed: ["clash-completed-refresh"],
+      },
+    },
+    {
+      path: "app-resume",
+      payload: [
+        { id: "battle-upcoming-resume", gameMode: "battle_royale", lifecycle: "upcoming" },
+        { id: "lone-completed-resume", gameMode: "lone_wolf", lifecycle: "completed" },
+        { id: "clash-ongoing-resume", gameMode: selectedMode, lifecycle: "ongoing" },
+      ],
+      expected: {
+        upcoming: [],
+        ongoing: ["clash-ongoing-resume"],
+        completed: [],
+      },
+    },
+  ] as const;
+
+  for (const reload of reloads) {
+    const tabs = tournamentTabsForRoute(
+      reload.payload,
+      { gameMode: selectedMode },
+      (tournament) => tournament.lifecycle,
+    );
+
+    for (const tab of ["upcoming", "ongoing", "completed"] as const) {
+      const ids = tabs[tab].map((tournament) => tournament.id);
+      assert.deepEqual(ids, reload.expected[tab], `${reload.path}: ${tab} rows`);
+      assert.equal(tabs[tab].length, reload.expected[tab].length, `${reload.path}: ${tab} count`);
+      assert.ok(
+        tabs[tab].every((tournament) => tournament.gameMode === selectedMode),
+        `${reload.path}: ${tab} must not contain tournaments from another mode`,
+      );
+    }
+  }
+});
+
 test("Solo, Squad, and Clash Squad cards lead to matching filtered results", () => {
   const routes = [
     submodeRouteParams("battle_royale", "solo", "Battle Royale"),
