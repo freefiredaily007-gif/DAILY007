@@ -28,3 +28,9 @@ For rollback tests using the in-memory database fixture, capture the relevant st
 **Why:** Assertions after rollback prove cleanup but do not prove the request reached the intended failure after its prerequisite writes.
 
 **How to apply:** Record the needed pre-failure evidence immediately before throwing, assert it after the request, and separately compare the database state with its pre-request snapshot.
+
+Keep isolated PostgreSQL fixtures faithful to production defaults for columns the API omits from its inserts.
+
+**Why:** An API path may rely on a database-generated value such as a registration ID; a missing fixture default can produce a generic 500 after the lock behavior itself is correct.
+
+**How to apply:** Compare each route insert with the fixture schema and production defaults, including generated IDs and constraints used by the operation.

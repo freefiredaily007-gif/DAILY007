@@ -29,7 +29,7 @@ CREATE TABLE daily007_v2_matches (
 );
 
 CREATE TABLE daily007_v2_registrations (
-  id uuid PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id uuid NOT NULL REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
   captain_user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
   captain_name text NOT NULL,
@@ -41,6 +41,15 @@ CREATE TABLE daily007_v2_registrations (
   UNIQUE (match_id, captain_user_id),
   CHECK (entry_coins_paid >= 0),
   CHECK (length(btrim(captain_game_uid)) > 0)
+);
+
+CREATE TABLE daily007_v2_roster (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  registration_id uuid NOT NULL REFERENCES daily007_v2_registrations(id) ON DELETE CASCADE,
+  position integer NOT NULL CHECK (position > 0),
+  member_uid text,
+  member_name text NOT NULL,
+  UNIQUE (registration_id, position)
 );
 
 CREATE TABLE daily007_v2_result_awards (
