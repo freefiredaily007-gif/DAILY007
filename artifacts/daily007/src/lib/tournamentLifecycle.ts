@@ -70,3 +70,7 @@ export function getTournamentLifecycleState(tournament: any, now = Date.now()): 
   if (status === 'closed' || tournament?.enabled === false) return 'closed';
   return 'upcoming';
 }
+
+export function getUpcomingHomeTournaments<T>(tournaments: readonly T[], now = Date.now()): T[] {
+  return tournaments.filter((tournament) => getTournamentLifecycleState(tournament, now) === 'upcoming');
+}

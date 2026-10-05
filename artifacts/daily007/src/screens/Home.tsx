@@ -14,6 +14,7 @@ import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow,
 import { inr } from '../lib/coins';
 import {
   didAppReturnToForeground,
+  getUpcomingHomeTournaments,
   getTournamentLifecycleState,
   HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
   MAX_TIMEOUT_MS,
@@ -97,6 +98,8 @@ export default function Home() {
   const pageRef = useRef(0);
   const activeRequestsRef = useRef(0);
   const homePollInFlightRef = useRef(false);
+  const resumeRefreshPendingRef = useRef(false);
+  const refreshHomeIfIdleRef = useRef<() => void>(() => {});
   const appStateRef = useRef(AppState.currentState);
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
@@ -130,23 +133,42 @@ export default function Home() {
     } finally {
       activeRequestsRef.current -= 1;
       setLoading(false);
+      if (
+        activeRequestsRef.current === 0 &&
+        resumeRefreshPendingRef.current &&
+        !homePollInFlightRef.current
+      ) {
+        resumeRefreshPendingRef.current = false;
+        refreshHomeIfIdleRef.current();
+      }
     }
   }, []);
 
   const refreshHomeIfIdle = useCallback(() => {
-    if (activeRequestsRef.current > 0 || homePollInFlightRef.current) return;
+    if (activeRequestsRef.current > 0 || homePollInFlightRef.current) {
+      resumeRefreshPendingRef.current = true;
+      return;
+    }
     homePollInFlightRef.current = true;
     void load().finally(() => {
       homePollInFlightRef.current = false;
+      if (activeRequestsRef.current === 0 && resumeRefreshPendingRef.current) {
+        resumeRefreshPendingRef.current = false;
+        refreshHomeIfIdleRef.current();
+      }
     });
   }, [load]);
+  refreshHomeIfIdleRef.current = refreshHomeIfIdle;
 
   useFocusEffect(useCallback(() => {
     appStateRef.current = AppState.currentState;
     const appStateSubscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = didAppReturnToForeground(appStateRef.current, nextState);
       appStateRef.current = nextState;
-      if (returnedToApp) refreshHomeIfIdle();
+      if (returnedToApp) {
+        setClockNow(Date.now());
+        refreshHomeIfIdle();
+      }
     });
     const stopPolling = startHomeTournamentRefreshPolling(
       refreshHomeIfIdle,
@@ -167,8 +189,7 @@ export default function Home() {
   }, []);
   React.useEffect(() => {
     const now = Date.now();
-    const nextStart = items
-      .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming')
+    const nextStart = getUpcomingHomeTournaments(items, clockNow)
       .map((tournament) => Date.parse(String(tournament.startsAt ?? '')))
       .filter((start) => Number.isFinite(start) && start > now)
       .sort((a, b) => a - b)[0];
@@ -177,9 +198,7 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [items, clockNow]);
 
-  const upcomingItems = items.filter(
-    (tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming',
-  );
+  const upcomingItems = getUpcomingHomeTournaments(items, clockNow);
 
   React.useEffect(() => {
     const lastPage = Math.min(upcomingItems.length, 8) - 1;
