@@ -418,6 +418,7 @@ test("two concurrent completions for one watch session credit exactly once", asy
   const fixture = await createFixture();
   assert.ok(fixture.playerId && fixture.videoId && fixture.sessionId);
   let sessionBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let winningTransactionId: string | null = null;
   const inFlight: Promise<JsonResponse>[] = [];
   try {
     await withServer(async (origin) => {
@@ -469,12 +470,13 @@ test("two concurrent completions for one watch session credit exactly once", asy
       assert.equal(firstResponse.body.coins, 1);
       assert.equal(firstResponse.body.walletCoins, 13);
       assert.equal(typeof firstResponse.body.transactionId, "string");
+      winningTransactionId = firstResponse.body.transactionId as string;
 
       assert.equal(secondResponse.status, 200);
       assert.equal(secondResponse.body.rewarded, false);
       assert.equal(secondResponse.body.coins, 0);
       assert.equal(secondResponse.body.walletCoins, 13);
-      assert.equal(secondResponse.body.transactionId, firstResponse.body.transactionId);
+      assert.equal(secondResponse.body.transactionId, winningTransactionId);
       assert.equal(secondResponse.body.message, "This view has already been rewarded.");
     }, async () => {
       if (sessionBlocker) {
@@ -491,6 +493,7 @@ test("two concurrent completions for one watch session credit exactly once", asy
     assert.equal(state.ledgerCount, 1);
     assert.ok(state.completedAt);
     assert.equal(state.rewardLedgerId, state.ledgerId);
+    assert.equal(state.rewardLedgerId, winningTransactionId);
     assert.equal(state.ledgerAmount, 1);
     assert.equal(state.ledgerBalanceAfter, 13);
   } finally {

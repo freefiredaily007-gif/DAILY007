@@ -9,6 +9,12 @@ description: Lock-order observations for integration tests that exercise API req
 
 **How to apply:** Gate each interleaving on observed lock waits, include queued backends when asserting blocker relationships, and create uniquely identified test rows that can be deleted by ID in `finally` cleanup.
 
+For duplicate-delivery races, hold the target session row, wait until the first request is blocked on it, then issue the second request and verify PostgreSQL reports it queued behind the first before releasing the blocker. Assert both responses and the final wallet, ledger, and session pointer.
+
+**Why:** Launching two HTTP requests close together does not prove they overlapped at the database lock; a deterministic queue makes the duplicate-write ordering reproducible.
+
+**How to apply:** Use `pg_blocking_pids` to establish the first/second wait relationship, release the blocker only after both requests are queued, and verify the loser returns the existing ledger entry without adding another one.
+
 **Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
 
 **Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.
