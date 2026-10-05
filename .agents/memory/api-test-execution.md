@@ -22,3 +22,9 @@ When a bundled API test imports the shared logger, run the bundled Node test wit
 **Why:** The logger's development transport is resolved at runtime and is not reliably available to a test bundle emitted under `/tmp`.
 
 **How to apply:** Set `NODE_ENV=production` only for the bundled test process; do not change the app's logger or workflow configuration to accommodate tests.
+
+For rollback tests using the in-memory database fixture, capture the relevant state at the injected failure point outside the transaction snapshot.
+
+**Why:** Assertions after rollback prove cleanup but do not prove the request reached the intended failure after its prerequisite writes.
+
+**How to apply:** Record the needed pre-failure evidence immediately before throwing, assert it after the request, and separately compare the database state with its pre-request snapshot.

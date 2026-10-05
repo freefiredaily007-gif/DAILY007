@@ -24,6 +24,7 @@ type JoinCase = {
   expectedStatus: number;
   expectedError?: string;
   expectedCode?: string;
+  expectedRosterRowsAtLedgerFailure?: number;
   prepare: () => void;
   body?: Record<string, unknown>;
 };
@@ -136,9 +137,26 @@ const rejectedJoins: JoinCase[] = [
       registrationCapacityTestDb.failOnNextLedgerInsert();
     },
   },
+  {
+    name: "team ledger write failure after registration, roster, and wallet updates",
+    expectedStatus: 500,
+    expectedError: "Internal server error.",
+    expectedRosterRowsAtLedgerFailure: 1,
+    prepare: () => {
+      registrationCapacityTestDb.match.mode = "squad";
+      registrationCapacityTestDb.match.team_type = "duo";
+      registrationCapacityTestDb.failOnNextLedgerInsert();
+    },
+    body: {
+      captainGameName: "First Captain",
+      captainGameUid: "FF-FIRST-PLAYER",
+      teamName: "Test Duo",
+      teammates: [{ name: "Second Player", uid: "FF-TEAMMATE-002" }],
+    },
+  },
 ];
 
-test("rejected tournament joins leave registrations, wallet balance, and ledger unchanged", async (t) => {
+test("rejected tournament joins leave registrations, roster, wallet, match, and ledger unchanged", async (t) => {
   await withServer(async (origin) => {
     for (const scenario of rejectedJoins) {
       await t.test(scenario.name, async () => {
@@ -148,6 +166,7 @@ test("rejected tournament joins leave registrations, wallet balance, and ledger 
           user: structuredClone(registrationCapacityTestDb.users.get(FIRST_PLAYER_ID)!),
           match: structuredClone(registrationCapacityTestDb.match),
           registrations: structuredClone(registrationCapacityTestDb.registrations),
+          roster: structuredClone(registrationCapacityTestDb.roster),
           ledger: structuredClone(registrationCapacityTestDb.ledger),
         };
 
@@ -156,9 +175,17 @@ test("rejected tournament joins leave registrations, wallet balance, and ledger 
         assert.equal(response.status, scenario.expectedStatus);
         if (scenario.expectedError) assert.equal(response.body.error, scenario.expectedError);
         if (scenario.expectedCode) assert.equal(response.body.code, scenario.expectedCode);
+        if (scenario.expectedRosterRowsAtLedgerFailure !== undefined) {
+          assert.equal(
+            registrationCapacityTestDb.rosterRowsAtLedgerFailure,
+            scenario.expectedRosterRowsAtLedgerFailure,
+            "the injected ledger failure should occur after writing the team roster",
+          );
+        }
         assert.deepEqual(registrationCapacityTestDb.users.get(FIRST_PLAYER_ID), before.user);
         assert.deepEqual(registrationCapacityTestDb.match, before.match);
         assert.deepEqual(registrationCapacityTestDb.registrations, before.registrations);
+        assert.deepEqual(registrationCapacityTestDb.roster, before.roster);
         assert.deepEqual(registrationCapacityTestDb.ledger, before.ledger);
       });
     }

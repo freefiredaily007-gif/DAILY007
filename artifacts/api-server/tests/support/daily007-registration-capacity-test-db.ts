@@ -145,6 +145,7 @@ class RegistrationCapacityTestDatabase {
   private lockHold: MatchLockHold | null = null;
   private walletLockHold: WalletLockHold | null = null;
   private failNextLedgerInsert = false;
+  rosterRowsAtLedgerFailure: number | null = null;
 
   constructor() {
     this.reset();
@@ -207,6 +208,7 @@ class RegistrationCapacityTestDatabase {
     this.lockHold = null;
     this.walletLockHold = null;
     this.failNextLedgerInsert = false;
+    this.rosterRowsAtLedgerFailure = null;
   }
 
   failOnNextLedgerInsert(): void {
@@ -439,6 +441,7 @@ class RegistrationCapacityTestDatabase {
     } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
       if (this.failNextLedgerInsert) {
         this.failNextLedgerInsert = false;
+        this.rosterRowsAtLedgerFailure = this.roster.length;
         throw new Error("Injected wallet ledger insert failure.");
       }
       const [userId, amount, balanceAfter, matchId, registrationId] = values;
