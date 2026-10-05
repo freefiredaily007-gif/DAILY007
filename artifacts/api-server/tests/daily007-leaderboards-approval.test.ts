@@ -604,6 +604,72 @@ test("Full Admin prize saves reach the player API immediately and remain availab
   }
 });
 
+test("invalid Full Admin prize edits leave both schedules and active-period snapshots unchanged", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const originalSettings = structuredClone(daily007LeaderboardTestDb.rewardSettings);
+  const originalActivePeriodSnapshots = [...daily007LeaderboardTestDb.periods.values()]
+    .filter((candidate) => candidate.status === "active")
+    .map((candidate) => ({
+      id: candidate.id,
+      cycleType: candidate.cycle_type,
+      payoutConfiguration: structuredClone(candidate.payout_configuration),
+    }));
+  const invalidAmounts = [
+    { description: "negative", value: -1 },
+    { description: "fractional", value: 1.5 },
+    { description: "unsafe integer", value: Number.MAX_SAFE_INTEGER + 1 },
+    { description: "over-limit", value: 2_147_483_648 },
+  ] as const;
+
+  try {
+    await withServer(async (origin) => {
+      for (const cycleType of ["weekly", "monthly"] as const) {
+        for (const invalid of invalidAmounts) {
+          const rewards = {
+            weekly: { firstPlaceCoins: 701, secondPlaceCoins: 702, thirdPlaceCoins: 703 },
+            monthly: { firstPlaceCoins: 801, secondPlaceCoins: 802, thirdPlaceCoins: 803 },
+          };
+          rewards[cycleType].thirdPlaceCoins = invalid.value;
+
+          const rejectedSave = await call(
+            origin,
+            TEST_FULL_ADMIN_ID,
+            "/daily007/v2/admin/leaderboards/rewards",
+            "PUT",
+            rewards,
+          );
+
+          assert.equal(
+            rejectedSave.status,
+            400,
+            `${cycleType} schedule with a ${invalid.description} reward should be rejected`,
+          );
+          assert.deepEqual(
+            daily007LeaderboardTestDb.rewardSettings,
+            originalSettings,
+            "neither saved schedule should change after a rejected request",
+          );
+          assert.deepEqual(
+            [...daily007LeaderboardTestDb.periods.values()]
+              .filter((candidate) => candidate.status === "active")
+              .map((candidate) => ({
+                id: candidate.id,
+                cycleType: candidate.cycle_type,
+                payoutConfiguration: candidate.payout_configuration,
+              })),
+            originalActivePeriodSnapshots,
+            "neither active-period prize snapshot should change after a rejected request",
+          );
+        }
+      }
+    });
+  } finally {
+    // The test uses only the in-memory fixture and restores its baseline.
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("Tournament Admin cannot change weekly or monthly leaderboard prize schedules", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());
