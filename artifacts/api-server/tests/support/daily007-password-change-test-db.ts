@@ -1,0 +1,162 @@
+type PasswordChangeTestUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "user";
+  wallet_coins: number;
+  phone: string | null;
+  game_uid: string | null;
+  status: "active";
+  auth_version: number;
+  password_salt: string;
+  password_hash: string;
+};
+
+type Credentials = Pick<PasswordChangeTestUser, "password_salt" | "password_hash">;
+
+export const PASSWORD_CHANGE_TEST_USER_ID = "50000000-0000-4000-8000-000000000001";
+
+class MemoryPasswordChangeDatabase {
+  readonly user: PasswordChangeTestUser = {
+    id: PASSWORD_CHANGE_TEST_USER_ID,
+    name: "Password Change Test",
+    email: "password-change@example.test",
+    role: "user",
+    wallet_coins: 73,
+    phone: null,
+    game_uid: null,
+    status: "active",
+    auth_version: 6,
+    password_salt: "",
+    password_hash: "",
+  };
+  credentialReadSnapshots: Credentials[] = [];
+  passwordWriteAttempts = 0;
+  successfulPasswordWrites = 0;
+  credentialReadBarrierTimedOut = false;
+
+  private expectedCredentialReads = 0;
+  private credentialReadGate: Promise<void> | null = null;
+  private releaseCredentialReadGate: (() => void) | null = null;
+  private credentialReadWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+  reset(): void {
+    Object.assign(this.user, {
+      name: "Password Change Test",
+      email: "password-change@example.test",
+      role: "user" as const,
+      wallet_coins: 73,
+      phone: null,
+      game_uid: null,
+      status: "active" as const,
+      auth_version: 6,
+      password_salt: "",
+      password_hash: "",
+    });
+    this.credentialReadSnapshots = [];
+    this.passwordWriteAttempts = 0;
+    this.successfulPasswordWrites = 0;
+    this.credentialReadBarrierTimedOut = false;
+    this.expectedCredentialReads = 0;
+    this.credentialReadGate = null;
+    this.releaseCredentialReadGate = null;
+    if (this.credentialReadWatchdog) clearTimeout(this.credentialReadWatchdog);
+    this.credentialReadWatchdog = null;
+  }
+
+  setCredentials(credentials: Credentials): void {
+    this.user.password_salt = credentials.password_salt;
+    this.user.password_hash = credentials.password_hash;
+  }
+
+  snapshot(): PasswordChangeTestUser {
+    return structuredClone(this.user);
+  }
+
+  holdCredentialReadsUntil(count: number): void {
+    if (!Number.isSafeInteger(count) || count < 1) {
+      throw new Error(`Invalid credential read barrier count: ${count}`);
+    }
+    this.expectedCredentialReads = count;
+    this.credentialReadBarrierTimedOut = false;
+    this.credentialReadGate = new Promise<void>((resolve) => {
+      this.releaseCredentialReadGate = resolve;
+    });
+    // This watchdog only fails a broken test instead of coordinating request timing.
+    this.credentialReadWatchdog = setTimeout(() => {
+      this.credentialReadBarrierTimedOut = true;
+      this.releaseCredentialReadGate?.();
+    }, 10_000);
+  }
+
+  async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    const userId = String(values[0] ?? "");
+
+    if (normalized ===
+      "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users WHERE id = $1") {
+      return {
+        rows: (userId === this.user.id ? [{
+          id: this.user.id,
+          name: this.user.name,
+          email: this.user.email,
+          role: this.user.role,
+          wallet_coins: this.user.wallet_coins,
+          phone: this.user.phone,
+          game_uid: this.user.game_uid,
+          status: this.user.status,
+          auth_version: this.user.auth_version,
+        }] : []) as T[],
+      };
+    }
+
+    if (normalized === "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1") {
+      if (userId !== this.user.id) return { rows: [] };
+      const credentials = {
+        password_salt: this.user.password_salt,
+        password_hash: this.user.password_hash,
+      };
+      this.credentialReadSnapshots.push(structuredClone(credentials));
+      const readGate = this.credentialReadGate;
+
+      if (!readGate || this.expectedCredentialReads === 0) {
+        throw new Error("Password credential reads must be explicitly coordinated by the test.");
+      }
+      if (this.credentialReadSnapshots.length > this.expectedCredentialReads) {
+        throw new Error("More password credential reads occurred than the test expected.");
+      }
+      if (this.credentialReadSnapshots.length === this.expectedCredentialReads) {
+        if (this.credentialReadWatchdog) clearTimeout(this.credentialReadWatchdog);
+        this.credentialReadWatchdog = null;
+        this.releaseCredentialReadGate?.();
+      }
+      await readGate;
+      return { rows: [credentials] as T[] };
+    }
+
+    if (normalized ===
+      "UPDATE daily007_v2_users SET password_salt = $2, password_hash = $3 WHERE id = $1 AND password_salt = $4 AND password_hash = $5 RETURNING id") {
+      this.passwordWriteAttempts += 1;
+      const [replacementSalt, replacementHash, originalSalt, originalHash] = values.slice(1).map(String);
+      if (userId !== this.user.id ||
+          this.user.password_salt !== originalSalt ||
+          this.user.password_hash !== originalHash) {
+        return { rows: [] };
+      }
+      this.user.password_salt = replacementSalt;
+      this.user.password_hash = replacementHash;
+      this.successfulPasswordWrites += 1;
+      return { rows: [{ id: this.user.id }] as T[] };
+    }
+
+    throw new Error(`Unexpected password-change test SQL: ${normalized}`);
+  }
+}
+
+export const passwordChangeTestDb = new MemoryPasswordChangeDatabase();
+passwordChangeTestDb.reset();
+
+export const pool = {
+  query: <T = unknown>(sql: string, values?: unknown[]) =>
+    passwordChangeTestDb.query<T>(sql, values),
+};
