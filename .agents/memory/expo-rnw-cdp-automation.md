@@ -32,3 +32,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** A Wallet refund preview rendered its `aria-label`, but the web DOM omitted role and focus attributes even though the native component received `accessible` and `accessibilityRole`. Adding web-only focus props to satisfy that preview could change native behavior.
 
 **How to apply:** Keep React Native's native accessibility props for TalkBack, test their label content in the isolated RNW preview, and confirm actual TalkBack behavior separately when an Android device is available.
+
+**Rule:** For a tall list card, scroll each action into the nearest overflowing scroll container before hit-testing; centering the whole card may still leave its bottom actions off-screen.
+
+**Why:** At 1.5× text, long wallet and user identity cards exceeded the phone viewport, so moving the card as a whole did not make its actions reachable.
+
+**How to apply:** Find the nearest ancestor with vertical `auto`/`scroll` overflow and excess content height, position the action itself within that viewport, then verify its center hit-test and rendered label.

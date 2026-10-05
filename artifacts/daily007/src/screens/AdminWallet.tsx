@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage } from '../lib/api';
 import { Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, PromptDialog } from '../components/adminKit';
@@ -7,6 +7,8 @@ import { inr } from '../lib/coins';
 
 export default function AdminWallet() {
   const toast = useToast();
+  const { fontScale } = useWindowDimensions();
+  const stackUserBalance = fontScale >= 1.5;
   const [users, setUsers] = useState<any[] | null>(null);
   const [txns, setTxns] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
@@ -61,12 +63,16 @@ export default function AdminWallet() {
         <Card><Text style={st.empty}>No users found.</Text></Card>
       ) : filtered.map((u) => (
         <Card key={u.$id}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
+          <View style={{
+            flexDirection: stackUserBalance ? 'column' : 'row',
+            alignItems: stackUserBalance ? 'stretch' : 'center',
+            gap: stackUserBalance ? 4 : 0,
+          }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={st.name}>{u.name}</Text>
               <Text style={st.sub}>{u.email}</Text>
             </View>
-            <Text style={st.coins}>{u.coins ?? 0} COINS</Text>
+            <Text style={[st.coins, stackUserBalance && { alignSelf: 'flex-start' }]}>{u.coins ?? 0} COINS</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             <View style={{ flex: 1 }}><Btn title="+ ADD" onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
@@ -77,9 +83,16 @@ export default function AdminWallet() {
       <SectionTitle title="RECENT TRANSACTIONS" />
       {(txns ?? []).slice(0, 20).map((t) => (
         <Card key={t.$id}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ flex: 1, color: '#e6e9ef', fontSize: 12.5, fontWeight: '700' }}>{t.title || t.note || 'Transaction'}</Text>
-            <Text style={{ color: Number(t.coins || 0) >= 0 ? '#22c55e' : '#ff3d3d', fontWeight: '900' }}>
+          <View style={{
+            flexDirection: stackUserBalance ? 'column' : 'row',
+            alignItems: stackUserBalance ? 'stretch' : 'center',
+            gap: stackUserBalance ? 4 : 0,
+          }}>
+            <Text style={{ flex: 1, minWidth: 0, color: '#e6e9ef', fontSize: 12.5, fontWeight: '700' }}>{t.title || t.note || 'Transaction'}</Text>
+            <Text style={[
+              { color: Number(t.coins || 0) >= 0 ? '#22c55e' : '#ff3d3d', fontWeight: '900' },
+              stackUserBalance && { alignSelf: 'flex-start' },
+            ]}>
               {Number(t.coins || 0) >= 0 ? '+' : ''}{t.coins} COINS
             </Text>
           </View>

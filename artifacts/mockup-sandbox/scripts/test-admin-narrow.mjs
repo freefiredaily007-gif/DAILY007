@@ -439,14 +439,52 @@ async function assertAdminRowActionsFit(marker, actions, width, description) {
     const actionRects = ${JSON.stringify(actions)}.map((action) => {
       const button = buttons.find((item) => item.textContent.trim().replace(/\\\\s+/g, ' ') === action);
       if (!button) return null;
+      let scrollParent = button.parentElement;
+      while (scrollParent && scrollParent !== document.body) {
+        const overflowY = getComputedStyle(scrollParent).overflowY;
+        if (
+          scrollParent.scrollHeight > scrollParent.clientHeight + 2 &&
+          (overflowY === "auto" || overflowY === "scroll")
+        ) break;
+        scrollParent = scrollParent.parentElement;
+      }
+      const scrollTarget = scrollParent ?? document.scrollingElement;
+      if (scrollTarget && scrollTarget.scrollHeight > scrollTarget.clientHeight + 2) {
+        const buttonRect = button.getBoundingClientRect();
+        const scrollRectTop = scrollParent ? scrollParent.getBoundingClientRect().top : 0;
+        const desiredScrollTop =
+          scrollTarget.scrollTop +
+          buttonRect.top -
+          scrollRectTop -
+          (scrollTarget.clientHeight - buttonRect.height) / 2;
+        scrollTarget.scrollTop = Math.max(
+          0,
+          Math.min(scrollTarget.scrollHeight - scrollTarget.clientHeight, desiredScrollTop),
+        );
+      }
       const rect = button.getBoundingClientRect();
+      const hitTarget = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
       return {
         label: action,
         left: rect.left,
         right: rect.right,
         width: rect.width,
+        height: rect.height,
         clientWidth: button.clientWidth,
         scrollWidth: button.scrollWidth,
+        clientHeight: button.clientHeight,
+        scrollHeight: button.scrollHeight,
+        enabled:
+          button.disabled !== true &&
+          button.getAttribute("aria-disabled") !== "true" &&
+          getComputedStyle(button).pointerEvents !== "none",
+        hitTestable: Boolean(hitTarget && (button === hitTarget || button.contains(hitTarget))),
+        hitTarget: hitTarget
+          ? hitTarget.tagName + ":" + hitTarget.textContent.trim().slice(0, 40)
+          : null,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
       };
     });
     return {
@@ -455,6 +493,7 @@ async function assertAdminRowActionsFit(marker, actions, width, description) {
       row: {
         left: rowRect.left,
         right: rowRect.right,
+        height: rowRect.height,
         clientWidth: row.clientWidth,
         scrollWidth: row.scrollWidth,
       },
@@ -493,6 +532,25 @@ async function assertAdminRowActionsFit(marker, actions, width, description) {
     assert(
       action.scrollWidth <= action.clientWidth + 2,
       `${description}: the "${action.label}" label is clipped at ${width}px.`,
+    );
+    assert(
+      action.height > 0 &&
+        action.scrollHeight <= action.clientHeight + 2 &&
+        action.enabled &&
+        action.hitTestable,
+      `${description}: the "${action.label}" action is clipped, disabled, or obscured at ${width}px ` +
+        `(height=${action.height}, content=${action.scrollHeight}/${action.clientHeight}, ` +
+        `enabled=${action.enabled}, hit-testable=${action.hitTestable}, ` +
+        `bounds=${action.top}-${action.bottom}/${action.viewportHeight}, hit=${action.hitTarget}).`,
+    );
+  }
+  if (
+    ["Wallet user", "Admin user"].includes(description) &&
+    await evaluate("window.__daily007LargeTextScale === 1.5")
+  ) {
+    assert(
+      result.row.height < 1000,
+      `${description}: the populated card became excessively tall at ${width}px (${result.row.height}px).`,
     );
   }
   const pageWidth = await evaluate("document.documentElement.scrollWidth");
@@ -1625,6 +1683,22 @@ try {
     await checkTournamentStates(320, { largeText: true });
     assert(browserErrors.length === 0, `Browser errors at 320px with 1.5× text: ${browserErrors.join(" | ")}`);
     console.log("PASS 320px at 1.5× text — selected Admin tabs, tournament fields, room setup, result entry, and completed-result details fit without horizontal clipping or page overflow.");
+
+    for (const width of [320, 360, 375, 390, 412, 430]) {
+      await setViewport(width, 1.5);
+      assert(
+        await evaluate("window.__daily007LargeTextScale === 1.5"),
+        `The Admin list preview did not apply 1.5× text at ${width}px.`,
+      );
+      await checkPopulatedAdminLists(width);
+      assert(
+        browserErrors.length === 0,
+        `Browser errors at ${width}px with 1.5× text: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        `PASS ${width}px at 1.5× text — populated registration, payment, wallet, and user rows and actions fit without clipping or page overflow.`,
+      );
+    }
   }
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);

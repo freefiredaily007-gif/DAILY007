@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage } from '../lib/api';
 import { Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog } from '../components/adminKit';
 
 export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
   const toast = useToast();
+  const { fontScale } = useWindowDimensions();
+  const stackUserBalance = fontScale >= 1.5;
   const [users, setUsers] = useState<any[] | null>(null);
   const [regs, setRegs] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
@@ -98,14 +100,18 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         const blocked = u.status === 'blocked';
         return (
           <Card key={u.$id}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ flex: 1 }}>
+            <View style={{
+              flexDirection: stackUserBalance ? 'column' : 'row',
+              alignItems: stackUserBalance ? 'stretch' : 'center',
+              gap: stackUserBalance ? 4 : 0,
+            }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={st.name}>{u.name} {blocked && <Text style={{ color: '#ff3d3d', fontSize: 10 }}>· BLOCKED</Text>}</Text>
                 <Text style={st.sub}>{u.email}</Text>
                 <Text style={st.role}>{u.role === 'admin' ? 'FULL ADMIN' : u.role === 'tournament_admin' ? 'TOURNAMENT ADMIN' : 'PLAYER'}</Text>
                 <Text style={st.sub}>Joined {String(u.createdAt || '').slice(0, 10)}</Text>
               </View>
-              <Text style={st.coins}>{u.coins ?? 0} COINS</Text>
+              <Text style={[st.coins, stackUserBalance && { alignSelf: 'flex-start' }]}>{u.coins ?? 0} COINS</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 14, marginTop: 8 }}>
               <Text style={st.stat}>{mine.length} joined</Text>
