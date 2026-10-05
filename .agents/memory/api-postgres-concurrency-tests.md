@@ -9,6 +9,12 @@ description: Lock-order observations for integration tests that exercise API req
 
 **How to apply:** Gate each interleaving on observed lock waits, include queued backends when asserting blocker relationships, and create uniquely identified test rows that can be deleted by ID in `finally` cleanup.
 
+**Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
+
+**Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.
+
+**How to apply:** Before adding a concurrent test, identify each production `FOR UPDATE` row and give the fixture a corresponding keyed lock so it can prove which requests contend.
+
 **Local isolated clusters:** When starting a temporary PostgreSQL cluster in the Replit workspace, set `unix_socket_directories` to a writable directory owned by the test.
 
 **Why:** The default `/run/postgresql` directory is absent here, so `pg_ctl` can fail after PostgreSQL begins listening on loopback.

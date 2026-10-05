@@ -52,6 +52,7 @@ type TestLedgerEntry = {
 type Snapshot = {
   users: Map<string, TestUser>;
   match: TestMatch;
+  secondMatch: TestMatch;
   registrations: TestRegistration[];
   roster: TestRosterMember[];
   ledger: TestLedgerEntry[];
@@ -101,7 +102,18 @@ type MatchLockHold = {
   paused: boolean;
 };
 
+type WalletLockHold = {
+  firstAcquired: Promise<void>;
+  secondQueued: Promise<void>;
+  release: () => void;
+  firstAcquiredSignal: ReturnType<typeof deferred>;
+  secondQueuedSignal: ReturnType<typeof deferred>;
+  continueSignal: ReturnType<typeof deferred>;
+  paused: boolean;
+};
+
 export const TEST_MATCH_ID = "54000000-0000-4000-8000-000000000100";
+export const TEST_SECOND_MATCH_ID = "54000000-0000-4000-8000-000000000101";
 export const FIRST_PLAYER_ID = "54000000-0000-4000-8000-000000000001";
 export const SECOND_PLAYER_ID = "54000000-0000-4000-8000-000000000002";
 const INCUMBENT_PLAYER_ID = "54000000-0000-4000-8000-000000000003";
@@ -123,12 +135,15 @@ function testUser(id: string, name: string, email: string, walletCoins: number):
 class RegistrationCapacityTestDatabase {
   users = new Map<string, TestUser>();
   match!: TestMatch;
+  secondMatch!: TestMatch;
   registrations: TestRegistration[] = [];
   roster: TestRosterMember[] = [];
   ledger: TestLedgerEntry[] = [];
   private nextRegistrationNumber = 11;
-  private readonly matchRowLock = new AsyncMutex();
+  private matchRowLocks = new Map<string, AsyncMutex>();
+  private walletRowLocks = new Map<string, AsyncMutex>();
   private lockHold: MatchLockHold | null = null;
+  private walletLockHold: WalletLockHold | null = null;
   private failNextLedgerInsert = false;
 
   constructor() {
@@ -147,6 +162,18 @@ class RegistrationCapacityTestDatabase {
       game_mode: "battle_royale",
       team_type: "solo",
       capacity: 2,
+      status: "open",
+      is_full: false,
+      entry_coins: 7,
+      starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      enabled: true,
+    };
+    this.secondMatch = {
+      id: TEST_SECOND_MATCH_ID,
+      mode: "solo",
+      game_mode: "battle_royale",
+      team_type: "solo",
+      capacity: 4,
       status: "open",
       is_full: false,
       entry_coins: 7,
@@ -175,7 +202,10 @@ class RegistrationCapacityTestDatabase {
       registration_id: existingRegistrationId,
     }];
     this.nextRegistrationNumber = 11;
+    this.matchRowLocks = new Map();
+    this.walletRowLocks = new Map();
     this.lockHold = null;
+    this.walletLockHold = null;
     this.failNextLedgerInsert = false;
   }
 
@@ -198,6 +228,38 @@ class RegistrationCapacityTestDatabase {
     };
     this.lockHold = hold;
     return hold;
+  }
+
+  holdNextWalletRowLock(): WalletLockHold {
+    const firstAcquiredSignal = deferred();
+    const secondQueuedSignal = deferred();
+    const continueSignal = deferred();
+    const hold: WalletLockHold = {
+      firstAcquired: firstAcquiredSignal.promise,
+      secondQueued: secondQueuedSignal.promise,
+      release: () => continueSignal.resolve(),
+      firstAcquiredSignal,
+      secondQueuedSignal,
+      continueSignal,
+      paused: false,
+    };
+    this.walletLockHold = hold;
+    return hold;
+  }
+
+  private matchById(id: string): TestMatch | undefined {
+    if (id === this.match.id) return this.match;
+    if (id === this.secondMatch.id) return this.secondMatch;
+    return undefined;
+  }
+
+  private lockFor(locks: Map<string, AsyncMutex>, id: string): AsyncMutex {
+    let lock = locks.get(id);
+    if (!lock) {
+      lock = new AsyncMutex();
+      locks.set(id, lock);
+    }
+    return lock;
   }
 
   async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
@@ -228,7 +290,9 @@ class RegistrationCapacityTestDatabase {
         if (normalized.startsWith("SELECT id, mode, game_mode, team_type, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches") &&
             normalized.endsWith("FOR UPDATE")) {
           const hold = this.lockHold;
-          const release = await this.matchRowLock.acquire(() => hold?.secondQueuedSignal.resolve());
+          const matchId = String(values[0]);
+          const release = await this.lockFor(this.matchRowLocks, matchId)
+            .acquire(() => hold?.secondQueuedSignal.resolve());
           releases.push(release);
           if (!snapshot) snapshot = this.snapshot();
           if (hold && !hold.paused) {
@@ -236,6 +300,19 @@ class RegistrationCapacityTestDatabase {
             hold.firstAcquiredSignal.resolve();
             await hold.continueSignal.promise;
             if (this.lockHold === hold) this.lockHold = null;
+          }
+        }
+        if (normalized === "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
+          const hold = this.walletLockHold;
+          const userId = String(values[0]);
+          const release = await this.lockFor(this.walletRowLocks, userId)
+            .acquire(() => hold?.secondQueuedSignal.resolve());
+          releases.push(release);
+          if (hold && !hold.paused) {
+            hold.paused = true;
+            hold.firstAcquiredSignal.resolve();
+            await hold.continueSignal.promise;
+            if (this.walletLockHold === hold) this.walletLockHold = null;
           }
         }
         return this.execute<T>(normalized, values);
@@ -252,6 +329,7 @@ class RegistrationCapacityTestDatabase {
     return {
       users: new Map([...this.users].map(([id, user]) => [id, structuredClone(user)])),
       match: structuredClone(this.match),
+      secondMatch: structuredClone(this.secondMatch),
       registrations: structuredClone(this.registrations),
       roster: structuredClone(this.roster),
       ledger: structuredClone(this.ledger),
@@ -262,6 +340,7 @@ class RegistrationCapacityTestDatabase {
   private restore(snapshot: Snapshot): void {
     this.users = snapshot.users;
     this.match = snapshot.match;
+    this.secondMatch = snapshot.secondMatch;
     this.registrations = snapshot.registrations;
     this.roster = snapshot.roster;
     this.ledger = snapshot.ledger;
@@ -280,7 +359,8 @@ class RegistrationCapacityTestDatabase {
     } else if (normalized.startsWith(
       "SELECT id, mode, game_mode, team_type, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches",
     )) {
-      rows = String(values[0]) === this.match.id ? [structuredClone(this.match)] : [];
+      const match = this.matchById(String(values[0]));
+      rows = match ? [structuredClone(match)] : [];
     } else if (normalized.startsWith(
       "SELECT r.id, r.captain_game_name, r.captain_game_uid, r.entry_coins_paid, l.balance_after",
     )) {
@@ -288,6 +368,7 @@ class RegistrationCapacityTestDatabase {
         item.match_id === String(values[0]) && item.captain_user_id === String(values[1]),
       );
       const entry = registration && this.ledger.find((item) => item.registration_id === registration.id);
+      const match = registration && this.matchById(registration.match_id);
       if (registration && entry) {
         rows = [{
           id: registration.id,
@@ -295,15 +376,16 @@ class RegistrationCapacityTestDatabase {
           captain_game_uid: registration.captain_game_uid,
           entry_coins_paid: registration.entry_coins_paid,
           balance_after: entry.balance_after,
-          capacity: this.match.capacity,
-          status: this.match.status,
-          is_full: this.match.is_full,
+          capacity: match?.capacity,
+          status: match?.status,
+          is_full: match?.is_full,
           registration_status: registration.status,
         }];
       }
     } else if (normalized.startsWith("SELECT starts_at > clock_timestamp()")) {
+      const match = this.matchById(String(values[0]));
       rows = [{
-        upcoming: this.match.starts_at.getTime() > Date.now() + 5 * 60 * 60 * 1000 + 30 * 60 * 1000,
+        upcoming: Boolean(match && match.starts_at.getTime() > Date.now() + 5 * 60 * 60 * 1000 + 30 * 60 * 1000),
       }];
     } else if (normalized.startsWith("SELECT r.id FROM daily007_v2_registrations r")) {
       const submittedUids = (values[1] as string[]).map((uid) => uid.toLowerCase());
@@ -369,8 +451,11 @@ class RegistrationCapacityTestDatabase {
         registration_id: String(registrationId),
       });
     } else if (normalized.startsWith("UPDATE daily007_v2_matches SET status")) {
-      this.match.status = String(values[1]);
-      this.match.is_full = true;
+      const match = this.matchById(String(values[0]));
+      if (match) {
+        match.status = String(values[1]);
+        match.is_full = true;
+      }
     } else {
       throw new Error(`Unexpected registration-capacity test SQL: ${normalized}`);
     }

@@ -9,6 +9,7 @@ import {
   registrationCapacityTestDb,
   SECOND_PLAYER_ID,
   TEST_MATCH_ID,
+  TEST_SECOND_MATCH_ID,
 } from "./support/daily007-registration-capacity-test-db";
 
 const TEST_AUTH_SECRET = "last-tournament-slot-test-secret-32-characters";
@@ -49,10 +50,11 @@ async function sendRegistration(
   playerId: string,
   gameUid: string,
   team?: TeamRegistration,
+  matchId = TEST_MATCH_ID,
 ) {
   const token = makeToken(playerId, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
-  const response = await fetch(`${origin}/daily007/v2/matches/${TEST_MATCH_ID}/register`, {
+  const response = await fetch(`${origin}/daily007/v2/matches/${matchId}/register`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -113,6 +115,83 @@ test("simultaneous joins cannot charge both players for the last tournament slot
       assert.equal(registrationCapacityTestDb.ledger.length, 2);
       assert.equal(approved.filter((registration) => registration.captain_user_id === FIRST_PLAYER_ID).length, 1);
       assert.equal(approved.filter((registration) => registration.captain_user_id === SECOND_PLAYER_ID).length, 0);
+    } finally {
+      lockHold.release();
+    }
+  });
+});
+
+test("simultaneous joins to different tournaments serialize one player's wallet deductions", async () => {
+  registrationCapacityTestDb.reset();
+  const lockHold = registrationCapacityTestDb.holdNextWalletRowLock();
+
+  await withServer(async (origin) => {
+    const firstRequest = sendRegistration(origin, FIRST_PLAYER_ID, "FF-FIRST-PLAYER");
+    try {
+      const firstLocked = await Promise.race([
+        lockHold.firstAcquired.then(() => true),
+        firstRequest.then(() => false),
+      ]);
+      assert.equal(firstLocked, true, "the first join should hold the player's wallet row lock");
+
+      const secondRequest = sendRegistration(
+        origin,
+        FIRST_PLAYER_ID,
+        "FF-FIRST-PLAYER-SECOND-MATCH",
+        undefined,
+        TEST_SECOND_MATCH_ID,
+      );
+      const secondQueued = await Promise.race([
+        lockHold.secondQueued.then(() => true),
+        Promise.all([firstRequest, secondRequest]).then(() => false),
+      ]);
+      assert.equal(secondQueued, true, "the other tournament join should wait for the same wallet row");
+
+      lockHold.release();
+      const [first, second] = await Promise.all([firstRequest, secondRequest]);
+      assert.equal(first.status, 201);
+      assert.equal(second.status, 201);
+      assert.equal(registrationCapacityTestDb.users.get(FIRST_PLAYER_ID)?.wallet_coins, 86);
+      assert.deepEqual(
+        [first.body.walletCoins, second.body.walletCoins].sort((left, right) => Number(left) - Number(right)),
+        [86, 93],
+        "the two responses should reflect sequential wallet balances",
+      );
+
+      const registrations = registrationCapacityTestDb.registrations.filter((registration) =>
+        registration.captain_user_id === FIRST_PLAYER_ID,
+      );
+      assert.equal(registrations.length, 2);
+      assert.deepEqual(
+        new Set(registrations.map((registration) => registration.match_id)),
+        new Set([TEST_MATCH_ID, TEST_SECOND_MATCH_ID]),
+      );
+
+      const ledgerEntries = registrationCapacityTestDb.ledger.filter((entry) =>
+        entry.user_id === FIRST_PLAYER_ID,
+      );
+      assert.equal(ledgerEntries.length, 2);
+      for (const matchId of [TEST_MATCH_ID, TEST_SECOND_MATCH_ID]) {
+        const matchEntries = ledgerEntries.filter((entry) => entry.match_id === matchId);
+        assert.equal(matchEntries.length, 1, `exactly one wallet ledger entry should exist for ${matchId}`);
+        assert.equal(matchEntries[0].amount, -7);
+        const registration = registrations.find((item) => item.match_id === matchId);
+        assert.ok(registration);
+        assert.equal(matchEntries[0].registration_id, registration.id);
+      }
+      assert.deepEqual(
+        ledgerEntries.map((entry) => entry.balance_after).sort((left, right) => left - right),
+        [86, 93],
+        "ledger balances should reflect the serialized wallet updates",
+      );
+      assert.equal(
+        Number(first.body.walletCoins),
+        ledgerEntries.find((entry) => entry.match_id === TEST_MATCH_ID)?.balance_after,
+      );
+      assert.equal(
+        Number(second.body.walletCoins),
+        ledgerEntries.find((entry) => entry.match_id === TEST_SECOND_MATCH_ID)?.balance_after,
+      );
     } finally {
       lockHold.release();
     }
