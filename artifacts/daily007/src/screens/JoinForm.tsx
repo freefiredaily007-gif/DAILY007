@@ -4,6 +4,7 @@ import { ReadableText as Text } from '../components/typography';
 import { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
+import { buildJoinFormPayload } from '../lib/joinFormPayload';
 
 type Member = { name: string; uid: string };
 
@@ -92,17 +93,13 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     if (new Set(submittedUids).size !== submittedUids.length) return setErr('Each player must have a different game UID.');
     setBusy(true);
     try {
-      const players = [
-        { name: captainGameName.trim(), uid: captainGameUid.trim() },
-        ...members.map((member) => ({ name: member.name.trim(), uid: member.uid.trim() })),
-      ];
-      await onSubmit({
-        teamMembers: JSON.stringify(players),
-        teamName: teamName.trim(),
-        playerName: captainProfileName,
+      await onSubmit(buildJoinFormPayload({
+        captainProfileName,
         captainGameName: captainGameName.trim(),
-        gameUid: captainGameUid.trim(),
-      });
+        captainGameUid: captainGameUid.trim(),
+        teamName,
+        members,
+      }));
     } catch (e: any) {
       setErr(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Registration could not be confirmed. Please try again.');
     } finally { setBusy(false); }
