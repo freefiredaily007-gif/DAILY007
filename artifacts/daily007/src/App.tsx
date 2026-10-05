@@ -23,6 +23,7 @@ import LeaderboardDetails from './screens/LeaderboardDetails';
 import Notifications from './screens/Notifications';
 import EditProfile from './screens/EditProfile';
 import AdminApp from './screens/AdminApp';
+import { joinWithCapacityRefresh } from './lib/tournamentJoinRecovery';
 import { WalletIconActive, WalletIconInactive } from './components/WalletIcon';
 import { VideoIconActive, VideoIconInactive } from './components/VideoIcon';
 import { ProfileIconActive, ProfileIconInactive } from './components/ProfileIcon';
@@ -98,7 +99,12 @@ function JoinFormRoute() {
         navigation.goBack();
         return;
       }
-      const result = await Api.join(tournament.id, payload);
+      const result = await joinWithCapacityRefresh(
+        () => Api.join(tournament.id, payload),
+        tournament.id,
+        Api.tournament,
+        setTournament,
+      );
       if (result?.success === false || result?.ok === false) {
         throw new Error(result?.error || result?.message || 'The server did not confirm this registration.');
       }

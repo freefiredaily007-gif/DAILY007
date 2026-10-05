@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:video-watch-progress": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-watch-progress.test.mjs",
     "test:tournament-mode-filters": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-mode-filters.test.mjs",
+    "test:tournament-join-recovery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-join-recovery.test.mjs",
     "test:leaderboard-refresh-policy": "node --test scripts/leaderboard-refresh-policy.test.mjs",
     "test:home-tournament-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/home-tournament-refresh.test.mjs",
     "test:tournament-winner-details": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-winner-details.test.mjs",
