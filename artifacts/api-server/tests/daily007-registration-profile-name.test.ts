@@ -23,6 +23,14 @@ const TEAMMATE_TWO_NAME = "FireMateTwo";
 const TEAMMATE_TWO_UID = "FF-MATE-030";
 const TEAMMATE_THREE_NAME = "FireMateThree";
 const TEAMMATE_THREE_UID = "FF-MATE-031";
+const CSV_PROFILE_NAME = 'Daily007, "Captain"';
+const CSV_CAPTAIN_GAME_NAME = 'Fire, "Storm"';
+const CSV_TEAM_NAME = 'Squad, "Wildfire"';
+const CSV_TEAMMATE_NAMES = [
+  'Mate, "North"',
+  'Mate, "East"',
+  'Mate, "West"',
+] as const;
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -310,6 +318,83 @@ for (const request of registrationRequests) {
     }
   });
 }
+
+test("admin registration CSV preserves commas and quotes in name columns", async () => {
+  registrationProfileTestDb.reset(CSV_PROFILE_NAME);
+  const teammates = CSV_TEAMMATE_NAMES.map((name, index) => ({
+    name,
+    uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
+  }));
+
+  try {
+    await withServer(async (origin) => {
+      const response = await sendRegistration(origin, registrationRequests[0].path, {
+        ...registrationRequests[0].body,
+        captainGameName: CSV_CAPTAIN_GAME_NAME,
+        teamName: CSV_TEAM_NAME,
+        teammates,
+      });
+      assert.equal(response.status, 201);
+
+      const registration = registrationProfileTestDb.registrations[0];
+      const savedRoster = registrationProfileTestDb.roster
+        .filter((member) => member.registration_id === registration.id)
+        .sort((left, right) => left.position - right.position);
+      assert.deepEqual(
+        {
+          profileName: registration.captain_name,
+          captainGameName: registration.captain_game_name,
+          teamName: registration.team_name,
+          teammateNames: savedRoster.map((member) => member.member_name),
+        },
+        {
+          profileName: CSV_PROFILE_NAME,
+          captainGameName: CSV_CAPTAIN_GAME_NAME,
+          teamName: CSV_TEAM_NAME,
+          teammateNames: CSV_TEAMMATE_NAMES,
+        },
+      );
+
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+      const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
+      assert.equal(csvLines.length, 2);
+
+      const headers = parseCsvRow(csvLines[0]);
+      const values = parseCsvRow(csvLines[1]);
+      assert.equal(values.length, headers.length);
+      const expectedColumns: Record<string, string> = {
+        captain_profile_name: registration.captain_name,
+        captain_game_name: registration.captain_game_name,
+        captain_game_uid: registration.captain_game_uid,
+        captain_email: registrationProfileTestDb.user.email,
+        team_name: registration.team_name,
+        teammate_1_name: savedRoster[0].member_name,
+        teammate_1_game_uid: savedRoster[0].member_uid ?? "",
+        teammate_2_name: savedRoster[1].member_name,
+        teammate_2_game_uid: savedRoster[1].member_uid ?? "",
+        teammate_3_name: savedRoster[2].member_name,
+        teammate_3_game_uid: savedRoster[2].member_uid ?? "",
+      };
+      for (const [column, expectedValue] of Object.entries(expectedColumns)) {
+        const index = headers.indexOf(column);
+        assert.notEqual(index, -1, `CSV header should include ${column}`);
+        assert.equal(values[index], expectedValue, `${column} should remain in its own column`);
+      }
+      const registeredAtIndex = headers.indexOf("registered_at");
+      assert.notEqual(registeredAtIndex, -1);
+      assert.ok(Number.isFinite(Date.parse(values[registeredAtIndex])));
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
 
 test("team edits change only Free Fire and roster details, not the captain profile or entry charge", async () => {
   registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
