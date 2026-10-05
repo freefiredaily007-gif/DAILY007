@@ -229,6 +229,15 @@ class RoomAccessTestDatabase {
     )) {
       rows = [];
     } else if (normalized.startsWith(
+      "UPDATE daily007_v2_matches SET room_id = $2, room_password = $3, room_published = true",
+    )) {
+      if (first === this.match.id && this.match.status !== "cancelled") {
+        this.match.room_id = String(values[1] ?? "");
+        this.match.room_password = String(values[2] ?? "");
+        this.match.room_published = true;
+        rows = [{ id: this.match.id, published: true }];
+      }
+    } else if (normalized.startsWith(
       "UPDATE daily007_v2_matches SET room_id = NULL, room_password = NULL, room_published = false",
     )) {
       if (first === this.match.id) {

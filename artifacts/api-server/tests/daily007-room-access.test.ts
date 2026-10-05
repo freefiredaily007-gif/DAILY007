@@ -94,12 +94,17 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
 async function request(
   origin: string,
   path: string,
-  method: "GET" | "DELETE",
+  method: "GET" | "DELETE" | "PUT",
   token: string,
+  body?: unknown,
 ): Promise<JsonResult> {
   const response = await fetch(`${origin}${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}` },
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
 }
@@ -230,7 +235,7 @@ test("v2 room endpoint requires approval and an open release window", async () =
   });
 });
 
-test("clearing room credentials blocks approved-player access without changing tournament registrations", async () => {
+test("clearing and replacing room credentials preserves registrations and exposes only the replacement values", async () => {
   roomAccessTestDb.reset();
 
   const adminToken = makeToken(TEST_ADMIN_ID, 0);
@@ -288,6 +293,48 @@ test("clearing room credentials blocks approved-player access without changing t
     assert.equal(legacyAfter.body[0].roomPublished, false);
     assert.equal("roomId" in legacyAfter.body[0].tournament, false);
     assert.equal("roomPassword" in legacyAfter.body[0].tournament, false);
+
+    const replacementCredentials = {
+      roomId: "TEST-ROOM-REPLACEMENT-820",
+      roomPassword: "replacement-fixture-password",
+    };
+    const saved = await request(
+      origin,
+      `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+      "PUT",
+      adminToken,
+      replacementCredentials,
+    );
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.body, {
+      match: {
+        id: TEST_MATCH_ID,
+        published: true,
+      },
+    });
+    assert.equal(roomAccessTestDb.match.room_id, replacementCredentials.roomId);
+    assert.equal(roomAccessTestDb.match.room_password, replacementCredentials.roomPassword);
+    assert.equal(roomAccessTestDb.match.room_published, true);
+
+    const v2CredentialsAfterSave = await request(
+      origin,
+      `/daily007/v2/matches/${TEST_MATCH_ID}/room`,
+      "GET",
+      playerToken,
+    );
+    assert.equal(v2CredentialsAfterSave.status, 200);
+    assert.deepEqual(v2CredentialsAfterSave.body, replacementCredentials);
+
+    const legacyAfterSave = await request(origin, "/my/registrations", "GET", playerToken);
+    assert.equal(legacyAfterSave.status, 200);
+    assert.equal(legacyAfterSave.body[0].id, TEST_REGISTRATION_ID);
+    assert.equal(legacyAfterSave.body[0].roomId, replacementCredentials.roomId);
+    assert.equal(legacyAfterSave.body[0].roomPassword, replacementCredentials.roomPassword);
+    assert.equal(legacyAfterSave.body[0].roomPublished, true);
+    assert.equal(legacyAfterSave.body[0].tournament.roomId, replacementCredentials.roomId);
+    assert.equal(legacyAfterSave.body[0].tournament.roomPassword, replacementCredentials.roomPassword);
+    assert.equal(JSON.stringify(legacyAfterSave.body).includes(matchBefore.room_id!), false);
+    assert.equal(JSON.stringify(legacyAfterSave.body).includes(matchBefore.room_password!), false);
 
     assert.equal(roomAccessTestDb.match.status, matchBefore.status);
     assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
