@@ -433,7 +433,6 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
     status: finalized ? "finalized" : "draft",
     finalizedAt: finalized && winner ? new Date(winner.created_at).toISOString() : null,
     entries: finalized ? result.rows.map((row) => ({
-      registrationId: row.registration_id,
       rank: row.rank,
       kills: row.kills,
       prizeCoins: row.prize_coins,

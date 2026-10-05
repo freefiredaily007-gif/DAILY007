@@ -79,6 +79,11 @@ async function call(
   return { status: response.status, body: await response.json() };
 }
 
+async function callPublic(origin: string, path: string): Promise<JsonResult> {
+  const response = await fetch(`${origin}${path}`);
+  return { status: response.status, body: await response.json() };
+}
+
 async function createResultsTournament(origin: string): Promise<void> {
   const startsAt = new Date(Date.now() + 86_400_000);
   const createdTournament = await call(origin, TEST_ADMIN_ID, "/tournaments", "POST", {
@@ -188,26 +193,26 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(standings.body.status, "finalized");
     assert.deepEqual(
       standings.body.entries.map((entry: any) => ({
-        registrationId: entry.registrationId,
         rank: entry.rank,
         kills: entry.kills,
         prizeCoins: entry.prizeCoins,
         gameName: entry.gameName,
+        teamName: entry.teamName,
       })),
       [
         {
-          registrationId: TEST_WINNER_REGISTRATION_ID,
           rank: 1,
           kills: 7,
           prizeCoins: 1_500,
           gameName: "WinnerFF",
+          teamName: null,
         },
         {
-          registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
           rank: 2,
           kills: 3,
           prizeCoins: 600,
           gameName: "RunnerUpFF",
+          teamName: null,
         },
       ],
     );
@@ -257,6 +262,102 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(standingsAfterCompetition.status, 200);
     assert.deepEqual(standingsAfterCompetition.body, standings.body);
     assert.deepEqual(captureSettlementState(), sideEffectsBeforeRetry);
+  });
+});
+
+test("public tournament standings expose only display fields, not account data", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+
+    const winnerAccount = tournamentResultsTestDb.users.get(TEST_WINNER_ID);
+    const runnerUpAccount = tournamentResultsTestDb.users.get(TEST_RUNNER_UP_ID);
+    const winnerRegistration = tournamentResultsTestDb.registrations.find(
+      (registration) => registration.id === TEST_WINNER_REGISTRATION_ID,
+    );
+    const runnerUpRegistration = tournamentResultsTestDb.registrations.find(
+      (registration) => registration.id === TEST_RUNNER_UP_REGISTRATION_ID,
+    );
+    assert.ok(winnerAccount);
+    assert.ok(runnerUpAccount);
+    assert.ok(winnerRegistration);
+    assert.ok(runnerUpRegistration);
+
+    winnerAccount.wallet_coins = 987_654_321;
+    runnerUpAccount.wallet_coins = 876_543_210;
+    winnerAccount.phone = "private-winner-phone-731";
+    winnerAccount.game_uid = "private-winner-uid-842";
+    runnerUpAccount.phone = "private-runner-phone-953";
+    runnerUpAccount.game_uid = "private-runner-uid-164";
+    winnerRegistration.team_name = "Winner Team";
+    runnerUpRegistration.team_name = "Runner-Up Team";
+
+    const runnerUpAward = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+      rank: 2,
+      kills: 3,
+      prizeCoins: 0,
+    });
+    assert.equal(runnerUpAward.status, 201);
+    const winnerAward = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 7,
+      prizeCoins: 0,
+    });
+    assert.equal(winnerAward.status, 201);
+
+    const privateAccountValues = [
+      winnerAccount.name,
+      winnerAccount.email,
+      winnerAccount.phone,
+      winnerAccount.game_uid,
+      String(winnerAccount.wallet_coins),
+      runnerUpAccount.name,
+      runnerUpAccount.email,
+      runnerUpAccount.phone,
+      runnerUpAccount.game_uid,
+      String(runnerUpAccount.wallet_coins),
+    ];
+    assert.ok(privateAccountValues.every((value) => value !== null));
+
+    const standings = await callPublic(origin, `/tournaments/${TEST_MATCH_ID}/results`);
+    assert.equal(standings.status, 200);
+    assert.equal(standings.body.status, "finalized");
+    assert.deepEqual(Object.keys(standings.body).sort(), [
+      "entries",
+      "finalizedAt",
+      "status",
+      "tournamentId",
+    ]);
+    assert.deepEqual(
+      standings.body.entries,
+      [
+        {
+          rank: 1,
+          kills: 7,
+          prizeCoins: 1_500,
+          gameName: "WinnerFF",
+          teamName: "Winner Team",
+        },
+        {
+          rank: 2,
+          kills: 3,
+          prizeCoins: 600,
+          gameName: "RunnerUpFF",
+          teamName: "Runner-Up Team",
+        },
+      ],
+    );
+
+    const responseText = JSON.stringify(standings.body);
+    for (const privateValue of privateAccountValues) {
+      assert.equal(responseText.includes(String(privateValue)), false);
+    }
   });
 });
 
@@ -348,13 +449,11 @@ test("failed result settlement rolls back every write and permits one valid retr
     assert.equal(standingsAfterRetry.body.status, "finalized");
     assert.deepEqual(
       standingsAfterRetry.body.entries.map((entry: any) => ({
-        registrationId: entry.registrationId,
         rank: entry.rank,
         kills: entry.kills,
         prizeCoins: entry.prizeCoins,
       })),
       [{
-        registrationId: TEST_WINNER_REGISTRATION_ID,
         rank: 1,
         kills: 7,
         prizeCoins: 1_500,

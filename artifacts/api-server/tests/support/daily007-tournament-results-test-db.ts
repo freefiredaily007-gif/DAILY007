@@ -4,8 +4,8 @@ type TestUser = {
   email: string;
   role: "admin" | "user";
   wallet_coins: number;
-  phone: null;
-  game_uid: null;
+  phone: string | null;
+  game_uid: string | null;
   status: "active";
   auth_version: number;
 };
