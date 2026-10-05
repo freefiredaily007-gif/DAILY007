@@ -187,6 +187,18 @@ const previewAdminWithdrawals = [
     status: "pending",
     createdAt: "2026-10-05T09:25:00.000Z",
   },
+  {
+    id: "preview-withdrawal-approved-manual-payout-2026",
+    userId: "preview-user-approved-payout-2026",
+    userName: "Approved Preview Payout Player",
+    coins: 789000,
+    amount: 789000,
+    method: "upi",
+    account: "approved.daily007.preview.payout@upi",
+    status: "approved",
+    payoutStatus: "manual_payout_required",
+    createdAt: "2026-10-04T16:40:00.000Z",
+  },
 ];
 
 const previewAdminTransactions = [
@@ -211,6 +223,17 @@ let deferredHomeRegistrationRead: {
   claimed: boolean;
 } | null = null;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
+type AdminPreviewMutationCall = { method: string; [key: string]: unknown };
+const adminPreviewMutationCalls: AdminPreviewMutationCall[] = [];
+const adminPreviewMutations = {
+  calls: adminPreviewMutationCalls,
+  reset: () => {
+    adminPreviewMutationCalls.length = 0;
+  },
+};
+(globalThis as typeof globalThis & {
+  __daily007AdminMutations?: typeof adminPreviewMutations;
+}).__daily007AdminMutations = adminPreviewMutations;
 
 function isAdminLargestTextPreview() {
   const scale = Number(
@@ -403,16 +426,50 @@ export const Api = {
   updateTournament: async () => ({}),
   createTournament: async () => ({}),
   deleteTournament: async () => ({}),
-  adminAdjustCoins: async () => ({}),
-  adminDeleteRegistration: async () => ({}),
-  adminMarkWithdrawalPaid: async () => ({}),
-  adminPaymentAction: async () => ({}),
+  adminAdjustCoins: async (userId: string, amount: number, reason: string) => {
+    adminPreviewMutationCalls.push({ method: "adminAdjustCoins", userId, amount, reason });
+    return {};
+  },
+  adminDeleteRegistration: async (id: string) => {
+    adminPreviewMutationCalls.push({ method: "adminDeleteRegistration", id });
+    return {};
+  },
+  adminMarkWithdrawalPaid: async (id: string) => {
+    adminPreviewMutationCalls.push({ method: "adminMarkWithdrawalPaid", id });
+    return {};
+  },
+  adminPaymentAction: async (id: string, action: string, reason?: string) => {
+    adminPreviewMutationCalls.push({
+      method: "adminPaymentAction",
+      id,
+      action,
+      ...(reason === undefined ? {} : { reason }),
+    });
+    return {};
+  },
   adminPaymentProofUrl: async () => ({ url: "" }),
-  adminRegAction: async () => ({}),
+  adminRegAction: async (id: string, action: string) => {
+    adminPreviewMutationCalls.push({ method: "adminRegAction", id, action });
+    return {};
+  },
   adminSendNotification: async () => ({}),
-  adminSetUser: async () => ({}),
-  adminSetUserRole: async () => ({}),
-  adminWithdrawalAction: async () => ({}),
+  adminSetUser: async (id: string, payload: Record<string, unknown>) => {
+    adminPreviewMutationCalls.push({ method: "adminSetUser", id, payload: { ...payload } });
+    return {};
+  },
+  adminSetUserRole: async (id: string, role: string) => {
+    adminPreviewMutationCalls.push({ method: "adminSetUserRole", id, role });
+    return {};
+  },
+  adminWithdrawalAction: async (id: string, action: string, reason?: string) => {
+    adminPreviewMutationCalls.push({
+      method: "adminWithdrawalAction",
+      id,
+      action,
+      ...(reason === undefined ? {} : { reason }),
+    });
+    return {};
+  },
 };
 
 export function getTournamentReadCount() {

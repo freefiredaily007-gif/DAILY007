@@ -26,6 +26,7 @@ const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
+const adminActionsOnly = process.argv.includes("--admin-actions-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -200,6 +201,95 @@ async function clickTextLabel(text) {
   })()`);
   assert(clicked, `Could not find the "${text}" label.`);
   await delay(130);
+}
+
+async function clickRowButton(marker, action, description) {
+  const clicked = await evaluate(`(() => {
+    const marker = ${JSON.stringify(marker)};
+    const action = ${JSON.stringify(action)};
+    const markerElement = [...document.querySelectorAll('*')].find((element) =>
+      element.children.length === 0 && element.textContent.trim() === marker
+    );
+    if (!markerElement) return false;
+
+    const buttonsIn = (element) => [...element.querySelectorAll('[role="button"], button, [tabindex="0"]')];
+    const hasAction = (element) => buttonsIn(element).some((button) => button.textContent.trim() === action);
+    let row = markerElement;
+    while (row && !hasAction(row)) row = row.parentElement;
+    if (!row) return false;
+    const button = buttonsIn(row).find((item) => item.textContent.trim() === action);
+    if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return false;
+    button.click();
+    return true;
+  })()`);
+  assert(clicked, `Could not find the "${action}" action in the ${description} row.`);
+  await delay(130);
+}
+
+async function clickDialogButton(marker, action, description) {
+  const clicked = await evaluate(`(() => {
+    const marker = ${JSON.stringify(marker)};
+    const action = ${JSON.stringify(action)};
+    const markerElement = [...document.querySelectorAll('*')].find((element) =>
+      element.children.length === 0 && element.textContent.trim() === marker
+    );
+    if (!markerElement) return false;
+
+    const buttonsIn = (element) => [...element.querySelectorAll('[role="button"], button, [tabindex="0"]')];
+    const hasAction = (element) => buttonsIn(element).some((button) => button.textContent.trim() === action);
+    let dialog = markerElement;
+    while (dialog && !hasAction(dialog)) dialog = dialog.parentElement;
+    if (!dialog) return false;
+    const button = buttonsIn(dialog).find((item) => item.textContent.trim() === action);
+    if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return false;
+    button.click();
+    return true;
+  })()`);
+  assert(clicked, `Could not find the "${action}" action in the ${description}.`);
+  await delay(130);
+}
+
+async function setLastVisibleInput(value, description) {
+  const updated = await evaluate(`(() => {
+    const inputs = [...document.querySelectorAll('input')]
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+    const input = inputs.at(-1);
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    if (!setter) return false;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })()`);
+  assert(updated, `Could not enter a value into the ${description}.`);
+  await delay(90);
+}
+
+async function resetAdminMutationCalls() {
+  const reset = await evaluate(`(() => {
+    const tracker = window.__daily007AdminMutations;
+    if (!tracker?.reset) return false;
+    tracker.reset();
+    return true;
+  })()`);
+  assert(reset, "The isolated Admin mutation-call tracker is missing.");
+}
+
+async function assertAdminMutation(expected, description) {
+  await waitForCondition(
+    "window.__daily007AdminMutations?.calls?.length >= 1",
+    `${description} API call`,
+  );
+  const calls = await evaluate("window.__daily007AdminMutations?.calls ?? null");
+  assert(Array.isArray(calls) && calls.length === 1, `${description} should make exactly one Admin mutation call: ${JSON.stringify(calls)}.`);
+  assert(
+    JSON.stringify(calls[0]) === JSON.stringify(expected),
+    `${description} targeted the wrong record or operation. Expected ${JSON.stringify(expected)}, received ${JSON.stringify(calls[0])}.`,
+  );
 }
 
 async function assertText(text, label = text) {
@@ -633,6 +723,190 @@ async function checkPopulatedAdminLists(width) {
     width,
     "Admin user",
   );
+}
+
+async function checkAdminSelectedRecordMutations() {
+  assert(
+    await evaluate("Boolean(window.__daily007AdminMutations?.reset)"),
+    "The isolated Admin mutation-call tracker is not installed.",
+  );
+  const registrationMarker =
+    "Ananya Daily007 Championship Champion With A Long Name — International Free Fire Finals Squad";
+  const approvedRegistrationMarker = "Rohan Free Fire Strategist — Preview Approved Team";
+
+  await clickSelector('[data-testid="admin-tab-registrations"]', "Registrations tab");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(registrationMarker)})`,
+    "the selected fake registration to load",
+  );
+  await resetAdminMutationCalls();
+  await clickRowButton(registrationMarker, "APPROVE", "pending registration");
+  await assertAdminMutation({
+    method: "adminRegAction",
+    id: "preview-registration-pending-long-identifier-2026",
+    action: "approve",
+  }, "Registration approval");
+
+  await resetAdminMutationCalls();
+  await clickRowButton(registrationMarker, "REJECT", "pending registration");
+  await assertAdminMutation({
+    method: "adminRegAction",
+    id: "preview-registration-pending-long-identifier-2026",
+    action: "reject",
+  }, "Registration rejection");
+
+  await clickTextLabel("APPROVED");
+  await resetAdminMutationCalls();
+  await clickRowButton(approvedRegistrationMarker, "DELETE", "approved registration");
+  await assertAdminMutation({
+    method: "adminDeleteRegistration",
+    id: "preview-registration-approved-2026",
+  }, "Registration deletion");
+
+  await clickSelector('[data-testid="admin-tab-payments"]', "Payments tab");
+  await waitForCondition(
+    "document.body.innerText.includes('Ananya Championship Participant With A Long Display Name')",
+    "the selected fake deposit to load",
+  );
+  await resetAdminMutationCalls();
+  await clickRowButton(
+    "Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026",
+    "APPROVE",
+    "pending deposit",
+  );
+  await assertAdminMutation({
+    method: "adminPaymentAction",
+    id: "preview-payment-pending-long-reference-2026",
+    action: "approve",
+  }, "Deposit approval");
+
+  await resetAdminMutationCalls();
+  await clickRowButton(
+    "Rohan International Tournament Champion · User ID: preview-user-rohan-championship-account-2026",
+    "REJECT",
+    "pending withdrawal",
+  );
+  await assertText("Reject request", "the withdrawal rejection dialog");
+  await setLastVisibleInput("Preview rejection reason", "withdrawal rejection reason");
+  await clickDialogButton("Reject request", "REJECT", "withdrawal rejection dialog");
+  await assertAdminMutation({
+    method: "adminWithdrawalAction",
+    id: "preview-withdrawal-pending-long-reference-2026",
+    action: "reject",
+    reason: "Preview rejection reason",
+  }, "Withdrawal rejection");
+
+  await clickTextLabel("APPROVED");
+  await waitForCondition(
+    "document.body.innerText.includes('Approved Preview Payout Player · User ID: preview-user-approved-payout-2026')",
+    "the selected approved withdrawal to load",
+  );
+  await resetAdminMutationCalls();
+  await clickRowButton(
+    "Approved Preview Payout Player · User ID: preview-user-approved-payout-2026",
+    "RECORD MANUAL PAYOUT SENT",
+    "approved withdrawal",
+  );
+  await assertText("Record manual payout", "the manual payout confirmation");
+  await clickDialogButton("Record manual payout", "MARK PAID", "manual payout confirmation");
+  await assertAdminMutation({
+    method: "adminMarkWithdrawalPaid",
+    id: "preview-withdrawal-approved-manual-payout-2026",
+  }, "Manual withdrawal payout");
+
+  await clickSelector('[data-testid="admin-tab-wallet"]', "Wallet tab");
+  await waitForCondition(
+    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    "the selected fake Wallet user to load",
+  );
+  await resetAdminMutationCalls();
+  await clickRowButton(
+    "ananya.champion.with.a.long.fake.address@example.invalid",
+    "+ ADD",
+    "Wallet user",
+  );
+  await assertText("Add coins", "the Wallet coin adjustment dialog");
+  await setLastVisibleInput("321", "Wallet coin amount");
+  await clickDialogButton("Add coins", "ADD", "Wallet coin adjustment dialog");
+  await assertAdminMutation({
+    method: "adminAdjustCoins",
+    userId: "preview-user-ananya-championship-2026",
+    amount: 321,
+    reason: "Admin added coins",
+  }, "Wallet coin addition");
+
+  await resetAdminMutationCalls();
+  await clickRowButton(
+    "ananya.champion.with.a.long.fake.address@example.invalid",
+    "− DEDUCT",
+    "Wallet user",
+  );
+  await assertText("Deduct coins", "the Wallet deduction dialog");
+  await setLastVisibleInput("87", "Wallet coin deduction amount");
+  await clickDialogButton("Deduct coins", "DEDUCT", "Wallet deduction dialog");
+  await assertAdminMutation({
+    method: "adminAdjustCoins",
+    userId: "preview-user-ananya-championship-2026",
+    amount: -87,
+    reason: "Admin deducted coins",
+  }, "Wallet coin deduction");
+
+  await clickSelector('[data-testid="admin-tab-users"]', "Users tab");
+  await waitForCondition(
+    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    "the selected fake Admin user to load",
+  );
+  const userId = "preview-user-ananya-championship-2026";
+  await resetAdminMutationCalls();
+  await clickSelector(`[data-testid="change-user-role-${userId}"]`, "user role action");
+  await clickSelector('[data-testid="confirm-tournament-admin-change"]', "confirm user role action");
+  await assertAdminMutation({
+    method: "adminSetUserRole",
+    id: userId,
+    role: "tournament_admin",
+  }, "User role change");
+
+  await resetAdminMutationCalls();
+  await clickRowButton(
+    "ananya.champion.with.a.long.fake.address@example.invalid",
+    "BLOCK",
+    "Admin user",
+  );
+  const blockPrompt = await evaluate(`(() => {
+    const alert = window.__daily007AdminAlert;
+    return alert ? { kind: alert.kind, title: alert.title, message: alert.message, buttons: alert.buttons } : null;
+  })()`);
+  assert(
+    blockPrompt?.kind === "alert" && blockPrompt.title === "Block user?" && blockPrompt.buttons?.includes("Block"),
+    `Blocking the selected user did not request the expected confirmation: ${JSON.stringify(blockPrompt)}.`,
+  );
+  await evaluate(`window.__daily007AdminAlert.choose("Block")`);
+  await assertAdminMutation({
+    method: "adminSetUser",
+    id: userId,
+    payload: { status: "blocked" },
+  }, "User block");
+
+  const otherUserEmail = "rohan.preview.player@example.invalid";
+  await resetAdminMutationCalls();
+  await clickRowButton(otherUserEmail, "− COINS", "second Admin user");
+  const coinPrompt = await evaluate(`(() => {
+    const alert = window.__daily007AdminAlert;
+    return alert ? { kind: alert.kind, title: alert.title, message: alert.message } : null;
+  })()`);
+  assert(
+    coinPrompt?.kind === "prompt" &&
+      coinPrompt.title === "Deduct coins" &&
+      coinPrompt.message?.includes("Rohan Free Fire Strategist"),
+    `The coin prompt did not target the selected user: ${JSON.stringify(coinPrompt)}.`,
+  );
+  await evaluate(`window.__daily007AdminAlert.submit("44")`);
+  await assertAdminMutation({
+    method: "adminAdjustCoins",
+    userId: "preview-user-rohan-free-fire-2026",
+    amount: -44,
+    reason: "Admin deducted coins",
+  }, "User coin deduction");
 }
 
 async function checkTournamentStates(width, { largeText = false } = {}) {
@@ -1617,10 +1891,21 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (resumeOnly || scheduledStartOnly || homeCarouselOnly || keyboardFormsOnly || adminKeyboardFormsOnly) {
+  if (
+    resumeOnly ||
+    scheduledStartOnly ||
+    homeCarouselOnly ||
+    keyboardFormsOnly ||
+    adminKeyboardFormsOnly ||
+    adminActionsOnly
+  ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: homeCarouselOnly || scheduledStartOnly ? 390 : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
-      height: homeCarouselOnly || scheduledStartOnly ? 844 : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
+      width: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+        ? 390
+        : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
+      height: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+        ? 844
+        : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
@@ -1633,9 +1918,21 @@ try {
           ? "Wallet and Edit Profile"
         : adminKeyboardFormsOnly
           ? "Admin tournament keyboard forms"
+        : adminActionsOnly
+          ? "Admin selected-record actions"
           : "player and Admin tournament screens",
     );
-    if (adminKeyboardFormsOnly) {
+    if (adminActionsOnly) {
+      await setViewport(390);
+      await checkAdminSelectedRecordMutations();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin selected-record action checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — Registration, payment, withdrawal, wallet, and user actions submit the selected fake record and intended operation through the isolated Admin API mock.",
+      );
+    } else if (adminKeyboardFormsOnly) {
       await checkAdminTournamentKeyboard();
       assert(
         browserErrors.length === 0,
@@ -1699,6 +1996,16 @@ try {
         `PASS ${width}px at 1.5× text — populated registration, payment, wallet, and user rows and actions fit without clipping or page overflow.`,
       );
     }
+
+    await setViewport(390);
+    await checkAdminSelectedRecordMutations();
+    assert(
+      browserErrors.length === 0,
+      `Browser errors during Admin selected-record action checks: ${browserErrors.join(" | ")}`,
+    );
+    console.log(
+      "PASS — Registration, payment, withdrawal, wallet, and user actions submit the selected fake record and intended operation through the isolated Admin API mock.",
+    );
   }
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);

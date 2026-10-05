@@ -43,6 +43,44 @@ export const PixelRatio = {
   getFontScale: getPreviewFontScale,
 } as typeof Native.PixelRatio;
 
+type PreviewAlertButton = {
+  text?: string;
+  onPress?: () => unknown;
+};
+
+type PreviewAlertState = {
+  kind: "alert" | "prompt";
+  title: string;
+  message?: string;
+  buttons?: string[];
+  choose?: (label: string) => unknown;
+  submit?: (value: string) => unknown;
+};
+
+type PreviewAlertGlobal = typeof globalThis & {
+  __daily007AdminAlert?: PreviewAlertState;
+};
+
+export const Alert = {
+  alert(title: string, message?: string, buttons: PreviewAlertButton[] = []) {
+    (globalThis as PreviewAlertGlobal).__daily007AdminAlert = {
+      kind: "alert",
+      title,
+      message,
+      buttons: buttons.map((button) => button.text ?? ""),
+      choose: (label) => buttons.find((button) => button.text === label)?.onPress?.(),
+    };
+  },
+  prompt(title: string, message: string, onSubmit: (value: string) => unknown) {
+    (globalThis as PreviewAlertGlobal).__daily007AdminAlert = {
+      kind: "prompt",
+      title,
+      message,
+      submit: (value) => onSubmit(value),
+    };
+  },
+};
+
 export function useWindowDimensions() {
   return {
     ...Native.useWindowDimensions(),
