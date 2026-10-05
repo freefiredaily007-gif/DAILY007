@@ -35,3 +35,32 @@ export function walletTransactionAccessibilityLabel(item: WalletTransactionDispl
   }
   return `${parts.join(". ")}.`;
 }
+
+export function walletRejectedDepositAccessibilityLabel(item: {
+  rupeeAmount: string;
+  coins: unknown;
+  createdAt?: unknown;
+  reference?: unknown;
+  reviewReason?: unknown;
+}): string {
+  const coinAmount = Number(item.coins);
+  const coinLabel = Number.isFinite(coinAmount)
+    ? new Intl.NumberFormat("en-IN").format(coinAmount)
+    : String(item.coins ?? 0);
+  const parts = [
+    "Deposit request",
+    "Status: Rejected",
+    `Original rupee amount: ${item.rupeeAmount}`,
+    `Coin amount: ${coinLabel} coins`,
+  ];
+  const createdAt = String(item.createdAt ?? "").slice(0, 16).replace("T", " ");
+  if (createdAt) parts.push(`Date: ${createdAt}`);
+  const reference = String(item.reference ?? "").trim();
+  if (reference) parts.push(`UTR: ${reference}`);
+  const reason = typeof item.reviewReason === "string"
+    ? item.reviewReason.trim().replace(/\s+/g, " ")
+    : "";
+  parts.push(`Rejection reason: ${reason || "No rejection reason was provided"}`);
+  const label = parts.join(". ");
+  return `${label}${/[.!?]$/.test(label) ? "" : "."}`;
+}

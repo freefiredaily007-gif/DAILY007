@@ -34,9 +34,9 @@ test('Wallet displays the tournament name, refund reason, and exact signed amoun
   assert.match(walletScreenSource, /walletTransactionAmount\(item\)/);
   assert.match(
     walletScreenSource,
-    /accessibilityLabel=\{isCancellationRefund \? walletTransactionAccessibilityLabel\(item\) : undefined\}/,
+    /: isCancellationRefund\s*\?\s*walletTransactionAccessibilityLabel\(item\)\s*:\s*undefined/,
   );
-  assert.match(walletScreenSource, /accessible=\{isCancellationRefund \|\| undefined\}/);
+  assert.match(walletScreenSource, /accessible=\{isRejectedDeposit \|\| isCancellationRefund \|\| undefined\}/);
 });
 
 test('Wallet displays the ID fallback and keeps a reason label when the API has no description', () => {
