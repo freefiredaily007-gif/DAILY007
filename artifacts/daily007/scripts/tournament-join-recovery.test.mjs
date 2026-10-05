@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { joinWithCapacityRefresh } from "../src/lib/tournamentJoinRecovery.ts";
+import {
+  isFullMatchRejection,
+  joinWithCapacityRefresh,
+} from "../src/lib/tournamentJoinRecovery.ts";
 
 const appSource = await readFile(
   new URL("../src/App.tsx", import.meta.url),
+  "utf8",
+);
+const joinFormSource = await readFile(
+  new URL("../src/screens/JoinForm.tsx", import.meta.url),
+  "utf8",
+);
+const uiSource = await readFile(
+  new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
 
@@ -24,6 +35,7 @@ for (const { code, message } of fullMatchErrors) {
     const joinError = Object.assign(new Error(message), {
       response: { status: 409, data: { code, error: message } },
     });
+    assert.equal(isFullMatchRejection(joinError), true);
     const refreshedTournament = {
       id: "match-1",
       status: "full",
@@ -62,6 +74,7 @@ for (const [status, message, code] of [
     const joinError = Object.assign(new Error(message), {
       response: { status, data: { ...(code ? { code } : {}), error: message } },
     });
+    assert.equal(isFullMatchRejection(joinError), false);
     const fetchedIds = [];
     let visibleTournament = null;
 
@@ -82,6 +95,28 @@ for (const [status, message, code] of [
     assert.equal(visibleTournament, null);
   });
 }
+
+test("full-capacity rejection announces the refreshed state through the visible error message", () => {
+  const message = joinFormSource.match(/<Msg\b[\s\S]*?\/>/)?.[0];
+  assert.ok(message, "the visible error message must remain in the join form");
+  assert.match(message, /text=\{err \|\| disabledMessage\}/);
+  assert.match(message, /accessibilityLabel=\{capacityAnnouncement\}/);
+  assert.match(message, /accessibilityLiveRegion=\{fullCapacityFailure \? 'polite' : undefined\}/);
+  assert.match(
+    joinFormSource,
+    /setFullCapacityFailure\(isFullMatchRejection\(e\)\)/,
+  );
+  assert.match(
+    joinFormSource,
+    /const capacityAnnouncement = fullCapacityFailure\s*\?\s*`\$\{err\} Updated capacity: \$\{capacity\}\. Registration is closed\.`/,
+  );
+  const messageText = uiSource.match(
+    /<Text\s+accessibilityLabel=\{accessibilityLabel\}[\s\S]*?accessibilityLiveRegion=\{accessibilityLiveRegion\}[\s\S]*?>/,
+  )?.[0];
+  assert.ok(messageText, "the shared message text must carry its announcement label and live region");
+  assert.match(joinFormSource, /disabled=\{isUnavailable\}/);
+  assert.doesNotMatch(joinFormSource, /AccessibilityInfo\.announceForAccessibility/);
+});
 
 test("the wallet refresh remains after a successful and validated join response", () => {
   const joinStart = appSource.indexOf("const result = await joinWithCapacityRefresh(");

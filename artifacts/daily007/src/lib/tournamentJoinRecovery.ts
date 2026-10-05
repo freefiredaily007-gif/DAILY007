@@ -16,7 +16,7 @@ type TournamentCapacity = {
 
 const MATCH_FULL_ERROR_CODE = 'MATCH_FULL';
 
-function isFullMatchRejection(error: unknown): boolean {
+export function isFullMatchRejection(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const response = (error as TournamentJoinError).response;
   if (response?.status !== 409 || !response.data || typeof response.data !== 'object') {

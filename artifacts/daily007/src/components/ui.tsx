@@ -194,10 +194,12 @@ export const Input = React.forwardRef<
 export function Msg({
   kind,
   text,
+  accessibilityLabel,
   accessibilityLiveRegion,
 }: {
   kind: 'ok' | 'err';
   text: string;
+  accessibilityLabel?: string;
   accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
   const adminSurface = useAdminSurface();
@@ -206,6 +208,7 @@ export function Msg({
   return (
     <View style={[st.msg, adminSurface && adminSt.msg, { borderColor: ok ? C.green + '66' : C.red + '66', backgroundColor: (ok ? C.green : C.red) + '14' }]}>
       <Text
+        accessibilityLabel={accessibilityLabel}
         accessibilityLiveRegion={accessibilityLiveRegion}
         style={[{ color: ok ? C.green : C.red, fontSize: 13, fontWeight: '600' }, adminSurface && adminSt.bodyText]}
       >

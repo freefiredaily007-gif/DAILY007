@@ -5,6 +5,7 @@ import { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildJoinFormPayload } from '../lib/joinFormPayload';
+import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 
 type Member = { name: string; uid: string };
 
@@ -48,6 +49,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const [teamName, setTeamName] = useState(String(registration?.teamName ?? ''));
   const [members, setMembers] = useState<Member[]>(initialRoster.slice(1));
   const [err, setErr] = useState('');
+  const [fullCapacityFailure, setFullCapacityFailure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const editCutoff = getTeamEditCutoff(t.startsAt);
@@ -63,6 +65,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     setMembers(roster.slice(1));
     setTeamName(String(registration?.teamName ?? ''));
     setErr('');
+    setFullCapacityFailure(false);
   }, [registration?.id, t.id, teamSize, user.gameUid]);
 
   useEffect(() => {
@@ -77,6 +80,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
 
   const submit = async () => {
     setErr('');
+    setFullCapacityFailure(false);
     if (editing && !canEditRegistrationTeam(t, registration?.status, Date.now())) {
       setClockNow(Date.now());
       return setErr('Team editing is locked 30 minutes before the tournament starts.');
@@ -102,6 +106,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
       }));
     } catch (e: any) {
       setErr(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Registration could not be confirmed. Please try again.');
+      setFullCapacityFailure(isFullMatchRejection(e));
     } finally { setBusy(false); }
   };
 
@@ -111,6 +116,9 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const capacity = slotUnit === 'team'
     ? `${filledSlots}/${totalSlots} teams · ${filledPlayers}/${totalPlayers} players`
     : `${filledSlots}/${totalSlots} players`;
+  const capacityAnnouncement = fullCapacityFailure
+    ? `${err} Updated capacity: ${capacity}. Registration is closed.`
+    : undefined;
   const remaining = slotUnit === 'team'
     ? `${remainingSlots} ${remainingSlots === 1 ? 'team' : 'teams'} · ${remainingSlots * teamSize} player places remaining`
     : `${remainingSlots} player places remaining`;
@@ -206,7 +214,12 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         ))}
       </Card>
 
-      <Msg kind="err" text={err || disabledMessage} />
+      <Msg
+        kind="err"
+        text={err || disabledMessage}
+        accessibilityLabel={capacityAnnouncement}
+        accessibilityLiveRegion={fullCapacityFailure ? 'polite' : undefined}
+      />
       <View style={{ marginTop: 12, marginBottom: 32 }}>
         <Btn
           title={editing ? 'SAVE TEAM CHANGES' : `PAY ${t.entryCoins ?? 0} COINS & ${action}`}
