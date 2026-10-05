@@ -193,6 +193,77 @@ class RegistrationProfileTestDatabase {
           ).length,
         }));
     } else if (
+      normalized.startsWith("SELECT match_id FROM daily007_v2_registrations WHERE id = $1 AND captain_user_id = $2")
+    ) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0]) && candidate.captain_user_id === String(values[1])
+      );
+      result = registration ? [{ match_id: registration.match_id }] : [];
+    } else if (
+      normalized.startsWith("SELECT m.id, m.starts_at, m.status, m.enabled, m.mode, m.game_mode, m.team_type,")
+    ) {
+      result = String(values[0]) === this.match.id
+        ? [{ ...structuredClone(this.match), database_now: new Date(), has_result: false }]
+        : [];
+    } else if (
+      normalized.startsWith("SELECT id, status FROM daily007_v2_registrations WHERE id = $1 AND match_id = $2")
+    ) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0]) &&
+        candidate.match_id === String(values[1]) &&
+        candidate.captain_user_id === String(values[2])
+      );
+      result = registration ? [{ id: registration.id, status: registration.status }] : [];
+    } else if (
+      normalized.startsWith("SELECT r.id FROM daily007_v2_registrations r") &&
+      normalized.includes("r.id <> $2")
+    ) {
+      const matchId = String(values[0]);
+      const excludedRegistrationId = String(values[1]);
+      const submittedUids = new Set((values[2] as string[]).map((uid) => uid.toLowerCase()));
+      const duplicate = this.registrations.find((registration) =>
+        registration.match_id === matchId &&
+        registration.id !== excludedRegistrationId &&
+        ["approved", "pending"].includes(registration.status) &&
+        (
+          submittedUids.has(registration.captain_game_uid.toLowerCase()) ||
+          this.roster.some((member) =>
+            member.registration_id === registration.id &&
+            member.member_uid !== null &&
+            submittedUids.has(member.member_uid.toLowerCase())
+          )
+        )
+      );
+      result = duplicate ? [{ id: duplicate.id }] : [];
+    } else if (
+      normalized.startsWith("UPDATE daily007_v2_registrations AS r SET captain_game_name = $3")
+    ) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0]) &&
+        candidate.match_id === String(values[1]) &&
+        ["approved", "pending"].includes(candidate.status)
+      );
+      if (registration && this.match.enabled &&
+          !["live", "closed", "cancelled", "completed"].includes(this.match.status) &&
+          this.match.starts_at.getTime() > Date.now() + 6 * 60 * 60 * 1000) {
+        registration.captain_game_name = String(values[2]);
+        registration.captain_game_uid = String(values[3]);
+        registration.team_name = String(values[4]);
+        result = [{ id: registration.id }];
+      }
+    } else if (normalized === "DELETE FROM daily007_v2_roster WHERE registration_id = $1") {
+      this.roster = this.roster.filter((member) => member.registration_id !== String(values[0]));
+    } else if (
+      normalized.startsWith("INSERT INTO daily007_v2_roster (registration_id, position, member_uid, member_name)")
+    ) {
+      const [registrationId, position, memberUid, memberName] = values;
+      this.roster.push({
+        registration_id: String(registrationId),
+        position: Number(position),
+        member_uid: memberUid == null ? null : String(memberUid),
+        member_name: String(memberName),
+      });
+    } else if (
       normalized.startsWith("SELECT position, member_name, member_uid FROM daily007_v2_roster")
     ) {
       result = this.roster

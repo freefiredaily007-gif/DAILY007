@@ -112,6 +112,27 @@ async function sendRegistration(
   };
 }
 
+async function sendTeamEdit(
+  origin: string,
+  registrationId: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const token = makeToken(TEST_PLAYER_ID, 0);
+  assert.ok(token, "test account should receive a Daily007 session token");
+  const response = await fetch(`${origin}/my/registrations/${registrationId}/team`, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    body: await response.json() as Record<string, unknown>,
+  };
+}
+
 async function getWithToken(origin: string, path: string, token: string): Promise<Response> {
   return fetch(`${origin}${path}`, {
     headers: { authorization: `Bearer ${token}` },
@@ -289,6 +310,85 @@ for (const request of registrationRequests) {
     }
   });
 }
+
+test("team edits change only Free Fire and roster details, not the captain profile or entry charge", async () => {
+  registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+  try {
+    await withServer(async (origin) => {
+      const registered = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
+      assert.equal(registered.status, 201);
+      assert.equal(registrationProfileTestDb.registrations.length, 1);
+
+      const registration = registrationProfileTestDb.registrations[0];
+      const originalRegistration = structuredClone(registration);
+      const originalWallet = registrationProfileTestDb.user.wallet_coins;
+      const originalLedger = structuredClone(registrationProfileTestDb.ledger);
+      const originalRoster = structuredClone(registrationProfileTestDb.roster);
+      assert.equal(originalRegistration.entry_coins_paid, 7);
+      assert.equal(originalWallet, 93);
+      assert.equal(originalLedger.length, 1);
+
+      const updatedTeam = {
+        captainGameName: "UpdatedFireCaptain",
+        captainGameUid: "FF-CAPTAIN-UPDATED",
+        teamName: "Red Dragon",
+        teammates: [
+          { name: "UpdatedMateOne", uid: "FF-MATE-UPDATED-1" },
+          { name: "UpdatedMateTwo", uid: "FF-MATE-UPDATED-2" },
+          { name: "UpdatedMateThree", uid: "FF-MATE-UPDATED-3" },
+        ],
+      };
+      const attemptedProtectedEdit = await sendTeamEdit(origin, registration.id, {
+        ...updatedTeam,
+        captainName: "Forged Daily007 Profile",
+        entryCoinsPaid: 999,
+      });
+
+      assert.equal(attemptedProtectedEdit.status, 400);
+      assert.deepEqual(registrationProfileTestDb.registrations[0], originalRegistration);
+      assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+      assert.equal(registrationProfileTestDb.user.wallet_coins, originalWallet);
+      assert.deepEqual(registrationProfileTestDb.ledger, originalLedger);
+
+      const validEdit = await sendTeamEdit(origin, registration.id, updatedTeam);
+      assert.equal(validEdit.status, 200);
+      assert.deepEqual(
+        {
+          captain_name: registration.captain_name,
+          captain_game_name: registration.captain_game_name,
+          captain_game_uid: registration.captain_game_uid,
+          team_name: registration.team_name,
+          entry_coins_paid: registration.entry_coins_paid,
+        },
+        {
+          captain_name: PROFILE_NAME,
+          captain_game_name: updatedTeam.captainGameName,
+          captain_game_uid: updatedTeam.captainGameUid,
+          team_name: updatedTeam.teamName,
+          entry_coins_paid: originalRegistration.entry_coins_paid,
+        },
+      );
+      assert.deepEqual(
+        registrationProfileTestDb.roster
+          .filter((member) => member.registration_id === registration.id)
+          .map(({ position, member_uid, member_name }) => ({ position, member_uid, member_name })),
+        updatedTeam.teammates.map((member, index) => ({
+          position: index + 1,
+          member_uid: member.uid,
+          member_name: member.name,
+        })),
+      );
+      assert.equal(registrationProfileTestDb.user.wallet_coins, originalWallet);
+      assert.deepEqual(registrationProfileTestDb.ledger, originalLedger);
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
 
 test("v2 and legacy registration reject an empty profile name before charging the wallet", async () => {
   try {
