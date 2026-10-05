@@ -8,6 +8,7 @@ import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mod
 import { storedTournamentTimeFromInstant, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials, isRoomCredentialReleaseOpen } from "../lib/daily007-room-access";
 import { hasTournamentAdminAccess, isFullAdminRole, type Daily007Role } from "../lib/daily007-roles";
+import { verifyDaily007LoginPassword } from "../lib/daily007-login-password";
 import {
   daily007TokenConfigured,
   isSessionVersionCurrent,
@@ -264,18 +265,15 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
     [email],
   );
   const user = result.rows[0];
-  if (!user || body.password.length > 200) {
+  if (body.password.length > 200) {
     fail(res, 401, "Email or password is incorrect.");
     return;
   }
-  if (user.status === "blocked") {
+  if (user?.status === "blocked") {
     fail(res, 403, "This account is blocked.");
     return;
   }
-  const candidate = await hashPassword(body.password, Buffer.from(user.password_salt, "hex"));
-  const expected = Buffer.from(user.password_hash, "hex");
-  const actual = Buffer.from(candidate.hash, "hex");
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+  if (!await verifyDaily007LoginPassword(body.password, user ?? null, hashPassword)) {
     fail(res, 401, "Email or password is incorrect.");
     return;
   }

@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
@@ -6,6 +5,7 @@ import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials } from "../lib/daily007-room-access";
+import { verifyDaily007LoginPassword } from "../lib/daily007-login-password";
 import { parsePasswordChangeInput, passwordHashesMatch } from "../lib/daily007-password-change";
 import {
   cancelUnderfilledTournamentAndRefund,
@@ -292,12 +292,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     [body.email.trim().toLowerCase()],
   );
   const user = result.rows[0];
-  if (!user || body.password.length > 200) return fail(res, 401, "Email or password is incorrect.");
-  if (user.status === "blocked") return fail(res, 403, "This account is blocked.");
-  const candidate = await hashPassword(body.password, Buffer.from(user.password_salt, "hex"));
-  const expected = Buffer.from(user.password_hash, "hex");
-  const actual = Buffer.from(candidate.hash, "hex");
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+  if (body.password.length > 200) return fail(res, 401, "Email or password is incorrect.");
+  if (user?.status === "blocked") return fail(res, 403, "This account is blocked.");
+  if (!await verifyDaily007LoginPassword(body.password, user ?? null, hashPassword)) {
     return fail(res, 401, "Email or password is incorrect.");
   }
   const rotated = await pool.query<{ auth_version: number }>(

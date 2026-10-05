@@ -6,6 +6,7 @@ import type { Server } from "node:http";
 
 import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
 import daily007V2Router from "../src/routes/daily007-v2";
+import { verifyDaily007LoginPassword } from "../src/lib/daily007-login-password";
 import { signupTestDb } from "./support/daily007-signup-test-db";
 
 const TEST_AUTH_SECRET = "session-replacement-tests-only-secret-at-least-32-chars";
@@ -68,6 +69,37 @@ function makeLegacyToken(userId: string): string {
   const signature = createHmac("sha256", TEST_AUTH_SECRET).update(payload).digest("base64url");
   return `${payload}.${signature}`;
 }
+
+test("unknown-email and wrong-password login checks each hash exactly once", async () => {
+  const hashCalls: Array<{ password: string; salt: Buffer }> = [];
+  const hashPassword = async (password: string, salt?: Buffer) => {
+    assert.ok(salt);
+    hashCalls.push({ password, salt: Buffer.from(salt) });
+    return { salt: salt.toString("hex"), hash: Buffer.alloc(64, 3).toString("hex") };
+  };
+  const storedCredentials = {
+    password_salt: Buffer.alloc(16, 1).toString("hex"),
+    password_hash: Buffer.alloc(64, 2).toString("hex"),
+  };
+
+  assert.equal(
+    await verifyDaily007LoginPassword("same-password", null, hashPassword),
+    false,
+    "unknown email must never authenticate",
+  );
+  assert.equal(hashCalls.length, 1, "unknown email must perform one password hash");
+  assert.equal(hashCalls[0].password, "same-password");
+  assert.deepEqual(hashCalls[0].salt, Buffer.alloc(16));
+
+  assert.equal(
+    await verifyDaily007LoginPassword("wrong-password", storedCredentials, hashPassword),
+    false,
+    "wrong password must not authenticate",
+  );
+  assert.equal(hashCalls.length, 2, "wrong password must perform one password hash");
+  assert.equal(hashCalls[1].password, "wrong-password");
+  assert.deepEqual(hashCalls[1].salt, Buffer.from(storedCredentials.password_salt, "hex"));
+});
 
 test("unknown emails and wrong passwords return the same public login error on both routes", async () => {
   signupTestDb.reset();
