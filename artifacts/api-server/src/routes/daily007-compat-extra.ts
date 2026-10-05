@@ -50,6 +50,7 @@ import {
 
 const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const MAX_INT = 2_147_483_647;
 const SETTINGS_DEFAULTS = {
   appName: "Daily007",
@@ -178,18 +179,54 @@ router.post("/wallet/uploads/request-url", authenticate, async (req, res): Promi
 router.get("/wallet/transactions", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
   const result = await pool.query(
-    `SELECT id, amount, balance_after AS "balanceAfter", reason, details,
-            created_at AS "createdAt"
-       FROM daily007_v2_wallet_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500`, [id],
+    `SELECT ledger.id, ledger.amount, ledger.balance_after AS "balanceAfter",
+            ledger.reason, ledger.details, ledger.created_at AS "createdAt",
+            ledger.match_id AS "matchId", tournament.title AS "tournamentTitle"
+       FROM daily007_v2_wallet_ledger ledger
+       LEFT JOIN daily007_v2_matches tournament
+         ON ledger.reason = 'tournament_cancel_refund'
+        AND tournament.id::text = COALESCE(
+          ledger.match_id::text,
+          substring(
+            COALESCE(ledger.details->>'description', '')
+            FROM '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
+          ),
+          NULLIF(ledger.details->>'tournamentId', '')
+        )
+      WHERE ledger.user_id = $1
+      ORDER BY ledger.created_at DESC
+      LIMIT 500`, [id],
   );
   res.json(result.rows.map((row: any) => {
+    const { matchId, tournamentTitle, ...transactionRow } = row;
     const details = row.details && typeof row.details === "object" ? row.details as Record<string, unknown> : {};
-    const refundDescription = row.reason === "tournament_cancel_refund" && typeof details.description === "string"
-      ? details.description
+    const existingDescription = typeof details.description === "string" && details.description.trim()
+      ? details.description.trim()
       : null;
+    const descriptionTournamentId = typeof details.description === "string"
+      ? details.description.match(UUID_IN_TEXT)?.[0]
+      : null;
+    const tournamentId = typeof matchId === "string" && matchId.trim()
+      ? matchId.trim()
+      : descriptionTournamentId ??
+        (typeof details.tournamentId === "string" && details.tournamentId.trim()
+          ? details.tournamentId.trim()
+          : null);
+    const resolvedTournamentTitle = typeof tournamentTitle === "string" && tournamentTitle.trim()
+      ? tournamentTitle.trim()
+      : typeof details.tournamentTitle === "string" && details.tournamentTitle.trim()
+        ? details.tournamentTitle.trim()
+        : null;
+    const description = row.reason === "tournament_cancel_refund"
+      ? resolvedTournamentTitle
+        ? `Entry fee refunded — ${resolvedTournamentTitle} (tournament cancelled)`
+        : tournamentId
+          ? `Entry fee refunded — tournament ${tournamentId} (tournament cancelled)`
+          : existingDescription ?? "Entry fee refunded (tournament cancelled)"
+      : existingDescription ?? String(row.reason).replaceAll("_", " ");
     return {
-      ...row,
-      description: refundDescription ?? String(row.reason).replaceAll("_", " "),
+      ...transactionRow,
+      description,
     };
   }));
 });

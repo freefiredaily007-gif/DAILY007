@@ -117,3 +117,83 @@ test("cancelled tournament refunds stay clear and singular in Wallet history aft
     assert.equal(autoCancellationTestDb.accounts.get(TEST_PLAYER_ID)?.wallet_coins, 155);
   });
 });
+
+test("older cancellation refunds resolve tournament names and retain an ID fallback", async () => {
+  const nowMs = Date.parse("2035-04-05T14:30:00.000Z");
+  const knownTournamentId = "00000000-0000-4000-8000-000000000081";
+  const missingTournamentId = "00000000-0000-4000-8000-000000000082";
+  const tournamentTitle = "Legacy Clash Cup";
+
+  autoCancellationTestDb.reset({
+    nowMs,
+    matches: [{
+      id: knownTournamentId,
+      title: tournamentTitle,
+      mode: "clash",
+      game_mode: "clash_squad",
+      status: "cancelled",
+      capacity: 2,
+      startsAtWallMs: nowMs - 60_000,
+      hasWinner: false,
+      enabled: false,
+      isFull: false,
+      roomId: null,
+      roomPassword: null,
+      roomPublished: false,
+    }],
+    registrations: [],
+    accounts: [{ id: TEST_PLAYER_ID, wallet_coins: 142 }],
+    ledger: [
+      {
+        idempotencyKey: "legacy-refund-with-tournament-record",
+        entry: {
+          userId: TEST_PLAYER_ID,
+          amount: 27,
+          balanceAfter: 142,
+          reason: "tournament_cancel_refund",
+          matchId: null,
+          registrationId: "00000000-0000-4000-8000-000000000091",
+          details: { description: `Tournament cancellation refund — ${knownTournamentId}` },
+          createdAt: new Date(nowMs - 1_000),
+        },
+      },
+      {
+        idempotencyKey: "legacy-refund-without-tournament-record",
+        entry: {
+          userId: TEST_PLAYER_ID,
+          amount: 19,
+          balanceAfter: 115,
+          reason: "tournament_cancel_refund",
+          matchId: null,
+          registrationId: "00000000-0000-4000-8000-000000000092",
+          details: { description: `Tournament cancellation refund — ${missingTournamentId}` },
+          createdAt: new Date(nowMs - 2_000),
+        },
+      },
+    ],
+  });
+
+  await withServer(async (origin) => {
+    const history = await walletHistory(origin);
+    assert.equal(history.status, 200);
+    assert.deepEqual(
+      history.body.map(({ amount, reason, description }: {
+        amount: number;
+        reason: string;
+        description: string;
+      }) => ({ amount, reason, description })),
+      [
+        {
+          amount: 27,
+          reason: "tournament_cancel_refund",
+          description: `Entry fee refunded — ${tournamentTitle} (tournament cancelled)`,
+        },
+        {
+          amount: 19,
+          reason: "tournament_cancel_refund",
+          description: `Entry fee refunded — tournament ${missingTournamentId} (tournament cancelled)`,
+        },
+      ],
+    );
+  });
+});

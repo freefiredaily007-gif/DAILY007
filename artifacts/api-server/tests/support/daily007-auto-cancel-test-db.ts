@@ -32,7 +32,7 @@ type TestLedgerEntry = {
   amount: number;
   balanceAfter: number;
   reason: string;
-  matchId: string;
+  matchId: string | null;
   registrationId: string;
   details?: Record<string, unknown>;
   createdAt?: Date;
@@ -59,6 +59,7 @@ type TestDatabaseSeed = {
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const ACTIVE_REGISTRATION_STATUSES = new Set(["approved", "pending"]);
 const REFUND_REASONS = new Set(["registration_refund", "tournament_cancel_refund"]);
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 function cloneMap<T>(source: Map<string, T>): Map<string, T> {
   return new Map([...source].map(([key, value]) => [key, structuredClone(value)]));
@@ -271,14 +272,22 @@ class Daily007AutoCancelTestDatabase {
           (right.createdAt?.getTime() ?? 0) - (left.createdAt?.getTime() ?? 0),
         )
         .slice(0, 500)
-        .map(([idempotencyKey, entry]) => ({
-          id: `ledger-${idempotencyKey}`,
-          amount: entry.amount,
-          balanceAfter: entry.balanceAfter,
-          reason: entry.reason,
-          details: entry.details ?? {},
-          createdAt: entry.createdAt ?? new Date(this.nowMs),
-        }));
+        .map(([idempotencyKey, entry]) => {
+          const description = entry.details?.description;
+          const tournamentId = entry.matchId ??
+            (typeof description === "string" ? description.match(UUID_IN_TEXT)?.[0] : null) ??
+            (typeof entry.details?.tournamentId === "string" ? entry.details.tournamentId : null);
+          return {
+            id: `ledger-${idempotencyKey}`,
+            amount: entry.amount,
+            balanceAfter: entry.balanceAfter,
+            reason: entry.reason,
+            details: entry.details ?? {},
+            createdAt: entry.createdAt ?? new Date(this.nowMs),
+            matchId: entry.matchId,
+            tournamentTitle: tournamentId ? this.matches.get(tournamentId)?.title ?? null : null,
+          };
+        });
     } else if (
       normalized.startsWith(
         "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
