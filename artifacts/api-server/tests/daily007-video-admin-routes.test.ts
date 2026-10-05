@@ -7,6 +7,7 @@ import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 import {
   VIDEO_TEST_ADMIN_ID,
   VIDEO_TEST_PLAYER_ID,
+  VIDEO_TEST_TOURNAMENT_ADMIN_ID,
   videoTestDb,
 } from "./support/daily007-video-test-db";
 
@@ -132,6 +133,71 @@ test("a regular player cannot create a managed video", async () => {
     const response = await postVideo(origin, VIDEO_TEST_PLAYER_ID, validVideo);
     assert.equal(response.status, 403);
     assert.equal(videoTestDb.videos.length, 0);
+  });
+});
+
+test("Tournament Admin cannot create, edit, hide, or delete managed videos", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(created.status, 201, "Full Admin can create a managed video");
+    const videoId = String(created.body.id);
+    seedWatchHistory(videoId);
+    const videosBefore = structuredClone(videoTestDb.videos);
+    const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+    const assertCatalogUnchanged = () => {
+      assert.deepEqual(videoTestDb.videos, videosBefore);
+      assert.deepEqual(videoTestDb.watchSessions, watchSessionsBefore);
+    };
+
+    const listedByTournamentAdmin = await fetch(`${origin}/admin/videos`, {
+      headers: authHeaders(VIDEO_TEST_TOURNAMENT_ADMIN_ID),
+    });
+    assert.equal(listedByTournamentAdmin.status, 403);
+    assertCatalogUnchanged();
+
+    const createdByTournamentAdmin = await postVideo(
+      origin,
+      VIDEO_TEST_TOURNAMENT_ADMIN_ID,
+      {
+        ...validVideo,
+        title: "Unauthorized Video",
+        url: "https://youtu.be/Q7w6V5u4T3s",
+      },
+    );
+    assert.equal(createdByTournamentAdmin.status, 403);
+    assertCatalogUnchanged();
+
+    const editedByTournamentAdmin = await patchVideo(
+      origin,
+      VIDEO_TEST_TOURNAMENT_ADMIN_ID,
+      videoId,
+      {
+        title: "Unauthorized Edit",
+        topic: "Clash Squad",
+        url: "https://youtu.be/Z9x8Y7w6V5u",
+      },
+    );
+    assert.equal(editedByTournamentAdmin.status, 403);
+    assertCatalogUnchanged();
+
+    const hiddenByTournamentAdmin = await patchVideo(
+      origin,
+      VIDEO_TEST_TOURNAMENT_ADMIN_ID,
+      videoId,
+      { active: false },
+      "/active",
+    );
+    assert.equal(hiddenByTournamentAdmin.status, 403);
+    assertCatalogUnchanged();
+
+    const deletedByTournamentAdmin = await fetch(`${origin}/admin/videos/${videoId}`, {
+      method: "DELETE",
+      headers: authHeaders(VIDEO_TEST_TOURNAMENT_ADMIN_ID),
+    });
+    assert.equal(deletedByTournamentAdmin.status, 403);
+    assertCatalogUnchanged();
   });
 });
 

@@ -35,6 +35,7 @@ type TestWatchSession = {
 
 export const VIDEO_TEST_ADMIN_ID = "51000000-0000-4000-8000-000000000001";
 export const VIDEO_TEST_PLAYER_ID = "51000000-0000-4000-8000-000000000002";
+export const VIDEO_TEST_TOURNAMENT_ADMIN_ID = "51000000-0000-4000-8000-000000000003";
 
 class Daily007VideoTestDatabase {
   users = new Map<string, TestUser>();
@@ -60,6 +61,17 @@ class Daily007VideoTestDatabase {
         name: "Video Test Player",
         email: "video-player@example.test",
         role: "user",
+        wallet_coins: 0,
+        phone: null,
+        game_uid: null,
+        status: "active",
+        auth_version: 0,
+      }],
+      [VIDEO_TEST_TOURNAMENT_ADMIN_ID, {
+        id: VIDEO_TEST_TOURNAMENT_ADMIN_ID,
+        name: "Video Test Tournament Admin",
+        email: "video-tournament-admin@example.test",
+        role: "tournament_admin",
         wallet_coins: 0,
         phone: null,
         game_uid: null,
