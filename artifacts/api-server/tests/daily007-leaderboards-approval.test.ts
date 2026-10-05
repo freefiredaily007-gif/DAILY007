@@ -604,6 +604,50 @@ test("Full Admin prize saves reach the player API immediately and remain availab
   }
 });
 
+test("Tournament Admin cannot change weekly or monthly leaderboard prize schedules", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const originalSettings = structuredClone(daily007LeaderboardTestDb.rewardSettings);
+  const originalActivePeriodSnapshots = [...daily007LeaderboardTestDb.periods.values()]
+    .filter((candidate) => candidate.status === "active")
+    .map((candidate) => ({
+      id: candidate.id,
+      cycleType: candidate.cycle_type,
+      payoutConfiguration: structuredClone(candidate.payout_configuration),
+    }));
+
+  try {
+    await withServer(async (origin) => {
+      const rejectedSave = await call(
+        origin,
+        TEST_TOURNAMENT_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        {
+          weekly: { firstPlaceCoins: 901, secondPlaceCoins: 902, thirdPlaceCoins: 903 },
+          monthly: { firstPlaceCoins: 904, secondPlaceCoins: 905, thirdPlaceCoins: 906 },
+        },
+      );
+
+      assert.equal(rejectedSave.status, 403);
+      assert.deepEqual(daily007LeaderboardTestDb.rewardSettings, originalSettings);
+      assert.deepEqual(
+        [...daily007LeaderboardTestDb.periods.values()]
+          .filter((candidate) => candidate.status === "active")
+          .map((candidate) => ({
+            id: candidate.id,
+            cycleType: candidate.cycle_type,
+            payoutConfiguration: candidate.payout_configuration,
+          })),
+        originalActivePeriodSnapshots,
+      );
+    });
+  } finally {
+    // Keep the in-memory fixture at its baseline for any neighboring test.
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("Full Admin must approve ended cycles and schedule fresh prizes before the next cycles start", async () => {
   daily007LeaderboardTestDb.reset();
   const now = new Date();
