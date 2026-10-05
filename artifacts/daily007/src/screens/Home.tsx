@@ -83,9 +83,17 @@ export function mergeHomeTournamentItems(
     : nextItems;
 }
 
+const HOME_CAROUSEL_CARD_MAX_WIDTH = 340;
+const HOME_CAROUSEL_HORIZONTAL_GUTTER = 16;
+
 export default function Home() {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
+  const carouselCardWidth = Math.max(
+    0,
+    Math.min(HOME_CAROUSEL_CARD_MAX_WIDTH, width - HOME_CAROUSEL_HORIZONTAL_GUTTER * 2),
+  );
+  const carouselPageSize = width;
   const { user } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,16 +211,16 @@ export default function Home() {
   React.useEffect(() => {
     const lastPage = Math.min(upcomingItems.length, 8) - 1;
     const nextPage = Math.max(0, Math.min(pageRef.current, lastPage));
-    if (nextPage === pageRef.current) return;
-    pageRef.current = nextPage;
-    setPage(nextPage);
-    carouselRef.current?.scrollTo({ x: nextPage * 390, animated: false });
-  }, [upcomingItems.length]);
+    if (nextPage !== pageRef.current) {
+      pageRef.current = nextPage;
+      setPage(nextPage);
+    }
+    carouselRef.current?.scrollTo({ x: nextPage * carouselPageSize, animated: false });
+  }, [upcomingItems.length, carouselPageSize]);
 
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
-    const w = e?.nativeEvent?.layoutMeasurement?.width || 1;
-    const p = Math.round(x / w);
+    const p = Math.round(x / carouselPageSize);
     if (p !== pageRef.current) { pageRef.current = p; setPage(p); }
   };
   // auto-scroll every 3.5s when more than one match
@@ -220,10 +228,10 @@ export default function Home() {
     if (upcomingItems.length <= 1) return;
     const iv = setInterval(() => {
       const next = (pageRef.current + 1) % Math.min(upcomingItems.length, 8);
-      try { carouselRef.current?.scrollTo({ x: next * 390, animated: true }); } catch {}
+      try { carouselRef.current?.scrollTo({ x: next * carouselPageSize, animated: true }); } catch {}
     }, 3500);
     return () => clearInterval(iv);
-  }, [upcomingItems.length]);
+  }, [upcomingItems.length, carouselPageSize]);
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
@@ -299,9 +307,11 @@ export default function Home() {
           <ScrollView
             ref={carouselRef}
             testID="home-upcoming-carousel"
-            horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+            horizontal pagingEnabled
+            showsHorizontalScrollIndicator={false}
             onScroll={onCarouselScroll} scrollEventThrottle={16}
-            style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16 }}
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={{ paddingHorizontal: 0 }}
             decelerationRate="fast">
             {upcomingItems.slice(0, 8).map((t) => {
               const filled = t.filledSlots ?? t.filled ?? 0;
@@ -326,13 +336,20 @@ export default function Home() {
                 ? capacityFull ? 'JOINED · SLOTS FULL' : 'JOINED'
                 : ongoing ? 'VIEW MATCH' : capacityFull ? 'SLOTS FULL' : 'JOIN NOW ›';
         return (
-          <GCard
+          <View
             key={t.id}
-            testID={`home-upcoming-card-${t.id}`}
-            onPress={() => openTournamentDetail(t.id)}
-            glowColor={ongoing ? C.red : br ? C.orange : C.purple}
-            style={s.matchCard}
+            style={{
+              width,
+              paddingHorizontal: HOME_CAROUSEL_HORIZONTAL_GUTTER,
+              alignItems: 'center',
+            }}
           >
+            <GCard
+              testID={`home-upcoming-card-${t.id}`}
+              onPress={() => openTournamentDetail(t.id)}
+              glowColor={ongoing ? C.red : br ? C.orange : C.purple}
+              style={[s.matchCard, { width: carouselCardWidth }]}
+            >
             <View
               style={[
                 showBattleRoyalePoster ? s.mPosterBanner : showFormatArt ? s.mFormatBanner : s.mBanner,
@@ -412,7 +429,8 @@ export default function Home() {
                 <Text style={[s.joinBtnT, joined && { color: C.green }, !joined && capacityFull && !ongoing && { color: C.dim }]}>{ctaLabel}</Text>
               </Pressable>
             </View>
-          </GCard>
+            </GCard>
+          </View>
             ); })}
           </ScrollView>
           {upcomingItems.length > 1 && (
@@ -560,7 +578,7 @@ const s = StyleSheet.create({
     paddingVertical: 10, paddingHorizontal: 20,
   },
   heroBtnText: { color: C.bg, fontWeight: '900', letterSpacing: 1.5, fontSize: 13 },
-  matchCard: { width: 340, marginRight: 12, padding: 0, overflow: 'hidden' },
+  matchCard: { padding: 0, overflow: 'hidden' },
   secRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 14, marginBottom: 8 },
   secRowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
   viewAllPressableLarge: { alignSelf: 'flex-end' },

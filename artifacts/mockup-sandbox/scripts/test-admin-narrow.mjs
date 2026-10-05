@@ -140,7 +140,7 @@ async function waitForPage(label = "real Admin screen") {
   throw new Error(`The ${label} did not render in the isolated preview: ${JSON.stringify(state)}`);
 }
 
-async function setViewport(width, fontScale = 1) {
+async function setViewport(width, fontScale = 1, previewFile = "admin-narrow-preview.html") {
   if (!largeTextScaleScriptRegistered) {
     await cdp("Page.addScriptToEvaluateOnNewDocument", {
       source: `(() => {
@@ -157,7 +157,7 @@ async function setViewport(width, fontScale = 1) {
     mobile: true,
   });
   await cdp("Page.navigate", {
-    url: `http://127.0.0.1:${vitePort}/admin-narrow-preview.html?run=${width}&fontScale=${fontScale}`,
+    url: `http://127.0.0.1:${vitePort}/${previewFile}?run=${width}&fontScale=${fontScale}`,
   });
   await waitForPage();
   await delay(150);
@@ -176,6 +176,60 @@ async function clickSelector(selector, description) {
   })()`);
   assert(clicked, `Could not find ${description}.`);
   await delay(130);
+}
+
+async function swipeHomeCarousel(direction, description) {
+  const bounds = await evaluate(`(() => {
+    const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
+    if (!carousel) return null;
+    const rect = carousel.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: carousel.clientWidth,
+      height: rect.height,
+    };
+  })()`);
+  assert(bounds?.width > 0 && bounds.height > 0, `Could not locate the Home carousel for ${description}.`);
+  await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  const distance = Math.round(bounds.width * 0.64);
+  const startX = Math.round(bounds.left + bounds.width * (direction === "left" ? 0.82 : 0.18));
+  const endX = startX + (direction === "left" ? -distance : distance);
+  const y = Math.round(bounds.top + bounds.height / 2);
+  const touchPoint = (x) => ({ id: 1, x, y, radiusX: 4, radiusY: 4, force: 1 });
+  await cdp("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [touchPoint(startX)],
+  });
+  await delay(60);
+  await cdp("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [touchPoint(endX)],
+  });
+  await delay(80);
+  await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await delay(300);
+}
+
+async function tapSelector(selector, description) {
+  const point = await evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2),
+    };
+  })()`);
+  assert(point, `Could not find a visible touch target for ${description}.`);
+  await cdp("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ id: 1, x: point.x, y: point.y, radiusX: 4, radiusY: 4, force: 1 }],
+  });
+  await delay(45);
+  await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await delay(180);
 }
 
 async function clickButton(text) {
@@ -1200,7 +1254,82 @@ async function checkTournamentScheduledStart() {
   await assertText("IST Start Boundary", "the Admin tournament after its scheduled start");
 }
 
-async function checkHomeCarousel() {
+async function readHomeCarouselState() {
+  return evaluate(`(() => {
+    const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
+    const indicatorContainer = document.querySelector('[data-testid="home-upcoming-page-indicators"]');
+    if (!carousel || !indicatorContainer) return null;
+    const viewport = carousel.getBoundingClientRect();
+    const dots = [...indicatorContainer.querySelectorAll('[data-testid^="home-upcoming-page-dot-"]')];
+    return {
+      viewport: { left: viewport.left, right: viewport.right, width: carousel.clientWidth },
+      scrollLeft: carousel.scrollLeft,
+      cards: [...carousel.querySelectorAll('[data-testid^="home-upcoming-card-"]')].map((card) => {
+        const rect = card.getBoundingClientRect();
+        return {
+          id: card.getAttribute('data-testid')?.replace('home-upcoming-card-', ''),
+          left: rect.left,
+          right: rect.right,
+          clientWidth: card.clientWidth,
+          scrollWidth: card.scrollWidth,
+        };
+      }),
+      indicatorCount: dots.length,
+      activePage: dots.findIndex((dot) => Number.parseFloat(getComputedStyle(dot).width) >= 15),
+    };
+  })()`);
+}
+
+async function waitForHomeCarouselCard(id, pageIndex, width, description) {
+  const selector = `[data-testid="home-upcoming-card-${id}"]`;
+  try {
+    await waitForCondition(`(() => {
+      const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
+      const card = document.querySelector(${JSON.stringify(selector)});
+      const dots = [...document.querySelectorAll('[data-testid^="home-upcoming-page-dot-"]')];
+      const activePage = dots.findIndex((dot) => Number.parseFloat(getComputedStyle(dot).width) >= 15);
+      if (!carousel || !card || activePage !== ${pageIndex}) return false;
+      const viewport = carousel.getBoundingClientRect();
+      const bounds = card.getBoundingClientRect();
+      return bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
+    })()`, `${description} to be fully visible at page ${pageIndex + 1}`);
+  } catch (error) {
+    const state = await readHomeCarouselState();
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}; carousel state: ${JSON.stringify(state)}`,
+    );
+  }
+
+  const state = await readHomeCarouselState();
+  assert(state, `The Home carousel could not be inspected at ${width}px.`);
+  assert(
+    state.indicatorCount === state.cards.length,
+    `The Home page indicators do not match its ${state.cards.length} cards at ${width}px.`,
+  );
+  assert(state.activePage === pageIndex, `${description} is not the selected page at ${width}px.`);
+  const card = state.cards.find((item) => item.id === id);
+  assert(card, `${description} is missing from the Home carousel at ${width}px.`);
+  assert(
+    card.left >= state.viewport.left - 1 && card.right <= state.viewport.right + 1,
+    `${description} is clipped at ${width}px (card ${card.left}–${card.right}, viewport ${state.viewport.left}–${state.viewport.right}).`,
+  );
+  assert(
+    card.scrollWidth <= card.clientWidth + 2,
+    `${description} has horizontally clipped content at ${width}px.`,
+  );
+  return state;
+}
+
+async function assertHomeCarouselCardOpens(id, description) {
+  await tapSelector(`[data-testid="home-upcoming-card-${id}"]`, description);
+  const navigations = await evaluate("globalThis.__previewNavigations ?? []");
+  assert(
+    JSON.stringify(navigations.at(-1)) === JSON.stringify(["TDetail", { id }]),
+    `${description} opened the wrong tournament details: ${JSON.stringify(navigations.at(-1))}.`,
+  );
+}
+
+async function checkHomeCarousel(width) {
   await waitForCondition(
     "window.__daily007HomeCarouselTest?.ready === true",
     "Home to initialize",
@@ -1212,44 +1341,78 @@ async function checkHomeCarousel() {
   await assertText("Starting at IST", "the tournament before its scheduled start");
   await assertText("Later Tournament One");
   await assertText("Later Tournament Two");
+  const initialState = await readHomeCarouselState();
+  assert(initialState, `The initial Home carousel is missing at ${width}px.`);
+  assert(
+    JSON.stringify(initialState.cards.map((card) => card.id)) ===
+      JSON.stringify(["starting-soon", "later-one", "later-two"]),
+    `The initial Home carousel skipped a tournament at ${width}px: ${JSON.stringify(initialState.cards.map((card) => card.id))}.`,
+  );
+  assert(initialState.activePage === 0, `The first Home carousel page is not selected at ${width}px.`);
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === 3500"),
+    `Home did not install the expected auto-advance interval at ${width}px.`,
+  );
+  await waitForHomeCarouselCard("starting-soon", 0, width, "The first Upcoming tournament");
 
+  await swipeHomeCarousel("left", "the first Upcoming tournament");
+  await waitForHomeCarouselCard("later-one", 1, width, "The second Upcoming tournament after a manual swipe");
+  await swipeHomeCarousel("left", "the second Upcoming tournament");
+  await waitForHomeCarouselCard("later-two", 2, width, "The third Upcoming tournament after a manual swipe");
+  await swipeHomeCarousel("right", "the third Upcoming tournament");
+  await waitForHomeCarouselCard("later-one", 1, width, "The second Upcoming tournament after swiping back");
+  await swipeHomeCarousel("right", "the second Upcoming tournament");
+  await waitForHomeCarouselCard("starting-soon", 0, width, "The first Upcoming tournament after swiping back");
+
+  await assertHomeCarouselCardOpens("starting-soon", "The first Upcoming tournament");
+  for (const [page, id] of [[1, "later-one"], [2, "later-two"], [0, "starting-soon"]]) {
+    const advanced = await evaluate("window.__daily007HomeCarouselTest.advanceCarousel()");
+    assert(advanced, `Home auto-advance was unavailable at ${width}px.`);
+    await waitForHomeCarouselCard(id, page, width, `Auto-advance to ${id}`);
+    await assertHomeCarouselCardOpens(id, `Auto-advanced tournament ${id}`);
+  }
+
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.hasScheduledStartTimer()"),
+    `Home did not schedule the tournament's start-time transition at ${width}px.`,
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.advancePastScheduledStart()"),
+    `The controlled start-time transition could not run at ${width}px.`,
+  );
   await waitForCondition(
     "window.__daily007HomeCarouselTest.didStartTimerFire() && window.__daily007HomeCarouselTest.getFakeNow() >= window.__daily007HomeCarouselTest.scheduledStartMs && !document.querySelector('[data-testid=\"home-upcoming-card-starting-soon\"]') && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 2",
     "Home to remove the tournament at its scheduled IST start",
   );
   await assertText("Later Tournament One");
   await assertText("Later Tournament Two");
-
-  const carouselState = await evaluate(`(() => {
-    const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
-    const indicators = document.querySelector('[data-testid="home-upcoming-page-indicators"]');
-    if (!carousel || !indicators) return null;
-    const remaining = [...carousel.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
-    const maxScroll = carousel.scrollWidth - carousel.clientWidth;
-    carousel.scrollLeft = maxScroll;
-    carousel.dispatchEvent(new Event("scroll", { bubbles: true }));
-    return {
-      remainingIds: remaining.map((item) => item.getAttribute("data-testid")),
-      indicatorCount: indicators.children.length,
-      maxScroll,
-      scrollLeft: carousel.scrollLeft,
-    };
-  })()`);
-  assert(carouselState, "The remaining Home carousel and page indicators should stay mounted.");
-  assert(carouselState.remainingIds.length === 2, "Both later tournaments should remain in the carousel.");
-  assert(carouselState.indicatorCount === 2, "Page indicators should match the two remaining tournaments.");
-  assert(carouselState.maxScroll > 0, "The remaining carousel should still have horizontal content to browse.");
-  await waitForCondition(
-    "document.querySelector('[data-testid=\"home-upcoming-carousel\"]')?.scrollLeft > 0",
-    "The remaining Home carousel to scroll to a later card",
-  );
-
-  await clickSelector('[data-testid="home-upcoming-card-later-two"]', "remaining tournament card");
-  const navigations = await evaluate("globalThis.__previewNavigations ?? []");
+  const remainingState = await readHomeCarouselState();
+  assert(remainingState, `The remaining Home carousel is missing at ${width}px.`);
   assert(
-    JSON.stringify(navigations.at(-1)) === JSON.stringify(["TDetail", { id: "later-two" }]),
-    "The remaining Home tournament card should still open its details.",
+    JSON.stringify(remainingState.cards.map((card) => card.id)) === JSON.stringify(["later-one", "later-two"]) &&
+      remainingState.indicatorCount === 2 &&
+      remainingState.activePage === 0,
+    `Home did not preserve and re-index the two later tournaments after the scheduled start at ${width}px: ${JSON.stringify(remainingState)}.`,
   );
+  await waitForHomeCarouselCard("later-one", 0, width, "The first remaining tournament");
+  await assertHomeCarouselCardOpens("later-one", "The first remaining tournament");
+  await swipeHomeCarousel("left", "the first remaining tournament");
+  await waitForHomeCarouselCard("later-two", 1, width, "The second remaining tournament after a manual swipe");
+  await assertHomeCarouselCardOpens("later-two", "The second remaining tournament");
+  await swipeHomeCarousel("right", "the second remaining tournament");
+  await waitForHomeCarouselCard("later-one", 0, width, "The first remaining tournament after swiping back");
+
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.advanceCarousel()"),
+    `Home could not auto-advance the remaining tournaments at ${width}px.`,
+  );
+  await waitForHomeCarouselCard("later-two", 1, width, "Auto-advance to the second remaining tournament");
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.advanceCarousel()"),
+    `Home could not wrap the remaining tournaments at ${width}px.`,
+  );
+  await waitForHomeCarouselCard("later-one", 0, width, "Auto-advance wrapping to the first remaining tournament");
+  console.log(`PASS Home carousel ${width}px — manual swipes, auto-advance, full card visibility, and matching detail taps.`);
 
   await waitForCondition(
     "window.__daily007HomeCarouselTest.getHomePollCount() === 1 && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === 1",
@@ -1361,15 +1524,31 @@ async function checkHomeCarousel() {
       readsWhilePending.registrations === readsAfterApproval.registrations + 1,
     "A slow registration read must prevent a second Home refresh, even after the tournament request fails.",
   );
-  assert(
-    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
-    "The deferred registration response should be released so the failed poll can settle.",
+  assert(await evaluate(`(() => {
+    const test = window.__daily007HomeCarouselTest;
+    test.setRegistrations([
+      { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+    ]);
+    return test.releaseRegistrationRead([
+      { id: "preview-registration-later-one", tournamentId: "later-one", status: "rejected" }
+    ]);
+  })()`), "The deferred registration response should be released so the failed poll can settle.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsAfterApproval.tournaments + 2} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsAfterApproval.registrations + 2} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "Home to refresh once after the paired failure settles and retain the approved registration",
   );
-  await delay(120);
+  const stateAfterFailedPairedRead = await evaluate(`({
+    cardText: document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText ?? null,
+    tournamentReads: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrationReads: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
   assert(
-    await evaluate("document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText.includes('JOINED')"),
-    "The rejected status should not replace cards when its paired tournament refresh fails.",
+    stateAfterFailedPairedRead.cardText?.includes("JOINED"),
+    `The paired failure and subsequent foreground refresh should preserve the approved registration: ${JSON.stringify(stateAfterFailedPairedRead)}.`,
   );
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "rejected" }
+  ])`);
   const readsBeforeRejectionRefresh = await evaluate(`({
     tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
     registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
@@ -1951,9 +2130,15 @@ try {
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);
       console.log("PASS — Wallet recharge/withdrawal and Edit Profile actions remain reachable at 375px with a simulated keyboard-open viewport.");
     } else if (homeCarouselOnly) {
-      await checkHomeCarousel();
-      assert(browserErrors.length === 0, `Browser errors during Home carousel checks: ${browserErrors.join(" | ")}`);
-      console.log("PASS — Home updates joined status after Admin approval/rejection on its 30-second poll, preserves unaffected cards, and keeps the scheduled-start carousel usable.");
+      for (const width of [320, 430]) {
+        await setViewport(width, 1, "home-carousel-preview.html");
+        await checkHomeCarousel(width);
+        assert(
+          browserErrors.length === 0,
+          `Browser errors during Home carousel checks at ${width}px: ${browserErrors.join(" | ")}`,
+        );
+      }
+      console.log("PASS — Home carousel manual swipes, auto-advance, matching detail taps, scheduled-start changes, and registration-aware refreshes at 320px and 430px.");
     } else {
       await checkTournamentResume();
       assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);

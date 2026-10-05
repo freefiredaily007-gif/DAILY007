@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 
+globalThis.global ??= globalThis;
+
 const localAsset = () => ({ uri: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" });
 globalThis.require = localAsset;
 window.require = localAsset;
@@ -11,10 +13,14 @@ if (!rootElement) throw new Error("Home carousel preview root is missing.");
 
 const root = createRoot(rootElement);
 const realSetInterval = globalThis.setInterval.bind(globalThis);
+const realClearTimeout = globalThis.clearTimeout.bind(globalThis);
 const homePollIntervals = [];
+const carouselAutoAdvanceIntervals = [];
 const scheduledStartMs = Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
 let fakeNow = scheduledStartMs - 60_000;
 let startTimerFired = false;
+let scheduledStartTimerCallback = null;
+let scheduledStartTimerHandle = null;
 let appVisibility = "visible";
 Date.now = () => fakeNow;
 Object.defineProperty(document, "visibilityState", {
@@ -37,11 +43,13 @@ globalThis.setTimeout = (callback, delay, ...args) => {
     Math.abs(Number(delay) - expectedStartTimerDelay) <= 5
   ) {
     shouldAccelerateStartTimer = false;
-    return realSetTimeout(() => {
+    scheduledStartTimerCallback = () => {
       fakeNow = scheduledStartMs + 20;
       startTimerFired = true;
       callback(...args);
-    }, 50);
+    };
+    scheduledStartTimerHandle = realSetTimeout(() => {}, 60_000);
+    return scheduledStartTimerHandle;
   }
   return realSetTimeout(callback, delay, ...args);
 };
@@ -93,6 +101,13 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     if (intervalMs === HOME_TOURNAMENT_REFRESH_INTERVAL_MS) {
       homePollIntervals.push({ callback, intervalMs });
     }
+    if (intervalMs === 3500) {
+      carouselAutoAdvanceIntervals.push({
+        callback: () => callback(...args),
+        intervalMs,
+      });
+      return 0;
+    }
     return realSetInterval(callback, intervalMs, ...args);
   };
   window.__daily007HomeCarouselTest = {
@@ -102,6 +117,26 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     didStartTimerFire: () => startTimerFired,
     getHomePollCount: () => homePollIntervals.length,
     getHomePollIntervalMs: () => homePollIntervals[0]?.intervalMs ?? null,
+    getCarouselAutoAdvanceIntervalMs: () =>
+      carouselAutoAdvanceIntervals.at(-1)?.intervalMs ?? null,
+    advanceCarousel: () => {
+      const interval = carouselAutoAdvanceIntervals.at(-1);
+      if (!interval) return false;
+      interval.callback();
+      return true;
+    },
+    hasScheduledStartTimer: () => typeof scheduledStartTimerCallback === "function",
+    advancePastScheduledStart: () => {
+      if (!scheduledStartTimerCallback) return false;
+      const callback = scheduledStartTimerCallback;
+      scheduledStartTimerCallback = null;
+      if (scheduledStartTimerHandle !== null) {
+        realClearTimeout(scheduledStartTimerHandle);
+        scheduledStartTimerHandle = null;
+      }
+      callback();
+      return true;
+    },
     fireHomePoll: () => {
       const homePoll = homePollIntervals[0];
       if (!homePoll) return false;

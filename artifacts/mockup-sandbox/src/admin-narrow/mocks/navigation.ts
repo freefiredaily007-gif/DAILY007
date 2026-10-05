@@ -5,12 +5,14 @@ export function useFocusEffect(effect: () => void | (() => void)) {
 }
 
 export function useNavigation() {
+  const recordNavigation = (...args: unknown[]) => {
+    const preview = globalThis as typeof globalThis & { __previewNavigations?: unknown[][] };
+    preview.__previewNavigations ??= [];
+    preview.__previewNavigations.push(args);
+  };
   return {
-    navigate: (...args: unknown[]) => {
-      const preview = globalThis as typeof globalThis & { __previewNavigations?: unknown[][] };
-      preview.__previewNavigations ??= [];
-      preview.__previewNavigations.push(args);
-    },
+    navigate: recordNavigation,
+    getParent: () => ({ push: recordNavigation }),
   };
 }
 

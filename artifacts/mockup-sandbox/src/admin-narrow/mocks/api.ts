@@ -493,11 +493,11 @@ export function deferNextHomeCarouselRegistrationRead() {
   deferredHomeRegistrationRead = { promise, resolve, claimed: false };
 }
 
-export function releaseHomeCarouselRegistrationRead() {
+export function releaseHomeCarouselRegistrationRead(registrations = homeCarouselRegistrationPreview ?? []) {
   const deferred = deferredHomeRegistrationRead;
   if (!deferred) return false;
   deferredHomeRegistrationRead = null;
-  deferred.resolve((homeCarouselRegistrationPreview ?? []).map((registration) => ({ ...registration })));
+  deferred.resolve(registrations.map((registration) => ({ ...registration })));
   return true;
 }
 
