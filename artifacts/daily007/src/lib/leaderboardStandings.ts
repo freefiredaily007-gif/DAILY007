@@ -35,5 +35,5 @@ export function leaderboardPodiumAccessibilityLabel(
 ): string {
   return standing
     ? leaderboardPlayerAccessibilityLabel({ rank, ...standing })
-    : `Rank ${rank}, awaiting player, no coin score`;
+    : `Rank ${rank}, player not available, coin score not available`;
 }

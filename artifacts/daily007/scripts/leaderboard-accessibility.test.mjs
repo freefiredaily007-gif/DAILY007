@@ -49,7 +49,7 @@ test("expanded player rows announce rank, player, and coin score as one ordered 
   assert.equal(label, `Rank 4, Test Player, ${(120_000).toLocaleString("en-IN")} coins`);
 });
 
-test("podium entries announce one rank, player, and coin score without decorative stops", () => {
+test("podium entries expose one ordered VoiceOver label without decorative stops", () => {
   const start = screenSource.indexOf("function PodiumEntry(");
   const end = screenSource.indexOf("\nfunction PlayerRow(", start);
   assert.ok(start >= 0 && end > start, "The podium entry component must remain present.");
@@ -86,10 +86,12 @@ test("podium entries announce one rank, player, and coin score without decorativ
     points: 120_000,
   });
   assert.equal(label, `Rank 1, Top Player, ${(120_000).toLocaleString("en-IN")} coins`);
-  assert.equal(
-    leaderboardPodiumAccessibilityLabel(2),
-    "Rank 2, awaiting player, no coin score",
-  );
+  for (const rank of [1, 2, 3]) {
+    assert.equal(
+      leaderboardPodiumAccessibilityLabel(rank),
+      `Rank ${rank}, player not available, coin score not available`,
+    );
+  }
 });
 
 test("the Top 20 control exposes and toggles its expanded state", () => {
