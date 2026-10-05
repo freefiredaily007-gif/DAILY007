@@ -6,6 +6,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { getClerkInstance } from '@clerk/expo';
 import { useSSO } from '@clerk/expo';
 import { Api, apiError, setSession, User } from '../lib/api';
+import { runGoogleSSOFlow } from '../lib/google-sso-flow';
 import { C, Input, Msg } from './ui';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -106,57 +107,30 @@ function ConfiguredGoogleButton({
     setOwnerRecoveryCode('');
     setBusy(true);
     try {
-      // A saved Clerk session can outlive the Daily007 account session. Reuse
-      // it rather than starting a second OAuth flow, which Clerk rejects.
-      const existingSession = getClerkInstance().session;
-      let expectedSessionId: string | null | undefined = existingSession?.id;
-
-      if (!existingSession) {
-        const redirectUrl = Platform.OS === 'web'
-          ? AuthSession.makeRedirectUri()
-          : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
-        const sso = await startSSOFlow({
-          strategy: 'oauth_google',
-          redirectUrl,
-        });
-
-        expectedSessionId = sso.createdSessionId;
-        if (!expectedSessionId) {
-          const resultType = sso.authSessionResult?.type;
-          if (resultType === 'cancel' || resultType === 'dismiss') return;
-          if (sso.signUp?.status === 'missing_requirements') {
-            const fields = sso.signUp.missingFields?.join(', ');
-            showError(fields
-              ? `Google sign-up needs more information: ${fields}. Please complete those account details and try again.`
-              : 'Google sign-up needs additional account details. Please complete them and try again.');
-            return;
-          }
-          showError('Google sign-in did not complete. Please try again.');
-          return;
-        }
-
-        if (!sso.setActive) {
-          showError('Google sign-in completed, but the session could not be activated. Please try again.');
-          return;
-        }
-        await sso.setActive({ session: expectedSessionId });
-      }
-
-      const activeSession = getClerkInstance().session;
-      if (!expectedSessionId || !activeSession || activeSession.id !== expectedSessionId) {
-        showError('Google sign-in finished, but Clerk did not activate the expected session. Please try again.');
-        return;
-      }
-      const clerkJwt = await activeSession.getToken();
-      if (!clerkJwt) {
-        showError('Google sign-in completed, but a verified Clerk session token was not available. Please try again.');
-        return;
-      }
-
-      const authenticated = await Api.googleAuth(clerkJwt, {
-        ...(dailyToken ? { dailyToken } : {}),
-        ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
+      const result = await runGoogleSSOFlow({
+        getActiveSession: () => getClerkInstance().session,
+        startSSOFlow: async () => {
+          const redirectUrl = Platform.OS === 'web'
+            ? AuthSession.makeRedirectUri()
+            : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
+          return startSSOFlow({
+            strategy: 'oauth_google',
+            redirectUrl,
+          });
+        },
+        exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, {
+          ...(dailyToken ? { dailyToken } : {}),
+          ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
+        }),
       });
+
+      if (result.status === 'cancelled') return;
+      if (result.status === 'error') {
+        showError(result.message);
+        return;
+      }
+
+      const authenticated = result.value;
       setSession(authenticated.user);
       await onSuccess(authenticated.user);
     } catch (e: any) {

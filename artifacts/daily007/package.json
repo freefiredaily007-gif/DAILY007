@@ -20,6 +20,7 @@
     "test:tournament-card-artwork": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-card-artwork.test.mjs",
     "test:referral-invite": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/referral-invite.test.mjs",
     "test:session-verification": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/session-verification.test.mjs",
+    "test:google-sso-handoff": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/google-sso-handoff.test.mjs",
     "test:withdrawal-upi-copy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/withdrawal-upi-copy.test.mjs",
     "test:wallet-cancellation-history": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-cancellation-history.test.mjs",
     "test:signup-keyboard": "node scripts/signup-keyboard.test.mjs"

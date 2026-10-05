@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { ReadableText as Text } from '../src/components/typography';
 import * as WebBrowser from 'expo-web-browser';
+import { getSSOCallbackMessage } from '../src/lib/google-sso-flow';
 
 // This route is the web popup return target. Call synchronously at module load
 // so the popup can notify and close its opener before the screen renders.
@@ -10,11 +11,7 @@ const authCompletion = Platform.OS === 'web'
   : null;
 
 export default function SSOCallback() {
-  const message = Platform.OS === 'web'
-    ? authCompletion?.type === 'success'
-      ? 'Google sign-in is complete. Return to Daily007 to continue.'
-      : 'Google sign-in returned to Daily007. You can close this page and try again if sign-in did not finish.'
-    : 'Google sign-in returned to Daily007. Return to the app to continue.';
+  const message = getSSOCallbackMessage(Platform.OS, authCompletion?.type);
 
   return (
     <View style={s.container}>
