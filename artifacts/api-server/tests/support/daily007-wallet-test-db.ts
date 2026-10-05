@@ -218,8 +218,14 @@ class MemoryWalletDatabase {
         coins: user.wallet_coins,
         createdAt: null,
       }));
-    } else if (normalized === "SELECT pg_advisory_xact_lock(740073)") {
+    } else if (
+      normalized === "SELECT pg_advisory_xact_lock(740073)" ||
+      normalized === "SELECT pg_advisory_xact_lock_shared(740073)"
+    ) {
       rows = [];
+    } else if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
+      const user = this.users.get(userId);
+      rows = user ? [{ role: user.role, status: user.status }] : [];
     } else if (normalized === "SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
       const user = this.users.get(userId);
       rows = user ? [{ role: user.role }] : [];

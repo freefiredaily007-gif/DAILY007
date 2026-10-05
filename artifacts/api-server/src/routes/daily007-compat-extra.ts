@@ -9,7 +9,15 @@ import {
   Daily007AdminSetVideoActiveResponse,
   Daily007ListVideosResponse,
 } from "@workspace/api-zod";
-import { authenticate, requireAdmin, requireTournamentAdmin } from "./daily007-v2";
+import {
+  assertDaily007RoleLocked,
+  authenticate,
+  requireAdmin,
+  requireTournamentAdmin,
+  withDaily007RoleTransaction,
+  type Daily007RoleRequirement,
+  type Daily007MutationClient,
+} from "./daily007-v2";
 import { isAssignableTournamentRole, wouldRemoveLastFullAdmin } from "../lib/daily007-roles";
 import {
   isValidYoutubeChannelUrl,
@@ -79,7 +87,16 @@ async function transaction<T>(work: (client: Client) => Promise<T>): Promise<T> 
     client.release();
   }
 }
-async function markDaily007VideoCatalogSeeded(client: Client): Promise<void> {
+async function roleTransaction<T>(
+  req: Request,
+  requiredRole: Daily007RoleRequirement,
+  work: (client: Daily007MutationClient) => Promise<T>,
+): Promise<T> {
+  const id = userId(req);
+  if (!id) throw Object.assign(new Error("A valid Daily007 account is required."), { status: 401 });
+  return withDaily007RoleTransaction(id, requiredRole, work);
+}
+async function markDaily007VideoCatalogSeeded(client: Daily007MutationClient): Promise<void> {
   await client.query(
     `INSERT INTO daily007_v2_settings (id, settings)
      VALUES (1, '{"__daily007VideoCatalogSeeded": true}'::jsonb)
@@ -137,15 +154,22 @@ router.post("/wallet/uploads/request-url", authenticate, async (req, res): Promi
     error(res, 400, "Expected an image purpose, MIME type, and file size."); return;
   }
   if (body.purpose === "wallet-qr" && !requireAdmin(req, res)) return;
+  const purpose = body.purpose as "payment-proof" | "wallet-qr";
+  const contentType = body.contentType as string;
+  const size = body.size as number;
   try {
-    const upload = await createWalletImageUpload({
+    const createUpload = () => createWalletImageUpload({
       userId: id,
-      purpose: body.purpose,
-      contentType: body.contentType,
-      size: body.size,
+      purpose,
+      contentType,
+      size,
     });
+    const upload = body.purpose === "wallet-qr"
+      ? await roleTransaction(req, "admin", createUpload)
+      : await createUpload();
     res.json({ ...upload, expiresInSeconds: 900 });
   } catch (e) {
+    if ((e as { status?: number }).status) { respondFailure(res, e); return; }
     const message = e instanceof Error ? e.message : "Could not create an upload URL.";
     error(res, 400, message);
   }
@@ -374,7 +398,7 @@ router.post("/admin/withdrawals/:id/payout", authenticate, async (req, res): Pro
   if (!validId(req.params.id)) { error(res, 400, "Withdrawal id must be a UUID."); return; }
   const adminId = privateAccount(req, res); if (!adminId) return;
   try {
-    const result = await transaction(async (client) => {
+    const result = await roleTransaction(req, "admin", async (client) => {
       const locked = await client.query<any>(
         "SELECT * FROM daily007_v2_withdrawals WHERE id = $1 FOR UPDATE", [req.params.id],
       );
@@ -418,7 +442,7 @@ for (const kind of ["payments", "withdrawals"] as const) {
       error(res, 400, "Provide a rejection reason of 1–500 characters."); return;
     }
     try {
-      const result = await transaction(async (client) => {
+      const result = await roleTransaction(req, "admin", async (client) => {
         const locked = await client.query<any>(`SELECT * FROM ${table} WHERE id = $1 FOR UPDATE`, [id]);
         const request = locked.rows[0];
         if (!request) throw Object.assign(new Error("Request not found."), { status: 404 });
@@ -496,7 +520,7 @@ for (const kind of ["payments", "withdrawals"] as const) {
     if (!requireAdmin(req, res)) return;
     if (!validId(req.params.id)) { error(res, 400, "Request id must be a UUID."); return; }
     try {
-      const result = await transaction(async (client) => {
+      const result = await roleTransaction(req, "admin", async (client) => {
         const locked = await client.query<any>(`SELECT * FROM ${table} WHERE id = $1 FOR UPDATE`, [req.params.id]);
         const request = locked.rows[0];
         if (!request || request.status === "deleted") return false;
@@ -534,6 +558,8 @@ router.get("/admin/users", authenticate, async (req, res): Promise<void> => {
 
 router.patch("/admin/users/:id/role", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
+  const actorId = userId(req);
+  if (!actorId) { error(res, 401, "A valid Daily007 account is required."); return; }
   const id = req.params.id;
   const body = req.body as unknown;
   if (!validId(id) || !isObject(body) || !isAssignableTournamentRole(body.role)) {
@@ -547,6 +573,7 @@ router.patch("/admin/users/:id/role", authenticate, async (req, res): Promise<vo
   try {
     const result = await transaction(async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(740073)");
+      await assertDaily007RoleLocked(client, actorId, "admin");
       const selected = await client.query<{ role: string }>(
         "SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [id],
       );
@@ -586,7 +613,7 @@ router.patch("/admin/users/:id", authenticate, async (req, res): Promise<void> =
   const reason = setCoins ? text(body.note ?? body.reason, 1, 100) : null;
   if (setCoins && !reason) { error(res, 400, "A 1–100 character reason is required for coin adjustments."); return; }
   try {
-    const user = await transaction(async (client) => {
+    const user = await roleTransaction(req, "admin", async (client) => {
       const locked = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [id],
       );
@@ -768,22 +795,24 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   if (next.rechargeEnabled === "true" && (!next.upiId || !next.upiQrObjectPath)) {
     error(res, 400, "Configure both a UPI ID and a QR image before enabling recharge."); return;
   }
-  await pool.query(
-    `INSERT INTO daily007_v2_settings (id, settings, updated_by, updated_at) VALUES (1, $1, $2, now())
-     ON CONFLICT (id) DO UPDATE
-       SET settings = EXCLUDED.settings ||
-         CASE
-           WHEN daily007_v2_settings.settings ? '__daily007VideoCatalogSeeded'
-             THEN jsonb_build_object(
-               '__daily007VideoCatalogSeeded',
-               daily007_v2_settings.settings->'__daily007VideoCatalogSeeded'
-             )
-           ELSE '{}'::jsonb
-         END,
-           updated_by = EXCLUDED.updated_by,
-           updated_at = now()`,
-    [JSON.stringify(next), userId(req)],
-  );
+  try {
+    await roleTransaction(req, "admin", (client) => client.query(
+      `INSERT INTO daily007_v2_settings (id, settings, updated_by, updated_at) VALUES (1, $1, $2, now())
+       ON CONFLICT (id) DO UPDATE
+         SET settings = EXCLUDED.settings ||
+           CASE
+             WHEN daily007_v2_settings.settings ? '__daily007VideoCatalogSeeded'
+               THEN jsonb_build_object(
+                 '__daily007VideoCatalogSeeded',
+                 daily007_v2_settings.settings->'__daily007VideoCatalogSeeded'
+               )
+             ELSE '{}'::jsonb
+           END,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = now()`,
+      [JSON.stringify(next), userId(req)],
+    ));
+  } catch (e) { respondFailure(res, e); return; }
   res.json(await clientSettings(true));
 });
 
@@ -865,7 +894,7 @@ router.post("/admin/earn/youtube-subscribe/claims/:id/:action", authenticate, as
     error(res, 400, "Rejection reason must be 1–500 characters."); return;
   }
   try {
-    const reviewed = await transaction((client) =>
+    const reviewed = await roleTransaction(req, "admin", (client) =>
       reviewYoutubeSubscribeClaim(client, claimId, adminId, action, reason));
     res.json(reviewed);
   } catch (e) { respondFailure(res, e); }
@@ -906,7 +935,7 @@ router.post("/admin/notifications", authenticate, async (req, res): Promise<void
       error(res, 400, "Selected notifications require 1–500 unique valid user UUIDs."); return;
     }
   } else if (body.userIds !== undefined) { error(res, 400, "userIds may only be supplied for selected notifications."); return; }
-  const sent = await transaction(async (client) => {
+  const sent = await roleTransaction(req, "admin", async (client) => {
     const targets = type === "selected"
       ? await client.query<{ id: string }>("SELECT id FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [body.userIds])
       : await client.query<{ id: string }>("SELECT id FROM daily007_v2_users");
@@ -1033,34 +1062,37 @@ router.get("/admin/videos", authenticate, async (req, res): Promise<void> => {
 
   // Carry the existing featured player into the managed list once. Admins can
   // deactivate it after adding their replacement or additional videos.
-  await transaction(async (client) => {
-    await client.query(
-      `INSERT INTO daily007_v2_settings (id, settings)
-       VALUES (1, '{}'::jsonb)
-       ON CONFLICT (id) DO NOTHING`,
-    );
-    const seedState = await client.query<{ seeded: boolean }>(
-      `SELECT COALESCE((settings->>'__daily007VideoCatalogSeeded')::boolean, false) AS seeded
-         FROM daily007_v2_settings
-        WHERE id = 1
-        FOR UPDATE`,
-    );
-    if (seedState.rows[0]?.seeded) return;
-
-    await client.query(
-      `INSERT INTO daily007_v2_videos (title, topic, youtube_id, active)
-       SELECT $1, $2, $3, true
-        WHERE NOT EXISTS (SELECT 1 FROM daily007_v2_videos)
-       ON CONFLICT (youtube_id) DO NOTHING`,
-      ["Daily007 featured video", "General", "opKbUpusuTc"],
-    );
-    await markDaily007VideoCatalogSeeded(client);
-  });
-  const result = await pool.query(
-    `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
-       FROM daily007_v2_videos
-      ORDER BY created_at DESC, id`,
-  );
+  let result: { rows: any[] };
+  try {
+    result = await roleTransaction(req, "admin", async (client) => {
+      await client.query(
+        `INSERT INTO daily007_v2_settings (id, settings)
+         VALUES (1, '{}'::jsonb)
+         ON CONFLICT (id) DO NOTHING`,
+      );
+      const seedState = await client.query<{ seeded: boolean }>(
+        `SELECT COALESCE((settings->>'__daily007VideoCatalogSeeded')::boolean, false) AS seeded
+           FROM daily007_v2_settings
+          WHERE id = 1
+          FOR UPDATE`,
+      );
+      if (!seedState.rows[0]?.seeded) {
+        await client.query(
+          `INSERT INTO daily007_v2_videos (title, topic, youtube_id, active)
+           SELECT $1, $2, $3, true
+            WHERE NOT EXISTS (SELECT 1 FROM daily007_v2_videos)
+           ON CONFLICT (youtube_id) DO NOTHING`,
+          ["Daily007 featured video", "General", "opKbUpusuTc"],
+        );
+        await markDaily007VideoCatalogSeeded(client);
+      }
+      return client.query(
+        `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+           FROM daily007_v2_videos
+          ORDER BY created_at DESC, id`,
+      );
+    });
+  } catch (e) { respondFailure(res, e); return; }
   res.json(Daily007AdminListVideosResponse.parse({
     videos: result.rows.map((video: any) => ({
       ...video,
@@ -1082,12 +1114,12 @@ router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
     error(res, 400, "Enter a title, topic up to 80 characters, and valid YouTube video URL."); return;
   }
   try {
-    const result = await pool.query(
+    const result = await roleTransaction(req, "admin", (client) => client.query(
       `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
        VALUES ($1, $2, $3, $4)
        RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
       [title, topic, youtubeId, userId(req)],
-    );
+    ));
     const video: any = result.rows[0];
     res.status(201).json(Daily007AdminCreateVideoResponse.parse({
       ...video,
@@ -1097,6 +1129,7 @@ router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
     if ((e as { code?: string }).code === "23505") {
       error(res, 409, "This YouTube video is already in the managed list."); return;
     }
+    if ((e as { status?: number }).status) { respondFailure(res, e); return; }
     throw e;
   }
 });
@@ -1119,7 +1152,7 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
   }
 
   try {
-    const outcome = await transaction(async (client) => {
+    const outcome = await roleTransaction(req, "admin", async (client) => {
       const existing = await client.query<{ youtube_id: string }>(
         `SELECT youtube_id
            FROM daily007_v2_videos
@@ -1173,6 +1206,7 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
     if ((e as { code?: string }).code === "23505") {
       error(res, 409, "This YouTube video is already in the managed list."); return;
     }
+    if ((e as { status?: number }).status) { respondFailure(res, e); return; }
     throw e;
   }
 });
@@ -1184,36 +1218,37 @@ router.delete("/admin/videos/:id", authenticate, async (req, res): Promise<void>
     error(res, 400, "Provide a valid video id."); return;
   }
 
-  const outcome = await transaction(async (client) => {
-    await client.query(
-      `INSERT INTO daily007_v2_settings (id, settings)
-       VALUES (1, '{}'::jsonb)
-       ON CONFLICT (id) DO NOTHING`,
-    );
-    await client.query(
-      "SELECT id FROM daily007_v2_settings WHERE id = 1 FOR UPDATE",
-    );
-    const existing = await client.query<{ id: string }>(
-      `SELECT id
-         FROM daily007_v2_videos
-        WHERE id = $1
-        FOR UPDATE`,
-      [id],
-    );
-    if (!existing.rows[0]) return "missing";
+  let outcome: "missing" | "history" | "deleted";
+  try {
+    outcome = await roleTransaction(req, "admin", async (client) => {
+      await client.query(
+        `INSERT INTO daily007_v2_settings (id, settings)
+         VALUES (1, '{}'::jsonb)
+         ON CONFLICT (id) DO NOTHING`,
+      );
+      await client.query("SELECT id FROM daily007_v2_settings WHERE id = 1 FOR UPDATE");
+      const existing = await client.query<{ id: string }>(
+        `SELECT id
+           FROM daily007_v2_videos
+          WHERE id = $1
+          FOR UPDATE`,
+        [id],
+      );
+      if (!existing.rows[0]) return "missing";
 
-    const watchHistory = await client.query<{ hasSessions: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1 FROM daily007_v2_video_watch_sessions WHERE video_id = $1
-       ) AS "hasSessions"`,
-      [id],
-    );
-    if (watchHistory.rows[0]?.hasSessions) return "history";
+      const watchHistory = await client.query<{ hasSessions: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM daily007_v2_video_watch_sessions WHERE video_id = $1
+         ) AS "hasSessions"`,
+        [id],
+      );
+      if (watchHistory.rows[0]?.hasSessions) return "history";
 
-    await client.query("DELETE FROM daily007_v2_videos WHERE id = $1", [id]);
-    await markDaily007VideoCatalogSeeded(client);
-    return "deleted";
-  });
+      await client.query("DELETE FROM daily007_v2_videos WHERE id = $1", [id]);
+      await markDaily007VideoCatalogSeeded(client);
+      return "deleted";
+    });
+  } catch (e) { respondFailure(res, e); return; }
 
   if (outcome === "missing") {
     error(res, 404, "Video not found."); return;
@@ -1231,13 +1266,16 @@ router.patch("/admin/videos/:id/active", authenticate, async (req, res): Promise
   if (!validId(id) || !isObject(body) || typeof body.active !== "boolean") {
     error(res, 400, "Provide a valid video id and active state."); return;
   }
-  const result = await pool.query(
+  let result;
+  try {
+    result = await roleTransaction(req, "admin", (client) => client.query(
     `UPDATE daily007_v2_videos
         SET active = $2
       WHERE id = $1
       RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
     [id, body.active],
-  );
+    ));
+  } catch (e) { respondFailure(res, e); return; }
   const video: any = result.rows[0];
   if (!video) { error(res, 404, "Video not found."); return; }
   res.json(Daily007AdminSetVideoActiveResponse.parse({
@@ -1349,7 +1387,7 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
   const rank = body.rank as number;
   const kills = body.kills as number;
   try {
-    const result = await transaction(async (client) => {
+    const result = await roleTransaction(req, "tournament_admin", async (client) => {
       const registration = await client.query<{
         id: string; match_id: string; captain_user_id: string; prize_pool: number; prize_distribution: string;
         has_started: boolean; match_status: string;

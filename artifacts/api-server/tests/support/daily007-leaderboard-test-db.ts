@@ -270,7 +270,8 @@ class MemoryLeaderboardDatabase {
 
     if (
       normalized === "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)" ||
-      normalized === "SELECT pg_advisory_xact_lock(740072)"
+      normalized === "SELECT pg_advisory_xact_lock(740072)" ||
+      normalized === "SELECT pg_advisory_xact_lock_shared(740073)"
     ) {
       return Promise.resolve(rows<T>());
     }
@@ -279,6 +280,10 @@ class MemoryLeaderboardDatabase {
     ) {
       const user = this.users.get(String(values[0]));
       return Promise.resolve(rows<T>(user ? [structuredClone(user)] : []));
+    }
+    if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
+      const user = this.users.get(String(values[0]));
+      return Promise.resolve(rows<T>(user ? [{ role: user.role, status: "active" }] : []));
     }
     if (normalized === "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
       const user = this.users.get(String(values[0]));

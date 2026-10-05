@@ -9,7 +9,7 @@ import {
   isEligibleForGoogleOwnerRecovery,
   isEligibleForGoogleRecoveryRequest,
 } from "../lib/daily007-account-recovery-policy";
-import { authenticate, requireAdmin } from "./daily007-v2";
+import { authenticate, requireAdmin, withDaily007RoleTransaction } from "./daily007-v2";
 
 const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -299,16 +299,31 @@ router.post("/auth/google/recovery-owner", async (req, res): Promise<void> => {
 
 router.get("/admin/account-recovery-requests", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
-  const result = await pool.query(
-    `SELECT r.id, r.user_id AS "userId", r.google_email AS "googleEmail",
-            r.created_at AS "createdAt",
-            u.name AS "accountName", u.email AS "accountEmail",
-            u.phone AS "phone", u.game_uid AS "gameUid", u.role AS "accountRole"
-       FROM daily007_v2_google_recovery_requests r
-       JOIN daily007_v2_users u ON u.id = r.user_id
-      WHERE r.status = 'pending'
-      ORDER BY r.created_at ASC`,
-  );
+  const adminId = req.daily007Account?.id;
+  if (!adminId) {
+    fail(res, 401, "A valid Daily007 account is required.");
+    return;
+  }
+  let result;
+  try {
+    result = await withDaily007RoleTransaction(adminId, "admin", (client) => client.query(
+      `SELECT r.id, r.user_id AS "userId", r.google_email AS "googleEmail",
+              r.created_at AS "createdAt",
+              u.name AS "accountName", u.email AS "accountEmail",
+              u.phone AS "phone", u.game_uid AS "gameUid", u.role AS "accountRole"
+         FROM daily007_v2_google_recovery_requests r
+         JOIN daily007_v2_users u ON u.id = r.user_id
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at ASC`,
+    ));
+  } catch (cause) {
+    const status = (cause as { status?: number }).status;
+    if (status) {
+      fail(res, status, (cause as Error).message);
+      return;
+    }
+    throw cause;
+  }
   res.json(result.rows);
 });
 
@@ -378,7 +393,9 @@ router.post(
       }
     }
 
-    const result = await transaction(async (client) => {
+    let result;
+    try {
+      result = await withDaily007RoleTransaction(reviewerId, "admin", async (client) => {
       const locked = await client.query<RecoveryRow>(
         `SELECT r.id, r.user_id, r.google_clerk_user_id, r.google_email, r.status,
                 u.email AS account_email, u.status AS account_status,
@@ -428,7 +445,15 @@ router.post(
         [requestId, action === "approve" ? "approved" : "rejected", reviewerId, reviewNote],
       );
       return "reviewed" as const;
-    });
+      });
+    } catch (cause) {
+      const status = (cause as { status?: number }).status;
+      if (status) {
+        fail(res, status, (cause as Error).message);
+        return;
+      }
+      throw cause;
+    }
 
     if (result === "not-pending") {
       fail(res, 409, "This recovery request has already been reviewed.");

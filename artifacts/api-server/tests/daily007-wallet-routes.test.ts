@@ -65,7 +65,7 @@ async function call(
   return { status: response.status, body: await response.json() };
 }
 
-test("a stale admin request cannot remove the last Full Admin, and the row remains Full Admin after reload", async () => {
+test("a stale Full Admin request is rejected after its role changes before the transaction", async () => {
   walletTestDb.reset();
   walletTestDb.users.set(TEST_SECOND_ADMIN_ID, {
     id: TEST_SECOND_ADMIN_ID,
@@ -80,8 +80,8 @@ test("a stale admin request cannot remove the last Full Admin, and the row remai
   });
 
   await withServer(async (origin) => {
-    // Simulate another authorized role change committing after this request's
-    // authentication check but before its transaction acquires the admin lock.
+    // Simulate another role change committing after authentication but before
+    // the mutation transaction checks the actor's current role.
     walletTestDb.demoteUserBeforeNextTransaction(TEST_ADMIN_ID);
     const rejected = await call(
       origin,
@@ -91,8 +91,8 @@ test("a stale admin request cannot remove the last Full Admin, and the row remai
       { role: "tournament_admin" },
     );
 
-    assert.equal(rejected.status, 409);
-    assert.equal(rejected.body.error, "At least one full administrator must remain.");
+    assert.equal(rejected.status, 403);
+    assert.equal(rejected.body.error, "Administrator access is required.");
 
     const refreshedUsers = await call(origin, TEST_SECOND_ADMIN_ID, "/admin/users", "GET");
     const survivingAdmin = refreshedUsers.body.find((user: any) => user.id === TEST_SECOND_ADMIN_ID);

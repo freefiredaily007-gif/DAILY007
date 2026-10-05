@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { authenticate, requireAdmin } from "./daily007-v2";
+import { authenticate, requireAdmin, withDaily007RoleTransaction } from "./daily007-v2";
 import {
   approveDaily007LeaderboardPeriod,
   getDaily007LeaderboardApprovals,
@@ -45,8 +45,14 @@ router.get(
   authenticate,
   async (req, res): Promise<void> => {
     if (!requireAdmin(req, res)) return;
+    const adminId = req.daily007Account?.id;
+    if (!adminId) {
+      error(res, 401, "A valid Daily007 account is required.");
+      return;
+    }
     try {
-      res.json(await getDaily007LeaderboardRewardSettings());
+      res.json(await withDaily007RoleTransaction(adminId, "admin", () =>
+        getDaily007LeaderboardRewardSettings()));
     } catch (cause) {
       respondFailure(res, cause);
     }
@@ -58,8 +64,14 @@ router.get(
   authenticate,
   async (req, res): Promise<void> => {
     if (!requireAdmin(req, res)) return;
+    const adminId = req.daily007Account?.id;
+    if (!adminId) {
+      error(res, 401, "A valid Daily007 account is required.");
+      return;
+    }
     try {
-      res.json(await getDaily007LeaderboardApprovals());
+      res.json(await withDaily007RoleTransaction(adminId, "admin", () =>
+        getDaily007LeaderboardApprovals()));
     } catch (cause) {
       respondFailure(res, cause);
     }
@@ -106,11 +118,12 @@ router.post(
 
     try {
       res.status(201).json(
-        await scheduleDaily007LeaderboardPeriod(adminId, cycleType, rewards as {
-          firstPlaceCoins: number;
-          secondPlaceCoins: number;
-          thirdPlaceCoins: number;
-        }),
+        await withDaily007RoleTransaction(adminId, "admin", () =>
+          scheduleDaily007LeaderboardPeriod(adminId, cycleType, rewards as {
+            firstPlaceCoins: number;
+            secondPlaceCoins: number;
+            thirdPlaceCoins: number;
+          })),
       );
     } catch (cause) {
       respondFailure(res, cause);
@@ -134,7 +147,8 @@ router.post(
       return;
     }
     try {
-      res.json(await approveDaily007LeaderboardPeriod(periodId, adminId));
+      res.json(await withDaily007RoleTransaction(adminId, "admin", () =>
+        approveDaily007LeaderboardPeriod(periodId, adminId)));
     } catch (cause) {
       respondFailure(res, cause);
     }
@@ -192,7 +206,8 @@ router.put(
     }
 
     try {
-      res.json(await updateDaily007LeaderboardRewardSettings(adminId, schedules));
+      res.json(await withDaily007RoleTransaction(adminId, "admin", () =>
+        updateDaily007LeaderboardRewardSettings(adminId, schedules)));
     } catch (cause) {
       respondFailure(res, cause);
     }

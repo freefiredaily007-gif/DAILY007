@@ -68,6 +68,11 @@ class Daily007VideoTestDatabase {
     )) {
       const user = this.users.get(String(values[0] ?? ""));
       rows = user ? [structuredClone(user)] : [];
+    } else if (normalized === "SELECT pg_advisory_xact_lock_shared(740073)") {
+      rows = [];
+    } else if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
+      const user = this.users.get(String(values[0] ?? ""));
+      rows = user ? [{ role: user.role, status: user.status }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_videos")) {
       const [title, topic, youtubeId, createdBy] = values as [string, string, string, string];
       if (this.videos.some((video) => video.youtube_id === youtubeId)) {
@@ -118,4 +123,14 @@ videoTestDb.reset();
 
 export const pool = {
   query: <T = unknown>(sql: string, values?: unknown[]) => videoTestDb.query<T>(sql, values),
+  connect: async () => ({
+    query: async <T = unknown>(sql: string, values?: unknown[]) => {
+      const normalized = (sql ?? "").replace(/\s+/g, " ").trim();
+      if (normalized === "BEGIN" || normalized === "COMMIT" || normalized === "ROLLBACK") {
+        return { rows: [] as T[] };
+      }
+      return videoTestDb.query<T>(normalized, values);
+    },
+    release: () => {},
+  }),
 };

@@ -237,6 +237,11 @@ class MemoryTournamentResultsDatabase {
     )) {
       const user = this.users.get(String(values[0]));
       rows = user ? [structuredClone(user)] : [];
+    } else if (normalized === "SELECT pg_advisory_xact_lock_shared(740073)") {
+      rows = [];
+    } else if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
+      const user = this.users.get(String(values[0]));
+      rows = user ? [{ role: user.role, status: user.status }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_matches")) {
       const [
         title,

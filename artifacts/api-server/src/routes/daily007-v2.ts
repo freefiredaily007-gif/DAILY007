@@ -31,6 +31,13 @@ type SqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
   release(): void;
 };
+export type Daily007RoleRequirement = "admin" | "tournament_admin";
+export type Daily007MutationClient = {
+  query<T = unknown>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: T[]; rowCount?: number | null }>;
+};
 declare global {
   namespace Express {
     interface Request {
@@ -127,6 +134,44 @@ async function withTransaction<T>(
   } finally {
     client.release();
   }
+}
+
+export async function assertDaily007RoleLocked(
+  client: Daily007MutationClient,
+  accountId: string,
+  requiredRole: Daily007RoleRequirement,
+): Promise<void> {
+  const result = await client.query<{ role: Daily007Role; status: string }>(
+    "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+    [accountId],
+  );
+  const account = result.rows[0];
+  const permitted = requiredRole === "admin"
+    ? isFullAdminRole(account?.role)
+    : hasTournamentAdminAccess(account?.role);
+  if (!account || account.status === "blocked" || !permitted) {
+    throw Object.assign(
+      new Error(requiredRole === "admin"
+        ? "Administrator access is required."
+        : "Tournament administrator access is required."),
+      { status: 403 },
+    );
+  }
+}
+
+export async function withDaily007RoleTransaction<T>(
+  accountId: string,
+  requiredRole: Daily007RoleRequirement,
+  work: (client: Daily007MutationClient) => Promise<T>,
+): Promise<T> {
+  return withTransaction(async (client) => {
+    // Role changes take the exclusive variant before locking the actor and target rows.
+    // Sharing the same gate first avoids lock-order deadlocks with mutations touching
+    // another administrator's row.
+    await client.query("SELECT pg_advisory_xact_lock_shared(740073)");
+    await assertDaily007RoleLocked(client, accountId, requiredRole);
+    return work(client);
+  });
 }
 
 function cleanName(value: unknown, label: string): string | null {
@@ -644,6 +689,11 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
 
 router.post("/daily007/v2/admin/users/:id/wallet", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
+  const adminId = req.daily007Account?.id;
+  if (!adminId) {
+    fail(res, 401, "A valid Daily007 account is required.");
+    return;
+  }
   const id = requestId(req);
   const body = req.body as unknown;
   if (!id) {
@@ -662,7 +712,7 @@ router.post("/daily007/v2/admin/users/:id/wallet", authenticate, async (req, res
   }
   let result: number | null;
   try {
-    result = await withTransaction(async (client) => {
+    result = await withDaily007RoleTransaction(adminId, "admin", async (client) => {
       const user = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
         [id],
