@@ -11,6 +11,7 @@
 - [Daily007 Android Back behavior](daily007-android-back.md) — hardware Back first hides the keyboard in Wallet/Edit Profile; values and second-Back behavior were confirmed on Android.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
+- [API PostgreSQL concurrency tests](api-postgres-concurrency-tests.md) — queued row-lock waiters can be blocked by an earlier queued transaction, not only the original lock holder.
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
 - [Daily007 referral links](daily007-referral-links.md) — use simple five-letter codes and keep clickable invites working with legacy codes.
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user targets Google Play; each client release needs a new native build and higher versionCode.
