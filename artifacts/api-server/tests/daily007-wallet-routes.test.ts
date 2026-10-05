@@ -10,6 +10,7 @@ import {
   TEST_ADMIN_ID,
   TEST_PLAYER_ID,
   TEST_SECOND_ADMIN_ID,
+  TEST_SECOND_PLAYER_ID,
   walletTestDb,
 } from "./support/daily007-wallet-test-db";
 
@@ -199,6 +200,59 @@ test("deposit retries cannot create duplicate pending payments or credit coins",
     assert.equal(history.body[0].id, first.body.id);
     assert.equal(history.body[0].status, "pending");
     assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, initialBalance);
+    assert.deepEqual(walletTestDb.ledger, []);
+  });
+});
+
+test("each player can hold one pending deposit without blocking the other", async () => {
+  const firstPlayerBalance = 700;
+  const secondPlayerBalance = 425;
+  walletTestDb.reset({
+    playerBalance: firstPlayerBalance,
+    settings: { coinToMoneyRate: "2.5" },
+  });
+  walletTestDb.users.set(TEST_SECOND_PLAYER_ID, {
+    id: TEST_SECOND_PLAYER_ID,
+    name: "Second Test Player",
+    email: "second-player@example.test",
+    role: "user",
+    wallet_coins: secondPlayerBalance,
+    phone: null,
+    game_uid: null,
+    status: "active",
+    auth_version: 0,
+  });
+
+  await withServer(async (origin) => {
+    const firstPending = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
+      coins: 120,
+      payerUpiId: "first-player@upi",
+      txnId: "independent-player-deposit-1",
+    });
+    assert.equal(firstPending.status, 201);
+    assert.equal(firstPending.body.status, "pending");
+    assert.equal(walletTestDb.payments.size, 1);
+
+    const secondPending = await call(origin, TEST_SECOND_PLAYER_ID, "/payments", "POST", {
+      coins: 200,
+      payerUpiId: "second-player@upi",
+      txnId: "independent-player-deposit-2",
+    });
+    assert.equal(secondPending.status, 201);
+    assert.equal(secondPending.body.status, "pending");
+    assert.notEqual(secondPending.body.id, firstPending.body.id);
+    assert.equal(walletTestDb.payments.size, 2);
+
+    const firstStored = walletTestDb.payments.get(firstPending.body.id);
+    const secondStored = walletTestDb.payments.get(secondPending.body.id);
+    assert.equal(firstStored?.user_id, TEST_PLAYER_ID);
+    assert.equal(firstStored?.status, "pending");
+    assert.equal(firstStored?.reference, "independent-player-deposit-1");
+    assert.equal(secondStored?.user_id, TEST_SECOND_PLAYER_ID);
+    assert.equal(secondStored?.status, "pending");
+    assert.equal(secondStored?.reference, "independent-player-deposit-2");
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, firstPlayerBalance);
+    assert.equal(walletTestDb.users.get(TEST_SECOND_PLAYER_ID)?.wallet_coins, secondPlayerBalance);
     assert.deepEqual(walletTestDb.ledger, []);
   });
 });
