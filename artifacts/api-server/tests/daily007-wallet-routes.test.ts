@@ -165,16 +165,21 @@ test("deposit display prefers the stored rupee amount over a changed conversion 
 });
 
 test("deposit rejection preserves its reason without crediting coins, including on retry", async () => {
-  walletTestDb.reset();
+  walletTestDb.reset({ settings: { coinToMoneyRate: "2.5" } });
+  const initialBalance = walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins;
+  assert.equal(initialBalance, 700);
 
   await withServer(async (origin) => {
     const pending = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
-      coins: 80,
+      coins: 120,
       payerUpiId: "player@upi",
       txnId: "deposit-rejected-1",
     });
     assert.equal(pending.status, 201);
-    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 700);
+    assert.equal(pending.body.coins, 120);
+    assert.equal(pending.body.amount, 300);
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, initialBalance);
+    assert.deepEqual(walletTestDb.ledger, []);
 
     const paymentId = pending.body.id as string;
     const reason = "The transfer could not be verified.";
@@ -198,10 +203,17 @@ test("deposit rejection preserves its reason without crediting coins, including 
 
     const playerHistory = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
     assert.equal(playerHistory.status, 200);
-    assert.equal(playerHistory.body[0].status, "rejected");
-    assert.equal(playerHistory.body[0].reviewReason, reason);
-    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 700);
-    assert.equal(walletTestDb.ledger.length, 0);
+    const rejectedDeposit = playerHistory.body[0];
+    assert.equal(rejectedDeposit.coins, 120);
+    assert.equal(rejectedDeposit.amount, 300);
+    assert.equal(rejectedDeposit.status, "rejected");
+    assert.equal(rejectedDeposit.reviewReason, reason);
+    assert.equal(
+      depositAmountInr(rejectedDeposit.coins, rejectedDeposit.amount, 2.5),
+      "₹300",
+    );
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, initialBalance);
+    assert.deepEqual(walletTestDb.ledger, []);
     assert.equal(walletTestDb.notifications.length, 1);
     assert.match(walletTestDb.notifications[0].body, new RegExp(reason));
   });
