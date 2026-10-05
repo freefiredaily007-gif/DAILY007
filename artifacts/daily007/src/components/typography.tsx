@@ -163,7 +163,10 @@ export function ReadableText({ children, style, ...props }: TextProps) {
   );
 }
 
-export function ReadableTextInput({ style, ...props }: TextInputProps) {
+export const ReadableTextInput = React.forwardRef<
+  React.ComponentRef<typeof NativeTextInput>,
+  TextInputProps
+>(function ReadableTextInput({ style, ...props }, ref) {
   const flattenedStyle = StyleSheet.flatten(style);
   const fontSize = typeof flattenedStyle?.fontSize === 'number'
     ? scaleSize(flattenedStyle.fontSize)
@@ -194,6 +197,7 @@ export function ReadableTextInput({ style, ...props }: TextInputProps) {
 
   return (
     <NativeTextInput
+      ref={ref}
       {...props}
       placeholderTextColor={placeholderTextColor}
       style={[
@@ -209,4 +213,4 @@ export function ReadableTextInput({ style, ...props }: TextInputProps) {
       ]}
     />
   );
-}
+});

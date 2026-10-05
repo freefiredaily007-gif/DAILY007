@@ -108,6 +108,17 @@ async function evaluate(expression) {
   return response.result?.value;
 }
 
+async function pressKeyboardAction() {
+  const key = {
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  };
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", ...key });
+  await cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+}
+
 async function waitForCondition(expression, description) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -182,9 +193,40 @@ async function focusAndRevealInput(selector) {
         fieldBottom: visibleRect.bottom,
         viewportTop: Math.max(0, scrollRect.top),
         viewportBottom: Math.min(window.innerHeight, scrollRect.bottom),
+        enterKeyHint: input.getAttribute("enterkeyhint"),
       });
     });
   }))()`);
+}
+
+async function inspectFocusedInput(selector) {
+  return evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!input) return { error: "input not found" };
+
+    let scroll = input.parentElement;
+    while (scroll && scroll !== document.documentElement) {
+      const overflowY = getComputedStyle(scroll).overflowY;
+      if (/(auto|scroll)/.test(overflowY) && scroll.scrollHeight > scroll.clientHeight + 1) break;
+      scroll = scroll.parentElement;
+    }
+
+    const fieldRect = input.getBoundingClientRect();
+    const scrollRect = scroll && scroll !== document.documentElement
+      ? scroll.getBoundingClientRect()
+      : null;
+    return {
+      focused: document.activeElement === input,
+      keyboardVisible: window.innerHeight < window.screen.height,
+      scrollable: Boolean(scrollRect),
+      scrollTop: scrollRect ? scroll.scrollTop : 0,
+      fieldTop: fieldRect.top,
+      fieldBottom: fieldRect.bottom,
+      viewportTop: scrollRect ? Math.max(0, scrollRect.top) : 0,
+      viewportBottom: scrollRect ? Math.min(window.innerHeight, scrollRect.bottom) : 0,
+      enterKeyHint: input.getAttribute("enterkeyhint"),
+    };
+  })()`);
 }
 
 try {
@@ -285,25 +327,54 @@ try {
   // reduce the available app viewport by 300px to model the open keyboard.
   await setDeviceViewport(420);
   const fields = [
-    ["Name", 'input[placeholder="Enter Name"]'],
-    ["Referral", 'input[placeholder="Referral Code (Optional)"]'],
-    ["Email", 'input[placeholder="Enter Email"]'],
-    ["Password", 'input[placeholder^="Password"]'],
+    ["Name", 'input[placeholder="Enter Name"]', "next"],
+    ["Referral", 'input[placeholder="Referral Code (Optional)"]', "next"],
+    ["Email", 'input[placeholder="Enter Email"]', "next"],
+    ["Password", 'input[placeholder^="Password"]', "done"],
   ];
-  let previousScrollTop = 0;
-  for (const [name, selector] of fields) {
-    const state = await focusAndRevealInput(selector);
+  let state = await focusAndRevealInput(fields[0][1]);
+  assert(
+    state?.focused && state.keyboardVisible && state.scrollable &&
+      state.fieldTop >= state.viewportTop - 1 &&
+      state.fieldBottom <= state.viewportBottom + 1,
+    `Name was not focused and visible above the keyboard: ${JSON.stringify(state)}.`,
+  );
+  assert(state.enterKeyHint === fields[0][2], `Name does not offer the Next keyboard action: ${JSON.stringify(state)}.`);
+  console.log("PASS — Name is focused and visible above the open keyboard.");
+
+  let maxScrollTop = state.scrollTop;
+  for (let index = 1; index < fields.length; index += 1) {
+    const [name, selector, enterKeyHint] = fields[index];
+    await pressKeyboardAction();
+    await waitForCondition(
+      `document.activeElement === document.querySelector(${JSON.stringify(selector)})`,
+      `${name} focus after the keyboard Next action`,
+    );
+    state = await inspectFocusedInput(selector);
     assert(
       state?.focused && state.keyboardVisible && state.scrollable &&
         state.fieldTop >= state.viewportTop - 1 &&
         state.fieldBottom <= state.viewportBottom + 1,
-      `${name} was not focused and visible above the keyboard: ${JSON.stringify(state)}.`,
+      `${name} did not stay focused and visible above the keyboard after Next: ${JSON.stringify(state)}.`,
     );
-    if (state.scrollTop > previousScrollTop) previousScrollTop = state.scrollTop;
-    console.log(`PASS — ${name} stays focused and visible with the keyboard open.`);
+    assert(
+      state.enterKeyHint === enterKeyHint,
+      `${name} offers ${state.enterKeyHint ?? "no"} keyboard action instead of ${enterKeyHint}: ${JSON.stringify(state)}.`,
+    );
+    if (state.scrollTop > maxScrollTop) maxScrollTop = state.scrollTop;
+    console.log(`PASS — Next focuses ${name}, which stays visible with the keyboard open.`);
   }
-  assert(previousScrollTop > 0, "The signup form did not scroll to reveal its lower fields.");
+  assert(maxScrollTop > 0, "The signup form did not scroll to reveal its lower fields.");
 
+  await pressKeyboardAction();
+  await waitForCondition(
+    `document.activeElement !== document.querySelector(${JSON.stringify(fields[3][1])})`,
+    "Password Done action to dismiss the keyboard",
+  );
+  assert(
+    await evaluate("window.__daily007SignupKeyboardTest.getRegisterCalls() === 0"),
+    "The final keyboard action sent a signup request.",
+  );
   await setDeviceViewport(720);
   const submitState = await evaluate(`(() => new Promise((resolve) => {
     const button = document.querySelector('[aria-label="CREATE ACCOUNT"]');
@@ -329,10 +400,10 @@ try {
   }))()`);
   assert(
     submitState?.visible && submitState.keyboardClosed && submitState.registerCalls === 0,
-    `Create Account was not reachable after closing the keyboard, or a signup request escaped the stub: ${JSON.stringify(submitState)}.`,
+    `Create Account was not reachable after the keyboard Done action, or a signup request escaped the stub: ${JSON.stringify(submitState)}.`,
   );
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — Create Account is reachable after the keyboard closes; no account creation request was made.");
+  console.log("PASS — Done dismisses the keyboard and Create Account is reachable; no account creation request was made.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);

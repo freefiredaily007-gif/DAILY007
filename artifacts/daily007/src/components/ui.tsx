@@ -170,16 +170,20 @@ export function GCard({
   );
 }
 
-export function Input(props: React.ComponentProps<typeof TextInput>) {
+export const Input = React.forwardRef<
+  React.ComponentRef<typeof TextInput>,
+  React.ComponentPropsWithoutRef<typeof TextInput>
+>(function Input(props, ref) {
   const adminSurface = useAdminSurface();
   return (
     <TextInput
+      ref={ref}
       {...props}
       style={[st.input, adminSurface && adminSt.input, props.style]}
       placeholderTextColor={props.placeholderTextColor || C.dim}
     />
   );
-}
+});
 
 export function Msg({
   kind,

@@ -1,6 +1,7 @@
 // Login / Signup screen
 import React, { useState } from 'react';
-import { View, StyleSheet, Platform, Pressable, Image, Linking } from 'react-native';
+import { Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking } from 'react-native';
+import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
@@ -23,6 +24,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [refCode, setRefCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const nameInputRef = React.useRef<NativeTextInput>(null);
+  const referralInputRef = React.useRef<NativeTextInput>(null);
+  const emailInputRef = React.useRef<NativeTextInput>(null);
+  const passwordInputRef = React.useRef<NativeTextInput>(null);
   const isSignup = mode === 'signup';
 
   React.useEffect(() => {
@@ -147,12 +152,56 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               </View>
               <Text style={s.signupStep}>01 / 01</Text>
             </View>
-            <Input placeholder="Enter Name" value={name} onChangeText={setName} autoCapitalize="words" style={s.signupInput} />
+            <Input
+              ref={nameInputRef}
+              placeholder="Enter Name"
+              value={name}
+              onChangeText={setName}
+              autoCapitalize="words"
+              enterKeyHint="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => {
+                if (refCode.trim()) emailInputRef.current?.focus();
+                else referralInputRef.current?.focus();
+              }}
+              style={s.signupInput}
+            />
             {refCode.trim()
               ? <Text style={s.referralApplied}>Referral code {refCode.trim().toUpperCase()} applied</Text>
-              : <Input placeholder="Referral Code (Optional)" value={refCode} onChangeText={setRefCode} autoCapitalize="characters" style={s.signupInput} />}
-            <Input placeholder="Enter Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={s.signupInput} />
-            <Input placeholder="Password (8–200 characters)" value={password} onChangeText={setPassword} secureTextEntry maxLength={MAX_SIGNUP_PASSWORD_LENGTH} style={s.signupInputLast} />
+              : <Input
+                ref={referralInputRef}
+                placeholder="Referral Code (Optional)"
+                value={refCode}
+                onChangeText={setRefCode}
+                autoCapitalize="characters"
+                enterKeyHint="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => emailInputRef.current?.focus()}
+                style={s.signupInput}
+              />}
+            <Input
+              ref={emailInputRef}
+              placeholder="Enter Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              enterKeyHint="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => passwordInputRef.current?.focus()}
+              style={s.signupInput}
+            />
+            <Input
+              ref={passwordInputRef}
+              placeholder="Password (8–200 characters)"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              maxLength={MAX_SIGNUP_PASSWORD_LENGTH}
+              enterKeyHint="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
+              style={s.signupInputLast}
+            />
           </View>
         ) : (
           <>
