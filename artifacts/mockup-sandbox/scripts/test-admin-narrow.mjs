@@ -560,21 +560,57 @@ async function checkTournamentResume() {
     "the failed Admin refresh to show a clear error",
   );
   await assertText("IST Start Boundary", "the Admin tournament after resume");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]'))",
+    "the Admin refresh retry control to appear with the error",
+  );
+
+  const visibilityChangesBeforeRetry = await evaluate(
+    "window.__daily007TournamentResume.getVisibilityChangeCount()",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityState() === 'visible'"),
+    "The Admin screen must stay visible while retrying its tournament refresh.",
+  );
+  await evaluate(
+    "window.__daily007TournamentResume.failNextTournamentRead('Retry request failed')",
+  );
+  readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await clickSelector(
+    '[data-testid="admin-tournament-refresh-retry"]',
+    "Admin tournament refresh retry",
+  );
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('Could not refresh tournaments: Retry request failed') && document.body.innerText.includes('IST Start Boundary') && Boolean(document.querySelector('[data-testid="admin-tournament-refresh-retry"]'))`,
+    "a failed in-place Admin retry to keep its error and tournament card",
+  );
+  await assertText("IST Start Boundary", "the Admin tournament after a failed direct retry");
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRetry,
+    "Retrying a failed Admin refresh must not depend on an app background/resume cycle.",
+  );
 
   await evaluate(
     "window.__daily007TournamentResume.updateTournament({ name: 'Updated IST Start Boundary' })",
   );
   readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
-  await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
+  await clickSelector(
+    '[data-testid="admin-tournament-refresh-retry"]',
+    "Admin tournament refresh retry",
+  );
   await waitForCondition(
     `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('Updated IST Start Boundary')`,
-    "a later successful Admin refresh to update the tournament list",
+    "a successful in-place Admin retry to update the tournament list",
   );
   await assertText("Updated IST Start Boundary", "the updated Admin tournament");
   const refreshErrorVisible = await evaluate(
-    "document.body.innerText.includes('Could not refresh tournaments: Temporary network error')",
+    "document.body.innerText.includes('Could not refresh tournaments: Temporary network error') || document.body.innerText.includes('Could not refresh tournaments: Retry request failed')",
   );
-  assert(!refreshErrorVisible, "A successful Admin refresh should clear the earlier refresh error.");
+  assert(!refreshErrorVisible, "A successful direct Admin retry should clear the earlier refresh error.");
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRetry,
+    "A successful Admin retry must not require an app background/resume cycle.",
+  );
 }
 
 async function checkTournamentScheduledStart() {
@@ -1015,7 +1051,7 @@ try {
     } else {
       await checkTournamentResume();
       assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);
-      console.log("PASS — Player cards survive a failed resume refresh and update after recovery; Admin refresh still recovers across an IST start.");
+      console.log("PASS — Player refresh recovery works; Admins can retry failed tournament refreshes in place without losing cards.");
     }
   } else {
     await setViewport(320);

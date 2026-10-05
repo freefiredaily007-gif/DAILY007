@@ -84,6 +84,7 @@ export default function AdminTournaments() {
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [retryingList, setRetryingList] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
   const hasLoadedList = useRef(false);
@@ -125,6 +126,16 @@ export default function AdminTournaments() {
       );
     }
   }, []);
+
+  const retryTournamentList = async () => {
+    if (retryingList) return;
+    setRetryingList(true);
+    try {
+      await load();
+    } finally {
+      setRetryingList(false);
+    }
+  };
 
   const toggleTournamentAction = async (tournament: Tournament, kind: TournamentAction['kind']) => {
     const requestId = ++actionRequestId.current;
@@ -394,7 +405,22 @@ export default function AdminTournaments() {
       </View>
       <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
       <Msg kind="err" text={err} />
-      {!!loadError && <Msg kind="err" text={loadError} />}
+      {!!loadError && (
+        <View style={st.loadRetry}>
+          <Msg kind="err" text={loadError} accessibilityLiveRegion="polite" />
+          <Btn
+            title="RETRY"
+            small
+            disabled={retryingList}
+            loading={retryingList}
+            accessibilityLabel="Retry tournament refresh"
+            accessibilityHint="Load the tournament list again."
+            accessibilityState={{ disabled: retryingList, busy: retryingList }}
+            testID="admin-tournament-refresh-retry"
+            onPress={() => { void retryTournamentList(); }}
+          />
+        </View>
+      )}
       <Msg kind="ok" text={okMsg} />
       <View style={st.tabs}>
         {TOURNAMENT_TABS.map(({ id, label }) => {
@@ -803,6 +829,7 @@ const st = StyleSheet.create({
   h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   hint: { color: C.sub, fontSize: 11, marginTop: 3, marginBottom: 10 },
   formH: { color: C.neon, fontWeight: '900', letterSpacing: 1, marginBottom: 10 },
+  loadRetry: { gap: 8, marginBottom: 10, alignItems: 'flex-start' },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   area: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, padding: 12, minHeight: 60, marginBottom: 10, fontSize: 14 },
   tName: { color: C.text, fontWeight: '900', flex: 1, fontSize: 14 },
