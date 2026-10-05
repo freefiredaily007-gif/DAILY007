@@ -24,6 +24,7 @@ const adminTabs = [
 const resumeOnly = process.argv.includes("--resume-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
+const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -557,6 +558,71 @@ async function checkTournamentResume() {
   assert(!refreshErrorVisible, "A successful Admin refresh should clear the earlier refresh error.");
 }
 
+async function checkTournamentScheduledStart() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the timed-start preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
+    "the player list to load its upcoming IST tournament",
+  );
+
+  await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
+  await waitForCondition(
+    "document.body.innerText.includes('No ongoing tournaments are available right now.')",
+    "the player Ongoing list to be empty before its scheduled start",
+  );
+  const visibilityChangesBeforePlayerStart = await evaluate(
+    "window.__daily007TournamentResume.getVisibilityChangeCount()",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityState() === 'visible'"),
+    "The player list must stay visible while its scheduled start passes.",
+  );
+  let tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastStart()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary')`,
+    "the player list timer to move the tournament into Ongoing without app resume",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStart,
+    "The player start-time transition must not depend on an AppState visibility/resume event.",
+  );
+  await assertText("IST Start Boundary", "the player tournament after its scheduled start");
+
+  await evaluate("window.__daily007TournamentResume.prepareAdminForScheduledStart()");
+  await evaluate("window.__daily007TournamentResume.showAdmin()");
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
+    "the Admin list to load its next upcoming IST tournament",
+  );
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
+  await waitForCondition(
+    "document.body.innerText.includes('No ongoing tournaments.')",
+    "the Admin Ongoing list to be empty before its scheduled start",
+  );
+  const visibilityChangesBeforeAdminStart = await evaluate(
+    "window.__daily007TournamentResume.getVisibilityChangeCount()",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityState() === 'visible'"),
+    "The Admin list must stay visible while its scheduled start passes.",
+  );
+  tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastStart()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary')`,
+    "the Admin list timer to move the tournament into Ongoing without app resume",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStart,
+    "The Admin start-time transition must not depend on an AppState visibility/resume event.",
+  );
+  await assertText("IST Start Boundary", "the Admin tournament after its scheduled start");
+}
+
 async function checkHomeCarousel() {
   await waitForCondition(
     "window.__daily007HomeCarouselTest?.ready === true",
@@ -836,7 +902,9 @@ try {
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
   const previewPath = resumeOnly
     ? "tournament-resume-preview.html"
-    : homeCarouselOnly
+    : scheduledStartOnly
+      ? "tournament-resume-preview.html?scheduled-start-only=1"
+      : homeCarouselOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
         ? "keyboard-forms-preview.html"
@@ -894,21 +962,30 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (resumeOnly || homeCarouselOnly || keyboardFormsOnly) {
+  if (resumeOnly || scheduledStartOnly || homeCarouselOnly || keyboardFormsOnly) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: homeCarouselOnly ? 390 : keyboardFormsOnly ? 375 : 800,
-      height: homeCarouselOnly ? 844 : keyboardFormsOnly ? 720 : 1000,
+      width: homeCarouselOnly || scheduledStartOnly ? 390 : keyboardFormsOnly ? 375 : 800,
+      height: homeCarouselOnly || scheduledStartOnly ? 844 : keyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
     await waitForPage(
       homeCarouselOnly
         ? "Home carousel"
+        : scheduledStartOnly
+          ? "scheduled-start Player and Admin tournament screens"
         : keyboardFormsOnly
           ? "Wallet and Edit Profile"
           : "player and Admin tournament screens",
     );
-    if (keyboardFormsOnly) {
+    if (scheduledStartOnly) {
+      await checkTournamentScheduledStart();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during scheduled-start checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Player and Admin tournament lists move from Upcoming to Ongoing at their IST start while visible, without AppState events.");
+    } else if (keyboardFormsOnly) {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);
       console.log("PASS — Wallet recharge/withdrawal and Edit Profile actions remain reachable at 375px with a simulated keyboard-open viewport.");

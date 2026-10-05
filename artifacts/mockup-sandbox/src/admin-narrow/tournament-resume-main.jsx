@@ -9,11 +9,14 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 
 const root = createRoot(rootElement);
-const scheduledStartMs = Date.now() + 10 * 60 * 1000;
-let fakeNow = scheduledStartMs - 60 * 1000;
+const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
+let scheduledStartMs = Date.now() + (scheduledStartOnly ? 2_500 : 10 * 60 * 1000);
+let fakeNow = scheduledStartMs - (scheduledStartOnly ? 2_000 : 60 * 1000);
 Date.now = () => fakeNow;
 
 let visibilityState = "visible";
+let visibilityChangeCount = 0;
+document.addEventListener("visibilitychange", () => { visibilityChangeCount += 1; });
 Object.defineProperty(document, "visibilityState", {
   configurable: true,
   get: () => visibilityState,
@@ -58,7 +61,21 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
+    getVisibilityChangeCount: () => visibilityChangeCount,
+    getVisibilityState: () => visibilityState,
     updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),
+    advanceClockPastStart: () => { fakeNow = scheduledStartMs + 60 * 1000; },
+    prepareAdminForScheduledStart: () => {
+      scheduledStartMs = fakeNow + 2_500;
+      fakeNow = scheduledStartMs - 2_000;
+      const startsAt = asIstTimestamp(scheduledStartMs);
+      Object.assign(apiMocks.previewTournaments[0], {
+        date: startsAt.slice(0, 10),
+        startsAt,
+        status: "upcoming",
+      });
+      apiMocks.resetTournamentReadCount();
+    },
     startBackgroundCycle: () => {
       setVisibility("hidden");
       fakeNow = scheduledStartMs + 60 * 1000;
