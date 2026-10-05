@@ -322,6 +322,23 @@ try {
       document.querySelector('input[placeholder^="Password"]'))`,
     "Signup fields",
   );
+  const initialAccessibility = await evaluate(`(() => ({
+    fields: [...document.querySelectorAll("input")].map((input) => input.getAttribute("aria-label")),
+    createAccount: document.querySelector('[aria-label="Create Account"]')?.getAttribute("aria-label") ?? null,
+    createAccountFollowsPassword: Boolean(
+      document.querySelector('input[aria-label="Password"]')?.compareDocumentPosition(
+        document.querySelector('[aria-label="Create Account"]'),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ),
+  }))()`);
+  assert(
+    JSON.stringify(initialAccessibility) === JSON.stringify({
+      fields: ["Name", "Referral Code, optional", "Email", "Password"],
+      createAccount: "Create Account",
+      createAccountFollowsPassword: true,
+    }),
+    `Signup controls did not expose clear accessible names in visible order: ${JSON.stringify(initialAccessibility)}.`,
+  );
 
   // Chromium has no software keyboard. Keep the device screen at 375×720 and
   // reduce the available app viewport by 300px to model the open keyboard.
@@ -376,8 +393,33 @@ try {
     "The final keyboard action sent a signup request.",
   );
   await setDeviceViewport(720);
+  for (const [selector, text] of [
+    ['input[placeholder="Enter Name"]', "Test Player"],
+    ['input[placeholder="Enter Email"]', "test@example.invalid"],
+    ['input[placeholder^="Password"]', "not-a-real-password"],
+  ]) {
+    await evaluate(`document.querySelector(${JSON.stringify(selector)})?.focus()`);
+    await cdp("Input.insertText", { text });
+  }
+  const filledAccessibility = await evaluate(`(() => ({
+    fields: [...document.querySelectorAll("input")].map((input) => ({
+      label: input.getAttribute("aria-label"),
+      hasValue: Boolean(input.value),
+    })),
+  }))()`);
+  assert(
+    JSON.stringify(filledAccessibility) === JSON.stringify({
+      fields: [
+        { label: "Name", hasValue: true },
+        { label: "Referral Code, optional", hasValue: false },
+        { label: "Email", hasValue: true },
+        { label: "Password", hasValue: true },
+      ],
+    }),
+    `Signup labels changed or disappeared after fields contained text: ${JSON.stringify(filledAccessibility)}.`,
+  );
   const submitState = await evaluate(`(() => new Promise((resolve) => {
-    const button = document.querySelector('[aria-label="CREATE ACCOUNT"]');
+    const button = document.querySelector('[aria-label="Create Account"]');
     if (!button) return resolve({ error: "Create Account button not found" });
     let scroll = button.parentElement;
     while (scroll && scroll !== document.documentElement) {

@@ -154,6 +154,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             </View>
             <Input
               ref={nameInputRef}
+              accessibilityLabel="Name"
               placeholder="Enter Name"
               value={name}
               onChangeText={setName}
@@ -170,6 +171,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               ? <Text style={s.referralApplied}>Referral code {refCode.trim().toUpperCase()} applied</Text>
               : <Input
                 ref={referralInputRef}
+                accessibilityLabel="Referral Code, optional"
                 placeholder="Referral Code (Optional)"
                 value={refCode}
                 onChangeText={setRefCode}
@@ -181,6 +183,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               />}
             <Input
               ref={emailInputRef}
+              accessibilityLabel="Email"
               placeholder="Enter Email"
               value={email}
               onChangeText={setEmail}
@@ -193,6 +196,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             />
             <Input
               ref={passwordInputRef}
+              accessibilityLabel="Password"
               placeholder="Password (8–200 characters)"
               value={password}
               onChangeText={setPassword}
@@ -210,7 +214,13 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           </>
         )}
 
-        <Btn title={isSignup ? 'CREATE ACCOUNT' : 'LOGIN'} onPress={submit} loading={busy} style={isSignup && s.signupSubmit} />
+        <Btn
+          title={isSignup ? 'CREATE ACCOUNT' : 'LOGIN'}
+          accessibilityLabel={isSignup ? 'Create Account' : 'Login'}
+          onPress={submit}
+          loading={busy}
+          style={isSignup && s.signupSubmit}
+        />
 
         <Text style={s.foot}>{isSignup ? 'YOUR NEXT MATCH STARTS HERE' : 'Join tournaments, win prize coins and top the leaderboard 🏆'}</Text>
     </KeyboardAwareScrollViewCompat>

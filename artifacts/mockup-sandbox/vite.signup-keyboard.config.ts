@@ -30,6 +30,9 @@ export default defineConfig({
     ],
     dedupe: ["react", "react-dom"],
   },
+  define: {
+    "process.env.EXPO_PUBLIC_DOMAIN": JSON.stringify(""),
+  },
   server: {
     host: "127.0.0.1",
     port,
