@@ -8,6 +8,7 @@ import { Api, apiError } from '../lib/api';
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { useDaily007ChangePassword } from '@workspace/api-client-react';
+import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from '../lib/profilePassword';
 
 export default function Profile() {
   const { width, fontScale } = useWindowDimensions();
@@ -108,21 +109,18 @@ export default function Profile() {
 
   const submitPasswordChange = async () => {
     setPasswordError('');
-    if (!currentPassword || currentPassword.length > 200) {
-      setPasswordError('Enter your current Daily007 password.');
-      return;
-    }
-    if (newPassword.length < 8 || newPassword.length > 200) {
-      setPasswordError('Your new password must be 8–200 characters.');
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setPasswordError('The new passwords do not match.');
-      return;
-    }
 
     try {
-      await changePassword({ data: { currentPassword, newPassword } });
+      const validationError = await submitProfilePasswordChange({
+        currentPassword,
+        newPassword,
+        confirmNewPassword,
+        changePassword,
+      });
+      if (validationError) {
+        setPasswordError(validationError);
+        return;
+      }
       setPasswordMessage('Password changed. Other sessions stay active until the next sign-in.');
       setPasswordModalVisible(false);
       setCurrentPassword('');
@@ -257,7 +255,7 @@ export default function Profile() {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            maxLength={200}
+            maxLength={PROFILE_PASSWORD_MAX_LENGTH}
             editable={!passwordBusy}
             returnKeyType="next"
           />
@@ -269,7 +267,7 @@ export default function Profile() {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            maxLength={200}
+            maxLength={PROFILE_PASSWORD_MAX_LENGTH}
             editable={!passwordBusy}
             returnKeyType="next"
           />
@@ -281,7 +279,7 @@ export default function Profile() {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            maxLength={200}
+            maxLength={PROFILE_PASSWORD_MAX_LENGTH}
             editable={!passwordBusy}
             returnKeyType="done"
             onSubmitEditing={submitPasswordChange}
