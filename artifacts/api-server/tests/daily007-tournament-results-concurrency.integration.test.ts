@@ -204,6 +204,94 @@ async function cleanupFixture(fixture: TournamentFixture): Promise<void> {
   }
 }
 
+async function captureSettlementState(fixture: TournamentFixture, player: PlayerFixture) {
+  const [wallet, awards, stats, ledger, match] = await Promise.all([
+    pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [player.userId],
+    ),
+    pool.query<{
+      registration_id: string;
+      user_id: string;
+      rank: number;
+      kills: number;
+      prize_coins: number;
+    }>(
+      `SELECT registration_id, user_id, rank, kills, prize_coins
+         FROM daily007_v2_result_awards
+        WHERE match_id = $1
+        ORDER BY rank`,
+      [fixture.matchId],
+    ),
+    pool.query<{ matches: number; wins: number; kills: number; prize_coins: number }>(
+      `SELECT matches, wins, kills, prize_coins
+         FROM daily007_v2_user_stats
+        WHERE user_id = $1`,
+      [player.userId],
+    ),
+    pool.query<{ amount: number; balance_after: number; reason: string }>(
+      `SELECT amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1
+        ORDER BY id`,
+      [player.userId],
+    ),
+    pool.query<{ enabled: boolean; status: string }>(
+      "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
+      [fixture.matchId],
+    ),
+  ]);
+
+  return {
+    walletCoins: wallet.rows[0]?.wallet_coins ?? null,
+    awards: awards.rows,
+    stats: stats.rows[0] ?? null,
+    ledger: ledger.rows,
+    match: match.rows[0] ?? null,
+  };
+}
+
+async function publicStandings(origin: string, matchId: string) {
+  const response = await fetch(`${origin}/tournaments/${matchId}/results`);
+  return {
+    status: response.status,
+    body: await response.json() as Record<string, unknown>,
+  };
+}
+
+async function installResultFinalizationFailure(matchId: string): Promise<void> {
+  assert.match(matchId, /^[0-9a-f-]{36}$/i);
+  await pool.query("CREATE SEQUENCE daily007_test_result_failure_observed_seq");
+  await pool.query(`
+    CREATE FUNCTION daily007_test_fail_result_finalization() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $body$
+    BEGIN
+      IF OLD.enabled IS TRUE AND NEW.enabled IS FALSE AND NEW.id::text = TG_ARGV[0] THEN
+        PERFORM nextval('daily007_test_result_failure_observed_seq');
+        RAISE EXCEPTION 'Injected failure at tournament result finalization'
+          USING ERRCODE = 'XX000';
+      END IF;
+      RETURN NEW;
+    END;
+    $body$
+  `);
+  await pool.query(`
+    CREATE TRIGGER daily007_test_fail_result_finalization
+    BEFORE UPDATE OF enabled ON daily007_v2_matches
+    FOR EACH ROW
+    EXECUTE FUNCTION daily007_test_fail_result_finalization('${matchId}')
+  `);
+}
+
+async function removeResultFinalizationFailure(): Promise<void> {
+  await pool.query(
+    "DROP TRIGGER IF EXISTS daily007_test_fail_result_finalization ON daily007_v2_matches",
+  );
+  await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_result_finalization()");
+  await pool.query("DROP SEQUENCE IF EXISTS daily007_test_result_failure_observed_seq");
+}
+
 async function backendPid(client: { query<T>(sql: string): Promise<{ rows: T[] }> }): Promise<number> {
   const result = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
   const pid = result.rows[0]?.pid;
@@ -706,5 +794,91 @@ test("concurrent first- and second-place results preserve both payouts and stand
     blocker.release();
     await Promise.allSettled(submissions);
     await cleanupFixture(fixture);
+  }
+});
+
+test("late PostgreSQL result-write failure rolls back settlement and permits one retry", async () => {
+  const fixture = await createFixture();
+  const winner = fixture.players[0];
+
+  try {
+    await installResultFinalizationFailure(fixture.matchId);
+    await withServer(async (origin) => {
+      const before = await captureSettlementState(fixture, winner);
+      const standingsBefore = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsBefore.status, 200);
+      assert.deepEqual(standingsBefore.body, {
+        tournamentId: fixture.matchId,
+        status: "draft",
+        finalizedAt: null,
+        entries: [],
+      });
+
+      const failed = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
+      assert.equal(failed.status, 500, `expected injected database failure: ${JSON.stringify(failed.body)}`);
+
+      const failureEvidence = await pool.query<{ last_value: string; is_called: boolean }>(
+        "SELECT last_value::text, is_called FROM daily007_test_result_failure_observed_seq",
+      );
+      assert.equal(Number(failureEvidence.rows[0]?.last_value), 1);
+      assert.equal(
+        failureEvidence.rows[0]?.is_called,
+        true,
+        "the failure trigger must run after the route reaches the final match update",
+      );
+
+      assert.deepEqual(
+        await captureSettlementState(fixture, winner),
+        before,
+        "wallet, ledger, stats, awards, and match state must roll back",
+      );
+      const standingsAfterFailure = await publicStandings(origin, fixture.matchId);
+      assert.deepEqual(standingsAfterFailure, standingsBefore, "public standings must remain a draft");
+
+      await removeResultFinalizationFailure();
+      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
+      assert.equal(retry.status, 201, `retry should succeed: ${JSON.stringify(retry.body)}`);
+      assert.equal(retry.body.registrationId, winner.registrationId);
+      assert.equal(retry.body.userId, winner.userId);
+      assert.equal(retry.body.prizeCoins, 500);
+      assert.equal(retry.body.walletCoins, 600);
+
+      const afterRetry = await captureSettlementState(fixture, winner);
+      assert.deepEqual(afterRetry, {
+        walletCoins: 600,
+        awards: [{
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 7,
+          prize_coins: 500,
+        }],
+        stats: { matches: 1, wins: 1, kills: 7, prize_coins: 500 },
+        ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
+        match: { enabled: false, status: "open" },
+      });
+
+      const standingsAfterRetry = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsAfterRetry.status, 200);
+      assert.equal(standingsAfterRetry.body.status, "finalized");
+      assert.ok(standingsAfterRetry.body.finalizedAt);
+      assert.deepEqual(standingsAfterRetry.body.entries, [{
+        rank: 1,
+        kills: 7,
+        prizeCoins: 500,
+        gameName: "TestGame1",
+        teamName: null,
+      }]);
+
+      const duplicate = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
+      assert.equal(duplicate.status, 409);
+      assert.deepEqual(await captureSettlementState(fixture, winner), afterRetry);
+    });
+  } finally {
+    try {
+      await removeResultFinalizationFailure();
+    } finally {
+      await cleanupFixture(fixture);
+    }
   }
 });

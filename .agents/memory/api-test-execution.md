@@ -29,6 +29,12 @@ For rollback tests using the in-memory database fixture, capture the relevant st
 
 **How to apply:** Record the needed pre-failure evidence immediately before throwing, assert it after the request, and separately compare the database state with its pre-request snapshot.
 
+For isolated PostgreSQL rollback tests, use a sequence increment in a late failure trigger as durable evidence that the trigger ran.
+
+**Why:** The database writes being tested disappear with the rolled-back transaction, so a 500 response alone cannot prove the request reached the intended failure point.
+
+**How to apply:** Increment a test-only sequence immediately before raising from the trigger, assert its value afterward, then compare persisted application rows with their pre-request state.
+
 Keep isolated PostgreSQL fixtures faithful to production defaults for columns the API omits from its inserts.
 
 **Why:** An API path may rely on a database-generated value such as a registration ID; a missing fixture default can produce a generic 500 after the lock behavior itself is correct.
