@@ -922,6 +922,13 @@ try {
       console.log("PASS — player and Admin tournament lists refetch after resume across an IST start without manual refresh.");
     }
   } else {
+    await setViewport(320);
+    await checkAdminTabs(320);
+    await checkPopulatedAdminLists(320);
+    await checkTournamentStates(320);
+    assert(browserErrors.length === 0, `Browser errors at 320px: ${browserErrors.join(" | ")}`);
+    console.log("PASS 320px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
+
     await setViewport(360);
     await checkAdminTabs(360);
     await checkPopulatedAdminLists(360);
