@@ -8,6 +8,10 @@ export function shouldRefreshHomeTournaments(appState: string): boolean {
   return appState === 'active';
 }
 
+export function didAppReturnToForeground(previousState: string | null, nextState: string): boolean {
+  return previousState !== 'active' && nextState === 'active';
+}
+
 export function startHomeTournamentRefreshPolling(
   refresh: () => void,
   canRefresh: () => boolean,

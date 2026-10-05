@@ -1,6 +1,6 @@
 // My Matches — upcoming / live / completed tabs with room details
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl, Pressable, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, View, FlatList, StyleSheet, RefreshControl, Pressable, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
@@ -8,7 +8,12 @@ import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
-import { compareTournamentStartTime, getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import {
+  compareTournamentStartTime,
+  didAppReturnToForeground,
+  getTournamentLifecycleState,
+  MAX_TIMEOUT_MS,
+} from '../lib/tournamentLifecycle';
 
 export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
@@ -18,6 +23,7 @@ export default function MyMatches() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const appState = useRef(AppState.currentState);
 
   const load = useCallback(async () => {
     try {
@@ -31,10 +37,21 @@ export default function MyMatches() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => {
+  const refreshMatches = useCallback(() => {
     setClockNow(Date.now());
     void load();
-  }, [load]));
+  }, [load]);
+
+  useFocusEffect(useCallback(() => {
+    appState.current = AppState.currentState;
+    refreshMatches();
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const returnedToApp = didAppReturnToForeground(appState.current, nextState);
+      appState.current = nextState;
+      if (returnedToApp) refreshMatches();
+    });
+    return () => subscription.remove();
+  }, [refreshMatches]));
 
   useEffect(() => {
     const transitions = regs.flatMap((registration) => {
@@ -51,11 +68,10 @@ export default function MyMatches() {
       .sort((a, b) => a - b)[0];
     if (nextTransition === undefined) return;
     const timer = setTimeout(() => {
-      setClockNow(Date.now());
-      void load();
+      refreshMatches();
     }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow));
     return () => clearTimeout(timer);
-  }, [regs, clockNow, load]);
+  }, [regs, clockNow, refreshMatches]);
 
   const filtered = regs.filter((r) => {
     const state = getTournamentLifecycleState(r.tournament, clockNow);
