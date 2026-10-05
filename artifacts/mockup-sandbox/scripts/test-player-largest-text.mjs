@@ -868,6 +868,100 @@ async function checkTransientVideoRewardRetry() {
   console.log("PASS — transient completion failures still offer a working retry.");
 }
 
+async function checkVideoWatchStartFailure() {
+  const startFailureMessage = "The video watch session could not be created.";
+  await navigateToScreen("VideoStartFailure", "Tutorial Videos");
+  await clickSelector(
+    '[data-testid="video-catalog-card-still-active-video"]',
+    "active video for the watch-session start failure test",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator after opening an active video",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "playback start before session creation");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 1
+      && document.body.innerText.includes(${JSON.stringify(startFailureMessage)})`,
+    "visible video-watch session creation failure",
+  );
+  const failedStart = await evaluate(`(() => ({
+    errorVisible: document.body.innerText.includes(${JSON.stringify(startFailureMessage)}),
+    starts: window.__videoRewardPreviewCalls?.starts.length ?? 0,
+    firstStart: window.__videoRewardPreviewCalls?.starts[0],
+    sessions: window.__videoRewardPreviewCalls?.sessions.length ?? 0,
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+  }))()`);
+  assert(
+    failedStart.errorVisible
+      && failedStart.starts === 1
+      && failedStart.firstStart?.data?.videoId === "still-active-video"
+      && failedStart.sessions === 0
+      && failedStart.completions === 0
+      && !failedStart.retryClaim,
+    `A failed session start must show its error without a session, completion, or claim retry: ${JSON.stringify(failedStart)}`,
+  );
+
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "finish playback without a watch session");
+  const endedPlayback = await evaluate(`(() => ({
+    errorVisible: document.body.innerText.includes(${JSON.stringify(startFailureMessage)}),
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+  }))()`);
+  assert(
+    endedPlayback.errorVisible && endedPlayback.completions === 0 && !endedPlayback.retryClaim,
+    `Finishing unverified playback must not offer a completion or claim retry: ${JSON.stringify(endedPlayback)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-back"]', "return to the video catalog after start failure");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-catalog-card-still-active-video\"]'))",
+    "active video card after returning to the catalog",
+  );
+  await clickSelector(
+    '[data-testid="video-catalog-card-still-active-video"]',
+    "restart the active video from the catalog",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "fresh video playback simulator",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "fresh playback start");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 2
+      && window.__videoRewardPreviewCalls?.sessions.length === 1`,
+    "fresh server watch session after returning to the catalog",
+  );
+
+  const restartedPlayback = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts ?? [],
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+    errorVisible: document.body.innerText.includes(${JSON.stringify(startFailureMessage)}),
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+  }))()`);
+  assert(
+    restartedPlayback.starts.length === 2
+      && restartedPlayback.starts[1]?.data?.videoId === "still-active-video"
+      && restartedPlayback.sessions.length === 1
+      && restartedPlayback.sessions[0] === "preview-video-watch-session-2"
+      && restartedPlayback.completions === 0
+      && !restartedPlayback.errorVisible
+      && !restartedPlayback.retryClaim,
+    `Returning to the catalog should allow a fresh session without reusing the failed attempt: ${JSON.stringify(restartedPlayback)}`,
+  );
+  console.log("PASS — failed watch-session creation offers no reward claim and allows a fresh start.");
+}
+
 async function checkProfilePasswordConflictRetry() {
   const conflictMessage = "The password changed in another session. Sign in again and retry.";
   const successMessage = "Password changed. Other sessions stay active until the next sign-in.";
@@ -1007,6 +1101,7 @@ try {
     if (viewportWidth === 375) {
       await checkUnavailableVideoRewardFlow();
       await checkTransientVideoRewardRetry();
+      await checkVideoWatchStartFailure();
     }
 
     await navigateToScreen("Home", "GAME MODES");

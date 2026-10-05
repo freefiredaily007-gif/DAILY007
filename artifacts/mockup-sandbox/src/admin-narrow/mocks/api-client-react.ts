@@ -135,31 +135,34 @@ const rewardPreviewVideos = [
   },
 ];
 
-type VideoRewardPreviewMode = "unavailable" | "transient" | null;
+type VideoRewardPreviewMode = "unavailable" | "transient" | "startFailure" | null;
 type VideoRewardPreviewCalls = {
   starts: unknown[];
+  sessions: string[];
   completions: unknown[];
   listRefetches: number;
 };
 
 let videoRewardPreviewMode: VideoRewardPreviewMode = null;
 let transientCompletionFailures = 0;
+let videoWatchStartFailures = 0;
 
 function getVideoRewardPreviewCalls(): VideoRewardPreviewCalls {
   const preview = globalThis as typeof globalThis & {
     __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
   };
-  preview.__videoRewardPreviewCalls ??= { starts: [], completions: [], listRefetches: 0 };
+  preview.__videoRewardPreviewCalls ??= { starts: [], sessions: [], completions: [], listRefetches: 0 };
   return preview.__videoRewardPreviewCalls;
 }
 
 export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
   videoRewardPreviewMode = mode;
   transientCompletionFailures = 0;
+  videoWatchStartFailures = 0;
   const preview = globalThis as typeof globalThis & {
     __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
   };
-  preview.__videoRewardPreviewCalls = { starts: [], completions: [], listRefetches: 0 };
+  preview.__videoRewardPreviewCalls = { starts: [], sessions: [], completions: [], listRefetches: 0 };
 }
 
 export function useDaily007ListVideos() {
@@ -196,8 +199,15 @@ export function useDaily007StartVideoWatch() {
     return {
       ...noMutation(),
       mutateAsync: async (input: unknown) => {
-        getVideoRewardPreviewCalls().starts.push(input);
-        return { sessionId: "preview-video-watch-session" };
+        const calls = getVideoRewardPreviewCalls();
+        calls.starts.push(input);
+        if (videoRewardPreviewMode === "startFailure" && videoWatchStartFailures === 0) {
+          videoWatchStartFailures += 1;
+          throw new Error("The video watch session could not be created.");
+        }
+        const sessionId = `preview-video-watch-session-${calls.starts.length}`;
+        calls.sessions.push(sessionId);
+        return { sessionId };
       },
     };
   }
