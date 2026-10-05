@@ -13,6 +13,8 @@ For Daily007 tournaments, saving the Room ID and password arms automatic release
 
 On 2026-10-04, the user confirmed on an iQOO Neo 10 running Android 16 that approved test room details stayed hidden before start-minus-five-minutes and appeared at/after the boundary both while My Matches remained open and after leaving and reopening it.
 
-**Why:** Server tests verify the access boundary, but only a native device exercises the on-screen timer and navigation focus refresh together.
+On 2026-10-05, the user also confirmed on an iQOO Neo 10 running Android 16 that fake credentials for an approved non-production test registration stayed hidden before T−5 and appeared after Android backgrounded My Matches across the threshold and the app resumed, without navigation or manual refresh.
 
-**How to apply:** Repeat both real-device checks after changes to room timing or My Matches refresh behavior; use only non-production test registrations and fake room credentials.
+**Why:** Server tests verify the access boundary, but only a physical Android device exercises the on-screen timer, navigation focus, and app-resume refresh together.
+
+**How to apply:** Repeat both real-device checks—leaving/reopening My Matches and suspending across the threshold—after changes to room timing or refresh behavior; use only non-production test registrations and fake room credentials.
