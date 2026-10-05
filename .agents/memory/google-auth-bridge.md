@@ -23,6 +23,12 @@ On 2026-10-05, the user confirmed a real Android Google signup opened Wallet wit
 
 **How to apply:** Preserve the verified Clerk-session activation, Daily007 session setup, and Wallet refresh sequence. Recheck signup-to-Wallet behavior on Android after changing the SSO callback, session handling, or signup reward display.
 
+On 2026-10-05, the user also confirmed both flows on a standalone Android Play build: a fresh Google signup returned to Daily007 with 10 coins and one welcome-bonus row, and linking Google to an existing password account preserved its account, wallet balance, and session. The installed version was not identified; the repository was configured for app version 1.0.1 and Android versionCode 2.
+
+**Why:** Expo Go and mocked browser checks do not prove the standalone Android callback, provider setup, and account-link behavior work together.
+
+**How to apply:** Treat the reported Play-build flows as the device baseline, but do not assume the tested binary matched the repository version unless its installed versionCode is confirmed.
+
 For Expo Google SSO, treat the returned session ID and the active Clerk session as separate states: await the `setActive` function returned by `startSSOFlow` before reading the Clerk session or requesting its token, then verify that the active session ID matches.
 
 **Why:** `startSSOFlow` can return a completed session without making it the active session automatically. Reading the active session first can produce an intermittent missing or stale session.

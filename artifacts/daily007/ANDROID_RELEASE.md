@@ -11,3 +11,10 @@ Before making a release build:
 3. Test purchase requests (no coins before admin approval), duplicate UTR rejection, wallet history, withdrawal reservation/refund, manual payout, and "mark paid" using test accounts. Do not treat a UTR or screenshot as proof of payment.
 4. Configure persistent private object storage and signed upload/preview URLs before publishing. Test optional JPEG/PNG/WebP payment screenshots (maximum 5 MB), verify they appear only in admin payment review, and confirm all financial flows and the production database schema.
 5. Prepare Play Console requirements: store listing, privacy policy, data-safety disclosures, account-deletion instructions, content rating, testing track, Android target API compliance, and signing. Review rights to the current "Free Fire" name and artwork before submitting a listing.
+
+## Verified Android Google SSO flow (2026-10-05)
+
+- The user reported that a fresh Google signup on a standalone Android Play build returned to Daily007; Wallet showed 10 coins and exactly one "Welcome Signup Bonus" row.
+- The user reported that connecting Google to an existing password account kept the same Daily007 account, wallet balance, and session.
+- The app's expected Android return URI is `daily007://sso-callback`, matching the `daily007` scheme in `app.json` and the callback path in `GoogleSSOButton.tsx`. Successful phone testing confirms the return flow worked for the tested build. No provider credentials are recorded.
+- The installed build's version was not identified. The repository configuration at the time of this note is app version `1.0.1`, Android `versionCode` `2`; this does not establish that the tested build used that exact version.
