@@ -34,6 +34,7 @@ let vite;
 let socket;
 let temporaryProfile;
 const pending = new Map();
+let largeTextScaleScriptRegistered = false;
 
 async function getFreePort() {
   const server = net.createServer();
@@ -138,7 +139,16 @@ async function waitForPage(label = "real Admin screen") {
   throw new Error(`The ${label} did not render in the isolated preview: ${JSON.stringify(state)}`);
 }
 
-async function setViewport(width) {
+async function setViewport(width, fontScale = 1) {
+  if (!largeTextScaleScriptRegistered) {
+    await cdp("Page.addScriptToEvaluateOnNewDocument", {
+      source: `(() => {
+        const scale = Number(new URLSearchParams(location.search).get("fontScale"));
+        window.__daily007LargeTextScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+      })();`,
+    });
+    largeTextScaleScriptRegistered = true;
+  }
   await cdp("Emulation.setDeviceMetricsOverride", {
     width,
     height: 820,
@@ -146,7 +156,7 @@ async function setViewport(width) {
     mobile: true,
   });
   await cdp("Page.navigate", {
-    url: `http://127.0.0.1:${vitePort}/admin-narrow-preview.html?run=${width}`,
+    url: `http://127.0.0.1:${vitePort}/admin-narrow-preview.html?run=${width}&fontScale=${fontScale}`,
   });
   await waitForPage();
   await delay(150);
@@ -236,6 +246,128 @@ async function assertHorizontalFit(selector, description, width) {
   assert(
     result.scrollWidth <= result.clientWidth + 2,
     `${description} is clipped horizontally at ${width}px (content ${result.scrollWidth}px, box ${result.clientWidth}px).`,
+  );
+}
+
+async function assertPageHasNoHorizontalOverflow(width, description) {
+  const pageWidth = await evaluate(`({
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  })`);
+  assert(
+    pageWidth.document <= width + 1 && pageWidth.body <= width + 1,
+    `${description} causes horizontal page overflow at ${width}px ` +
+      `(document=${pageWidth.document}px, body=${pageWidth.body}px).`,
+  );
+}
+
+async function assertVisibleAdminControlsFit(width, description) {
+  const result = await evaluate(`(() => {
+    const controls = [...document.querySelectorAll('input, textarea, button, [role="button"], [tabindex="0"]')]
+      .filter((element) => !element.closest('[data-testid^="admin-tab-"]'))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          label: element.getAttribute('aria-label') || element.textContent?.trim() ||
+            element.getAttribute('placeholder') || element.tagName,
+          left: rect.left,
+          right: rect.right,
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+        };
+      });
+    return {
+      pageWidth: document.documentElement.scrollWidth,
+      controls,
+    };
+  })()`);
+  assert(
+    result.pageWidth <= width + 1,
+    `${description} causes horizontal page overflow at ${width}px ` +
+      `(document=${result.pageWidth}px).`,
+  );
+  for (const control of result.controls) {
+    assert(
+      control.left >= -1 && control.right <= width + 1,
+      `${description} control "${control.label}" extends outside the ${width}px viewport ` +
+        `(${control.left.toFixed(1)}–${control.right.toFixed(1)}px).`,
+    );
+    assert(
+      control.scrollWidth <= control.clientWidth + 2,
+      `${description} control "${control.label}" is clipped horizontally at ${width}px ` +
+        `(content ${control.scrollWidth}px, box ${control.clientWidth}px).`,
+    );
+  }
+}
+
+async function assertTournamentStatusTabsFit(width) {
+  const result = await evaluate(`(() => {
+    const tabs = document.querySelector('[data-testid="admin-tournament-status-tabs"]');
+    if (!tabs) return null;
+    return [...tabs.querySelectorAll('[data-testid^="admin-tournament-tab-"]')].map((tab) => {
+      const rect = tab.getBoundingClientRect();
+      return {
+        label: tab.getAttribute('aria-label') || tab.textContent.trim(),
+        selected: getComputedStyle(tab).borderColor === 'rgb(255, 61, 61)',
+        left: rect.left,
+        right: rect.right,
+        clientWidth: tab.clientWidth,
+        scrollWidth: tab.scrollWidth,
+      };
+    });
+  })()`);
+  assert(result?.length === 3, `Tournament status tabs are missing at ${width}px.`);
+  for (const tab of result) {
+    assert(
+      tab.left >= -1 && tab.right <= width + 1,
+      `Tournament tab "${tab.label}" is not fully visible at ${width}px ` +
+        `(${tab.left.toFixed(1)}–${tab.right.toFixed(1)}px).`,
+    );
+    assert(
+      tab.scrollWidth <= tab.clientWidth + 2,
+      `Tournament tab "${tab.label}" is clipped at ${width}px ` +
+        `(content ${tab.scrollWidth}px, box ${tab.clientWidth}px).`,
+    );
+  }
+  assert(
+    result.some((tab) => tab.selected),
+    `The selected tournament status tab is not exposed at ${width}px.`,
+  );
+}
+
+async function assertVisibleTextFits(selector, width, description) {
+  const overflowing = await evaluate(`(() => {
+    const root = document.querySelector(${JSON.stringify(selector)});
+    if (!root) return null;
+    return [...root.querySelectorAll('*')]
+      .filter((element) =>
+        element.children.length === 0 &&
+        element.textContent?.trim() &&
+        element.clientWidth > 0
+      )
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          label: element.textContent.trim().slice(0, 90),
+          left: rect.left,
+          right: rect.right,
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+        };
+      })
+      .filter((element) =>
+        element.right > element.left &&
+        (element.left < -1 || element.right > ${width} + 1 || element.scrollWidth > element.clientWidth + 2)
+      );
+  })()`);
+  assert(
+    overflowing?.length === 0,
+    `${description} has clipped or out-of-bounds text at ${width}px: ` +
+      `${JSON.stringify(overflowing?.slice(0, 5) ?? "the content panel is missing")}.`,
   );
 }
 
@@ -445,15 +577,35 @@ async function checkPopulatedAdminLists(width) {
   );
 }
 
-async function checkTournamentStates(width) {
+async function checkTournamentStates(width, { largeText = false } = {}) {
   await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments tab");
+  if (largeText) await assertTournamentStatusTabsFit(width);
 
   await clickButton("NEW");
   await assertText("CREATE TOURNAMENT");
   await assertText("GAME MODE");
   await assertText("FORMAT");
-  await assertHorizontalFit('[placeholder="Tournament name *"]', "Tournament name field", width);
-  await assertHorizontalFit('[placeholder="Prize distribution (e.g. 1st: 500 coins)"]', "Prize distribution field", width);
+  await clickTextLabel("Lone Wolf");
+  for (const [selector, label] of [
+    ['[placeholder="Tournament name *"]', "Tournament name field"],
+    ['[placeholder="Date (YYYY-MM-DD, IST) *"]', "Tournament date field"],
+    ['[placeholder="Entry coins *"]', "Tournament entry-fee field"],
+    ['[placeholder="Prize pool"]', "Tournament prize-pool field"],
+    ['[placeholder="Optional custom banner image URL (HTTPS)"]', "Tournament banner URL field"],
+    ['[placeholder="Rules (one per line)"]', "Tournament rules field"],
+    ['[placeholder="Prize distribution (e.g. 1st: 500 coins)"]', "Prize distribution field"],
+  ]) {
+    await assertHorizontalFit(selector, label, width);
+  }
+  if (largeText) {
+    await assertVisibleAdminControlsFit(width, "Tournament creation form");
+    await assertPageHasNoHorizontalOverflow(width, "Tournament creation form");
+    await assertVisibleTextFits(
+      '[data-testid="admin-tournament-create-form"]',
+      width,
+      "Tournament creation form",
+    );
+  }
   await clickButton("CLOSE");
 
   await clickSelector('[data-testid="manage-room-preview-upcoming"]', "room setup action");
@@ -466,6 +618,15 @@ async function checkTournamentStates(width) {
   await assertText("ROOM PASSWORD");
   await assertHorizontalFit('[placeholder="Room ID"]', "Room ID field", width);
   await assertHorizontalFit('[placeholder="Room Password"]', "Room password field", width);
+  if (largeText) {
+    await assertVisibleAdminControlsFit(width, "Room setup");
+    await assertPageHasNoHorizontalOverflow(width, "Room setup");
+    await assertVisibleTextFits(
+      '[data-testid="inline-room-management-preview-upcoming"]',
+      width,
+      "Room setup",
+    );
+  }
 
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Ongoing tournament filter");
   await clickSelector('[data-testid="finish-tournament-preview-ongoing"]', "result entry action");
@@ -480,7 +641,18 @@ async function checkTournamentStates(width) {
   await assertText("RANK");
   await assertText("KILLS");
   await assertText("PRIZE COINS · FROM SAVED TOURNAMENT SETTINGS");
+  await assertHorizontalFit('[data-testid="result-rank-preview-ongoing"]', "Result rank field", width);
+  await assertHorizontalFit('[data-testid="result-kills-preview-ongoing"]', "Result kills field", width);
   await assertHorizontalFit('[data-testid="inline-results-entry-preview-ongoing"]', "Result entry panel", width);
+  if (largeText) {
+    await assertVisibleAdminControlsFit(width, "Result entry");
+    await assertPageHasNoHorizontalOverflow(width, "Result entry");
+    await assertVisibleTextFits(
+      '[data-testid="inline-results-entry-preview-ongoing"]',
+      width,
+      "Result entry",
+    );
+  }
 
   await clickSelector('[data-testid="admin-tournament-tab-completed"]', "Completed tournament filter");
   const completedPanel = await evaluate(
@@ -488,9 +660,26 @@ async function checkTournamentStates(width) {
   );
   assert(completedPanel, `Completed-result details did not open at ${width}px.`);
   await assertText("WINNER & RESULT LOG");
-  await assertText("WINNER · Preview Champion");
+  await assertText(
+    largeText
+      ? "WINNER · Daily007 International Free Fire Championship Winner"
+      : "WINNER · Preview Champion",
+  );
   await assertText("PRIZE SETTLED · 300 COINS");
-  await assertText("#1 Preview Champion · 8 kills · 300 coins");
+  await assertText(
+    largeText
+      ? "#1 Daily007 International Free Fire Championship Winner · Daily007 Grand Finals Championship Squad · 8 kills · 300 coins"
+      : "#1 Preview Champion · 8 kills · 300 coins",
+  );
+  if (largeText) {
+    await assertVisibleAdminControlsFit(width, "Completed-result details");
+    await assertPageHasNoHorizontalOverflow(width, "Completed-result details");
+    await assertVisibleTextFits(
+      '[data-testid="completed-result-log-preview-completed"]',
+      width,
+      "Completed-result details",
+    );
+  }
   await assertHorizontalFit(
     '[data-testid="completed-result-log-preview-completed"]',
     "Completed-result details",
@@ -1436,6 +1625,16 @@ try {
     await checkTournamentStates(375);
     assert(browserErrors.length === 0, `Browser errors at 375px: ${browserErrors.join(" | ")}`);
     console.log("PASS 375px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.");
+
+    await setViewport(320, 1.5);
+    assert(
+      await evaluate("window.__daily007LargeTextScale === 1.5"),
+      "The compact Admin preview did not apply the requested 1.5× Android text scale.",
+    );
+    await checkAdminTabs(320);
+    await checkTournamentStates(320, { largeText: true });
+    assert(browserErrors.length === 0, `Browser errors at 320px with 1.5× text: ${browserErrors.join(" | ")}`);
+    console.log("PASS 320px at 1.5× text — selected Admin tabs, tournament fields, room setup, result entry, and completed-result details fit without horizontal clipping or page overflow.");
   }
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);

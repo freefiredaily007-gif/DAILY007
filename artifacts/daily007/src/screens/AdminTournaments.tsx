@@ -389,8 +389,8 @@ export default function AdminTournaments() {
       bottomOffset={64}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={st.h}>TOURNAMENTS</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <Text style={[st.h, { flex: 1, minWidth: 0, flexShrink: 1 }]}>TOURNAMENTS</Text>
         {tab === 'upcoming' && (
           <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => {
             actionRequestId.current++;
@@ -422,7 +422,7 @@ export default function AdminTournaments() {
         </View>
       )}
       <Msg kind="ok" text={okMsg} />
-      <View style={st.tabs}>
+      <View testID="admin-tournament-status-tabs" style={st.tabs}>
         {TOURNAMENT_TABS.map(({ id, label }) => {
           const selected = tab === id;
           const count = (list ?? []).filter(
@@ -445,7 +445,7 @@ export default function AdminTournaments() {
               }}
               style={[st.tab, selected && st.tabOn, showForm && st.tabDisabled]}
             >
-              <Text numberOfLines={1} style={[st.tabText, selected && st.tabTextOn]}>
+              <Text style={[st.tabText, selected && st.tabTextOn]}>
                 {label} <Text style={[st.tabCount, selected && st.tabTextOn]}>{count}</Text>
               </Text>
             </Pressable>
@@ -457,7 +457,7 @@ export default function AdminTournaments() {
       )}
 
       {showForm && (
-        <Card style={{ marginBottom: 14 }}>
+        <Card testID="admin-tournament-create-form" style={{ marginBottom: 14 }}>
           <Text style={st.formH}>{editId ? 'EDIT TOURNAMENT' : 'CREATE TOURNAMENT'}</Text>
           <Input placeholder="Tournament name *" value={form.name} onChangeText={(v) => set('name', v)} />
           <Text style={st.lbl}>GAME MODE</Text>
@@ -473,7 +473,7 @@ export default function AdminTournaments() {
             ))}
           </View>
           <Text style={st.lbl}>FORMAT</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             {['Solo', 'Duo', 'Squad'].map((m) => (
               <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
             ))}
@@ -506,7 +506,7 @@ export default function AdminTournaments() {
           <Text style={st.capacityNote}>Capacity follows the selected mode and team type; team entry fees are charged once to the captain.</Text>
           <TextInput style={st.area} placeholder="Rules (one per line)" placeholderTextColor={C.sub} value={form.rules} onChangeText={(v) => set('rules', v)} multiline />
           <TextInput style={st.area} placeholder="Prize distribution (e.g. 1st: 500 coins)" placeholderTextColor={C.sub} value={form.prizeDist} onChangeText={(v) => set('prizeDist', v)} multiline />
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             {['br', 'cs', 'lw'].map((b) => (
               <Chip key={b} label={`${b.toUpperCase()} banner`} color={form.banner === b ? C.orange : C.sub} onPress={() => set('banner', b)} />
             ))}
@@ -816,14 +816,17 @@ export default function AdminTournaments() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  tabs: { flexDirection: 'row', gap: 7, marginBottom: 12 },
+  tabs: { flexDirection: 'row', gap: 7, marginBottom: 12, width: '100%', minWidth: 0 },
   tab: {
-    flex: 1, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
+    flex: 1, minWidth: 0, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card,
   },
   tabOn: { borderColor: C.neon, backgroundColor: C.neon + '20' },
   tabDisabled: { opacity: 0.5 },
-  tabText: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.2 },
+  tabText: {
+    color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.2,
+    flexShrink: 1, minWidth: 0, width: '100%', textAlign: 'center',
+  },
   tabTextOn: { color: C.text },
   tabCount: { color: C.dim, fontSize: 9, fontWeight: '700' },
   h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },

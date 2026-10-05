@@ -260,7 +260,21 @@ export const getDaily007ListAdminResultLogsQueryKey = () => [
 ];
 
 export function useDaily007ListAdminResultLogs() {
-  return noQuery({ data: resultLogs });
+  const scale = Number(
+    (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })
+      .__daily007LargeTextScale,
+  );
+  const logs = Number.isFinite(scale) && scale > 1
+    ? resultLogs.map((entry, index) => index === 0
+      ? {
+          ...entry,
+          gameName: "Daily007 International Free Fire Championship Winner",
+          playerName: "International Tournament Champion With A Long Player Name",
+          teamName: "Daily007 Grand Finals Championship Squad",
+        }
+      : entry)
+    : resultLogs;
+  return noQuery({ data: logs });
 }
 
 export function useUpdateTournamentLifecycle() {

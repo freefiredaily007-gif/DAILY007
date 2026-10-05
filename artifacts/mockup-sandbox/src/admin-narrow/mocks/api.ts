@@ -212,6 +212,14 @@ let deferredHomeRegistrationRead: {
 } | null = null;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
 
+function isAdminLargestTextPreview() {
+  const scale = Number(
+    (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })
+      .__daily007LargeTextScale,
+  );
+  return Number.isFinite(scale) && scale > 1;
+}
+
 const longTournamentName =
   "Daily007 International Free Fire Championship Grand Finals";
 const largestTextTournaments = previewTournaments.map((tournament) => ({
@@ -313,7 +321,9 @@ export const Api = {
       nextTournamentReadError = null;
       throw new Error(error);
     }
-    const tournaments = playerLargestTextPreview ? largestTextTournaments : previewTournaments;
+    const tournaments = isAdminLargestTextPreview() || playerLargestTextPreview
+      ? largestTextTournaments
+      : previewTournaments;
     return tournaments.map((tournament) => ({ ...tournament }));
   },
   myRegistrations: async () => {
@@ -360,8 +370,12 @@ export const Api = {
     : empty(),
   adminRoom: async (tournamentId: string) => ({
     tournamentId,
-    roomId: "TEST-ROOM-01",
-    roomPassword: "test-room-password",
+    roomId: isAdminLargestTextPreview()
+      ? "FINAL-26"
+      : "TEST-ROOM-01",
+    roomPassword: isAdminLargestTextPreview()
+      ? "D7-Pass26"
+      : "test-room-password",
     roomPublished: false,
   }),
   adminApprovedRegs: async (tournamentId: string) =>
