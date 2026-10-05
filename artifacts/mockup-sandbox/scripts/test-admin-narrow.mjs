@@ -514,12 +514,31 @@ async function checkTournamentResume() {
   );
 
   let readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
   await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('IST Start Boundary')`,
-    "The player Ongoing list to refresh and show the tournament after resume",
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('Could not refresh tournaments: Temporary network error') && document.body.innerText.includes('IST Start Boundary')`,
+    "the failed player refresh to show an error while keeping its loaded card",
   );
-  await assertText("IST Start Boundary", "the player tournament after resume");
+  await assertText("IST Start Boundary", "the player tournament after a failed resume refresh");
+
+  await evaluate(
+    "window.__daily007TournamentResume.updateTournament({ name: 'Player Refreshed IST Start Boundary' })",
+  );
+  readsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.startBackgroundCycle()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeResume} && document.body.innerText.includes('Player Refreshed IST Start Boundary')`,
+    "a later successful player refresh to update the visible tournament",
+  );
+  await assertText("Player Refreshed IST Start Boundary", "the updated player tournament");
+  const playerRefreshErrorVisible = await evaluate(
+    "document.body.innerText.includes('Could not refresh tournaments: Temporary network error')",
+  );
+  assert(!playerRefreshErrorVisible, "A successful player refresh should clear the earlier refresh error.");
+  await evaluate(
+    "window.__daily007TournamentResume.updateTournament({ name: 'IST Start Boundary' })",
+  );
 
   await evaluate("window.__daily007TournamentResume.prepareAdmin()");
   await evaluate("window.__daily007TournamentResume.showAdmin()");
@@ -996,7 +1015,7 @@ try {
     } else {
       await checkTournamentResume();
       assert(browserErrors.length === 0, `Browser errors during tournament resume checks: ${browserErrors.join(" | ")}`);
-      console.log("PASS — player and Admin tournament lists refetch after resume across an IST start without manual refresh.");
+      console.log("PASS — Player cards survive a failed resume refresh and update after recovery; Admin refresh still recovers across an IST start.");
     }
   } else {
     await setViewport(320);

@@ -27,6 +27,7 @@ export default function Tournaments() {
   const [error, setError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
+  const hasLoadedList = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
@@ -54,6 +55,7 @@ export default function Tournaments() {
           myRegistration,
         };
       }));
+      hasLoadedList.current = true;
       setClockNow(Date.now());
       setError('');
     } catch (e) { setError(apiError(e)); }
@@ -146,7 +148,12 @@ export default function Tournaments() {
                 );
               })}
             </View>
-            {!!error && <Msg kind="err" text={`Could not load tournaments: ${error}`} />}
+            {!!error && (
+              <Msg
+                kind="err"
+                text={`${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${error}`}
+              />
+            )}
           </View>
         }
         ListEmptyComponent={<Empty text={tournamentListEmptyMessage(Boolean(error), tabLabel[tab], heading, teamType)} />}
