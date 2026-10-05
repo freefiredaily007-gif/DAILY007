@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  copyReferralLinkToClipboard,
   openReferralInBrowser,
   referralSignupFromUrl,
+  shareReferralInvite,
 } from "../src/lib/referral-invite.ts";
 
 const configuredDomain = "daily007.example.test";
@@ -24,6 +26,48 @@ test("Earn sends its HTTPS invite URL to Expo's browser opener", async () => {
   assert.match(earnSource, /WebBrowser\.openBrowserAsync\(url\)/);
   assert.match(earnSource, /openReferralInBrowser\([\s\S]*?dashboard\.referralLink/);
   assert.match(earnSource, /testID="referral-open-link"[\s\S]*?onPress=\{openReferralLink\}/);
+});
+
+test("Earn copies the server-provided HTTPS referral link without changing its code", async () => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const copiedValues = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+
+  await copyReferralLinkToClipboard(referralLink, async (value) => {
+    copiedValues.push(value);
+  });
+
+  assert.deepEqual(copiedValues, [referralLink]);
+  assert.equal(new URL(copiedValues[0]).protocol, "https:");
+  assert.equal(new URL(copiedValues[0]).searchParams.get("ref"), "ABC12");
+  assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
+  assert.match(
+    earnSource,
+    /copyReferralLinkToClipboard\(\s*dashboard\.referralLink,\s*Clipboard\.setStringAsync/,
+  );
+  assert.match(earnSource, /testID="referral-copy-link"[\s\S]*?onPress=\{copyReferralLink\}/);
+});
+
+test("Earn shares the same server-provided HTTPS referral link and query code", async () => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const sharedValues = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+
+  await shareReferralInvite("ABC12", referralLink, async (content) => {
+    sharedValues.push(content);
+  });
+
+  assert.equal(sharedValues.length, 1);
+  assert.equal(sharedValues[0].url, referralLink);
+  assert.equal(new URL(sharedValues[0].url).protocol, "https:");
+  assert.equal(new URL(sharedValues[0].url).searchParams.get("ref"), "ABC12");
+  assert.ok(sharedValues[0].message.includes(referralLink));
+  assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
+  assert.match(
+    earnSource,
+    /shareReferralInvite\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\)/,
+  );
+  assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
 
 test("configured HTTPS invites open signup with the ref code prefilled", () => {

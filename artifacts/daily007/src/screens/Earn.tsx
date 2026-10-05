@@ -22,7 +22,11 @@ import {
 } from '@workspace/api-client-react';
 import { C } from '../components/ui';
 import { apiError } from '../lib/api';
-import { openReferralInBrowser } from '../lib/referral-invite';
+import {
+  copyReferralLinkToClipboard,
+  openReferralInBrowser,
+  shareReferralInvite,
+} from '../lib/referral-invite';
 
 const rechargeStatusLabel: Record<string, string> = {
   rewarded: 'Approved recharge · reward credited',
@@ -77,10 +81,11 @@ export default function Earn() {
     if (!dashboard?.code || !dashboard.referralLink) return;
     setActionError('');
     try {
-      await Share.share({
-        message: `Join FreeFire Daily007 with my referral code ${dashboard.code} and get 10 bonus coins. I get 5 coins after your first approved recharge of at least 50 coins.\n\nOpen Daily007: ${dashboard.referralLink}`,
-        url: dashboard.referralLink,
-      });
+      await shareReferralInvite(
+        dashboard.code,
+        dashboard.referralLink,
+        (content) => Share.share(content),
+      );
     } catch {
       setActionError('Could not open the share sheet. You can copy the code instead.');
     }
@@ -103,7 +108,10 @@ export default function Earn() {
     if (!dashboard?.referralLink) return;
     setActionError('');
     try {
-      await Clipboard.setStringAsync(dashboard.referralLink);
+      await copyReferralLinkToClipboard(
+        dashboard.referralLink,
+        Clipboard.setStringAsync,
+      );
       setLinkCopied(true);
       Alert.alert('Invite link copied', 'Send the link to a friend. It opens Daily007 signup with your referral code filled in.');
       setTimeout(() => setLinkCopied(false), 1800);

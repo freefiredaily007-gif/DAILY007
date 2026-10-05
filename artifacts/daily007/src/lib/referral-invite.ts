@@ -43,3 +43,28 @@ export async function openReferralInBrowser(
 ): Promise<void> {
   await openBrowser(referralLink);
 }
+
+export type ReferralShareContent = {
+  message: string;
+  url: string;
+};
+
+export type ShareReferralInvite = (content: ReferralShareContent) => Promise<unknown>;
+
+export async function copyReferralLinkToClipboard(
+  referralLink: string,
+  setClipboardString: (text: string) => Promise<unknown>,
+): Promise<void> {
+  await setClipboardString(referralLink);
+}
+
+export async function shareReferralInvite(
+  code: string,
+  referralLink: string,
+  share: ShareReferralInvite,
+): Promise<void> {
+  await share({
+    message: `Join FreeFire Daily007 with my referral code ${code} and get 10 bonus coins. I get 5 coins after your first approved recharge of at least 50 coins.\n\nOpen Daily007: ${referralLink}`,
+    url: referralLink,
+  });
+}
