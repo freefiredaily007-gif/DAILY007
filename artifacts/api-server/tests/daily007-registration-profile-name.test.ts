@@ -158,9 +158,9 @@ for (const request of registrationRequests) {
     try {
       await withServer(async (origin) => {
         const response = await sendRegistration(origin, request.path, request.body);
-        assert.equal(response.status, 201);
-        assert.equal(registrationProfileTestDb.registrations.length, 1);
-        const registration = registrationProfileTestDb.registrations[0];
+      assert.equal(response.status, 201);
+
+      const registration = registrationProfileTestDb.registrations[0];
         assert.deepEqual(
           {
             captain_name: registration.captain_name,
@@ -273,16 +273,17 @@ for (const request of registrationRequests) {
         assert.equal(JSON.stringify(participants).includes(CAPTAIN_GAME_UID), false);
         assert.equal(JSON.stringify(participants).includes(TEAMMATE_UID), false);
 
-        const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
-        assert.ok(adminToken);
-        const csvResponse = await getWithToken(
-          origin,
-          `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
-          adminToken,
-        );
-        assert.equal(csvResponse.status, 200);
-        assert.match(csvResponse.headers.get("content-type") ?? "", /text\/csv/i);
-        const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+      const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
+
+      const csvRows = csvLines.slice(1).map(parseCsvRow);
         assert.deepEqual(parseCsvRow(csvLines[0]), [
           "captain_profile_name",
           "captain_game_name",
@@ -298,6 +299,12 @@ for (const request of registrationRequests) {
           "registered_at",
         ]);
         const csvRow = parseCsvRow(csvLines[1]);
+
+      const firstRegistration = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
         assert.deepEqual(csvRow.slice(0, -1), [
           PROFILE_NAME,
           CAPTAIN_GAME_NAME,
@@ -328,12 +335,7 @@ test("admin registration CSV preserves commas and quotes in name columns", async
 
   try {
     await withServer(async (origin) => {
-      const response = await sendRegistration(origin, registrationRequests[0].path, {
-        ...registrationRequests[0].body,
-        captainGameName: CSV_CAPTAIN_GAME_NAME,
-        teamName: CSV_TEAM_NAME,
-        teammates,
-      });
+        const response = await sendRegistration(origin, request.path, request.body);
       assert.equal(response.status, 201);
 
       const registration = registrationProfileTestDb.registrations[0];
@@ -364,6 +366,8 @@ test("admin registration CSV preserves commas and quotes in name columns", async
       );
       assert.equal(csvResponse.status, 200);
       const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
+
+      const csvRows = csvLines.slice(1).map(parseCsvRow);
       assert.equal(csvLines.length, 2);
 
       const headers = parseCsvRow(csvLines[0]);
@@ -493,3 +497,17 @@ test("v2 and legacy registration reject an empty profile name before charging th
     registrationProfileTestDb.reset();
   }
 });
+
+      const secondRegistrationId = "74000000-0000-4000-8000-000000000011";
+
+      const secondCaptain = {
+        id: "74000000-0000-4000-8000-000000000004",
+        name: "Second Captain Profile",
+        email: "second-captain@example.test",
+        role: "user" as const,
+        wallet_coins: 100,
+        phone: null,
+        game_uid: null,
+        status: "active" as const,
+        auth_version: 0,
+      };

@@ -69,6 +69,7 @@ export const TEST_TOURNAMENT_ADMIN_ID = "74000000-0000-4000-8000-000000000003";
 class RegistrationProfileTestDatabase {
   user!: TestUser;
   tournamentAdmin!: TestUser;
+  additionalUsers: TestUser[] = [];
   match!: TestMatch;
   registrations: CapturedRegistration[] = [];
   roster: CapturedRosterMember[] = [];
@@ -80,6 +81,7 @@ class RegistrationProfileTestDatabase {
   }
 
   reset(profileName = "Daily007 Player"): void {
+    this.additionalUsers = [];
     this.user = {
       id: TEST_PLAYER_ID,
       name: profileName,
@@ -151,7 +153,7 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users")
     ) {
-      const account = [this.user, this.tournamentAdmin].find((candidate) =>
+      const account = [this.user, this.tournamentAdmin, ...this.additionalUsers].find((candidate) =>
         candidate.id === String(values[0])
       );
       result = account ? [structuredClone(account)] : [];
@@ -316,7 +318,11 @@ class RegistrationProfileTestDatabase {
             captain_game_name: registration.captain_game_name,
             captain_game_uid: registration.captain_game_uid,
             team_name: registration.team_name,
-            email: this.user.email,
+            email: [
+              this.user,
+              this.tournamentAdmin,
+              ...this.additionalUsers,
+            ].find((user) => user.id === registration.captain_user_id)?.email ?? "",
             created_at: registration.created_at,
             position: member?.position ?? null,
             member_name: member?.member_name ?? null,
