@@ -68,11 +68,39 @@ async function postVideo(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function patchVideo(
+  origin: string,
+  userId: string,
+  videoId: string,
+  body: Record<string, unknown>,
+  suffix = "",
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${origin}/admin/videos/${videoId}${suffix}`, {
+    method: "PATCH",
+    headers: authHeaders(userId),
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
 const validVideo = {
   title: "Tournament Highlights",
   topic: "Battle Royale",
   url: "https://youtu.be/a1b2C3d4E5F",
 };
+
+function seedWatchHistory(videoId: string): void {
+  videoTestDb.watchSessions.push({
+    id: "53000000-0000-4000-8000-000000000001",
+    user_id: VIDEO_TEST_PLAYER_ID,
+    video_id: videoId,
+    duration_seconds: 600,
+    reported_percent: 0,
+    started_at: new Date("2026-10-05T12:05:00.000Z"),
+    completed_at: null,
+    reward_ledger_id: null,
+  });
+}
 
 test("Full Admin creates a video that appears in the public catalog with its title and topic", async () => {
   videoTestDb.reset();
@@ -133,5 +161,84 @@ test("a duplicate YouTube video link is rejected", async () => {
     });
     assert.equal(duplicate.status, 409);
     assert.equal(videoTestDb.videos.length, 1);
+  });
+});
+
+test("Full Admin cannot change a video's YouTube link after watch history exists", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(created.status, 201);
+    const videoId = String(created.body.id);
+    seedWatchHistory(videoId);
+    const videosBefore = structuredClone(videoTestDb.videos);
+    const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+
+    const updated = await patchVideo(origin, VIDEO_TEST_ADMIN_ID, videoId, {
+      title: "Replacement Highlights",
+      topic: "Clash Squad",
+      url: "https://youtu.be/Z9x8Y7w6V5u",
+    });
+
+    assert.equal(updated.status, 409);
+    assert.match(String(updated.body.error), /watch history/i);
+    assert.deepEqual(videoTestDb.videos, videosBefore);
+    assert.deepEqual(videoTestDb.watchSessions, watchSessionsBefore);
+  });
+});
+
+test("Full Admin cannot permanently delete a video with watch history", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(created.status, 201);
+    const videoId = String(created.body.id);
+    seedWatchHistory(videoId);
+    const videosBefore = structuredClone(videoTestDb.videos);
+    const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+
+    const response = await fetch(`${origin}/admin/videos/${videoId}`, {
+      method: "DELETE",
+      headers: authHeaders(VIDEO_TEST_ADMIN_ID),
+    });
+    const body = await response.json() as Record<string, unknown>;
+
+    assert.equal(response.status, 409);
+    assert.match(String(body.error), /hide it instead/i);
+    assert.deepEqual(videoTestDb.videos, videosBefore);
+    assert.deepEqual(videoTestDb.watchSessions, watchSessionsBefore);
+  });
+});
+
+test("Full Admin can hide a video without detaching its watch history", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(created.status, 201);
+    const videoId = String(created.body.id);
+    seedWatchHistory(videoId);
+    const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+
+    const hidden = await patchVideo(
+      origin,
+      VIDEO_TEST_ADMIN_ID,
+      videoId,
+      { active: false },
+      "/active",
+    );
+    assert.equal(hidden.status, 200);
+    assert.equal(hidden.body.active, false);
+    assert.equal(videoTestDb.videos.length, 1);
+    assert.equal(videoTestDb.videos[0].id, videoId);
+    assert.equal(videoTestDb.videos[0].active, false);
+    assert.deepEqual(videoTestDb.watchSessions, watchSessionsBefore);
+
+    const catalogResponse = await fetch(`${origin}/videos`);
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json() as { videos: unknown[] };
+    assert.equal(catalog.videos.length, 0);
   });
 });

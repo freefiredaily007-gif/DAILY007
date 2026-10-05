@@ -22,12 +22,24 @@ type TestVideo = {
   created_at: Date;
 };
 
+type TestWatchSession = {
+  id: string;
+  user_id: string;
+  video_id: string;
+  duration_seconds: number;
+  reported_percent: number;
+  started_at: Date;
+  completed_at: Date | null;
+  reward_ledger_id: string | null;
+};
+
 export const VIDEO_TEST_ADMIN_ID = "51000000-0000-4000-8000-000000000001";
 export const VIDEO_TEST_PLAYER_ID = "51000000-0000-4000-8000-000000000002";
 
 class Daily007VideoTestDatabase {
   users = new Map<string, TestUser>();
   videos: TestVideo[] = [];
+  watchSessions: TestWatchSession[] = [];
   private nextVideoId = 1;
 
   reset(): void {
@@ -56,6 +68,7 @@ class Daily007VideoTestDatabase {
       }],
     ]);
     this.videos = [];
+    this.watchSessions = [];
     this.nextVideoId = 1;
   }
 
@@ -73,6 +86,10 @@ class Daily007VideoTestDatabase {
     } else if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
       const user = this.users.get(String(values[0] ?? ""));
       rows = user ? [{ role: user.role, status: user.status }] : [];
+    } else if (normalized.startsWith("INSERT INTO daily007_v2_settings")) {
+      rows = [];
+    } else if (normalized === "SELECT id FROM daily007_v2_settings WHERE id = 1 FOR UPDATE") {
+      rows = [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_videos")) {
       const [title, topic, youtubeId, createdBy] = values as [string, string, string, string];
       if (this.videos.some((video) => video.youtube_id === youtubeId)) {
@@ -98,6 +115,65 @@ class Daily007VideoTestDatabase {
         active: video.active,
         createdAt: video.created_at,
       }];
+    } else if (normalized.startsWith(
+      "SELECT youtube_id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+    )) {
+      const video = this.videos.find((entry) => entry.id === String(values[0] ?? ""));
+      rows = video ? [{ youtube_id: video.youtube_id }] : [];
+    } else if (normalized.startsWith(
+      "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+    )) {
+      const video = this.videos.find((entry) => entry.id === String(values[0] ?? ""));
+      rows = video ? [{ id: video.id }] : [];
+    } else if (normalized.startsWith(
+      "SELECT EXISTS ( SELECT 1 FROM daily007_v2_video_watch_sessions WHERE video_id = $1 ) AS",
+    )) {
+      const videoId = String(values[0] ?? "");
+      rows = [{
+        hasSessions: this.watchSessions.some((session) => session.video_id === videoId),
+      }];
+    } else if (normalized.startsWith(
+      "UPDATE daily007_v2_videos SET title = $2, topic = $3, youtube_id = $4 WHERE id = $1",
+    )) {
+      const [id, title, topic, youtubeId] = values.map(String);
+      if (this.videos.some((entry) => entry.id !== id && entry.youtube_id === youtubeId)) {
+        throw Object.assign(new Error("duplicate video URL"), { code: "23505" });
+      }
+      const video = this.videos.find((entry) => entry.id === id);
+      if (video) {
+        video.title = title;
+        video.topic = topic;
+        video.youtube_id = youtubeId;
+      }
+      rows = video ? [{
+        id: video.id,
+        title: video.title,
+        topic: video.topic,
+        youtubeId: video.youtube_id,
+        active: video.active,
+        createdAt: video.created_at,
+      }] : [];
+    } else if (normalized === "DELETE FROM daily007_v2_videos WHERE id = $1") {
+      const videoId = String(values[0] ?? "");
+      if (this.watchSessions.some((session) => session.video_id === videoId)) {
+        throw Object.assign(new Error("video has watch-session records"), { code: "23503" });
+      }
+      this.videos = this.videos.filter((video) => video.id !== videoId);
+      rows = [];
+    } else if (normalized.startsWith(
+      "UPDATE daily007_v2_videos SET active = $2 WHERE id = $1",
+    )) {
+      const [id, active] = values as [string, boolean];
+      const video = this.videos.find((entry) => entry.id === id);
+      if (video) video.active = active;
+      rows = video ? [{
+        id: video.id,
+        title: video.title,
+        topic: video.topic,
+        youtubeId: video.youtube_id,
+        active: video.active,
+        createdAt: video.created_at,
+      }] : [];
     } else if (normalized.startsWith("SELECT id, title, topic, youtube_id AS \"youtubeId\", active, created_at AS \"createdAt\" FROM daily007_v2_videos")) {
       const activeOnly = normalized.includes("WHERE active = true");
       rows = this.videos
