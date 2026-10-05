@@ -63,6 +63,48 @@ async function request(
   return { status: response.status, body: await response.json() };
 }
 
+test("an incorrect current password is rejected without changing credentials or the existing session", async () => {
+  passwordChangeTestDb.reset();
+  const originalPassword = "current-password-for-rejected-change";
+  const originalCredentials = await hashPassword(originalPassword);
+  passwordChangeTestDb.setCredentials({
+    password_salt: originalCredentials.salt,
+    password_hash: originalCredentials.hash,
+  });
+  const before = passwordChangeTestDb.snapshot();
+  passwordChangeTestDb.holdCredentialReadsUntil(1);
+  const existingToken = makeToken(PASSWORD_CHANGE_TEST_USER_ID, before.auth_version);
+  assert.ok(existingToken);
+
+  await withServer(async (origin) => {
+    const result = await request(origin, "/auth/me/password", "PATCH", {
+      currentPassword: "definitely-the-wrong-current-password",
+      newPassword: "replacement-password-for-rejected-attempt",
+    }, existingToken);
+
+    assert.equal(result.status, 401);
+    assert.equal(result.body.error, "Current password is incorrect.");
+    assert.equal(result.body.token, undefined, "a rejected change must not issue a replacement token");
+    assert.equal(passwordChangeTestDb.credentialReadBarrierTimedOut, false);
+    assert.deepEqual(passwordChangeTestDb.credentialReadSnapshots, [
+      { password_salt: before.password_salt, password_hash: before.password_hash },
+    ], "the route should verify the stored credential pair");
+    assert.equal(passwordChangeTestDb.passwordWriteAttempts, 0, "a wrong current password must not attempt a credential write");
+    assert.equal(passwordChangeTestDb.successfulPasswordWrites, 0);
+
+    const after = passwordChangeTestDb.snapshot();
+    assert.equal(after.password_salt, before.password_salt);
+    assert.equal(after.password_hash, before.password_hash);
+    assert.equal(after.auth_version, before.auth_version);
+    assert.deepEqual(after, before, "the failed attempt must leave the complete account record unchanged");
+
+    const existingSession = await request(origin, "/auth/me", "GET", undefined, existingToken);
+    assert.equal(existingSession.status, 200, "the existing token should remain valid after the rejected attempt");
+    assert.equal(existingSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
+    assert.deepEqual(passwordChangeTestDb.snapshot(), before);
+  });
+});
+
 test("concurrent password changes use the original credentials for exactly one update", async () => {
   passwordChangeTestDb.reset();
   const originalPassword = "current-password-for-race-test";
