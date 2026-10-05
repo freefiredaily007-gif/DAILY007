@@ -11,6 +11,8 @@ import {
   TEST_MATCH_ID,
   TEST_PENDING_PLAYER_ID,
   TEST_PENDING_REGISTRATION_ID,
+  TEST_REJECTED_PLAYER_ID,
+  TEST_REJECTED_REGISTRATION_ID,
   TEST_PLAYER_ID,
   TEST_REGISTRATION_ID,
   TEST_UNREGISTERED_PLAYER_ID,
@@ -140,16 +142,18 @@ function assertPublicTournamentOmitsRoomCredentials(tournament: any): void {
   }
 }
 
-test("compat registrations are caller-scoped and hide room credentials before release", async () => {
+test("compat registrations gate room credentials by release time and approval status", async () => {
   roomAccessTestDb.reset();
   setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000));
 
   const playerToken = makeToken(TEST_PLAYER_ID, 0);
   const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
   const unregisteredPlayerToken = makeToken(TEST_UNREGISTERED_PLAYER_ID, 0);
+  const rejectedPlayerToken = makeToken(TEST_REJECTED_PLAYER_ID, 0);
   assert.ok(playerToken);
   assert.ok(pendingPlayerToken);
   assert.ok(unregisteredPlayerToken);
+  assert.ok(rejectedPlayerToken);
 
   await withServer(async (origin) => {
     const playerRegistrations = await request(origin, "/my/registrations", "GET", playerToken);
@@ -209,6 +213,17 @@ test("compat registrations are caller-scoped and hide room credentials before re
       assert.equal(field in pendingAtBoundary.body[0], false);
       assert.equal(field in pendingAtBoundary.body[0].tournament, false);
     }
+
+    const rejectedAtBoundary = await request(origin, "/my/registrations", "GET", rejectedPlayerToken);
+    assert.equal(rejectedAtBoundary.status, 200);
+    assert.deepEqual(rejectedAtBoundary.body.map((registration: any) => registration.id), [
+      TEST_REJECTED_REGISTRATION_ID,
+    ]);
+    assert.equal(rejectedAtBoundary.body[0].status, "rejected");
+    for (const field of ["roomId", "roomPassword", "roomTime"]) {
+      assert.equal(field in rejectedAtBoundary.body[0], false);
+      assert.equal(field in rejectedAtBoundary.body[0].tournament, false);
+    }
   });
 });
 
@@ -243,9 +258,11 @@ test("v2 room endpoint requires approval and an open release window", async () =
   const playerToken = makeToken(TEST_PLAYER_ID, 0);
   const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
   const unregisteredPlayerToken = makeToken(TEST_UNREGISTERED_PLAYER_ID, 0);
+  const rejectedPlayerToken = makeToken(TEST_REJECTED_PLAYER_ID, 0);
   assert.ok(playerToken);
   assert.ok(pendingPlayerToken);
   assert.ok(unregisteredPlayerToken);
+  assert.ok(rejectedPlayerToken);
 
   await withServer(async (origin) => {
     const path = `/daily007/v2/matches/${TEST_MATCH_ID}/room`;
@@ -265,10 +282,15 @@ test("v2 room endpoint requires approval and an open release window", async () =
       roomPassword: "fixture-only-password",
     });
 
-    for (const token of [pendingPlayerToken, unregisteredPlayerToken]) {
+    for (const token of [pendingPlayerToken, unregisteredPlayerToken, rejectedPlayerToken]) {
       const denied = await request(origin, path, "GET", token);
       assert.equal(denied.status, 403);
       assert.equal(denied.body.error, "Room credentials are available only to registered users.");
+      assert.equal("roomId" in denied.body, false);
+      assert.equal("roomPassword" in denied.body, false);
+      const serializedDenial = JSON.stringify(denied.body);
+      assert.equal(serializedDenial.includes("TEST-ROOM-820"), false);
+      assert.equal(serializedDenial.includes("fixture-only-password"), false);
     }
 
     roomAccessTestDb.match.status = "cancelled";

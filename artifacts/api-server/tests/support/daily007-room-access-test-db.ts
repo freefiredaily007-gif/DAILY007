@@ -50,9 +50,11 @@ export const TEST_ADMIN_ID = "82000000-0000-4000-8000-000000000001";
 export const TEST_PLAYER_ID = "82000000-0000-4000-8000-000000000002";
 export const TEST_PENDING_PLAYER_ID = "82000000-0000-4000-8000-000000000003";
 export const TEST_UNREGISTERED_PLAYER_ID = "82000000-0000-4000-8000-000000000004";
+export const TEST_REJECTED_PLAYER_ID = "82000000-0000-4000-8000-000000000005";
 export const TEST_MATCH_ID = "82000000-0000-4000-8000-000000000100";
 export const TEST_REGISTRATION_ID = "82000000-0000-4000-8000-000000000101";
 export const TEST_PENDING_REGISTRATION_ID = "82000000-0000-4000-8000-000000000102";
+export const TEST_REJECTED_REGISTRATION_ID = "82000000-0000-4000-8000-000000000103";
 
 class RoomAccessTestDatabase {
   users = new Map<string, TestUser>();
@@ -109,6 +111,17 @@ class RoomAccessTestDatabase {
         status: "active",
         auth_version: 0,
       }],
+      [TEST_REJECTED_PLAYER_ID, {
+        id: TEST_REJECTED_PLAYER_ID,
+        name: "Rejected Player",
+        email: "rejected-room-player@example.test",
+        role: "user",
+        wallet_coins: 0,
+        phone: null,
+        game_uid: "FF-REJECTED-001",
+        status: "active",
+        auth_version: 0,
+      }],
     ]);
     this.match = {
       id: TEST_MATCH_ID,
@@ -154,6 +167,17 @@ class RoomAccessTestDatabase {
       entry_coins_paid: 0,
       status: "pending",
       created_at: new Date("2020-01-02T00:00:00.000Z"),
+    }, {
+      id: TEST_REJECTED_REGISTRATION_ID,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_REJECTED_PLAYER_ID,
+      captain_name: "Rejected Player",
+      captain_game_name: "RejectedCaptain",
+      captain_game_uid: "FF-REJECTED-001",
+      team_name: "",
+      entry_coins_paid: 0,
+      status: "rejected",
+      created_at: new Date("2020-01-03T00:00:00.000Z"),
     }];
   }
 
