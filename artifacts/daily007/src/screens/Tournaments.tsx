@@ -174,7 +174,7 @@ export default function Tournaments() {
           <MatchCard
             t={cardItem}
             roomDetails={roomDetails}
-            onPress={() => nav.navigate('TDetail', { id: item.id })}
+            onPress={() => nav.push('TDetail', { id: item.id })}
           />
           );
         }}
