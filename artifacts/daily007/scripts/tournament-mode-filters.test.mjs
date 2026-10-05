@@ -2,11 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
+  HOME_GAME_MODE_CARDS,
   homeModeRouteParams,
   submodeRouteParams,
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
 
+const homeSource = await readFile(
+  new URL('../src/screens/Home.tsx', import.meta.url),
+  'utf8',
+);
 const modeSubmodesSource = await readFile(
   new URL('../src/screens/ModeSubmodes.tsx', import.meta.url),
   'utf8',
@@ -36,6 +41,64 @@ test('Solo and Squad selections keep the selected game mode in their route param
     modeSubmodesSource,
     /navigation\.navigate\(\s*'Tournaments',\s*submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),/,
   );
+});
+
+test('Home mode cards show every team type while the format picker stays restricted', () => {
+  const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
+    ['Solo', 'Duo', 'Squad'].map((teamType) => ({
+      id: `${gameMode}-${teamType.toLowerCase()}`,
+      gameMode,
+      teamType,
+    })),
+  );
+
+  assert.match(
+    homeSource,
+    /onPress=\{\(\) => nav\.navigate\('Tournaments', homeModeRouteParams\(m\)\)\}/,
+  );
+  assert.match(
+    homeSource,
+    /onPress=\{\(\) => nav\.navigate\('ModeSubmodes', homeModeRouteParams\(m\)\)\}/,
+  );
+  assert.match(
+    modeSubmodesSource,
+    /navigation\.navigate\(\s*'Tournaments',\s*submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),/,
+  );
+
+  for (const card of HOME_GAME_MODE_CARDS) {
+    const directParams = homeModeRouteParams(card);
+    assert.deepEqual(directParams, {
+      gameMode: card.gameMode,
+      gameModeLabel: card.mode,
+    });
+    assert.equal(Object.hasOwn(directParams, 'teamType'), false);
+
+    const directTabs = tournamentTabsForRoute(
+      tournaments,
+      directParams,
+      () => 'upcoming',
+    );
+    assert.deepEqual(
+      directTabs.upcoming.map((tournament) => tournament.id),
+      ['solo', 'duo', 'squad'].map((teamType) => `${card.gameMode}-${teamType}`),
+    );
+
+    const pickerParams = submodeRouteParams(card.gameMode, 'solo', card.mode);
+    assert.deepEqual(pickerParams, {
+      gameMode: card.gameMode,
+      teamType: 'solo',
+      gameModeLabel: card.mode,
+    });
+    const pickerTabs = tournamentTabsForRoute(
+      tournaments,
+      pickerParams,
+      () => 'upcoming',
+    );
+    assert.deepEqual(
+      pickerTabs.upcoming.map((tournament) => tournament.id),
+      [`${card.gameMode}-solo`],
+    );
+  }
 });
 
 test('the tournament screen applies both route mode and team type filters', () => {
