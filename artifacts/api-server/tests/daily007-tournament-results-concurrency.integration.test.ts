@@ -46,6 +46,7 @@ after(async () => {
   await pool.end();
 });
 
+
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
   app.use(express.json());
@@ -167,6 +168,7 @@ async function createFixture(): Promise<TournamentFixture> {
 async function cleanupFixture(fixture: TournamentFixture): Promise<void> {
   const client = await pool.connect();
   const playerIds = fixture.players.map((player) => player.userId);
+  const registrationIds = fixture.players.map((player) => player.registrationId);
   try {
     await client.query("BEGIN");
     await client.query(
@@ -177,8 +179,14 @@ async function cleanupFixture(fixture: TournamentFixture): Promise<void> {
       "DELETE FROM daily007_v2_user_stats WHERE user_id = ANY($1::uuid[])",
       [playerIds],
     );
-    await client.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [fixture.matchId]);
-    await client.query("DELETE FROM daily007_v2_registrations WHERE match_id = $1", [fixture.matchId]);
+    await client.query(
+      "DELETE FROM daily007_v2_result_awards WHERE registration_id = ANY($1::uuid[])",
+      [registrationIds],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = ANY($1::uuid[])",
+      [registrationIds],
+    );
     await client.query("DELETE FROM daily007_v2_matches WHERE id = $1", [fixture.matchId]);
     await client.query(
       "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
@@ -359,6 +367,139 @@ test("concurrent first-place submissions serialize on the real tournament row lo
         kills: winningIndex === 0 ? 4 : 9,
         prize_coins: 500,
       }], "only the winning player should receive result statistics");
+
+      const match = await pool.query<{ enabled: boolean }>(
+        "SELECT enabled FROM daily007_v2_matches WHERE id = $1",
+        [fixture.matchId],
+      );
+      assert.deepEqual(match.rows, [{ enabled: false }]);
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await Promise.allSettled(submissions);
+    await cleanupFixture(fixture);
+  }
+});
+
+test("concurrent retries for the same registration publish and pay exactly once", async () => {
+  const fixture = await createFixture();
+  const player = fixture.players[0];
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let submissions: Promise<ResultResponse>[] = [];
+
+  try {
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [fixture.matchId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      submissions = [
+        submitResult(origin, fixture.adminId, fixture.matchId, player, 4),
+        submitResult(origin, fixture.adminId, fixture.matchId, player, 4),
+      ];
+
+      try {
+        const waitingRequests = await waitForBlockedResultRequests(blockerPid, 2);
+        assert.equal(waitingRequests.length, 2);
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const results = await Promise.all(submissions);
+      assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
+
+      const successful = results.find((result) => result.status === 201);
+      const rejected = results.find((result) => result.status === 409);
+      assert.ok(successful, "one result request must succeed");
+      assert.ok(rejected, "the duplicate result request must be rejected");
+      assert.equal(
+        rejected.body.error,
+        "A result has already been published for this registration.",
+      );
+      assert.equal(successful.body.registrationId, player.registrationId);
+      assert.equal(successful.body.userId, player.userId);
+      assert.equal(successful.body.prizeCoins, 500);
+      assert.equal(successful.body.walletCoins, 600);
+
+      const awards = await pool.query<{
+        registration_id: string;
+        user_id: string;
+        rank: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT registration_id, user_id, rank, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE registration_id = $1`,
+        [player.registrationId],
+      );
+      assert.deepEqual(awards.rows, [{
+        registration_id: player.registrationId,
+        user_id: player.userId,
+        rank: 1,
+        kills: 4,
+        prize_coins: 500,
+      }], "the registration must have exactly one award");
+
+      const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+        "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [fixture.players.map((entry) => entry.userId)],
+      );
+      const expectedWallets = fixture.players.map((entry, index) => ({
+        id: entry.userId,
+        wallet_coins: index === 0 ? 600 : 100,
+      })).sort((left, right) => left.id.localeCompare(right.id));
+      assert.deepEqual(wallets.rows, expectedWallets, "the prize must be credited once");
+
+      const ledger = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [fixture.players.map((entry) => entry.userId)],
+      );
+      assert.deepEqual(ledger.rows, [{
+        user_id: player.userId,
+        amount: 500,
+        balance_after: 600,
+        reason: "match_prize",
+      }], "only one prize ledger entry must be written");
+
+      const stats = await pool.query<{
+        user_id: string;
+        matches: number;
+        wins: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT user_id, matches, wins, kills, prize_coins
+           FROM daily007_v2_user_stats
+          WHERE user_id = ANY($1::uuid[])`,
+        [fixture.players.map((entry) => entry.userId)],
+      );
+      assert.deepEqual(stats.rows, [{
+        user_id: player.userId,
+        matches: 1,
+        wins: 1,
+        kills: 4,
+        prize_coins: 500,
+      }], "result statistics must be applied once");
 
       const match = await pool.query<{ enabled: boolean }>(
         "SELECT enabled FROM daily007_v2_matches WHERE id = $1",
