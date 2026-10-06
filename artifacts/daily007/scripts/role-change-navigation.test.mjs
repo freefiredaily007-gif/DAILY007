@@ -5,6 +5,7 @@ import {
   adminNavigationForRole,
   canNavigateAdminScreen,
   refreshUserAccountAccess,
+  refreshUserAccountAccessSafely,
   rootNavigationForRole,
 } from "../src/lib/roleNavigation.ts";
 
@@ -59,6 +60,81 @@ async function applyMockRoleRefresh(previousRole, refreshedRole) {
 
   assert.equal(updatedUser, currentUser);
   return { currentUser, savedSession, accountRefreshCalls };
+}
+
+async function applyMockAccessRefreshFailure(error) {
+  const initialUser = {
+    id: "current-account",
+    name: "Current Tournament Admin",
+    email: "current-admin@example.test",
+    role: "tournament_admin",
+    token: "same-saved-daily007-session",
+  };
+  let currentUser = initialUser;
+  let savedSession = initialUser;
+  let commitCalls = 0;
+  let rejectCalls = 0;
+
+  const result = await refreshUserAccountAccessSafely(
+    initialUser,
+    async () => { throw error; },
+    (updatedUser) => {
+      commitCalls += 1;
+      currentUser = updatedUser;
+      savedSession = updatedUser;
+    },
+    () => {
+      rejectCalls += 1;
+      currentUser = null;
+      savedSession = null;
+    },
+  );
+
+  return {
+    result,
+    initialUser,
+    currentUser,
+    savedSession,
+    commitCalls,
+    rejectCalls,
+    navigation: currentUser ? rootNavigationForRole(currentUser.role) : "Auth",
+  };
+}
+
+for (const [failureName, error] of [
+  ["network", Object.assign(new Error("Network unavailable"), { code: "ERR_NETWORK" })],
+  ["5xx", Object.assign(new Error("Server unavailable"), { response: { status: 503 } })],
+]) {
+  test(`${failureName} account-refresh failures preserve the current user, token, and navigation`, async () => {
+    const state = await applyMockAccessRefreshFailure(error);
+
+    assert.equal(state.result, null);
+    assert.equal(state.currentUser, state.initialUser);
+    assert.equal(state.savedSession, state.initialUser);
+    assert.equal(state.savedSession.token, "same-saved-daily007-session");
+    assert.equal(state.commitCalls, 0);
+    assert.equal(state.rejectCalls, 0);
+    assert.equal(state.navigation, "Admin");
+    assert.deepEqual(
+      adminNavigationForRole(state.currentUser.role, "tournaments", ADMIN_NAV_ITEMS),
+      {
+        activeScreen: "tournaments",
+        visibleNavKeys: ["tournaments", "registrations"],
+      },
+    );
+  });
+}
+
+for (const status of [401, 403]) {
+  test(`${status} account-refresh responses clear the active session`, async () => {
+    const state = await applyMockAccessRefreshFailure({ response: { status } });
+
+    assert.equal(state.result, null);
+    assert.equal(state.currentUser, null);
+    assert.equal(state.savedSession, null);
+    assert.equal(state.rejectCalls, 1);
+    assert.equal(state.navigation, "Auth");
+  });
 }
 
 test("Player becomes a restricted Tournament Admin after the account refresh", async () => {
@@ -130,9 +206,11 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   const refreshSource = appSource.slice(refreshStart, refreshEnd);
 
   assert.match(refreshSource, /Api\.meAccount\(\)/);
-  assert.match(refreshSource, /refreshUserAccountAccess\(\s*previous,\s*\(\) => Api\.meAccount\(\)/);
+  assert.match(refreshSource, /refreshUserAccountAccessSafely\(\s*previous,\s*\(\) => Api\.meAccount\(\)/);
   assert.match(refreshSource, /setSession\(refreshedUser\)/);
   assert.match(refreshSource, /setUser\(refreshedUser\)/);
+  assert.match(refreshSource, /setSession\(null\)/);
+  assert.match(refreshSource, /setUser\(null\)/);
   assert.doesNotMatch(refreshSource, /logoutDaily007|signOutClerk|Api\.me\(/);
   assert.match(appSource, /rootNavigationForRole\(user\.role\)/);
   assert.match(appSource, /rootNavigation === 'Admin'/);

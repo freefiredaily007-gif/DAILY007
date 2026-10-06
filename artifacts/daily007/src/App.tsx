@@ -33,7 +33,7 @@ import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
 import { restoreDaily007Session } from './lib/session-verification';
-import { refreshUserAccountAccess, rootNavigationForRole } from './lib/roleNavigation';
+import { refreshUserAccountAccessSafely, rootNavigationForRole } from './lib/roleNavigation';
 import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
@@ -259,23 +259,18 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     const request = (async () => {
       const previous = currentUser();
       if (!previous) return null;
-      try {
-        const updated = await refreshUserAccountAccess(
-          previous,
-          () => Api.meAccount(),
-          (refreshedUser) => {
-            setSession(refreshedUser);
-            setUser(refreshedUser);
-          },
-        );
-        return updated;
-      } catch (e: any) {
-        if (e?.response?.status === 401 || e?.response?.status === 403) {
+      return refreshUserAccountAccessSafely(
+        previous,
+        () => Api.meAccount(),
+        (refreshedUser) => {
+          setSession(refreshedUser);
+          setUser(refreshedUser);
+        },
+        () => {
           setSession(null);
           setUser(null);
-        }
-        return null;
-      }
+        },
+      );
     })();
     accessRefreshRequest.current = request;
     void request.finally(() => {

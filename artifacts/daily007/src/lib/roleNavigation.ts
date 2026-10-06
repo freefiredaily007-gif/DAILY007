@@ -18,6 +18,21 @@ export async function refreshUserAccountAccess<T extends { token?: string }>(
   return updated;
 }
 
+export async function refreshUserAccountAccessSafely<T extends { token?: string }>(
+  previous: T,
+  fetchAccount: () => Promise<Partial<T>>,
+  commit: (updated: T) => void,
+  rejectSession: () => void,
+): Promise<T | null> {
+  try {
+    return await refreshUserAccountAccess(previous, fetchAccount, commit);
+  } catch (error) {
+    const status = (error as { response?: { status?: number } } | null)?.response?.status;
+    if (status === 401 || status === 403) rejectSession();
+    return null;
+  }
+}
+
 export function rootNavigationForRole(role?: string): "Admin" | "Tabs" {
   return role === "admin" || role === "tournament_admin" ? "Admin" : "Tabs";
 }
