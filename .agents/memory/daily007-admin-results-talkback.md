@@ -7,6 +7,8 @@ On 2026-10-05, the user confirmed TalkBack on an iQOO Neo 10 running Android 16 
 
 The user also confirmed validation errors, API/network failures, placement success, and winner success were each announced once without a focus jump.
 
+On 2026-10-07, the user confirmed the approved-player load-failure message and its close/reopen retry guidance were announced once without moving focus on TalkBack.
+
 **Why:** Native screen-reader output and state behavior cannot be established from source checks or a web preview alone.
 
 **How to apply:** Recheck the result-entry and publish flow on Android after changing its controls, announcements, or busy states.
