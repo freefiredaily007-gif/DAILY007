@@ -254,6 +254,19 @@ test("each player can hold one pending deposit without blocking the other", asyn
     assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, firstPlayerBalance);
     assert.equal(walletTestDb.users.get(TEST_SECOND_PLAYER_ID)?.wallet_coins, secondPlayerBalance);
     assert.deepEqual(walletTestDb.ledger, []);
+
+    const firstHistory = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
+    const secondHistory = await call(origin, TEST_SECOND_PLAYER_ID, "/my/payments", "GET");
+    assert.equal(firstHistory.status, 200);
+    assert.equal(secondHistory.status, 200);
+    assert.deepEqual(
+      firstHistory.body.map(({ id, txnId }: { id: string; txnId: string }) => ({ id, txnId })),
+      [{ id: firstPending.body.id, txnId: "independent-player-deposit-1" }],
+    );
+    assert.deepEqual(
+      secondHistory.body.map(({ id, txnId }: { id: string; txnId: string }) => ({ id, txnId })),
+      [{ id: secondPending.body.id, txnId: "independent-player-deposit-2" }],
+    );
   });
 });
 
