@@ -13,6 +13,8 @@ const ACCOUNT = {
   coins: 10,
 };
 const DAILY007_TOKEN = "mock-daily007-session-token";
+const scenario = new URLSearchParams(window.location.search).get("scenario");
+const storageFailureScenario = scenario === "storage-write-failure";
 const calls = [];
 const unexpectedRequests = [];
 let googleExchangeAttempts = 0;
@@ -47,7 +49,7 @@ http.defaults.adapter = async (config) => {
 
   if (method === "POST" && path === "/auth/google") {
     googleExchangeAttempts += 1;
-    if (googleExchangeAttempts === 1) {
+    if (!storageFailureScenario && googleExchangeAttempts === 1) {
       call.status = 503;
       throw Object.assign(new Error("Daily007 signup exchange is temporarily unavailable."), {
         config,
@@ -101,6 +103,7 @@ http.defaults.adapter = async (config) => {
 };
 
 storage.clear();
+if (storageFailureScenario) storage.failNextSessionWrite();
 resetClerkMock();
 window.__daily007GoogleSignupWalletTest = {
   async snapshot() {
@@ -110,6 +113,7 @@ window.__daily007GoogleSignupWalletTest = {
       clerk: getClerkMockSnapshot(),
       storedSession: rawSession ? JSON.parse(rawSession) : null,
       sessionStorage: storage.snapshot(),
+      storageWriteMetrics: storage.writeMetrics(),
       googleExchangeAttempts,
       unexpectedRequests: [...unexpectedRequests],
     };

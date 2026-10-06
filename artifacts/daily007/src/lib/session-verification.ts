@@ -12,7 +12,7 @@ function isAuthenticationRejection(error: unknown): boolean {
 export async function restoreDaily007Session<T extends { token?: string }>(
   readStoredSession: () => Promise<T | null>,
   verifyWithApi: () => Promise<T>,
-  updateStoredSession: (session: T | null) => void,
+  updateStoredSession: (session: T | null) => void | Promise<void>,
 ): Promise<SessionRestoreResult<T>> {
   const savedSession = await readStoredSession();
   if (!savedSession) return { status: 'empty' };
@@ -20,11 +20,11 @@ export async function restoreDaily007Session<T extends { token?: string }>(
   try {
     const verified = await verifyWithApi();
     const session = { ...verified, token: savedSession.token };
-    updateStoredSession(session);
+    await updateStoredSession(session);
     return { status: 'verified', session };
   } catch (error) {
     if (isAuthenticationRejection(error)) {
-      updateStoredSession(null);
+      await updateStoredSession(null);
       return { status: 'rejected' };
     }
     return { status: 'retry', session: savedSession };

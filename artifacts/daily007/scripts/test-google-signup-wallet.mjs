@@ -327,8 +327,98 @@ try {
   );
   assert.deepEqual(browserErrors, [], `Browser errors during signup-to-Wallet flow: ${browserErrors.join(" | ")}`);
 
+  await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=storage-write-failure`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the storage-failure scenario",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `document.body.innerText.includes("Sign up with Google")`,
+    "the Google signup action for the storage-failure scenario",
+  );
+  await clickSelector('[data-testid="continue-with-google"]', "Google signup with rejected device storage");
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "recoverable session-storage error after the Google exchange succeeds",
+  );
+
+  const storageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const storageFailureView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    const retryButton = document.querySelector('[data-testid="continue-with-google"]');
+    return {
+      signupFieldsVisible: bodyText.includes("PLAYER PROFILE")
+        && Boolean(document.querySelector('input[placeholder="Enter Name"]')),
+      retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
+      retryButtonDisabled: retryButton?.getAttribute("aria-disabled") === "true"
+        || retryButton?.hasAttribute("disabled") === true,
+      signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+      walletBonusVisible: bodyText.includes("Welcome Signup Bonus"),
+    };
+  })()`);
+
+  assert.equal(storageFailure.googleExchangeAttempts, 1, "The first API exchange should succeed before storage rejects the session.");
+  assert.equal(storageFailure.calls.at(-1)?.status, 200);
+  assert.deepEqual(storageFailure.sessionStorage, {}, "A rejected storage write must leave the Daily007 session absent.");
+  assert.equal(storageFailure.storedSession, null, "A rejected storage write must not activate an in-memory session.");
+  assert.deepEqual(storageFailure.storageWriteMetrics, {
+    sessionWriteAttempts: 1,
+    rejectedSessionWrites: 1,
+  });
+  assert.equal(storageFailureView.signupFieldsVisible, true, "Signup should remain usable after a device-storage failure.");
+  assert.equal(storageFailureView.retryButtonLabel, "Sign up with Google");
+  assert.equal(storageFailureView.retryButtonDisabled, false);
+  assert.equal(storageFailureView.signedInTabCount, 0, "A rejected write must not expose signed-in tabs or Wallet.");
+  assert.equal(storageFailureView.walletBonusVisible, false);
+
+  await clickSelector('[data-testid="continue-with-google"]', "retry Google signup after storage failure");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "signed-in tabs after session storage recovers",
+  );
+  const recoveredWalletTab = await evaluate(`(() => {
+    const tab = document.querySelector('[data-testid="mock-tab-wallet"]');
+    if (!tab) return false;
+    tab.click();
+    return true;
+  })()`);
+  assert.equal(recoveredWalletTab, true, "Wallet should become available after the session write succeeds.");
+  await waitForExpression(
+    `Boolean(document.querySelector('[aria-label="Available coins: 10"]'))
+      && document.body.innerText.includes("Welcome Signup Bonus")`,
+    "Wallet content after a successful session-storage retry",
+  );
+
+  const recoveredStorage = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(recoveredStorage.storedSession?.id, "mock-daily007-google-player");
+  assert.equal(recoveredStorage.storedSession?.token, "mock-daily007-session-token");
+  assert.deepEqual(recoveredStorage.sessionStorage, {
+    daily007_v2_session: JSON.stringify(recoveredStorage.storedSession),
+  });
+  assert.equal(recoveredStorage.storageWriteMetrics.rejectedSessionWrites, 1);
+  assert.ok(
+    recoveredStorage.storageWriteMetrics.sessionWriteAttempts > recoveredStorage.storageWriteMetrics.rejectedSessionWrites,
+    "A later AsyncStorage write should succeed after the injected rejection.",
+  );
+  assert.equal(recoveredStorage.googleExchangeAttempts, 2);
+  assert.deepEqual(
+    recoveredStorage.calls
+      .filter((call) => call.method === "POST" && call.path === "/auth/google")
+      .map((call) => call.status),
+    [200, 200],
+  );
+  assert.equal(recoveredStorage.unexpectedRequests.length, 0, recoveredStorage.unexpectedRequests.join("; "));
+  assert.deepEqual(
+    recoveredStorage.clerk.events,
+    ["start-sso", "set-active", "get-token", "get-token"],
+  );
+  assert.deepEqual(browserErrors, [], `Browser errors during signup and storage-recovery flows: ${browserErrors.join(" | ")}`);
+
   console.log(
-    "PASS — mocked Google signup activates Clerk, saves the Daily007 session, opens Wallet, and renders a 10-coin balance with exactly one welcome bonus row.",
+    "PASS — mocked Google signup recovers from both an API exchange failure and a rejected session-storage write; Wallet opens only after the session is saved.",
   );
 } finally {
   socket?.close();

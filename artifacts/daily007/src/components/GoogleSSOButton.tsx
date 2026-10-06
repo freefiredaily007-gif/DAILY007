@@ -5,7 +5,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { getClerkInstance } from '@clerk/expo';
 import { useSSO } from '@clerk/expo';
-import { Api, apiError, setSession, User } from '../lib/api';
+import { Api, apiError, SessionPersistenceError, setSession, User } from '../lib/api';
 import { runGoogleSSOAttempt, runGoogleSSOFlow } from '../lib/google-sso-flow';
 import { C, Input, Msg } from './ui';
 
@@ -124,8 +124,8 @@ function ConfiguredGoogleButton({
       }),
       setLoading: setBusy,
       showError,
-      onSuccess: (authenticated) => {
-        setSession(authenticated.user);
+      onSuccess: async (authenticated) => {
+        await setSession(authenticated.user);
         return onSuccess(authenticated.user);
       },
       getErrorMessage: (e) => {
@@ -185,13 +185,15 @@ function ConfiguredGoogleButton({
       setRecoverySubmitted(false);
 
       const authenticated = await Api.googleAuth(clerkJwt);
-      setSession(authenticated.user);
+      await setSession(authenticated.user);
       setError('');
       onError?.('');
       await onSuccess(authenticated.user);
     } catch (e: any) {
       showError(recoveryCompleted
-        ? 'Google recovery is complete, but sign-in did not finish. Choose Continue with Google to sign in.'
+        ? e instanceof SessionPersistenceError
+          ? `Google recovery is complete, but ${e.message}`
+          : 'Google recovery is complete, but sign-in did not finish. Choose Continue with Google to sign in.'
         : apiError(e));
     } finally {
       setRecoveryBusy(false);

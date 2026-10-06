@@ -10,18 +10,18 @@ function mergeAccessRefreshResponse<T extends { token?: string }>(
 export async function refreshUserAccountAccess<T extends { token?: string }>(
   previous: T,
   fetchAccount: () => Promise<Partial<T>>,
-  commit: (updated: T) => void,
+  commit: (updated: T) => void | Promise<void>,
 ): Promise<T> {
   const account = await fetchAccount();
   const updated = mergeAccessRefreshResponse(previous, account);
-  commit(updated);
+  await commit(updated);
   return updated;
 }
 
 export async function refreshUserAccountAccessSafely<T extends { token?: string }>(
   previous: T,
   fetchAccount: () => Promise<Partial<T>>,
-  commit: (updated: T) => void,
+  commit: (updated: T) => void | Promise<void>,
   rejectSession: () => void,
 ): Promise<T | null> {
   try {

@@ -93,9 +93,9 @@ async function restoreFromMockStorage(storage, verifyWithApi) {
       return raw ? JSON.parse(raw) : null;
     },
     verifyWithApi,
-    (session) => {
-      if (session) void storage.setItem(SESSION_KEY, JSON.stringify(session));
-      else void storage.removeItem(SESSION_KEY);
+    async (session) => {
+      if (session) await storage.setItem(SESSION_KEY, JSON.stringify(session));
+      else await storage.removeItem(SESSION_KEY);
     },
   );
 }

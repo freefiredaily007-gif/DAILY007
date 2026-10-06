@@ -244,7 +244,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     const request = (async () => {
       try {
         const u = await Api.me();
-        if (u) { setSession(u); setUser(u); return u; }
+        if (u) { await setSession(u); setUser(u); return u; }
       } catch (e: any) {
         if (e?.response?.status === 401 || e?.response?.status === 403) {
           setSession(null);
@@ -268,8 +268,8 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
       return refreshUserAccountAccessSafely(
         previous,
         () => Api.meAccount(),
-        (refreshedUser) => {
-          setSession(refreshedUser);
+        async (refreshedUser) => {
+          await setSession(refreshedUser);
           setUser(refreshedUser);
         },
         () => {
@@ -310,7 +310,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   const logout = useCallback(async () => {
     try {
-      const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => setSession(null));
+      const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => { setSession(null); });
       if (clerkSignOutFailed) {
         Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
       }
@@ -351,7 +351,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   if (!user) return <Auth
     notice={authNotice}
-    onDone={(u) => { setAuthNotice(''); setSession(u); setUser(u); }}
+    onDone={(u) => { setAuthNotice(''); setUser(u); }}
   />;
 
   const rootNavigation = rootNavigationForRole(user.role);

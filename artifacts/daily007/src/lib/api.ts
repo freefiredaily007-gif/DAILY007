@@ -48,6 +48,19 @@ const KEY = 'daily007_v2_session';
 let current: User | null = null;
 let sessionExpiredHandler: (() => void) | null = null;
 
+export class SessionPersistenceError extends Error {
+  constructor() {
+    super('Daily007 could not save your session on this device. Check available storage and try again.');
+    this.name = 'SessionPersistenceError';
+  }
+}
+
+function activateSession(u: User | null): void {
+  current = u;
+  if (u?.token) http.defaults.headers.common['Authorization'] = 'Bearer ' + u.token;
+  else delete http.defaults.headers.common['Authorization'];
+}
+
 const AUTH_ENTRY_PATHS = [
   '/auth/login',
   '/auth/register',
@@ -81,12 +94,21 @@ http.interceptors.response.use(
   },
 );
 
-export function setSession(u: User | null) {
-  current = u;
-  if (u?.token) AsyncStorage.setItem(KEY, JSON.stringify(u)).catch(() => {});
-  else AsyncStorage.removeItem(KEY).catch(() => {});
-  if (u?.token) http.defaults.headers.common['Authorization'] = 'Bearer ' + u.token;
-  else delete http.defaults.headers.common['Authorization'];
+export function setSession(u: User | null): void | Promise<void> {
+  if (!u?.token) {
+    activateSession(null);
+    void Promise.resolve().then(() => AsyncStorage.removeItem(KEY)).catch(() => {});
+    return;
+  }
+
+  return Promise.resolve()
+    .then(() => AsyncStorage.setItem(KEY, JSON.stringify(u)))
+    .then(() => {
+      activateSession(u);
+    })
+    .catch(() => {
+      throw new SessionPersistenceError();
+    });
 }
 
 export async function getSession(): Promise<User | null> {
@@ -99,7 +121,7 @@ export async function getSession(): Promise<User | null> {
         await AsyncStorage.removeItem(KEY);
         return null;
       }
-      setSession(u);
+      activateSession(u);
       return u;
     }
   } catch {}

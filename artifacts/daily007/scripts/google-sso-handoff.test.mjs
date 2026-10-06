@@ -45,7 +45,7 @@ const { Api, http, setSession } = await import("../src/lib/api.ts");
 async function withCapturedGoogleRequests(savedDaily007Token, run) {
   const requests = [];
   const previousAdapter = http.defaults.adapter;
-  setSession(savedDaily007Token ? { id: "saved-player", token: savedDaily007Token } : null);
+  await setSession(savedDaily007Token ? { id: "saved-player", token: savedDaily007Token } : null);
   http.defaults.adapter = async (config) => {
     requests.push(config);
     return {
@@ -68,7 +68,7 @@ async function withCapturedGoogleRequests(savedDaily007Token, run) {
     await run(requests);
   } finally {
     http.defaults.adapter = previousAdapter;
-    setSession(null);
+    await setSession(null);
   }
 }
 

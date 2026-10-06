@@ -70,7 +70,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           ...(refCode.trim() ? { referralCode: refCode.trim() } : {}),
         });
       const u: User = { ...r.user, token: r.token };
-      setSession(u);
+      await setSession(u);
       onDone(u);
     } catch (e) {
       setErr(apiError(e));
