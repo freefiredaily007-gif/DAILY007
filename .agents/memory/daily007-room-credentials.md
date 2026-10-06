@@ -15,6 +15,8 @@ On 2026-10-04, the user confirmed on an iQOO Neo 10 running Android 16 that appr
 
 On 2026-10-05, the user also confirmed on an iQOO Neo 10 running Android 16 that fake credentials for an approved non-production test registration stayed hidden before T−5 and appeared after Android backgrounded My Matches across the threshold and the app resumed, without navigation or manual refresh.
 
+On 2026-10-06, the user confirmed on the same Android device that My Matches recovered automatically after connectivity returned while the screen remained open, without manual refresh or navigation; fake credentials for an approved non-production test registration stayed hidden until T−5.
+
 **Why:** Server tests verify the access boundary, but only a physical Android device exercises the on-screen timer, navigation focus, and app-resume refresh together.
 
 **How to apply:** Repeat both real-device checks—leaving/reopening My Matches and suspending across the threshold—after changes to room timing or refresh behavior; use only non-production test registrations and fake room credentials.

@@ -1,6 +1,7 @@
 // My Matches — upcoming / live / completed tabs with room details
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View, FlatList, StyleSheet, RefreshControl, Pressable, useWindowDimensions } from 'react-native';
+import * as Network from 'expo-network';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
@@ -50,7 +51,15 @@ export default function MyMatches() {
       appState.current = nextState;
       if (returnedToApp) refreshMatches();
     });
-    return () => subscription.remove();
+    const networkSubscription = Network.addNetworkStateListener((networkState) => {
+      if (networkState.isConnected === true && networkState.isInternetReachable !== false) {
+        refreshMatches();
+      }
+    });
+    return () => {
+      subscription.remove();
+      networkSubscription.remove();
+    };
   }, [refreshMatches]));
 
   useEffect(() => {
