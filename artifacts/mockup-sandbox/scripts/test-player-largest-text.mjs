@@ -1163,7 +1163,7 @@ try {
     await delay(120);
 
     for (const screen of screens) await checkScreen(screen, viewportWidth);
-    for (const fontScale of [1.49, 1.5]) {
+    for (const fontScale of [1.2, 1.35, 1.49, 1.5]) {
       await checkScreen(leaderboardDetailsScreen, viewportWidth, fontScale);
     }
 
@@ -1215,7 +1215,7 @@ try {
     }
   }
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.49× and 1.5× Android text scale.");
+  console.log("PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);
