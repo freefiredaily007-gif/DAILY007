@@ -356,6 +356,37 @@ test("completed-results history excludes cancelled tournaments with existing awa
     assert.ok(tournamentResultsTestDb.awards.some((award) =>
       award.match_id === CANCELLED_MATCH_ID && award.rank === 1,
     ));
+    const archivedCancelledAward = structuredClone(
+      tournamentResultsTestDb.awards.find((award) =>
+        award.match_id === CANCELLED_MATCH_ID && award.rank === 1,
+      ),
+    );
+    assert.ok(archivedCancelledAward);
+
+    const completedStandings = await callPublic(
+      origin,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+    );
+    assert.equal(completedStandings.status, 200);
+    assert.equal(completedStandings.body.status, "finalized");
+    assert.equal(completedStandings.body.entries.length, 1);
+    assert.equal(completedStandings.body.entries[0].gameName, "WinnerFF");
+    assert.equal(completedStandings.body.entries[0].prizeCoins, 1_500);
+
+    const cancelledStandings = await callPublic(
+      origin,
+      `/tournaments/${CANCELLED_MATCH_ID}/results`,
+    );
+    assert.equal(cancelledStandings.status, 200);
+    assert.equal(cancelledStandings.body.status, "draft");
+    assert.equal(cancelledStandings.body.finalizedAt, null);
+    assert.deepEqual(cancelledStandings.body.entries, []);
+    assert.deepEqual(
+      tournamentResultsTestDb.awards.find((award) =>
+        award.match_id === CANCELLED_MATCH_ID && award.rank === 1,
+      ),
+      archivedCancelledAward,
+    );
 
     const history = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
     assert.equal(history.status, 200);

@@ -400,8 +400,8 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
 
-  const match = await pool.query<{ enabled: boolean }>(
-    "SELECT enabled FROM daily007_v2_matches WHERE id = $1",
+  const match = await pool.query<{ enabled: boolean; status: string }>(
+    "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
     [id],
   );
   if (!match.rows[0]) return fail(res, 404, "Tournament not found.");
@@ -427,7 +427,9 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
   );
 
   const winner = result.rows.find((row) => Number(row.rank) === 1);
-  const finalized = match.rows[0].enabled === false && Boolean(winner);
+  const finalized = match.rows[0].enabled === false &&
+    match.rows[0].status !== "cancelled" &&
+    Boolean(winner);
   res.json({
     tournamentId: id,
     status: finalized ? "finalized" : "draft",

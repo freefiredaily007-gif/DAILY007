@@ -378,8 +378,10 @@ class MemoryTournamentResultsDatabase {
         );
       }
       if (this.match.id === values[0]) this.match.enabled = false;
-    } else if (normalized === "SELECT enabled FROM daily007_v2_matches WHERE id = $1") {
-      rows = this.match.id === values[0] ? [{ enabled: this.match.enabled }] : [];
+    } else if (normalized === "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1") {
+      const match = [this.match, ...this.additionalMatches]
+        .find((candidate) => candidate.id === values[0]);
+      rows = match ? [{ enabled: match.enabled, status: match.status }] : [];
     } else if (normalized.startsWith(
       "SELECT award.registration_id, award.rank, award.kills, award.prize_coins, COALESCE",
     )) {
