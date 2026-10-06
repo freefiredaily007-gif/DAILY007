@@ -42,7 +42,7 @@ export type CapturedRegistration = {
   captain_game_uid: string;
   team_name: string;
   entry_coins_paid: number;
-  status: "approved";
+  status: "approved" | "pending";
   created_at: Date;
 };
 
@@ -142,6 +142,58 @@ class RegistrationProfileTestDatabase {
     this.ledger = [];
     this.connectCount = 0;
     this.failRosterInsertAtPosition = null;
+  }
+
+  addOtherRegistration(status: CapturedRegistration["status"] = "approved"): {
+    registration: CapturedRegistration;
+    roster: CapturedRosterMember[];
+  } {
+    const captainUserId = "74000000-0000-4000-8000-000000000004";
+    const registrationId = "74000000-0000-4000-8000-000000000011";
+    this.additionalUsers.push({
+      ...structuredClone(this.user),
+      id: captainUserId,
+      name: "Other Daily007 Player",
+      email: "other-captain-profile-test@example.test",
+    });
+    const registration: CapturedRegistration = {
+      id: registrationId,
+      match_id: this.match.id,
+      captain_user_id: captainUserId,
+      captain_name: "Other Daily007 Player",
+      captain_game_name: "OtherFireCaptain",
+      captain_game_uid: "FF-OTHER-CAPTAIN-UID",
+      team_name: "Other Fire",
+      entry_coins_paid: this.match.entry_coins,
+      status,
+      created_at: new Date(),
+    };
+    const roster: CapturedRosterMember[] = [
+      {
+        registration_id: registrationId,
+        position: 1,
+        member_uid: "FF-OTHER-TEAMMATE-UID",
+        member_name: "Other FireMate",
+      },
+      {
+        registration_id: registrationId,
+        position: 2,
+        member_uid: "FF-OTHER-TEAMMATE-TWO-UID",
+        member_name: "Other FireMateTwo",
+      },
+      {
+        registration_id: registrationId,
+        position: 3,
+        member_uid: "FF-OTHER-TEAMMATE-THREE-UID",
+        member_name: "Other FireMateThree",
+      },
+    ];
+    this.registrations.push(registration);
+    this.roster.push(...roster);
+    return {
+      registration: structuredClone(registration),
+      roster: structuredClone(roster),
+    };
   }
 
   async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {

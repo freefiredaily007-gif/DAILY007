@@ -479,6 +479,54 @@ test("team edits change only Free Fire and roster details, not the captain profi
   }
 });
 
+test("team edits reject UIDs from another active registration without changing either team", async () => {
+  const duplicateUidCases = [
+    { status: "approved" as const, useTeammateUid: false },
+    { status: "pending" as const, useTeammateUid: true },
+  ];
+
+  for (const duplicateUidCase of duplicateUidCases) {
+    registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+    try {
+      await withServer(async (origin) => {
+        const registered = await sendRegistration(
+          origin,
+          registrationRequests[0].path,
+          registrationRequests[0].body,
+        );
+        assert.equal(registered.status, 201);
+        const editedRegistration = registrationProfileTestDb.registrations[0];
+
+        const otherRegistration = registrationProfileTestDb.addOtherRegistration(duplicateUidCase.status);
+        const otherUid = duplicateUidCase.useTeammateUid
+          ? otherRegistration.roster[0].member_uid
+          : otherRegistration.registration.captain_game_uid;
+        assert.ok(otherUid);
+
+        const originalRegistrations = structuredClone(registrationProfileTestDb.registrations);
+        const originalRoster = structuredClone(registrationProfileTestDb.roster);
+        const attemptedEdit = await sendTeamEdit(origin, editedRegistration.id, {
+          captainGameName: "UpdatedFireCaptain",
+          captainGameUid: "FF-CAPTAIN-UPDATED",
+          teamName: "Attempted Red Dragon",
+          teammates: [
+            { name: "UpdatedMateOne", uid: "FF-MATE-UPDATED-1" },
+            { name: "UpdatedMateTwo", uid: otherUid },
+            { name: "UpdatedMateThree", uid: "FF-MATE-UPDATED-3" },
+          ],
+        });
+
+        assert.equal(attemptedEdit.status, 409);
+        assert.match(String(attemptedEdit.body.error), /already registered/i);
+        assert.deepEqual(registrationProfileTestDb.registrations, originalRegistrations);
+        assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+      });
+    } finally {
+      registrationProfileTestDb.reset();
+    }
+  }
+});
+
 test("team edits roll back captain details and the saved roster when a teammate insert fails", async () => {
   registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
   try {
