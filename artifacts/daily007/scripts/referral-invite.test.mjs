@@ -20,6 +20,7 @@ test("Earn opens the HTTPS invite URL successfully in Expo's browser without cha
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const openedUrls = [];
   const fallbackMessages = [];
+  const accessibilityAnnouncements = [];
   const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
 
   await openReferralInBrowserWithFallback(
@@ -28,17 +29,22 @@ test("Earn opens the HTTPS invite URL successfully in Expo's browser without cha
       openedUrls.push(url);
       return { type: "opened" };
     },
-    (message) => fallbackMessages.push(message),
+    (message) => {
+      fallbackMessages.push(message);
+      accessibilityAnnouncements.push(message);
+    },
   );
 
   assert.equal(new URL(openedUrls[0]).protocol, "https:");
   assert.deepEqual(openedUrls, [referralLink]);
   assert.deepEqual(fallbackMessages, []);
+  assert.deepEqual(accessibilityAnnouncements, []);
   assert.match(earnSource, /WebBrowser\.openBrowserAsync\(url\)/);
   assert.match(
     earnSource,
-    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*\(url\) => WebBrowser\.openBrowserAsync\(url\),\s*setActionError/,
+    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*\(url\) => WebBrowser\.openBrowserAsync\(url\),\s*showReferralOpenFallback/,
   );
+  assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
   assert.match(earnSource, /testID="referral-open-link"[\s\S]*?onPress=\{openReferralLink\}/);
 });
 
@@ -46,6 +52,7 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const openedUrls = [];
   const fallbackMessages = [];
+  const accessibilityAnnouncements = [];
   const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
   const inviteHelperSource = await readFile(new URL("../src/lib/referral-invite.ts", import.meta.url), "utf8");
   const networkRequests = t.mock.method(globalThis, "fetch", async () => {
@@ -58,17 +65,27 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
       openedUrls.push(url);
       throw new Error("Browser unavailable");
     },
-    (message) => fallbackMessages.push(message),
+    (message) => {
+      fallbackMessages.push(message);
+      accessibilityAnnouncements.push(message);
+    },
   );
 
   assert.deepEqual(openedUrls, [referralLink]);
   assert.equal(networkRequests.mock.callCount(), 0);
   assert.deepEqual(fallbackMessages, [referralBrowserOpenFallbackMessage]);
+  assert.deepEqual(accessibilityAnnouncements, [referralBrowserOpenFallbackMessage]);
   assert.doesNotMatch(inviteHelperSource, /\b(fetch|axios|useDaily007GetMyReferrals)\b/);
   assert.match(
     earnSource,
-    /openReferralInBrowserWithFallback\([\s\S]*?setActionError,\s*\);/,
+    /const showReferralOpenFallback = \(message: string\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
   );
+  assert.match(
+    earnSource,
+    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*\(url\) => WebBrowser\.openBrowserAsync\(url\),\s*showReferralOpenFallback,\s*\);/,
+  );
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 1);
+  assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
   assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.equal(
     fallbackMessages[0],

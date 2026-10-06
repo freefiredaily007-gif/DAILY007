@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AppState,
   ActivityIndicator,
+  AccessibilityInfo,
   Alert,
   Linking,
   Pressable,
@@ -88,13 +89,18 @@ export default function Earn() {
     );
   };
 
+  const showReferralOpenFallback = (message: string) => {
+    setActionError(message);
+    AccessibilityInfo.announceForAccessibility(message);
+  };
+
   const openReferralLink = async () => {
     if (!dashboard?.referralLink) return;
     setActionError('');
     await openReferralInBrowserWithFallback(
       dashboard.referralLink,
       (url) => WebBrowser.openBrowserAsync(url),
-      setActionError,
+      showReferralOpenFallback,
     );
   };
 
