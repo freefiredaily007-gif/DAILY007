@@ -33,6 +33,32 @@ export async function refreshUserAccountAccessSafely<T extends { token?: string 
   }
 }
 
+export function refreshAccessIfActive(state: string, refresh: () => unknown): void {
+  if (state === "active") void refresh();
+}
+
+export function refreshAccessAfterPending<T>(
+  pendingRequest: Promise<T> | null,
+  resumeRequest: { current: Promise<T> | null },
+  refresh: () => Promise<T>,
+): Promise<T> {
+  if (resumeRequest.current) return resumeRequest.current;
+
+  const request = pendingRequest
+    ? pendingRequest.then(refresh, refresh)
+    : refresh();
+  resumeRequest.current = request;
+  void request.then(
+    () => {
+      if (resumeRequest.current === request) resumeRequest.current = null;
+    },
+    () => {
+      if (resumeRequest.current === request) resumeRequest.current = null;
+    },
+  );
+  return request;
+}
+
 export function rootNavigationForRole(role?: string): "Admin" | "Tabs" {
   return role === "admin" || role === "tournament_admin" ? "Admin" : "Tabs";
 }

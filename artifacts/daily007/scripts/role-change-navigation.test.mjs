@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   adminNavigationForRole,
   canNavigateAdminScreen,
+  refreshAccessAfterPending,
+  refreshAccessIfActive,
   refreshUserAccountAccess,
   refreshUserAccountAccessSafely,
   rootNavigationForRole,
@@ -101,6 +103,103 @@ async function applyMockAccessRefreshFailure(error) {
   };
 }
 
+async function applyMockRoleChangeOnResume(
+  previousRole,
+  refreshedRole,
+  { pendingBeforeResume = false } = {},
+) {
+  const initialUser = {
+    id: "current-account",
+    name: "Current Player",
+    email: "current-player@example.test",
+    role: previousRole,
+    token: "same-saved-daily007-session",
+  };
+  let currentUser = initialUser;
+  let savedSession = initialUser;
+  let accountRefreshCalls = 0;
+  let sessionRejectionCalls = 0;
+  let accessRefreshRequest = null;
+  const resumeRefreshRequest = { current: null };
+  let resolvePendingAccountResponse;
+  const pendingAccountResponse = new Promise((resolve) => {
+    resolvePendingAccountResponse = resolve;
+  });
+
+  const fetchAccount = async () => {
+    accountRefreshCalls += 1;
+    if (pendingBeforeResume && accountRefreshCalls === 1) {
+      return pendingAccountResponse;
+    }
+    return { role: refreshedRole, token: undefined };
+  };
+
+  const refreshAccess = () => {
+    if (accessRefreshRequest) return accessRefreshRequest;
+    const request = refreshUserAccountAccessSafely(
+      currentUser,
+      fetchAccount,
+      (updatedUser) => {
+        currentUser = updatedUser;
+        savedSession = updatedUser;
+      },
+      () => {
+        currentUser = null;
+        savedSession = null;
+        sessionRejectionCalls += 1;
+      },
+    );
+    accessRefreshRequest = request;
+    void request.then(
+      () => {
+        if (accessRefreshRequest === request) accessRefreshRequest = null;
+      },
+      () => {
+        if (accessRefreshRequest === request) accessRefreshRequest = null;
+      },
+    );
+    return request;
+  };
+
+  let resumeRefreshPromise;
+  const refreshOnResume = () => {
+    resumeRefreshPromise = refreshAccessAfterPending(
+      accessRefreshRequest,
+      resumeRefreshRequest,
+      refreshAccess,
+    );
+    return resumeRefreshPromise;
+  };
+  const preResumePromise = pendingBeforeResume ? refreshAccess() : null;
+  const navigationBeforeResume = rootNavigationForRole(currentUser.role);
+  refreshAccessIfActive("background", refreshOnResume);
+  const callsBeforeResume = accountRefreshCalls;
+  refreshAccessIfActive("active", refreshOnResume);
+  const callsImmediatelyAfterResume = accountRefreshCalls;
+  const firstResumePromise = resumeRefreshPromise;
+  refreshAccessIfActive("active", refreshOnResume);
+  const repeatedResumeWasCoalesced = resumeRefreshPromise === firstResumePromise;
+  const callsAfterRepeatedResume = accountRefreshCalls;
+  if (preResumePromise) {
+    resolvePendingAccountResponse({ role: previousRole, token: undefined });
+    await preResumePromise;
+  }
+  await resumeRefreshPromise;
+
+  return {
+    currentUser,
+    savedSession,
+    navigationBeforeResume,
+    navigationAfterResume: currentUser ? rootNavigationForRole(currentUser.role) : "Auth",
+    callsBeforeResume,
+    callsImmediatelyAfterResume,
+    repeatedResumeWasCoalesced,
+    callsAfterRepeatedResume,
+    accountRefreshCalls,
+    sessionRejectionCalls,
+  };
+}
+
 for (const [failureName, error] of [
   ["network", Object.assign(new Error("Network unavailable"), { code: "ERR_NETWORK" })],
   ["5xx", Object.assign(new Error("Server unavailable"), { response: { status: 503 } })],
@@ -136,6 +235,75 @@ for (const status of [401, 403]) {
     assert.equal(state.navigation, "Auth");
   });
 }
+
+test("a role change made in the background applies immediately when the app resumes", async () => {
+  const state = await applyMockRoleChangeOnResume("user", "tournament_admin");
+
+  assert.equal(state.callsBeforeResume, 0);
+  assert.equal(state.callsImmediatelyAfterResume, 1);
+  assert.equal(state.repeatedResumeWasCoalesced, true);
+  assert.equal(state.callsAfterRepeatedResume, 1);
+  assert.equal(state.accountRefreshCalls, 1);
+  assert.equal(state.currentUser.id, "current-account");
+  assert.equal(state.currentUser.role, "tournament_admin");
+  assert.equal(state.currentUser.token, "same-saved-daily007-session");
+  assert.equal(state.savedSession.id, "current-account");
+  assert.equal(state.savedSession.role, "tournament_admin");
+  assert.equal(state.savedSession.token, "same-saved-daily007-session");
+  assert.equal(state.navigationBeforeResume, "Tabs");
+  assert.equal(state.navigationAfterResume, "Admin");
+  assert.deepEqual(
+    adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
+    {
+      activeScreen: "tournaments",
+      visibleNavKeys: ["tournaments", "registrations"],
+    },
+  );
+  assert.equal(state.sessionRejectionCalls, 0);
+});
+
+test("a resume queues a fresh role refresh behind an older in-flight request", async () => {
+  const state = await applyMockRoleChangeOnResume(
+    "user",
+    "tournament_admin",
+    { pendingBeforeResume: true },
+  );
+
+  assert.equal(state.callsBeforeResume, 1);
+  assert.equal(state.callsImmediatelyAfterResume, 1);
+  assert.equal(state.repeatedResumeWasCoalesced, true);
+  assert.equal(state.callsAfterRepeatedResume, 1);
+  assert.equal(state.accountRefreshCalls, 2);
+  assert.equal(state.currentUser.role, "tournament_admin");
+  assert.equal(state.savedSession.role, "tournament_admin");
+  assert.equal(state.savedSession.token, "same-saved-daily007-session");
+  assert.equal(state.navigationAfterResume, "Admin");
+  assert.equal(state.sessionRejectionCalls, 0);
+});
+
+test("a Full Admin demoted in the background loses restricted screens on resume", async () => {
+  const state = await applyMockRoleChangeOnResume("admin", "tournament_admin");
+
+  assert.equal(state.callsBeforeResume, 0);
+  assert.equal(state.callsImmediatelyAfterResume, 1);
+  assert.equal(state.repeatedResumeWasCoalesced, true);
+  assert.equal(state.callsAfterRepeatedResume, 1);
+  assert.equal(state.accountRefreshCalls, 1);
+  assert.equal(state.currentUser.id, "current-account");
+  assert.equal(state.currentUser.role, "tournament_admin");
+  assert.equal(state.savedSession.token, "same-saved-daily007-session");
+  assert.equal(state.navigationBeforeResume, "Admin");
+  assert.equal(state.navigationAfterResume, "Admin");
+  assert.deepEqual(
+    adminNavigationForRole(state.currentUser.role, "wallet", ADMIN_NAV_ITEMS),
+    {
+      activeScreen: "tournaments",
+      visibleNavKeys: ["tournaments", "registrations"],
+    },
+  );
+  assert.equal(canNavigateAdminScreen(state.currentUser.role, "wallet"), false);
+  assert.equal(state.sessionRejectionCalls, 0);
+});
 
 test("Player becomes a restricted Tournament Admin after the account refresh", async () => {
   const state = await applyMockRoleRefresh("user", "tournament_admin");
@@ -215,6 +383,14 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   assert.match(appSource, /rootNavigationForRole\(user\.role\)/);
   assert.match(appSource, /rootNavigation === 'Admin'/);
   assert.match(appSource, /if \(!user\) return <Auth/);
+  assert.match(
+    appSource,
+    /refreshAccessAfterPending\(\s*accessRefreshRequest\.current,\s*resumeAccessRefreshRequest,\s*refreshAccess/,
+  );
+  assert.match(
+    appSource,
+    /AppState\.addEventListener\('change', \(state\) => \{\s*refreshAccessIfActive\(state, refreshAccessOnResume\);\s*\}\)/,
+  );
   assert.match(appSource, /if \(AppState\.currentState === 'active'\) void refreshAccess\(\)/);
   assert.match(appSource, /\}, 30_000\)/);
   for (const tabName of PLAYER_TAB_NAMES) {

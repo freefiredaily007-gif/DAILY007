@@ -33,7 +33,12 @@ import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
 import { restoreDaily007Session } from './lib/session-verification';
-import { refreshUserAccountAccessSafely, rootNavigationForRole } from './lib/roleNavigation';
+import {
+  refreshAccessAfterPending,
+  refreshAccessIfActive,
+  refreshUserAccountAccessSafely,
+  rootNavigationForRole,
+} from './lib/roleNavigation';
 import { useClerk } from '@clerk/expo';
 
 export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
@@ -139,6 +144,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [retryingVerification, setRetryingVerification] = useState(false);
   const refreshRequest = useRef<Promise<User | null> | null>(null);
   const accessRefreshRequest = useRef<Promise<User | null> | null>(null);
+  const resumeAccessRefreshRequest = useRef<Promise<User | null> | null>(null);
   const verificationRequest = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
@@ -279,10 +285,19 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     return request;
   }, []);
 
+  const refreshAccessOnResume = useCallback(
+    () => refreshAccessAfterPending(
+      accessRefreshRequest.current,
+      resumeAccessRefreshRequest,
+      refreshAccess,
+    ),
+    [refreshAccess],
+  );
+
   useEffect(() => {
     if (!user) return;
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void refreshAccess();
+      refreshAccessIfActive(state, refreshAccessOnResume);
     });
     const interval = setInterval(() => {
       if (AppState.currentState === 'active') void refreshAccess();
@@ -291,7 +306,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
       subscription.remove();
       clearInterval(interval);
     };
-  }, [user?.id, refreshAccess]);
+  }, [user?.id, refreshAccess, refreshAccessOnResume]);
 
   const logout = useCallback(async () => {
     try {
