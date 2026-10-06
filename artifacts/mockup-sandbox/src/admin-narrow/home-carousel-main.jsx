@@ -150,6 +150,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
     releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
+    leaveHome: () => root.render(null),
+    returnHome: () => root.render(React.createElement(Home)),
     mergeHomeTournamentItems,
     setAppVisibility,
     updateTournament: (id, updates) => {

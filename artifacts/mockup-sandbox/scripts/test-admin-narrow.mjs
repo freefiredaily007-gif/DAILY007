@@ -1933,6 +1933,53 @@ async function checkHomeCarousel(width) {
   assert(mergeIdentity?.sameListReused, "An unchanged refresh should reuse the current Home list.");
   assert(mergeIdentity?.changedCardUpdated, "A joined-status change should update only its tournament card.");
   assert(mergeIdentity?.unaffectedCardReused, "A joined-status change should preserve unaffected card objects.");
+
+  const readsBeforeLeavingHome = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.leaveHome()");
+  await waitForCondition(
+    `!document.querySelector('[data-testid="home-upcoming-carousel"]')`,
+    "Home to unmount after navigation away",
+  );
+  await evaluate(`(() => {
+    const test = window.__daily007HomeCarouselTest;
+    test.setAppVisibility("hidden");
+    test.setAppVisibility("visible");
+    return true;
+  })()`);
+  await delay(120);
+  const readsWhileAway = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsWhileAway.tournaments === readsBeforeLeavingHome.tournaments &&
+      readsWhileAway.registrations === readsBeforeLeavingHome.registrations,
+    `Backgrounding and resuming while Home is unmounted must not start Home API reads: ${JSON.stringify({
+      before: readsBeforeLeavingHome,
+      whileAway: readsWhileAway,
+    })}.`,
+  );
+
+  await evaluate("window.__daily007HomeCarouselTest.returnHome()");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeLeavingHome.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeLeavingHome.registrations + 1} && Boolean(document.querySelector('[data-testid="home-upcoming-carousel"]'))`,
+    "Home to perform its normal paired load when opened again",
+  );
+  const readsAfterReturningHome = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    readsAfterReturningHome.tournaments === readsBeforeLeavingHome.tournaments + 1 &&
+      readsAfterReturningHome.registrations === readsBeforeLeavingHome.registrations + 1,
+    `Returning to Home should trigger exactly one normal load: ${JSON.stringify({
+      before: readsBeforeLeavingHome,
+      after: readsAfterReturningHome,
+    })}.`,
+  );
 }
 
 async function setKeyboardViewport(height) {
