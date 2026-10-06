@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from './typography';
@@ -9,6 +9,7 @@ import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
 } from '../lib/roomCredentialTiming';
+import { shouldStackRoomCredentialRows } from '../lib/roomCredentialLayout';
 
 type Props = {
   startsAt?: Date | string | null;
@@ -25,6 +26,8 @@ export function RoomCredentialsPanel({
   roomId,
   roomPassword,
 }: Props) {
+  const { fontScale, width } = useWindowDimensions();
+  const stackCredentialRows = shouldStackRoomCredentialRows(fontScale, width);
   const schedule = getRoomCredentialSchedule(startsAt);
   const id = roomId?.trim() ?? '';
   const password = roomPassword?.trim() ?? '';
@@ -62,8 +65,18 @@ export function RoomCredentialsPanel({
       <View style={styles.panel}>
         {credentialsReady ? (
           <>
-            <CredentialRow label="Room ID" value={id} onCopy={() => copy('Room ID', id)} />
-            <CredentialRow label="Password" value={password} onCopy={() => copy('Password', password)} />
+            <CredentialRow
+              label="Room ID"
+              value={id}
+              onCopy={() => copy('Room ID', id)}
+              stackRows={stackCredentialRows}
+            />
+            <CredentialRow
+              label="Password"
+              value={password}
+              onCopy={() => copy('Password', password)}
+              stackRows={stackCredentialRows}
+            />
             {__DEV__ ? (
               <Pressable
                 accessibilityRole="button"
@@ -117,13 +130,15 @@ function CredentialRow({
   label,
   value,
   onCopy,
+  stackRows,
 }: {
   label: string;
   value: string;
   onCopy: () => void;
+  stackRows: boolean;
 }) {
   return (
-    <View style={styles.credentialRow}>
+    <View style={[styles.credentialRow, stackRows && styles.credentialRowStacked]}>
       <View
         accessible
         accessibilityRole="text"
@@ -143,7 +158,7 @@ function CredentialRow({
           onCopy();
         }}
         testID={`room-credential-copy-${label.toLowerCase().replace(/\s+/g, '-')}`}
-        style={styles.copyButton}
+        style={[styles.copyButton, stackRows && styles.copyButtonStacked]}
       >
         <Feather accessible={false} name="copy" size={15} color={C.green} />
         <Text accessible={false} style={styles.copyText}>Copy {label}</Text>
@@ -162,9 +177,11 @@ const styles = StyleSheet.create({
   devTestButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: C.gold, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7, marginTop: 6 },
   devTestButtonText: { color: C.gold, fontSize: 11, fontWeight: '800' },
   credentialRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 6 },
+  credentialRowStacked: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 8 },
   valueGroup: { flex: 1, minWidth: 0 },
   label: { color: C.sub, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   value: { color: C.green, fontSize: 14, fontWeight: '900', marginTop: 3 },
-  copyButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: C.green, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },
-  copyText: { color: C.green, fontSize: 11, fontWeight: '800' },
+  copyButton: { minHeight: 40, maxWidth: '100%', flexShrink: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: C.green, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },
+  copyButtonStacked: { alignSelf: 'flex-start' },
+  copyText: { flexShrink: 1, color: C.green, fontSize: 11, fontWeight: '800' },
 });

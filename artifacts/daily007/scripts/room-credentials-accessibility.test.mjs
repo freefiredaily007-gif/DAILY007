@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { copyRoomCredentialToClipboard } from "../src/lib/roomCredentialCopy.ts";
+import { shouldStackRoomCredentialRows } from "../src/lib/roomCredentialLayout.ts";
 
 const panelSource = await readFile(
   new URL("../src/components/RoomCredentialsPanel.tsx", import.meta.url),
@@ -13,12 +14,47 @@ assert.ok(rowStart >= 0 && rowEnd > rowStart, "The credential row component must
 const rowSource = panelSource.slice(rowStart, rowEnd);
 
 test("Room ID and password values are separate labeled text stops", () => {
-  assert.match(panelSource, /<CredentialRow label="Room ID" value=\{id\}/);
-  assert.match(panelSource, /<CredentialRow label="Password" value=\{password\}/);
+  assert.match(panelSource, /<CredentialRow\s+label="Room ID"\s+value=\{id\}/);
+  assert.match(panelSource, /<CredentialRow\s+label="Password"\s+value=\{password\}/);
   assert.match(rowSource, /<View\s+accessible\s+accessibilityRole="text"/);
   assert.match(rowSource, /accessibilityLabel=\{`\$\{label\}: \$\{value\}`\}/);
   assert.match(rowSource, /<Text accessible=\{false\} style=\{styles\.label\}>/);
   assert.match(rowSource, /<Text accessible=\{false\} style=\{styles\.value\} selectable>/);
+});
+
+test("large text on a narrow phone stacks each full-width value above its copy button", () => {
+  assert.equal(shouldStackRoomCredentialRows(1, 320), false);
+  assert.equal(shouldStackRoomCredentialRows(1.49, 320), false);
+  assert.equal(shouldStackRoomCredentialRows(1.5, 320), true);
+  assert.equal(shouldStackRoomCredentialRows(1.8, 380), true);
+  assert.equal(shouldStackRoomCredentialRows(1.5, 381), false);
+
+  assert.match(panelSource, /useWindowDimensions/);
+  assert.match(
+    panelSource,
+    /shouldStackRoomCredentialRows\(fontScale, width\)/,
+  );
+  assert.match(
+    panelSource,
+    /<CredentialRow[\s\S]*?label="Room ID"[\s\S]*?stackRows=\{stackCredentialRows\}/,
+  );
+  assert.match(
+    panelSource,
+    /<CredentialRow[\s\S]*?label="Password"[\s\S]*?stackRows=\{stackCredentialRows\}/,
+  );
+  assert.match(
+    rowSource,
+    /style=\{\[styles\.credentialRow, stackRows && styles\.credentialRowStacked\]\}/,
+  );
+  assert.match(
+    rowSource,
+    /style=\{\[styles\.copyButton, stackRows && styles\.copyButtonStacked\]\}/,
+  );
+  assert.match(panelSource, /credentialRowStacked: \{ flexDirection: 'column', alignItems: 'stretch'/);
+  assert.match(panelSource, /copyButtonStacked: \{ alignSelf: 'flex-start' \}/);
+  assert.match(panelSource, /copyButton: \{ minHeight: 40, maxWidth: '100%'/);
+  assert.match(panelSource, /copyText: \{ flexShrink: 1/);
+  assert.doesNotMatch(rowSource, /numberOfLines=/);
 });
 
 test("copy controls have distinct labels and hide their decorative child stops", () => {
@@ -73,11 +109,11 @@ test("clipboard failure simulation is development-only and covers both credentia
   );
   assert.match(
     panelSource,
-    /<CredentialRow label="Room ID" value=\{id\} onCopy=\{\(\) => copy\('Room ID', id\)\} \/>/,
+    /<CredentialRow\s+label="Room ID"\s+value=\{id\}\s+onCopy=\{\(\) => copy\('Room ID', id\)\}\s+stackRows=\{stackCredentialRows\}\s+\/>/,
   );
   assert.match(
     panelSource,
-    /<CredentialRow label="Password" value=\{password\} onCopy=\{\(\) => copy\('Password', password\)\} \/>/,
+    /<CredentialRow\s+label="Password"\s+value=\{password\}\s+onCopy=\{\(\) => copy\('Password', password\)\}\s+stackRows=\{stackCredentialRows\}\s+\/>/,
   );
   assert.match(
     panelSource,
