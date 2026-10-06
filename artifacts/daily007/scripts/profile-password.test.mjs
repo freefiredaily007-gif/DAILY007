@@ -57,12 +57,15 @@ function makePassword(length) {
   return "p".repeat(length);
 }
 
-async function runSubmission(newPassword, confirmNewPassword = newPassword) {
+async function runSubmission(
+  newPassword,
+  confirmNewPassword = newPassword,
+  currentPassword = "current-test-value",
+) {
   const requests = [];
   const changePassword = async (request) => {
     requests.push(request);
   };
-  const currentPassword = "current-test-value";
 
   const result = await submitProfilePasswordChange({
     currentPassword,
@@ -110,6 +113,31 @@ for (const length of [7, 201]) {
 
     assert.equal(result, "Your new password must be 8–200 characters.");
     assert.equal(requests.length, 0);
+  });
+}
+
+for (const length of [200, 201]) {
+  test(`handles a ${length}-character current password at the boundary`, async () => {
+    const { result, requests, currentPassword, newPassword } = await runSubmission(
+      makePassword(8),
+      undefined,
+      makePassword(length),
+    );
+
+    if (length === 200) {
+      assert.equal(result, null);
+      assert.equal(requests.length, 1, "The maximum-length current password should submit once.");
+      assert.equal(
+        requests[0]?.data?.currentPassword === currentPassword
+          && requests[0]?.data?.newPassword === newPassword,
+        true,
+        "The mocked mutation should receive the accepted password payload unchanged.",
+      );
+      return;
+    }
+
+    assert.equal(result, "Enter your current Daily007 password.");
+    assert.equal(requests.length, 0, "An overlong current password must not reach the mutation.");
   });
 }
 
