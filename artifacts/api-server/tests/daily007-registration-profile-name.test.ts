@@ -31,6 +31,14 @@ const CSV_TEAMMATE_NAMES = [
   'Mate, "East"',
   'Mate, "West"',
 ] as const;
+const FORMULA_PROFILE_NAME = '=HYPERLINK("https://example.test", "captain")';
+const FORMULA_CAPTAIN_GAME_NAME = "+SUM(1,2)";
+const FORMULA_TEAM_NAME = "-1+2";
+const FORMULA_TEAMMATE_NAMES = [
+  "@SUM(3,4)",
+  "=HYPERLINK(\"https://example.test\", \"mate\")",
+  "+5+6",
+] as const;
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -480,6 +488,69 @@ test("admin registration CSV preserves commas and quotes in name columns", async
       const registeredAtIndex = headers.indexOf("registered_at");
       assert.notEqual(registeredAtIndex, -1);
       assert.ok(Number.isFinite(Date.parse(values[registeredAtIndex])));
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
+test("admin registration CSV apostrophe-guards formula-like captain, team, and teammate names", async () => {
+  registrationProfileTestDb.reset(FORMULA_PROFILE_NAME);
+  const teammates = FORMULA_TEAMMATE_NAMES.map((name, index) => ({
+    name,
+    uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
+  }));
+  const csvRegistrationRequest: RegistrationRequest = {
+    ...registrationRequests[0],
+    body: {
+      ...registrationRequests[0].body,
+      captainGameName: FORMULA_CAPTAIN_GAME_NAME,
+      teamName: FORMULA_TEAM_NAME,
+      teammates,
+    },
+  };
+
+  try {
+    await withServer(async (origin) => {
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
+      assert.equal(response.status, 201);
+
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+
+      const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
+      assert.equal(csvLines.length, 2);
+      const headers = parseCsvRow(csvLines[0]);
+      const values = parseCsvRow(csvLines[1]);
+      assert.equal(values.length, headers.length);
+
+      const expectedFormulaCells: Record<string, string> = {
+        captain_profile_name: FORMULA_PROFILE_NAME,
+        captain_game_name: FORMULA_CAPTAIN_GAME_NAME,
+        team_name: FORMULA_TEAM_NAME,
+        teammate_1_name: FORMULA_TEAMMATE_NAMES[0],
+        teammate_2_name: FORMULA_TEAMMATE_NAMES[1],
+        teammate_3_name: FORMULA_TEAMMATE_NAMES[2],
+      };
+      for (const [column, formulaValue] of Object.entries(expectedFormulaCells)) {
+        const index = headers.indexOf(column);
+        assert.notEqual(index, -1, `CSV header should include ${column}`);
+        assert.equal(
+          values[index],
+          `'${formulaValue}`,
+          `${column} should retain the apostrophe guard before its formula marker`,
+        );
+      }
     });
   } finally {
     registrationProfileTestDb.reset();
