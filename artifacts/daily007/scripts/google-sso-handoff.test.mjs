@@ -1,10 +1,79 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { registerHooks } from "node:module";
+import test, { mock } from "node:test";
 import {
   getSSOCallbackMessage,
   runGoogleSSOFlow,
 } from "../src/lib/google-sso-flow.ts";
+
+mock.module("@react-native-async-storage/async-storage", {
+  defaultExport: {
+    async getItem() {
+      return null;
+    },
+    async setItem() {},
+    async removeItem() {},
+  },
+});
+mock.module("@workspace/api-client-react", {
+  namedExports: { setAuthExpiredHandler() {} },
+});
+mock.module("expo-constants", {
+  defaultExport: { expoConfig: null },
+});
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      if (
+        error?.code === "ERR_MODULE_NOT_FOUND" &&
+        (specifier.startsWith("./") || specifier.startsWith("../")) &&
+        !/\.[a-z\d]+$/i.test(specifier)
+      ) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      throw error;
+    }
+  },
+});
+
+const { Api, http, setSession } = await import("../src/lib/api.ts");
+
+async function withCapturedGoogleRequests(savedDaily007Token, run) {
+  const requests = [];
+  const previousAdapter = http.defaults.adapter;
+  setSession(savedDaily007Token ? { id: "saved-player", token: savedDaily007Token } : null);
+  http.defaults.adapter = async (config) => {
+    requests.push(config);
+    return {
+      data: {
+        success: true,
+        data: {
+          id: "daily007-player",
+          email: "player@example.test",
+          token: "returned-daily007-token",
+        },
+      },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config,
+    };
+  };
+
+  try {
+    await run(requests);
+  } finally {
+    http.defaults.adapter = previousAdapter;
+    setSession(null);
+  }
+}
+
+function headerValue(headers, name) {
+  return headers.get(name) ?? headers[name];
+}
 
 function createSession(id, events, token = "verified-clerk-jwt") {
   return {
@@ -174,6 +243,54 @@ test("an active Clerk session without a verified token is not exchanged with the
   });
   assert.deepEqual(events, ["token:active-session"]);
   assert.equal(exchanges, 0);
+});
+
+test("Google sign-in sends Clerk authorization and keeps the Daily007 link token separate", async () => {
+  const clerkJwt = "verified-clerk-jwt";
+  const daily007Token = "existing-daily007-token";
+
+  await withCapturedGoogleRequests(daily007Token, async (requests) => {
+    await Api.googleAuth(clerkJwt, { dailyToken: daily007Token });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/auth/google");
+    assert.equal(
+      headerValue(requests[0].headers, "Authorization"),
+      `Bearer ${clerkJwt}`,
+    );
+    assert.equal(
+      headerValue(requests[0].headers, "X-Daily007-Token"),
+      daily007Token,
+    );
+    assert.notEqual(
+      headerValue(requests[0].headers, "Authorization"),
+      `Bearer ${daily007Token}`,
+    );
+  });
+});
+
+test("Google sign-in omits the Daily007 link header when no saved token is provided", async () => {
+  await withCapturedGoogleRequests(null, async (requests) => {
+    await Api.googleAuth("verified-clerk-jwt");
+
+    assert.equal(requests.length, 1);
+    assert.equal(
+      headerValue(requests[0].headers, "Authorization"),
+      "Bearer verified-clerk-jwt",
+    );
+    assert.equal(headerValue(requests[0].headers, "X-Daily007-Token"), undefined);
+  });
+});
+
+test("Google sign-in makes no API request with an empty Clerk token", async () => {
+  await withCapturedGoogleRequests("existing-daily007-token", async (requests) => {
+    await assert.rejects(
+      Api.googleAuth("", { dailyToken: "existing-daily007-token" }),
+      /did not return a verified Clerk session/i,
+    );
+
+    assert.equal(requests.length, 0);
+  });
 });
 
 test("callback messages give clear success or retry guidance on web, Android, and iOS", () => {
