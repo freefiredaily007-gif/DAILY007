@@ -660,6 +660,60 @@ test("Full Admin prize updates leave pending approval payout snapshots unchanged
   }
 });
 
+test("a failed monthly Full Admin prize save rolls back both schedules and active-period snapshots", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const originalSettings = structuredClone(daily007LeaderboardTestDb.rewardSettings);
+  const originalActivePeriodSnapshots = [...daily007LeaderboardTestDb.periods.values()]
+    .filter((candidate) => candidate.status === "active")
+    .map((candidate) => ({
+      id: candidate.id,
+      cycleType: candidate.cycle_type,
+      payoutConfiguration: structuredClone(candidate.payout_configuration),
+    }));
+  daily007LeaderboardTestDb.failRewardSettingWriteFor = "monthly";
+
+  try {
+    await withServer(async (origin) => {
+      const failedSave = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        {
+          weekly: { firstPlaceCoins: 701, secondPlaceCoins: 702, thirdPlaceCoins: 703 },
+          monthly: { firstPlaceCoins: 801, secondPlaceCoins: 802, thirdPlaceCoins: 803 },
+        },
+      );
+
+      assert.equal(failedSave.status, 503);
+      assert.deepEqual(
+        daily007LeaderboardTestDb.rewardSettingWriteAttempts,
+        ["weekly", "monthly"],
+        "the weekly schedule must be written before the injected monthly failure",
+      );
+      assert.deepEqual(
+        daily007LeaderboardTestDb.rewardSettings,
+        originalSettings,
+        "both saved reward schedules must roll back",
+      );
+      assert.deepEqual(
+        [...daily007LeaderboardTestDb.periods.values()]
+          .filter((candidate) => candidate.status === "active")
+          .map((candidate) => ({
+            id: candidate.id,
+            cycleType: candidate.cycle_type,
+            payoutConfiguration: candidate.payout_configuration,
+          })),
+        originalActivePeriodSnapshots,
+        "active-period prize snapshots must roll back with the settings",
+      );
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("invalid Full Admin prize edits leave both schedules and active-period snapshots unchanged", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());

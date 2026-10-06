@@ -74,6 +74,8 @@ class MemoryLeaderboardDatabase {
   rewardSettings = new Map<string, TestRewardSettings>();
   ledger = new Map<string, TestLedgerEntry>();
   failWalletUpdateFor: string | null = null;
+  failRewardSettingWriteFor: "weekly" | "monthly" | null = null;
+  rewardSettingWriteAttempts: ("weekly" | "monthly")[] = [];
   private nextPeriodNumber = 100;
 
   reset(): void {
@@ -94,6 +96,8 @@ class MemoryLeaderboardDatabase {
     ]);
     this.ledger = new Map();
     this.failWalletUpdateFor = null;
+    this.failRewardSettingWriteFor = null;
+    this.rewardSettingWriteAttempts = [];
     this.nextPeriodNumber = 100;
   }
 
@@ -364,6 +368,13 @@ class MemoryLeaderboardDatabase {
       normalized.includes("ON CONFLICT (cycle_type) DO UPDATE SET")
     ) {
       const cycleType = String(values[0]) as "weekly" | "monthly";
+      this.rewardSettingWriteAttempts.push(cycleType);
+      if (this.failRewardSettingWriteFor === cycleType) {
+        throw Object.assign(
+          new Error(`Simulated ${cycleType} leaderboard reward write failure.`),
+          { status: 503 },
+        );
+      }
       this.rewardSettings.set(
         cycleType,
         this.rewardSetting(
