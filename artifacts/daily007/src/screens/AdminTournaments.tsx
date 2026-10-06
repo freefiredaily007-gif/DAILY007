@@ -10,6 +10,7 @@ import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
+import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedResultAccessibility';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
@@ -867,7 +868,14 @@ export default function AdminTournaments() {
                       const playerName = String(entry.gameName || entry.playerName || entry.teamName || 'Player');
                       const team = entry.teamName && entry.teamName !== playerName ? ` · ${entry.teamName}` : '';
                       return (
-                        <Text key={entry.registrationId} style={st.resultLine}>
+                        <Text
+                          key={entry.registrationId}
+                          accessible
+                          accessibilityRole="text"
+                          accessibilityLabel={adminPublishedResultAccessibilityLabel(entry)}
+                          testID={`completed-result-entry-${entry.registrationId}`}
+                          style={st.resultLine}
+                        >
                           {`#${entry.rank} ${playerName}${team} · ${Number(entry.kills)} kills · ${Number(entry.prizeCoins).toLocaleString()} coins`}
                         </Text>
                       );

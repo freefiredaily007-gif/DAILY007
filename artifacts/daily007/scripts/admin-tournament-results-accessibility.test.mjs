@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { adminPublishedResultAccessibilityLabel } from '../src/lib/adminPublishedResultAccessibility.ts';
 
 const screenSource = await readFile(
   new URL('../src/screens/AdminTournaments.tsx', import.meta.url),
@@ -163,6 +164,50 @@ test('placement and winner publication success messages are politely announced',
     /const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed\.'/,
   );
   assert.match(screenSource, /setOkMsg\(WINNER_PUBLISH_SUCCESS_MESSAGE\)/);
+});
+
+test('published result rows announce rank, player or team, kills, and prize separately', () => {
+  const mapStart = screenSource.indexOf('{tournamentResults.map((entry) => {');
+  const mapEnd = screenSource.indexOf('\n                    })}', mapStart);
+  assert.ok(mapStart >= 0 && mapEnd > mapStart, 'completed results should render from saved entries');
+  const mapSource = screenSource.slice(mapStart, mapEnd);
+
+  assert.equal(
+    (mapSource.match(/<Text\b/g) ?? []).length,
+    1,
+    'each saved entry should map to its own accessible text element',
+  );
+  assert.match(mapSource, /key=\{entry\.registrationId\}/);
+  assert.match(mapSource, /\baccessible\b/);
+  assert.match(mapSource, /accessibilityRole="text"/);
+  assert.match(
+    mapSource,
+    /accessibilityLabel=\{adminPublishedResultAccessibilityLabel\(entry\)\}/,
+  );
+  assert.match(
+    mapSource,
+    /testID=\{`completed-result-entry-\$\{entry\.registrationId\}`\}/,
+  );
+
+  const entries = [
+    {
+      rank: 1,
+      gameName: 'Mock Player One',
+      teamName: 'Mock Team One',
+      kills: 8,
+      prizeCoins: 10000,
+    },
+    {
+      rank: 2,
+      teamName: 'Mock Team Two',
+      kills: 5,
+      prizeCoins: 2500,
+    },
+  ];
+  assert.deepEqual(entries.map(adminPublishedResultAccessibilityLabel), [
+    'Rank 1, Mock Player One, team Mock Team One, 8 kills, prize 10,000 coins',
+    'Rank 2, team Mock Team Two, 5 kills, prize 2,500 coins',
+  ]);
 });
 
 test('the shared text input forwards its accessibility props to the native input', () => {
