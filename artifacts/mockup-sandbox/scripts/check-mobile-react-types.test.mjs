@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
@@ -21,6 +21,16 @@ async function createProject(versions) {
   }
 
   return projectRoot;
+}
+
+async function addInstalledPackage(projectRoot, packageName, version) {
+  const packageDirectory = path.join(projectRoot, "node_modules", packageName);
+  await mkdir(packageDirectory, { recursive: true });
+  await writeFile(
+    path.join(packageDirectory, "package.json"),
+    JSON.stringify({ name: packageName, version }),
+  );
+  return packageDirectory;
 }
 
 afterEach(async () => {
@@ -71,5 +81,110 @@ test("reports a declaration package that is not installed", async () => {
   assert.throws(
     () => checkMobileReactTypes(sandboxRoot, mobileRoot),
     /@types\/react-dom: mockup sandbox was not found/,
+  );
+});
+
+test("reports conflicting React type copies in a reachable Daily007 workspace dependency", async () => {
+  const sandboxRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const mobileRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const sharedPackage = await addInstalledPackage(
+    mobileRoot,
+    "@workspace/preview-shared",
+    "1.0.0",
+  );
+  const nestedReactTypes = path.join(sharedPackage, "node_modules", "@types", "react");
+  await mkdir(nestedReactTypes, { recursive: true });
+  await writeFile(
+    path.join(nestedReactTypes, "package.json"),
+    JSON.stringify({ name: "@types/react", version: "19.3.0" }),
+  );
+  const nestedReactDomTypes = path.join(
+    sharedPackage,
+    "node_modules",
+    "@types",
+    "react-dom",
+  );
+  await mkdir(nestedReactDomTypes, { recursive: true });
+  await writeFile(
+    path.join(nestedReactDomTypes, "package.json"),
+    JSON.stringify({ name: "@types/react-dom", version: "19.3.0" }),
+  );
+
+  assert.throws(
+    () => checkMobileReactTypes(sandboxRoot, mobileRoot),
+    (error) => {
+      assert.match(
+        error.message,
+        new RegExp(
+          `@types/react: @workspace/preview-shared@1\\.0\\.0 resolves 19\\.3\\.0 at ` +
+            `${nestedReactTypes.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/package\\.json; expected Daily007 line 19\\.2`,
+        ),
+      );
+      assert.match(
+        error.message,
+        new RegExp(
+          `@types/react-dom: @workspace/preview-shared@1\\.0\\.0 resolves 19\\.3\\.0 at ` +
+            `${nestedReactDomTypes.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/package\\.json; expected Daily007 line 19\\.2`,
+        ),
+      );
+      return true;
+    },
+  );
+});
+
+test("reports a conflicting declaration from a pnpm package peer context", async () => {
+  const sandboxRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const mobileRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const packageRoot = path.join(
+    mobileRoot,
+    "node_modules",
+    ".pnpm",
+    "preview-dependency@1.0.0",
+    "node_modules",
+    "preview-dependency",
+  );
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "preview-dependency", version: "1.0.0" }),
+  );
+  const peerReactTypes = path.join(
+    path.dirname(packageRoot),
+    "@types",
+    "react",
+  );
+  await mkdir(peerReactTypes, { recursive: true });
+  await writeFile(
+    path.join(peerReactTypes, "package.json"),
+    JSON.stringify({ name: "@types/react", version: "19.3.0" }),
+  );
+  await symlink(
+    packageRoot,
+    path.join(mobileRoot, "node_modules", "preview-dependency"),
+    "dir",
+  );
+
+  assert.throws(
+    () => checkMobileReactTypes(sandboxRoot, mobileRoot),
+    (error) => {
+      assert.match(error.message, /preview-dependency@1\.0\.0 resolves 19\.3\.0/);
+      assert.ok(
+        error.message.includes(path.join(peerReactTypes, "package.json")),
+        "diagnostic should include the nested declaration package path",
+      );
+      return true;
+    },
   );
 });

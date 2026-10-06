@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const declarationPackages = ["@types/react", "@types/react-dom"];
 const versionPattern = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+const ignoredNodeModulesEntries = new Set([".bin", ".cache", ".pnpm"]);
 
 function readInstalledPackage(projectRoot, packageName) {
   const packageJsonPath = path.join(projectRoot, "node_modules", packageName, "package.json");
@@ -27,8 +28,139 @@ function versionLine(version) {
   return match ? `${match[1]}.${match[2]}` : null;
 }
 
+function readPackageJson(packageJsonPath) {
+  try {
+    return JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function listInstalledPackages(nodeModulesPath) {
+  let entries;
+  try {
+    entries = readdirSync(nodeModulesPath, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const packages = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".") || ignoredNodeModulesEntries.has(entry.name)) {
+      continue;
+    }
+
+    const entryPath = path.join(nodeModulesPath, entry.name);
+    if (entry.name.startsWith("@") && entry.isDirectory()) {
+      for (const scopedPackage of readdirSync(entryPath, { withFileTypes: true })) {
+        if (scopedPackage.isDirectory() || scopedPackage.isSymbolicLink()) {
+          packages.push(path.join(entryPath, scopedPackage.name));
+        }
+      }
+    } else if (entry.isDirectory() || entry.isSymbolicLink()) {
+      packages.push(entryPath);
+    }
+  }
+
+  return packages;
+}
+
+function findNestedReactTypeMismatches(mobileRoot, mobileVersions) {
+  const mismatches = [];
+  const visitedNodeModules = new Set();
+  const visitedPackages = new Set();
+  const directNodeModulesPath = path.resolve(mobileRoot, "node_modules");
+
+  function inspectNodeModules(nodeModulesPath, owner) {
+    let realNodeModulesPath;
+    try {
+      realNodeModulesPath = realpathSync(nodeModulesPath);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+
+    if (visitedNodeModules.has(realNodeModulesPath)) {
+      return;
+    }
+    visitedNodeModules.add(realNodeModulesPath);
+
+    if (path.resolve(nodeModulesPath) !== directNodeModulesPath) {
+      for (const packageName of declarationPackages) {
+        const packageJsonPath = path.join(nodeModulesPath, packageName, "package.json");
+        const packageJson = readPackageJson(packageJsonPath);
+        if (!packageJson) {
+          continue;
+        }
+
+        const expectedVersion = mobileVersions.get(packageName);
+        const expectedLine = expectedVersion ? versionLine(expectedVersion) : null;
+        const actualVersion =
+          typeof packageJson.version === "string" ? packageJson.version : null;
+        const actualLine = actualVersion ? versionLine(actualVersion) : null;
+        if (!actualLine || !expectedLine) {
+          mismatches.push(
+            `${packageName}: ${owner} resolves ${actualVersion ?? "an unparseable version"} ` +
+              `at ${packageJsonPath}; expected the Daily007 declaration line ${expectedLine ?? "to be parseable"}`,
+          );
+        } else if (actualLine !== expectedLine) {
+          mismatches.push(
+            `${packageName}: ${owner} resolves ${actualVersion} at ${packageJsonPath}; ` +
+              `expected Daily007 line ${expectedLine}`,
+          );
+        }
+      }
+    }
+
+    for (const packagePath of listInstalledPackages(nodeModulesPath)) {
+      let realPackagePath;
+      try {
+        realPackagePath = realpathSync(packagePath);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+          continue;
+        }
+        throw error;
+      }
+
+      if (visitedPackages.has(realPackagePath)) {
+        continue;
+      }
+      visitedPackages.add(realPackagePath);
+
+      const packageJsonPath = path.join(realPackagePath, "package.json");
+      const packageJson = readPackageJson(packageJsonPath);
+      const packageLabel =
+        packageJson?.name && packageJson?.version
+          ? `${packageJson.name}@${packageJson.version}`
+          : packagePath;
+
+      inspectNodeModules(path.join(realPackagePath, "node_modules"), packageLabel);
+
+      // pnpm stores peer dependencies beside a package in its virtual store.
+      // Those sibling declarations are what TypeScript resolves from the linked package.
+      const packageContainer = path.dirname(realPackagePath);
+      if (path.basename(packageContainer) === "node_modules") {
+        inspectNodeModules(packageContainer, packageLabel);
+      }
+    }
+  }
+
+  inspectNodeModules(directNodeModulesPath, "Daily007");
+  return mismatches;
+}
+
 export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
   const mismatches = [];
+  const mobileVersions = new Map();
 
   for (const packageName of declarationPackages) {
     const sandboxPackage = readInstalledPackage(sandboxRoot, packageName);
@@ -42,6 +174,7 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
       continue;
     }
 
+    mobileVersions.set(packageName, mobilePackage.version);
     const sandboxLine = versionLine(sandboxPackage.version);
     const mobileLine = versionLine(mobilePackage.version);
     if (!sandboxLine || !mobileLine) {
@@ -57,6 +190,12 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
     }
   }
 
+  if (
+    mobileVersions.size === declarationPackages.length &&
+    [...mobileVersions.values()].every((version) => versionLine(version) !== null)
+  ) {
+    mismatches.push(...findNestedReactTypeMismatches(mobileRoot, mobileVersions));
+  }
   return mismatches;
 }
 
@@ -69,6 +208,7 @@ export function checkMobileReactTypes(sandboxRoot, mobileRoot) {
         ...mismatches.map((mismatch) => `- ${mismatch}`),
         "Keep the mockup sandbox and Daily007 on matching major.minor lines for both React declaration packages.",
         "These browser previews typecheck imported Daily007 screens, so mismatched declarations can cause confusing ref errors.",
+        "For a nested entry, align the listed dependency's React type peer context and verify the exact package path shown above.",
       ].join("\n"),
     );
   }

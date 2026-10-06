@@ -14,3 +14,9 @@ Keep the sandbox's `@types/react` and `@types/react-dom` on `~19.2.2`, matching 
 **Why:** The Admin browser preview imports real mobile screens into the sandbox, so both type lines can enter its dependency graph.
 
 **How to apply:** If imported mobile code or its peer dependencies still resolve React types to 19.2, align the sandbox declarations to that range instead of weakening refs or suppressing type errors.
+
+With pnpm, a linked dependency can resolve React declarations from a package-specific `node_modules` directory beside its virtual-store package, even when the app-level declarations agree.
+
+**Why:** Checking only the direct `node_modules/@types` packages misses peer-context copies that imported preview code can resolve.
+
+**How to apply:** When extending the mobile preview compatibility guard, inspect reachable package peer contexts and include both the owning dependency and declaration path in mismatch diagnostics.
