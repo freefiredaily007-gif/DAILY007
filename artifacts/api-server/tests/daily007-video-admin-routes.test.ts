@@ -254,6 +254,42 @@ test("Full Admin cannot change a video's YouTube link after watch history exists
   });
 });
 
+test("Full Admin can update a watched video's title and topic while keeping its YouTube link", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(created.status, 201);
+    const videoId = String(created.body.id);
+    seedWatchHistory(videoId);
+    const videosBefore = structuredClone(videoTestDb.videos);
+    const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+
+    const updated = await patchVideo(origin, VIDEO_TEST_ADMIN_ID, videoId, {
+      title: "Corrected Tournament Highlights",
+      topic: "Clash Squad",
+      url: validVideo.url,
+    });
+
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.id, videoId);
+    assert.equal(updated.body.title, "Corrected Tournament Highlights");
+    assert.equal(updated.body.topic, "Clash Squad");
+    assert.equal(updated.body.youtubeId, "a1b2C3d4E5F");
+    assert.equal(updated.body.url, "https://youtu.be/a1b2C3d4E5F");
+    assert.deepEqual(videoTestDb.videos, [{
+      ...videosBefore[0],
+      title: "Corrected Tournament Highlights",
+      topic: "Clash Squad",
+    }]);
+    assert.deepEqual(
+      videoTestDb.watchSessions,
+      watchSessionsBefore,
+      "editing descriptive details must not modify the watch-session record",
+    );
+  });
+});
+
 test("Full Admin cannot permanently delete a video with watch history", async () => {
   videoTestDb.reset();
 
