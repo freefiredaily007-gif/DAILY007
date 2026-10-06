@@ -15,6 +15,12 @@ For duplicate-delivery races, hold the target session row, wait until the first 
 
 **How to apply:** Use `pg_blocking_pids` to establish the first/second wait relationship, release the blocker only after both requests are queued, and verify the loser returns the existing ledger entry without adding another one.
 
+For concurrent video completions from two sessions owned by one player, use different videos so the requests contend at the shared wallet row rather than serializing on a video row. Observe both requests queued at the wallet lock before releasing it, then verify each session points to its own idempotency-keyed ledger row.
+
+**Why:** Reusing one video can serialize completions before the wallet update and hide a lost balance update or crossed session-to-ledger link.
+
+**How to apply:** Create separate active video/session fixtures for one unique player, hold that player's wallet row, and assert both completion results, the total ledger count, final balance, and each session's ledger pointer.
+
 **Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
 
 **Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.
