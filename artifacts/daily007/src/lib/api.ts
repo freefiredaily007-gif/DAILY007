@@ -133,7 +133,7 @@ export function currentUser(): User | null {
 }
 
 export function errMessage(e: any): string {
-  const d = e?.response?.data;
+  const d = e?.response?.data ?? e?.data;
   return (d && (d.error || d.message)) || e?.message || 'Network error. Please try again.';
 }
 

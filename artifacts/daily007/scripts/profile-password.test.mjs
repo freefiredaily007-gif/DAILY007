@@ -3,6 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from "../src/lib/profilePassword.ts";
+import {
+  customFetch,
+  setAuthExpiredHandler,
+  setAuthTokenGetter,
+  setBaseUrl,
+} from "../../../lib/api-client-react/src/custom-fetch.ts";
 
 const profileSource = await readFile(
   new URL("../src/screens/Profile.tsx", import.meta.url),
@@ -12,12 +18,23 @@ const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const apiSource = await readFile(
+  new URL("../src/lib/api.ts", import.meta.url),
+  "utf8",
+);
 const profileSourceFile = ts.createSourceFile(
   "Profile.tsx",
   profileSource,
   ts.ScriptTarget.Latest,
   true,
   ts.ScriptKind.TSX,
+);
+const apiSourceFile = ts.createSourceFile(
+  "api.ts",
+  apiSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TS,
 );
 
 function loadProfileCallback(callbackName, scope) {
@@ -51,6 +68,34 @@ function loadProfileCallback(callbackName, scope) {
     ...Object.keys(scope),
     `${javascript}\nreturn __callback;`,
   )(...Object.values(scope));
+}
+
+function loadApiError() {
+  let declaration;
+  function visit(node) {
+    if (
+      ts.isFunctionDeclaration(node)
+      && node.name?.text === "errMessage"
+    ) {
+      declaration = node;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(apiSourceFile);
+
+  assert.ok(declaration, "Expected the production API error formatter.");
+  const javascript = ts.transpileModule(
+    `const __apiError = function ${declaration.name.text}(${declaration.parameters
+      .map((parameter) => parameter.getText(apiSourceFile))
+      .join(", ")}) ${declaration.body.getText(apiSourceFile)};`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  return new Function(`${javascript}\nreturn __apiError;`)();
 }
 
 function makePassword(length) {
@@ -228,6 +273,146 @@ test("successful Profile password change closes and clears the form and shows su
     /\{!!passwordMessage && <Text style=\{s\.connected\}>\{passwordMessage\}<\/Text>\}/,
     "Profile should render the success message state.",
   );
+});
+
+test("wrong-current-password 401 keeps the form and session available for retry", async () => {
+  const incorrectCurrentPassword = "incorrect-current-password";
+  const newPassword = "replacement-password-for-retry";
+  const confirmNewPassword = newPassword;
+  const calls = {
+    mutationPayloads: [],
+    apiStatus: undefined,
+    errors: [],
+    modalVisibility: [],
+    currentPassword: [],
+    newPassword: [],
+    confirmNewPassword: [],
+    logout: 0,
+    sessionExpired: 0,
+    requests: [],
+  };
+  const setters = {
+    setPasswordError: (value) => calls.errors.push(value),
+    setPasswordMessage: () => {},
+    setPasswordModalVisible: (value) => calls.modalVisibility.push(value),
+    setCurrentPassword: (value) => calls.currentPassword.push(value),
+    setNewPassword: (value) => calls.newPassword.push(value),
+    setConfirmNewPassword: (value) => calls.confirmNewPassword.push(value),
+  };
+  const productionApiError = loadApiError();
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  const submitForCurrentPassword = (currentPassword) => loadProfileCallback("submitPasswordChange", {
+    currentPassword,
+    newPassword,
+    confirmNewPassword,
+    changePassword: async ({ data }) => {
+      calls.mutationPayloads.push(data);
+      return customFetch("/api/auth/me/password", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+    },
+    submitProfilePasswordChange,
+    apiError: (error) => {
+      calls.apiStatus = error?.response?.status;
+      return productionApiError(error);
+    },
+    logout: () => { calls.logout += 1; },
+    ...setters,
+  });
+
+  try {
+    setBaseUrl("https://daily007.test");
+    setAuthTokenGetter(() => "active-daily007-session");
+    setAuthExpiredHandler(() => { calls.sessionExpired += 1; });
+    globalThis.fetch = async (input, init) => {
+      calls.requests.push({
+        url: String(input),
+        method: init?.method,
+        body: init?.body,
+      });
+      requestCount += 1;
+      if (requestCount === 1) {
+        return new Response(JSON.stringify({ error: "Current password is incorrect." }), {
+          status: 401,
+          statusText: "Unauthorized",
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await submitForCurrentPassword(incorrectCurrentPassword)();
+
+    assert.equal(calls.apiStatus, 401, "Profile should receive the actual client error for the API's 401.");
+    assert.equal(calls.errors.at(-1), "Current password is incorrect.");
+    assert.deepEqual(calls.modalVisibility, [], "The rejected change should leave the form open.");
+    assert.deepEqual(calls.currentPassword, [], "The current-password entry should not be cleared.");
+    assert.deepEqual(calls.newPassword, [], "The new-password entry should remain for retry.");
+    assert.deepEqual(calls.confirmNewPassword, [], "The confirmation entry should remain for retry.");
+    assert.equal(calls.sessionExpired, 0, "A wrong password must not trigger the app's session-expired handler.");
+    assert.equal(calls.logout, 0, "A wrong password must not log the player out.");
+
+    for (const field of ["currentPassword", "newPassword", "confirmNewPassword"]) {
+      assert.match(
+        profileSource,
+        new RegExp(`value=\\{${field}\\}`),
+        `The ${field} input should remain bound to its preserved form state.`,
+      );
+    }
+
+    await submitForCurrentPassword("correct-current-password")();
+
+    assert.deepEqual(calls.mutationPayloads, [
+      { currentPassword: incorrectCurrentPassword, newPassword },
+      { currentPassword: "correct-current-password", newPassword },
+    ], "Retrying should only require correcting the current password.");
+    assert.deepEqual(calls.requests.map(({ url, method }) => ({ url, method })), [
+      { url: "https://daily007.test/api/auth/me/password", method: "PATCH" },
+      { url: "https://daily007.test/api/auth/me/password", method: "PATCH" },
+    ]);
+    assert.deepEqual(calls.modalVisibility, [false], "A successful retry should close the form.");
+    assert.deepEqual(calls.newPassword, [""], "The form should clear new-password entries after success.");
+    assert.deepEqual(calls.confirmNewPassword, [""], "The form should clear confirmation after success.");
+    assert.equal(calls.sessionExpired, 0, "The session should remain active through rejection and retry.");
+    assert.equal(calls.logout, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setAuthTokenGetter(null);
+    setAuthExpiredHandler(null);
+    setBaseUrl(null);
+  }
+});
+
+test("an authenticated endpoint 401 still triggers the expired-session handler", async () => {
+  let expiredSessionCalls = 0;
+  const originalFetch = globalThis.fetch;
+
+  try {
+    setBaseUrl("https://daily007.test");
+    setAuthTokenGetter(() => "active-daily007-session");
+    setAuthExpiredHandler(() => { expiredSessionCalls += 1; });
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "Authentication is required." }), {
+      status: 401,
+      statusText: "Unauthorized",
+      headers: { "content-type": "application/json" },
+    });
+
+    await assert.rejects(
+      customFetch("/api/auth/me", { method: "GET" }),
+      (error) => error?.status === 401,
+    );
+    assert.equal(expiredSessionCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setAuthTokenGetter(null);
+    setAuthExpiredHandler(null);
+    setBaseUrl(null);
+  }
 });
 
 test("the shared Input component forwards maxLength to the native text input", () => {

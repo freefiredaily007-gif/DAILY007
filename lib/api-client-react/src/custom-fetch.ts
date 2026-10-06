@@ -150,6 +150,24 @@ function getStringField(value: unknown, key: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+function isIncorrectCurrentPasswordRejection(
+  requestInfo: { method: string; url: string },
+  errorData: unknown,
+): boolean {
+  if (
+    requestInfo.method !== "PATCH" ||
+    getStringField(errorData, "error") !== "Current password is incorrect."
+  ) {
+    return false;
+  }
+
+  try {
+    return new URL(requestInfo.url, "http://localhost").pathname === "/api/auth/me/password";
+  } catch {
+    return false;
+  }
+}
+
 function truncate(text: string, maxLength = 300): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
@@ -372,7 +390,8 @@ export async function customFetch<T = unknown>(
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
-    if (response.status === 401 && attachedDaily007Token) {
+    const isIncorrectCurrentPassword = isIncorrectCurrentPasswordRejection(requestInfo, errorData);
+    if (response.status === 401 && attachedDaily007Token && !isIncorrectCurrentPassword) {
       _authExpiredHandler?.();
     }
     throw new ApiError(response, errorData, requestInfo);
