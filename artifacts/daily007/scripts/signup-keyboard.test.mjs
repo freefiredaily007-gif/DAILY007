@@ -229,6 +229,91 @@ async function inspectFocusedInput(selector) {
   })()`);
 }
 
+async function verifyKeyboardFlow(fields, scenario, requireScroll = false) {
+  await setDeviceViewport(420);
+  const [firstName, firstSelector, firstHint] = fields[0];
+  let state = await focusAndRevealInput(firstSelector);
+  assert(
+    state?.focused && state.keyboardVisible && state.scrollable &&
+      state.fieldTop >= state.viewportTop - 1 &&
+      state.fieldBottom <= state.viewportBottom + 1,
+    `${scenario}: ${firstName} was not focused and visible above the open keyboard: ${JSON.stringify(state)}.`,
+  );
+  assert(
+    state.enterKeyHint === firstHint,
+    `${scenario}: ${firstName} does not offer the ${firstHint} keyboard action: ${JSON.stringify(state)}.`,
+  );
+  console.log(`PASS — ${scenario}: ${firstName} is focused and visible above the open keyboard.`);
+
+  let maxScrollTop = state.scrollTop;
+  for (let index = 1; index < fields.length; index += 1) {
+    const [name, selector, enterKeyHint] = fields[index];
+    await pressKeyboardAction();
+    await waitForCondition(
+      `document.activeElement === document.querySelector(${JSON.stringify(selector)})`,
+      `${scenario}: ${name} focus after the keyboard Next action`,
+    );
+    state = await inspectFocusedInput(selector);
+    assert(
+      state?.focused && state.keyboardVisible && state.scrollable &&
+        state.fieldTop >= state.viewportTop - 1 &&
+        state.fieldBottom <= state.viewportBottom + 1,
+      `${scenario}: ${name} did not stay focused and visible above the keyboard after Next: ${JSON.stringify(state)}.`,
+    );
+    assert(
+      state.enterKeyHint === enterKeyHint,
+      `${scenario}: ${name} offers ${state.enterKeyHint ?? "no"} keyboard action instead of ${enterKeyHint}: ${JSON.stringify(state)}.`,
+    );
+    if (state.scrollTop > maxScrollTop) maxScrollTop = state.scrollTop;
+    console.log(`PASS — ${scenario}: Next focuses ${name}, which stays visible with the keyboard open.`);
+  }
+  if (requireScroll) {
+    assert(maxScrollTop > 0, `${scenario}: the signup form did not scroll to reveal its lower fields.`);
+  }
+
+  const [lastName, lastSelector] = fields[fields.length - 1];
+  await pressKeyboardAction();
+  await waitForCondition(
+    `document.activeElement !== document.querySelector(${JSON.stringify(lastSelector)})`,
+    `${scenario}: ${lastName} Done action to dismiss the keyboard`,
+  );
+  assert(
+    await evaluate("window.__daily007SignupKeyboardTest.getRegisterCalls() === 0"),
+    `${scenario}: the final keyboard action sent a signup request.`,
+  );
+  await setDeviceViewport(720);
+}
+
+async function assertCreateAccountReachable(scenario) {
+  const submitState = await evaluate(`(() => new Promise((resolve) => {
+    const button = document.querySelector('[aria-label="Create Account"]');
+    if (!button) return resolve({ error: "Create Account button not found" });
+    let scroll = button.parentElement;
+    while (scroll && scroll !== document.documentElement) {
+      const overflowY = getComputedStyle(scroll).overflowY;
+      if (/(auto|scroll)/.test(overflowY) && scroll.scrollHeight > scroll.clientHeight + 1) break;
+      scroll = scroll.parentElement;
+    }
+    if (scroll && scroll !== document.documentElement) scroll.scrollTop = scroll.scrollHeight;
+    requestAnimationFrame(() => {
+      const rect = button.getBoundingClientRect();
+      resolve({
+        visible: rect.top >= 0 && rect.bottom <= window.innerHeight,
+        keyboardClosed: window.innerHeight === window.screen.height,
+        registerCalls: window.__daily007SignupKeyboardTest.getRegisterCalls(),
+        top: rect.top,
+        bottom: rect.bottom,
+        height: window.innerHeight,
+      });
+    });
+  }))()`);
+  assert(
+    submitState?.visible && submitState.keyboardClosed && submitState.registerCalls === 0,
+    `${scenario}: Create Account was not reachable after Done, or a signup request escaped the stub: ${JSON.stringify(submitState)}.`,
+  );
+  console.log(`PASS — ${scenario}: Done dismisses the keyboard and Create Account is reachable; no account request was made.`);
+}
+
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
@@ -342,57 +427,13 @@ try {
 
   // Chromium has no software keyboard. Keep the device screen at 375×720 and
   // reduce the available app viewport by 300px to model the open keyboard.
-  await setDeviceViewport(420);
   const fields = [
     ["Name", 'input[placeholder="Enter Name"]', "next"],
     ["Referral", 'input[placeholder="Referral Code (Optional)"]', "next"],
     ["Email", 'input[placeholder="Enter Email"]', "next"],
     ["Password", 'input[placeholder^="Password"]', "done"],
   ];
-  let state = await focusAndRevealInput(fields[0][1]);
-  assert(
-    state?.focused && state.keyboardVisible && state.scrollable &&
-      state.fieldTop >= state.viewportTop - 1 &&
-      state.fieldBottom <= state.viewportBottom + 1,
-    `Name was not focused and visible above the keyboard: ${JSON.stringify(state)}.`,
-  );
-  assert(state.enterKeyHint === fields[0][2], `Name does not offer the Next keyboard action: ${JSON.stringify(state)}.`);
-  console.log("PASS — Name is focused and visible above the open keyboard.");
-
-  let maxScrollTop = state.scrollTop;
-  for (let index = 1; index < fields.length; index += 1) {
-    const [name, selector, enterKeyHint] = fields[index];
-    await pressKeyboardAction();
-    await waitForCondition(
-      `document.activeElement === document.querySelector(${JSON.stringify(selector)})`,
-      `${name} focus after the keyboard Next action`,
-    );
-    state = await inspectFocusedInput(selector);
-    assert(
-      state?.focused && state.keyboardVisible && state.scrollable &&
-        state.fieldTop >= state.viewportTop - 1 &&
-        state.fieldBottom <= state.viewportBottom + 1,
-      `${name} did not stay focused and visible above the keyboard after Next: ${JSON.stringify(state)}.`,
-    );
-    assert(
-      state.enterKeyHint === enterKeyHint,
-      `${name} offers ${state.enterKeyHint ?? "no"} keyboard action instead of ${enterKeyHint}: ${JSON.stringify(state)}.`,
-    );
-    if (state.scrollTop > maxScrollTop) maxScrollTop = state.scrollTop;
-    console.log(`PASS — Next focuses ${name}, which stays visible with the keyboard open.`);
-  }
-  assert(maxScrollTop > 0, "The signup form did not scroll to reveal its lower fields.");
-
-  await pressKeyboardAction();
-  await waitForCondition(
-    `document.activeElement !== document.querySelector(${JSON.stringify(fields[3][1])})`,
-    "Password Done action to dismiss the keyboard",
-  );
-  assert(
-    await evaluate("window.__daily007SignupKeyboardTest.getRegisterCalls() === 0"),
-    "The final keyboard action sent a signup request.",
-  );
-  await setDeviceViewport(720);
+  await verifyKeyboardFlow(fields, "Signup without a prefilled referral", true);
   for (const [selector, text] of [
     ['input[placeholder="Enter Name"]', "Test Player"],
     ['input[placeholder="Enter Email"]', "test@example.invalid"],
@@ -418,34 +459,43 @@ try {
     }),
     `Signup labels changed or disappeared after fields contained text: ${JSON.stringify(filledAccessibility)}.`,
   );
-  const submitState = await evaluate(`(() => new Promise((resolve) => {
-    const button = document.querySelector('[aria-label="Create Account"]');
-    if (!button) return resolve({ error: "Create Account button not found" });
-    let scroll = button.parentElement;
-    while (scroll && scroll !== document.documentElement) {
-      const overflowY = getComputedStyle(scroll).overflowY;
-      if (/(auto|scroll)/.test(overflowY) && scroll.scrollHeight > scroll.clientHeight + 1) break;
-      scroll = scroll.parentElement;
-    }
-    if (scroll && scroll !== document.documentElement) scroll.scrollTop = scroll.scrollHeight;
-    requestAnimationFrame(() => {
-      const rect = button.getBoundingClientRect();
-      resolve({
-        visible: rect.top >= 0 && rect.bottom <= window.innerHeight,
-        keyboardClosed: window.innerHeight === window.screen.height,
-        registerCalls: window.__daily007SignupKeyboardTest.getRegisterCalls(),
-        top: rect.top,
-        bottom: rect.bottom,
-        height: window.innerHeight,
-      });
-    });
+  await assertCreateAccountReachable("Signup without a prefilled referral");
+
+  await cdp("Page.navigate", {
+    url: `http://127.0.0.1:${vitePort}/signup-keyboard-preview.html?ref=D7MAX&source=invite`,
+  });
+  await waitForCondition(
+    `Boolean(window.__daily007SignupKeyboardTest?.ready &&
+      document.querySelector('input[placeholder="Enter Name"]') &&
+      document.querySelector('input[placeholder="Enter Email"]') &&
+      document.querySelector('input[placeholder^="Password"]') &&
+      !document.querySelector('input[placeholder="Referral Code (Optional)"]') &&
+      document.body.innerText.includes("Referral code D7MAX applied"))`,
+    "Signup form with prefilled D7MAX invite code and hidden referral input",
+  );
+  const invitedSignupFields = await evaluate(`(() => ({
+    referralApplied: document.body.innerText.includes("Referral code D7MAX applied"),
+    referralInputCount: document.querySelectorAll('input[placeholder="Referral Code (Optional)"]').length,
+    fields: [...document.querySelectorAll("input")].map((input) => input.getAttribute("aria-label")),
   }))()`);
   assert(
-    submitState?.visible && submitState.keyboardClosed && submitState.registerCalls === 0,
-    `Create Account was not reachable after the keyboard Done action, or a signup request escaped the stub: ${JSON.stringify(submitState)}.`,
+    JSON.stringify(invitedSignupFields) === JSON.stringify({
+      referralApplied: true,
+      referralInputCount: 0,
+      fields: ["Name", "Email", "Password"],
+    }),
+    `The valid D7MAX invite did not hide the referral input and leave Name, Email, and Password: ${JSON.stringify(invitedSignupFields)}.`,
   );
+  console.log("PASS — D7MAX invite code is applied and the referral input is hidden.");
+
+  const invitedFields = [
+    ["Name", 'input[placeholder="Enter Name"]', "next"],
+    ["Email", 'input[placeholder="Enter Email"]', "next"],
+    ["Password", 'input[placeholder^="Password"]', "done"],
+  ];
+  await verifyKeyboardFlow(invitedFields, "Invite signup with hidden referral");
+  await assertCreateAccountReachable("Invite signup with hidden referral");
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — Done dismisses the keyboard and Create Account is reachable; no account creation request was made.");
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);
