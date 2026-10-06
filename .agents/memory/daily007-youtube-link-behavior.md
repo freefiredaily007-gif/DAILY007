@@ -14,3 +14,5 @@ On 2026-10-05, the user confirmed on an iQOO Neo 10 running Android 16 that full
 **Why:** Native WebView fullscreen and Android hardware-Back ordering cannot be verified from browser previews or inferred from JavaScript alone.
 
 **How to apply:** Treat this as device-specific validation; recheck on a physical Android phone after changes to the embedded player, React Native WebView, or navigation behavior.
+
+On 2026-10-06, the user confirmed with YouTube disabled that the explicit YouTube action opened the selected video in the browser, catalog cards still opened the in-app player, and returning to Daily007 then choosing Back to Videos preserved the filtered catalog.
