@@ -6,7 +6,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { getClerkInstance } from '@clerk/expo';
 import { useSSO } from '@clerk/expo';
 import { Api, apiError, setSession, User } from '../lib/api';
-import { runGoogleSSOFlow } from '../lib/google-sso-flow';
+import { runGoogleSSOAttempt, runGoogleSSOFlow } from '../lib/google-sso-flow';
 import { C, Input, Msg } from './ui';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -105,9 +105,8 @@ function ConfiguredGoogleButton({
     setRecoveryAvailable(false);
     setRecoverySubmitted(false);
     setOwnerRecoveryCode('');
-    setBusy(true);
-    try {
-      const result = await runGoogleSSOFlow({
+    await runGoogleSSOAttempt({
+      authenticate: () => runGoogleSSOFlow({
         getActiveSession: () => getClerkInstance().session,
         startSSOFlow: async () => {
           const redirectUrl = Platform.OS === 'web'
@@ -122,25 +121,22 @@ function ConfiguredGoogleButton({
           ...(dailyToken ? { dailyToken } : {}),
           ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
         }),
-      });
-
-      if (result.status === 'cancelled') return;
-      if (result.status === 'error') {
-        showError(result.message);
-        return;
-      }
-
-      const authenticated = result.value;
-      setSession(authenticated.user);
-      await onSuccess(authenticated.user);
-    } catch (e: any) {
-      const message = apiError(e);
-      showError(message === 'Network Error'
-        ? 'Could not reach Daily007. Check your connection and try again.'
-        : message);
-    } finally {
-      setBusy(false);
-    }
+      }),
+      setLoading: setBusy,
+      showError,
+      onSuccess: (authenticated) => {
+        setSession(authenticated.user);
+        return onSuccess(authenticated.user);
+      },
+      getErrorMessage: (e) => {
+        const message = apiError(e);
+        if (message === 'Network Error') {
+          return 'Could not reach Daily007. Check your connection and try again.';
+        }
+        if (message === RECOVERY_CONFLICT || /try again/i.test(message)) return message;
+        return `${message} Please try again.`;
+      },
+    });
   };
 
   const requestRecovery = async () => {

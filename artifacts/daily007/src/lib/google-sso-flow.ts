@@ -21,8 +21,40 @@ type GoogleSSOFlowOptions<T> = {
   exchangeToken: (verifiedClerkToken: string) => Promise<T>;
 };
 
+type GoogleSSOAttemptOptions<T> = {
+  authenticate: () => Promise<GoogleSSOFlowResult<T>>;
+  setLoading: (loading: boolean) => void;
+  showError: (message: string) => void;
+  onSuccess: (value: T) => void | Promise<void>;
+  getErrorMessage: (error: unknown) => string;
+};
+
 const INACTIVE_SESSION_MESSAGE =
   'Google sign-in finished, but Clerk did not activate the expected session. Please try again.';
+
+export async function runGoogleSSOAttempt<T>({
+  authenticate,
+  setLoading,
+  showError,
+  onSuccess,
+  getErrorMessage,
+}: GoogleSSOAttemptOptions<T>): Promise<void> {
+  setLoading(true);
+  try {
+    const result = await authenticate();
+    if (result.status === 'cancelled') return;
+    if (result.status === 'error') {
+      showError(result.message);
+      return;
+    }
+
+    await onSuccess(result.value);
+  } catch (error) {
+    showError(getErrorMessage(error));
+  } finally {
+    setLoading(false);
+  }
+}
 
 export async function runGoogleSSOFlow<T>({
   getActiveSession,

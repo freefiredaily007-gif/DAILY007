@@ -4,6 +4,7 @@ import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
 import {
   getSSOCallbackMessage,
+  runGoogleSSOAttempt,
   runGoogleSSOFlow,
 } from "../src/lib/google-sso-flow.ts";
 
@@ -223,6 +224,70 @@ test("a mismatched active Clerk session is a retryable error", async () => {
   assert.equal(exchanges, 0);
 });
 
+test("a rejected Clerk activation restores the Google button and reports a retryable error", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  let successCalls = 0;
+  let exchanges = 0;
+  const result = await runGoogleSSOAttempt({
+    authenticate: () => runGoogleSSOFlow({
+      getActiveSession: () => null,
+      async startSSOFlow() {
+        return {
+          createdSessionId: "fresh-session",
+          async setActive() {
+            throw new Error("Clerk activation failed");
+          },
+        };
+      },
+      async exchangeToken() {
+        exchanges += 1;
+        return "unexpected";
+      },
+    }),
+    setLoading: (loading) => loadingChanges.push(loading),
+    showError: (message) => errors.push(message),
+    onSuccess: () => {
+      successCalls += 1;
+    },
+    getErrorMessage: (error) => `${error.message}. Please try again.`,
+  });
+
+  assert.equal(result, undefined);
+  assert.deepEqual(loadingChanges, [true, false]);
+  assert.deepEqual(errors, ["Clerk activation failed. Please try again."]);
+  assert.equal(exchanges, 0);
+  assert.equal(successCalls, 0);
+});
+
+test("a rejected Daily007 token exchange restores the Google button and reports a retryable error", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  let successCalls = 0;
+  const result = await runGoogleSSOAttempt({
+    authenticate: () => runGoogleSSOFlow({
+      getActiveSession: () => createSession("active-session", []),
+      async startSSOFlow() {
+        assert.fail("OAuth should not start when a Clerk session already exists");
+      },
+      async exchangeToken() {
+        throw new Error("Daily007 is temporarily unavailable");
+      },
+    }),
+    setLoading: (loading) => loadingChanges.push(loading),
+    showError: (message) => errors.push(message),
+    onSuccess: () => {
+      successCalls += 1;
+    },
+    getErrorMessage: (error) => `${error.message}. Please try again.`,
+  });
+
+  assert.equal(result, undefined);
+  assert.deepEqual(loadingChanges, [true, false]);
+  assert.deepEqual(errors, ["Daily007 is temporarily unavailable. Please try again."]);
+  assert.equal(successCalls, 0);
+});
+
 test("an active Clerk session without a verified token is not exchanged with the API", async () => {
   const events = [];
   const activeSession = createSession("active-session", events, null);
@@ -313,7 +378,14 @@ test("the React Native button and callback route use the isolated handoff and me
     "utf8",
   );
 
-  assert.match(buttonSource, /runGoogleSSOFlow\(/);
+  assert.match(buttonSource, /runGoogleSSOAttempt\(/);
+  assert.match(buttonSource, /authenticate:\s*\(\)\s*=>\s*runGoogleSSOFlow\(/);
+  assert.match(buttonSource, /setLoading:\s*setBusy/);
+  assert.match(buttonSource, /disabled=\{disabled \|\| loading\}/);
+  assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
+  assert.match(buttonSource, /return `\$\{message\} Please try again\.`/);
+  assert.match(buttonSource, /setError\(message\);[\s\S]*?onError\?\.\(message\);/);
+  assert.match(buttonSource, /\{!!error && !onError && <Msg kind="err" text=\{error\} \/>/);
   assert.match(buttonSource, /getActiveSession:\s*\(\)\s*=>\s*getClerkInstance\(\)\.session/);
   assert.match(buttonSource, /strategy:\s*'oauth_google'/);
   assert.match(buttonSource, /AuthSession\.makeRedirectUri\(\{ scheme: 'daily007', path: 'sso-callback' \}\)/);
