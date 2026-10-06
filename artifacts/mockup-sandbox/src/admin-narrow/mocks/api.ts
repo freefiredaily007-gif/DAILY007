@@ -214,6 +214,11 @@ const previewAdminTransactions = [
 const empty = async () => [];
 let tournamentReadCount = 0;
 let nextTournamentReadError: string | null = null;
+let deferredTournamentRead: {
+  promise: Promise<any[]>;
+  reject: (error: Error) => void;
+  claimed: boolean;
+} | null = null;
 let playerLargestTextPreview = false;
 let myRegistrationReadCount = 0;
 let homeCarouselRegistrationPreview: any[] | null = null;
@@ -343,6 +348,10 @@ export const Api = {
       const error = nextTournamentReadError;
       nextTournamentReadError = null;
       throw new Error(error);
+    }
+    if (deferredTournamentRead && !deferredTournamentRead.claimed) {
+      deferredTournamentRead.claimed = true;
+      return deferredTournamentRead.promise;
     }
     const tournaments = isAdminLargestTextPreview() || playerLargestTextPreview
       ? largestTextTournaments
@@ -507,6 +516,23 @@ export function getMyRegistrationReadCount() {
 
 export function resetTournamentReadCount() {
   tournamentReadCount = 0;
+}
+
+export function deferNextTournamentRead() {
+  if (deferredTournamentRead) throw new Error("A tournament read is already deferred.");
+  let reject!: (error: Error) => void;
+  const promise = new Promise<any[]>((_, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  deferredTournamentRead = { promise, reject, claimed: false };
+}
+
+export function failDeferredTournamentRead(message = "Held retry request failed") {
+  const deferred = deferredTournamentRead;
+  if (!deferred?.claimed) return false;
+  deferredTournamentRead = null;
+  deferred.reject(new Error(message));
+  return true;
 }
 
 export function failNextTournamentRead(message = "Temporary network error") {

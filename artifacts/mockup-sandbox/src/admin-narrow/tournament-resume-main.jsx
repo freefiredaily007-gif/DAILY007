@@ -106,6 +106,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
+    deferNextTournamentRead: apiMocks.deferNextTournamentRead,
+    failDeferredTournamentRead: apiMocks.failDeferredTournamentRead,
     getVisibilityChangeCount: () => visibilityChangeCount,
     getVisibilityState: () => visibilityState,
     updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),

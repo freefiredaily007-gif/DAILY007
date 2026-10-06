@@ -24,6 +24,7 @@ const adminTabs = [
 const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
+const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
@@ -1147,6 +1148,85 @@ async function checkAdminInitialLoadFailure() {
   );
 }
 
+async function checkAdminRetryConcurrency() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the Admin Retry concurrency preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('Could not load tournaments: Initial Admin tournament request failed') && Boolean(document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]'))",
+    "the Admin initial-load error and Retry control",
+  );
+
+  const readsBeforeRetry = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
+  await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  const retrySelector = '[data-testid="admin-tournament-refresh-retry"]';
+  await tapSelector(retrySelector, "Admin Retry control");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRetry + 1}`,
+    "the held Admin retry request to start",
+  );
+  const pendingRetryState = await evaluate(`(() => {
+    const retry = document.querySelector('${retrySelector}');
+    return retry ? {
+      disabledProperty: retry.disabled,
+      disabledAttribute: retry.getAttribute('disabled'),
+      ariaDisabled: retry.getAttribute('aria-disabled'),
+      hasProgressIndicator: Boolean(retry.querySelector('[role="progressbar"]')),
+      role: retry.getAttribute('role'),
+      html: retry.outerHTML,
+    } : null;
+  })()`);
+  assert(
+    pendingRetryState?.disabledProperty === true
+      && pendingRetryState?.ariaDisabled === "true"
+      && pendingRetryState?.hasProgressIndicator === true,
+    `The held Admin retry should report disabled state and show a busy indicator: ${JSON.stringify(pendingRetryState)}`,
+  );
+  assert(
+    await evaluate("document.body.innerText.split('Could not load tournaments: Initial Admin tournament request failed').length - 1") === 1,
+    "The pending retry must leave one clear initial-load error visible.",
+  );
+
+  await tapSelector(retrySelector, "disabled Admin Retry control during the held request");
+  await tapSelector(retrySelector, "disabled Admin Retry control during the held request");
+  assert(
+    await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBeforeRetry + 1,
+    "Repeated taps while the Admin retry is pending must not send duplicate tournament requests.",
+  );
+  assert(
+    await evaluate(`(() => {
+      const retry = document.querySelector('${retrySelector}');
+      return retry?.disabled === true
+        && retry?.getAttribute('aria-disabled') === 'true'
+        && Boolean(retry.querySelector('[role="progressbar"]'));
+    })()`),
+    "The Admin Retry control must remain disabled with its busy indicator until its request settles.",
+  );
+
+  const heldReadFailed = await evaluate(
+    "window.__daily007TournamentResume.failDeferredTournamentRead('Held retry request failed')",
+  );
+  assert(heldReadFailed, "The test must release the held Admin request with a failure.");
+  await waitForCondition(
+    `document.body.innerText.includes('Could not load tournaments: Held retry request failed') && !document.body.innerText.includes('Could not load tournaments: Initial Admin tournament request failed') && document.querySelector('${retrySelector}')?.disabled === false && !document.querySelector('${retrySelector}')?.querySelector('[role="progressbar"]')`,
+    "the failed Admin request to show one new error and re-enable Retry",
+  );
+  assert(
+    await evaluate("document.body.innerText.split('Could not load tournaments:').length - 1") === 1,
+    "A failed Admin retry must leave exactly one clear load error.",
+  );
+
+  const readsBeforeRecovery = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await tapSelector(retrySelector, "re-enabled Admin Retry control");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRecovery} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments')`,
+    "a subsequent Admin retry to load the tournament and clear the error",
+  );
+  await assertText("IST Start Boundary", "the Admin tournament after retry becomes reusable");
+}
+
 async function triggerPlayerManualRefresh() {
   await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await tapSelector(
@@ -2215,7 +2295,7 @@ try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = adminInitialLoadFailureOnly
+  const previewPath = adminInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
     : manualRefreshOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
@@ -2291,6 +2371,7 @@ try {
     resumeOnly ||
     initialLoadFailureOnly ||
     adminInitialLoadFailureOnly ||
+    adminRetryConcurrencyOnly ||
     manualRefreshOnly ||
     scheduledStartOnly ||
     homeCarouselOnly ||
@@ -2300,11 +2381,11 @@ try {
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly || adminInitialLoadFailureOnly || manualRefreshOnly
+        || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
         ? 390
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly || adminInitialLoadFailureOnly || manualRefreshOnly
+        || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
         ? 844
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -2317,6 +2398,8 @@ try {
           ? "Player first-load failure"
         : adminInitialLoadFailureOnly
           ? "Admin first-load failure"
+        : adminRetryConcurrencyOnly
+          ? "Admin Retry concurrency"
         : manualRefreshOnly
           ? "Player pull-to-refresh"
         : scheduledStartOnly
@@ -2329,7 +2412,14 @@ try {
           ? "Admin selected-record actions"
           : "player and Admin tournament screens",
     );
-    if (adminInitialLoadFailureOnly) {
+    if (adminRetryConcurrencyOnly) {
+      await checkAdminRetryConcurrency();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin Retry concurrency checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Repeated taps while an Admin Retry is pending do not duplicate requests; failure re-enables the control for recovery.");
+    } else if (adminInitialLoadFailureOnly) {
       await checkAdminInitialLoadFailure();
       assert(
         browserErrors.length === 0,
