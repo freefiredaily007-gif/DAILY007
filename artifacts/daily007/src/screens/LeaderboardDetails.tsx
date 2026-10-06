@@ -316,28 +316,61 @@ export default function LeaderboardDetails({ navigation, route }: any) {
         ) : null}
 
         {query.isLoading ? (
-          <Loading />
+          <Loading accessibilityLabel="Loading leaderboard" />
         ) : query.error && !period ? (
           <View style={styles.message}>
-            <Feather name="alert-circle" size={28} color={C.red} />
-            <Text style={styles.messageText}>{`Leaderboard is unavailable: ${apiError(query.error)}`}</Text>
+            <Feather accessible={false} name="alert-circle" size={28} color={C.red} />
+            <Text
+              accessible
+              accessibilityRole="text"
+              testID="leaderboard-error-guidance"
+              style={styles.messageText}
+            >
+              {`Leaderboard is unavailable: ${apiError(query.error)}`}
+            </Text>
           </View>
         ) : !period ? (
           <View style={styles.message}>
-            <Feather name="award" size={30} color={accent} />
-            <Text style={styles.messageText}>Leaderboard data is not available yet.</Text>
+            <Feather accessible={false} name="award" size={30} color={accent} />
+            <Text
+              accessible
+              accessibilityRole="text"
+              testID="leaderboard-unavailable-guidance"
+              style={styles.messageText}
+            >
+              Leaderboard data is not available yet.
+            </Text>
           </View>
         ) : standings.length === 0 ? (
           <View style={styles.message}>
-            <Feather name="award" size={30} color={accent} />
-            <Text style={styles.messageText}>
+            <Feather accessible={false} name="award" size={30} color={accent} />
+            <Text
+              accessible
+              accessibilityRole="text"
+              testID="leaderboard-no-awards-guidance"
+              style={styles.messageText}
+            >
               No match awards yet this cycle. Rankings update when tournament results are published.
             </Text>
-            <Text style={styles.range}>{dateRange(period)}</Text>
+            <Text
+              accessible
+              accessibilityRole="text"
+              testID="leaderboard-empty-date-range"
+              style={styles.range}
+            >
+              {dateRange(period)}
+            </Text>
           </View>
         ) : (
           <>
-            <Text style={styles.range}>{dateRange(period)}</Text>
+            <Text
+              accessible
+              accessibilityRole="text"
+              testID="leaderboard-populated-date-range"
+              style={styles.range}
+            >
+              {dateRange(period)}
+            </Text>
             <View style={styles.podiumPanel} testID="leaderboard-top-three">
               <View style={[styles.podium, largeText && styles.podiumLarge]}>
                 {podium.map(({ rank, standing }) => (

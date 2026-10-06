@@ -12,6 +12,10 @@ const screenSource = await readFile(
   new URL("../src/screens/LeaderboardDetails.tsx", import.meta.url),
   "utf8",
 );
+const uiSource = await readFile(
+  new URL("../src/components/ui.tsx", import.meta.url),
+  "utf8",
+);
 const expectedTopTwentyRanks = Array.from({ length: 20 }, (_, index) => index + 1);
 const expectedExpandedRanks = Array.from({ length: 17 }, (_, index) => index + 4);
 
@@ -23,6 +27,16 @@ function pressableForTestId(testId) {
   const end = screenSource.indexOf("</Pressable>", markerIndex);
   assert.ok(start >= 0 && end > markerIndex, `Expected ${testId} on a Pressable.`);
   return screenSource.slice(start, end + "</Pressable>".length);
+}
+
+function textForTestId(testId) {
+  const marker = `testID="${testId}"`;
+  const markerIndex = screenSource.indexOf(marker);
+  assert.ok(markerIndex >= 0, `Expected text with testID ${testId}.`);
+  const start = screenSource.lastIndexOf("<Text", markerIndex);
+  const end = screenSource.indexOf("</Text>", markerIndex);
+  assert.ok(start >= 0 && end > markerIndex, `Expected ${testId} on a Text element.`);
+  return screenSource.slice(start, end + "</Text>".length);
 }
 
 test("expanded player rows announce rank, player, and coin score as one ordered label", () => {
@@ -134,6 +148,60 @@ test("cycle tabs expose their names and selection, and switching closes the expa
   assert.ok(onPress, "Each tab must have a cycle-switching handler.");
   assert.match(onPress[1], /setShowTop20\(false\);/);
   assert.match(onPress[1], /navigation\.setParams\(\{ cycleType: key \}\);/);
+});
+
+test("empty and unavailable leaderboard guidance is exposed as readable text", () => {
+  const noAwards = textForTestId("leaderboard-no-awards-guidance");
+  assert.match(noAwards, /\baccessible\b/);
+  assert.match(noAwards, /accessibilityRole="text"/);
+  assert.match(noAwards, /No match awards yet this cycle\.\s*Rankings update when tournament results are published\./);
+
+  const emptyDateRange = textForTestId("leaderboard-empty-date-range");
+  assert.match(emptyDateRange, /\baccessible\b/);
+  assert.match(emptyDateRange, /accessibilityRole="text"/);
+  assert.match(emptyDateRange, /\{dateRange\(period\)\}/);
+  assert.match(textForTestId("leaderboard-populated-date-range"), /accessibilityRole="text"/);
+
+  const unavailable = textForTestId("leaderboard-unavailable-guidance");
+  assert.match(unavailable, /\baccessible\b/);
+  assert.match(unavailable, /accessibilityRole="text"/);
+  assert.match(unavailable, /Leaderboard data is not available yet\./);
+
+  const error = textForTestId("leaderboard-error-guidance");
+  assert.match(error, /\baccessible\b/);
+  assert.match(error, /accessibilityRole="text"/);
+  assert.match(error, /Leaderboard is unavailable: \$\{apiError\(query\.error\)\}/);
+});
+
+test("loading, error, unavailable, empty, and populated states stay distinct", () => {
+  const branchMarkers = [
+    "{query.isLoading ? (",
+    ") : query.error && !period ? (",
+    ") : !period ? (",
+    ") : standings.length === 0 ? (",
+    ") : (",
+  ];
+  let searchFrom = 0;
+  const branchIndexes = branchMarkers.map((marker) => {
+    const index = screenSource.indexOf(marker, searchFrom);
+    searchFrom = index + marker.length;
+    return index;
+  });
+  assert.ok(
+    branchIndexes.every((index, position) => index >= 0 && (position === 0 || index > branchIndexes[position - 1])),
+    "Loading, error, missing-period, empty, and populated branches must remain separate and ordered.",
+  );
+  assert.match(
+    screenSource.slice(branchIndexes[0], branchIndexes[1]),
+    /<Loading accessibilityLabel="Loading leaderboard" \/>/,
+  );
+
+  const loadingStart = uiSource.indexOf("export function Loading(");
+  const loadingEnd = uiSource.indexOf("\n}\n", loadingStart);
+  assert.ok(loadingStart >= 0 && loadingEnd > loadingStart, "The shared loading indicator must remain present.");
+  const loadingComponent = uiSource.slice(loadingStart, loadingEnd);
+  assert.match(loadingComponent, /accessibilityRole=\{accessibilityLabel \? "progressbar" : undefined\}/);
+  assert.match(loadingComponent, /accessibilityLabel=\{accessibilityLabel\}/);
 });
 
 for (const [cycle, ranks] of [

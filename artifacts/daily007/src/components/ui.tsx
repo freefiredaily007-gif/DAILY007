@@ -240,9 +240,17 @@ export function Empty({ icon, text, actionLabel, onAction }: {
   );
 }
 
-export function Loading() {
+export function Loading({ accessibilityLabel }: { accessibilityLabel?: string } = {}) {
   const adminSurface = useAdminSurface();
-  return <ActivityIndicator color={adminSurface ? C.orange : C.neon} style={{ marginTop: 40 }} size="large" />;
+  return (
+    <ActivityIndicator
+      accessibilityRole={accessibilityLabel ? "progressbar" : undefined}
+      accessibilityLabel={accessibilityLabel}
+      color={adminSurface ? C.orange : C.neon}
+      style={{ marginTop: 40 }}
+      size="large"
+    />
+  );
 }
 
 export function SectionTitle({ children, accent, icon }: { children: React.ReactNode; accent?: string; icon?: keyof typeof Feather.glyphMap }) {
