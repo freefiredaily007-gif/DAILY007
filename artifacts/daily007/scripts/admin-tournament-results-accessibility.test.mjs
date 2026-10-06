@@ -77,6 +77,21 @@ test('result validation and API errors are politely announced', () => {
   assert.match(screenSource, /const publishError = apiError\(e\)/);
 });
 
+test('approved-player load failures use one polite retry announcement without moving focus', () => {
+  const failureMessage = screenSource.match(
+    /resultRegs === null \?\s*\(\s*resultBusy \? <Loading \/> : (<Text\b[^>]*>Approved registrations could not be loaded\. Close and reopen this panel to retry\.<\/Text>)\s*\)\s*:\s*eligibleResultRegs\.length === 0 \?/,
+  )?.[1];
+
+  assert.ok(failureMessage, 'The visible approved-player failure and retry guidance must remain present.');
+  assert.match(failureMessage, /accessibilityLiveRegion="polite"/);
+  assert.equal(
+    (failureMessage.match(/accessibilityLiveRegion="polite"/g) ?? []).length,
+    1,
+    'The failure guidance must have only one live-region announcement.',
+  );
+  assert.doesNotMatch(failureMessage, /setAccessibilityFocus|\.focus\(/);
+});
+
 test('tournament and room-management errors use polite live regions', () => {
   assert.match(
     screenSource,

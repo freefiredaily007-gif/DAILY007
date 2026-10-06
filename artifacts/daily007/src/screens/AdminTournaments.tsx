@@ -761,7 +761,7 @@ export default function AdminTournaments() {
                 <Msg kind="err" text={resultError} accessibilityLiveRegion="polite" />
                 <Msg kind="ok" text={resultSuccess} accessibilityLiveRegion="polite" />
                 {resultRegs === null ? (
-                  resultBusy ? <Loading /> : <Text style={st.actionHint}>Approved registrations could not be loaded. Close and reopen this panel to retry.</Text>
+                  resultBusy ? <Loading /> : <Text accessibilityLiveRegion="polite" style={st.actionHint}>Approved registrations could not be loaded. Close and reopen this panel to retry.</Text>
                 ) : eligibleResultRegs.length === 0 ? (
                   <Empty text={resultError
                     ? 'Approved registrations could not be loaded. Close and reopen this panel to retry.'
