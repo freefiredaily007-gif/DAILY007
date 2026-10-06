@@ -549,6 +549,67 @@ async function assertTournamentStatusTabsFit(width) {
   );
 }
 
+async function assertTournamentStatusFilter(status) {
+  const expectations = {
+    upcoming: {
+      statusCounts: { UPCOMING: 1, ONGOING: 0, COMPLETED: 0 },
+      actions: [
+        "edit-tournament-preview-upcoming",
+        "delete-tournament-preview-upcoming",
+        "manage-room-preview-upcoming",
+      ],
+    },
+    ongoing: {
+      statusCounts: { UPCOMING: 0, ONGOING: 1, COMPLETED: 0 },
+      actions: [
+        "cancel-tournament-preview-ongoing",
+        "manage-room-preview-ongoing",
+        "finish-tournament-preview-ongoing",
+      ],
+    },
+    completed: {
+      statusCounts: { UPCOMING: 0, ONGOING: 0, COMPLETED: 1 },
+      actions: ["completed-result-log-preview-completed"],
+    },
+  };
+  const expected = expectations[status];
+  assert(expected, `Unknown tournament lifecycle filter "${status}".`);
+  const state = await evaluate(`(() => {
+    const pageText = document.body.innerText;
+    const filter = document.querySelector('[data-testid="admin-tournament-tab-${status}"]');
+    const statusLabels = ["UPCOMING", "ONGOING", "COMPLETED"];
+    const actionIds = [
+      "edit-tournament-preview-upcoming",
+      "delete-tournament-preview-upcoming",
+      "manage-room-preview-upcoming",
+      "cancel-tournament-preview-ongoing",
+      "manage-room-preview-ongoing",
+      "finish-tournament-preview-ongoing",
+      "completed-result-log-preview-completed",
+    ];
+    return {
+      visibleStatusCounts: Object.fromEntries(
+        statusLabels.map((label) => [label, pageText.split(label).length - 1])
+      ),
+      selectedFilter: Boolean(
+        filter && getComputedStyle(filter).borderColor === "rgb(255, 61, 61)",
+      ),
+      visibleActions: actionIds.filter((id) =>
+        Boolean(document.querySelector('[data-testid="' + id + '"]'))
+      ),
+    };
+  })()`);
+  assert(
+    JSON.stringify(state?.visibleStatusCounts) === JSON.stringify(expected.statusCounts),
+    `${status} filter showed the wrong tournament statuses: ${JSON.stringify(state?.visibleStatusCounts)}.`,
+  );
+  assert(state.selectedFilter, `The ${status} filter is not visibly selected.`);
+  assert(
+    JSON.stringify(state.visibleActions) === JSON.stringify(expected.actions),
+    `${status} filter showed the wrong management actions: ${JSON.stringify(state.visibleActions)}.`,
+  );
+}
+
 async function assertVisibleTextFits(selector, width, description) {
   const overflowing = await evaluate(`(() => {
     const root = document.querySelector(${JSON.stringify(selector)});
@@ -1059,6 +1120,11 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
     );
   }
   await clickButton("CLOSE");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="manage-room-preview-upcoming"]'))`,
+    "upcoming tournament fixture",
+  );
+  await assertTournamentStatusFilter("upcoming");
 
   await clickSelector('[data-testid="manage-room-preview-upcoming"]', "room setup action");
   const roomPanel = await evaluate(
@@ -1081,6 +1147,11 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
   }
 
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Ongoing tournament filter");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="finish-tournament-preview-ongoing"]'))`,
+    "ongoing tournament fixture",
+  );
+  await assertTournamentStatusFilter("ongoing");
   await clickSelector('[data-testid="finish-tournament-preview-ongoing"]', "result entry action");
   const resultPanel = await evaluate(
     "Boolean(document.querySelector('[data-testid=\"inline-results-entry-preview-ongoing\"]'))",
@@ -1107,6 +1178,11 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
   }
 
   await clickSelector('[data-testid="admin-tournament-tab-completed"]', "Completed tournament filter");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="completed-result-log-preview-completed"]'))`,
+    "completed tournament fixture",
+  );
+  await assertTournamentStatusFilter("completed");
   const completedPanel = await evaluate(
     "Boolean(document.querySelector('[data-testid=\"completed-result-log-preview-completed\"]'))",
   );
