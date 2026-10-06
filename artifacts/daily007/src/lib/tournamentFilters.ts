@@ -69,6 +69,16 @@ export function tournamentTabsForRoute<T extends TournamentModeItem>(
   return tabs;
 }
 
+function displayFilterLabel(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`)
+    .join(' ');
+}
+
 export function tournamentListEmptyMessage(
   hasError: boolean,
   tabLabel: string,
@@ -77,8 +87,8 @@ export function tournamentListEmptyMessage(
 ): string {
   if (hasError) return 'Tournament data is unavailable right now. Pull to refresh and try again.';
   const scope = [teamType, modeLabel]
-    .map((value) => String(value ?? '').trim())
+    .map(displayFilterLabel)
     .filter(Boolean)
     .join(' ');
-  return `No ${tabLabel.toLowerCase()}${scope ? ` ${scope}` : ''} tournaments are available right now.`;
+  return `No ${tabLabel.trim().toLowerCase()}${scope ? ` ${scope}` : ''} tournaments are available right now.`;
 }

@@ -6,6 +6,7 @@ import {
   HOME_GAME_MODE_CARDS,
   homeModeRouteParams,
   submodeRouteParams,
+  tournamentListEmptyMessage,
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
@@ -423,4 +424,69 @@ test('Solo, Duo, and Squad lists exclude other sizes without losing the selected
     assert.deepEqual(tabs.ongoing, []);
     assert.deepEqual(tabs.completed, []);
   }
+});
+
+test('empty format-filtered lifecycle tabs name the selected mode and team size without leaking other tournaments', () => {
+  const selectedTournaments = [
+    { id: 'clash-duo-upcoming', gameMode: 'clash_squad', teamType: 'Duo', lifecycle: 'upcoming' },
+    { id: 'clash-duo-ongoing', gameMode: 'clash_squad', teamType: 'Duo', lifecycle: 'ongoing' },
+    { id: 'clash-duo-completed', gameMode: 'clash_squad', teamType: 'Duo', lifecycle: 'completed' },
+  ];
+  const otherTournaments = [
+    { id: 'battle-duo-upcoming', gameMode: 'battle_royale', teamType: 'Duo', lifecycle: 'upcoming' },
+    { id: 'clash-solo-ongoing', gameMode: 'clash_squad', teamType: 'Solo', lifecycle: 'ongoing' },
+    { id: 'clash-squad-completed', gameMode: 'clash_squad', teamType: 'Squad', lifecycle: 'completed' },
+    { id: 'wolf-duo-completed', gameMode: 'lone_wolf', teamType: 'Duo', lifecycle: 'completed' },
+  ];
+  const filters = { gameMode: 'clash_squad', teamType: 'duo' };
+  const lifecycleOf = (tournament) => tournament.lifecycle;
+  const allTabs = tournamentTabsForRoute(
+    [...selectedTournaments, ...otherTournaments],
+    filters,
+    lifecycleOf,
+  );
+
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(allTabs).map(([tab, tournaments]) => [
+        tab,
+        tournaments.map((tournament) => tournament.id),
+      ]),
+    ),
+    {
+      upcoming: ['clash-duo-upcoming'],
+      ongoing: ['clash-duo-ongoing'],
+      completed: ['clash-duo-completed'],
+    },
+  );
+
+  const lifecycleLabels = {
+    upcoming: 'Upcoming',
+    ongoing: 'Ongoing',
+    completed: 'Completed',
+  };
+  for (const [tab, label] of Object.entries(lifecycleLabels)) {
+    const scenarioTabs = tournamentTabsForRoute(
+      [
+        ...selectedTournaments.filter((tournament) => tournament.lifecycle !== tab),
+        ...otherTournaments,
+      ],
+      filters,
+      lifecycleOf,
+    );
+    assert.deepEqual(scenarioTabs[tab], [], `${label} should be empty when this mode and format have no matches`);
+    assert.equal(
+      tournamentListEmptyMessage(false, label, 'CLASH SQUAD', 'duo'),
+      `No ${tab} Duo Clash Squad tournaments are available right now.`,
+    );
+  }
+
+  assert.match(
+    tournamentsSource,
+    /tournamentListEmptyMessage\(Boolean\(error\),\s*tabLabel\[tab\],\s*heading,\s*teamType\)/,
+  );
+  assert.equal(
+    tournamentListEmptyMessage(true, 'Completed', 'CLASH SQUAD', 'duo'),
+    'Tournament data is unavailable right now. Pull to refresh and try again.',
+  );
 });
