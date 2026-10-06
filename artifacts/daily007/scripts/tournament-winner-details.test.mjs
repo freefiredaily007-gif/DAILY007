@@ -102,6 +102,7 @@ function renderWinnerFixture(fixture) {
     participantCard: { cardKind: "participant" },
     winnerCard: { cardKind: "winner" },
   };
+  const buttons = [];
   const Card = ({ children, style }) => React.createElement(
     "article",
     { "data-card": style === styles.winnerCard ? "winner" : "participant" },
@@ -110,24 +111,40 @@ function renderWinnerFixture(fixture) {
   const View = ({ children }) => React.createElement("div", null, children);
   const Text = ({ children }) => React.createElement("span", null, children);
   const SectionTitle = ({ children }) => React.createElement("h2", null, children);
-  const Btn = ({ children, title }) =>
-    React.createElement("button", null, children ?? title);
+  const Btn = ({ children, title, onPress, testID }) => {
+    buttons.push({ onPress, testID });
+    return React.createElement(
+      "button",
+      { "data-testid": testID, onClick: onPress },
+      children ?? title,
+    );
+  };
   const ActivityIndicator = () => React.createElement("span", null, "Loading");
 
+  const resultsQuery = {
+    data: {
+      status: fixture.resultStatus ??
+        (fixture.tournament.status === "completed" ? "finalized" : "draft"),
+      entries: fixture.results,
+    },
+    isLoading: fixture.resultsLoading ?? false,
+    isError: fixture.resultsError ?? false,
+    isFetching: fixture.resultsFetching ?? false,
+    refetch: fixture.refetchResults ?? (async () => {}),
+  };
   const isCompleted = evaluateInitializer(
     "isCompleted",
     {
       t: fixture.tournament,
-      resultsQuery: {
-        data: {
-          status: fixture.resultStatus ??
-            (fixture.tournament.status === "completed" ? "finalized" : "draft"),
-        },
-      },
+      resultsQuery,
     },
     initializers,
   );
-  const winnerState = resolveTournamentWinnerState(false, false, fixture.results);
+  const winnerState = evaluateInitializer(
+    "winnerState",
+    { resultsQuery, isCompleted, resolveTournamentWinnerState },
+    initializers,
+  );
   const winner = evaluateInitializer("winner", { winnerState }, initializers);
   const winnerGameName = evaluateInitializer("winnerGameName", { winner }, initializers);
   const winnerTeamName = evaluateInitializer("winnerTeamName", { winner }, initializers);
@@ -154,7 +171,7 @@ function renderWinnerFixture(fixture) {
     winnerGameName,
     ActivityIndicator,
     Btn,
-    resultsQuery: { isFetching: false, refetch: async () => {} },
+    resultsQuery,
     inr,
   };
 
@@ -167,7 +184,7 @@ function renderWinnerFixture(fixture) {
   const markup = renderToStaticMarkup(
     React.createElement(React.Fragment, null, ...screenElements),
   );
-  return { isCompleted, markup, winnerState };
+  return { buttons, isCompleted, markup, winnerState };
 }
 
 function getWinnerCardMarkup(markup) {
@@ -357,6 +374,60 @@ test("a failed refresh hides stale winner details and recovery shows the current
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
   }
+});
+
+test("a rendered winner error hides stale details and retry reveals the recovered award", async () => {
+  let refetchCalls = 0;
+  const fixture = {
+    tournament: { status: "completed" },
+    participants: [],
+    teamTournament: false,
+    resultsError: true,
+    results: [{ rank: 1, gameName: "Stale Champion", prizeCoins: 75 }],
+    refetchResults: () => {
+      refetchCalls += 1;
+      fixture.resultsError = false;
+      fixture.results = [{
+        rank: 1,
+        gameName: "Current Champion",
+        prizeCoins: 125,
+      }];
+      return Promise.resolve();
+    },
+  };
+
+  const failed = renderWinnerFixture(fixture);
+  const retryButton = failed.buttons.find(
+    ({ testID }) => testID === "winner-results-retry",
+  );
+
+  assert.equal(failed.winnerState.kind, "error");
+  assert.match(
+    failed.markup,
+    /Winner and prize details couldn’t be loaded\. Retry here or pull down to try again\./,
+  );
+  assert.match(failed.markup, /data-testid="winner-results-retry"/);
+  assert.match(failed.markup, /RETRY WINNER DETAILS/);
+  assert.ok(retryButton, "the winner-details retry button should be rendered");
+  assert.equal(typeof retryButton.onPress, "function");
+  assert.equal(getWinnerCardMarkup(failed.markup), "");
+  assert.doesNotMatch(
+    failed.markup,
+    /Stale Champion|75 coins|TOURNAMENT WINNER|PRIZE WON/,
+  );
+  assert.doesNotMatch(failed.markup, new RegExp(inr(75)));
+
+  retryButton.onPress();
+  await Promise.resolve();
+  assert.equal(refetchCalls, 1, "retry should call resultsQuery.refetch()");
+
+  const recovered = renderWinnerFixture(fixture);
+  const winnerCard = getWinnerCardMarkup(recovered.markup);
+  assert.equal(recovered.winnerState.kind, "winner");
+  assert.match(winnerCard, /Current Champion/);
+  assert.match(winnerCard, /125 coins/);
+  assert.ok(winnerCard.includes(inr(125)));
+  assert.doesNotMatch(recovered.markup, /Stale Champion|75 coins/);
 });
 
 test("tournament result status and winner details poll only while focused without overlapping requests", async () => {
