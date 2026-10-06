@@ -10,6 +10,7 @@ if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 
 const root = createRoot(rootElement);
 const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
+const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const scheduledStartGapMs = 3_000;
 const nextIstMidnightStart = (timestamp) => {
@@ -81,6 +82,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     );
   }
   apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
+  if (initialLoadFailureOnly) {
+    apiMocks.failNextTournamentRead("Initial tournament request failed");
+  }
 
   const [{ default: Tournaments }, { default: AdminTournaments }] = await Promise.all([
     import("../../../daily007/src/screens/Tournaments"),
@@ -154,6 +158,10 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       fakeNow = scheduledStartMs - 60 * 1000;
       setVisibility("visible");
       apiMocks.resetTournamentReadCount();
+    },
+    retryAfterInitialLoadFailure: () => {
+      setVisibility("hidden");
+      setVisibility("visible");
     },
     showAdmin: () => root.render(React.createElement(AdminTournaments)),
   };

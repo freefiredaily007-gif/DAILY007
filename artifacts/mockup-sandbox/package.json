@@ -13,6 +13,7 @@
     "test:admin-narrow": "node scripts/test-admin-narrow.mjs",
     "test:admin-action-targets": "node scripts/test-admin-narrow.mjs --admin-actions-only",
     "test:tournament-resume": "node scripts/test-admin-narrow.mjs --resume-only",
+    "test:tournament-initial-load-failure": "node scripts/test-admin-narrow.mjs --initial-load-failure-only",
     "test:tournament-start-timer": "node scripts/test-admin-narrow.mjs --scheduled-start-only",
     "test:home-carousel": "node scripts/test-admin-narrow.mjs --home-carousel-only",
     "test:wallet-profile-keyboard": "node scripts/test-admin-narrow.mjs --keyboard-forms-only",

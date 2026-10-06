@@ -22,6 +22,7 @@ const adminTabs = [
   ["settings", "Settings"],
 ];
 const resumeOnly = process.argv.includes("--resume-only");
+const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
@@ -1073,6 +1074,37 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
   );
 }
 
+async function checkTournamentInitialLoadFailure() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the Player initial-load preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('Could not load tournaments: Initial tournament request failed')",
+    "the first Player request to fail with the initial-load error",
+  );
+  assert(
+    !await evaluate("document.body.innerText.includes('Could not refresh tournaments')"),
+    "A Player error before the first successful load must not be labeled as a refresh failure.",
+  );
+  assert(
+    !await evaluate("document.body.innerText.includes('IST Start Boundary')"),
+    "The failed first Player load must not show a tournament card.",
+  );
+
+  const readsAfterFailure = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.retryAfterInitialLoadFailure()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsAfterFailure} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments: Initial tournament request failed')`,
+    "a later successful Player load to show the tournament and clear the initial error",
+  );
+  await assertText("IST Start Boundary", "the Player tournament after the successful retry");
+  assert(
+    !await evaluate("document.body.innerText.includes('Could not load tournaments')"),
+    "A successful Player load must clear the initial-load error.",
+  );
+}
+
 async function checkTournamentResume() {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -2088,8 +2120,10 @@ try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = resumeOnly
-    ? "tournament-resume-preview.html"
+  const previewPath = initialLoadFailureOnly
+    ? "tournament-resume-preview.html?initial-load-failure-only=1"
+    : resumeOnly
+      ? "tournament-resume-preview.html"
     : scheduledStartOnly
       ? "tournament-resume-preview.html?scheduled-start-only=1"
       : homeCarouselOnly
@@ -2156,6 +2190,7 @@ try {
   }
   if (
     resumeOnly ||
+    initialLoadFailureOnly ||
     scheduledStartOnly ||
     homeCarouselOnly ||
     keyboardFormsOnly ||
@@ -2164,9 +2199,11 @@ try {
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+        || initialLoadFailureOnly
         ? 390
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+        || initialLoadFailureOnly
         ? 844
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -2175,6 +2212,8 @@ try {
     await waitForPage(
       homeCarouselOnly
         ? "Home carousel"
+        : initialLoadFailureOnly
+          ? "Player first-load failure"
         : scheduledStartOnly
           ? "scheduled-start Player and Admin tournament screens"
         : keyboardFormsOnly
@@ -2185,7 +2224,14 @@ try {
           ? "Admin selected-record actions"
           : "player and Admin tournament screens",
     );
-    if (adminActionsOnly) {
+    if (initialLoadFailureOnly) {
+      await checkTournamentInitialLoadFailure();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Player first-load checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — A failed first Player tournament load shows the correct error with no cards; a later successful load shows the card and clears the error.");
+    } else if (adminActionsOnly) {
       await setViewport(390);
       await checkAdminSelectedRecordMutations();
       assert(
