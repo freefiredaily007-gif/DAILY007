@@ -312,7 +312,7 @@ test("v2 room endpoint requires approval and an open release window", async () =
   });
 });
 
-test("clearing and replacing room credentials preserves registrations and exposes only the replacement values", async () => {
+test("clearing and compatibility-saving room credentials preserves registrations and exposes only replacement values", async () => {
   roomAccessTestDb.reset();
 
   const adminToken = makeToken(TEST_ADMIN_ID, 0);
@@ -372,22 +372,22 @@ test("clearing and replacing room credentials preserves registrations and expose
     assert.equal("roomPassword" in legacyAfter.body[0].tournament, false);
 
     const replacementCredentials = {
-      roomId: "TEST-ROOM-REPLACEMENT-820",
-      roomPassword: "replacement-fixture-password",
+      roomId: "COMPAT-ROOM-REPLACEMENT-820",
+      roomPassword: "compat-replacement-fixture-password",
     };
     const saved = await request(
       origin,
-      `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+      `/admin/tournaments/${TEST_MATCH_ID}/room`,
       "PUT",
       adminToken,
       replacementCredentials,
     );
     assert.equal(saved.status, 200);
     assert.deepEqual(saved.body, {
-      match: {
-        id: TEST_MATCH_ID,
-        published: true,
-      },
+      id: TEST_MATCH_ID,
+      roomPublished: true,
+      roomTime: matchBefore.room_time,
+      ...replacementCredentials,
     });
     assert.equal(roomAccessTestDb.match.room_id, replacementCredentials.roomId);
     assert.equal(roomAccessTestDb.match.room_password, replacementCredentials.roomPassword);
@@ -424,5 +424,38 @@ test("clearing and replacing room credentials preserves registrations and expose
       },
       matchBefore,
     );
+  });
+});
+
+test("v2 admin room saves remain supported by the isolated room-access fixture", async () => {
+  roomAccessTestDb.reset();
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+  const replacementCredentials = {
+    roomId: "V2-ROOM-REPLACEMENT-820",
+    roomPassword: "v2-replacement-fixture-password",
+  };
+
+  await withServer(async (origin) => {
+    const saved = await request(
+      origin,
+      `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+      "PUT",
+      adminToken,
+      replacementCredentials,
+    );
+
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.body, {
+      match: { id: TEST_MATCH_ID, published: true },
+    });
+    assert.equal(roomAccessTestDb.match.room_id, replacementCredentials.roomId);
+    assert.equal(roomAccessTestDb.match.room_password, replacementCredentials.roomPassword);
+    assert.equal(roomAccessTestDb.match.room_published, true);
+    assert.equal(roomAccessTestDb.match.status, matchBefore.status);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
   });
 });
