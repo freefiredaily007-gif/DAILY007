@@ -493,6 +493,97 @@ test("wrong codes and non-sole-admin owner recovery attempts do not link account
   });
 });
 
+test("repeated wrong owner codes lock out further attempts without changing account or recovery audit state", async (t) => {
+  const initialTime = Date.UTC(2026, 9, 6, 0, 0, 0);
+  t.mock.timers.enable({ apis: ["Date"], now: initialTime });
+
+  try {
+    recoveryTestDb.reset();
+    const lockedOwner = recoveryTestDb.seedUser({
+      id: OWNER_ID,
+      name: "Locked Sole Full Admin",
+      email: "locked-owner@example.test",
+      role: "admin",
+      status: "active",
+    });
+    const clerkUserId = "clerk-google-owner-lockout";
+    const existingRequest: RecoveryTestRequest = {
+      id: "00000000-0000-4000-8000-000000000108",
+      user_id: lockedOwner.id,
+      google_clerk_user_id: clerkUserId,
+      google_email: lockedOwner.email,
+      status: "pending",
+      created_at: new Date("2026-10-01T00:00:00.000Z"),
+      reviewed_at: null,
+      reviewed_by: null,
+      review_note: null,
+      review_method: null,
+    };
+    recoveryTestDb.requests.set(existingRequest.id, existingRequest);
+    process.env.DAILY007_OWNER_RECOVERY_CODE = TEST_OWNER_CODE;
+    resetMockGoogleUser(verifiedGoogleUser(clerkUserId, lockedOwner.email));
+    const beforeAttempts = persistentState();
+
+    await withRecoveryServer(async (origin) => {
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        const wrongCode = await postJson(
+          origin,
+          "/auth/google/recovery-owner",
+          { ownerRecoveryCode: WRONG_OWNER_CODE },
+          clerkHeaders(clerkUserId),
+        );
+        assert.equal(wrongCode.status, 403, `wrong code attempt ${attempt} should be rejected`);
+        assert.deepEqual(persistentState(), beforeAttempts);
+      }
+
+      const lockedState = persistentState();
+      for (const ownerRecoveryCode of [TEST_OWNER_CODE, WRONG_OWNER_CODE]) {
+        const lockedAttempt = await postJson(
+          origin,
+          "/auth/google/recovery-owner",
+          { ownerRecoveryCode },
+          clerkHeaders(clerkUserId),
+        );
+        assert.equal(lockedAttempt.status, 429);
+        assert.deepEqual(persistentState(), lockedState,
+          "locked-out attempts must not link the account or change its recovery audit record");
+      }
+
+      t.mock.timers.tick(15 * 60 * 1000 - 1);
+      const beforeExpiry = await postJson(
+        origin,
+        "/auth/google/recovery-owner",
+        { ownerRecoveryCode: TEST_OWNER_CODE },
+        clerkHeaders(clerkUserId),
+      );
+      assert.equal(beforeExpiry.status, 429,
+        "the owner code must remain locked out until the full attempt window expires");
+      assert.deepEqual(persistentState(), lockedState);
+
+      t.mock.timers.tick(1);
+      const afterExpiry = await postJson(
+        origin,
+        "/auth/google/recovery-owner",
+        { ownerRecoveryCode: TEST_OWNER_CODE },
+        clerkHeaders(clerkUserId),
+      );
+      assert.equal(afterExpiry.status, 200,
+        "the owner code should be accepted once the lockout window expires");
+      assert.equal(recoveryTestDb.users.get(lockedOwner.id)?.clerk_user_id, clerkUserId);
+      assert.deepEqual(recoveryRecordForUser(lockedOwner.id), {
+        ...existingRequest,
+        status: "approved",
+        reviewed_at: new Date("2026-01-01T00:00:00.000Z"),
+        reviewed_by: lockedOwner.id,
+        review_note: "Sole Full Admin recovery authorized with the workspace owner code and a verified matching Google identity.",
+        review_method: "owner_code",
+      });
+    });
+  } finally {
+    t.mock.timers.reset();
+  }
+});
+
 test("unverified Google identities cannot request player or sole-admin recovery", async () => {
   recoveryTestDb.reset();
   const player = recoveryTestDb.seedUser({
