@@ -147,13 +147,18 @@ const FIRST_PAYER_ID = "payer-01";
 const SECOND_PAYER_ID = "payer-02";
 const FIRST_REGISTRATION_ID = "registration-01";
 const SECOND_REGISTRATION_ID = "registration-02";
+const INDEPENDENT_MATCH_ID = "independent-cancel-match";
+const INDEPENDENT_PAYER_ID = "payer-03";
+const INDEPENDENT_REGISTRATION_ID = "registration-03";
 
 function resetAtomicCancellationFixture({
   includeSecondPayer = true,
+  includeIndependentTournament = false,
   secondPayerBalance = 200,
   ledger = [],
 }: {
   includeSecondPayer?: boolean;
+  includeIndependentTournament?: boolean;
   secondPayerBalance?: number;
   ledger?: {
     idempotencyKey: string;
@@ -170,21 +175,38 @@ function resetAtomicCancellationFixture({
   const nowMs = Date.parse("2035-04-05T14:30:00.000Z");
   autoCancellationTestDb.reset({
     nowMs,
-    matches: [{
-      id: ATOMIC_MATCH_ID,
-      title: "Atomic Cancellation Test",
-      mode: "clash",
-      game_mode: "clash_squad",
-      status: "open",
-      capacity: 3,
-      startsAtWallMs: nowMs - 1_000,
-      hasWinner: false,
-      enabled: true,
-      isFull: false,
-      roomId: "room-before-cancel",
-      roomPassword: "room-password-before-cancel",
-      roomPublished: true,
-    }],
+    matches: [
+      {
+        id: ATOMIC_MATCH_ID,
+        title: "Atomic Cancellation Test",
+        mode: "clash",
+        game_mode: "clash_squad",
+        status: "open",
+        capacity: 3,
+        startsAtWallMs: nowMs - 1_000,
+        hasWinner: false,
+        enabled: true,
+        isFull: false,
+        roomId: "room-before-cancel",
+        roomPassword: "room-password-before-cancel",
+        roomPublished: true,
+      },
+      ...(includeIndependentTournament ? [{
+        id: INDEPENDENT_MATCH_ID,
+        title: "Independent Cancellation Test",
+        mode: "clash",
+        game_mode: "clash_squad",
+        status: "open",
+        capacity: 2,
+        startsAtWallMs: nowMs - 1_000,
+        hasWinner: false,
+        enabled: true,
+        isFull: false,
+        roomId: "independent-room",
+        roomPassword: "independent-room-password",
+        roomPublished: true,
+      }] : []),
+    ],
     registrations: [
       {
         id: FIRST_REGISTRATION_ID,
@@ -200,10 +222,18 @@ function resetAtomicCancellationFixture({
         entry_coins_paid: 40,
         status: "pending",
       },
+      ...(includeIndependentTournament ? [{
+        id: INDEPENDENT_REGISTRATION_ID,
+        match_id: INDEPENDENT_MATCH_ID,
+        captain_user_id: INDEPENDENT_PAYER_ID,
+        entry_coins_paid: 35,
+        status: "approved",
+      }] : []),
     ],
     accounts: [
       { id: FIRST_PAYER_ID, wallet_coins: 100 },
       ...(includeSecondPayer ? [{ id: SECOND_PAYER_ID, wallet_coins: secondPayerBalance }] : []),
+      ...(includeIndependentTournament ? [{ id: INDEPENDENT_PAYER_ID, wallet_coins: 300 }] : []),
     ],
     ledger,
   });
@@ -415,6 +445,108 @@ test("a waiting cancellation succeeds after the first refund write rolls back", 
     new Map([
       [FIRST_REGISTRATION_ID, { userId: FIRST_PAYER_ID, amount: 25 }],
       [SECOND_REGISTRATION_ID, { userId: SECOND_PAYER_ID, amount: 40 }],
+    ]),
+  );
+});
+
+test("cancelling one tournament completes while a different tournament row is locked", async () => {
+  resetAtomicCancellationFixture({ includeIndependentTournament: true });
+
+  const blocker = await autoCancellationTestDb.connect();
+  await blocker.query("BEGIN");
+  await blocker.query(
+    "SELECT m.id FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE OF m",
+    [ATOMIC_MATCH_ID],
+  );
+
+  let firstCancellation: Promise<
+    | { status: "fulfilled"; value: Awaited<ReturnType<typeof cancelUnderfilledTournamentAndRefund>> }
+    | { status: "rejected"; reason: unknown }
+  > | undefined;
+  try {
+    firstCancellation = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID, true).then(
+      (value) => ({ status: "fulfilled", value }),
+      (reason: unknown) => ({ status: "rejected", reason }),
+    );
+    await autoCancellationTestDb.waitForMatchRowLockWaitCount(ATOMIC_MATCH_ID);
+
+    const independentCancellation = cancelUnderfilledTournamentAndRefund(INDEPENDENT_MATCH_ID, true).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason: unknown) => ({ status: "rejected" as const, reason }),
+    );
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const independentOutcome = await Promise.race([
+      independentCancellation,
+      new Promise<{ status: "blocked" }>((resolve) => {
+        timeout = setTimeout(() => resolve({ status: "blocked" }), 1_000);
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+
+    assert.equal(
+      independentOutcome.status,
+      "fulfilled",
+      "the unrelated cancellation must finish before the first match lock is released",
+    );
+    if (independentOutcome.status === "fulfilled") {
+      assert.deepEqual(independentOutcome.value, {
+        id: INDEPENDENT_MATCH_ID,
+        status: "cancelled",
+        registrationsRefunded: 1,
+        accountsRefunded: 1,
+        coinsRefunded: 35,
+      });
+    } else if (independentOutcome.status === "rejected") {
+      assert.fail(`the unrelated cancellation failed: ${String(independentOutcome.reason)}`);
+    }
+  } finally {
+    await blocker.query("COMMIT");
+    blocker.release();
+  }
+
+  assert.ok(firstCancellation, "the blocked cancellation should have started");
+  const firstOutcome = await firstCancellation;
+  assert.equal(firstOutcome.status, "fulfilled");
+  if (firstOutcome.status === "fulfilled") {
+    assert.deepEqual(firstOutcome.value, {
+      id: ATOMIC_MATCH_ID,
+      status: "cancelled",
+      registrationsRefunded: 2,
+      accountsRefunded: 2,
+      coinsRefunded: 65,
+    });
+  } else {
+    assert.fail(`the first cancellation failed: ${String(firstOutcome.reason)}`);
+  }
+
+  assert.equal(autoCancellationTestDb.matchRowLockWaitCount(ATOMIC_MATCH_ID), 1);
+  assert.equal(autoCancellationTestDb.matchRowLockWaitCount(INDEPENDENT_MATCH_ID), 0);
+  assert.equal(autoCancellationTestDb.matches.get(ATOMIC_MATCH_ID)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.matches.get(INDEPENDENT_MATCH_ID)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get(FIRST_PAYER_ID)?.wallet_coins, 125);
+  assert.equal(autoCancellationTestDb.accounts.get(SECOND_PAYER_ID)?.wallet_coins, 240);
+  assert.equal(autoCancellationTestDb.accounts.get(INDEPENDENT_PAYER_ID)?.wallet_coins, 335);
+
+  const refundsByMatch = new Map<string, { registrationId: string; amount: number }[]>();
+  for (const entry of autoCancellationTestDb.ledger.values()) {
+    if (entry.reason !== "tournament_cancel_refund" || !entry.matchId) continue;
+    const refunds = refundsByMatch.get(entry.matchId) ?? [];
+    refunds.push({ registrationId: entry.registrationId, amount: entry.amount });
+    refundsByMatch.set(entry.matchId, refunds);
+  }
+  assert.deepEqual(
+    new Map([...refundsByMatch].map(([matchId, refunds]) => [
+      matchId,
+      refunds.sort((a, b) => a.registrationId.localeCompare(b.registrationId)),
+    ])),
+    new Map([
+      [ATOMIC_MATCH_ID, [
+        { registrationId: FIRST_REGISTRATION_ID, amount: 25 },
+        { registrationId: SECOND_REGISTRATION_ID, amount: 40 },
+      ]],
+      [INDEPENDENT_MATCH_ID, [
+        { registrationId: INDEPENDENT_REGISTRATION_ID, amount: 35 },
+      ]],
     ]),
   );
 });
