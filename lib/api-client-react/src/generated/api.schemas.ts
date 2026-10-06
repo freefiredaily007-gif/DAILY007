@@ -713,6 +713,59 @@ export interface Daily007AdminUserRoleBody {
   role: Daily007AdminUserRoleBodyRole;
 }
 
+export interface Daily007AdminUserDeletionInput {
+  /**
+     * @minLength 3
+     * @maxLength 254
+     */
+  confirmationEmail: string;
+}
+
+export type Daily007AdminUserDeletionResponseRemoved = {
+  /** @minimum 0 */
+  payments: number;
+  /** @minimum 0 */
+  paymentProofFiles: number;
+  /** @minimum 0 */
+  withdrawals: number;
+  /** @minimum 0 */
+  registrations: number;
+  /** @minimum 0 */
+  rosterMembers: number;
+  /** @minimum 0 */
+  resultAwards: number;
+  /** @minimum 0 */
+  walletLedgerEntries: number;
+  /** @minimum 0 */
+  notifications: number;
+  /** @minimum 0 */
+  referralRelations: number;
+  /** @minimum 0 */
+  referralCodes: number;
+  /** @minimum 0 */
+  shortCodes: number;
+  /** @minimum 0 */
+  userStats: number;
+  /** @minimum 0 */
+  videoWatchSessions: number;
+  /** @minimum 0 */
+  youtubeSubscribeClaims: number;
+  /** @minimum 0 */
+  googleRecoveryRequests: number;
+  /** @minimum 0 */
+  adminAccessRequests: number;
+  /** @minimum 0 */
+  leaderboardSnapshots: number;
+  /** @minimum 0 */
+  auditAttributionsCleared: number;
+};
+
+export interface Daily007AdminUserDeletionResponse {
+  deleted: true;
+  clerkIdentityDeleted: boolean;
+  removed: Daily007AdminUserDeletionResponseRemoved;
+}
+
 export interface Daily007ChangePasswordBody {
   /**
      * @minLength 1

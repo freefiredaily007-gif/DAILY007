@@ -662,6 +662,87 @@ export const Daily007AdminSetUserRoleResponse = zod.unknown()
 
 
 /**
+ * Full Admin only. Only regular player accounts can be removed. The account is blocked first, then its Clerk identity and private payment-proof files are deleted, and all linked database data is removed in one transaction. The confirmation email must match the target account.
+ * @summary Permanently remove a player and their associated data
+ */
+export const Daily007AdminDeleteUserParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007AdminDeleteUserBodyConfirmationEmailMin = 3;
+export const daily007AdminDeleteUserBodyConfirmationEmailMax = 254;
+
+
+
+export const Daily007AdminDeleteUserBody = zod.object({
+  "confirmationEmail": zod.string().email().min(daily007AdminDeleteUserBodyConfirmationEmailMin).max(daily007AdminDeleteUserBodyConfirmationEmailMax)
+})
+
+export const daily007AdminDeleteUserResponseRemovedPaymentsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedPaymentProofFilesMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedWithdrawalsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedRegistrationsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedRosterMembersMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedResultAwardsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedWalletLedgerEntriesMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedNotificationsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedReferralRelationsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedReferralCodesMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedShortCodesMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedUserStatsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedVideoWatchSessionsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedYoutubeSubscribeClaimsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedGoogleRecoveryRequestsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedAdminAccessRequestsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedLeaderboardSnapshotsMin = 0;
+
+export const daily007AdminDeleteUserResponseRemovedAuditAttributionsClearedMin = 0;
+
+
+
+export const Daily007AdminDeleteUserResponse = zod.object({
+  "deleted": zod.literal(true),
+  "clerkIdentityDeleted": zod.boolean(),
+  "removed": zod.object({
+  "payments": zod.number().int().min(daily007AdminDeleteUserResponseRemovedPaymentsMin),
+  "paymentProofFiles": zod.number().int().min(daily007AdminDeleteUserResponseRemovedPaymentProofFilesMin),
+  "withdrawals": zod.number().int().min(daily007AdminDeleteUserResponseRemovedWithdrawalsMin),
+  "registrations": zod.number().int().min(daily007AdminDeleteUserResponseRemovedRegistrationsMin),
+  "rosterMembers": zod.number().int().min(daily007AdminDeleteUserResponseRemovedRosterMembersMin),
+  "resultAwards": zod.number().int().min(daily007AdminDeleteUserResponseRemovedResultAwardsMin),
+  "walletLedgerEntries": zod.number().int().min(daily007AdminDeleteUserResponseRemovedWalletLedgerEntriesMin),
+  "notifications": zod.number().int().min(daily007AdminDeleteUserResponseRemovedNotificationsMin),
+  "referralRelations": zod.number().int().min(daily007AdminDeleteUserResponseRemovedReferralRelationsMin),
+  "referralCodes": zod.number().int().min(daily007AdminDeleteUserResponseRemovedReferralCodesMin),
+  "shortCodes": zod.number().int().min(daily007AdminDeleteUserResponseRemovedShortCodesMin),
+  "userStats": zod.number().int().min(daily007AdminDeleteUserResponseRemovedUserStatsMin),
+  "videoWatchSessions": zod.number().int().min(daily007AdminDeleteUserResponseRemovedVideoWatchSessionsMin),
+  "youtubeSubscribeClaims": zod.number().int().min(daily007AdminDeleteUserResponseRemovedYoutubeSubscribeClaimsMin),
+  "googleRecoveryRequests": zod.number().int().min(daily007AdminDeleteUserResponseRemovedGoogleRecoveryRequestsMin),
+  "adminAccessRequests": zod.number().int().min(daily007AdminDeleteUserResponseRemovedAdminAccessRequestsMin),
+  "leaderboardSnapshots": zod.number().int().min(daily007AdminDeleteUserResponseRemovedLeaderboardSnapshotsMin),
+  "auditAttributionsCleared": zod.number().int().min(daily007AdminDeleteUserResponseRemovedAuditAttributionsClearedMin)
+})
+})
+
+
+/**
  * Full Admin only. Tournament Admins cannot view recovery requests.
  * @summary List pending Google account recovery requests
  */

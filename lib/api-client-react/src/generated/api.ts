@@ -48,6 +48,8 @@ import type {
   Daily007AdminSettingsBody,
   Daily007AdminStartLeaderboardCycleBody,
   Daily007AdminUpdateLeaderboardRewardsBody,
+  Daily007AdminUserDeletionInput,
+  Daily007AdminUserDeletionResponse,
   Daily007AdminUserRoleBody,
   Daily007AdminVideoActiveBody,
   Daily007AdminVideoCreateBody,
@@ -1855,6 +1857,96 @@ export const useDaily007AdminSetUserRole = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007AdminSetUserRoleMutationOptions(options));
+    }
+
+export const getDaily007AdminDeleteUserUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/users/${id}/delete`
+}
+
+/**
+ * Full Admin only. Only regular player accounts can be removed. The account is blocked first, then its Clerk identity and private payment-proof files are deleted, and all linked database data is removed in one transaction. The confirmation email must match the target account.
+ * @summary Permanently remove a player and their associated data
+ */
+export const daily007AdminDeleteUser = async (id: string,
+    daily007AdminUserDeletionInput: Daily007AdminUserDeletionInput, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminUserDeletionResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007AdminUserDeletionResponse>(getDaily007AdminDeleteUserUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminUserDeletionInput)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminDeleteUserMutationKey = () => ['daily007AdminDeleteUser'] as const;
+
+export const getDaily007AdminDeleteUserMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteUser>>, TError,Daily007AdminDeleteUserMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteUser>>, TError,Daily007AdminDeleteUserMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminDeleteUserMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminDeleteUser>>, Daily007AdminDeleteUserMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminDeleteUser(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminDeleteUserMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminDeleteUser>>>
+    export type Daily007AdminDeleteUserMutationBody = BodyType<Daily007AdminUserDeletionInput>
+    export type Daily007AdminDeleteUserMutationError = ErrorType<void>
+    export type Daily007AdminDeleteUserMutationVariables = {id: string;data: BodyType<Daily007AdminUserDeletionInput>}
+
+    /**
+ * @summary Permanently remove a player and their associated data
+ */
+export const useDaily007AdminDeleteUser = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteUser>>, TError,Daily007AdminDeleteUserMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminDeleteUser>>,
+        TError,
+        Daily007AdminDeleteUserMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminDeleteUserMutationOptions(options));
     }
 
 export const getDaily007AdminListAccountRecoveryRequestsUrl = () => {

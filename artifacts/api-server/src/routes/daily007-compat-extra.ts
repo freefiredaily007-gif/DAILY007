@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { clerkClient } from "@clerk/express";
 import { pool } from "@workspace/db";
 import {
   Daily007AdminCreateVideoBody,
@@ -8,6 +9,8 @@ import {
   Daily007AdminListVideosResponse,
   Daily007AdminSetVideoActiveResponse,
   Daily007ListVideosResponse,
+  Daily007AdminDeleteUserBody,
+  Daily007AdminDeleteUserResponse,
 } from "@workspace/api-zod";
 import {
   assertDaily007RoleLocked,
@@ -44,9 +47,15 @@ import {
 import {
   createWalletImageReadUrl,
   createWalletImageUpload,
+  deleteDaily007PaymentProofObject,
+  isDaily007PaymentProofObjectPath,
   isWalletObjectPath,
   validateUploadedWalletImage,
 } from "../lib/daily007-wallet-storage";
+import {
+  daily007UserDeletionCandidateError,
+  deleteDaily007UserData,
+} from "../lib/daily007-user-deletion";
 
 const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -114,6 +123,26 @@ function privateAccount(req: Request, res: Response): string | null {
   const id = userId(req);
   if (!id) { error(res, 401, "A valid Daily007 bearer token is required."); return null; }
   return id;
+}
+
+function isClerkUserAlreadyDeleted(cause: unknown): boolean {
+  const error = cause as {
+    status?: unknown;
+    statusCode?: unknown;
+    errors?: Array<{ code?: unknown }>;
+  } | null;
+  return error?.status === 404 || error?.statusCode === 404 ||
+    (Array.isArray(error?.errors) && error.errors.some((entry) =>
+      entry.code === "resource_not_found" || entry.code === "clerk_resource_not_found",
+    ));
+}
+
+async function deleteClerkIdentity(clerkUserId: string): Promise<void> {
+  try {
+    await clerkClient.users.deleteUser(clerkUserId);
+  } catch (cause) {
+    if (!isClerkUserAlreadyDeleted(cause)) throw cause;
+  }
 }
 
 async function settings(): Promise<Record<string, unknown>> {
@@ -591,6 +620,174 @@ router.get("/admin/users", authenticate, async (req, res): Promise<void> => {
        FROM daily007_v2_users ORDER BY created_at DESC LIMIT 1000`,
   );
   res.json(result.rows);
+});
+
+router.post("/admin/users/:id/delete", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const actorId = userId(req);
+  if (!actorId) { error(res, 401, "A valid Daily007 account is required."); return; }
+  if (!validId(req.params.id)) { error(res, 400, "User id must be a UUID."); return; }
+  const parsedBody = Daily007AdminDeleteUserBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    error(res, 400, "Type the exact account email to confirm permanent deletion.");
+    return;
+  }
+
+  const targetId = req.params.id;
+  const confirmationEmail = parsedBody.data.confirmationEmail;
+  try {
+    const staged = await roleTransaction(req, "admin", async (client) => {
+      const selected = await client.query<{
+        id: string;
+        email: string;
+        role: string;
+        status: string;
+        clerk_user_id: string | null;
+      }>(
+        `SELECT id, email, role, status, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1
+          FOR UPDATE`,
+        [targetId],
+      );
+      const target = selected.rows[0];
+      if (!target) throw Object.assign(new Error("User not found."), { status: 404 });
+
+      const candidateError = daily007UserDeletionCandidateError({
+        actorId,
+        targetId: target.id,
+        targetEmail: target.email,
+        targetRole: target.role,
+        confirmationEmail,
+      });
+      if (candidateError) {
+        throw Object.assign(new Error(candidateError.message), { status: candidateError.status });
+      }
+
+      const reviewReferences = await client.query<{ count: string }>(
+        `SELECT
+           (SELECT count(*) FROM daily007_v2_admin_access_requests WHERE reviewed_by = $1) +
+           (SELECT count(*) FROM daily007_v2_google_recovery_requests WHERE reviewed_by = $1) +
+           (SELECT count(*) FROM daily007_v2_payments WHERE reviewed_by = $1) +
+           (SELECT count(*) FROM daily007_v2_withdrawals WHERE reviewed_by = $1) +
+           (SELECT count(*) FROM daily007_v2_youtube_subscribe_claims WHERE reviewed_by = $1)
+           AS count`,
+        [targetId],
+      );
+      if (Number(reviewReferences.rows[0]?.count ?? 0) > 0) {
+        throw Object.assign(
+          new Error("Reassign this account's administrator review history before deleting it."),
+          { status: 409 },
+        );
+      }
+
+      const proofRows = await client.query<{ proof_object_path: string }>(
+        `SELECT DISTINCT proof_object_path
+           FROM daily007_v2_payments
+          WHERE user_id = $1 AND proof_object_path IS NOT NULL`,
+        [targetId],
+      );
+      const proofPaths = proofRows.rows.map((row) => row.proof_object_path);
+      if (proofPaths.some((path) => !isDaily007PaymentProofObjectPath(path, targetId))) {
+        throw Object.assign(
+          new Error("A stored payment proof has an unexpected path. Resolve it before deleting this account."),
+          { status: 409 },
+        );
+      }
+
+      await client.query(
+        `UPDATE daily007_v2_users
+            SET status = 'blocked',
+                auth_version = CASE
+                  WHEN status = 'blocked' THEN auth_version
+                  ELSE COALESCE(auth_version, 0) + 1
+                END
+          WHERE id = $1`,
+        [targetId],
+      );
+      return {
+        email: target.email,
+        clerkUserId: target.clerk_user_id,
+        proofPaths,
+      };
+    });
+
+    const externalCleanup = [
+      ...staged.proofPaths.map((path) => deleteDaily007PaymentProofObject(path, targetId)),
+      ...(staged.clerkUserId ? [deleteClerkIdentity(staged.clerkUserId)] : []),
+    ];
+    const cleanupResults = await Promise.allSettled(externalCleanup);
+    const cleanupFailures = cleanupResults.filter((result) => result.status === "rejected");
+    if (cleanupFailures.length > 0) {
+      console.error("Daily007 account external cleanup failed.", {
+        targetId,
+        failureCount: cleanupFailures.length,
+      });
+      error(
+        res,
+        502,
+        "The account is blocked, but sign-in or payment-proof cleanup failed. Database records remain; retry the deletion.",
+      );
+      return;
+    }
+
+    const removed = await roleTransaction(req, "admin", async (client) => {
+      const locked = await client.query<{
+        id: string;
+        email: string;
+        role: string;
+        status: string;
+        clerk_user_id: string | null;
+      }>(
+        `SELECT id, email, role, status, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1
+          FOR UPDATE`,
+        [targetId],
+      );
+      const target = locked.rows[0];
+      if (!target) throw Object.assign(new Error("User not found; no database data was removed."), { status: 404 });
+
+      const candidateError = daily007UserDeletionCandidateError({
+        actorId,
+        targetId: target.id,
+        targetEmail: target.email,
+        targetRole: target.role,
+        confirmationEmail,
+      });
+      if (candidateError) {
+        throw Object.assign(new Error(candidateError.message), { status: candidateError.status });
+      }
+      if (target.status !== "blocked" || target.email.toLowerCase() !== staged.email.toLowerCase() ||
+          target.clerk_user_id !== staged.clerkUserId) {
+        throw Object.assign(
+          new Error("The account changed during deletion. It remains blocked; review it and retry."),
+          { status: 409 },
+        );
+      }
+
+      return deleteDaily007UserData(
+        client,
+        targetId,
+        target.clerk_user_id,
+        staged.proofPaths.length,
+      );
+    });
+    const response = Daily007AdminDeleteUserResponse.parse({
+      deleted: true,
+      clerkIdentityDeleted: staged.clerkUserId !== null,
+      removed,
+    });
+    res.json(response);
+  } catch (cause) {
+    const status = (cause as { status?: number })?.status;
+    if (status) {
+      respondFailure(res, cause);
+      return;
+    }
+    console.error("Daily007 account deletion did not complete.", { targetId });
+    error(res, 500, "The account remains blocked; database cleanup did not finish. Retry the deletion.");
+  }
 });
 
 router.patch("/admin/users/:id/role", authenticate, async (req, res): Promise<void> => {

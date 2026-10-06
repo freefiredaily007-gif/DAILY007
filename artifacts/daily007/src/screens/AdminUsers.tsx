@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage } from '../lib/api';
-import { Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog } from '../components/adminKit';
+import { Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
+import { useDaily007AdminDeleteUser } from '@workspace/api-client-react';
 
 export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
   const toast = useToast();
+  const deleteUserMutation = useDaily007AdminDeleteUser();
   const { fontScale } = useWindowDimensions();
   const stackUserBalance = fontScale >= 1.5;
   const [users, setUsers] = useState<any[] | null>(null);
@@ -13,6 +15,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [roleChangeTarget, setRoleChangeTarget] = useState<any | null>(null);
+  const [deleteWarningTarget, setDeleteWarningTarget] = useState<any | null>(null);
+  const [deleteEmailTarget, setDeleteEmailTarget] = useState<any | null>(null);
 
   const load = async () => {
     try {
@@ -83,6 +87,33 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     }
   };
 
+  const confirmDeleteUser = async (email: string) => {
+    const user = deleteEmailTarget;
+    if (!user || busy === user.$id) return;
+    if (email.trim().toLowerCase() !== String(user.email).trim().toLowerCase()) {
+      toast('The email does not match this account. No data was removed.', 'error');
+      return;
+    }
+    setDeleteEmailTarget(null);
+    setBusy(user.$id);
+    try {
+      const result = await deleteUserMutation.mutateAsync({
+        id: user.$id,
+        data: { confirmationEmail: email.trim() },
+      });
+      toast(
+        `Permanently removed ${user.name}. ${result.removed.registrations} registrations and ${result.removed.resultAwards} result awards were deleted.`,
+        'success',
+      );
+      await load();
+    } catch (e) {
+      toast(errMessage(e), 'error');
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
 
   return (
@@ -134,6 +165,18 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
                 />
               </View>
             )}
+            {!!currentUserId && u.$id !== currentUserId && u.role === 'user' && (
+              <View style={{ marginTop: 8 }}>
+                <Btn
+                  title="PERMANENTLY DELETE ACCOUNT"
+                  kind="danger"
+                  small
+                  onPress={() => setDeleteWarningTarget(u)}
+                  loading={busy === u.$id}
+                  testID={`delete-user-${u.$id}`}
+                />
+              </View>
+            )}
           </Card>
         );
       })}
@@ -153,6 +196,39 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         onConfirm={() => { void confirmTournamentAdminChange(); }}
         cancelTestID="cancel-tournament-admin-change"
         confirmTestID="confirm-tournament-admin-change"
+      />
+      <ConfirmDialog
+        visible={deleteWarningTarget !== null}
+        title="Permanently delete this player?"
+        message={deleteWarningTarget
+          ? `${deleteWarningTarget.name} (${deleteWarningTarget.email}) will be permanently removed, including the linked sign-in, wallet and payment history, withdrawals, tournament registrations and teammate rosters, results, referrals, notifications, video claims, leaderboard entries, and uploaded payment proofs. This cannot be undone.`
+          : ''}
+        confirmTitle="CONTINUE"
+        danger
+        onCancel={() => setDeleteWarningTarget(null)}
+        onConfirm={() => {
+          const target = deleteWarningTarget;
+          setDeleteWarningTarget(null);
+          if (target) setDeleteEmailTarget(target);
+        }}
+        cancelTestID="cancel-user-delete-warning"
+        confirmTestID="continue-user-delete"
+      />
+      <PromptDialog
+        visible={deleteEmailTarget !== null}
+        title="Confirm permanent deletion"
+        message="Type the account email exactly as shown. Its app data and linked sign-in identity will be removed."
+        confirmTitle="DELETE PERMANENTLY"
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Type the player's email to confirm permanent deletion"
+        placeholder={deleteEmailTarget?.email ?? ''}
+        inputTestID="user-delete-confirmation-email"
+        cancelTestID="cancel-user-delete-email"
+        confirmTestID="confirm-user-delete"
+        onCancel={() => setDeleteEmailTarget(null)}
+        onSubmit={(email) => { void confirmDeleteUser(email); }}
       />
     </ScreenWrap>
   );

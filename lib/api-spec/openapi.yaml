@@ -379,6 +379,32 @@ paths:
         "403": { description: Full Admin required }
         "404": { description: User not found }
         "409": { description: Caller cannot change their own access or last Full Admin cannot be demoted }
+  /admin/users/{id}/delete:
+    post:
+      operationId: daily007AdminDeleteUser
+      summary: Permanently remove a player and their associated data
+      description: Full Admin only. Only regular player accounts can be removed. The account is blocked first, then its Clerk identity and private payment-proof files are deleted, and all linked database data is removed in one transaction. The confirmation email must match the target account.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007AdminUserDeletionInput" }
+      responses:
+        "200":
+          description: The account and linked data were permanently removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminUserDeletionResponse" }
+        "400": { description: Invalid user id or confirmation email }
+        "401": { description: Daily007 account required }
+        "403": { description: Full Admin required }
+        "404": { description: User not found }
+        "409": { description: "Self-deletion, privileged roles, or retained administrator attribution prevents deletion" }
+        "502": { description: External identity or stored-file cleanup failed; the account remains blocked and can be retried }
+        "500": { description: Database cleanup failed; retry the blocked account deletion }
   /admin/account-recovery-requests:
     get:
       operationId: daily007AdminListAccountRecoveryRequests
@@ -1511,6 +1537,42 @@ components:
       properties:
         role: { type: string, enum: [user, tournament_admin] }
       required: [role]
+    Daily007AdminUserDeletionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        confirmationEmail: { type: string, format: email, minLength: 3, maxLength: 254 }
+      required: [confirmationEmail]
+    Daily007AdminUserDeletionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        deleted: { type: boolean, enum: [true] }
+        clerkIdentityDeleted: { type: boolean }
+        removed:
+          type: object
+          additionalProperties: false
+          properties:
+            payments: { type: integer, minimum: 0 }
+            paymentProofFiles: { type: integer, minimum: 0 }
+            withdrawals: { type: integer, minimum: 0 }
+            registrations: { type: integer, minimum: 0 }
+            rosterMembers: { type: integer, minimum: 0 }
+            resultAwards: { type: integer, minimum: 0 }
+            walletLedgerEntries: { type: integer, minimum: 0 }
+            notifications: { type: integer, minimum: 0 }
+            referralRelations: { type: integer, minimum: 0 }
+            referralCodes: { type: integer, minimum: 0 }
+            shortCodes: { type: integer, minimum: 0 }
+            userStats: { type: integer, minimum: 0 }
+            videoWatchSessions: { type: integer, minimum: 0 }
+            youtubeSubscribeClaims: { type: integer, minimum: 0 }
+            googleRecoveryRequests: { type: integer, minimum: 0 }
+            adminAccessRequests: { type: integer, minimum: 0 }
+            leaderboardSnapshots: { type: integer, minimum: 0 }
+            auditAttributionsCleared: { type: integer, minimum: 0 }
+          required: [payments, paymentProofFiles, withdrawals, registrations, rosterMembers, resultAwards, walletLedgerEntries, notifications, referralRelations, referralCodes, shortCodes, userStats, videoWatchSessions, youtubeSubscribeClaims, googleRecoveryRequests, adminAccessRequests, leaderboardSnapshots, auditAttributionsCleared]
+      required: [deleted, clerkIdentityDeleted, removed]
     Daily007ChangePasswordBody:
       type: object
       additionalProperties: false

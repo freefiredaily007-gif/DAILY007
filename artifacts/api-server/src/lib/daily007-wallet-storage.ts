@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Storage } from "@google-cloud/storage";
 
 const SIDECAR = "http://127.0.0.1:1106";
 const ALLOWED_TYPES = new Map([
@@ -7,6 +8,21 @@ const ALLOWED_TYPES = new Map([
   ["image/webp", "webp"],
 ]);
 export const MAX_WALLET_IMAGE_BYTES = 6 * 1024 * 1024;
+const PRIVATE_STORAGE = new Storage({
+  credentials: {
+    audience: "replit",
+    subject_token_type: "access_token",
+    token_url: `${SIDECAR}/token`,
+    type: "external_account",
+    credential_source: {
+      url: `${SIDECAR}/credential`,
+      format: { type: "json", subject_token_field_name: "access_token" },
+    },
+    universe_domain: "googleapis.com",
+  },
+  projectId: "",
+});
+const UUID_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:jpg|png|webp)$/i;
 
 function configuredPrivateDir(): string {
   const value = process.env.PRIVATE_OBJECT_DIR?.trim();
@@ -53,10 +69,30 @@ export function isWalletObjectPath(path: unknown): path is string {
     !path.includes("..") && !path.includes("\\");
 }
 
+export function isDaily007PaymentProofObjectPath(path: unknown, userId: string): path is string {
+  const prefix = `/objects/uploads/daily007/payment-proofs/${userId}/`;
+  return isWalletObjectPath(path) && path.startsWith(prefix) &&
+    UUID_FILE.test(path.slice(prefix.length));
+}
+
 function fullPathFromEntity(objectPath: string): string {
   if (!isWalletObjectPath(objectPath)) throw new Error("Invalid wallet image path.");
   const relative = objectPath.slice("/objects/".length);
   return `${configuredPrivateDir()}/${relative}`;
+}
+
+export async function deleteDaily007PaymentProofObject(objectPath: string, userId: string): Promise<void> {
+  if (!isDaily007PaymentProofObjectPath(objectPath, userId)) {
+    throw new Error("Payment proof path is invalid or does not belong to this account.");
+  }
+  const fullPath = fullPathFromEntity(objectPath);
+  const slash = fullPath.indexOf("/");
+  if (slash < 1 || slash === fullPath.length - 1) {
+    throw new Error("Payment proof storage path is invalid.");
+  }
+  const bucketName = fullPath.slice(0, slash);
+  const objectName = fullPath.slice(slash + 1);
+  await PRIVATE_STORAGE.bucket(bucketName).file(objectName).delete({ ignoreNotFound: true });
 }
 
 export async function createWalletImageUpload({

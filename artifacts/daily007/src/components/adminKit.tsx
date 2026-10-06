@@ -121,20 +121,64 @@ export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, co
   );
 }
 
-export function PromptDialog({ visible, title, message, onCancel, onSubmit, confirmTitle = 'OK', keyboardType }: {
-  visible: boolean; title: string; message?: string; onCancel: () => void; onSubmit: (value: string) => void; confirmTitle?: string; keyboardType?: any;
+export function PromptDialog({
+  visible,
+  title,
+  message,
+  onCancel,
+  onSubmit,
+  confirmTitle = 'OK',
+  keyboardType,
+  placeholder,
+  autoCapitalize,
+  autoCorrect,
+  accessibilityLabel,
+  inputTestID,
+  cancelTestID,
+  confirmTestID,
+}: {
+  visible: boolean;
+  title: string;
+  message?: string;
+  onCancel: () => void;
+  onSubmit: (value: string) => void;
+  confirmTitle?: string;
+  keyboardType?: any;
+  placeholder?: string;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoCorrect?: boolean;
+  accessibilityLabel?: string;
+  inputTestID?: string;
+  cancelTestID?: string;
+  confirmTestID?: string;
 }) {
   const [val, setVal] = useState('');
+  const close = () => {
+    setVal('');
+    onCancel();
+  };
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <View style={s.overlay}>
         <View style={s.dialog}>
           <Text style={s.dialogTitle}>{title}</Text>
           {!!message && <Text style={s.dialogMsg}>{message}</Text>}
-          <TextInput value={val} onChangeText={setVal} keyboardType={keyboardType} autoFocus placeholderTextColor="#5b6478" style={[s.input, { marginTop: 12 }]} />
+          <TextInput
+            value={val}
+            onChangeText={setVal}
+            keyboardType={keyboardType}
+            autoCapitalize={autoCapitalize}
+            autoCorrect={autoCorrect}
+            autoFocus
+            accessibilityLabel={accessibilityLabel ?? title}
+            testID={inputTestID}
+            placeholder={placeholder}
+            placeholderTextColor="#5b6478"
+            style={[s.input, { marginTop: 12 }]}
+          />
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-            <View style={{ flex: 1 }}><ActionBtn title="CANCEL" kind="ghost" onPress={onCancel} /></View>
-            <View style={{ flex: 1 }}><ActionBtn title={confirmTitle} onPress={() => { onSubmit(val); setVal(''); }} /></View>
+            <View style={{ flex: 1 }}><ActionBtn title="CANCEL" kind="ghost" onPress={close} testID={cancelTestID} /></View>
+            <View style={{ flex: 1 }}><ActionBtn title={confirmTitle} onPress={() => { onSubmit(val); setVal(''); }} testID={confirmTestID} /></View>
           </View>
         </View>
       </View>
