@@ -391,6 +391,61 @@ test("referred Google signup and repeat sign-in keep one 10-coin referral reward
   }
 });
 
+test("referral reward ledger failure rolls back a Google signup and Clerk identity link", async () => {
+  signupTestDb.reset();
+  signupTestDb.failNextReferralSignupRewardLedgerWrite();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const failedSignup = await fetch(`${origin}/auth/google`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer mocked-clerk-session",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ referralCode: SIGNUP_TEST_REFERRAL_CODE }),
+      });
+
+      assert.equal(failedSignup.status, 500);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.deepEqual(signupTestDb.referralSignupRewardLedgerFailureContext, {
+        accountExists: true,
+        referralExists: true,
+        walletCoins: 10,
+      });
+
+      assert.equal(signupTestDb.users.size, 1, "the failed signup must not leave a new account");
+      assert.equal(
+        [...signupTestDb.users.values()].some(
+          (user) => user.email === "google-signup@example.test",
+        ),
+        false,
+        "the failed signup must not leave its account email behind",
+      );
+      assert.equal(
+        [...signupTestDb.users.values()].some(
+          (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+        ),
+        false,
+        "the failed signup must not leave the Clerk identity linked",
+      );
+      assert.equal(signupTestDb.referrals.length, 0, "the failed signup must not leave a referral");
+      assert.equal(signupTestDb.ledger.length, 0, "the failed signup must not leave a wallet entry");
+      assert.equal(signupTestDb.shortCodesByUser.size, 1, "the new account's referral code must roll back");
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      assert.equal(referrer.wallet_coins, 0, "the failed signup must not change the referrer's wallet");
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("legacy referral code gives Google signup one 10-coin referral reward", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
