@@ -635,7 +635,7 @@ test("legacy referral code gives Google signup one 10-coin referral reward", asy
   }
 });
 
-test("an existing password account links to Google only with its current Daily007 session", async () => {
+test("a valid referral code does not change rewards when a password account links to Google", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
 
@@ -643,21 +643,33 @@ test("an existing password account links to Google only with its current Daily00
     await withGoogleAuthServer(async (origin) => {
       const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
       account.wallet_coins = 73;
+      const originalAccountId = account.id;
       const originalPassword = account.password_hash;
       const originalSalt = account.password_salt;
-      const originalLedgerCount = signupTestDb.ledger.length;
+      const originalReferrals = structuredClone(signupTestDb.referrals);
+      const originalLedger = structuredClone(signupTestDb.ledger);
       const originalSessionVersion = account.auth_version;
 
-      const linked = await googleAuth(origin, token);
+      const linked = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
       assert.equal(linked.status, 200);
-      assert.equal(linked.body.id, account.id);
+      assert.equal(linked.body.id, originalAccountId);
       assert.equal(linked.body.coins, 73);
       assert.equal(account.clerk_user_id, GOOGLE_CLERK_USER_ID);
+      assert.equal(account.id, originalAccountId);
       assert.equal(account.wallet_coins, 73);
       assert.equal(account.password_hash, originalPassword);
       assert.equal(account.password_salt, originalSalt);
       assert.equal(account.auth_version, originalSessionVersion, "explicit linking must preserve the current Daily007 session");
-      assert.equal(signupTestDb.ledger.length, originalLedgerCount, "linking must not grant a second signup reward");
+      assert.deepEqual(
+        signupTestDb.referrals,
+        originalReferrals,
+        "linking with a referral code must not add referral attribution",
+      );
+      assert.deepEqual(
+        signupTestDb.ledger,
+        originalLedger,
+        "linking with a referral code must not change wallet history or issue a signup reward",
+      );
 
       const walletResponse = await fetch(`${origin}/wallet/transactions`, {
         headers: { authorization: `Bearer ${token}` },
