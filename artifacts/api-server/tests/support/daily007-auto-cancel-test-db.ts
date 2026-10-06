@@ -68,15 +68,28 @@ function cloneMap<T>(source: Map<string, T>): Map<string, T> {
 class InMemoryRowLock {
   private locked = false;
   private readonly waiters: (() => void)[] = [];
+  private readonly waitCountWaiters: { target: number; resolve: () => void }[] = [];
   private waitAttempts = 0;
 
   get waitCount(): number {
     return this.waitAttempts;
   }
 
+  waitForWaitCount(target: number): Promise<void> {
+    if (this.waitAttempts >= target) return Promise.resolve();
+    return new Promise<void>((resolve) => this.waitCountWaiters.push({ target, resolve }));
+  }
+
   async acquire(): Promise<() => void> {
     if (this.locked) {
       this.waitAttempts += 1;
+      for (let index = this.waitCountWaiters.length - 1; index >= 0; index -= 1) {
+        const waiter = this.waitCountWaiters[index];
+        if (this.waitAttempts >= waiter.target) {
+          this.waitCountWaiters.splice(index, 1);
+          waiter.resolve();
+        }
+      }
       await new Promise<void>((resolve) => this.waiters.push(resolve));
     } else {
       this.locked = true;
@@ -101,6 +114,7 @@ class Daily007AutoCancelTestDatabase {
   ledger = new Map<string, TestLedgerEntry>();
   private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
   private readonly failedMatchFinalizations = new Set<string>();
+  private readonly failedRefundWrites = new Set<string>();
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
@@ -118,11 +132,16 @@ class Daily007AutoCancelTestDatabase {
     );
     this.matchRowLocks.clear();
     this.failedMatchFinalizations.clear();
+    this.failedRefundWrites.clear();
     this.mutationTrace.length = 0;
   }
 
   failNextMatchFinalization(matchId: string): void {
     this.failedMatchFinalizations.add(matchId);
+  }
+
+  failNextRefundWriteAfterFirstWalletMutation(matchId: string): void {
+    this.failedRefundWrites.add(matchId);
   }
 
   setNow(nowMs: number): void {
@@ -131,6 +150,10 @@ class Daily007AutoCancelTestDatabase {
 
   matchRowLockWaitCount(matchId: string): number {
     return this.matchRowLocks.get(matchId)?.waitCount ?? 0;
+  }
+
+  waitForMatchRowLockWaitCount(matchId: string, target = 1): Promise<void> {
+    return this.rowLockForMatch(matchId).waitForWaitCount(target);
   }
 
   private rowLockForMatch(matchId: string): InMemoryRowLock {
@@ -331,6 +354,16 @@ class Daily007AutoCancelTestDatabase {
     } else if (normalized.includes("INSERT INTO daily007_v2_wallet_ledger")) {
       const [userId, amount, balanceAfter, matchId, registrationId, idempotencyKey] = values;
       const key = String(idempotencyKey);
+      const matchIdString = String(matchId);
+      const registrationIdString = String(registrationId);
+      if (this.failedRefundWrites.delete(matchIdString)) {
+        if (this.mutationTrace.at(-1) !== `wallet:${String(userId)}`) {
+          throw new Error("Injected refund write failure requires a preceding wallet mutation.");
+        }
+        await this.waitForMatchRowLockWaitCount(matchIdString);
+        this.mutationTrace.push(`refund-write-failure:${registrationIdString}`);
+        throw new Error(`Injected tournament cancellation refund write failure: ${matchIdString}`);
+      }
       if (!this.ledger.has(key)) {
         this.ledger.set(key, {
           userId: String(userId),
