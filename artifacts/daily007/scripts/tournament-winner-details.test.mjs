@@ -262,13 +262,24 @@ test("an unfinished tournament does not render a winner card even if rank-one re
   assert.doesNotMatch(rendered.markup, /WINNER &amp; PRIZE|TOURNAMENT WINNER|999 coins/);
 });
 
-test("a completed result set without rank one has a distinct no-winner state", () => {
-  assert.deepEqual(
-    resolveTournamentWinnerState(false, false, [
+test("a completed match without rank one shows the no-winner message and no winner award", () => {
+  const rendered = renderWinnerFixture({
+    tournament: { status: "completed" },
+    participants: [{ players: ["Joined Player"], status: "approved" }],
+    teamTournament: false,
+    results: [
       { rank: 2, gameName: "Second Place", prizeCoins: 50 },
       { rank: 3, gameName: "Third Place", prizeCoins: 25 },
-    ]),
-    { kind: "no-winner" },
+    ],
+  });
+
+  assert.equal(rendered.isCompleted, true);
+  assert.deepEqual(rendered.winnerState, { kind: "no-winner" });
+  assert.match(rendered.markup, /No winner was recorded for this completed match\./);
+  assert.equal(getWinnerCardMarkup(rendered.markup), "");
+  assert.doesNotMatch(
+    rendered.markup,
+    /TOURNAMENT WINNER|PRIZE WON|50 coins|25 coins|Second Place|Third Place/,
   );
 });
 
