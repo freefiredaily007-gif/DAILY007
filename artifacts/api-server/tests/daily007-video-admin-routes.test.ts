@@ -278,6 +278,48 @@ test("Full Admin cannot permanently delete a video with watch history", async ()
   });
 });
 
+test("Full Admin can permanently delete an unwatched video without changing other videos or watch history", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const target = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(target.status, 201);
+    const targetVideoId = String(target.body.id);
+
+    const unrelated = await postVideo(origin, VIDEO_TEST_ADMIN_ID, {
+      ...validVideo,
+      title: "Other Highlights",
+      url: "https://youtu.be/Q7w6V5u4T3s",
+    });
+    assert.equal(unrelated.status, 201);
+    const unrelatedVideoId = String(unrelated.body.id);
+    seedWatchHistory(unrelatedVideoId);
+
+    const unrelatedVideoBefore = structuredClone(
+      videoTestDb.videos.find((video) => video.id === unrelatedVideoId),
+    );
+    assert.ok(unrelatedVideoBefore, "the unrelated video should exist before deletion");
+    const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+
+    const response = await fetch(`${origin}/admin/videos/${targetVideoId}`, {
+      method: "DELETE",
+      headers: authHeaders(VIDEO_TEST_ADMIN_ID),
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(await response.text(), "");
+    assert.deepEqual(videoTestDb.videos, [unrelatedVideoBefore]);
+    assert.deepEqual(videoTestDb.watchSessions, watchSessionsBefore);
+
+    const catalogResponse = await fetch(`${origin}/videos`);
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json() as {
+      videos: Array<{ id: string }>;
+    };
+    assert.deepEqual(catalog.videos.map((video) => video.id), [unrelatedVideoId]);
+  });
+});
+
 test("Full Admin can hide a video without detaching its watch history", async () => {
   videoTestDb.reset();
 
