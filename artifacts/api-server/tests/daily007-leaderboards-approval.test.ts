@@ -714,6 +714,48 @@ test("Tournament Admin cannot change weekly or monthly leaderboard prize schedul
   }
 });
 
+test("Tournament Admin cannot read Full Admin leaderboard reward settings or change the fixture", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const originalFixture = structuredClone({
+    users: daily007LeaderboardTestDb.users,
+    matches: daily007LeaderboardTestDb.matches,
+    awards: daily007LeaderboardTestDb.awards,
+    periods: daily007LeaderboardTestDb.periods,
+    rewardSettings: daily007LeaderboardTestDb.rewardSettings,
+    ledger: daily007LeaderboardTestDb.ledger,
+    failWalletUpdateFor: daily007LeaderboardTestDb.failWalletUpdateFor,
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const rejectedRead = await call(
+        origin,
+        TEST_TOURNAMENT_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "GET",
+      );
+
+      assert.equal(rejectedRead.status, 403);
+      assert.deepEqual(
+        structuredClone({
+          users: daily007LeaderboardTestDb.users,
+          matches: daily007LeaderboardTestDb.matches,
+          awards: daily007LeaderboardTestDb.awards,
+          periods: daily007LeaderboardTestDb.periods,
+          rewardSettings: daily007LeaderboardTestDb.rewardSettings,
+          ledger: daily007LeaderboardTestDb.ledger,
+          failWalletUpdateFor: daily007LeaderboardTestDb.failWalletUpdateFor,
+        }),
+        originalFixture,
+        "a rejected settings read must leave the in-memory leaderboard fixture unchanged",
+      );
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("Full Admin must approve ended cycles and schedule fresh prizes before the next cycles start", async () => {
   daily007LeaderboardTestDb.reset();
   const now = new Date();
