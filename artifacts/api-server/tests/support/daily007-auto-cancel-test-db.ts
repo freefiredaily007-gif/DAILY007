@@ -197,11 +197,14 @@ class Daily007AutoCancelTestDatabase {
     let rows: unknown[] = [];
 
     if (
-      normalized.startsWith("SELECT m.id FROM daily007_v2_matches m") &&
-      normalized.includes("ORDER BY m.starts_at ASC") &&
+      normalized.startsWith('SELECT m.id, m.starts_at AS "startsAt" FROM daily007_v2_matches m') &&
+      normalized.includes("ORDER BY m.starts_at ASC, m.id ASC") &&
       normalized.includes("LIMIT $1")
     ) {
       const batchSize = Number(values[0]);
+      const cursorStartsAt = values[1] as Date | string | null;
+      const cursorTime = cursorStartsAt === null ? null : new Date(cursorStartsAt).getTime();
+      const cursorId = values[2] == null ? null : String(values[2]);
       rows = [...this.matches.values()]
         .filter((match) => {
           const activeCount = this.registrations.filter((registration) =>
@@ -217,11 +220,17 @@ class Daily007AutoCancelTestDatabase {
             match.status !== "cancelled" &&
             automaticMode &&
             activeCount < match.capacity &&
-            !match.hasWinner;
+            !match.hasWinner &&
+            (cursorTime === null ||
+              match.startsAtWallMs > cursorTime ||
+              (match.startsAtWallMs === cursorTime && match.id > cursorId!));
         })
-        .sort((a, b) => a.startsAtWallMs - b.startsAtWallMs)
+        .sort((a, b) =>
+          a.startsAtWallMs - b.startsAtWallMs ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+        )
         .slice(0, batchSize)
-        .map((match) => ({ id: match.id }));
+        .map((match) => ({ id: match.id, startsAt: new Date(match.startsAtWallMs) }));
     } else if (normalized.includes("FOR UPDATE OF m")) {
       const match = this.matches.get(String(values[0]));
       rows = match ? [{

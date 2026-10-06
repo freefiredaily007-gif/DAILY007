@@ -198,3 +198,64 @@ test("a later payer failure rolls back one tournament without stopping the sweep
     }],
   );
 });
+
+test("a failing batch does not starve later tournament refunds across sweeps", async () => {
+  const failingMatchCount = 100;
+  const matchStart = scheduledStartWallTime - 1_000;
+  const matches = Array.from({ length: failingMatchCount }, (_, index) => {
+    const tournament = match(
+      `starvation-match-${String(index).padStart(3, "0")}`,
+      "clash_squad",
+      "clash",
+      3,
+    );
+    tournament.startsAtWallMs = matchStart;
+    return tournament;
+  });
+  const validMatch = match("starvation-match-100", "lone_wolf", "clash", 2);
+  validMatch.startsAtWallMs = matchStart;
+
+  const registrations = matches.flatMap((tournament, index) => [
+    registration(`starvation-first-${index}`, tournament.id, `payer-${index}-a`, 7, "approved"),
+    registration(`starvation-failure-${index}`, tournament.id, `payer-${index}-z`, 11, "pending"),
+  ]);
+  registrations.push(registration("starvation-valid-reg", validMatch.id, "payer-valid", 13, "approved"));
+  const accounts = matches.map((_, index) => ({ id: `payer-${index}-a`, wallet_coins: 50 }));
+  accounts.push({ id: "payer-valid", wallet_coins: 70 });
+
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [...matches, validMatch],
+    registrations,
+    accounts,
+  });
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.mutationTrace.length, failingMatchCount * 2);
+  for (let index = 0; index < failingMatchCount; index += 1) {
+    const failedMatch = matches[index]!;
+    assert.equal(autoCancellationTestDb.matches.get(failedMatch.id)?.status, "open");
+    assert.equal(autoCancellationTestDb.accounts.get(`payer-${index}-a`)?.wallet_coins, 50);
+  }
+  assert.equal(autoCancellationTestDb.ledger.size, 0);
+  assert.equal(autoCancellationTestDb.matches.get(validMatch.id)?.status, "open");
+  assert.equal(autoCancellationTestDb.accounts.get("payer-valid")?.wallet_coins, 70);
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.matches.get(validMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get("payer-valid")?.wallet_coins, 83);
+  assert.equal(autoCancellationTestDb.ledger.size, 1);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === validMatch.id).length,
+    1,
+  );
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.ledger.size, 1);
+  assert.equal(autoCancellationTestDb.accounts.get("payer-valid")?.wallet_coins, 83);
+  assert.equal(autoCancellationTestDb.matches.get(validMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.mutationTrace.length, failingMatchCount * 4 + 2);
+});
