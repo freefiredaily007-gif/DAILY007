@@ -716,7 +716,7 @@ export default function AdminTournaments() {
                     <Text style={st.lbl}>ROOM PASSWORD</Text>
                     <Input placeholder="Room Password" value={roomForm.roomPassword} onChangeText={(roomPassword) => setRoomForm((current) => ({ ...current, roomPassword }))} />
                     <Msg kind="err" text={roomError} accessibilityLiveRegion="polite" />
-                    <Msg kind="ok" text={roomSuccess} />
+                    <Msg kind="ok" text={roomSuccess} accessibilityLiveRegion="polite" />
                     <View style={{ marginTop: 6 }}>
                       <Btn
                         title="SAVE ROOM DETAILS"

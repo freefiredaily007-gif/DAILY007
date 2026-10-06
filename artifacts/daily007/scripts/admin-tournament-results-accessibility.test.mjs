@@ -92,6 +92,29 @@ test('approved-player load failures use one polite retry announcement without mo
   assert.doesNotMatch(failureMessage, /setAccessibilityFocus|\.focus\(/);
 });
 
+test('room save and removal outcomes announce once without moving focus', () => {
+  const roomStatusMessages = screenSource.match(
+    /<Msg kind="(?:err|ok)" text=\{room(?:Error|Success)\} accessibilityLiveRegion="polite" \/>/g,
+  ) ?? [];
+  assert.equal(roomStatusMessages.length, 2, 'Room errors and successes must each have one polite live region.');
+
+  const saveStart = screenSource.indexOf('const saveRoom = async');
+  const clearStart = screenSource.indexOf('const clearRoom = async', saveStart);
+  const publishStart = screenSource.indexOf('const publishResult = async', clearStart);
+  assert.ok(saveStart >= 0 && clearStart > saveStart && publishStart > clearStart);
+  const saveRoomMethod = screenSource.slice(saveStart, clearStart);
+  const clearRoomMethod = screenSource.slice(clearStart, publishStart);
+
+  assert.match(saveRoomMethod, /await Api\.adminSaveRoom\(tournamentId, roomForm\)/);
+  assert.match(saveRoomMethod, /setRoomSuccess\('Room credentials saved\./);
+  assert.match(saveRoomMethod, /setRoomError\(apiError\(e\)\)/);
+  assert.match(clearRoomMethod, /await Api\.adminClearRoom\(tournamentId\)/);
+  assert.match(clearRoomMethod, /setRoomSuccess\('Room details removed and hidden from players\.'\)/);
+  assert.match(clearRoomMethod, /setRoomError\(apiError\(e\)\)/);
+  assert.doesNotMatch(`${saveRoomMethod}\n${clearRoomMethod}`, /setAccessibilityFocus|\.focus\(/);
+  assert.match(uiSource, /if \(!text\) return null;/);
+});
+
 test('tournament and room-management errors use polite live regions', () => {
   assert.match(
     screenSource,
