@@ -459,3 +459,70 @@ test("v2 admin room saves remain supported by the isolated room-access fixture",
     assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
   });
 });
+
+test("both admin room save APIs reject blank or oversized credentials without changing saved room state", async () => {
+  roomAccessTestDb.reset();
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+  const routes = [
+    {
+      label: "v2",
+      path: `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+    },
+    {
+      label: "compatibility",
+      path: `/admin/tournaments/${TEST_MATCH_ID}/room`,
+    },
+  ];
+  const invalidValues = [
+    { field: "roomId", value: "", description: "empty room ID" },
+    { field: "roomId", value: "   ", description: "whitespace-only room ID" },
+    { field: "roomId", value: "R".repeat(201), description: "oversized room ID" },
+    { field: "roomPassword", value: "", description: "empty room password" },
+    { field: "roomPassword", value: "   ", description: "whitespace-only room password" },
+    { field: "roomPassword", value: "P".repeat(201), description: "oversized room password" },
+  ];
+
+  await withServer(async (origin) => {
+    for (const route of routes) {
+      for (const invalid of invalidValues) {
+        const credentials = {
+          roomId: "VALID-ROOM-REPLACEMENT",
+          roomPassword: "valid-room-password",
+          [invalid.field]: invalid.value,
+        };
+        const response = await request(
+          origin,
+          route.path,
+          "PUT",
+          adminToken,
+          credentials,
+        );
+
+        assert.equal(
+          response.status,
+          400,
+          `${route.label} should reject ${invalid.description}`,
+        );
+        assert.deepEqual(
+          {
+            roomId: roomAccessTestDb.match.room_id,
+            roomPassword: roomAccessTestDb.match.room_password,
+            roomPublished: roomAccessTestDb.match.room_published,
+          },
+          {
+            roomId: matchBefore.room_id,
+            roomPassword: matchBefore.room_password,
+            roomPublished: matchBefore.room_published,
+          },
+          `${route.label} must preserve saved credentials after rejecting ${invalid.description}`,
+        );
+        assert.equal(roomAccessTestDb.match.status, matchBefore.status);
+        assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+      }
+    }
+  });
+});
