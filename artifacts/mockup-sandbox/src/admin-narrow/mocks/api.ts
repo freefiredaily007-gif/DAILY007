@@ -214,6 +214,7 @@ const previewAdminTransactions = [
 const empty = async () => [];
 let tournamentReadCount = 0;
 let nextTournamentReadError: string | null = null;
+let nextMyRegistrationReadError: string | null = null;
 let deferredTournamentRead: {
   promise: Promise<any[]>;
   reject: (error: Error) => void;
@@ -360,6 +361,11 @@ export const Api = {
   },
   myRegistrations: async () => {
     myRegistrationReadCount += 1;
+    if (nextMyRegistrationReadError !== null) {
+      const error = nextMyRegistrationReadError;
+      nextMyRegistrationReadError = null;
+      throw new Error(error);
+    }
     if (playerLargestTextPreview) {
       return largestTextRegistrations.map((registration) => ({ ...registration }));
     }
@@ -512,6 +518,10 @@ export function releaseHomeCarouselRegistrationRead(registrations = homeCarousel
 
 export function getMyRegistrationReadCount() {
   return myRegistrationReadCount;
+}
+
+export function failNextHomeCarouselRegistrationRead(message = "Temporary registration refresh failure") {
+  nextMyRegistrationReadError = message;
 }
 
 export function resetTournamentReadCount() {

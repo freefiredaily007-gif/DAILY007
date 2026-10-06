@@ -1833,25 +1833,76 @@ async function checkHomeCarousel(width) {
     stateAfterFailedPairedRead.cardText?.includes("JOINED"),
     `The paired failure and subsequent foreground refresh should preserve the approved registration: ${JSON.stringify(stateAfterFailedPairedRead)}.`,
   );
+
+  await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', {
+    name: 'Updated While Registration Refresh Fails'
+  })`);
+  await evaluate(`(() => {
+    window.__daily007HomeCarouselTest.failedRegistrationRefreshCards = [
+      ...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')
+    ];
+    return true;
+  })()`);
   await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
     { id: "preview-registration-later-one", tournamentId: "later-one", status: "rejected" }
   ])`);
-  const readsBeforeRejectionRefresh = await evaluate(`({
+  await evaluate("window.__daily007HomeCarouselTest.failNextRegistrationRead('Temporary registration refresh failure')");
+  const readsBeforeFailedRegistrationRefresh = await evaluate(`({
     tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
     registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
   })`);
   await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()");
   await waitForCondition(
-    `window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRejectionRefresh.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW')`,
-    "Home to remove the joined label after an Admin rejection is returned successfully",
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeFailedRegistrationRefresh.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeFailedRegistrationRefresh.registrations + 1}`,
+    "Home to complete a successful tournament read alongside a failed registration read",
+  );
+  await delay(80);
+  const stateAfterFailedRegistrationRead = await evaluate(`(() => {
+    const card = document.querySelector('[data-testid="home-upcoming-card-later-one"]');
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    return {
+      cardText: card?.innerText ?? null,
+      cardCount: cards.length,
+      cardNames: cards.map((item) => item.innerText),
+      tournamentReads: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+      registrationReads: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+    };
+  })()`);
+  assert(
+    stateAfterFailedRegistrationRead.cardText?.includes("JOINED") &&
+      !stateAfterFailedRegistrationRead.cardText?.includes("Updated While Registration Refresh Fails") &&
+      stateAfterFailedRegistrationRead.cardCount === 2 &&
+      stateAfterFailedRegistrationRead.cardNames[0].includes("Refreshed While Away"),
+    `A failed registration refresh must preserve the existing joined label and all displayed cards: ${JSON.stringify({
+      cardText: stateAfterFailedRegistrationRead.cardText,
+      cardCount: stateAfterFailedRegistrationRead.cardCount,
+      cardNames: stateAfterFailedRegistrationRead.cardNames,
+    })}.`,
+  );
+  assert(
+    await evaluate(`(() => {
+      const failedState = window.__daily007HomeCarouselTest.failedRegistrationRefreshCards;
+      return failedState?.length === 2 &&
+        failedState.every((card, index) => card === document.querySelectorAll('[data-testid^="home-upcoming-card-"]')[index]);
+    })()`),
+    "A failed registration refresh must keep the existing Home card nodes mounted.",
+  );
+  const readsBeforeRegistrationRecovery = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeRegistrationRecovery.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRegistrationRecovery.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW') && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Updated While Registration Refresh Fails')`,
+    "A later scheduled Home refresh to apply the latest tournament and registration state",
   );
   const readsAfterRejection = await evaluate(`({
     tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
     registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
   })`);
   assert(
-    readsAfterRejection.tournaments === readsBeforeRejectionRefresh.tournaments + 1 &&
-      readsAfterRejection.registrations === readsBeforeRejectionRefresh.registrations + 1,
+    readsAfterRejection.tournaments === readsBeforeRegistrationRecovery.tournaments + 1 &&
+      readsAfterRejection.registrations === readsBeforeRegistrationRecovery.registrations + 1,
     "The recovered Home poll should perform only one read per endpoint.",
   );
   assert(

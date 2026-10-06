@@ -147,6 +147,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     setRegistrations: apiMocks.setHomeCarouselRegistrationPreview,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
+    failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
     releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
     mergeHomeTournamentItems,
