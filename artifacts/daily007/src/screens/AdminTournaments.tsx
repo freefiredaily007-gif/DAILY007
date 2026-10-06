@@ -354,7 +354,10 @@ export default function AdminTournaments() {
       .filter((start) => Number.isFinite(start) && start > now)
       .sort((a, b) => a - b)[0];
     if (nextStart === undefined) return;
-    const timer = setTimeout(() => { void load(); }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    const timer = setTimeout(() => {
+      setClockNow(Date.now());
+      void load();
+    }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
     return () => clearTimeout(timer);
   }, [list, clockNow, load]);
 

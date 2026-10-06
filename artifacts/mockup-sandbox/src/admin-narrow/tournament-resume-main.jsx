@@ -10,7 +10,9 @@ if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 
 const root = createRoot(rootElement);
 const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
+const scheduledStartGapMs = 1_500;
 let scheduledStartMs = Date.now() + (scheduledStartOnly ? 2_500 : 10 * 60 * 1000);
+let laterScheduledStartMs = scheduledStartMs + scheduledStartGapMs;
 let fakeNow = scheduledStartMs - (scheduledStartOnly ? 2_000 : 60 * 1000);
 Date.now = () => fakeNow;
 
@@ -25,16 +27,17 @@ Object.defineProperty(document, "visibilityState", {
 const asIstTimestamp = (timestamp) =>
   new Date(timestamp + 5.5 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "+05:30");
 
-void import("./mocks/api.ts").then(async (apiMocks) => {
-  apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, {
-    id: "resume-boundary",
-    name: "IST Start Boundary",
+const scheduledTournament = (id, name, startsAtMs) => {
+  const startsAt = asIstTimestamp(startsAtMs);
+  return {
+    id,
+    name,
     mode: "Battle Royale",
     teamType: "Solo",
     gameMode: "battle_royale",
-    date: asIstTimestamp(scheduledStartMs).slice(0, 10),
+    date: startsAt.slice(0, 10),
     time: "08:00 PM",
-    startsAt: asIstTimestamp(scheduledStartMs),
+    startsAt,
     entryCoins: 0,
     prizePool: 500,
     totalSlots: 48,
@@ -44,7 +47,19 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     status: "upcoming",
     enabled: true,
     prizeDist: "1st: 500 coins",
-  });
+  };
+};
+
+void import("./mocks/api.ts").then(async (apiMocks) => {
+  const scheduledTournaments = [
+    scheduledTournament("resume-boundary", "IST Start Boundary", scheduledStartMs),
+  ];
+  if (scheduledStartOnly) {
+    scheduledTournaments.push(
+      scheduledTournament("resume-boundary-later", "Later IST Tournament Boundary", laterScheduledStartMs),
+    );
+  }
+  apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
 
   const [{ default: Tournaments }, { default: AdminTournaments }] = await Promise.all([
     import("../../../daily007/src/screens/Tournaments"),
@@ -64,16 +79,26 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getVisibilityChangeCount: () => visibilityChangeCount,
     getVisibilityState: () => visibilityState,
     updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),
-    advanceClockPastStart: () => { fakeNow = scheduledStartMs + 60 * 1000; },
+    advanceClockPastFirstStart: () => { fakeNow = scheduledStartMs + 100; },
+    advanceClockPastSecondStart: () => { fakeNow = laterScheduledStartMs + 100; },
     prepareAdminForScheduledStart: () => {
       scheduledStartMs = fakeNow + 2_500;
+      laterScheduledStartMs = scheduledStartMs + scheduledStartGapMs;
       fakeNow = scheduledStartMs - 2_000;
-      const startsAt = asIstTimestamp(scheduledStartMs);
-      Object.assign(apiMocks.previewTournaments[0], {
-        date: startsAt.slice(0, 10),
-        startsAt,
-        status: "upcoming",
-      });
+      Object.assign(
+        apiMocks.previewTournaments[0],
+        scheduledTournament("resume-boundary", "IST Start Boundary", scheduledStartMs),
+      );
+      if (scheduledStartOnly) {
+        Object.assign(
+          apiMocks.previewTournaments[1],
+          scheduledTournament(
+            "resume-boundary-later",
+            "Later IST Tournament Boundary",
+            laterScheduledStartMs,
+          ),
+        );
+      }
       apiMocks.resetTournamentReadCount();
     },
     startBackgroundCycle: () => {

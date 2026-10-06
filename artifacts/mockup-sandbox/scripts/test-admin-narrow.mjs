@@ -1195,8 +1195,8 @@ async function checkTournamentScheduledStart() {
     "the timed-start preview to initialize",
   );
   await waitForCondition(
-    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
-    "the player list to load its upcoming IST tournament",
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')",
+    "the player list to load both upcoming IST tournaments",
   );
 
   await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
@@ -1204,54 +1204,95 @@ async function checkTournamentScheduledStart() {
     "document.body.innerText.includes('No ongoing tournaments are available right now.')",
     "the player Ongoing list to be empty before its scheduled start",
   );
-  const visibilityChangesBeforePlayerStart = await evaluate(
+  const visibilityChangesBeforePlayerStarts = await evaluate(
     "window.__daily007TournamentResume.getVisibilityChangeCount()",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityState() === 'visible'"),
-    "The player list must stay visible while its scheduled start passes.",
+    "The player list must stay visible while its scheduled starts pass.",
   );
   let tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
-  await evaluate("window.__daily007TournamentResume.advanceClockPastStart()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary')`,
-    "the player list timer to move the tournament into Ongoing without app resume",
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Later IST Tournament Boundary')`,
+    "the player list timer to move only the first tournament into Ongoing",
   );
   assert(
-    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStart,
-    "The player start-time transition must not depend on an AppState visibility/resume event.",
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStarts,
+    "The first player start-time transition must not depend on an AppState visibility/resume event.",
   );
-  await assertText("IST Start Boundary", "the player tournament after its scheduled start");
+  await assertText("IST Start Boundary", "the first player tournament after its scheduled start");
+  await clickSelector('[data-testid="tournament-tab-upcoming"]', "player Upcoming filter");
+  await waitForCondition(
+    "document.body.innerText.includes('Later IST Tournament Boundary') && !document.body.innerText.includes('IST Start Boundary')",
+    "the later player tournament to remain Upcoming after the first start",
+  );
+  await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
+  tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastSecondStart()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')`,
+    "the player list timer to move the later tournament into Ongoing at its own start",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStarts,
+    "The second player start-time transition must not depend on an AppState visibility/resume event.",
+  );
+  await assertText("IST Start Boundary", "the first player tournament after both scheduled starts");
+  await assertText("Later IST Tournament Boundary", "the later player tournament after its scheduled start");
 
   await evaluate("window.__daily007TournamentResume.prepareAdminForScheduledStart()");
   await evaluate("window.__daily007TournamentResume.showAdmin()");
   await waitForCondition(
-    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
-    "the Admin list to load its next upcoming IST tournament",
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')",
+    "the Admin list to load both upcoming IST tournaments",
   );
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
   await waitForCondition(
     "document.body.innerText.includes('No ongoing tournaments.')",
     "the Admin Ongoing list to be empty before its scheduled start",
   );
-  const visibilityChangesBeforeAdminStart = await evaluate(
+  const visibilityChangesBeforeAdminStarts = await evaluate(
     "window.__daily007TournamentResume.getVisibilityChangeCount()",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityState() === 'visible'"),
-    "The Admin list must stay visible while its scheduled start passes.",
+    "The Admin list must stay visible while its scheduled starts pass.",
   );
   tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
-  await evaluate("window.__daily007TournamentResume.advanceClockPastStart()");
+  await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary')`,
-    "the Admin list timer to move the tournament into Ongoing without app resume",
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Later IST Tournament Boundary') && document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    "the Admin clock to move only the first tournament into Ongoing even when its scheduled refresh fails",
   );
   assert(
-    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStart,
-    "The Admin start-time transition must not depend on an AppState visibility/resume event.",
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStarts,
+    "The first Admin start-time transition must not depend on an app background/resume event.",
   );
-  await assertText("IST Start Boundary", "the Admin tournament after its scheduled start");
+  await assertText("IST Start Boundary", "the first Admin tournament after its scheduled start");
+  await clickSelector('[data-testid="admin-tournament-tab-upcoming"]', "Admin Upcoming filter");
+  await waitForCondition(
+    "document.body.innerText.includes('Later IST Tournament Boundary') && !document.body.innerText.includes('IST Start Boundary')",
+    "the later Admin tournament to remain Upcoming after the first start",
+  );
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
+  tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastSecondStart()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary') && !document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    "the Admin list timer to move the later tournament into Ongoing at its own start",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStarts,
+    "The second Admin start-time transition must not depend on an app background/resume event.",
+  );
+  assert(
+    !await evaluate("document.body.innerText.includes('Could not refresh tournaments: Temporary network error')"),
+    "A successful scheduled Admin refresh should clear the earlier request error.",
+  );
+  await assertText("IST Start Boundary", "the first Admin tournament after both scheduled starts");
+  await assertText("Later IST Tournament Boundary", "the later Admin tournament after its scheduled start");
 }
 
 async function readHomeCarouselState() {
