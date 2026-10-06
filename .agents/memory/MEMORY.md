@@ -11,6 +11,7 @@
 - [Admin large-text preview checks](daily007-admin-large-text-preview.md) — distinguish layout clipping from expected horizontal scrolling inside populated single-line inputs.
 - [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — separate native accessibility grouping from web roles; check control reachability, locale values, and card bounds.
 - [Daily007 Android Back behavior](daily007-android-back.md) — hardware Back first hides the keyboard in Wallet/Edit Profile; values and second-Back behavior were confirmed on Android.
+- [Daily007 signup keyboard](daily007-signup-keyboard.md) — iQOO Neo 10 / Android 16 confirmed Next navigation through signup fields and Done leaving Create Account reachable.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
 - [Daily007 API client tests](daily007-api-client-tests.md) — Node 24 tests that import the Expo API client need native module mocks and an extensionless TypeScript resolver.
