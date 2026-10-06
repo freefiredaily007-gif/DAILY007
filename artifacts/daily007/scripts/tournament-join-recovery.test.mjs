@@ -113,7 +113,7 @@ test("full-capacity rejection announces the refreshed state through the visible 
   assert.ok(message, "the visible error message must remain in the join form");
   assert.match(message, /text=\{err \|\| disabledMessage\}/);
   assert.match(message, /accessibilityLabel=\{capacityAnnouncement\}/);
-  assert.match(message, /accessibilityLiveRegion=\{fullCapacityFailure \? 'polite' : undefined\}/);
+  assert.match(message, /accessibilityLiveRegion=\{err \? 'polite' : undefined\}/);
   assert.match(
     joinFormSource,
     /setFullCapacityFailure\(isFullMatchRejection\(e\)\)/,
@@ -128,6 +128,34 @@ test("full-capacity rejection announces the refreshed state through the visible 
   assert.ok(messageText, "the shared message text must carry its announcement label and live region");
   assert.match(joinFormSource, /disabled=\{isUnavailable\}/);
   assert.doesNotMatch(joinFormSource, /AccessibilityInfo\.announceForAccessibility/);
+});
+
+test("non-capacity registration errors announce once through their visible error message", () => {
+  const message = joinFormSource.match(/<Msg\b[\s\S]*?\/>/)?.[0];
+  assert.ok(message, "the visible error message must remain in the join form");
+  assert.match(message, /text=\{err \|\| disabledMessage\}/);
+  assert.match(message, /accessibilityLiveRegion=\{err \? 'polite' : undefined\}/);
+
+  assert.match(
+    joinFormSource,
+    /if \(!captainGameName\.trim\(\)\) return setErr\('Captain Free Fire in-game name is required\.'\)/,
+    "local validation failures should continue to populate the visible error",
+  );
+  assert.match(
+    joinFormSource,
+    /setErr\(e\?\.response\?\.data\?\.error \|\| e\?\.response\?\.data\?\.message \|\| e\?\.message \|\| 'Registration could not be confirmed\. Please try again\.'\)/,
+    "server failures such as insufficient balance should continue to populate the visible error",
+  );
+  assert.equal(
+    (joinFormSource.match(/<Msg\b/g) ?? []).length,
+    1,
+    "the form should expose one live visible error message",
+  );
+  assert.doesNotMatch(
+    joinFormSource,
+    /announceForAccessibility|setAccessibilityFocus|\.focus\(/,
+    "registration errors must not use a second announcement or move focus",
+  );
 });
 
 test("the Android regression route uses only local fixtures and is dev-only", () => {

@@ -226,7 +226,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         text={err || disabledMessage}
         testID="join-form-error"
         accessibilityLabel={capacityAnnouncement}
-        accessibilityLiveRegion={fullCapacityFailure ? 'polite' : undefined}
+        accessibilityLiveRegion={err ? 'polite' : undefined}
       />
       <View style={{ marginTop: 12, marginBottom: 32 }}>
         <Btn
