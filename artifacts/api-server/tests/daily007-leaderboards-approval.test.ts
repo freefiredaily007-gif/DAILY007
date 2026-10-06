@@ -604,6 +604,62 @@ test("Full Admin prize saves reach the player API immediately and remain availab
   }
 });
 
+test("Full Admin prize updates leave pending approval payout snapshots unchanged", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedPendingAndOpenPeriods(new Date());
+  const weeklyPending = daily007LeaderboardTestDb.periods.get(TEST_WEEKLY_PERIOD_ID);
+  const monthlyPending = daily007LeaderboardTestDb.periods.get(TEST_MONTHLY_PERIOD_ID);
+  assert.ok(weeklyPending);
+  assert.ok(monthlyPending);
+  const originalPendingSnapshots = structuredClone({
+    weekly: weeklyPending.payout_configuration,
+    monthly: monthlyPending.payout_configuration,
+  });
+  const savedRewards = {
+    weekly: { firstPlaceCoins: 711, secondPlaceCoins: 722, thirdPlaceCoins: 733 },
+    monthly: { firstPlaceCoins: 844, secondPlaceCoins: 855, thirdPlaceCoins: 866 },
+  };
+
+  try {
+    await withServer(async (origin) => {
+      const saved = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        savedRewards,
+      );
+
+      assert.equal(saved.status, 200);
+      assert.deepEqual(
+        {
+          weekly: {
+            firstPlaceCoins: saved.body.weekly.firstPlaceCoins,
+            secondPlaceCoins: saved.body.weekly.secondPlaceCoins,
+            thirdPlaceCoins: saved.body.weekly.thirdPlaceCoins,
+          },
+          monthly: {
+            firstPlaceCoins: saved.body.monthly.firstPlaceCoins,
+            secondPlaceCoins: saved.body.monthly.secondPlaceCoins,
+            thirdPlaceCoins: saved.body.monthly.thirdPlaceCoins,
+          },
+        },
+        savedRewards,
+      );
+      assert.deepEqual(
+        {
+          weekly: daily007LeaderboardTestDb.periods.get(TEST_WEEKLY_PERIOD_ID)?.payout_configuration,
+          monthly: daily007LeaderboardTestDb.periods.get(TEST_MONTHLY_PERIOD_ID)?.payout_configuration,
+        },
+        originalPendingSnapshots,
+        "pending periods must keep the payout configuration captured when they ended",
+      );
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("invalid Full Admin prize edits leave both schedules and active-period snapshots unchanged", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());

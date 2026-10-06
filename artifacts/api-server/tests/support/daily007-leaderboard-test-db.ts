@@ -427,7 +427,7 @@ class MemoryLeaderboardDatabase {
       for (const period of this.periods.values()) {
         if (
           period.cycle_type === cycleType &&
-          ["active", "pending_activation", "pending_approval"].includes(period.status) &&
+          ["active", "pending_activation"].includes(period.status) &&
           period.ends_at.getTime() > cutoff
         ) {
           period.payout_configuration = structuredClone(payoutConfiguration);
