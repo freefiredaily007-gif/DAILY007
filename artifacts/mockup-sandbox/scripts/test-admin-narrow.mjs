@@ -23,6 +23,7 @@ const adminTabs = [
 ];
 const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
+const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
@@ -1105,6 +1106,59 @@ async function checkTournamentInitialLoadFailure() {
   );
 }
 
+async function triggerPlayerManualRefresh() {
+  await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  await tapSelector(
+    '[data-testid="player-refresh-control-test-action"]',
+    "Player pull-to-refresh control",
+  );
+}
+
+async function checkTournamentManualRefresh() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the Player pull-to-refresh preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
+    "the Player list to load its tournament before manual refresh",
+  );
+
+  const visibilityChangesBeforeRefresh = await evaluate(
+    "window.__daily007TournamentResume.getVisibilityChangeCount()",
+  );
+  let readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
+  await triggerPlayerManualRefresh();
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRefresh} && document.body.innerText.includes('Could not refresh tournaments: Temporary network error') && document.body.innerText.includes('IST Start Boundary')`,
+    "the failed manual refresh to show an error and preserve the loaded Player card",
+  );
+  await assertText("IST Start Boundary", "the Player tournament after a failed manual refresh");
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRefresh,
+    "A manual pull-to-refresh must not depend on an AppState resume event.",
+  );
+
+  await evaluate(
+    "window.__daily007TournamentResume.updateTournament({ name: 'Player Manually Refreshed IST Start Boundary' })",
+  );
+  readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await triggerPlayerManualRefresh();
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRefresh} && document.body.innerText.includes('Player Manually Refreshed IST Start Boundary') && !document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    "a later successful manual refresh to update the Player card and clear its error",
+  );
+  await assertText(
+    "Player Manually Refreshed IST Start Boundary",
+    "the updated Player tournament after manual refresh",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRefresh,
+    "The successful manual refresh must not depend on an AppState resume event.",
+  );
+}
+
 async function checkTournamentResume() {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -2120,7 +2174,9 @@ try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = initialLoadFailureOnly
+  const previewPath = manualRefreshOnly
+    ? "tournament-resume-preview.html?manual-refresh-only=1"
+    : initialLoadFailureOnly
     ? "tournament-resume-preview.html?initial-load-failure-only=1"
     : resumeOnly
       ? "tournament-resume-preview.html"
@@ -2191,6 +2247,7 @@ try {
   if (
     resumeOnly ||
     initialLoadFailureOnly ||
+    manualRefreshOnly ||
     scheduledStartOnly ||
     homeCarouselOnly ||
     keyboardFormsOnly ||
@@ -2199,11 +2256,11 @@ try {
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly
+        || initialLoadFailureOnly || manualRefreshOnly
         ? 390
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly
+        || initialLoadFailureOnly || manualRefreshOnly
         ? 844
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -2214,6 +2271,8 @@ try {
         ? "Home carousel"
         : initialLoadFailureOnly
           ? "Player first-load failure"
+        : manualRefreshOnly
+          ? "Player pull-to-refresh"
         : scheduledStartOnly
           ? "scheduled-start Player and Admin tournament screens"
         : keyboardFormsOnly
@@ -2224,7 +2283,14 @@ try {
           ? "Admin selected-record actions"
           : "player and Admin tournament screens",
     );
-    if (initialLoadFailureOnly) {
+    if (manualRefreshOnly) {
+      await checkTournamentManualRefresh();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Player manual-refresh checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Failed Player pull-to-refresh keeps the loaded card visible; a later manual refresh updates it and clears the error.");
+    } else if (initialLoadFailureOnly) {
       await checkTournamentInitialLoadFailure();
       assert(
         browserErrors.length === 0,

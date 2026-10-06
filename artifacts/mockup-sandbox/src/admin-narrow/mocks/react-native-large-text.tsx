@@ -3,6 +3,8 @@ import * as Native from "react-native-web";
 
 export * from "react-native-web";
 
+const NativeComponents = Native as any;
+
 function getPreviewFontScale() {
   const scale = Number(
     (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })
@@ -29,6 +31,26 @@ export const TextInput = React.forwardRef<any, any>((props, ref) => (
   <Native.TextInput {...props} ref={ref} style={scaleTextStyle(props.style)} />
 ));
 TextInput.displayName = "LargeTextPreviewTextInput";
+
+export function RefreshControl(props: any) {
+  const manualRefreshPreview = typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).has("manual-refresh-only");
+  if (!manualRefreshPreview) return <NativeComponents.RefreshControl {...props} />;
+  return (
+    <NativeComponents.View style={props.style}>
+      <NativeComponents.Pressable
+        testID="player-refresh-control-test-action"
+        accessibilityRole="button"
+        accessibilityLabel="Pull to refresh"
+        onPress={props.onRefresh}
+        style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}
+      >
+        <Native.Text>Pull to refresh</Native.Text>
+      </NativeComponents.Pressable>
+      {props.children}
+    </NativeComponents.View>
+  );
+}
 
 export const BackHandler = {
   addEventListener: () => ({ remove: () => {} }),

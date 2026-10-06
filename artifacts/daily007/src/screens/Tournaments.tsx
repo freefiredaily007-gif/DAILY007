@@ -119,6 +119,7 @@ export default function Tournaments() {
   return (
     <View style={s.root}>
       <FlatList
+        testID="player-tournament-list"
         data={orderedVisible}
         keyExtractor={(t) => String(t.id)}
         contentContainerStyle={{ padding: 14, paddingBottom: 30 }}
