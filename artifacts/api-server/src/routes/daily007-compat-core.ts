@@ -674,14 +674,14 @@ function asTeamMembers(row: RegistrationRow, roster: { position: number; member_
   ]);
 }
 
-function mayExposeRoom(row: RegistrationRow): boolean {
+function mayExposeRoom(row: RegistrationRow, nowMs = Date.now()): boolean {
   return canRevealRoomCredentials({
     registrationStatus: row.status,
     tournamentStatus: row.match_status ?? "",
     roomId: row.room_id ?? null,
     roomPassword: row.room_password ?? null,
     startsAt: row.starts_at ? tournamentInstantFromStored(row.starts_at) : null,
-  });
+  }, nowMs);
 }
 
 router.get("/my/registrations", authenticate, async (req, res): Promise<void> => {
@@ -719,8 +719,9 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       ORDER BY r.created_at DESC`,
     [account.id],
   );
+  const serverNowMs = Date.now();
   const data = await Promise.all(result.rows.map(async (row) => {
-    const expose = mayExposeRoom(row);
+    const expose = mayExposeRoom(row, serverNowMs);
     const roomPrepared = Boolean(
       row.status === "approved" &&
       row.match_status !== "cancelled" &&
@@ -747,6 +748,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       result: row.result_rank === null || row.result_rank === undefined
         ? undefined
         : `Rank ${row.result_rank} · ${row.result_kills ?? 0} kills · ${row.result_prize_coins ?? 0} coins`,
+      serverNowMs,
       roomId: expose ? row.room_id : undefined,
       roomPassword: expose ? row.room_password : undefined,
       roomTime: expose ? row.room_time : undefined,

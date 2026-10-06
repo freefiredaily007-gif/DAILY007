@@ -5,7 +5,10 @@ import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from './typography';
 import { C, fmtTime12 } from './ui';
 import { copyRoomCredentialToClipboard, type RoomCredentialCopyFeedback } from '../lib/roomCredentialCopy';
-import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+import {
+  getRoomCredentialSchedule,
+  hasServerAuthorizedRoomCredentials,
+} from '../lib/roomCredentialTiming';
 
 type Props = {
   startsAt?: Date | string | null;
@@ -26,8 +29,7 @@ export function RoomCredentialsPanel({
   const id = roomId?.trim() ?? '';
   const password = roomPassword?.trim() ?? '';
   const [copyFeedback, setCopyFeedback] = useState<RoomCredentialCopyFeedback | null>(null);
-  const released = configured && !!schedule && now >= schedule.releaseAtMs;
-  const credentialsReady = released && !!id && !!password;
+  const credentialsReady = hasServerAuthorizedRoomCredentials(id, password);
   const message = !schedule
     ? 'Tournament start time is unavailable. Room details remain hidden.'
     : now < schedule.releaseAtMs

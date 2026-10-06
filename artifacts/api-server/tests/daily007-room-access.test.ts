@@ -161,6 +161,7 @@ test("compat registrations gate room credentials by release time and approval st
     assert.deepEqual(playerRegistrations.body.map((registration: any) => registration.id), [
       TEST_REGISTRATION_ID,
     ]);
+    assert.equal(Number.isFinite(playerRegistrations.body[0].serverNowMs), true);
 
     const pendingRegistrations = await request(
       origin,
@@ -195,6 +196,11 @@ test("compat registrations gate room credentials by release time and approval st
         );
       }
     }
+    assert.equal(
+      playerRegistrations.body[0].roomPublished,
+      true,
+      "A prepared room must not be treated as authorization before server release.",
+    );
 
     const boundaryNow = Date.now();
     setMatchStartInstant(new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS));

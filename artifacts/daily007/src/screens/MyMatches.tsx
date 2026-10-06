@@ -7,7 +7,11 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Api, apiError } from '../lib/api';
 import { C, Btn, Empty, Loading, GCard, Badge, SectionTitle, fmtDate, fmtTime12 } from '../components/ui';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
-import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+import {
+  getRoomCredentialReleaseDelayMs,
+  getRoomCredentialSchedule,
+  hasServerAuthorizedRoomCredentials,
+} from '../lib/roomCredentialTiming';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import {
   compareTournamentStartTime,
@@ -24,13 +28,19 @@ export default function MyMatches() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const [serverNowMs, setServerNowMs] = useState<number | null>(null);
   const appState = useRef(AppState.currentState);
 
   const load = useCallback(async () => {
     try {
       setError('');
       const data = await Api.myRegistrations();
-      setRegs(Array.isArray(data) ? data : []);
+      const registrations = Array.isArray(data) ? data : [];
+      setRegs(registrations);
+      const timeSample = registrations.find((registration: any) =>
+        Number.isFinite(registration.serverNowMs),
+      )?.serverNowMs;
+      setServerNowMs(Number.isFinite(timeSample) ? timeSample : null);
     } catch (e) {
       setError(apiError(e));
     } finally {
@@ -68,7 +78,6 @@ export default function MyMatches() {
       const schedule = getRoomCredentialSchedule(startsAt);
       return [
         getTeamEditCutoff(startsAt),
-        schedule?.releaseAtMs ?? null,
         schedule?.startsAtMs ?? null,
       ];
     });
@@ -81,6 +90,32 @@ export default function MyMatches() {
     }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow));
     return () => clearTimeout(timer);
   }, [regs, clockNow, refreshMatches]);
+
+  useEffect(() => {
+    if (serverNowMs === null) return;
+    const nextReleaseDelay = regs.flatMap((registration) => {
+      const status = String(registration.status ?? '').toLowerCase();
+      const tournament = registration.tournament ?? {};
+      const cancelled = String(tournament.status ?? '').toLowerCase() === 'cancelled';
+      const roomConfigured = registration.roomPublished === true || tournament.roomPublished === true;
+      if (status !== 'approved' || cancelled || !roomConfigured) return [];
+      const roomId = registration.roomId ?? tournament.roomId;
+      const roomPassword = registration.roomPassword ?? tournament.roomPassword;
+      if (hasServerAuthorizedRoomCredentials(roomId, roomPassword)) return [];
+      const startsAt = tournament.startsAt ?? registration.startsAt;
+      const schedule = getRoomCredentialSchedule(startsAt);
+      const delay = schedule
+        ? getRoomCredentialReleaseDelayMs(schedule.releaseAtMs, serverNowMs)
+        : null;
+      return delay === null ? [] : [delay];
+    }).sort((a, b) => a - b)[0];
+    if (nextReleaseDelay === undefined) return;
+    const timer = setTimeout(
+      refreshMatches,
+      Math.min(MAX_TIMEOUT_MS, nextReleaseDelay),
+    );
+    return () => clearTimeout(timer);
+  }, [regs, serverNowMs, refreshMatches]);
 
   const filtered = regs.filter((r) => {
     const state = getTournamentLifecycleState(r.tournament, clockNow);
@@ -136,9 +171,8 @@ export default function MyMatches() {
             const schedule = getRoomCredentialSchedule(startsAt);
             const startMs = schedule?.startsAtMs ?? Number.NaN;
             const roomConfigured = item.roomPublished === true || t.roomPublished === true;
-            const roomWindowOpen = !!schedule && clockNow >= schedule.releaseAtMs;
-            const roomReady = status === 'approved' && !cancelled && roomConfigured &&
-              !!roomId && !!roomPassword && roomWindowOpen;
+            const roomReady = status === 'approved' && !cancelled &&
+              hasServerAuthorizedRoomCredentials(roomId, roomPassword);
             const registrationActive = ['approved', 'pending'].includes(status);
             const editEligible = registrationActive && t.enabled !== false && lifecycle === 'upcoming';
             const canEditTeam = editEligible && canEditRegistrationTeam(t, status, clockNow);

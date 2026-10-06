@@ -11,6 +11,25 @@ export type RoomCredentialSchedule = {
   releaseTime24: string;
 };
 
+export function hasServerAuthorizedRoomCredentials(
+  roomId: unknown,
+  roomPassword: unknown,
+): boolean {
+  return typeof roomId === 'string' &&
+    roomId.trim().length > 0 &&
+    typeof roomPassword === 'string' &&
+    roomPassword.trim().length > 0;
+}
+
+export function getRoomCredentialReleaseDelayMs(
+  releaseAtMs: number,
+  serverNowMs: number,
+): number | null {
+  if (!Number.isFinite(releaseAtMs) || !Number.isFinite(serverNowMs)) return null;
+  const delayMs = releaseAtMs - serverNowMs;
+  return delayMs > 0 ? delayMs : null;
+}
+
 function time24(timestamp: number): string {
   const istDate = new Date(timestamp + IST_OFFSET_MS);
   return `${String(istDate.getUTCHours()).padStart(2, '0')}:${String(istDate.getUTCMinutes()).padStart(2, '0')}`;
