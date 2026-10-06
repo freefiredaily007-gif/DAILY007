@@ -19,6 +19,8 @@ const OWNER_ID = "40000000-0000-4000-8000-000000000102";
 const REVIEWER_ID = "40000000-0000-4000-8000-000000000103";
 const SECOND_ADMIN_ID = "40000000-0000-4000-8000-000000000104";
 const TOURNAMENT_ADMIN_ID = "40000000-0000-4000-8000-000000000105";
+const REGULAR_USER_ID = "40000000-0000-4000-8000-000000000106";
+const BLOCKED_ADMIN_ID = "40000000-0000-4000-8000-000000000107";
 const PLAYER_CLERK_ID = "clerk-google-player-recovery";
 const OWNER_CLERK_ID = "clerk-google-sole-admin-recovery";
 const TEST_AUTH_SECRET = "daily007-account-recovery-route-test-secret";
@@ -99,7 +101,7 @@ async function withRecoveryServer(run: (origin: string) => Promise<void>): Promi
   }
 }
 
-type JsonResult = { status: number; body: Record<string, unknown> };
+type JsonResult = { status: number; body: unknown };
 
 async function postJson(
   origin: string,
@@ -113,6 +115,15 @@ async function postJson(
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function getJson(
+  origin: string,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<JsonResult> {
+  const response = await fetch(`${origin}${path}`, { headers });
+  return { status: response.status, body: await response.json() };
 }
 
 function clerkHeaders(clerkUserId: string): Record<string, string> {
@@ -140,6 +151,104 @@ function ownerCodeFixtureState() {
 function recoveryRecordForUser(userId: string): RecoveryTestRequest | undefined {
   return [...recoveryTestDb.requests.values()].find((request) => request.user_id === userId);
 }
+
+test("only an active Full Admin can list pending recovery requests", async () => {
+  recoveryTestDb.reset();
+  recoveryTestDb.seedUser({
+    id: PLAYER_ID,
+    name: "Recovery Queue Player",
+    email: "queue-player@example.test",
+    phone: "+1-555-0101",
+    game_uid: "free-fire-queue-101",
+  });
+  recoveryTestDb.seedUser({
+    id: REVIEWER_ID,
+    name: "Active Full Admin",
+    email: "active-admin@example.test",
+    role: "admin",
+    status: "active",
+  });
+  recoveryTestDb.seedUser({
+    id: TOURNAMENT_ADMIN_ID,
+    name: "Tournament Admin",
+    email: "tournament-admin@example.test",
+    role: "tournament_admin",
+    status: "active",
+  });
+  recoveryTestDb.seedUser({
+    id: REGULAR_USER_ID,
+    name: "Regular User",
+    email: "regular-user@example.test",
+    role: "user",
+    status: "active",
+  });
+  recoveryTestDb.seedUser({
+    id: BLOCKED_ADMIN_ID,
+    name: "Blocked Full Admin",
+    email: "blocked-admin@example.test",
+    role: "admin",
+    status: "blocked",
+  });
+  resetMockGoogleUser(verifiedGoogleUser(PLAYER_CLERK_ID, "queue-player@example.test"));
+
+  await withRecoveryServer(async (origin) => {
+    const submitted = await postJson(
+      origin,
+      "/auth/google/recovery-request",
+      {},
+      clerkHeaders(PLAYER_CLERK_ID),
+    );
+    assert.equal(submitted.status, 202);
+    const request = recoveryRecordForUser(PLAYER_ID);
+    assert.ok(request, "the queue should contain the pending request");
+    assert.equal(request.status, "pending");
+
+    const stateBeforeReads = persistentState();
+    const pendingQueueReads = () => recoveryTestDb.queryHistory.filter(({ sql }) =>
+      sql.includes("FROM daily007_v2_google_recovery_requests r JOIN daily007_v2_users u") &&
+      sql.includes("WHERE r.status = 'pending'"),
+    ).length;
+
+    const fullAdminToken = makeToken(REVIEWER_ID);
+    assert.ok(fullAdminToken);
+    const listed = await getJson(
+      origin,
+      "/admin/account-recovery-requests",
+      { authorization: `Bearer ${fullAdminToken}` },
+    );
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body, [{
+      id: request.id,
+      userId: PLAYER_ID,
+      googleEmail: "queue-player@example.test",
+      createdAt: request.created_at.toISOString(),
+      accountName: "Recovery Queue Player",
+      accountEmail: "queue-player@example.test",
+      phone: "+1-555-0101",
+      gameUid: "free-fire-queue-101",
+      accountRole: "user",
+    }]);
+    assert.equal(pendingQueueReads(), 1);
+    assert.deepEqual(persistentState(), stateBeforeReads,
+      "listing the queue must not change account links or recovery audit records");
+
+    const rejectedQueueReadCount = pendingQueueReads();
+    for (const accountId of [TOURNAMENT_ADMIN_ID, REGULAR_USER_ID, BLOCKED_ADMIN_ID]) {
+      const token = makeToken(accountId);
+      assert.ok(token);
+      const denied = await getJson(
+        origin,
+        "/admin/account-recovery-requests",
+        { authorization: `Bearer ${token}` },
+      );
+      assert.equal(denied.status, 403, `${accountId} must not read the recovery queue`);
+      assert.deepEqual(persistentState(), stateBeforeReads,
+        "a denied queue read must leave account links and recovery audit records unchanged");
+      assert.equal(pendingQueueReads(), rejectedQueueReadCount,
+        "denied accounts must not execute the query that returns recovery details");
+    }
+  });
+});
 
 test("an active, distinct Full Admin can approve a pending request after fresh Google verification", async () => {
   recoveryTestDb.reset();
