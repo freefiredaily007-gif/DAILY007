@@ -26,7 +26,21 @@ const scrypt = promisify(scryptCallback);
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PASSWORD_BYTES = 64;
-const MATCH_FULL_ERROR_CODE = "MATCH_FULL";
+const REGISTRATION_CONFLICT_CODES = {
+  alreadyRegistered: "ALREADY_REGISTERED",
+  gameUidAlreadyRegistered: "GAME_UID_ALREADY_REGISTERED",
+  insufficientBalance: "INSUFFICIENT_BALANCE",
+  matchClosed: "MATCH_CLOSED",
+  matchFull: "MATCH_FULL",
+  registrationRejected: "REGISTRATION_REJECTED",
+  tournamentDisabled: "TOURNAMENT_DISABLED",
+} as const;
+type RegistrationConflictCode = typeof REGISTRATION_CONFLICT_CODES[keyof typeof REGISTRATION_CONFLICT_CODES];
+const registrationConflictCodeSet = new Set<string>(Object.values(REGISTRATION_CONFLICT_CODES));
+
+function isRegistrationConflictCode(code: unknown): code is RegistrationConflictCode {
+  return typeof code === "string" && registrationConflictCodeSet.has(code);
+}
 
 export type Account = {
   id: string; name: string; email: string; role: Daily007Role; wallet_coins: number;
@@ -525,7 +539,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       );
       if (existing.rows[0]) {
         if (existing.rows[0].registration_status === "rejected") {
-          throw Object.assign(new Error("This registration was rejected and refunded; contact an administrator before trying again."), { status: 409 });
+          throw Object.assign(new Error("This registration was rejected and refunded; contact an administrator before trying again."), {
+            status: 409,
+            code: REGISTRATION_CONFLICT_CODES.registrationRejected,
+          });
         }
         const countResult = await client.query<{ count: string }>(
           "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
@@ -552,15 +569,21 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         [matchId],
       );
       if (!upcoming.rows[0]?.upcoming) {
-        throw Object.assign(new Error("Registration is closed because the match has started."), { status: 409 });
+        throw Object.assign(new Error("Registration is closed because the match has started."), {
+          status: 409,
+          code: REGISTRATION_CONFLICT_CODES.matchClosed,
+        });
       }
       if (!match.enabled) {
-        throw Object.assign(new Error("This tournament is disabled and is not accepting registrations."), { status: 409 });
+        throw Object.assign(new Error("This tournament is disabled and is not accepting registrations."), {
+          status: 409,
+          code: REGISTRATION_CONFLICT_CODES.tournamentDisabled,
+        });
       }
       if (match.status !== "open") {
         throw Object.assign(new Error("This match is already full and is not accepting registrations."), {
           status: 409,
-          code: MATCH_FULL_ERROR_CODE,
+          code: REGISTRATION_CONFLICT_CODES.matchFull,
         });
       }
       let teammates: { name: string; uid: string | null }[] = [];
@@ -614,7 +637,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         [matchId, submittedUids],
       );
       if (duplicateUid.rows[0]) {
-        throw Object.assign(new Error("A player game UID is already registered for this tournament."), { status: 409 });
+        throw Object.assign(new Error("A player game UID is already registered for this tournament."), {
+          status: 409,
+          code: REGISTRATION_CONFLICT_CODES.gameUidAlreadyRegistered,
+        });
       }
       const countResult = await client.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
@@ -624,7 +650,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       if (currentCount >= match.capacity) {
         throw Object.assign(new Error("This match is full."), {
           status: 409,
-          code: MATCH_FULL_ERROR_CODE,
+          code: REGISTRATION_CONFLICT_CODES.matchFull,
         });
       }
       const userResult = await client.query<{ wallet_coins: number }>(
@@ -633,7 +659,12 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       );
       const balance = userResult.rows[0]?.wallet_coins;
       if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 401 });
-      if (balance < match.entry_coins) throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), { status: 409 });
+      if (balance < match.entry_coins) {
+        throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), {
+          status: 409,
+          code: REGISTRATION_CONFLICT_CODES.insufficientBalance,
+        });
+      }
       const registrationResult = await client.query<{ id: string }>(
         `INSERT INTO daily007_v2_registrations
            (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name, entry_coins_paid, status)
@@ -683,14 +714,13 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   } catch (error) {
     const status = (error as { status?: number }).status;
     if (status) {
-      const code = (error as { code?: unknown }).code === MATCH_FULL_ERROR_CODE
-        ? MATCH_FULL_ERROR_CODE
-        : undefined;
+      const errorCode = (error as { code?: unknown }).code;
+      const code = isRegistrationConflictCode(errorCode) ? errorCode : undefined;
       fail(res, status, (error as Error).message, code);
       return;
     }
     if ((error as { code?: string }).code === "23505") {
-      fail(res, 409, "This account is already registered for the match.");
+      fail(res, 409, "This account is already registered for the match.", REGISTRATION_CONFLICT_CODES.alreadyRegistered);
       return;
     }
     throw error;

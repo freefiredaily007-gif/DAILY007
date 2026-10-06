@@ -145,6 +145,7 @@ class RegistrationCapacityTestDatabase {
   private lockHold: MatchLockHold | null = null;
   private walletLockHold: WalletLockHold | null = null;
   private failNextLedgerInsert = false;
+  private failNextRegistrationInsertWithUniqueViolation = false;
   rosterRowsAtLedgerFailure: number | null = null;
 
   constructor() {
@@ -208,11 +209,16 @@ class RegistrationCapacityTestDatabase {
     this.lockHold = null;
     this.walletLockHold = null;
     this.failNextLedgerInsert = false;
+    this.failNextRegistrationInsertWithUniqueViolation = false;
     this.rosterRowsAtLedgerFailure = null;
   }
 
   failOnNextLedgerInsert(): void {
     this.failNextLedgerInsert = true;
+  }
+
+  failOnNextRegistrationInsertAsDuplicate(): void {
+    this.failNextRegistrationInsertWithUniqueViolation = true;
   }
 
   holdNextMatchRowLock(): MatchLockHold {
@@ -420,6 +426,10 @@ class RegistrationCapacityTestDatabase {
       const user = this.users.get(String(values[0]));
       rows = user ? [{ wallet_coins: user.wallet_coins }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_registrations")) {
+      if (this.failNextRegistrationInsertWithUniqueViolation) {
+        this.failNextRegistrationInsertWithUniqueViolation = false;
+        throw Object.assign(new Error("Injected duplicate registration."), { code: "23505" });
+      }
       const [matchId, userId, captainName, captainGameName, captainGameUid, teamName, entryCoinsPaid] = values;
       const id = `54000000-0000-4000-8000-${String(this.nextRegistrationNumber++).padStart(12, "0")}`;
       this.registrations.push({

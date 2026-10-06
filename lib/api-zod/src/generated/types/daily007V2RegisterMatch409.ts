@@ -26,6 +26,6 @@ import type { Daily007V2RegisterMatch409Code } from './daily007V2RegisterMatch40
 
 export type Daily007V2RegisterMatch409 = {
   error: string;
-  /** Present when registration fails because the match has reached capacity. */
-  code?: Daily007V2RegisterMatch409Code;
+  /** Stable reason for the registration conflict. */
+  code: Daily007V2RegisterMatch409Code;
 };

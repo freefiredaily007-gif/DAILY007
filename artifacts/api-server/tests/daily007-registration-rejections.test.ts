@@ -94,8 +94,37 @@ const rejectedJoins: JoinCase[] = [
     name: "insufficient balance",
     expectedStatus: 409,
     expectedError: "Insufficient wallet balance: this entry costs 7 coins.",
+    expectedCode: "INSUFFICIENT_BALANCE",
     prepare: () => {
       registrationCapacityTestDb.users.get(FIRST_PLAYER_ID)!.wallet_coins = 6;
+    },
+  },
+  {
+    name: "registration rejected and refunded",
+    expectedStatus: 409,
+    expectedError: "This registration was rejected and refunded; contact an administrator before trying again.",
+    expectedCode: "REGISTRATION_REJECTED",
+    prepare: () => {
+      registrationCapacityTestDb.registrations[0].captain_user_id = FIRST_PLAYER_ID;
+      registrationCapacityTestDb.registrations[0].status = "rejected";
+    },
+  },
+  {
+    name: "match has started",
+    expectedStatus: 409,
+    expectedError: "Registration is closed because the match has started.",
+    expectedCode: "MATCH_CLOSED",
+    prepare: () => {
+      registrationCapacityTestDb.match.starts_at = new Date(Date.now() - 1);
+    },
+  },
+  {
+    name: "tournament is disabled",
+    expectedStatus: 409,
+    expectedError: "This tournament is disabled and is not accepting registrations.",
+    expectedCode: "TOURNAMENT_DISABLED",
+    prepare: () => {
+      registrationCapacityTestDb.match.enabled = false;
     },
   },
   {
@@ -118,6 +147,27 @@ const rejectedJoins: JoinCase[] = [
       registrationCapacityTestDb.match.capacity = 1;
       registrationCapacityTestDb.match.status = "open";
       registrationCapacityTestDb.match.is_full = false;
+    },
+  },
+  {
+    name: "player game UID already registered",
+    expectedStatus: 409,
+    expectedError: "A player game UID is already registered for this tournament.",
+    expectedCode: "GAME_UID_ALREADY_REGISTERED",
+    prepare: () => {},
+    body: {
+      captainGameName: "First Captain",
+      captainGameUid: "FF-EXISTING-001",
+      teammates: [],
+    },
+  },
+  {
+    name: "database rejects a duplicate account registration",
+    expectedStatus: 409,
+    expectedError: "This account is already registered for the match.",
+    expectedCode: "ALREADY_REGISTERED",
+    prepare: () => {
+      registrationCapacityTestDb.failOnNextRegistrationInsertAsDuplicate();
     },
   },
   {
@@ -174,7 +224,7 @@ test("rejected tournament joins leave registrations, roster, wallet, match, and 
 
         assert.equal(response.status, scenario.expectedStatus);
         if (scenario.expectedError) assert.equal(response.body.error, scenario.expectedError);
-        if (scenario.expectedCode) assert.equal(response.body.code, scenario.expectedCode);
+        assert.equal(response.body.code, scenario.expectedCode);
         if (scenario.expectedRosterRowsAtLedgerFailure !== undefined) {
           assert.equal(
             registrationCapacityTestDb.rosterRowsAtLedgerFailure,

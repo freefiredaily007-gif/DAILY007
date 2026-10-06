@@ -337,7 +337,7 @@ paths:
         "200": { description: Existing registration receipt returned idempotently; no additional debit }
         "400": { description: Invalid input }
         "409":
-          description: Full match or insufficient wallet balance; full-capacity rejections include the stable MATCH_FULL code.
+          description: Registration conflict. Each response includes a stable code while retaining a readable error message.
           content:
             application/json:
               schema:
@@ -346,9 +346,16 @@ paths:
                   error: { type: string }
                   code:
                     type: string
-                    enum: [MATCH_FULL]
-                    description: Present when registration fails because the match has reached capacity.
-                required: [error]
+                    enum:
+                      - ALREADY_REGISTERED
+                      - GAME_UID_ALREADY_REGISTERED
+                      - INSUFFICIENT_BALANCE
+                      - MATCH_CLOSED
+                      - MATCH_FULL
+                      - REGISTRATION_REJECTED
+                      - TOURNAMENT_DISABLED
+                    description: Stable reason for the registration conflict.
+                required: [error, code]
   /daily007/v2/admin/users/{id}/wallet:
     post:
       operationId: daily007V2CreditWallet

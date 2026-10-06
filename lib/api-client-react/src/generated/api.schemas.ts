@@ -1026,19 +1026,25 @@ export interface Daily007AdminApproveLeaderboardPeriodResponse {
 }
 
 /**
- * Present when registration fails because the match has reached capacity.
+ * Stable reason for the registration conflict.
  */
 export type Daily007V2RegisterMatch409Code = typeof Daily007V2RegisterMatch409Code[keyof typeof Daily007V2RegisterMatch409Code];
 
 
 export const Daily007V2RegisterMatch409Code = {
+  ALREADY_REGISTERED: 'ALREADY_REGISTERED',
+  GAME_UID_ALREADY_REGISTERED: 'GAME_UID_ALREADY_REGISTERED',
+  INSUFFICIENT_BALANCE: 'INSUFFICIENT_BALANCE',
+  MATCH_CLOSED: 'MATCH_CLOSED',
   MATCH_FULL: 'MATCH_FULL',
+  REGISTRATION_REJECTED: 'REGISTRATION_REJECTED',
+  TOURNAMENT_DISABLED: 'TOURNAMENT_DISABLED',
 } as const;
 
 export type Daily007V2RegisterMatch409 = {
   error: string;
-  /** Present when registration fails because the match has reached capacity. */
-  code?: Daily007V2RegisterMatch409Code;
+  /** Stable reason for the registration conflict. */
+  code: Daily007V2RegisterMatch409Code;
 };
 
 export type Daily007V2SetRoomBody = {
