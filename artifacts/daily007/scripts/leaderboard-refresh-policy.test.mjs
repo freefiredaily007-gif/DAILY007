@@ -127,7 +127,19 @@ function assertPlayerPanelsMatchFullAdminSchedule(playerData, schedule) {
       const coins = expectedCoins(schedule[cycle], rank);
       assert.ok(rowMarkup.includes(`Rank #${rank}`));
       assert.ok(
-        rowMarkup.includes(`${coins.toLocaleString("en-IN")} Coins`),
+        coins === 0 || coins >= 100_000,
+        `${cycle} rank ${rank} fixture should exercise high-value prize formatting.`,
+      );
+      const indianFormattedCoins = coins.toLocaleString("en-IN");
+      if (coins >= 100_000) {
+        assert.notEqual(
+          indianFormattedCoins,
+          coins.toLocaleString("en-US"),
+          `${cycle} rank ${rank} fixture should distinguish Indian from Western grouping.`,
+        );
+      }
+      assert.ok(
+        rowMarkup.includes(`${indianFormattedCoins} Coins`),
         `${cycle} rank ${rank} should match the Full Admin schedule.`,
       );
     }
@@ -180,16 +192,16 @@ test("player prize panels follow Full Admin schedules after save, refresh, reope
       defaultOptions: { queries: { retry: false } },
     });
     const baselineSchedule = {
-      weekly: { firstPlaceCoins: 50, secondPlaceCoins: 40, thirdPlaceCoins: 0 },
-      monthly: { firstPlaceCoins: 50, secondPlaceCoins: 0, thirdPlaceCoins: 30 },
+      weekly: { firstPlaceCoins: 123_456, secondPlaceCoins: 234_567, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 345_678, secondPlaceCoins: 456_789, thirdPlaceCoins: 567_890 },
     };
     const savedSchedule = {
-      weekly: { firstPlaceCoins: 111, secondPlaceCoins: 222, thirdPlaceCoins: 0 },
-      monthly: { firstPlaceCoins: 444, secondPlaceCoins: 0, thirdPlaceCoins: 666 },
+      weekly: { firstPlaceCoins: 111_222, secondPlaceCoins: 222_333, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 444_555, secondPlaceCoins: 0, thirdPlaceCoins: 666_777 },
     };
     const focusedSchedule = {
-      weekly: { firstPlaceCoins: 131, secondPlaceCoins: 242, thirdPlaceCoins: 0 },
-      monthly: { firstPlaceCoins: 464, secondPlaceCoins: 0, thirdPlaceCoins: 686 },
+      weekly: { firstPlaceCoins: 131_415, secondPlaceCoins: 242_526, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 464_748, secondPlaceCoins: 0, thirdPlaceCoins: 686_970 },
     };
     let developmentSchedule = structuredClone(baselineSchedule);
     const saveDevelopmentFullAdminFixture = ({ environment, role, data }) => {
