@@ -89,9 +89,7 @@ test("my registration results contain Free Fire and team names but no other play
 
       const token = makeToken(TEST_PLAYER_ID, 0);
       assert.ok(token);
-        const response = await sendRegistration(origin, request.path, request.body);
-
-      const payload = await response.json() as Record<string, unknown>;
+      const response = await getWithToken(origin, "/my/registrations", token);
       assert.equal(response.status, 200);
       const registrations = await response.json() as {
         playerName: string;
@@ -298,9 +296,7 @@ for (const request of registrationRequests) {
     try {
       await withServer(async (origin) => {
         const response = await sendRegistration(origin, request.path, request.body);
-
-      const payload = await response.json() as Record<string, unknown>;
-      assert.equal(response.status, 201);
+        assert.equal(response.status, 201);
 
       const registration = registrationProfileTestDb.registrations[0];
         assert.deepEqual(
@@ -401,7 +397,6 @@ for (const request of registrationRequests) {
           participants: { teamName: string; players: string[]; status: string }[];
         };
 
-      const serialized = JSON.stringify(payload);
         assert.equal(participants.tournamentId, TEST_MATCH_ID);
         assert.deepEqual(participants.participants, [{
           teamName: TEAM_NAME,
@@ -428,7 +423,6 @@ for (const request of registrationRequests) {
 
       const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
 
-      const csvRows = csvLines.slice(1).map(parseCsvRow);
         assert.deepEqual(parseCsvRow(csvLines[0]), [
           "captain_profile_name",
           "captain_game_name",
@@ -445,11 +439,6 @@ for (const request of registrationRequests) {
         ]);
         const csvRow = parseCsvRow(csvLines[1]);
 
-      const firstRegistration = await sendRegistration(
-        origin,
-        registrationRequests[0].path,
-        registrationRequests[0].body,
-      );
         assert.deepEqual(csvRow.slice(0, -1), [
           PROFILE_NAME,
           CAPTAIN_GAME_NAME,
@@ -471,27 +460,115 @@ for (const request of registrationRequests) {
   });
 }
 
+const shortRosterFormats: {
+  label: string;
+  teamType: string;
+  teamName: string;
+  teammates: { name: string; uid: string }[];
+}[] = [
+  { label: "Solo", teamType: "solo", teamName: "", teammates: [] },
+  {
+    label: "Duo",
+    teamType: "duo",
+    teamName: TEAM_NAME,
+    teammates: [{ name: TEAMMATE_NAME, uid: TEAMMATE_UID }],
+  },
+];
+
+for (const format of shortRosterFormats) {
+  test(`admin registration CSV keeps ${format.label} columns aligned`, async () => {
+    registrationProfileTestDb.reset(PROFILE_NAME);
+    registrationProfileTestDb.match.team_type = format.teamType;
+    try {
+      await withServer(async (origin) => {
+        const response = await sendRegistration(origin, registrationRequests[0].path, {
+          ...registrationRequests[0].body,
+          teamName: format.teamName,
+          teammates: format.teammates,
+        });
+        assert.equal(response.status, 201);
+
+        const registration = registrationProfileTestDb.registrations[0];
+        assert.ok(registration);
+        assert.equal(registrationProfileTestDb.roster.length, format.teammates.length);
+
+        const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+        assert.ok(adminToken);
+        const csvResponse = await getWithToken(
+          origin,
+          `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+          adminToken,
+        );
+        assert.equal(csvResponse.status, 200);
+
+        const records = parseCsvDocument(await csvResponse.text());
+        assert.equal(records.length, 2);
+        const [headers, values] = records;
+        assert.ok(headers);
+        assert.ok(values);
+        assert.deepEqual(headers, [
+          "captain_profile_name",
+          "captain_game_name",
+          "captain_game_uid",
+          "captain_email",
+          "team_name",
+          "teammate_1_name",
+          "teammate_1_game_uid",
+          "teammate_2_name",
+          "teammate_2_game_uid",
+          "teammate_3_name",
+          "teammate_3_game_uid",
+          "registered_at",
+        ]);
+        assert.equal(values.length, headers.length);
+
+        const teammateCells = Array.from({ length: 3 }, (_, index) => {
+          const teammate = format.teammates[index];
+          return [teammate?.name ?? "", teammate?.uid ?? ""];
+        }).flat();
+        assert.deepEqual(values, [
+          registration.captain_name,
+          registration.captain_game_name,
+          registration.captain_game_uid,
+          registrationProfileTestDb.user.email,
+          registration.team_name,
+          ...teammateCells,
+          registration.created_at.toISOString(),
+        ]);
+        assert.equal(
+          values[headers.indexOf("registered_at")],
+          registration.created_at.toISOString(),
+          "registration time should remain in the final CSV column",
+        );
+      });
+    } finally {
+      registrationProfileTestDb.reset();
+    }
+  });
+}
+
 test("admin registration CSV preserves commas and quotes in name columns", async () => {
   registrationProfileTestDb.reset(CSV_PROFILE_NAME);
-  const teammates = MULTILINE_TEAMMATE_NAMES.map((name, index) => ({
-    name,
-    uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
-  }));
   const csvRegistrationRequest: RegistrationRequest = {
     ...registrationRequests[0],
     body: {
       ...registrationRequests[0].body,
-      captainGameName: MULTILINE_CAPTAIN_GAME_NAME,
-      teamName: MULTILINE_TEAM_NAME,
-      teammates,
+      captainGameName: CSV_CAPTAIN_GAME_NAME,
+      teamName: CSV_TEAM_NAME,
+      teammates: CSV_TEAMMATE_NAMES.map((name, index) => ({
+        name,
+        uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
+      })),
     },
   };
 
   try {
     await withServer(async (origin) => {
-        const response = await sendRegistration(origin, request.path, request.body);
-
-      const payload = await response.json() as Record<string, unknown>;
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
       assert.equal(response.status, 201);
 
       const registration = registrationProfileTestDb.registrations[0];
@@ -510,7 +587,6 @@ test("admin registration CSV preserves commas and quotes in name columns", async
 
       const csvLines = (await csvResponse.text()).trimEnd().split(/\r?\n/);
 
-      const csvRows = csvLines.slice(1).map(parseCsvRow);
       assert.equal(csvLines.length, 2);
 
       const headers = parseCsvRow(csvLines[0]);
@@ -545,25 +621,26 @@ test("admin registration CSV preserves commas and quotes in name columns", async
 
 test("admin registration CSV apostrophe-guards formula-like captain, team, and teammate names", async () => {
   registrationProfileTestDb.reset(FORMULA_PROFILE_NAME);
-  const teammates = MULTILINE_TEAMMATE_NAMES.map((name, index) => ({
-    name,
-    uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
-  }));
   const csvRegistrationRequest: RegistrationRequest = {
     ...registrationRequests[0],
     body: {
       ...registrationRequests[0].body,
-      captainGameName: MULTILINE_CAPTAIN_GAME_NAME,
-      teamName: MULTILINE_TEAM_NAME,
-      teammates,
+      captainGameName: FORMULA_CAPTAIN_GAME_NAME,
+      teamName: FORMULA_TEAM_NAME,
+      teammates: FORMULA_TEAMMATE_NAMES.map((name, index) => ({
+        name,
+        uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
+      })),
     },
   };
 
   try {
     await withServer(async (origin) => {
-        const response = await sendRegistration(origin, request.path, request.body);
-
-      const payload = await response.json() as Record<string, unknown>;
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
       assert.equal(response.status, 201);
 
       const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
@@ -622,9 +699,11 @@ test("admin registration CSV keeps embedded CR/LF in saved names within one reco
 
   try {
     await withServer(async (origin) => {
-        const response = await sendRegistration(origin, request.path, request.body);
-
-      const payload = await response.json() as Record<string, unknown>;
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
       assert.equal(response.status, 201);
 
       const registration = registrationProfileTestDb.registrations[0];
@@ -850,8 +929,6 @@ test("v2 and legacy registration reject an empty profile name before charging th
       registrationProfileTestDb.reset("   ");
       await withServer(async (origin) => {
         const response = await sendRegistration(origin, request.path, request.body);
-
-      const payload = await response.json() as Record<string, unknown>;
         assert.equal(response.status, 400);
         assert.match(String(response.body.error), /Daily007 profile name/i);
         assert.equal(registrationProfileTestDb.connectCount, 0);
