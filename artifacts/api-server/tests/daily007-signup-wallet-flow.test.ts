@@ -332,3 +332,37 @@ test("referral reward ledger failure rolls back all signup writes", async () => 
     assert.equal(signupTestDb.ledger.length, 0);
   });
 });
+
+test("referral code insert failure rolls back the new account and partial code rows", async () => {
+  signupTestDb.reset();
+  signupTestDb.failNextReferralShortCodeInsert();
+
+  await withServer(async (origin) => {
+    const email = "referral-code-failure@example.test";
+    const failedSignup = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      {
+        name: "Referral Code Failure Player",
+        email,
+        password: "test-password-123",
+      },
+    );
+
+    assert.equal(failedSignup.status, 500);
+    assert.deepEqual(signupTestDb.referralCodeInsertFailureContext, {
+      accountExists: true,
+      legacyCodeExists: true,
+      shortCodeExists: false,
+    });
+
+    assert.equal([...signupTestDb.users.values()].some((user) => user.email === email), false);
+    assert.equal(signupTestDb.users.size, 1);
+    assert.equal(signupTestDb.shortCodesByUser.size, 1);
+    assert.equal(signupTestDb.shortCodeOwners.size, 1);
+    assert.equal(signupTestDb.legacyCodeOwners.size, 1);
+    assert.equal(signupTestDb.referrals.length, 0);
+    assert.equal(signupTestDb.ledger.length, 0);
+  });
+});

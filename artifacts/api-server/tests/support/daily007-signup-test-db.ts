@@ -74,10 +74,16 @@ class MemorySignupDatabase {
     referralExists: boolean;
     walletCoins: number | null;
   } | null = null;
+  referralCodeInsertFailureContext: {
+    accountExists: boolean;
+    legacyCodeExists: boolean;
+    shortCodeExists: boolean;
+  } | null = null;
   private nextUserId = 2;
   private nextLedgerId = 1;
   private nextReferralId = 1;
   private shouldFailNextReferralSignupRewardLedgerWrite = false;
+  private shouldFailNextReferralShortCodeInsert = false;
 
   reset(): void {
     const referrer: SignupUser = {
@@ -102,7 +108,9 @@ class MemorySignupDatabase {
     this.referrals = [];
     this.ledger = [];
     this.referralSignupRewardLedgerFailureContext = null;
+    this.referralCodeInsertFailureContext = null;
     this.shouldFailNextReferralSignupRewardLedgerWrite = false;
+    this.shouldFailNextReferralShortCodeInsert = false;
     this.nextUserId = 2;
     this.nextLedgerId = 1;
     this.nextReferralId = 1;
@@ -111,6 +119,11 @@ class MemorySignupDatabase {
   failNextReferralSignupRewardLedgerWrite(): void {
     this.referralSignupRewardLedgerFailureContext = null;
     this.shouldFailNextReferralSignupRewardLedgerWrite = true;
+  }
+
+  failNextReferralShortCodeInsert(): void {
+    this.referralCodeInsertFailureContext = null;
+    this.shouldFailNextReferralShortCodeInsert = true;
   }
 
   private snapshot(): Snapshot {
@@ -275,6 +288,15 @@ class MemorySignupDatabase {
       "INSERT INTO daily007_v2_referral_short_codes (user_id, code)",
     )) {
       const [userId, code] = values.map(String);
+      if (this.shouldFailNextReferralShortCodeInsert) {
+        this.referralCodeInsertFailureContext = {
+          accountExists: this.users.has(userId),
+          legacyCodeExists: [...this.legacyCodeOwners.values()].includes(userId),
+          shortCodeExists: this.shortCodesByUser.has(userId),
+        };
+        this.shouldFailNextReferralShortCodeInsert = false;
+        throw new Error("Simulated referral short-code write failure.");
+      }
       if (!this.shortCodesByUser.has(userId) && !this.shortCodeOwners.has(code)) {
         this.shortCodesByUser.set(userId, code);
         this.shortCodeOwners.set(code, userId);
