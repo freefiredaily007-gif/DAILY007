@@ -158,7 +158,7 @@ test("password signup returns one 10-coin bonus through wallet history, and repe
   });
 });
 
-test("legacy referral code signup creates one relationship and one 10-coin reward", async () => {
+test("pasted lowercase legacy referral code signup stores the normalized code and grants one 10-coin reward", async () => {
   signupTestDb.reset();
   const legacyCode = SIGNUP_TEST_LEGACY_REFERRAL_CODE;
   const referrer = [...signupTestDb.users.values()].find(
@@ -180,7 +180,7 @@ test("legacy referral code signup creates one relationship and one 10-coin rewar
         name: "Legacy Referral Player",
         email,
         password: "test-password-123",
-        referralCode: legacyCode,
+        referralCode: `  ${legacyCode.toLowerCase()}  `,
       },
     );
 
