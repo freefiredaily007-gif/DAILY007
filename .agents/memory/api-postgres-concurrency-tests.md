@@ -21,6 +21,12 @@ For concurrent video completions from two sessions owned by one player, use diff
 
 **How to apply:** Create separate active video/session fixtures for one unique player, hold that player's wallet row, and assert both completion results, the total ledger count, final balance, and each session's ledger pointer.
 
+To exercise an isolated PostgreSQL write failure without mocking the transaction, add a temporary CHECK constraint scoped to the fixture's exact ledger idempotency key and reward reason. Drop it in `finally` after the request settles.
+
+**Why:** The targeted constraint fails only the intended ledger insert, allowing the test to prove the preceding wallet update rolls back while unrelated ledger writes remain unaffected.
+
+**How to apply:** Use a generated safe constraint name and unique session key, expect an HTTP failure, verify wallet/ledger/session state is unchanged, then drop the constraint and clean up the fixture.
+
 **Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
 
 **Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.

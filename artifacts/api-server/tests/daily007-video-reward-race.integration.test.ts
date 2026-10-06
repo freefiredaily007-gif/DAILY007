@@ -779,6 +779,56 @@ test("two concurrent sessions for one player retain separate video rewards", asy
   }
 });
 
+test("a failed wallet-ledger insert rolls back a video reward", async () => {
+  const fixture = await createFixture();
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
+  const failureConstraint = `reject_video_reward_${randomUUID().replace(/-/g, "")}`;
+  const failedLedgerKey = `daily007-video-watch:${fixture.sessionId}`;
+  let constraintInstalled = false;
+
+  try {
+    await pool.query(
+      `ALTER TABLE daily007_v2_wallet_ledger
+       ADD CONSTRAINT ${failureConstraint}
+       CHECK (
+         reason <> 'video_watch_reward'
+         OR idempotency_key IS DISTINCT FROM '${failedLedgerKey}'
+       )`,
+    );
+    constraintInstalled = true;
+
+    await withServer(async (origin) => {
+      const response = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.body.error, "Internal server error.");
+    });
+
+    const state = await inspectFixture(fixture);
+    assert.equal(state.walletCoins, 12, "a failed ledger write must not change the wallet");
+    assert.equal(state.ledgerCount, 0, "the failed reward must not leave a ledger row");
+    assert.equal(state.ledgerId, null);
+    assert.equal(state.completedAt, null, "the failed reward must leave the session incomplete");
+    assert.equal(state.rewardLedgerId, null);
+  } finally {
+    try {
+      if (constraintInstalled) {
+        await pool.query(
+          `ALTER TABLE daily007_v2_wallet_ledger
+           DROP CONSTRAINT IF EXISTS ${failureConstraint}`,
+        );
+      }
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
+});
+
 test("a committed video disable wins the PostgreSQL watch-start race without creating a session", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
