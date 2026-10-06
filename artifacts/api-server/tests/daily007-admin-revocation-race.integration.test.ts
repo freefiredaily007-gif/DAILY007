@@ -6,6 +6,7 @@ import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
+import daily007LeaderboardRouter from "../src/routes/daily007-leaderboards";
 
 const TEST_AUTH_SECRET = "daily007-admin-revocation-race-test-secret-at-least-32-chars";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
@@ -38,6 +39,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   const app = express();
   app.use(express.json());
   app.use(compatExtraRouter);
+  app.use(daily007LeaderboardRouter);
   app.use((
     _error: unknown,
     _request: express.Request,
@@ -85,6 +87,20 @@ async function patchJson(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function postJson(
+  origin: string,
+  path: string,
+  userId: string,
+  body: Record<string, unknown>,
+): Promise<JsonResponse> {
+  const response = await fetch(`${origin}${path}`, {
+    method: "POST",
+    headers: authHeaders(userId),
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
 async function waitForBlockedQuery(fragment: string, description: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -102,6 +118,33 @@ async function waitForBlockedQuery(fragment: string, description: string, timeou
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`Timed out waiting for the ${description} to block in PostgreSQL.`);
+}
+
+async function waitForQueryBlockedBy(
+  waitingFragment: string,
+  blockingFragment: string,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_stat_activity AS waiting
+           CROSS JOIN LATERAL unnest(pg_blocking_pids(waiting.pid)) AS blockers(blocker_pid)
+           JOIN pg_stat_activity AS blocker ON blocker.pid = blocker_pid
+          WHERE waiting.pid <> pg_backend_pid()
+            AND waiting.wait_event_type = 'Lock'
+            AND waiting.query ILIKE $1
+            AND blocker.query ILIKE $2
+       ) AS waiting`,
+      [`%${waitingFragment}%`, `%${blockingFragment}%`],
+    );
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description} in PostgreSQL.`);
 }
 
 test("an in-flight admin mutation commits before demotion, and later mutations are rejected", async () => {
@@ -206,5 +249,159 @@ test("an in-flight admin mutation commits before demotion, and later mutations a
     await pool.query("DROP TABLE IF EXISTS daily007_test_paused_users");
     await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [targetId]);
     await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [[actorId, demoterId, targetId]]);
+  }
+});
+
+test("an in-flight leaderboard payout commits before demotion, and later approvals are rejected", async () => {
+  const actorId = randomUUID();
+  const demoterId = randomUUID();
+  const winnerId = randomUUID();
+  const periodId = randomUUID();
+  const pauseKey = 740076n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let approvalPromise: Promise<JsonResponse> | undefined;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'In-flight Leaderboard Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Leaderboard Demoting Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Leaderboard Winner', $6, 'test-salt', 'test-hash', 'user', 5)`,
+      [
+        actorId, `leaderboard-actor-${actorId}@example.test`,
+        demoterId, `leaderboard-demoter-${demoterId}@example.test`,
+        winnerId, `leaderboard-winner-${winnerId}@example.test`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES ($1, 'weekly', '2020-01-01T00:00:00Z', '2020-01-08T00:00:00Z',
+               'pending_approval', $2::jsonb, $3::jsonb)`,
+      [
+        periodId,
+        JSON.stringify([{
+          rank: 1,
+          userId: winnerId,
+          name: "Leaderboard Winner",
+          points: 10,
+          earnings: 0,
+          wins: 1,
+          kills: 2,
+          matches: 1,
+        }]),
+        JSON.stringify([{ rank: 1, coins: 40 }]),
+      ],
+    );
+    await pool.query("CREATE TABLE daily007_test_paused_leaderboard_periods (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_paused_leaderboard_periods (id) VALUES ($1)",
+      [periodId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_leaderboard_payout() RETURNS trigger AS $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM daily007_test_paused_leaderboard_periods
+           WHERE id = (NEW.details->>'periodId')::uuid
+        ) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_leaderboard_payout
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_leaderboard_payout()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+
+    await withServer(async (origin) => {
+      approvalPromise = postJson(
+        origin,
+        `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`,
+        actorId,
+        {},
+      );
+      await waitForBlockedQuery(
+        "INSERT INTO daily007_v2_wallet_ledger",
+        "the in-flight leaderboard payout ledger insert",
+      );
+
+      demotionPromise = patchJson(origin, `/admin/users/${actorId}/role`, demoterId, {
+        role: "tournament_admin",
+      });
+      await waitForQueryBlockedBy(
+        "SELECT pg_advisory_xact_lock(740073)",
+        "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+        "the demotion to queue behind the in-flight approval's shared role lock",
+      );
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      const [approval, demotion] = await Promise.all([approvalPromise, demotionPromise]);
+      assert.equal(approval.status, 200, JSON.stringify(approval.body));
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+
+      const laterApproval = await postJson(
+        origin,
+        `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`,
+        actorId,
+        {},
+      );
+      assert.equal(laterApproval.status, 403, JSON.stringify(laterApproval.body));
+    });
+
+    const actor = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [actorId],
+    );
+    const winner = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [winnerId],
+    );
+    const period = await pool.query<{ status: string; approved_by: string }>(
+      "SELECT status, approved_by FROM daily007_v2_leaderboard_periods WHERE id = $1",
+      [periodId],
+    );
+    const payouts = await pool.query<{ amount: number; balance_after: number; idempotency_key: string }>(
+      "SELECT amount, balance_after, idempotency_key FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [winnerId],
+    );
+    assert.equal(actor.rows[0]?.role, "tournament_admin");
+    assert.equal(winner.rows[0]?.wallet_coins, 45);
+    assert.deepEqual(period.rows, [{ status: "finalized", approved_by: actorId }]);
+    assert.deepEqual(payouts.rows, [{
+      amount: 40,
+      balance_after: 45,
+      idempotency_key: `leaderboard-cycle:${periodId}:rank:1`,
+    }]);
+  } finally {
+    if (blocker) {
+      await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      blocker.release();
+    }
+    if (approvalPromise || demotionPromise) {
+      await Promise.allSettled(
+        [approvalPromise, demotionPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_leaderboard_payout ON daily007_v2_wallet_ledger",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_leaderboard_payout()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_leaderboard_periods");
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [winnerId]);
+    await pool.query("DELETE FROM daily007_v2_leaderboard_periods WHERE id = $1", [periodId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[actorId, demoterId, winnerId]],
+    );
   }
 });
