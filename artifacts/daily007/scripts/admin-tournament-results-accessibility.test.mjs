@@ -6,6 +6,10 @@ const screenSource = await readFile(
   new URL('../src/screens/AdminTournaments.tsx', import.meta.url),
   'utf8',
 );
+const resultsSource = await readFile(
+  new URL('../src/screens/AdminResults.tsx', import.meta.url),
+  'utf8',
+);
 const uiSource = await readFile(
   new URL('../src/components/ui.tsx', import.meta.url),
   'utf8',
@@ -70,6 +74,52 @@ test('result validation and API errors are politely announced', () => {
   assert.ok(errorMessage, 'Result validation and API errors must use a polite live region.');
   assert.match(screenSource, /setResultError\('Enter a valid rank\.'\)/);
   assert.match(screenSource, /const publishError = apiError\(e\)/);
+});
+
+test('tournament and room-management errors use polite live regions', () => {
+  assert.match(
+    screenSource,
+    /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/,
+    'Tournament create, update, and delete errors must be announced.',
+  );
+  assert.match(
+    screenSource,
+    /<Msg kind="err" text=\{loadError\} accessibilityLiveRegion="polite" \/>/,
+    'Tournament list refresh errors must remain announced.',
+  );
+  assert.match(
+    screenSource,
+    /text=\{`Could not load completed result logs: \$\{apiError\(resultLogsQuery\.error\)\}`\}\s+accessibilityLiveRegion="polite"/,
+    'Completed-result log errors must be announced.',
+  );
+  assert.match(
+    screenSource,
+    /<Msg kind="err" text=\{roomError\} accessibilityLiveRegion="polite" \/>/,
+    'Room save and removal errors must be announced.',
+  );
+  assert.match(
+    screenSource,
+    /text=\{`\$\{roomError \|\| 'Room details could not be loaded\.'\} Close and reopen this panel to retry\.`\}\s+accessibilityLiveRegion="polite"/,
+    'Room detail loading errors must be announced.',
+  );
+});
+
+test('the standalone Results screen connects validation and API errors to a polite live region', () => {
+  assert.match(
+    resultsSource,
+    /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/,
+  );
+  assert.match(resultsSource, /setErr\('Enter a valid rank\.'\)/);
+  assert.match(resultsSource, /catch \(e: any\) \{ setErr\(apiError\(e\)\); \}/);
+});
+
+test('the shared Msg forwards live-region semantics without replacing its existing text styling', () => {
+  assert.match(uiSource, /accessibilityLiveRegion\?: 'none' \| 'polite' \| 'assertive';/);
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
+  assert.match(
+    uiSource,
+    /style=\{\[\{ color: ok \? C\.green : C\.red, fontSize: 13, fontWeight: '600' \}, adminSurface && adminSt\.bodyText\]\}/,
+  );
 });
 
 test('ambiguous submissions refresh saved results and show the stored rank and prize', () => {

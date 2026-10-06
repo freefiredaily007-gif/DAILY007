@@ -459,7 +459,7 @@ export default function AdminTournaments() {
         )}
       </View>
       <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
-      <Msg kind="err" text={err} />
+      <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
       {!!loadError && (
         <View style={st.loadRetry}>
           <Msg kind="err" text={loadError} accessibilityLiveRegion="polite" />
@@ -516,7 +516,11 @@ export default function AdminTournaments() {
         })}
       </View>
       {tab === 'completed' && resultLogsQuery.isError && (
-        <Msg kind="err" text={`Could not load completed result logs: ${apiError(resultLogsQuery.error)}`} />
+        <Msg
+          kind="err"
+          text={`Could not load completed result logs: ${apiError(resultLogsQuery.error)}`}
+          accessibilityLiveRegion="polite"
+        />
       )}
 
       {showForm && (
@@ -697,7 +701,7 @@ export default function AdminTournaments() {
                     <Input placeholder="Room ID" value={roomForm.roomId} onChangeText={(roomId) => setRoomForm((current) => ({ ...current, roomId }))} />
                     <Text style={st.lbl}>ROOM PASSWORD</Text>
                     <Input placeholder="Room Password" value={roomForm.roomPassword} onChangeText={(roomPassword) => setRoomForm((current) => ({ ...current, roomPassword }))} />
-                    <Msg kind="err" text={roomError} />
+                    <Msg kind="err" text={roomError} accessibilityLiveRegion="polite" />
                     <Msg kind="ok" text={roomSuccess} />
                     <View style={{ marginTop: 6 }}>
                       <Btn
@@ -731,6 +735,7 @@ export default function AdminTournaments() {
                   <Msg
                     kind="err"
                     text={`${roomError || 'Room details could not be loaded.'} Close and reopen this panel to retry.`}
+                    accessibilityLiveRegion="polite"
                   />
                 )}
               </View>

@@ -124,7 +124,7 @@ export default function AdminResults({
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>RESULTS</Text>
-      <Msg kind="err" text={err} />
+      <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
       <Msg kind="ok" text={okMsg} />
       {!list ? <Loading /> : !sel ? list.map((t) => {
         const lifecycle = getTournamentLifecycleState(t, clockNow);
