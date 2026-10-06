@@ -405,3 +405,118 @@ test("an in-flight leaderboard payout commits before demotion, and later approva
     );
   }
 });
+
+test("an in-flight admin mutation commits before the actor is blocked, and later mutations are rejected", async () => {
+  const actorId = randomUUID();
+  const blockerAdminId = randomUUID();
+  const targetId = randomUUID();
+  const pauseKey = 740077n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let mutationPromise: Promise<JsonResponse> | undefined;
+  let blockPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'In-flight Admin to Block', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Blocking Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Block-Race Wallet Target', $6, 'test-salt', 'test-hash', 'user', 100)`,
+      [
+        actorId, `block-race-actor-${actorId}@example.test`,
+        blockerAdminId, `block-race-blocker-${blockerAdminId}@example.test`,
+        targetId, `block-race-target-${targetId}@example.test`,
+      ],
+    );
+    await pool.query("CREATE TABLE daily007_test_paused_users (id uuid PRIMARY KEY)");
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_wallet_update() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.wallet_coins IS DISTINCT FROM OLD.wallet_coins
+           AND EXISTS (SELECT 1 FROM daily007_test_paused_users WHERE id = NEW.id) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_wallet_update
+      BEFORE UPDATE ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_wallet_update()
+    `);
+    await pool.query("INSERT INTO daily007_test_paused_users (id) VALUES ($1)", [targetId]);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+
+    await withServer(async (origin) => {
+      mutationPromise = patchJson(origin, `/admin/users/${targetId}`, actorId, {
+        coinsDelta: 25,
+        reason: "controlled block race",
+      });
+      await waitForBlockedQuery(
+        "UPDATE daily007_v2_users SET status = COALESCE",
+        "the already-authorized wallet mutation",
+      );
+
+      blockPromise = patchJson(origin, `/admin/users/${actorId}`, blockerAdminId, {
+        status: "blocked",
+      });
+      await waitForQueryBlockedBy(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        "UPDATE daily007_v2_users SET status = COALESCE($2, status)",
+        "the block request to wait for the in-flight admin mutation",
+      );
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      const [mutation, blocked] = await Promise.all([mutationPromise, blockPromise]);
+      assert.equal(mutation.status, 200, JSON.stringify(mutation.body));
+      assert.equal(blocked.status, 200, JSON.stringify(blocked.body));
+      assert.equal(blocked.body.status, "blocked");
+
+      const laterMutation = await patchJson(origin, `/admin/users/${targetId}`, actorId, {
+        coinsDelta: 1,
+        reason: "must be rejected after blocking",
+      });
+      assert.equal(laterMutation.status, 403, JSON.stringify(laterMutation.body));
+    });
+
+    const actor = await pool.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_users WHERE id = $1",
+      [actorId],
+    );
+    const target = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [targetId],
+    );
+    const ledger = await pool.query<{ amount: number; reason: string }>(
+      "SELECT amount, reason FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [targetId],
+    );
+    assert.equal(actor.rows[0]?.status, "blocked");
+    assert.equal(target.rows[0]?.wallet_coins, 125);
+    assert.deepEqual(ledger.rows, [{
+      amount: 25,
+      reason: "admin_adjustment:controlled block race",
+    }]);
+  } finally {
+    if (blocker) {
+      await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      blocker.release();
+    }
+    if (mutationPromise || blockPromise) {
+      await Promise.allSettled(
+        [mutationPromise, blockPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_pause_wallet_update ON daily007_v2_users");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_wallet_update()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_users");
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [targetId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[actorId, blockerAdminId, targetId]],
+    );
+  }
+});
