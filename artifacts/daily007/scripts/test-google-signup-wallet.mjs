@@ -231,9 +231,40 @@ try {
     "the Google signup action",
   );
   await clickSelector('[data-testid="continue-with-google"]', "Google signup action");
+
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 signup exchange is temporarily unavailable. Please try again.")`,
+    "retryable Daily007 exchange error after the first Google signup attempt",
+  );
+  const failedAttempt = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const failureView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    const retryButton = document.querySelector('[data-testid="continue-with-google"]');
+    return {
+      signupFieldsVisible: bodyText.includes("PLAYER PROFILE")
+        && Boolean(document.querySelector('input[placeholder="Enter Name"]')),
+      retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
+      retryButtonDisabled: retryButton?.getAttribute("aria-disabled") === "true"
+        || retryButton?.hasAttribute("disabled") === true,
+      signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+      walletBonusVisible: bodyText.includes("Welcome Signup Bonus"),
+    };
+  })()`);
+
+  assert.equal(failedAttempt.googleExchangeAttempts, 1, "The first Daily007 exchange should fail exactly once.");
+  assert.deepEqual(failedAttempt.sessionStorage, {}, "A failed exchange must leave Daily007 session storage empty.");
+  assert.equal(failedAttempt.storedSession, null, "A failed exchange must not persist a Daily007 session.");
+  assert.equal(failedAttempt.calls.at(-1)?.status, 503, "The first Google exchange should return the mocked failure.");
+  assert.equal(failureView.signupFieldsVisible, true, "The signup form should remain usable after the exchange failure.");
+  assert.equal(failureView.retryButtonLabel, "Sign up with Google", "The Google action should return to its retry label.");
+  assert.equal(failureView.retryButtonDisabled, false, "The Google action should be enabled for retry.");
+  assert.equal(failureView.signedInTabCount, 0, "A failed exchange must not render signed-in player tabs.");
+  assert.equal(failureView.walletBonusVisible, false, "A failed exchange must not show Wallet content.");
+
+  await clickSelector('[data-testid="continue-with-google"]', "retry Google signup action");
   await waitForExpression(
     `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
-    "the signed-in player tabs after the Auth callback",
+    "the signed-in player tabs after a successful retry",
   );
 
   const walletTab = await evaluate(`(() => {
@@ -274,13 +305,19 @@ try {
   assert.equal(report.storedSession?.id, "mock-daily007-google-player");
   assert.equal(report.storedSession?.token, "mock-daily007-session-token");
   assert.equal(report.storedSession?.coins, 10);
-  assert.deepEqual(report.clerk.events, ["start-sso", "set-active", "get-token"]);
+  assert.deepEqual(report.sessionStorage, {
+    daily007_v2_session: JSON.stringify(report.storedSession),
+  });
+  assert.equal(report.googleExchangeAttempts, 2, "The second Google exchange should succeed.");
+  assert.deepEqual(report.clerk.events, ["start-sso", "set-active", "get-token", "get-token"]);
   assert.equal(report.clerk.startOptions[0]?.strategy, "oauth_google");
   assert.equal(report.unexpectedRequests.length, 0, report.unexpectedRequests.join("; "));
 
   const googleExchange = report.calls.filter((call) => call.method === "POST" && call.path === "/auth/google");
-  assert.equal(googleExchange.length, 1, "Google signup should make one Daily007 auth exchange.");
+  assert.equal(googleExchange.length, 2, "Google signup should retry the Daily007 auth exchange once.");
+  assert.deepEqual(googleExchange.map((call) => call.status), [503, 200]);
   assert.equal(googleExchange[0].authorization, "Bearer mock-clerk-verified-token");
+  assert.equal(googleExchange[1].authorization, "Bearer mock-clerk-verified-token");
   assert.ok(
     report.calls.some((call) =>
       call.method === "GET" &&

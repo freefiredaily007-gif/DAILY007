@@ -15,6 +15,7 @@ const ACCOUNT = {
 const DAILY007_TOKEN = "mock-daily007-session-token";
 const calls = [];
 const unexpectedRequests = [];
+let googleExchangeAttempts = 0;
 
 function authorizationHeader(config) {
   const headers = config.headers;
@@ -41,9 +42,25 @@ function requestPath(config) {
 http.defaults.adapter = async (config) => {
   const method = String(config.method ?? "get").toUpperCase();
   const path = requestPath(config);
-  calls.push({ method, path, authorization: authorizationHeader(config) });
+  const call = { method, path, authorization: authorizationHeader(config) };
+  calls.push(call);
 
   if (method === "POST" && path === "/auth/google") {
+    googleExchangeAttempts += 1;
+    if (googleExchangeAttempts === 1) {
+      call.status = 503;
+      throw Object.assign(new Error("Daily007 signup exchange is temporarily unavailable."), {
+        config,
+        response: {
+          config,
+          data: { error: "Daily007 signup exchange is temporarily unavailable. Please try again." },
+          headers: {},
+          status: 503,
+          statusText: "Service Unavailable",
+        },
+      });
+    }
+    call.status = 200;
     return respond(config, { ...ACCOUNT, token: DAILY007_TOKEN });
   }
   if (method === "GET" && path === "/auth/me") {
@@ -92,6 +109,8 @@ window.__daily007GoogleSignupWalletTest = {
       calls: [...calls],
       clerk: getClerkMockSnapshot(),
       storedSession: rawSession ? JSON.parse(rawSession) : null,
+      sessionStorage: storage.snapshot(),
+      googleExchangeAttempts,
       unexpectedRequests: [...unexpectedRequests],
     };
   },
