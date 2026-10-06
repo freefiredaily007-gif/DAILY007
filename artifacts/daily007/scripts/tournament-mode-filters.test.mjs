@@ -77,8 +77,8 @@ function loadLifecycleRefreshEffect(scope) {
   )(...Object.values(scope));
 }
 
-test('Solo and Squad selections keep the selected game mode in their route params', () => {
-  for (const teamType of ['solo', 'squad']) {
+test('Solo, Duo, and Squad selections keep the selected game mode in their route params', () => {
+  for (const teamType of ['solo', 'duo', 'squad']) {
     assert.deepEqual(
       submodeRouteParams('clash_squad', teamType, 'CLASH SQUAD'),
       {
@@ -89,6 +89,7 @@ test('Solo and Squad selections keep the selected game mode in their route param
     );
   }
 
+  assert.match(modeSubmodesSource, /\{ type: 'duo', title: 'DUO'/);
   assert.match(
     modeSubmodesSource,
     /navigation\.navigate\(\s*'Tournaments',\s*submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),/,
@@ -135,21 +136,23 @@ test('Home mode cards show every team type while the format picker stays restric
       ['solo', 'duo', 'squad'].map((teamType) => `${card.gameMode}-${teamType}`),
     );
 
-    const pickerParams = submodeRouteParams(card.gameMode, 'solo', card.mode);
-    assert.deepEqual(pickerParams, {
-      gameMode: card.gameMode,
-      teamType: 'solo',
-      gameModeLabel: card.mode,
-    });
-    const pickerTabs = tournamentTabsForRoute(
-      tournaments,
-      pickerParams,
-      () => 'upcoming',
-    );
-    assert.deepEqual(
-      pickerTabs.upcoming.map((tournament) => tournament.id),
-      [`${card.gameMode}-solo`],
-    );
+    for (const teamType of ['solo', 'duo', 'squad']) {
+      const pickerParams = submodeRouteParams(card.gameMode, teamType, card.mode);
+      assert.deepEqual(pickerParams, {
+        gameMode: card.gameMode,
+        teamType,
+        gameModeLabel: card.mode,
+      });
+      const pickerTabs = tournamentTabsForRoute(
+        tournaments,
+        pickerParams,
+        () => 'upcoming',
+      );
+      assert.deepEqual(
+        pickerTabs.upcoming.map((tournament) => tournament.id),
+        [`${card.gameMode}-${teamType}`],
+      );
+    }
   }
 });
 
@@ -392,20 +395,20 @@ test('a pushed detail can return to the same mode heading and tournament list', 
   }
 });
 
-test('Solo and Squad lists exclude other sizes without losing the selected mode', () => {
-  const tournaments = [
-    { id: 'clash-solo', gameMode: 'clash_squad', teamType: 'Solo' },
-    { id: 'clash-duo', gameMode: 'clash_squad', teamType: 'Duo' },
-    { id: 'clash-squad', gameMode: 'clash_squad', teamType: 'Squad' },
-    { id: 'battle-solo', gameMode: 'battle_royale', teamType: 'Solo' },
-    { id: 'battle-squad', gameMode: 'battle_royale', teamType: 'Squad' },
-    { id: 'wolf-squad', gameMode: 'lone_wolf', teamType: 'Squad' },
-  ];
+test('Solo, Duo, and Squad lists exclude other sizes without losing the selected mode', () => {
+  const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
+    ['Solo', 'Duo', 'Squad'].map((teamType) => ({
+      id: `${gameMode}-${teamType.toLowerCase()}`,
+      gameMode,
+      teamType,
+    })),
+  );
   const lifecycleOf = () => 'upcoming';
 
   for (const [teamType, expectedId] of [
-    ['solo', 'clash-solo'],
-    ['squad', 'clash-squad'],
+    ['solo', 'clash_squad-solo'],
+    ['duo', 'clash_squad-duo'],
+    ['squad', 'clash_squad-squad'],
   ]) {
     const tabs = tournamentTabsForRoute(
       tournaments,
