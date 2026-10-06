@@ -31,6 +31,9 @@ export const storage = {
   failNextSessionWrite() {
     rejectNextSessionWrite = true;
   },
+  seedSession(session: unknown) {
+    entries.set(DAILY007_SESSION_KEY, JSON.stringify(session));
+  },
   writeMetrics() {
     return { sessionWriteAttempts, rejectedSessionWrites };
   },

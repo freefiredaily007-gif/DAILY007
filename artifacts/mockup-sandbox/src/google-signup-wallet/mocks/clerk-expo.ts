@@ -14,11 +14,13 @@ const fakeSession = {
 };
 
 let activeSession: typeof fakeSession | null = null;
+let startResultType: string | null = null;
 
-export function resetClerkMock() {
+export function resetClerkMock(options: { startResultType?: string | null } = {}) {
   events.length = 0;
   startOptions.length = 0;
   activeSession = null;
+  startResultType = options.startResultType ?? null;
 }
 
 export function getClerkMockSnapshot() {
@@ -34,6 +36,7 @@ export function useSSO() {
     async startSSOFlow(options: StartOptions) {
       events.push("start-sso");
       startOptions.push(options);
+      if (startResultType) return { authSessionResult: { type: startResultType } };
       return {
         createdSessionId: fakeSession.id,
         async setActive({ session }: { session: string }) {

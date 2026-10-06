@@ -5,3 +5,7 @@ export function setBaseUrl() {
 export function setAuthExpiredHandler() {
   return undefined;
 }
+
+export function useDaily007ChangePassword() {
+  return { mutateAsync: async () => undefined, isPending: false };
+}

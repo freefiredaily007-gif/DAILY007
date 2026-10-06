@@ -41,7 +41,7 @@ export default defineConfig({
       { find: /^expo-clipboard$/, replacement: path.join(sandboxRoot, "src/admin-narrow/mocks/clipboard.ts") },
       { find: /^\.\.\/lib\/walletImages$/, replacement: path.join(sandboxRoot, "src/admin-narrow/mocks/wallet-images.ts") },
       {
-        find: /^\.\/screens\/(Home|ModeSubmodes|Video|Earn|Tournaments|TDetail|JoinForm|MyMatches|Profile|Leaderboard|LeaderboardDetails|Notifications|EditProfile|AdminApp)$/,
+        find: /^\.\/screens\/(Home|ModeSubmodes|Video|Earn|Tournaments|TDetail|JoinForm|MyMatches|Leaderboard|LeaderboardDetails|Notifications|EditProfile|AdminApp)$/,
         replacement: mocks("empty-screen.tsx"),
       },
       {

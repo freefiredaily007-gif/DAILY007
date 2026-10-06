@@ -417,8 +417,139 @@ try {
   );
   assert.deepEqual(browserErrors, [], `Browser errors during signup and storage-recovery flows: ${browserErrors.join(" | ")}`);
 
+  const assertPasswordSession = (state, label) => {
+    assert.equal(state.currentSession?.id, "mock-password-player", `${label}: active account ID changed.`);
+    assert.equal(state.currentSession?.coins, 42, `${label}: active wallet balance changed.`);
+    assert.equal(state.currentSession?.token, "mock-password-account-token", `${label}: active Daily007 token changed.`);
+    assert.equal(state.activeAuthorization, "Bearer mock-password-account-token", `${label}: protected API authorization changed.`);
+    assert.equal(state.storedSession?.id, "mock-password-player", `${label}: stored account ID changed.`);
+    assert.equal(state.storedSession?.coins, 42, `${label}: stored wallet balance changed.`);
+    assert.equal(state.storedSession?.token, "mock-password-account-token", `${label}: stored Daily007 token changed.`);
+    const serializedSession = state.sessionStorage?.daily007_v2_session;
+    assert.ok(serializedSession, `${label}: the password-account session is not persisted.`);
+    assert.equal(JSON.parse(serializedSession).id, "mock-password-player");
+    assert.equal(JSON.parse(serializedSession).token, "mock-password-account-token");
+    assert.ok(
+      state.calls.some((call) =>
+        call.method === "GET" &&
+        call.path === "/auth/me" &&
+        call.authorization === "Bearer mock-password-account-token"),
+      `${label}: authenticated Daily007 requests no longer use the password-account token.`,
+    );
+    assert.equal(state.unexpectedRequests.length, 0, state.unexpectedRequests.join("; "));
+  };
+
+  const openProfileScenario = async (scenarioName) => {
+    await cdp("Page.navigate", {
+      url: `${previewUrl(vitePort)}?scenario=${scenarioName}`,
+    });
+    await waitForExpression(
+      `Boolean(document.querySelector('[data-testid="mock-tab-profile"]'))
+        && window.__daily007GoogleSignupWalletTest.snapshot()
+          .then((state) => state.currentSession?.id === "mock-password-player"
+            && state.storedSession?.token === "mock-password-account-token")`,
+      `the saved password-account session and Profile tab for ${scenarioName}`,
+    );
+    await clickSelector('[data-testid="mock-tab-profile"]', "Profile tab");
+    await waitForExpression(
+      `document.body.innerText.includes("CONNECT GOOGLE")
+        && document.body.innerText.includes("Mock Password Player")
+        && document.body.innerText.includes("🪙 42")`,
+      `the real Profile screen for ${scenarioName}`,
+    );
+  };
+
+  const assertWalletBalance = async (label) => {
+    await clickSelector('[data-testid="mock-tab-wallet"]', "Wallet tab");
+    await waitForExpression(
+      `Boolean(document.querySelector('[aria-label="Available coins: 42"]'))`,
+      `${label}: the existing 42-coin Wallet balance`,
+    );
+    const walletLabel = await evaluate(
+      `document.querySelector('[aria-label="Available coins: 42"]')?.getAttribute("aria-label") ?? null`,
+    );
+    assert.equal(walletLabel, "Available coins: 42", `${label}: Wallet balance did not remain available.`);
+  };
+
+  await openProfileScenario("profile-link-success");
+  const beforeLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(beforeLink, "before Google linking");
+  await assertWalletBalance("before Google linking");
+  await clickSelector('[data-testid="mock-tab-profile"]', "return to Profile before linking");
+  await waitForExpression(
+    `document.body.innerText.includes("CONNECT GOOGLE")`,
+    "Profile after checking the password-account Wallet",
+  );
+  await clickSelector('[data-testid="continue-with-google"]', "Connect Google on the real Profile screen");
+  await waitForExpression(
+    `document.body.innerText.includes("Google connection confirmed.")`,
+    "the successful Profile Google-link confirmation",
+  );
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot()
+      .then((state) => state.calls.filter((call) => call.method === "GET" && call.path === "/auth/me").length >= 2)`,
+    "Profile's authenticated refresh after linking Google",
+  );
+  const successfulLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(successfulLink, "after successful Google linking");
+  const successfulExchange = successfulLink.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(successfulExchange.length, 1, "Profile should make one Google-link exchange.");
+  assert.equal(successfulExchange[0].status, 200);
+  assert.equal(successfulExchange[0].authorization, "Bearer mock-clerk-verified-token");
+  assert.equal(successfulExchange[0].daily007Token, "mock-password-account-token");
+  assert.ok(successfulLink.clerk.events.includes("get-token"));
+  await assertWalletBalance("after successful Google linking");
+
+  await openProfileScenario("profile-link-cancel");
+  const beforeCancel = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(beforeCancel, "before cancelling Google linking");
+  await clickSelector('[data-testid="continue-with-google"]', "Connect Google before cancelling");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot()
+      .then((state) => state.clerk.events.includes("start-sso")
+        && !state.calls.some((call) => call.method === "POST" && call.path === "/auth/google"))
+      && [...document.querySelectorAll('[data-testid="continue-with-google"]')]
+        .some((button) => button.textContent?.includes("Connect Google"))`,
+    "the cancelled OAuth flow to return to Profile without an exchange",
+  );
+  const cancelledLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(cancelledLink, "after cancelling Google linking");
+  assert.equal(cancelledLink.googleExchangeAttempts, 0, "Cancellation must not exchange a Google token.");
+  assert.deepEqual(cancelledLink.clerk.events, ["start-sso"]);
+  const cancelledView = await evaluate(
+    `document.body.innerText.includes("Google connection confirmed.")`,
+  );
+  assert.equal(cancelledView, false, "A cancelled OAuth flow must not show a successful link.");
+  await assertWalletBalance("after cancelling Google linking");
+
+  await openProfileScenario("profile-link-error");
+  const beforeLinkError = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(beforeLinkError, "before the failed Google-link exchange");
+  await clickSelector('[data-testid="continue-with-google"]', "Connect Google before the API error");
+  await waitForExpression(
+    `document.body.innerText.includes("Google linking is temporarily unavailable. Please try again.")`,
+    "the recoverable Profile message after a failed Google-link exchange",
+  );
+  const failedLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(failedLink, "after the failed Google-link exchange");
+  const failedExchange = failedLink.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(failedExchange.length, 1);
+  assert.equal(failedExchange[0].status, 503);
+  assert.equal(failedExchange[0].authorization, "Bearer mock-clerk-verified-token");
+  assert.equal(failedExchange[0].daily007Token, "mock-password-account-token");
+  const failedView = await evaluate(
+    `document.body.innerText.includes("Google connection confirmed.")`,
+  );
+  assert.equal(failedView, false, "A failed link must not show a successful connection.");
+  await assertWalletBalance("after the failed Google-link exchange");
+
+  assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — mocked Google signup recovers from both an API exchange failure and a rejected session-storage write; Wallet opens only after the session is saved.",
+    "PASS — mocked Google signup recovers from API and storage failures; real Profile Google linking preserves the password account, wallet, and token on success, cancellation, and exchange error.",
   );
 } finally {
   socket?.close();
