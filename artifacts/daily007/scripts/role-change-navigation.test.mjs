@@ -96,6 +96,31 @@ test("Full Admin becomes a player after refresh without removing the saved sign-
   );
 });
 
+test("Full Admin can see and open the Videos management screen", () => {
+  const navigation = adminNavigationForRole("admin", "videos", ADMIN_NAV_ITEMS);
+
+  assert.deepEqual(navigation, {
+    activeScreen: "videos",
+    visibleNavKeys: ADMIN_NAV_KEYS,
+  });
+  assert.equal(canNavigateAdminScreen("admin", "videos"), true);
+});
+
+test("Tournament Admin cannot see or directly open Videos management", () => {
+  const navigation = adminNavigationForRole(
+    "tournament_admin",
+    "videos",
+    ADMIN_NAV_ITEMS,
+  );
+
+  assert.deepEqual(navigation, {
+    activeScreen: "tournaments",
+    visibleNavKeys: ["tournaments", "registrations"],
+  });
+  assert.equal(canNavigateAdminScreen("tournament_admin", "videos"), false);
+  assert.equal(canNavigateAdminScreen("tournament_admin", navigation.activeScreen), true);
+});
+
 test("App and AdminApp use the tested refresh and role-navigation decisions", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const adminSource = await readFile(new URL("../src/screens/AdminApp.tsx", import.meta.url), "utf8");
@@ -120,4 +145,18 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
 
   assert.match(adminSource, /adminNavigationForRole\(user\.role, screen, NAV\)/);
   assert.match(adminSource, /canNavigateAdminScreen\(user\.role, next\)/);
+  assert.match(
+    adminSource,
+    /const visibleNav = NAV\.filter\(\(item\) => navigation\.visibleNavKeys\.includes\(item\.key\)\);/,
+  );
+  assert.match(
+    adminSource,
+    /const navigate = \(next: string\) => \{\s*if \(canNavigateAdminScreen\(user\.role, next\)\) setScreen\(next\);\s*\};/,
+  );
+  assert.match(adminSource, /visibleNav\.map\(\(n\) =>/);
+  assert.match(adminSource, /\{ key: 'videos', label: 'Videos', icon: 'video' \}/);
+  assert.match(adminSource, /videos:\s*AdminVideos/);
+  assert.match(adminSource, /const activeScreen = navigation\.activeScreen/);
+  assert.match(adminSource, /\[activeScreen\]\s*\|\|\s*AdminDashboard/);
+  assert.match(adminSource, /<Screen\s+go=\{navigate\}/);
 });
