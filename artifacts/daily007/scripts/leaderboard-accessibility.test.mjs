@@ -110,6 +110,32 @@ test("the Top 20 control exposes and toggles its expanded state", () => {
   assert.match(expandedContent, /<PlayerRow/);
 });
 
+test("cycle tabs expose their names and selection, and switching closes the expanded list", () => {
+  const tabsStart = screenSource.indexOf('(["weekly", "monthly"] as const).map((key) => {');
+  const tabsEnd = screenSource.indexOf("</View>", tabsStart);
+  assert.ok(tabsStart >= 0 && tabsEnd > tabsStart, "Both cycle tabs must be rendered in their tab list.");
+
+  const cycleTabs = screenSource.slice(tabsStart, tabsEnd);
+  assert.match(cycleTabs, /accessibilityRole="tab"/);
+  assert.match(cycleTabs, /accessibilityState=\{\{ selected \}\}/);
+  assert.match(
+    cycleTabs,
+    /accessibilityLabel=\{key === "weekly" \? "Weekly leaderboard" : "Monthly leaderboard"\}/,
+  );
+  assert.match(cycleTabs, /testID=\{`leaderboard-details-tab-\$\{key\}`\}/);
+  assert.match(cycleTabs, /const selected = cycle === key;/);
+
+  const selectedCycleOnRoute = screenSource.match(
+    /const cycle: CycleType = route\?\.params\?\.cycleType === "monthly" \? "monthly" : "weekly";/,
+  );
+  assert.ok(selectedCycleOnRoute, "The selected tab must follow the currently displayed cycle.");
+
+  const onPress = cycleTabs.match(/onPress=\{\(\) => \{([\s\S]*?)\}\}/);
+  assert.ok(onPress, "Each tab must have a cycle-switching handler.");
+  assert.match(onPress[1], /setShowTop20\(false\);/);
+  assert.match(onPress[1], /navigation\.setParams\(\{ cycleType: key \}\);/);
+});
+
 for (const [cycle, ranks] of [
   ["Weekly", [20, 7, 14, 1, 23, 3, 16, 10, 2, 19, 6, 13, 22, 4, 18, 9, 15, 5, 12, 21, 8, 17, 11]],
   ["Monthly", [22, 4, 19, 11, 1, 17, 8, 20, 13, 3, 16, 7, 21, 2, 15, 10, 18, 5, 14, 9, 12, 6]],

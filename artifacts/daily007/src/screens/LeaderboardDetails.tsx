@@ -267,7 +267,7 @@ export default function LeaderboardDetails({ navigation, route }: any) {
                 key={key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`${key} top 20 players`}
+                accessibilityLabel={key === "weekly" ? "Weekly leaderboard" : "Monthly leaderboard"}
                 testID={`leaderboard-details-tab-${key}`}
                 onPress={() => {
                   setShowTop20(false);
