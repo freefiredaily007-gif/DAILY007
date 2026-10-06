@@ -23,7 +23,10 @@ import {
   ROOM_CREDENTIAL_REVEAL_LEAD_MS,
   type RoomCredentialAccessState,
 } from "../src/lib/daily007-room-access.ts";
-import { storedTournamentTimeFromInstant } from "../src/lib/daily007-schedule-time";
+import {
+  storedTournamentTimeFromInstant,
+  tournamentInstantFromStored,
+} from "../src/lib/daily007-schedule-time";
 
 function setMatchStartInstant(instant: Date): void {
   roomAccessTestDb.match.starts_at = storedTournamentTimeFromInstant(instant);
@@ -254,6 +257,47 @@ test("public compatibility tournament detail omits room fields after credential 
     assert.equal(detail.status, 200);
     assert.equal(detail.body.id, TEST_MATCH_ID);
     assertPublicTournamentOmitsRoomCredentials(detail.body);
+  });
+});
+
+test("public compatibility tournament participants omit room fields after credential release", async () => {
+  resetPublicTournamentAtReleaseTime();
+  assert.equal(
+    isRoomCredentialReleaseOpen(
+      tournamentInstantFromStored(roomAccessTestDb.match.starts_at),
+      Date.now(),
+    ),
+    true,
+    "The fixture should be past the scheduled credential-release time.",
+  );
+
+  await withServer(async (origin) => {
+    const roster = await requestPublic(origin, `/tournaments/${TEST_MATCH_ID}/participants`);
+    assert.equal(roster.status, 200);
+    assert.equal(roster.body.tournamentId, TEST_MATCH_ID);
+    assert.equal(Array.isArray(roster.body.participants), true);
+    assert.equal(roster.body.participants.length, 2);
+
+    const serialized = JSON.stringify(roster.body);
+    for (const field of ["roomId", "roomPassword", "roomTime"]) {
+      assert.equal(
+        serialized.includes(`"${field}"`),
+        false,
+        `${field} must be omitted throughout the public participant response.`,
+      );
+    }
+    for (const credential of [
+      roomAccessTestDb.match.room_id,
+      roomAccessTestDb.match.room_password,
+      roomAccessTestDb.match.room_time,
+    ]) {
+      assert.ok(credential);
+      assert.equal(
+        serialized.includes(credential),
+        false,
+        "The public participant response must not contain fixture room credentials.",
+      );
+    }
   });
 });
 

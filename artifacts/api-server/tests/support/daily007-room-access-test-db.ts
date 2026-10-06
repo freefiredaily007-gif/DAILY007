@@ -186,7 +186,25 @@ class RoomAccessTestDatabase {
     const first = String(values[0] ?? "");
     let rows: unknown[] = [];
 
-    if (normalized.startsWith(
+    if (normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1") {
+      rows = first === this.match.id ? [{ id: this.match.id }] : [];
+    } else if (normalized ===
+      "SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name, r.captain_game_name, roster.position, roster.member_name FROM daily007_v2_registrations r LEFT JOIN daily007_v2_roster roster ON roster.registration_id = r.id WHERE r.match_id = $1 AND r.status IN ('approved', 'pending') ORDER BY r.created_at, r.id, roster.position"
+    ) {
+      rows = this.registrations
+        .filter((registration) =>
+          registration.match_id === first &&
+          ["approved", "pending"].includes(registration.status),
+        )
+        .map((registration) => ({
+          registration_id: registration.id,
+          status: registration.status,
+          team_name: registration.team_name,
+          captain_game_name: registration.captain_game_name,
+          position: null,
+          member_name: null,
+        }));
+    } else if (normalized.startsWith(
       "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
     )) {
       const user = this.users.get(first);
