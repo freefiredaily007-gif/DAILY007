@@ -7,6 +7,7 @@ import {
   submodeRouteParams,
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
+import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
 
 const homeSource = await readFile(
   new URL('../src/screens/Home.tsx', import.meta.url),
@@ -139,6 +140,9 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
     tournamentsSource,
     /setItems\(\(Array\.isArray\(list\) \? list : \[\]\)\.map/,
   );
+  assert.match(tournamentsSource, /const loadRequests = useRef\(createLatestRequestGuard\(\)\)/);
+  assert.match(tournamentsSource, /const request = loadRequests\.current\.begin\(\)/);
+  assert.match(tournamentsSource, /if \(!loadRequests\.current\.isCurrent\(request\)\) return;/);
   assert.match(
     tournamentsSource,
     /const modeScopedTabs = tournamentTabsForRoute\(items,\s*\{\s*gameMode:\s*gameMode \|\| legacyMode,\s*teamType,\s*\},\s*lifecycleOf\)/,
@@ -154,6 +158,61 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
     tournamentsSource,
     /ListEmptyComponent=\{<Empty text=\{tournamentListEmptyMessage\(/,
   );
+});
+
+test('a slower earlier load cannot replace newer rows or tab counts', async () => {
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+  };
+  const requests = createLatestRequestGuard();
+  const olderResponse = deferred();
+  const newerResponse = deferred();
+  const selectedMode = 'clash_squad';
+  const selectedTab = 'ongoing';
+  let rows = [];
+
+  const load = async (response) => {
+    const request = requests.begin();
+    const result = await response;
+    if (requests.isCurrent(request)) rows = result;
+  };
+
+  const olderLoad = load(olderResponse.promise);
+  const newerLoad = load(newerResponse.promise);
+
+  newerResponse.resolve([
+    { id: 'fresh-upcoming', gameMode: selectedMode, lifecycle: 'upcoming' },
+    { id: 'fresh-ongoing', gameMode: selectedMode, lifecycle: 'ongoing' },
+    { id: 'other-mode-completed', gameMode: 'battle_royale', lifecycle: 'completed' },
+  ]);
+  await newerLoad;
+
+  olderResponse.resolve([
+    { id: 'stale-upcoming', gameMode: selectedMode, lifecycle: 'upcoming' },
+    { id: 'stale-completed', gameMode: selectedMode, lifecycle: 'completed' },
+  ]);
+  await olderLoad;
+
+  const tabs = tournamentTabsForRoute(
+    rows,
+    { gameMode: selectedMode },
+    (tournament) => tournament.lifecycle,
+  );
+  assert.deepEqual(tabs.upcoming.map((item) => item.id), ['fresh-upcoming']);
+  assert.deepEqual(tabs.ongoing.map((item) => item.id), ['fresh-ongoing']);
+  assert.deepEqual(tabs.completed, []);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(tabs).map(([name, tournaments]) => [name, tournaments.length])),
+    { upcoming: 1, ongoing: 1, completed: 0 },
+  );
+  assert.equal(tabs[selectedTab][0].id, 'fresh-ongoing');
+  assert.ok(
+    Object.values(tabs).flat().every((tournament) => tournament.gameMode === selectedMode),
+    'the selected game mode remains applied after both requests settle',
+  );
+  assert.equal(selectedTab, 'ongoing');
 });
 
 test('opening a tournament pushes its detail above the filtered list for Android Back', () => {

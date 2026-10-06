@@ -8,6 +8,7 @@ import { apiError } from '../lib/api';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { tournamentListEmptyMessage, tournamentTabsForRoute } from '../lib/tournamentFilters';
+import { createLatestRequestGuard } from '../lib/latestRequestGuard';
 import {
   compareTournamentStartTime,
   getTournamentLifecycleState,
@@ -28,17 +29,20 @@ export default function Tournaments() {
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
   const hasLoadedList = useRef(false);
+  const loadRequests = useRef(createLatestRequestGuard());
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
   const heading = route?.params?.gameModeLabel || legacyMode || gameMode;
 
   const load = useCallback(async () => {
+    const request = loadRequests.current.begin();
     try {
       const [list, registrations] = await Promise.all([
         api.tournaments(),
         api.myRegistrations(),
       ]);
+      if (!loadRequests.current.isCurrent(request)) return;
       const registrationByTournament = new Map<string, any>();
       for (const registration of Array.isArray(registrations) ? registrations : []) {
         const status = String(registration.status ?? '').toLowerCase();
@@ -58,8 +62,11 @@ export default function Tournaments() {
       hasLoadedList.current = true;
       setClockNow(Date.now());
       setError('');
-    } catch (e) { setError(apiError(e)); }
-    setLoading(false);
+    } catch (e) {
+      if (loadRequests.current.isCurrent(request)) setError(apiError(e));
+    } finally {
+      if (loadRequests.current.isCurrent(request)) setLoading(false);
+    }
   }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
