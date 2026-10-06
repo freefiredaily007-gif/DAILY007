@@ -29,6 +29,7 @@ export function RoomCredentialsPanel({
   const id = roomId?.trim() ?? '';
   const password = roomPassword?.trim() ?? '';
   const [copyFeedback, setCopyFeedback] = useState<RoomCredentialCopyFeedback | null>(null);
+  const [simulateClipboardFailure, setSimulateClipboardFailure] = useState(false);
   const credentialsReady = hasServerAuthorizedRoomCredentials(id, password);
   const message = !schedule
     ? 'Tournament start time is unavailable. Room details remain hidden.'
@@ -43,10 +44,13 @@ export function RoomCredentialsPanel({
   }, [credentialsReady, id, password]);
 
   const copy = async (label: string, value: string) => {
+    const writeClipboard = __DEV__ && simulateClipboardFailure
+      ? async () => { throw new Error('Simulated clipboard failure'); }
+      : (clipboardValue: string) => Clipboard.setStringAsync(clipboardValue);
     const feedback = await copyRoomCredentialToClipboard(
       label,
       value,
-      (clipboardValue) => Clipboard.setStringAsync(clipboardValue),
+      writeClipboard,
     );
     setCopyFeedback(feedback);
     AccessibilityInfo.announceForAccessibility(feedback.message);
@@ -60,6 +64,34 @@ export function RoomCredentialsPanel({
           <>
             <CredentialRow label="Room ID" value={id} onCopy={() => copy('Room ID', id)} />
             <CredentialRow label="Password" value={password} onCopy={() => copy('Password', password)} />
+            {__DEV__ ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  simulateClipboardFailure
+                    ? 'Stop simulating clipboard failures'
+                    : 'Simulate clipboard failures'
+                }
+                accessibilityHint="Toggle a development-only failure for both room credential copy buttons."
+                onPress={() => {
+                  const nextValue = !simulateClipboardFailure;
+                  setSimulateClipboardFailure(nextValue);
+                  AccessibilityInfo.announceForAccessibility(
+                    nextValue
+                      ? 'Clipboard failure simulation on.'
+                      : 'Clipboard failure simulation off.',
+                  );
+                }}
+                testID="room-credential-simulate-clipboard-failure"
+                style={styles.devTestButton}
+              >
+                <Text accessible={false} style={styles.devTestButtonText}>
+                  {simulateClipboardFailure
+                    ? 'DEV TEST: clipboard failures ON'
+                    : 'DEV TEST: simulate clipboard failures'}
+                </Text>
+              </Pressable>
+            ) : null}
           </>
         ) : (
           <Text style={styles.notice}>{message}</Text>
@@ -127,6 +159,8 @@ const styles = StyleSheet.create({
   notice: { color: C.gold, fontSize: 12, fontWeight: '700', lineHeight: 19, paddingVertical: 4 },
   copyFeedback: { color: C.green, fontSize: 11, fontWeight: '700', lineHeight: 16, marginTop: 6 },
   copyFeedbackFailure: { color: C.red },
+  devTestButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: C.gold, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7, marginTop: 6 },
+  devTestButtonText: { color: C.gold, fontSize: 11, fontWeight: '800' },
   credentialRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 6 },
   valueGroup: { flex: 1, minWidth: 0 },
   label: { color: C.sub, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },

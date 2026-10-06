@@ -61,3 +61,26 @@ test("clipboard success and failure return clear feedback for TalkBack announcem
   assert.match(panelSource, /AccessibilityInfo\.announceForAccessibility\(feedback\.message\)/);
   assert.match(panelSource, /testID="room-credential-copy-feedback"/);
 });
+
+test("clipboard failure simulation is development-only and covers both credentials", () => {
+  assert.match(
+    panelSource,
+    /const \[simulateClipboardFailure, setSimulateClipboardFailure\] = useState\(false\)/,
+  );
+  assert.match(
+    panelSource,
+    /const writeClipboard = __DEV__ && simulateClipboardFailure\s*\?\s*async \(\) => \{ throw new Error\('Simulated clipboard failure'\); \}/,
+  );
+  assert.match(
+    panelSource,
+    /<CredentialRow label="Room ID" value=\{id\} onCopy=\{\(\) => copy\('Room ID', id\)\} \/>/,
+  );
+  assert.match(
+    panelSource,
+    /<CredentialRow label="Password" value=\{password\} onCopy=\{\(\) => copy\('Password', password\)\} \/>/,
+  );
+  assert.match(
+    panelSource,
+    /\{__DEV__ \? \(\s*<Pressable[\s\S]*?testID="room-credential-simulate-clipboard-failure"/,
+  );
+});
