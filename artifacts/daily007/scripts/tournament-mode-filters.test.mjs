@@ -3,6 +3,12 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 import {
+  CommonActions,
+  StackActions,
+  StackRouter,
+  TabRouter,
+} from '@react-navigation/routers';
+import {
   HOME_GAME_MODE_CARDS,
   homeModeRouteParams,
   submodeRouteParams,
@@ -20,6 +26,13 @@ const homeSource = await readFile(
   new URL('../src/screens/Home.tsx', import.meta.url),
   'utf8',
 );
+const homeSourceFile = ts.createSourceFile(
+  'Home.tsx',
+  homeSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
 const modeSubmodesSource = await readFile(
   new URL('../src/screens/ModeSubmodes.tsx', import.meta.url),
   'utf8',
@@ -27,6 +40,13 @@ const modeSubmodesSource = await readFile(
 const detailSource = await readFile(
   new URL('../src/screens/TDetail.tsx', import.meta.url),
   'utf8',
+);
+const detailSourceFile = ts.createSourceFile(
+  'TDetail.tsx',
+  detailSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
 );
 const tournamentsSource = await readFile(
   new URL('../src/screens/Tournaments.tsx', import.meta.url),
@@ -76,6 +96,72 @@ function loadLifecycleRefreshEffect(scope) {
     ...Object.keys(scope),
     `${javascript}\nreturn __effect;`,
   )(...Object.values(scope));
+}
+
+function findVariableInitializer(sourceFile, variableName) {
+  let initializer;
+
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === variableName
+    ) {
+      initializer = node.initializer ?? undefined;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  assert.ok(initializer, `the ${variableName} initializer should be present`);
+  return initializer;
+}
+
+function evaluateTypeScriptExpression(expression, sourceFile, scope = {}) {
+  const javascript = ts.transpileModule(
+    `const __runtimeValue = (${expression.getText(sourceFile)});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __runtimeValue;`,
+  )(...Object.values(scope));
+}
+
+function findDetailTitleExpression() {
+  let titleExpression;
+
+  function visit(node) {
+    if (
+      ts.isJsxElement(node)
+      && node.openingElement.tagName.getText(detailSourceFile) === 'Text'
+    ) {
+      const isTournamentName = node.openingElement.attributes.properties.some(
+        (attribute) =>
+          ts.isJsxAttribute(attribute)
+          && attribute.name.getText(detailSourceFile) === 'style'
+          && ts.isJsxExpression(attribute.initializer)
+          && attribute.initializer.expression?.getText(detailSourceFile) === 's.name',
+      );
+      const titleChild = node.children.find(
+        (child) => ts.isJsxExpression(child) && child.expression,
+      );
+      if (isTournamentName && titleChild && ts.isJsxExpression(titleChild)) {
+        titleExpression = titleChild.expression;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(detailSourceFile);
+  assert.ok(titleExpression, 'the tournament-name Text expression should be present');
+  return titleExpression;
 }
 
 test('Solo, Duo, and Squad selections keep the selected game mode in their route params', () => {
@@ -367,6 +453,159 @@ test('Home tournament shortcuts push the selected detail above Home', () => {
     /<Stack\.Screen name="Tabs" component=\{Tabs\}[^>]*\/>[\s\S]*<Stack\.Screen name="TDetail" component=\{TDetail\}/,
     'the pushed detail sits above the preserved Tabs/Home screen for Android Back',
   );
+});
+
+test('Home match shortcut Back flow preserves Home and loads fresh data for a second match', async () => {
+  const tabRouter = TabRouter({ initialRouteName: 'Home' });
+  const homeTabState = tabRouter.getInitialState({
+    routeNames: ['Home', 'MyMatches', 'Tournaments', 'Wallet', 'Profile'],
+    routeParamList: {},
+    routeGetIdList: {},
+  });
+  const stackRouter = StackRouter({ initialRouteName: 'Tabs' });
+  let rootState = stackRouter.getInitialState({
+    routeNames: ['Tabs', 'TDetail'],
+    routeParamList: {},
+    routeGetIdList: {},
+  });
+  rootState.routes[0].state = homeTabState;
+
+  const routerOptions = (state) => ({
+    routeNames: state.routeNames,
+    routeParamList: {},
+    routeGetIdList: {},
+    routeKeyList: state.routes.map((route) => route.key),
+  });
+  const rootNavigation = {
+    push(name, params) {
+      const nextState = stackRouter.getStateForAction(
+        rootState,
+        StackActions.push(name, params),
+        routerOptions(rootState),
+      );
+      assert.ok(nextState, `the root navigator should accept a push to ${name}`);
+      rootState = nextState;
+    },
+    canGoBack() {
+      return rootState.index > 0;
+    },
+    goBack() {
+      const nextState = stackRouter.getStateForAction(
+        rootState,
+        CommonActions.goBack(),
+        routerOptions(rootState),
+      );
+      if (!nextState) return false;
+      rootState = nextState;
+      return true;
+    },
+  };
+  const homeNavigation = { getParent: () => rootNavigation };
+  const openTournamentDetail = evaluateTypeScriptExpression(
+    findVariableInitializer(homeSourceFile, 'openTournamentDetail'),
+    homeSourceFile,
+    { nav: homeNavigation },
+  );
+  const fixtures = new Map([
+    ['shortcut-match-one', { id: 'shortcut-match-one', name: 'First Home Shortcut Match' }],
+    ['shortcut-match-two', { id: 'shortcut-match-two', name: 'Second Home Shortcut Match' }],
+  ]);
+  const detailReadIds = [];
+  const api = {
+    async tournament(id) {
+      const requestedId = String(id);
+      detailReadIds.push(requestedId);
+      const fixture = fixtures.get(requestedId);
+      if (!fixture) throw new Error(`Missing isolated tournament fixture: ${requestedId}`);
+      return { ...fixture };
+    },
+    async myRegistrations() {
+      return [];
+    },
+  };
+  const routeIdExpression = findVariableInitializer(detailSourceFile, 'id');
+  const loadInitializer = findVariableInitializer(detailSourceFile, 'load');
+  assert.ok(ts.isCallExpression(loadInitializer), 'TDetail load should remain a useCallback call');
+  const loadCallback = loadInitializer.arguments[0];
+  assert.ok(ts.isArrowFunction(loadCallback), 'TDetail load should remain an async callback');
+  const detailTitleExpression = findDetailTitleExpression();
+
+  async function loadActiveDetail() {
+    const activeRoute = rootState.routes[rootState.index];
+    assert.equal(activeRoute.name, 'TDetail');
+    const route = { params: activeRoute.params };
+    const id = evaluateTypeScriptExpression(routeIdExpression, detailSourceFile, { route });
+    const screenState = { tournament: null, loading: true, error: '' };
+    const load = evaluateTypeScriptExpression(loadCallback, detailSourceFile, {
+      id,
+      api,
+      setT: (tournament) => { screenState.tournament = tournament; },
+      setLoading: (loading) => { screenState.loading = loading; },
+      setErr: (error) => { screenState.error = error; },
+    });
+    await load();
+    return {
+      id,
+      title: evaluateTypeScriptExpression(
+        detailTitleExpression,
+        detailSourceFile,
+        { t: screenState.tournament },
+      ),
+      ...screenState,
+    };
+  }
+
+  function assertHomeIsActive() {
+    const activeRoute = rootState.routes[rootState.index];
+    assert.equal(activeRoute.name, 'Tabs');
+    assert.equal(
+      activeRoute.state.routes[activeRoute.state.index].name,
+      'Home',
+      'the preserved nested tab should still be Home',
+    );
+  }
+
+  function triggerAndroidBack() {
+    if (!rootNavigation.canGoBack()) return false;
+    return rootNavigation.goBack();
+  }
+
+  openTournamentDetail('shortcut-match-one');
+  assert.deepEqual(
+    rootState.routes.map((route) => route.name),
+    ['Tabs', 'TDetail'],
+    'the first Home shortcut should push detail above the preserved tabs',
+  );
+  assert.equal(rootState.routes[rootState.index].params.id, 'shortcut-match-one');
+  const firstDetail = await loadActiveDetail();
+  assert.equal(firstDetail.id, 'shortcut-match-one');
+  assert.equal(firstDetail.title, 'First Home Shortcut Match');
+  assert.equal(firstDetail.loading, false);
+  assert.equal(firstDetail.error, '');
+  assert.deepEqual(detailReadIds, ['shortcut-match-one']);
+
+  assert.equal(triggerAndroidBack(), true, 'Android Back should pop the first detail');
+  assert.deepEqual(rootState.routes.map((route) => route.name), ['Tabs']);
+  assertHomeIsActive();
+
+  openTournamentDetail('shortcut-match-two');
+  assert.deepEqual(
+    rootState.routes.map((route) => route.name),
+    ['Tabs', 'TDetail'],
+    'the second Home shortcut should push a new detail above Home',
+  );
+  assert.equal(rootState.routes[rootState.index].params.id, 'shortcut-match-two');
+  const secondDetail = await loadActiveDetail();
+  assert.equal(secondDetail.id, 'shortcut-match-two');
+  assert.equal(secondDetail.title, 'Second Home Shortcut Match');
+  assert.notEqual(secondDetail.title, firstDetail.title);
+  assert.equal(secondDetail.loading, false);
+  assert.equal(secondDetail.error, '');
+  assert.deepEqual(detailReadIds, ['shortcut-match-one', 'shortcut-match-two']);
+
+  assert.equal(triggerAndroidBack(), true, 'Android Back should pop the second detail');
+  assert.deepEqual(rootState.routes.map((route) => route.name), ['Tabs']);
+  assertHomeIsActive();
 });
 
 test('a pushed detail can return to the same mode heading and tournament list', () => {

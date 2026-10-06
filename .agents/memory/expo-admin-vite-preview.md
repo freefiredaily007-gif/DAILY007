@@ -15,6 +15,12 @@ If Vite/React Native Web begins failing on changing package-export errors in nat
 
 **How to apply:** Keep these shims temporary; do not change application dependencies or production code just to silence a browser-preview-only error.
 
+For navigation regressions where React Native or Expo dependencies prevent the real screens from rendering in Vite, a Node test can execute the app's TypeScript route handler and data loader with the installed React Navigation routers. Treat `CommonActions.goBack()` as the router-level Android Back action, and state that neither the rendered screen nor the native BackHandler was exercised.
+
+**Why:** The actual router transitions and route-specific data can still be tested without widening the preview shims, but that does not verify native event registration or the visible screen.
+
+**How to apply:** Isolate API fixtures, run the real route handler and loader extracted from source, assert the nested tab and detail route state before and after Back, and keep the native/UI limitation explicit.
+
 For React Native Web checks that shrink the viewport to simulate an open keyboard, make the preview page and `#root` a height-constrained flex column. A block-only root can leave `flex: 1` screen content at its natural content height, making keyboard resize and dismissal checks misleading.
 
 **Why:** React Native Web needs the screen's parent to participate in flex layout before a viewport resize behaves like the native app's available-height change.
