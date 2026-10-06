@@ -23,6 +23,7 @@ const adminTabs = [
 ];
 const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
+const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
@@ -1106,6 +1107,46 @@ async function checkTournamentInitialLoadFailure() {
   );
 }
 
+async function checkAdminInitialLoadFailure() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the Admin first-load failure preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('Could not load tournaments: Initial Admin tournament request failed') && Boolean(document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]'))",
+    "the first Admin request to fail with a visible load error and Retry control",
+  );
+  await assertText("TOURNAMENTS", "the Admin tournament screen after its initial request fails");
+  await assertText("RETRY", "the Admin initial-load recovery action");
+  assert(
+    !await evaluate("document.body.innerText.includes('IST Start Boundary')"),
+    "An Admin initial-load failure must not show a tournament card before data loads.",
+  );
+  const retryVisible = await evaluate(`(() => {
+    const retry = document.querySelector('[data-testid="admin-tournament-refresh-retry"]');
+    if (!retry) return false;
+    const rect = retry.getBoundingClientRect();
+    const style = getComputedStyle(retry);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !retry.disabled;
+  })()`);
+  assert(retryVisible, "The Admin initial-load Retry control must be visible and enabled.");
+
+  const readsBeforeRetry = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await clickSelector(
+    '[data-testid="admin-tournament-refresh-retry"]',
+    "Admin initial-load Retry",
+  );
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments') && !document.body.innerText.includes('Could not refresh tournaments')`,
+    "a successful Admin retry to show tournament cards and clear the initial-load error",
+  );
+  await assertText("IST Start Boundary", "the Admin tournament after initial-load recovery");
+  assert(
+    !await evaluate("document.body.innerText.includes('Could not load tournaments')"),
+    "A successful Admin retry must clear the initial-load error.",
+  );
+}
+
 async function triggerPlayerManualRefresh() {
   await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await tapSelector(
@@ -2174,8 +2215,10 @@ try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = manualRefreshOnly
-    ? "tournament-resume-preview.html?manual-refresh-only=1"
+  const previewPath = adminInitialLoadFailureOnly
+    ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
+    : manualRefreshOnly
+      ? "tournament-resume-preview.html?manual-refresh-only=1"
     : initialLoadFailureOnly
     ? "tournament-resume-preview.html?initial-load-failure-only=1"
     : resumeOnly
@@ -2247,6 +2290,7 @@ try {
   if (
     resumeOnly ||
     initialLoadFailureOnly ||
+    adminInitialLoadFailureOnly ||
     manualRefreshOnly ||
     scheduledStartOnly ||
     homeCarouselOnly ||
@@ -2256,11 +2300,11 @@ try {
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly || manualRefreshOnly
+        || initialLoadFailureOnly || adminInitialLoadFailureOnly || manualRefreshOnly
         ? 390
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly || manualRefreshOnly
+        || initialLoadFailureOnly || adminInitialLoadFailureOnly || manualRefreshOnly
         ? 844
         : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -2271,6 +2315,8 @@ try {
         ? "Home carousel"
         : initialLoadFailureOnly
           ? "Player first-load failure"
+        : adminInitialLoadFailureOnly
+          ? "Admin first-load failure"
         : manualRefreshOnly
           ? "Player pull-to-refresh"
         : scheduledStartOnly
@@ -2283,7 +2329,14 @@ try {
           ? "Admin selected-record actions"
           : "player and Admin tournament screens",
     );
-    if (manualRefreshOnly) {
+    if (adminInitialLoadFailureOnly) {
+      await checkAdminInitialLoadFailure();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin initial-load failure checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — A failed first Admin tournament load shows a visible Retry control; retrying loads cards and clears the error.");
+    } else if (manualRefreshOnly) {
       await checkTournamentManualRefresh();
       assert(
         browserErrors.length === 0,
