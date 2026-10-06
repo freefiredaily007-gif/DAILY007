@@ -121,7 +121,14 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       <SectionTitle title="USER MANAGEMENT" sub={`${filtered.length} users`} />
       <Card>
         <Text style={st.accessNote}>Full Admins assign Tournament Admin access directly here. Players cannot submit access requests.</Text>
-        <TextInput placeholder="Search name or email…" placeholderTextColor="#5b6478" value={q} onChangeText={setQ} style={st.search} />
+        <TextInput
+          testID="admin-users-search"
+          placeholder="Search name or email…"
+          placeholderTextColor="#5b6478"
+          value={q}
+          onChangeText={setQ}
+          style={st.search}
+        />
       </Card>
       {users === null ? (
         <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />

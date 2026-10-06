@@ -1007,6 +1007,104 @@ async function checkPopulatedAdminLists(width, { requireReachability = false } =
   );
 }
 
+async function assertAdminSearchField(testId, value, width, description) {
+  const field = await evaluate(`(() => {
+    const input = document.querySelector('[data-testid="${testId}"]');
+    if (!(input instanceof HTMLInputElement)) return null;
+    const rect = input.getBoundingClientRect();
+    return {
+      value: input.value,
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+      height: rect.height,
+      fontSize: Number.parseFloat(getComputedStyle(input).fontSize),
+      focused: document.activeElement === input,
+      selectionStart: input.selectionStart,
+      selectionEnd: input.selectionEnd,
+      scrollLeft: input.scrollLeft,
+      clientWidth: input.clientWidth,
+    };
+  })()`);
+  assert(field, `${description}: the search field is missing at ${width}px.`);
+  assert(
+    field.value === value,
+    `${description}: the full search value was not retained at ${width}px.`,
+  );
+  assert(
+    field.left >= -1 && field.right <= width + 1 && field.width > 0 && field.height >= 44,
+    `${description}: the search field is clipped or too small to reach at ${width}px ` +
+      `(${field.left}–${field.right}px, ${field.width}×${field.height}px).`,
+  );
+  assert(
+    field.fontSize >= 25,
+    `${description}: the search text is not shown at the simulated 1.5× size ` +
+      `(${field.fontSize}px at ${width}px).`,
+  );
+  assert(
+    field.focused &&
+      field.selectionStart === value.length &&
+      field.selectionEnd === value.length &&
+      field.scrollLeft > 0,
+    `${description}: the focused search field cannot reach the end of the long value at ${width}px ` +
+      `(selection ${field.selectionStart}–${field.selectionEnd}/${value.length}, ` +
+      `scrollLeft=${field.scrollLeft}, width=${field.clientWidth}px).`,
+  );
+  await assertPageHasNoHorizontalOverflow(width, description);
+}
+
+async function checkAdminSearchResultsAtLargeText(width) {
+  const longName = "Ananya Daily007 Championship Champion With A Long Name";
+  const longEmail = "ananya.champion.with.a.long.fake.address@example.invalid";
+  const otherEmail = "rohan.preview.player@example.invalid";
+  const searchCases = [
+    {
+      screen: "Wallet",
+      tab: "wallet",
+      input: "admin-wallet-user-search",
+      actions: ["+ ADD", "− DEDUCT"],
+    },
+    {
+      screen: "Users",
+      tab: "users",
+      input: "admin-users-search",
+      actions: ["+ COINS", "− COINS", "BLOCK", "MAKE TOURNAMENT ADMIN"],
+    },
+  ];
+
+  for (const screen of searchCases) {
+    await clickSelector(`[data-testid="admin-tab-${screen.tab}"]`, `${screen.screen} tab`);
+    await waitForCondition(
+      `Boolean(document.querySelector('[data-testid="${screen.input}"]'))`,
+      `${screen.screen} search field`,
+    );
+
+    for (const query of [longName, longEmail]) {
+      const description = `${screen.screen} search for ${query === longName ? "the long fake name" : "the long fake email"}`;
+      const selector = `[data-testid="${screen.input}"]`;
+      await setInputValue(selector, query);
+      await evaluate(`(() => {
+        const input = document.querySelector(${JSON.stringify(selector)});
+        if (input instanceof HTMLInputElement) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+      })()`);
+      await assertAdminSearchField(screen.input, query, width, description);
+      await assertAdminRowActionsFit(
+        query,
+        screen.actions,
+        width,
+        `${screen.screen} filtered result`,
+      );
+      const otherAccountVisible = await evaluate(
+        `document.body.innerText.includes(${JSON.stringify(otherEmail)})`,
+      );
+      assert(!otherAccountVisible, `${description}: a non-matching account remained in the filtered results.`);
+    }
+  }
+}
+
 async function checkAdminSelectedRecordMutations() {
   assert(
     await evaluate("Boolean(window.__daily007AdminMutations?.reset)"),
@@ -3114,12 +3212,13 @@ try {
         `The Admin list preview did not apply 1.5× text at ${width}px.`,
       );
       await checkPopulatedAdminLists(width);
+      await checkAdminSearchResultsAtLargeText(width);
       assert(
         browserErrors.length === 0,
         `Browser errors at ${width}px with 1.5× text: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        `PASS ${width}px at 1.5× text — populated registration, payment, wallet, and user rows and actions fit without clipping or page overflow.`,
+        `PASS ${width}px at 1.5× text — populated registration, payment, wallet, and user rows, plus long Wallet/Users searches and results, fit without clipping or page overflow.`,
       );
     }
 

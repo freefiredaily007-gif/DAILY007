@@ -55,7 +55,14 @@ export default function AdminWallet() {
     <ScreenWrap onRefresh={load}>
       <SectionTitle title="WALLET MANAGEMENT" sub={`1 coin = ${inr(1, coinToMoneyRate)} · add or deduct coins`} />
       <Card>
-        <TextInput placeholder="Search user…" placeholderTextColor="#5b6478" value={q} onChangeText={setQ} style={st.search} />
+        <TextInput
+          testID="admin-wallet-user-search"
+          placeholder="Search user…"
+          placeholderTextColor="#5b6478"
+          value={q}
+          onChangeText={setQ}
+          style={st.search}
+        />
       </Card>
       {users === null ? (
         <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />
