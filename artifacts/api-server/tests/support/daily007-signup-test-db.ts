@@ -56,7 +56,9 @@ type AdvisoryLockBarrier = {
 
 export const SIGNUP_TEST_REFERRAL_CODE = "ABCDE";
 const REFERRER_ID = "40000000-0000-4000-8000-000000000001";
+const UNKNOWN_REFERRER_ID = "40000000-0000-4000-8000-000000000099";
 export const SIGNUP_TEST_LEGACY_REFERRAL_CODE = referralCodeForUserId(REFERRER_ID);
+export const SIGNUP_TEST_UNKNOWN_LEGACY_REFERRAL_CODE = referralCodeForUserId(UNKNOWN_REFERRER_ID);
 
 function cloneMap<T>(source: Map<string, T>): Map<string, T> {
   return new Map([...source].map(([key, value]) => [key, structuredClone(value)]));

@@ -19,6 +19,7 @@ import type { User as MockGoogleUser } from "./support/daily007-google-auth-cler
 import {
   SIGNUP_TEST_LEGACY_REFERRAL_CODE,
   SIGNUP_TEST_REFERRAL_CODE,
+  SIGNUP_TEST_UNKNOWN_LEGACY_REFERRAL_CODE,
   signupTestDb,
 } from "./support/daily007-signup-test-db";
 
@@ -628,6 +629,64 @@ test("legacy referral code gives Google signup one 10-coin referral reward", asy
           reason: "Referral Signup Bonus",
         }],
       );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("an unregistered legacy referral code does not create a Google account or signup reward", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      assert.ok(
+        SIGNUP_TEST_UNKNOWN_LEGACY_REFERRAL_CODE.length > SIGNUP_TEST_REFERRAL_CODE.length,
+        "the unknown legacy-style code should be longer than a current short code",
+      );
+      assert.equal(
+        signupTestDb.legacyCodeOwners.has(SIGNUP_TEST_UNKNOWN_LEGACY_REFERRAL_CODE),
+        false,
+        "the fixture must not register the unknown legacy-style code",
+      );
+
+      const response = await googleAuth(
+        origin,
+        undefined,
+        SIGNUP_TEST_UNKNOWN_LEGACY_REFERRAL_CODE,
+      );
+
+      assert.equal(response.status, 400);
+      assert.match(String(response.body.error), /referral code is not recognized/i);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.equal(signupTestDb.users.size, 1, "the seeded referrer should be the only remaining account");
+      assert.equal(
+        [...signupTestDb.users.values()].some(
+          (user) => user.email === "google-signup@example.test",
+        ),
+        false,
+        "the rejected signup must not leave its account behind",
+      );
+      assert.equal(
+        [...signupTestDb.users.values()].some(
+          (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+        ),
+        false,
+        "the rejected signup must not leave the Google identity linked",
+      );
+      assert.equal(signupTestDb.referrals.length, 0, "the rejected signup must not leave a referral");
+      assert.equal(signupTestDb.ledger.length, 0, "the rejected signup must not leave a signup bonus");
+      assert.equal(signupTestDb.shortCodesByUser.size, 1, "the new account's short referral code must roll back");
+      assert.equal(signupTestDb.shortCodeOwners.size, 1);
+      assert.equal(signupTestDb.legacyCodeOwners.size, 1, "the new account's legacy referral code must roll back");
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      assert.equal(referrer.wallet_coins, 0);
     });
   } finally {
     signupTestDb.reset();
