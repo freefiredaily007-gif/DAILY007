@@ -451,15 +451,20 @@ export default function AdminTournaments() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <Text style={[st.h, { flex: 1, minWidth: 0, flexShrink: 1 }]}>TOURNAMENTS</Text>
         {tab === 'upcoming' && (
-          <Btn title={showForm ? 'CLOSE' : 'NEW'} small onPress={() => {
-            actionRequestId.current++;
-            setExpandedAction(null);
-            setRoomBusy(false);
-            setResultBusy(false);
-            setShowForm(!showForm);
-            setEditId(null);
-            setForm(newTournamentForm());
-          }} />
+          <Btn
+            title={showForm ? 'CLOSE' : 'NEW'}
+            small
+            testID="admin-tournament-create-toggle"
+            onPress={() => {
+              actionRequestId.current++;
+              setExpandedAction(null);
+              setRoomBusy(false);
+              setResultBusy(false);
+              setShowForm(!showForm);
+              setEditId(null);
+              setForm(newTournamentForm());
+            }}
+          />
         )}
       </View>
       <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
@@ -582,7 +587,12 @@ export default function AdminTournaments() {
               <Chip key={b} label={`${b.toUpperCase()} banner`} color={form.banner === b ? C.orange : C.sub} onPress={() => set('banner', b)} />
             ))}
           </View>
-          <Btn title={editId ? 'SAVE CHANGES' : 'CREATE'} onPress={save} loading={busy} />
+          <Btn
+            title={editId ? 'SAVE CHANGES' : 'CREATE'}
+            testID="admin-tournament-create-submit"
+            onPress={save}
+            loading={busy}
+          />
         </Card>
       )}
 
@@ -711,6 +721,7 @@ export default function AdminTournaments() {
                       <Btn
                         title="SAVE ROOM DETAILS"
                         small
+                        testID={`save-room-${t.id}`}
                         onPress={() => { void saveRoom(); }}
                         loading={roomBusy}
                         disabled={roomBusy || !roomForm.roomId.trim() || !roomForm.roomPassword.trim()}

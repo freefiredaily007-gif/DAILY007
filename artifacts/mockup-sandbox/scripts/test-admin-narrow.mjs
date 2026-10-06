@@ -32,6 +32,7 @@ const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-onl
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
+const adminLandscapeOnly = process.argv.includes("--admin-landscape-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -237,6 +238,11 @@ async function tapSelector(selector, description) {
   await delay(180);
 }
 
+async function activateSelector(selector, description, useTouch = false) {
+  if (useTouch) await tapSelector(selector, description);
+  else await clickSelector(selector, description);
+}
+
 async function clickButton(text) {
   const clicked = await evaluate(`(() => {
     const buttons = [...document.querySelectorAll('[role="button"], button')];
@@ -428,6 +434,71 @@ async function assertHorizontalFit(selector, description, width) {
     result.scrollWidth <= result.clientWidth + 2,
     `${description} is clipped horizontally at ${width}px (content ${result.scrollWidth}px, box ${result.clientWidth}px).`,
   );
+}
+
+async function assertReachableControl(selector, description, { allowDisabled = false } = {}) {
+  const result = await evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return null;
+    element.scrollIntoView({ block: "center", inline: "nearest" });
+    const rect = element.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(centerX, centerY);
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      tagName: element.tagName,
+      disabled:
+        element.disabled === true ||
+        element.getAttribute("aria-disabled") === "true" ||
+        getComputedStyle(element).pointerEvents === "none",
+      hitTestable: Boolean(hit && (element === hit || element.contains(hit))),
+      hitTarget: hit ? hit.tagName + ":" + hit.textContent.trim().slice(0, 50) : null,
+      pageWidth: document.documentElement.scrollWidth,
+    };
+  })()`);
+  assert(result, `${description} is missing.`);
+  assert(
+    result.width > 0 &&
+      result.height > 0 &&
+      result.left >= -1 &&
+      result.right <= result.viewportWidth + 1 &&
+      result.top >= -1 &&
+      result.bottom <= result.viewportHeight + 1,
+    `${description} cannot be brought fully into view at ${result.viewportWidth}×${result.viewportHeight} ` +
+      `(bounds=${result.left.toFixed(1)}–${result.right.toFixed(1)} × ` +
+      `${result.top.toFixed(1)}–${result.bottom.toFixed(1)}).`,
+  );
+  assert(
+    result.pageWidth <= result.viewportWidth + 1,
+    `${description} causes horizontal page overflow at ${result.viewportWidth}px ` +
+      `(document=${result.pageWidth}px).`,
+  );
+  if (!["INPUT", "TEXTAREA"].includes(result.tagName)) {
+    assert(
+      result.scrollWidth <= result.clientWidth + 2,
+      `${description} has horizontally clipped content ` +
+        `(content=${result.scrollWidth}px, box=${result.clientWidth}px).`,
+    );
+  }
+  if (!allowDisabled) {
+    assert(
+      result.hitTestable,
+      `${description} is obscured or cannot receive a tap at its center (hit=${result.hitTarget}).`,
+    );
+  }
+  if (!allowDisabled) {
+    assert(!result.disabled, `${description} is disabled or does not accept pointer input.`);
+  }
 }
 
 async function assertPageHasNoHorizontalOverflow(width, description) {
@@ -642,7 +713,15 @@ async function assertVisibleTextFits(selector, width, description) {
   );
 }
 
-async function checkAdminTabs(width) {
+async function openAdminTab(key, label, { requireReachability = false } = {}) {
+  const selector = `[data-testid="admin-tab-${key}"]`;
+  if (requireReachability) {
+    await assertReachableControl(selector, `${label} Admin tab`);
+  }
+  await activateSelector(selector, `${label} tab`, requireReachability);
+}
+
+async function checkAdminTabs(width, { requireReachability = false } = {}) {
   const initial = await evaluate(`(() => {
     const item = document.querySelector('[data-testid="admin-tab-dashboard"]');
     if (!item) return null;
@@ -652,7 +731,7 @@ async function checkAdminTabs(width) {
   assert(initial, `The Dashboard tab selector is missing at ${width}px.`);
 
   for (const [key, label] of adminTabs) {
-    await clickSelector(`[data-testid="admin-tab-${key}"]`, `${label} tab`);
+    await openAdminTab(key, label, { requireReachability });
     const selected = await evaluate(`(() => {
       const item = document.querySelector('[data-testid="admin-tab-${key}"]');
       if (!item) return null;
@@ -688,7 +767,13 @@ async function checkAdminTabs(width) {
   }
 }
 
-async function assertAdminRowActionsFit(marker, actions, width, description) {
+async function assertAdminRowActionsFit(
+  marker,
+  actions,
+  width,
+  description,
+  { requireReachability = false } = {},
+) {
   const result = await evaluate(`(() => {
     const marker = ${JSON.stringify(marker)};
     const matches = [...document.querySelectorAll('*')]
@@ -814,6 +899,14 @@ async function assertAdminRowActionsFit(marker, actions, width, description) {
         `enabled=${action.enabled}, hit-testable=${action.hitTestable}, ` +
         `bounds=${action.top}-${action.bottom}/${action.viewportHeight}, hit=${action.hitTarget}).`,
     );
+    if (requireReachability) {
+      assert(
+        action.top >= -1 && action.bottom <= action.viewportHeight + 1,
+        `${description}: the "${action.label}" action cannot be fully brought into the ` +
+          `${action.viewportHeight}px landscape viewport ` +
+          `(bounds=${action.top.toFixed(1)}–${action.bottom.toFixed(1)}px).`,
+      );
+    }
   }
   if (
     ["Wallet user", "Admin user"].includes(description) &&
@@ -828,8 +921,8 @@ async function assertAdminRowActionsFit(marker, actions, width, description) {
   assert(pageWidth <= width + 1, `The page is horizontally wider than ${width}px on ${description}.`);
 }
 
-async function checkPopulatedAdminLists(width) {
-  await clickSelector('[data-testid="admin-tab-registrations"]', "Registrations tab");
+async function checkPopulatedAdminLists(width, { requireReachability = false } = {}) {
+  await openAdminTab("registrations", "Registrations", { requireReachability });
   await waitForCondition(
     "document.body.innerText.includes('Ananya Daily007 Championship Champion With A Long Name')",
     "the fake pending registration to load",
@@ -839,6 +932,7 @@ async function checkPopulatedAdminLists(width) {
     ["APPROVE", "REJECT"],
     width,
     "Pending registration",
+    { requireReachability },
   );
 
   await clickTextLabel("APPROVED");
@@ -847,6 +941,7 @@ async function checkPopulatedAdminLists(width) {
     ["DELETE"],
     width,
     "Approved registration",
+    { requireReachability },
   );
   await clickTextLabel("REJECTED");
   await assertAdminRowActionsFit(
@@ -854,9 +949,10 @@ async function checkPopulatedAdminLists(width) {
     ["DELETE"],
     width,
     "Rejected registration",
+    { requireReachability },
   );
 
-  await clickSelector('[data-testid="admin-tab-payments"]', "Payments tab");
+  await openAdminTab("payments", "Payments", { requireReachability });
   await waitForCondition(
     "document.body.innerText.includes('Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026')",
     "the fake pending deposit to load",
@@ -866,15 +962,17 @@ async function checkPopulatedAdminLists(width) {
     ["APPROVE", "REJECT"],
     width,
     "Pending deposit",
+    { requireReachability },
   );
   await assertAdminRowActionsFit(
     "Rohan International Tournament Champion · User ID: preview-user-rohan-championship-account-2026",
     ["APPROVE", "REJECT", "COPY UPI"],
     width,
     "Pending withdrawal",
+    { requireReachability },
   );
 
-  await clickSelector('[data-testid="admin-tab-wallet"]', "Wallet tab");
+  await openAdminTab("wallet", "Wallet", { requireReachability });
   await waitForCondition(
     "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
     "the fake Wallet user to load",
@@ -884,6 +982,7 @@ async function checkPopulatedAdminLists(width) {
     ["+ ADD", "− DEDUCT"],
     width,
     "Wallet user",
+    { requireReachability },
   );
   await assertText("-987654321 COINS", "the fake Wallet transaction amount");
   await assertAdminRowActionsFit(
@@ -891,9 +990,10 @@ async function checkPopulatedAdminLists(width) {
     [],
     width,
     "Wallet transaction",
+    { requireReachability },
   );
 
-  await clickSelector('[data-testid="admin-tab-users"]', "Users tab");
+  await openAdminTab("users", "Users", { requireReachability });
   await waitForCondition(
     "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
     "the fake Admin user to load",
@@ -903,6 +1003,7 @@ async function checkPopulatedAdminLists(width) {
     ["+ COINS", "− COINS", "BLOCK", "MAKE TOURNAMENT ADMIN"],
     width,
     "Admin user",
+    { requireReachability },
   );
 }
 
@@ -1090,11 +1191,25 @@ async function checkAdminSelectedRecordMutations() {
   }, "User coin deduction");
 }
 
-async function checkTournamentStates(width, { largeText = false } = {}) {
-  await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments tab");
-  if (largeText) await assertTournamentStatusTabsFit(width);
+async function checkTournamentStates(width, { largeText = false, landscape = false } = {}) {
+  await openAdminTab("tournaments", "Tournaments", { requireReachability: landscape });
+  if (largeText || landscape) await assertTournamentStatusTabsFit(width);
+  if (landscape) {
+    for (const status of ["upcoming", "ongoing", "completed"]) {
+      await assertReachableControl(
+        `[data-testid="admin-tournament-tab-${status}"]`,
+        `${status} tournament tab`,
+      );
+    }
+    await assertReachableControl(
+      '[data-testid="admin-tournament-create-toggle"]',
+      "New tournament control",
+    );
+    await tapSelector('[data-testid="admin-tournament-create-toggle"]', "New tournament control");
+  } else {
+    await clickButton("NEW");
+  }
 
-  await clickButton("NEW");
   await assertText("CREATE TOURNAMENT");
   await assertText("GAME MODE");
   await assertText("FORMAT");
@@ -1110,7 +1225,14 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
   ]) {
     await assertHorizontalFit(selector, label, width);
   }
-  if (largeText) {
+  if (landscape) {
+    await assertReachableControl('[placeholder="Tournament name *"]', "Tournament name field");
+    await assertReachableControl(
+      '[data-testid="admin-tournament-create-submit"]',
+      "Tournament creation submit control",
+    );
+  }
+  if (largeText || landscape) {
     await assertVisibleAdminControlsFit(width, "Tournament creation form");
     await assertPageHasNoHorizontalOverflow(width, "Tournament creation form");
     await assertVisibleTextFits(
@@ -1119,14 +1241,32 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
       "Tournament creation form",
     );
   }
-  await clickButton("CLOSE");
+  if (landscape) {
+    await assertReachableControl(
+      '[data-testid="admin-tournament-create-toggle"]',
+      "Close tournament creation control",
+    );
+    await tapSelector('[data-testid="admin-tournament-create-toggle"]', "Close tournament creation control");
+  } else {
+    await clickButton("CLOSE");
+  }
   await waitForCondition(
     `Boolean(document.querySelector('[data-testid="manage-room-preview-upcoming"]'))`,
     "upcoming tournament fixture",
   );
   await assertTournamentStatusFilter("upcoming");
 
-  await clickSelector('[data-testid="manage-room-preview-upcoming"]', "room setup action");
+  if (landscape) {
+    await assertReachableControl(
+      '[data-testid="manage-room-preview-upcoming"]',
+      "Upcoming tournament room setup action",
+    );
+  }
+  await activateSelector(
+    '[data-testid="manage-room-preview-upcoming"]',
+    "room setup action",
+    landscape,
+  );
   const roomPanel = await evaluate(
     "Boolean(document.querySelector('[data-testid=\"inline-room-management-preview-upcoming\"]'))",
   );
@@ -1136,7 +1276,16 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
   await assertText("ROOM PASSWORD");
   await assertHorizontalFit('[placeholder="Room ID"]', "Room ID field", width);
   await assertHorizontalFit('[placeholder="Room Password"]', "Room password field", width);
-  if (largeText) {
+  if (landscape) {
+    await assertReachableControl('[placeholder="Room ID"]', "Room ID field");
+    await assertReachableControl('[placeholder="Room Password"]', "Room password field");
+    await assertReachableControl(
+      '[data-testid="save-room-preview-upcoming"]',
+      "Save room details control",
+      { allowDisabled: true },
+    );
+  }
+  if (largeText || landscape) {
     await assertVisibleAdminControlsFit(width, "Room setup");
     await assertPageHasNoHorizontalOverflow(width, "Room setup");
     await assertVisibleTextFits(
@@ -1146,13 +1295,30 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
     );
   }
 
-  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Ongoing tournament filter");
+  if (landscape) {
+    await assertReachableControl('[data-testid="admin-tournament-tab-ongoing"]', "Ongoing tournament tab");
+  }
+  await activateSelector(
+    '[data-testid="admin-tournament-tab-ongoing"]',
+    "Ongoing tournament filter",
+    landscape,
+  );
   await waitForCondition(
     `Boolean(document.querySelector('[data-testid="finish-tournament-preview-ongoing"]'))`,
     "ongoing tournament fixture",
   );
   await assertTournamentStatusFilter("ongoing");
-  await clickSelector('[data-testid="finish-tournament-preview-ongoing"]', "result entry action");
+  if (landscape) {
+    await assertReachableControl(
+      '[data-testid="finish-tournament-preview-ongoing"]',
+      "Ongoing tournament result entry action",
+    );
+  }
+  await activateSelector(
+    '[data-testid="finish-tournament-preview-ongoing"]',
+    "result entry action",
+    landscape,
+  );
   const resultPanel = await evaluate(
     "Boolean(document.querySelector('[data-testid=\"inline-results-entry-preview-ongoing\"]'))",
   );
@@ -1167,7 +1333,19 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
   await assertHorizontalFit('[data-testid="result-rank-preview-ongoing"]', "Result rank field", width);
   await assertHorizontalFit('[data-testid="result-kills-preview-ongoing"]', "Result kills field", width);
   await assertHorizontalFit('[data-testid="inline-results-entry-preview-ongoing"]', "Result entry panel", width);
-  if (largeText) {
+  if (landscape) {
+    await assertReachableControl(
+      '[data-testid^="result-registration-"]',
+      "Approved player choice in result entry",
+    );
+    await assertReachableControl('[data-testid="result-rank-preview-ongoing"]', "Result rank field");
+    await assertReachableControl('[data-testid="result-kills-preview-ongoing"]', "Result kills field");
+    await assertReachableControl(
+      '[data-testid="publish-result-preview-ongoing"]',
+      "Publish result control",
+    );
+  }
+  if (largeText || landscape) {
     await assertVisibleAdminControlsFit(width, "Result entry");
     await assertPageHasNoHorizontalOverflow(width, "Result entry");
     await assertVisibleTextFits(
@@ -1177,7 +1355,14 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
     );
   }
 
-  await clickSelector('[data-testid="admin-tournament-tab-completed"]', "Completed tournament filter");
+  if (landscape) {
+    await assertReachableControl('[data-testid="admin-tournament-tab-completed"]', "Completed tournament tab");
+  }
+  await activateSelector(
+    '[data-testid="admin-tournament-tab-completed"]',
+    "Completed tournament filter",
+    landscape,
+  );
   await waitForCondition(
     `Boolean(document.querySelector('[data-testid="completed-result-log-preview-completed"]'))`,
     "completed tournament fixture",
@@ -1199,7 +1384,7 @@ async function checkTournamentStates(width, { largeText = false } = {}) {
       ? "#1 Daily007 International Free Fire Championship Winner · Daily007 Grand Finals Championship Squad · 8 kills · 300 coins"
       : "#1 Preview Champion · 8 kills · 300 coins",
   );
-  if (largeText) {
+  if (largeText || landscape) {
     await assertVisibleAdminControlsFit(width, "Completed-result details");
     await assertPageHasNoHorizontalOverflow(width, "Completed-result details");
     await assertVisibleTextFits(
@@ -2757,22 +2942,29 @@ try {
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminTournamentCreateSaveOnly ||
-    adminActionsOnly
+    adminActionsOnly ||
+    adminLandscapeOnly
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
-        ? 390
-        : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
-      height: homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-        || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
-        ? 844
-        : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
+      width: adminLandscapeOnly
+        ? 800
+        : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+          || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          ? 390
+          : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
+      height: adminLandscapeOnly
+        ? 360
+        : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+          || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          ? 844
+          : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
     await waitForPage(
-      homeCarouselOnly
+      adminLandscapeOnly
+        ? "Admin landscape screens"
+        : homeCarouselOnly
         ? "Home carousel"
         : initialLoadFailureOnly
           ? "Player first-load failure"
@@ -2794,7 +2986,28 @@ try {
           ? "Admin selected-record actions"
           : "player and Admin tournament screens",
     );
-    if (adminRetryConcurrencyOnly) {
+    if (adminLandscapeOnly) {
+      const viewport = await evaluate(`({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        landscape: matchMedia("(orientation: landscape)").matches,
+      })`);
+      assert(
+        viewport.width === 800 && viewport.height === 360 && viewport.landscape,
+        `The Admin landscape preview expected 800×360 CSS pixels, received ` +
+          `${viewport.width}×${viewport.height} (landscape=${viewport.landscape}).`,
+      );
+      await checkAdminTabs(800, { requireReachability: true });
+      await checkPopulatedAdminLists(800, { requireReachability: true });
+      await checkTournamentStates(800, { landscape: true });
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin landscape checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS 800×360 Android landscape — all 11 Admin tabs, populated list actions, and tournament create, room, results, and completed-result controls remain reachable without horizontal clipping.",
+      );
+    } else if (adminRetryConcurrencyOnly) {
       await checkAdminRetryConcurrency();
       assert(
         browserErrors.length === 0,

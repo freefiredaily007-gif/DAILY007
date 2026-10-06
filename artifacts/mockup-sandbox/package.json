@@ -11,6 +11,7 @@
     "check:mobile-react-types": "node scripts/check-mobile-react-types.mjs",
     "test:mobile-react-types": "node --test scripts/check-mobile-react-types.test.mjs",
     "test:admin-narrow": "node scripts/test-admin-narrow.mjs",
+    "test:admin-landscape": "node scripts/test-admin-narrow.mjs --admin-landscape-only",
     "test:admin-action-targets": "node scripts/test-admin-narrow.mjs --admin-actions-only",
     "test:tournament-resume": "node scripts/test-admin-narrow.mjs --resume-only",
     "test:tournament-initial-load-failure": "node scripts/test-admin-narrow.mjs --initial-load-failure-only",
