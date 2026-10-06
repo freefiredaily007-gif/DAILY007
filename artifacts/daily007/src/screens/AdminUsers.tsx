@@ -102,7 +102,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         data: { confirmationEmail: email.trim() },
       });
       toast(
-        `Permanently removed ${user.name}. ${result.removed.registrations} registrations and ${result.removed.resultAwards} result awards were deleted.`,
+        `Permanently removed ${user.name}, including any linked Google sign-in from Daily007. ${result.removed.registrations} registrations and ${result.removed.resultAwards} result awards were deleted.`,
         'success',
       );
       await load();
@@ -201,7 +201,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         visible={deleteWarningTarget !== null}
         title="Permanently delete this player?"
         message={deleteWarningTarget
-          ? `${deleteWarningTarget.name} (${deleteWarningTarget.email}) will be permanently removed, including the linked sign-in, wallet and payment history, withdrawals, tournament registrations and teammate rosters, results, referrals, notifications, video claims, leaderboard entries, and uploaded payment proofs. This cannot be undone.`
+          ? `${deleteWarningTarget.name} (${deleteWarningTarget.email}) will be permanently removed, including any Google sign-in link to Daily007, wallet and payment history, withdrawals, tournament registrations and teammate rosters, results, referrals, notifications, video claims, leaderboard entries, and uploaded payment proofs. This does not delete their Google account. This cannot be undone.`
           : ''}
         confirmTitle="CONTINUE"
         danger
@@ -217,7 +217,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       <PromptDialog
         visible={deleteEmailTarget !== null}
         title="Confirm permanent deletion"
-        message="Type the account email exactly as shown. Its app data and linked sign-in identity will be removed."
+        message="Type the account email exactly as shown. All Daily007 data and any linked Google sign-in will be removed. The Google account itself will not be deleted."
         confirmTitle="DELETE PERMANENTLY"
         keyboardType="email-address"
         autoCapitalize="none"
