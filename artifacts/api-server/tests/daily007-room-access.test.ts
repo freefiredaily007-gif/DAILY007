@@ -8,6 +8,8 @@ import { makeToken } from "../src/lib/daily007-session-token";
 import {
   roomAccessTestDb,
   TEST_ADMIN_ID,
+  TEST_BLOCKED_PLAYER_ID,
+  TEST_BLOCKED_REGISTRATION_ID,
   TEST_MATCH_ID,
   TEST_PENDING_PLAYER_ID,
   TEST_PENDING_REGISTRATION_ID,
@@ -359,6 +361,87 @@ test("v2 room endpoint requires approval and an open release window", async () =
     const missingPassword = await request(origin, path, "GET", playerToken);
     assert.equal(missingPassword.status, 404);
     assert.equal(missingPassword.body.error, "Room credentials are not available for this match.");
+  });
+});
+
+test("blocked player with an approved registration is denied room credentials from both player APIs", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.registrations.push({
+    id: TEST_BLOCKED_REGISTRATION_ID,
+    match_id: TEST_MATCH_ID,
+    captain_user_id: TEST_BLOCKED_PLAYER_ID,
+    captain_name: "Blocked Player",
+    captain_game_name: "BlockedCaptain",
+    captain_game_uid: "FF-BLOCKED-001",
+    team_name: "",
+    entry_coins_paid: 5,
+    status: "approved",
+    created_at: new Date("2020-01-04T00:00:00.000Z"),
+  });
+  setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS - 60_000));
+
+  const blockedRegistration = roomAccessTestDb.registrations.find(
+    (registration) => registration.id === TEST_BLOCKED_REGISTRATION_ID,
+  );
+  assert.equal(blockedRegistration?.captain_user_id, TEST_BLOCKED_PLAYER_ID);
+  assert.equal(blockedRegistration?.status, "approved");
+  assert.equal(
+    isRoomCredentialReleaseOpen(
+      tournamentInstantFromStored(roomAccessTestDb.match.starts_at),
+      Date.now(),
+    ),
+    true,
+    "The blocked player's approved registration should be tested after room release opens.",
+  );
+
+  const blockedUser = roomAccessTestDb.users.get(TEST_BLOCKED_PLAYER_ID);
+  assert.ok(blockedUser);
+  blockedUser.status = "active";
+  const blockedToken = makeToken(TEST_BLOCKED_PLAYER_ID, blockedUser.auth_version);
+  assert.ok(blockedToken);
+  blockedUser.status = "blocked";
+
+  await withServer(async (origin) => {
+    const deniedResponses = [
+      {
+        endpoint: "/my/registrations",
+        response: await request(origin, "/my/registrations", "GET", blockedToken),
+      },
+      {
+        endpoint: "v2 room",
+        response: await request(
+          origin,
+          `/daily007/v2/matches/${TEST_MATCH_ID}/room`,
+          "GET",
+          blockedToken,
+        ),
+      },
+    ];
+
+    for (const { endpoint, response } of deniedResponses) {
+      assert.equal(response.status, 403, `${endpoint} should deny the blocked account.`);
+      assert.deepEqual(response.body, { error: "This account is blocked." });
+      for (const field of ["roomId", "roomPassword", "roomTime"]) {
+        assert.equal(
+          field in response.body,
+          false,
+          `${endpoint} denial must not include ${field}.`,
+        );
+      }
+      const serialized = JSON.stringify(response.body);
+      for (const credential of [
+        roomAccessTestDb.match.room_id,
+        roomAccessTestDb.match.room_password,
+        roomAccessTestDb.match.room_time,
+      ]) {
+        assert.ok(credential);
+        assert.equal(
+          serialized.includes(credential),
+          false,
+          `${endpoint} denial must not contain fixture room credentials.`,
+        );
+      }
+    }
   });
 });
 

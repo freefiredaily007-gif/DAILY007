@@ -6,7 +6,7 @@ type TestUser = {
   wallet_coins: number;
   phone: string | null;
   game_uid: string | null;
-  status: "active";
+  status: "active" | "blocked";
   auth_version: number;
 };
 
@@ -51,10 +51,12 @@ export const TEST_PLAYER_ID = "82000000-0000-4000-8000-000000000002";
 export const TEST_PENDING_PLAYER_ID = "82000000-0000-4000-8000-000000000003";
 export const TEST_UNREGISTERED_PLAYER_ID = "82000000-0000-4000-8000-000000000004";
 export const TEST_REJECTED_PLAYER_ID = "82000000-0000-4000-8000-000000000005";
+export const TEST_BLOCKED_PLAYER_ID = "82000000-0000-4000-8000-000000000006";
 export const TEST_MATCH_ID = "82000000-0000-4000-8000-000000000100";
 export const TEST_REGISTRATION_ID = "82000000-0000-4000-8000-000000000101";
 export const TEST_PENDING_REGISTRATION_ID = "82000000-0000-4000-8000-000000000102";
 export const TEST_REJECTED_REGISTRATION_ID = "82000000-0000-4000-8000-000000000103";
+export const TEST_BLOCKED_REGISTRATION_ID = "82000000-0000-4000-8000-000000000104";
 
 class RoomAccessTestDatabase {
   users = new Map<string, TestUser>();
@@ -120,6 +122,17 @@ class RoomAccessTestDatabase {
         phone: null,
         game_uid: "FF-REJECTED-001",
         status: "active",
+        auth_version: 0,
+      }],
+      [TEST_BLOCKED_PLAYER_ID, {
+        id: TEST_BLOCKED_PLAYER_ID,
+        name: "Blocked Player",
+        email: "blocked-room-player@example.test",
+        role: "user",
+        wallet_coins: 25,
+        phone: null,
+        game_uid: "FF-BLOCKED-001",
+        status: "blocked",
         auth_version: 0,
       }],
     ]);
