@@ -180,16 +180,16 @@ test("player prize panels follow Full Admin schedules after save, refresh, reope
       defaultOptions: { queries: { retry: false } },
     });
     const baselineSchedule = {
-      weekly: { firstPlaceCoins: 50, secondPlaceCoins: 40, thirdPlaceCoins: 30 },
-      monthly: { firstPlaceCoins: 50, secondPlaceCoins: 40, thirdPlaceCoins: 30 },
+      weekly: { firstPlaceCoins: 50, secondPlaceCoins: 40, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 50, secondPlaceCoins: 0, thirdPlaceCoins: 30 },
     };
     const savedSchedule = {
-      weekly: { firstPlaceCoins: 111, secondPlaceCoins: 222, thirdPlaceCoins: 333 },
-      monthly: { firstPlaceCoins: 444, secondPlaceCoins: 555, thirdPlaceCoins: 666 },
+      weekly: { firstPlaceCoins: 111, secondPlaceCoins: 222, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 444, secondPlaceCoins: 0, thirdPlaceCoins: 666 },
     };
     const focusedSchedule = {
-      weekly: { firstPlaceCoins: 131, secondPlaceCoins: 242, thirdPlaceCoins: 353 },
-      monthly: { firstPlaceCoins: 464, secondPlaceCoins: 575, thirdPlaceCoins: 686 },
+      weekly: { firstPlaceCoins: 131, secondPlaceCoins: 242, thirdPlaceCoins: 0 },
+      monthly: { firstPlaceCoins: 464, secondPlaceCoins: 0, thirdPlaceCoins: 686 },
     };
     let developmentSchedule = structuredClone(baselineSchedule);
     const saveDevelopmentFullAdminFixture = ({ environment, role, data }) => {
