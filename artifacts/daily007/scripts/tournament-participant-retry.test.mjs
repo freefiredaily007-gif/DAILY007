@@ -6,6 +6,14 @@ const detailSource = readFileSync(
   new URL("../src/screens/TDetail.tsx", import.meta.url),
   "utf8",
 );
+const typographySource = readFileSync(
+  new URL("../src/components/typography.tsx", import.meta.url),
+  "utf8",
+);
+const uiSource = readFileSync(
+  new URL("../src/components/ui.tsx", import.meta.url),
+  "utf8",
+);
 
 async function waitFor(predicate, message) {
   const deadline = Date.now() + 1_000;
@@ -33,6 +41,34 @@ test("the participant error state exposes an accessible retry that reflects refe
   assert.match(errorBranch, /accessibilityState=\{\{ busy: participantsQuery\.isFetching \}\}/);
   assert.match(errorBranch, /testID="participants-retry"/);
   assert.match(detailSource, /await participantsQuery\.refetch\(\)/);
+});
+
+test("participant retry guidance and control wrap at enlarged text without clipping", () => {
+  const errorBranch = detailSource
+    .split(") : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (")[1]
+    ?.split(") : participants.length === 0 ? (")[0];
+  const retryButton = errorBranch?.match(/<Btn\b[\s\S]*?\/>/)?.[0];
+  const retryTextStyle = uiSource.match(/btnText: \{[^}]+\}/)?.[0];
+  const retryPressableStyle = uiSource.match(/btn: \{[^}]+\}/)?.[0];
+  const guidanceStyle = detailSource.match(/participantsHint: \{[^}]+\}/)?.[0];
+
+  assert.ok(errorBranch, "The participant error guidance must remain present at 1.5× text size.");
+  assert.match(errorBranch, /Participant list couldn’t be loaded\. Try again here or pull down to retry\./);
+  assert.doesNotMatch(errorBranch, /numberOfLines=|ellipsizeMode=|overflow:\s*['"]hidden/);
+  assert.ok(retryButton, "The retry remains a separate button in the error card.");
+  assert.match(retryButton, /title="RETRY PARTICIPANTS"/);
+  assert.match(retryButton, /minHeight:\s*48/);
+  assert.match(retryButton, /alignSelf:\s*['"]stretch['"]/);
+  assert.match(retryButton, /testID="participants-retry"/);
+  assert.match(uiSource, /accessibilityRole="button"/);
+  assert.match(uiSource, /onPress=\{onPress\}/);
+  assert.match(retryPressableStyle ?? "", /paddingVertical:/);
+  assert.doesNotMatch(retryPressableStyle ?? "", /\bheight:/);
+  assert.match(retryTextStyle ?? "", /fontSize:/);
+  assert.doesNotMatch(retryTextStyle ?? "", /numberOfLines|ellipsizeMode/);
+  assert.match(guidanceStyle ?? "", /lineHeight:/);
+  assert.doesNotMatch(typographySource, /allowFontScaling=\{false\}/);
+  assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
 });
 
 test("a failed participant request can be retried and replaced by the current list", async () => {

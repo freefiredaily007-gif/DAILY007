@@ -209,7 +209,7 @@ export default function TDetail() {
             loading={participantsQuery.isFetching}
             accessibilityHint="Loads the latest list of joined players and teams."
             accessibilityState={{ busy: participantsQuery.isFetching }}
-            style={{ marginTop: 10 }}
+            style={{ marginTop: 10, alignSelf: 'stretch', minHeight: 48 }}
             testID="participants-retry"
           />
         </Card>
