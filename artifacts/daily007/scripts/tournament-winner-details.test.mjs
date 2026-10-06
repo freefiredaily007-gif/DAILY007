@@ -116,7 +116,15 @@ function renderWinnerFixture(fixture) {
 
   const isCompleted = evaluateInitializer(
     "isCompleted",
-    { t: fixture.tournament },
+    {
+      t: fixture.tournament,
+      resultsQuery: {
+        data: {
+          status: fixture.resultStatus ??
+            (fixture.tournament.status === "completed" ? "finalized" : "draft"),
+        },
+      },
+    },
     initializers,
   );
   const winnerState = resolveTournamentWinnerState(false, false, fixture.results);
@@ -194,6 +202,22 @@ test("a completed solo winner shows the game name and coin/INR award after joine
   assert.ok(
     rendered.markup.indexOf("Joined Solo Player") < rendered.markup.indexOf('data-card="winner"'),
   );
+});
+
+test("an open tournament reveals the winner when active result refresh sees a finalized result", () => {
+  const rendered = renderWinnerFixture({
+    tournament: { status: "ongoing" },
+    resultStatus: "finalized",
+    participants: [{ players: ["Joined Player"], status: "approved" }],
+    teamTournament: false,
+    results: [{ rank: 1, gameName: "New Champion", prizeCoins: 250 }],
+  });
+  const card = getWinnerCardMarkup(rendered.markup);
+
+  assert.equal(rendered.isCompleted, true);
+  assert.ok(card.includes("New Champion"));
+  assert.ok(card.includes("250 coins"));
+  assert.ok(card.includes(inr(250)));
 });
 
 test("a completed team winner shows its team, captain handle, and coin/INR award", () => {
@@ -324,7 +348,7 @@ test("a failed refresh hides stale winner details and recovery shows the current
   }
 });
 
-test("completed results poll only while focused and stop without overlapping requests", async () => {
+test("tournament result status and winner details poll only while focused without overlapping requests", async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   const documentStub = {
@@ -349,19 +373,35 @@ test("completed results poll only while focused and stop without overlapping req
     focusManager.setFocused(true);
 
     assert.equal(TOURNAMENT_RESULTS_REFRESH_INTERVAL_MS, 30_000);
-    assert.equal(getTournamentResultsRefreshInterval(false, true), false);
-    assert.equal(getTournamentResultsRefreshInterval(true, false), false);
+    assert.equal(getTournamentResultsRefreshInterval(false), false);
     assert.equal(
-      getTournamentResultsRefreshInterval(true, true),
+      getTournamentResultsRefreshInterval(true),
       TOURNAMENT_RESULTS_REFRESH_INTERVAL_MS,
+    );
+    assert.match(
+      detailSource,
+      /const isCompleted =[\s\S]*resultsQuery\.data\?\.status[\s\S]*finalized/,
+      "TDetail should treat finalized result data as the completion update",
+    );
+    assert.match(
+      detailSource,
+      /enabled: Boolean\(id\) && isFocused/,
+      "the result status query should only run while the detail screen is active",
+    );
+    assert.match(
+      detailSource,
+      /refetchInterval: getTournamentResultsRefreshInterval\(isFocused\)/,
+      "status refresh should use the focus-aware polling interval",
     );
 
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const queryKey = ["tournament-results-active-screen"];
     const oldResults = {
+      status: "draft",
       entries: [{ rank: 1, gameName: "Old Winner", prizeCoins: 75 }],
     };
     const currentResults = {
+      status: "finalized",
       entries: [{ rank: 1, gameName: "Corrected Winner", prizeCoins: 125 }],
     };
     client.setQueryData(queryKey, oldResults);
@@ -385,7 +425,7 @@ test("completed results poll only while focused and stop without overlapping req
       queryFn,
       staleTime: Infinity,
       refetchOnMount: false,
-      refetchInterval: getTournamentResultsRefreshInterval(true, focused)
+      refetchInterval: getTournamentResultsRefreshInterval(focused)
         ? 10
         : false,
     });
@@ -410,7 +450,19 @@ test("completed results poll only while focused and stop without overlapping req
       "winner",
     );
     assert.equal(observer.getCurrentResult().data.entries[0].prizeCoins, 125);
+    assert.equal(observer.getCurrentResult().data.status, "finalized");
     assert.equal(maxActiveRequests, 1, "polling should not start overlapping result requests");
+    const refreshedScreen = renderWinnerFixture({
+      tournament: { status: "ongoing" },
+      resultStatus: observer.getCurrentResult().data.status,
+      participants: [],
+      teamTournament: false,
+      results: observer.getCurrentResult().data.entries,
+    });
+    const refreshedWinnerCard = getWinnerCardMarkup(refreshedScreen.markup);
+    assert.equal(refreshedScreen.isCompleted, true);
+    assert.ok(refreshedWinnerCard.includes("Corrected Winner"));
+    assert.ok(refreshedWinnerCard.includes("125 coins"));
 
     focused = false;
     observer.setOptions(options());

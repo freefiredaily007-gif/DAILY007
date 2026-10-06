@@ -34,7 +34,6 @@ export default function TDetail() {
   const [busy, setBusy] = useState(false);
   const [retryingParticipants, setRetryingParticipants] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
-  const isCompleted = String(t?.status ?? '').toLowerCase() === 'completed';
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
       queryKey: getGetTournamentParticipantsQueryKey(tournamentId),
@@ -46,12 +45,15 @@ export default function TDetail() {
   const resultsQuery = useGetTournamentResults(tournamentId, {
     query: {
       queryKey: getGetTournamentResultsQueryKey(tournamentId),
-      enabled: Boolean(id) && isCompleted,
+      enabled: Boolean(id) && isFocused,
       refetchOnMount: 'always',
-      refetchInterval: getTournamentResultsRefreshInterval(isCompleted, isFocused),
+      refetchInterval: getTournamentResultsRefreshInterval(isFocused),
       retry: 1,
     },
   });
+  const isCompleted =
+    String(t?.status ?? '').toLowerCase() === 'completed' ||
+    String(resultsQuery.data?.status ?? '').toLowerCase() === 'finalized';
 
   const load = useCallback(async () => {
     if (!id) { setLoading(false); return; }
@@ -73,9 +75,9 @@ export default function TDetail() {
     await Promise.all([
       load(),
       participantsQuery.refetch(),
-      ...(isCompleted ? [resultsQuery.refetch()] : []),
+      resultsQuery.refetch(),
     ]);
-  }, [load, participantsQuery.refetch, resultsQuery.refetch, isCompleted]);
+  }, [load, participantsQuery.refetch, resultsQuery.refetch]);
   const retryParticipants = async () => {
     setRetryingParticipants(true);
     try {
@@ -106,7 +108,7 @@ export default function TDetail() {
   if (loading) return <View style={s.root} />;
   if (!t) return <View style={[s.root, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ color: C.sub }}>Tournament not found.</Text></View>;
 
-  const st = statusOf(t);
+  const st = statusOf(isCompleted ? { ...t, status: 'completed' } : t);
   const joined = !!t?.joined;
   const teamType = String(t.teamType || '').toLowerCase();
   const mode = String(t.mode || '').toLowerCase();
@@ -114,9 +116,10 @@ export default function TDetail() {
   const participants = participantsQuery.data?.participants ?? [];
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
-  const tournamentStatus = String(t.status || '').toLowerCase();
+  const tournamentStatus = isCompleted ? 'completed' : String(t.status || '').toLowerCase();
   const winnerState = resolveTournamentWinnerState(
-    resultsQuery.isLoading,
+    resultsQuery.isLoading ||
+      (isCompleted && resultsQuery.isFetching && resultsQuery.data?.status !== 'finalized'),
     resultsQuery.isError,
     resultsQuery.data?.entries,
   );

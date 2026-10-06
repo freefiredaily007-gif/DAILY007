@@ -7,10 +7,9 @@ export type TournamentWinnerDetailsState<T> =
 export const TOURNAMENT_RESULTS_REFRESH_INTERVAL_MS = 30_000;
 
 export function getTournamentResultsRefreshInterval(
-  isCompleted: boolean,
   isFocused: boolean,
 ): number | false {
-  return isCompleted && isFocused ? TOURNAMENT_RESULTS_REFRESH_INTERVAL_MS : false;
+  return isFocused ? TOURNAMENT_RESULTS_REFRESH_INTERVAL_MS : false;
 }
 
 export function resolveTournamentWinnerState<T extends { rank: number | string }>(
