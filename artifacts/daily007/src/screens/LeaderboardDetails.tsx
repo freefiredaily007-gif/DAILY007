@@ -1,5 +1,13 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Feather } from "@expo/vector-icons";
 import {
   getDaily007ListLeaderboardsQueryKey,
@@ -11,7 +19,10 @@ import { C, Loading } from "../components/ui";
 import { apiError } from "../lib/api";
 import {
   LEADERBOARD_REFRESH_POLICY,
+  getLeaderboardTopThreeUpdateAnnouncement,
   refetchLeaderboardOnFocus,
+  selectLeaderboardTopThreeSnapshot,
+  type LeaderboardTopThreeSnapshot,
 } from "../lib/leaderboardRefreshPolicy";
 import {
   leaderboardPlayerAccessibilityLabel,
@@ -236,12 +247,34 @@ export default function LeaderboardDetails({ navigation, route }: any) {
     }, [query.refetch]),
   );
   const [showTop20, setShowTop20] = React.useState(false);
+  const [topThreeAnnouncement, setTopThreeAnnouncement] = React.useState("");
+  const topThreeSnapshots = React.useRef<Partial<Record<CycleType, LeaderboardTopThreeSnapshot>>>({});
   const cycle: CycleType = route?.params?.cycleType === "monthly" ? "monthly" : "weekly";
   const data = query.data as unknown as {
     weekly?: Period;
     monthly?: Period;
   } | undefined;
   const period = data?.[cycle];
+  React.useEffect(() => {
+    if (!period?.standings) return;
+
+    const nextSnapshot = selectLeaderboardTopThreeSnapshot(period.standings);
+    const previousSnapshot = topThreeSnapshots.current[cycle];
+    topThreeSnapshots.current[cycle] = nextSnapshot;
+    if (!previousSnapshot) return;
+
+    const announcement = getLeaderboardTopThreeUpdateAnnouncement(previousSnapshot, nextSnapshot);
+    if (!announcement) return;
+
+    if (Platform.OS === "ios") {
+      AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+        queue: true,
+        priority: "low",
+      });
+    } else {
+      setTopThreeAnnouncement(announcement);
+    }
+  }, [cycle, period?.standings]);
   const standings = selectLeaderboardTopTwenty(period?.standings);
   const podium = [
     { rank: 2 as const, standing: standings.find((standing) => standing.rank === 2) },
@@ -253,6 +286,16 @@ export default function LeaderboardDetails({ navigation, route }: any) {
 
   return (
     <View style={styles.screen}>
+      {topThreeAnnouncement ? (
+        <Text
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="leaderboard-top-three-update"
+          style={styles.screenReaderAnnouncement}
+        >
+          {topThreeAnnouncement}
+        </Text>
+      ) : null}
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -436,6 +479,13 @@ export default function LeaderboardDetails({ navigation, route }: any) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
+  screenReaderAnnouncement: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: "hidden",
+  },
   content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 28 },
   tabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
   rewardsPanel: {

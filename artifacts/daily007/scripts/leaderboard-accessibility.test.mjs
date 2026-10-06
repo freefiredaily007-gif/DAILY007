@@ -7,6 +7,10 @@ import {
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
 } from "../src/lib/leaderboardStandings.ts";
+import {
+  getLeaderboardTopThreeUpdateAnnouncement,
+  selectLeaderboardTopThreeSnapshot,
+} from "../src/lib/leaderboardRefreshPolicy.ts";
 
 const screenSource = await readFile(
   new URL("../src/screens/LeaderboardDetails.tsx", import.meta.url),
@@ -106,6 +110,49 @@ test("podium entries expose one ordered VoiceOver label without decorative stops
       `Rank ${rank}, player not available, coin score not available`,
     );
   }
+});
+
+test("top-three refresh changes announce affected ranks, players, and scores", () => {
+  const previous = selectLeaderboardTopThreeSnapshot([
+    { rank: 1, userId: "player-a", name: "Asha", points: 120_000 },
+    { rank: 2, userId: "player-b", name: "Bimal", points: 95_000 },
+    { rank: 3, userId: "player-c", name: "Chandra", points: 80_000 },
+  ]);
+  const current = selectLeaderboardTopThreeSnapshot([
+    { rank: 1, userId: "player-b", name: "Bimal", points: 95_000 },
+    { rank: 2, userId: "player-a", name: "Asha", points: 125_000 },
+    { rank: 3, userId: "player-c", name: "Chandra", points: 80_000 },
+  ]);
+
+  assert.equal(
+    getLeaderboardTopThreeUpdateAnnouncement(previous, current),
+    `Leaderboard updated. Rank 1, Bimal, ${(95_000).toLocaleString("en-IN")} coins; Rank 2, Asha, ${(125_000).toLocaleString("en-IN")} coins.`,
+  );
+});
+
+test("identical top-three refresh data does not create a repeat announcement", () => {
+  const standings = [
+    { rank: 1, userId: "player-a", name: "Asha", points: 120_000 },
+    { rank: 2, userId: "player-b", name: "Bimal", points: 95_000 },
+    { rank: 3, userId: "player-c", name: "Chandra", points: 80_000 },
+  ];
+  const previous = selectLeaderboardTopThreeSnapshot(standings);
+  const refreshed = selectLeaderboardTopThreeSnapshot(standings.map((standing) => ({ ...standing })));
+
+  assert.notEqual(previous, refreshed, "A refresh must be compared by values, not array identity.");
+  assert.equal(getLeaderboardTopThreeUpdateAnnouncement(previous, refreshed), null);
+});
+
+test("top-three announcements are polite on Android and queued at low priority on iOS", () => {
+  const announcement = textForTestId("leaderboard-top-three-update");
+  assert.match(announcement, /accessible=\{false\}/);
+  assert.match(announcement, /accessibilityLiveRegion="polite"/);
+  assert.match(
+    screenSource,
+    /AccessibilityInfo\.announceForAccessibilityWithOptions\(announcement, \{\s*queue: true,\s*priority: "low",\s*\}\)/,
+  );
+  assert.match(screenSource, /if \(!previousSnapshot\) return;/);
+  assert.match(screenSource, /if \(!announcement\) return;/);
 });
 
 test("the Top 20 control exposes and toggles its expanded state", () => {
