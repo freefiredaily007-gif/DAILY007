@@ -1910,6 +1910,42 @@ async function checkHomeCarousel(width) {
     "Approval and rejection refreshes should not remount an unaffected tournament card.",
   );
 
+  const readsBeforeDeletionApproval = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+  ])`);
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "The Home polling callback should be available before registration deletion.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeDeletionApproval.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeDeletionApproval.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "Home to show an approved registration before the Admin deletes it",
+  );
+
+  const readsBeforeDeletionRefresh = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.setRegistrations([])");
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "The scheduled Home refresh should be available after registration deletion.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeDeletionRefresh.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeDeletionRefresh.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW') && !document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "The next scheduled Home refresh to remove JOINED after the Admin deletes the registration",
+  );
+  assert(
+    await evaluate(`(() => {
+      const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+      const unaffected = document.querySelector('[data-testid="home-upcoming-card-later-two"]');
+      return cards.length === 2 &&
+        cards.map((card) => card.getAttribute('data-testid')).join(',') ===
+          'home-upcoming-card-later-one,home-upcoming-card-later-two' &&
+        unaffected?.innerText.includes('Later Tournament Two') &&
+        window.__daily007HomeCarouselTest.unaffectedCardNode === unaffected;
+    })()`),
+    "Deleting a registration should leave the other tournament card visible and mounted.",
+  );
+
   const mergeIdentity = await evaluate(`(() => {
     const changed = { id: "changed", name: "Changed card", joined: false };
     const unchanged = { id: "unchanged", name: "Unaffected card", joined: false };
