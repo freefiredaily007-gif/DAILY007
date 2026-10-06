@@ -17,9 +17,9 @@ A Tournament Admin can manage tournaments, registrations, rooms, results, and to
 
 **Schedule timezone:** Tournament date and time entries use India Standard Time, for both existing and new schedules.
 
-**Why:** The user confirmed “As per Indian time” after the existing UTC interpretation delayed an 8:00 PM tournament until 1:30 AM IST.
+**Why:** The user confirmed “As per Indian time” after the existing UTC interpretation delayed an 8:00 PM tournament until 1:30 AM IST. Parsing the date-only IST calendar value as device-local time can also display the previous day in western timezones.
 
-**How to apply:** Preserve the entered IST wall-clock time for display, convert it to the matching real instant for server/client comparisons, and keep the server clock authoritative.
+**How to apply:** Preserve the entered IST wall-clock time for display, render date-only IST calendar values from their year/month/day parts rather than device-local parsing, convert starts to the matching real instant for comparisons, and keep the server clock authoritative.
 
 **Prize source:** During result publication, derive the non-editable award from the tournament's saved prize distribution for the entered rank; if no first-place distribution is specified, use the saved prize pool. The API is the source of truth.
 

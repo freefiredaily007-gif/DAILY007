@@ -1189,6 +1189,33 @@ async function checkTournamentResume() {
   );
 }
 
+async function assertNearMidnightIstSchedule(screenName) {
+  const schedule = await evaluate("window.__daily007TournamentResume.getScheduledStartInfo()");
+  assert(
+    schedule.browserTimeZone === "America/Los_Angeles",
+    `${screenName} scheduled-start test must run with a non-IST browser timezone.`,
+  );
+  assert(
+    schedule.istTime === "00:00:01",
+    `${screenName} tournament must start one second after midnight IST, got ${schedule.istTime}.`,
+  );
+  assert(
+    schedule.beforeIstTime.startsWith("23:59:59") &&
+      schedule.beforeIstDate !== schedule.istDate,
+    `${screenName} clock must cross the IST calendar date at the scheduled start.`,
+  );
+  assert(
+    schedule.utcDate !== schedule.istDate,
+    `${screenName} scheduled start must fall on a different UTC date than IST.`,
+  );
+  assert(
+    schedule.startsAt.endsWith("+05:30") &&
+      Date.parse(schedule.startsAt) === schedule.startMs,
+    `${screenName} scheduled timestamp must preserve the correct IST offset and instant.`,
+  );
+  return schedule;
+}
+
 async function checkTournamentScheduledStart() {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -1197,6 +1224,12 @@ async function checkTournamentScheduledStart() {
   await waitForCondition(
     "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')",
     "the player list to load both upcoming IST tournaments",
+  );
+  const playerSchedule = await assertNearMidnightIstSchedule("Player");
+  const playerDateTime = `${playerSchedule.istDateLabel} • ${playerSchedule.time} IST`;
+  assert(
+    await evaluate(`document.body.innerText.includes(${JSON.stringify(playerDateTime)})`),
+    `Player card must display its IST date and time (${playerDateTime}) in a non-IST browser timezone.`,
   );
 
   await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
@@ -1246,6 +1279,12 @@ async function checkTournamentScheduledStart() {
   await waitForCondition(
     "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')",
     "the Admin list to load both upcoming IST tournaments",
+  );
+  const adminSchedule = await assertNearMidnightIstSchedule("Admin");
+  const adminDateTime = `${adminSchedule.date} • ${adminSchedule.time} IST`;
+  assert(
+    await evaluate(`document.body.innerText.includes(${JSON.stringify(adminDateTime)})`),
+    `Admin card must display its IST date and time (${adminDateTime}) in a non-IST browser timezone.`,
   );
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
   await waitForCondition(
@@ -2111,6 +2150,10 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
+  if (scheduledStartOnly) {
+    await cdp("Emulation.setTimezoneOverride", { timezoneId: "America/Los_Angeles" });
+    await cdp("Page.reload", { ignoreCache: true });
+  }
   if (
     resumeOnly ||
     scheduledStartOnly ||
@@ -2165,7 +2208,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during scheduled-start checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Player and Admin tournament lists move from Upcoming to Ongoing at their IST start while visible, without AppState events.");
+      console.log("PASS — Player and Admin tournament cards cross midnight IST, display the correct IST date/time, and move from Upcoming to Ongoing without AppState events.");
     } else if (keyboardFormsOnly) {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);

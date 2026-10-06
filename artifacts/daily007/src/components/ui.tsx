@@ -344,6 +344,21 @@ export function fmtTime12(t?: string) {
 
 export function fmtDate(d?: string) {
   if (!d) return '';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]);
+    const day = Number(dateOnly[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (
+      !Number.isFinite(date.getTime()) ||
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() + 1 !== month ||
+      date.getUTCDate() !== day
+    ) return d;
+    const monthLabel = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][month - 1];
+    return `${String(day).padStart(2, '0')} ${monthLabel}`;
+  }
   const dt = new Date(d);
   if (isNaN(dt.getTime())) return d;
   return `${String(dt.getDate()).padStart(2, '0')} ${dt.toLocaleString('en', { month: 'short' }).toUpperCase()}`;
