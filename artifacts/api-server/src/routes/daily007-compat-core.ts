@@ -18,6 +18,75 @@ import { authenticate, hashPassword, makeToken, requireTournamentAdmin } from ".
 
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Allow at most five incorrect current-password checks per account in a
+// 15-minute window. In-flight checks reserve slots so parallel requests cannot
+// bypass the cap; verifying the correct password clears the failure count.
+const PASSWORD_CHANGE_ATTEMPT_LIMIT = 5;
+const PASSWORD_CHANGE_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+type PasswordChangeAttemptWindow = {
+  failures: number;
+  inFlight: number;
+  expiresAt: number;
+};
+const passwordChangeAttempts = new Map<string, PasswordChangeAttemptWindow>();
+
+function reservePasswordChangeAttempt(userId: string):
+  | { allowed: true; window: PasswordChangeAttemptWindow }
+  | { allowed: false; retryAfterSeconds: number } {
+  const now = Date.now();
+  let window = passwordChangeAttempts.get(userId);
+  if (window && window.expiresAt <= now) {
+    passwordChangeAttempts.delete(userId);
+    window = undefined;
+  }
+
+  if (window && window.failures + window.inFlight >= PASSWORD_CHANGE_ATTEMPT_LIMIT) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((window.expiresAt - now) / 1000)),
+    };
+  }
+
+  if (!window) {
+    window = { failures: 0, inFlight: 0, expiresAt: now + PASSWORD_CHANGE_ATTEMPT_WINDOW_MS };
+    passwordChangeAttempts.set(userId, window);
+  }
+  window.inFlight += 1;
+
+  if (passwordChangeAttempts.size > 1000) {
+    for (const [id, entry] of passwordChangeAttempts) {
+      if (entry.expiresAt <= now) passwordChangeAttempts.delete(id);
+    }
+  }
+
+  return { allowed: true, window };
+}
+
+function finishPasswordChangeAttempt(
+  userId: string,
+  window: PasswordChangeAttemptWindow,
+  outcome: "incorrect" | "correct" | "abandoned",
+): void {
+  if (passwordChangeAttempts.get(userId) !== window) return;
+  const now = Date.now();
+  if (window.expiresAt <= now) {
+    passwordChangeAttempts.delete(userId);
+    return;
+  }
+
+  window.inFlight = Math.max(0, window.inFlight - 1);
+  if (outcome === "incorrect") window.failures += 1;
+  if (outcome === "correct") {
+    window.failures = 0;
+    window.expiresAt = now + PASSWORD_CHANGE_ATTEMPT_WINDOW_MS;
+  }
+
+  if (window.failures === 0 && window.inFlight === 0) {
+    passwordChangeAttempts.delete(userId);
+  }
+}
+
 type MatchRow = {
   id: string; title: string; mode: string; game_mode?: string | null; team_type?: string | null;
   capacity: number; entry_coins: number;
@@ -329,36 +398,54 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     return;
   }
 
-  const credentials = await pool.query<{ password_salt: string; password_hash: string }>(
-    "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
-    [account.id],
-  );
-  const stored = credentials.rows[0];
-  if (!stored) {
-    fail(res, 404, "Account not found.");
+  const attempt = reservePasswordChangeAttempt(account.id);
+  if (!attempt.allowed) {
+    res.setHeader("Retry-After", String(attempt.retryAfterSeconds));
+    fail(
+      res,
+      429,
+      `Too many password-change attempts. Wait ${attempt.retryAfterSeconds} seconds before trying again.`,
+    );
     return;
   }
 
-  const candidate = await hashPassword(input.currentPassword, Buffer.from(stored.password_salt, "hex"));
-  if (!passwordHashesMatch(Buffer.from(candidate.hash, "hex"), Buffer.from(stored.password_hash, "hex"))) {
-    fail(res, 401, "Current password is incorrect.");
-    return;
-  }
+  let outcome: "incorrect" | "correct" | "abandoned" = "abandoned";
+  try {
+    const credentials = await pool.query<{ password_salt: string; password_hash: string }>(
+      "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+      [account.id],
+    );
+    const stored = credentials.rows[0];
+    if (!stored) {
+      fail(res, 404, "Account not found.");
+      return;
+    }
 
-  const replacement = await hashPassword(input.newPassword);
-  const updated = await pool.query<{ id: string }>(
-    `UPDATE daily007_v2_users
-        SET password_salt = $2, password_hash = $3
-      WHERE id = $1 AND password_salt = $4 AND password_hash = $5
-      RETURNING id`,
-    [account.id, replacement.salt, replacement.hash, stored.password_salt, stored.password_hash],
-  );
-  if (!updated.rows[0]) {
-    fail(res, 409, "The password changed in another session. Sign in again and retry.");
-    return;
-  }
+    const candidate = await hashPassword(input.currentPassword, Buffer.from(stored.password_salt, "hex"));
+    if (!passwordHashesMatch(Buffer.from(candidate.hash, "hex"), Buffer.from(stored.password_hash, "hex"))) {
+      outcome = "incorrect";
+      fail(res, 401, "Current password is incorrect.");
+      return;
+    }
 
-  res.json({ message: "Password changed. Other signed-in sessions remain active." });
+    outcome = "correct";
+    const replacement = await hashPassword(input.newPassword);
+    const updated = await pool.query<{ id: string }>(
+      `UPDATE daily007_v2_users
+          SET password_salt = $2, password_hash = $3
+        WHERE id = $1 AND password_salt = $4 AND password_hash = $5
+        RETURNING id`,
+      [account.id, replacement.salt, replacement.hash, stored.password_salt, stored.password_hash],
+    );
+    if (!updated.rows[0]) {
+      fail(res, 409, "The password changed in another session. Sign in again and retry.");
+      return;
+    }
+
+    res.json({ message: "Password changed. Other signed-in sessions remain active." });
+  } finally {
+    finishPasswordChangeAttempt(account.id, attempt.window, outcome);
+  }
 });
 
 router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {

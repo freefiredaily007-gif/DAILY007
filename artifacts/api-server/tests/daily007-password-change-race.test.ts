@@ -21,7 +21,7 @@ after(() => {
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
 });
 
-type JsonResult = { status: number; body: any };
+type JsonResult = { status: number; body: any; retryAfter: string | null };
 
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
@@ -60,7 +60,11 @@ async function request(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  return { status: response.status, body: await response.json() };
+  return {
+    status: response.status,
+    body: await response.json(),
+    retryAfter: response.headers.get("retry-after"),
+  };
 }
 
 test("an incorrect current password is rejected without changing credentials or the existing session", async () => {
@@ -173,4 +177,71 @@ test("concurrent password changes use the original credentials for exactly one u
     assert.equal(existingSession.status, 200, "the pre-existing session must remain valid");
     assert.equal(existingSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
   });
+});
+
+test("incorrect password checks are capped per account and recover after the 15-minute window", async () => {
+  passwordChangeTestDb.reset();
+  const originalPassword = "current-password-for-attempt-limit";
+  const originalCredentials = await hashPassword(originalPassword);
+  passwordChangeTestDb.setCredentials({
+    password_salt: originalCredentials.salt,
+    password_hash: originalCredentials.hash,
+  });
+  const before = passwordChangeTestDb.snapshot();
+  const token = makeToken(PASSWORD_CHANGE_TEST_USER_ID, before.auth_version);
+  assert.ok(token);
+
+  const originalNow = Date.now;
+  let now = originalNow() + 60 * 60 * 1000;
+  Date.now = () => now;
+  try {
+    passwordChangeTestDb.holdCredentialReadsUntil(5);
+    await withServer(async (origin) => {
+      const wrongPasswordChange = () => request(origin, "/auth/me/password", "PATCH", {
+        currentPassword: "incorrect-current-password",
+        newPassword: "replacement-password-after-limit",
+      }, token);
+
+      const failures = await Promise.all(Array.from({ length: 5 }, wrongPasswordChange));
+      assert.deepEqual(failures.map((result) => result.status), [401, 401, 401, 401, 401]);
+      assert.equal(passwordChangeTestDb.credentialReadBarrierTimedOut, false);
+      assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 5);
+
+      const limited = await wrongPasswordChange();
+      assert.equal(limited.status, 429);
+      assert.match(limited.body.error, /Wait \d+ seconds before trying again\./);
+      assert.ok(Number(limited.retryAfter) > 0);
+      assert.ok(Number(limited.retryAfter) <= 15 * 60);
+      assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 5, "a limited request must not verify another guess");
+      assert.equal(passwordChangeTestDb.passwordWriteAttempts, 0);
+
+      const afterLimit = passwordChangeTestDb.snapshot();
+      assert.equal(afterLimit.password_salt, before.password_salt);
+      assert.equal(afterLimit.password_hash, before.password_hash);
+      assert.equal(afterLimit.auth_version, before.auth_version);
+
+      const existingSession = await request(origin, "/auth/me", "GET", undefined, token);
+      assert.equal(existingSession.status, 200, "rate limiting must not invalidate the existing token");
+      assert.equal(existingSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
+
+      now += 15 * 60 * 1000;
+      passwordChangeTestDb.holdCredentialReadsUntil(6);
+      const recovered = await wrongPasswordChange();
+      assert.equal(recovered.status, 401, "a new password check is allowed after the limit window");
+      assert.equal(recovered.body.error, "Current password is incorrect.");
+      assert.equal(passwordChangeTestDb.credentialReadBarrierTimedOut, false);
+      assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 6);
+      assert.equal(passwordChangeTestDb.passwordWriteAttempts, 0);
+
+      const afterRecovery = passwordChangeTestDb.snapshot();
+      assert.equal(afterRecovery.password_salt, before.password_salt);
+      assert.equal(afterRecovery.password_hash, before.password_hash);
+      assert.equal(afterRecovery.auth_version, before.auth_version);
+      const stillValidSession = await request(origin, "/auth/me", "GET", undefined, token);
+      assert.equal(stillValidSession.status, 200);
+      assert.equal(stillValidSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
+    });
+  } finally {
+    Date.now = originalNow;
+  }
 });
