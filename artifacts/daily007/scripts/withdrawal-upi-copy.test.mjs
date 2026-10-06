@@ -53,6 +53,40 @@ test('the withdrawal copy button reports errors and stays separate from payout a
   );
 });
 
+test('payment and withdrawal success feedback is polite without changing payout actions or styling', () => {
+  assert.match(
+    screenSource,
+    /<Msg kind="ok" text=\{okMsg\} accessibilityLiveRegion="polite" \/>/,
+    'Payment, rejection, and manual-payout confirmations must use a polite live region.',
+  );
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
+  assert.match(
+    uiSource,
+    /style=\{\[\{ color: ok \? C\.green : C\.red, fontSize: 13, fontWeight: '600' \}, adminSurface && adminSt\.bodyText\]\}/,
+    'The shared confirmation message must keep its existing visible text styling.',
+  );
+
+  const approvalStart = screenSource.indexOf('const act = async');
+  const approvalEnd = screenSource.indexOf('\n  const reject = async', approvalStart);
+  const approvalAction = screenSource.slice(approvalStart, approvalEnd);
+  assert.match(approvalAction, /Api\.adminWithdrawalAction\(id, action\)/);
+  assert.match(approvalAction, /Api\.adminPaymentAction\(id, action\)/);
+  assert.match(approvalAction, /setOkMsg\(action === 'approve'/);
+
+  const rejectionStart = screenSource.indexOf('const reject = async');
+  const rejectionEnd = screenSource.indexOf('\n  const showProof = async', rejectionStart);
+  const rejectionAction = screenSource.slice(rejectionStart, rejectionEnd);
+  assert.match(rejectionAction, /Api\.adminWithdrawalAction\(target\.id, 'reject', reason\.trim\(\)\)/);
+  assert.match(rejectionAction, /Api\.adminPaymentAction\(target\.id, 'reject', reason\.trim\(\)\)/);
+  assert.match(rejectionAction, /setOkMsg\(target\.kind === 'withdrawal'/);
+
+  const payoutStart = screenSource.indexOf('const markPaid = async');
+  const payoutEnd = screenSource.indexOf('\n\n  return', payoutStart);
+  const payoutAction = screenSource.slice(payoutStart, payoutEnd);
+  assert.match(payoutAction, /Api\.adminMarkWithdrawalPaid\(payoutTarget\)/);
+  assert.match(payoutAction, /setOkMsg\('Manual payout recorded'\)/);
+});
+
 test('copy sends the exact account text and only shows COPIED after clipboard success', async () => {
   const requestId = 'withdrawal-42';
   const account = '  Player.Name+pay@bank  ';

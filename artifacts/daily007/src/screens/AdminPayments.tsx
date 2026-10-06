@@ -105,7 +105,7 @@ export default function AdminPayments() {
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
       <Msg kind="err" text={err} accessibilityLiveRegion="assertive" />
-      <Msg kind="ok" text={okMsg} />
+      <Msg kind="ok" text={okMsg} accessibilityLiveRegion="polite" />
       {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} requests.`} /> : list.map((p) => (
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>
           <Text style={st.pName}>
