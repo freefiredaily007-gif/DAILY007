@@ -3,6 +3,11 @@ export type VideoPlaybackSample = {
   receivedAt: number;
 };
 
+export function createVideoWatchAttemptId(now = Date.now(), random = Math.random()): string {
+  const randomPart = random.toString(36).slice(2).padEnd(12, "0").slice(0, 12);
+  return `${now.toString(36)}-${randomPart}`;
+}
+
 const MAX_PLAYBACK_SAMPLE_GAP_MS = 2_500;
 
 export function getCreditedVideoWatchSeconds(

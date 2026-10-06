@@ -41,6 +41,7 @@ import {
 } from "../lib/daily007-youtube-subscribe";
 import {
   completeDaily007VideoWatch,
+  isValidDaily007VideoStartAttemptId,
   startDaily007VideoWatch,
   youtubeVideoIdFromUrl,
 } from "../lib/daily007-video-rewards";
@@ -1522,13 +1523,21 @@ router.post("/videos/watch/start", authenticate, async (req, res): Promise<void>
   const accountId = privateAccount(req, res); if (!accountId) return;
   const body = req.body as unknown;
   if (!isObject(body) || !validId(body.videoId) ||
-      !integer(body.durationSeconds, 5, 86_400)) {
-    error(res, 400, "Provide a valid video id and duration."); return;
+      !integer(body.durationSeconds, 5, 86_400) ||
+      !isValidDaily007VideoStartAttemptId(body.attemptId)) {
+    error(res, 400, "Provide a valid video id, duration, and playback attempt identity."); return;
   }
   try {
-    const session = await transaction((client) =>
-      startDaily007VideoWatch(client, accountId, body.videoId as string, body.durationSeconds as number));
-    res.status(201).json(session);
+    const result = await transaction((client) =>
+      startDaily007VideoWatch(
+        client,
+        accountId,
+        body.videoId as string,
+        body.durationSeconds as number,
+        body.attemptId as string,
+      ));
+    const { created, ...session } = result;
+    res.status(created ? 201 : 200).json(session);
   } catch (e) { respondFailure(res, e); }
 });
 

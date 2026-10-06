@@ -23,6 +23,7 @@ import {
 import { useApp } from '../App';
 import { apiError } from '../lib/api';
 import {
+  createVideoWatchAttemptId,
   getCreditedVideoWatchSeconds,
   type VideoPlaybackSample,
 } from '../lib/video-watch-progress';
@@ -163,6 +164,7 @@ export default function Video() {
   const lastSampleRef = useRef<VideoPlaybackSample | null>(null);
   const watchedSecondBucketsRef = useRef<Set<number>>(new Set());
   const currentSessionRef = useRef<string | null>(null);
+  const startAttemptIdRef = useRef<string | null>(null);
   const startingSessionRef = useRef(false);
   const sessionStartFailedRef = useRef(false);
   const playbackCycleRef = useRef(0);
@@ -207,6 +209,7 @@ export default function Video() {
   const finishCurrentPlayback = useCallback(() => {
     const sessionId = currentSessionRef.current;
     currentSessionRef.current = null;
+    startAttemptIdRef.current = null;
     playbackCycleRef.current += 1;
     startingSessionRef.current = false;
     sessionStartFailedRef.current = false;
@@ -287,8 +290,10 @@ export default function Video() {
       setRewardError('');
       lastSampleRef.current = null;
       const appLifecycleCycle = appLifecycleCycleRef.current;
+      const attemptId = startAttemptIdRef.current ?? createVideoWatchAttemptId();
+      startAttemptIdRef.current = attemptId;
       void startVideoWatch({
-        data: { videoId: selectedVideo.id, durationSeconds },
+        data: { videoId: selectedVideo.id, durationSeconds, attemptId },
       }).then((session) => {
         if (cycle !== playbackCycleRef.current) return;
         currentSessionRef.current = session.sessionId;
@@ -329,6 +334,7 @@ export default function Video() {
   useEffect(() => {
     playbackCycleRef.current += 1;
     currentSessionRef.current = null;
+    startAttemptIdRef.current = null;
     startingSessionRef.current = false;
     sessionStartFailedRef.current = false;
     lastSampleRef.current = null;

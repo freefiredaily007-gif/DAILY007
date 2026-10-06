@@ -278,6 +278,7 @@ async function inspectFixture(fixture: TestFixture): Promise<{
 async function listFixtureWatchSessions(fixture: TestFixture): Promise<Array<{
   id: string;
   durationSeconds: number;
+  startAttemptId: string | null;
   startedAt: Date | string;
   completedAt: Date | string | null;
   rewardLedgerId: string | null;
@@ -287,6 +288,7 @@ async function listFixtureWatchSessions(fixture: TestFixture): Promise<Array<{
   const result = await pool.query<{
     id: string;
     durationSeconds: number;
+    startAttemptId: string | null;
     startedAt: Date | string;
     completedAt: Date | string | null;
     rewardLedgerId: string | null;
@@ -294,6 +296,7 @@ async function listFixtureWatchSessions(fixture: TestFixture): Promise<Array<{
   }>(
     `SELECT session.id,
             session.duration_seconds AS "durationSeconds",
+            session.start_attempt_id AS "startAttemptId",
             session.started_at AS "startedAt",
             session.completed_at AS "completedAt",
             session.reward_ledger_id AS "rewardLedgerId",
@@ -829,6 +832,147 @@ test("a failed wallet-ledger insert rolls back a video reward", async () => {
   }
 });
 
+test("repeating a watch start reuses its session while a new playback attempt earns a separate reward", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const attemptId = randomUUID();
+  const replayAttemptId = randomUUID();
+  try {
+    await withServer(async (origin) => {
+      const firstStart = await sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId },
+      );
+      assert.equal(firstStart.status, 201);
+      assert.equal(typeof firstStart.body.sessionId, "string");
+      const firstSessionId = firstStart.body.sessionId as string;
+      fixture.sessionId = firstSessionId;
+
+      const retryStart = await sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId },
+      );
+      assert.equal(retryStart.status, 200);
+      assert.equal(retryStart.body.sessionId, firstSessionId);
+      assert.equal(retryStart.body.startedAt, firstStart.body.startedAt);
+
+      const mismatchedRetry = await sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 31, attemptId },
+      );
+      assert.equal(mismatchedRetry.status, 409);
+
+      const disableVideo = await sendJson(
+        origin,
+        `/admin/videos/${fixture.videoId}/active`,
+        fixture.adminId!,
+        "PATCH",
+        { active: false },
+      );
+      assert.equal(disableVideo.status, 200);
+      const retryAfterDisable = await sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId },
+      );
+      assert.equal(retryAfterDisable.status, 200);
+      assert.equal(retryAfterDisable.body.sessionId, firstSessionId);
+      const newAttemptWhileDisabled = await sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId: randomUUID() },
+      );
+      assert.equal(newAttemptWhileDisabled.status, 404);
+      const reactivateVideo = await sendJson(
+        origin,
+        `/admin/videos/${fixture.videoId}/active`,
+        fixture.adminId!,
+        "PATCH",
+        { active: true },
+      );
+      assert.equal(reactivateVideo.status, 200);
+
+      const afterRetry = await listFixtureWatchSessions(fixture);
+      assert.equal(afterRetry.length, 1, "a repeated attempt must not insert a second session");
+      assert.equal(afterRetry[0]?.startAttemptId, attemptId);
+
+      const replayStart = await sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId: replayAttemptId },
+      );
+      assert.equal(replayStart.status, 201);
+      assert.equal(typeof replayStart.body.sessionId, "string");
+      const replaySessionId = replayStart.body.sessionId as string;
+      assert.notEqual(replaySessionId, firstSessionId);
+      fixture.additionalSessionIds.push(replaySessionId);
+
+      const sessions = await listFixtureWatchSessions(fixture);
+      assert.equal(sessions.length, 2, "a deliberate replay should create a new session");
+      assert.deepEqual(
+        new Set(sessions.map((session) => session.startAttemptId)),
+        new Set([attemptId, replayAttemptId]),
+      );
+
+      const backdated = await pool.query(
+        `UPDATE daily007_v2_video_watch_sessions
+            SET started_at = now() - interval '30 seconds'
+          WHERE id = ANY($1::uuid[])`,
+        [[firstSessionId, replaySessionId]],
+      );
+      assert.equal(backdated.rowCount, 2);
+
+      const firstCompletion = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId!,
+        "POST",
+        { sessionId: firstSessionId, percentWatched: 100 },
+      );
+      const replayCompletion = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId!,
+        "POST",
+        { sessionId: replaySessionId, percentWatched: 100 },
+      );
+      assert.equal(firstCompletion.status, 200);
+      assert.equal(replayCompletion.status, 200);
+
+      const state = await inspectConcurrentSessions(fixture, [firstSessionId, replaySessionId]);
+      assert.equal(state.walletCoins, 14);
+      assert.equal(state.rewardLedgerCount, 2);
+      assert.deepEqual(
+        new Set(state.sessions.map((session) => session.sessionId)),
+        new Set([firstSessionId, replaySessionId]),
+      );
+      for (const session of state.sessions) {
+        assert.equal(session.rewardLedgerId, session.ledgerId);
+        assert.equal(session.ledgerAmount, 1);
+        assert.equal(session.idempotencyKey, `daily007-video-watch:${session.sessionId}`);
+        assert.ok(session.completedAt);
+      }
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("a committed video disable wins the PostgreSQL watch-start race without creating a session", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
@@ -862,7 +1006,7 @@ test("a committed video disable wins the PostgreSQL watch-start race without cre
         "/videos/watch/start",
         fixture.playerId,
         "POST",
-        { videoId: fixture.videoId, durationSeconds: 30 },
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId: randomUUID() },
       );
       inFlight.push(start);
       const startPid = await waitForBlockedBackend(
@@ -923,7 +1067,7 @@ test("a committed watch start wins the PostgreSQL video-disable race before deac
         "/videos/watch/start",
         fixture.playerId,
         "POST",
-        { videoId: fixture.videoId, durationSeconds: 30 },
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId: randomUUID() },
       );
       inFlight.push(start);
       const startPid = await waitForBlockedBackend(

@@ -893,16 +893,22 @@ export const Daily007ListVideosResponse = zod.object({
 
 
 /**
- * @summary Start a reward-tracked playback session
+ * @summary Start or retrieve a reward-tracked playback session
  */
 export const daily007StartVideoWatchBodyDurationSecondsMin = 5;
 export const daily007StartVideoWatchBodyDurationSecondsMax = 86400;
 
+export const daily007StartVideoWatchBodyAttemptIdMin = 16;
+export const daily007StartVideoWatchBodyAttemptIdMax = 64;
+
+
+export const daily007StartVideoWatchBodyAttemptIdRegExp = new RegExp('^[A-Za-z0-9_-]{16,64}$');
 
 
 export const Daily007StartVideoWatchBody = zod.object({
   "videoId": zod.string().uuid(),
-  "durationSeconds": zod.number().int().min(daily007StartVideoWatchBodyDurationSecondsMin).max(daily007StartVideoWatchBodyDurationSecondsMax)
+  "durationSeconds": zod.number().int().min(daily007StartVideoWatchBodyDurationSecondsMin).max(daily007StartVideoWatchBodyDurationSecondsMax),
+  "attemptId": zod.string().min(daily007StartVideoWatchBodyAttemptIdMin).max(daily007StartVideoWatchBodyAttemptIdMax).regex(daily007StartVideoWatchBodyAttemptIdRegExp)
 })
 
 export const Daily007StartVideoWatchResponse = zod.object({

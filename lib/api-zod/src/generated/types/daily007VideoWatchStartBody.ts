@@ -30,4 +30,10 @@ export interface Daily007VideoWatchStartBody {
      * @maximum 86400
      */
   durationSeconds: number;
+  /**
+     * @minLength 16
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9_-]{16,64}$
+     */
+  attemptId: string;
 }

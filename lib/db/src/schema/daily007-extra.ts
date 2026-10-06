@@ -159,6 +159,7 @@ export const daily007VideoWatchSessionsTable = pgTable("daily007_v2_video_watch_
   userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
   videoId: uuid("video_id").notNull().references(() => daily007VideosTable.id),
   durationSeconds: integer("duration_seconds").notNull(),
+  startAttemptId: text("start_attempt_id"),
   reportedPercent: integer("reported_percent").notNull().default(0),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -166,6 +167,7 @@ export const daily007VideoWatchSessionsTable = pgTable("daily007_v2_video_watch_
 }, (table) => [
   check("daily007_video_watch_duration_valid", sql`${table.durationSeconds} BETWEEN 5 AND 86400`),
   check("daily007_video_watch_percent_valid", sql`${table.reportedPercent} BETWEEN 0 AND 100`),
+  uniqueIndex("daily007_video_watch_user_start_attempt_unique").on(table.userId, table.startAttemptId),
   index("daily007_video_watch_user_video_idx").on(table.userId, table.videoId, table.startedAt),
   index("daily007_video_watch_video_idx").on(table.videoId, table.startedAt),
 ]);

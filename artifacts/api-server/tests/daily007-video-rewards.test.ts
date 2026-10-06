@@ -28,17 +28,24 @@ test("starting a watch session locks the video row while recording the session",
         return { rows: [{ id: "video-id" }] as T[] };
       }
       if (sql.includes("INSERT INTO daily007_v2_video_watch_sessions")) {
-        assert.deepEqual(values, ["user-id", "video-id", 30]);
+        assert.deepEqual(values, ["user-id", "video-id", 30, "attempt-identifier-123"]);
         return { rows: [{ id: "session-id", started_at: startedAt }] as T[] };
       }
       return { rows: [] as T[] };
     },
   };
 
-  const session = await startDaily007VideoWatch(client, "user-id", "video-id", 30);
+  const session = await startDaily007VideoWatch(
+    client,
+    "user-id",
+    "video-id",
+    30,
+    "attempt-identifier-123",
+  );
   assert.match(videoLockSql, /FOR SHARE/);
   assert.equal(session.sessionId, "session-id");
   assert.equal(session.startedAt, startedAt.toISOString());
+  assert.equal(session.created, true);
 });
 
 test("video reward completion requires 75% playback and at least 70% of the reported duration", () => {
@@ -110,7 +117,7 @@ test("disabling a video after playback starts rejects completion without a walle
         return { rows: (videoActive ? [{ id: "video-id" }] : []) as T[] };
       }
       if (sql.includes("INSERT INTO daily007_v2_video_watch_sessions")) {
-        assert.deepEqual(values, ["user-id", "video-id", 30]);
+        assert.deepEqual(values, ["user-id", "video-id", 30, "attempt-identifier-123"]);
         return { rows: [{ id: "session-id", started_at: startedAt }] as T[] };
       }
       if (sql.includes("FROM daily007_v2_video_watch_sessions s")) {
@@ -133,7 +140,13 @@ test("disabling a video after playback starts rejects completion without a walle
     },
   };
 
-  const started = await startDaily007VideoWatch(client, "user-id", "video-id", 30);
+  const started = await startDaily007VideoWatch(
+    client,
+    "user-id",
+    "video-id",
+    30,
+    "attempt-identifier-123",
+  );
   assert.equal(started.sessionId, "session-id");
 
   // The Full Admin deactivates the video while this player session is open.

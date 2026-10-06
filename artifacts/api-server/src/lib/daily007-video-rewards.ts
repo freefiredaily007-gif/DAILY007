@@ -3,6 +3,12 @@ export const DAILY007_VIDEO_COMPLETION_PERCENT = 75;
 export const DAILY007_VIDEO_MIN_DURATION_SECONDS = 5;
 export const DAILY007_VIDEO_MAX_DURATION_SECONDS = 86_400;
 
+const DAILY007_VIDEO_START_ATTEMPT_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+export function isValidDaily007VideoStartAttemptId(value: unknown): value is string {
+  return typeof value === "string" && DAILY007_VIDEO_START_ATTEMPT_ID_PATTERN.test(value);
+}
+
 export interface Daily007VideoRewardClient {
   query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>;
 }
@@ -15,6 +21,13 @@ interface WatchSessionRow {
   completed_at: Date | string | null;
   reward_ledger_id: string | null;
   active: boolean;
+}
+
+interface WatchSessionStartRow {
+  id: string;
+  video_id: string;
+  duration_seconds: number;
+  started_at: Date | string;
 }
 
 function httpError(status: number, message: string): Error & { status: number } {
@@ -85,11 +98,26 @@ export async function startDaily007VideoWatch(
   userId: string,
   videoId: string,
   durationSeconds: number,
-): Promise<{ sessionId: string; startedAt: string }> {
+  attemptId: string,
+): Promise<{ sessionId: string; startedAt: string; created: boolean }> {
   if (!Number.isSafeInteger(durationSeconds) ||
       durationSeconds < DAILY007_VIDEO_MIN_DURATION_SECONDS ||
       durationSeconds > DAILY007_VIDEO_MAX_DURATION_SECONDS) {
     throw httpError(400, "Video duration is invalid.");
+  }
+  if (!isValidDaily007VideoStartAttemptId(attemptId)) {
+    throw httpError(400, "Video playback attempt identity is invalid.");
+  }
+
+  const existing = await client.query<WatchSessionStartRow>(
+    `SELECT id, video_id, duration_seconds, started_at
+       FROM daily007_v2_video_watch_sessions
+      WHERE user_id = $1 AND start_attempt_id = $2`,
+    [userId, attemptId],
+  );
+  const existingSession = existing.rows[0];
+  if (existingSession) {
+    return existingStartResult(existingSession, videoId, durationSeconds);
   }
 
   const video = await client.query<{ id: string }>(
@@ -99,17 +127,50 @@ export async function startDaily007VideoWatch(
   if (!video.rows[0]) throw httpError(404, "This video is unavailable.");
 
   const inserted = await client.query<{ id: string; started_at: Date | string }>(
-    `INSERT INTO daily007_v2_video_watch_sessions (user_id, video_id, duration_seconds)
-     VALUES ($1, $2, $3)
+    `INSERT INTO daily007_v2_video_watch_sessions
+       (user_id, video_id, duration_seconds, start_attempt_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, start_attempt_id) DO NOTHING
      RETURNING id, started_at`,
-    [userId, videoId, durationSeconds],
+    [userId, videoId, durationSeconds, attemptId],
   );
-  const session = inserted.rows[0];
-  if (!session) throw new Error("The video watch session could not be created.");
-  const startedAt = session.started_at instanceof Date
-    ? session.started_at.toISOString()
-    : new Date(session.started_at).toISOString();
-  return { sessionId: session.id, startedAt };
+  const insertedSession = inserted.rows[0];
+  if (insertedSession) {
+    return {
+      sessionId: insertedSession.id,
+      startedAt: formatStartedAt(insertedSession.started_at),
+      created: true,
+    };
+  }
+
+  const concurrent = await client.query<WatchSessionStartRow>(
+    `SELECT id, video_id, duration_seconds, started_at
+       FROM daily007_v2_video_watch_sessions
+      WHERE user_id = $1 AND start_attempt_id = $2`,
+    [userId, attemptId],
+  );
+  const concurrentSession = concurrent.rows[0];
+  if (!concurrentSession) throw new Error("The video watch session could not be created.");
+  return existingStartResult(concurrentSession, videoId, durationSeconds);
+}
+
+function existingStartResult(
+  session: WatchSessionStartRow,
+  videoId: string,
+  durationSeconds: number,
+): { sessionId: string; startedAt: string; created: false } {
+  if (session.video_id !== videoId || Number(session.duration_seconds) !== durationSeconds) {
+    throw httpError(409, "This playback attempt was already used with different video details.");
+  }
+  return {
+    sessionId: session.id,
+    startedAt: formatStartedAt(session.started_at),
+    created: false,
+  };
+}
+
+function formatStartedAt(startedAt: Date | string): string {
+  return startedAt instanceof Date ? startedAt.toISOString() : new Date(startedAt).toISOString();
 }
 
 export async function completeDaily007VideoWatch(

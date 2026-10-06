@@ -2619,7 +2619,7 @@ export const getDaily007StartVideoWatchUrl = () => {
 }
 
 /**
- * @summary Start a reward-tracked playback session
+ * @summary Start or retrieve a reward-tracked playback session
  */
 export const daily007StartVideoWatch = async (daily007VideoWatchStartBody: Daily007VideoWatchStartBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007VideoWatchSession> => {
 
@@ -2685,7 +2685,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type Daily007StartVideoWatchMutationVariables = {data: BodyType<Daily007VideoWatchStartBody>}
 
     /**
- * @summary Start a reward-tracked playback session
+ * @summary Start or retrieve a reward-tracked playback session
  */
 export const useDaily007StartVideoWatch = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007StartVideoWatch>>, TError,Daily007StartVideoWatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

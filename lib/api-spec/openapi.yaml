@@ -544,7 +544,7 @@ paths:
   /videos/watch/start:
     post:
       operationId: daily007StartVideoWatch
-      summary: Start a reward-tracked playback session
+      summary: Start or retrieve a reward-tracked playback session
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -557,9 +557,15 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007VideoWatchSession" }
-        "400": { description: Invalid video id or duration }
+        "200":
+          description: Existing playback session returned for the same attempt identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007VideoWatchSession" }
+        "400": { description: "Invalid video id, duration, or playback attempt identity" }
         "401": { description: Missing or invalid bearer token }
         "404": { description: Video is unavailable }
+        "409": { description: Playback attempt identity was already used with different details }
   /videos/watch/complete:
     post:
       operationId: daily007CompleteVideoWatch
@@ -1483,7 +1489,12 @@ components:
       properties:
         videoId: { type: string, format: uuid }
         durationSeconds: { type: integer, minimum: 5, maximum: 86400 }
-      required: [videoId, durationSeconds]
+        attemptId:
+          type: string
+          minLength: 16
+          maxLength: 64
+          pattern: "^[A-Za-z0-9_-]{16,64}$"
+      required: [videoId, durationSeconds, attemptId]
     Daily007VideoWatchSession:
       type: object
       properties:

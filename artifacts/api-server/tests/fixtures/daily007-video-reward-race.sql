@@ -41,8 +41,10 @@ CREATE TABLE daily007_v2_video_watch_sessions (
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
   video_id uuid NOT NULL REFERENCES daily007_v2_videos(id),
   duration_seconds integer NOT NULL CHECK (duration_seconds BETWEEN 5 AND 86400),
+  start_attempt_id text,
   reported_percent integer NOT NULL DEFAULT 0 CHECK (reported_percent BETWEEN 0 AND 100),
   started_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
-  reward_ledger_id uuid UNIQUE REFERENCES daily007_v2_wallet_ledger(id)
+  reward_ledger_id uuid UNIQUE REFERENCES daily007_v2_wallet_ledger(id),
+  UNIQUE (user_id, start_attempt_id)
 );
