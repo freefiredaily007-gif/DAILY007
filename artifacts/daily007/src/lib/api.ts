@@ -201,11 +201,16 @@ export const Api = {
     try {
       const response = await unwrap(http.get('/me/stats'));
       const stats = response?.stats ?? response;
+      const toCounter = (value: unknown): number => {
+        if (typeof value === 'number') return value;
+        if (typeof value !== 'string' || value.trim() === '') return Number.NaN;
+        return Number(value);
+      };
       const counters = {
-        matches: Number(stats?.matches),
-        wins: Number(stats?.wins),
-        kills: Number(stats?.kills),
-        prizeCoins: Number(stats?.prizeCoins ?? stats?.prize_coins),
+        matches: toCounter(stats?.matches),
+        wins: toCounter(stats?.wins),
+        kills: toCounter(stats?.kills),
+        prizeCoins: toCounter(stats?.prizeCoins ?? stats?.prize_coins),
       };
       if (Object.values(counters).some((value) => !Number.isFinite(value))) {
         throw new Error('Profile statistics response is incomplete.');

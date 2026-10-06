@@ -219,6 +219,11 @@ test("successful profile statistics map every counter and leave statsError clear
       stats: { matches: 18, wins: 6, kills: 52, prize_coins: 375 },
       expectedPrizeCoins: 375,
     },
+    {
+      name: "valid zero-valued totals",
+      stats: { matches: 0, wins: 0, kills: 0, prizeCoins: 0 },
+      expectedPrizeCoins: 0,
+    },
   ];
 
   for (const response of responses) {
@@ -241,6 +246,50 @@ test("successful profile statistics map every counter and leave statsError clear
       assert.equal(user.kills, response.stats.kills);
       assert.equal(user.prizeCoins, response.expectedPrizeCoins);
       assert.equal(user.statsError, undefined);
+    });
+  }
+});
+
+test("successful but malformed profile statistics preserve the account and leave totals unavailable", async (t) => {
+  const responses = [
+    {
+      name: "a missing prize coin total",
+      stats: { matches: 9, wins: 2, kills: 31 },
+    },
+    {
+      name: "a non-numeric kill total",
+      stats: { matches: 9, wins: 2, kills: "many", prizeCoins: 120 },
+    },
+    {
+      name: "a null kill total",
+      stats: { matches: 9, wins: 2, kills: null, prizeCoins: 120 },
+    },
+    {
+      name: "a blank kill total",
+      stats: { matches: 9, wins: 2, kills: " ", prizeCoins: 120 },
+    },
+  ];
+
+  for (const response of responses) {
+    await t.test(response.name, async (subtest) => {
+      prepareApiSession();
+      const requests = mockApiRequests(subtest, {
+        statsResponse: response.stats,
+      });
+
+      const user = await Api.me();
+
+      assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
+      assert.equal(user.id, "verified-player");
+      assert.equal(user.name, "Verified Player");
+      assert.equal(user.email, "verified@example.test");
+      assert.equal(user.coins, 17);
+      assert.equal(user.token, savedSession.token);
+      assert.equal(user.matches, undefined);
+      assert.equal(user.wins, undefined);
+      assert.equal(user.kills, undefined);
+      assert.equal(user.prizeCoins, undefined);
+      assert.equal(user.statsError, "Profile statistics response is incomplete.");
     });
   }
 });
