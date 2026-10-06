@@ -100,6 +100,7 @@ class Daily007AutoCancelTestDatabase {
   accounts = new Map<string, TestAccount>();
   ledger = new Map<string, TestLedgerEntry>();
   private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
+  private readonly failedMatchFinalizations = new Set<string>();
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
@@ -116,7 +117,12 @@ class Daily007AutoCancelTestDatabase {
       ]),
     );
     this.matchRowLocks.clear();
+    this.failedMatchFinalizations.clear();
     this.mutationTrace.length = 0;
+  }
+
+  failNextMatchFinalization(matchId: string): void {
+    this.failedMatchFinalizations.add(matchId);
   }
 
   setNow(nowMs: number): void {
@@ -340,7 +346,12 @@ class Daily007AutoCancelTestDatabase {
         rows = [{ id: `ledger-${this.ledger.size}` }];
       }
     } else if (normalized.startsWith("UPDATE daily007_v2_matches")) {
-      const match = this.matches.get(String(values[0]));
+      const matchId = String(values[0]);
+      if (this.failedMatchFinalizations.delete(matchId)) {
+        this.mutationTrace.push(`finalize:${matchId}`);
+        throw new Error(`Injected tournament finalization failure: ${matchId}`);
+      }
+      const match = this.matches.get(matchId);
       if (match) {
         match.enabled = false;
         match.isFull = false;

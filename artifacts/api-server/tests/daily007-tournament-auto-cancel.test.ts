@@ -199,6 +199,102 @@ test("a later payer failure rolls back one tournament without stopping the sweep
   );
 });
 
+test("a late finalization failure rolls back refunds and does not stop the sweep", async () => {
+  const failingMatch = match("late-failure-match", "clash_squad", "clash", 3);
+  failingMatch.startsAtWallMs = scheduledStartWallTime - 2_000;
+  const followingMatch = match("following-after-finalize", "lone_wolf", "clash", 2);
+  followingMatch.startsAtWallMs = scheduledStartWallTime - 1_000;
+
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [failingMatch, followingMatch],
+    registrations: [
+      registration("late-first-reg", "late-failure-match", "payer-late-a", 25, "approved"),
+      registration("late-second-reg", "late-failure-match", "payer-late-b", 40, "pending"),
+      registration("following-after-finalize-reg", "following-after-finalize", "payer-following", 18, "approved"),
+    ],
+    accounts: [
+      { id: "payer-late-a", wallet_coins: 120 },
+      { id: "payer-late-b", wallet_coins: 80 },
+      { id: "payer-following", wallet_coins: 70 },
+    ],
+  });
+  autoCancellationTestDb.failNextMatchFinalization("late-failure-match");
+
+  const failingMatchBefore = structuredClone(autoCancellationTestDb.matches.get("late-failure-match"));
+  const failingBalancesBefore = new Map(
+    ["payer-late-a", "payer-late-b"].map((id) => [
+      id,
+      autoCancellationTestDb.accounts.get(id)?.wallet_coins,
+    ]),
+  );
+  const failingLedgerBefore = new Map(
+    [...autoCancellationTestDb.ledger]
+      .filter(([, entry]) => entry.matchId === "late-failure-match")
+      .map(([key, entry]) => [key, structuredClone(entry)]),
+  );
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.deepEqual(
+    autoCancellationTestDb.mutationTrace,
+    [
+      "wallet:payer-late-a",
+      "ledger:late-first-reg",
+      "wallet:payer-late-b",
+      "ledger:late-second-reg",
+      "finalize:late-failure-match",
+      "wallet:payer-following",
+      "ledger:following-after-finalize-reg",
+    ],
+    "the final status update must fail after both refunds, and the following tournament must still refund",
+  );
+  assert.deepEqual(
+    autoCancellationTestDb.matches.get("late-failure-match"),
+    failingMatchBefore,
+    "the failed tournament status and room details must return to their pre-sweep state",
+  );
+  assert.deepEqual(
+    new Map(
+      ["payer-late-a", "payer-late-b"].map((id) => [
+        id,
+        autoCancellationTestDb.accounts.get(id)?.wallet_coins,
+      ]),
+    ),
+    failingBalancesBefore,
+    "both payer balances must return to their pre-sweep state",
+  );
+  assert.deepEqual(
+    new Map(
+      [...autoCancellationTestDb.ledger]
+        .filter(([, entry]) => entry.matchId === "late-failure-match")
+        .map(([key, entry]) => [key, entry]),
+    ),
+    failingLedgerBefore,
+    "refund ledger entries for the failed tournament must return to their pre-sweep state",
+  );
+
+  assert.equal(autoCancellationTestDb.matches.get("following-after-finalize")?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get("payer-following")?.wallet_coins, 88);
+  assert.deepEqual(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === "following-after-finalize"),
+    [{
+      userId: "payer-following",
+      amount: 18,
+      balanceAfter: 88,
+      reason: "tournament_cancel_refund",
+      matchId: "following-after-finalize",
+      registrationId: "following-after-finalize-reg",
+      details: {
+        description: "Entry fee refunded — Test lone_wolf (tournament cancelled)",
+        tournamentId: "following-after-finalize",
+        tournamentTitle: "Test lone_wolf",
+      },
+      createdAt: new Date(scheduledStartUtc),
+    }],
+  );
+});
+
 test("a failing batch does not starve later tournament refunds across sweeps", async () => {
   const failingMatchCount = 100;
   const matchStart = scheduledStartWallTime - 1_000;
