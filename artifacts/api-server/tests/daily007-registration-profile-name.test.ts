@@ -39,6 +39,79 @@ test.after(() => {
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
 });
 
+test("my registration results contain Free Fire and team names but no other players' profile names", async () => {
+  registrationProfileTestDb.reset(PROFILE_NAME);
+  try {
+    await withServer(async (origin) => {
+      const registered = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
+      assert.equal(registered.status, 201);
+      const ownRegistration = registrationProfileTestDb.registrations[0];
+      const other = registrationProfileTestDb.addOtherRegistration();
+      registrationProfileTestDb.resultAwards = [
+        {
+          match_id: TEST_MATCH_ID,
+          registration_id: other.registration.id,
+          rank: 1,
+          kills: 8,
+          prize_coins: 100,
+        },
+        {
+          match_id: TEST_MATCH_ID,
+          registration_id: ownRegistration.id,
+          rank: 2,
+          kills: 5,
+          prize_coins: 50,
+        },
+      ];
+
+      const token = makeToken(TEST_PLAYER_ID, 0);
+      assert.ok(token);
+      const response = await getWithToken(origin, "/my/registrations", token);
+      assert.equal(response.status, 200);
+      const registrations = await response.json() as {
+        playerName: string;
+        tournament: {
+          results: {
+            rank: number;
+            kills: number;
+            prizeCoins: number;
+            gameName: string;
+            teamName: string;
+            playerName?: string;
+          }[];
+        };
+      }[];
+
+      assert.equal(registrations[0].playerName, PROFILE_NAME);
+      const results = registrations[0].tournament.results;
+      assert.deepEqual(results, [
+        {
+          rank: 1,
+          kills: 8,
+          prizeCoins: 100,
+          gameName: "OtherFireCaptain",
+          teamName: "Other Fire",
+        },
+        {
+          rank: 2,
+          kills: 5,
+          prizeCoins: 50,
+          gameName: CAPTAIN_GAME_NAME,
+          teamName: TEAM_NAME,
+        },
+      ]);
+      assert.equal(JSON.stringify(results).includes(PROFILE_NAME), false);
+      assert.equal(JSON.stringify(results).includes("Other Daily007 Player"), false);
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 type RegistrationRequest = {
   label: string;
   path: string;
@@ -332,10 +405,23 @@ test("admin registration CSV preserves commas and quotes in name columns", async
     name,
     uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
   }));
+  const csvRegistrationRequest: RegistrationRequest = {
+    ...registrationRequests[0],
+    body: {
+      ...registrationRequests[0].body,
+      captainGameName: CSV_CAPTAIN_GAME_NAME,
+      teamName: CSV_TEAM_NAME,
+      teammates,
+    },
+  };
 
   try {
     await withServer(async (origin) => {
-        const response = await sendRegistration(origin, request.path, request.body);
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
       assert.equal(response.status, 201);
 
       const registration = registrationProfileTestDb.registrations[0];

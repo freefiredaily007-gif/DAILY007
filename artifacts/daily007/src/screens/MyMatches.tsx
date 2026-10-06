@@ -233,17 +233,13 @@ export default function MyMatches() {
                       <Text style={s.resultsTitle}>TOURNAMENT RESULTS</Text>
                       {results.map((entry: any, index: number) => {
                         const gameName = String(entry.gameName || '').trim();
-                        const playerName = String(entry.playerName || '').trim();
                         const teamName = String(entry.teamName || '').trim();
-                        const winnerName = gameName || playerName || teamName || 'Player';
-                        const secondaryName = gameName && playerName && gameName.toLowerCase() !== playerName.toLowerCase()
-                          ? playerName
-                          : '';
+                        const winnerName = gameName || teamName || 'Player';
                         const resultMeta = [
                           teamName ? `TEAM ${teamName}` : '',
                           entry.kills != null ? `${entry.kills} KILLS` : '',
                         ].filter(Boolean).join(' · ');
-                        const avatarName = playerName || gameName || teamName || 'P';
+                        const avatarName = gameName || teamName || 'P';
                         const rank = Number(entry.rank) || index + 1;
                         const rankStyle = rank === 1
                           ? s.rankGold
@@ -270,7 +266,6 @@ export default function MyMatches() {
                             </View>
                             <View style={s.resultIdentity}>
                               <Text style={s.resultName}>{winnerName}</Text>
-                              {!!secondaryName && <Text style={s.resultSub}>{secondaryName}</Text>}
                               {!!resultMeta && <Text style={s.resultKills}>{resultMeta}</Text>}
                             </View>
                               <View style={[s.prizeWrap, fontScale >= 1.5 && s.prizeWrapLarge]}>

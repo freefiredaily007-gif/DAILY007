@@ -702,10 +702,9 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                        'rank', published.rank,
                        'kills', published.kills,
                        'prizeCoins', published.prize_coins,
-                       'playerName', result_registration.captain_name,
                        'gameName', result_registration.captain_game_name,
                        'teamName', result_registration.team_name
-                     ) ORDER BY published.rank, result_registration.captain_name)
+                      ) ORDER BY published.rank, result_registration.captain_game_name)
                 FROM daily007_v2_result_awards published
                 JOIN daily007_v2_registrations result_registration
                   ON result_registration.id = published.registration_id

@@ -62,6 +62,14 @@ export type CapturedLedgerEntry = {
   registration_id: string;
 };
 
+export type CapturedResultAward = {
+  match_id: string;
+  registration_id: string;
+  rank: number;
+  kills: number;
+  prize_coins: number;
+};
+
 type RegistrationProfileTransactionSnapshot = {
   user: TestUser;
   tournamentAdmin: TestUser;
@@ -70,6 +78,7 @@ type RegistrationProfileTransactionSnapshot = {
   registrations: CapturedRegistration[];
   roster: CapturedRosterMember[];
   ledger: CapturedLedgerEntry[];
+  resultAwards: CapturedResultAward[];
 };
 
 export const TEST_PLAYER_ID = "74000000-0000-4000-8000-000000000001";
@@ -84,6 +93,7 @@ class RegistrationProfileTestDatabase {
   registrations: CapturedRegistration[] = [];
   roster: CapturedRosterMember[] = [];
   ledger: CapturedLedgerEntry[] = [];
+  resultAwards: CapturedResultAward[] = [];
   connectCount = 0;
   failRosterInsertAtPosition: number | null = null;
 
@@ -140,6 +150,7 @@ class RegistrationProfileTestDatabase {
     this.registrations = [];
     this.roster = [];
     this.ledger = [];
+    this.resultAwards = [];
     this.connectCount = 0;
     this.failRosterInsertAtPosition = null;
   }
@@ -215,6 +226,7 @@ class RegistrationProfileTestDatabase {
             registrations: structuredClone(this.registrations),
             roster: structuredClone(this.roster),
             ledger: structuredClone(this.ledger),
+            resultAwards: structuredClone(this.resultAwards),
           };
         } else if (normalized === "ROLLBACK" && transactionSnapshot) {
           this.user = transactionSnapshot.user;
@@ -224,6 +236,7 @@ class RegistrationProfileTestDatabase {
           this.registrations = transactionSnapshot.registrations;
           this.roster = transactionSnapshot.roster;
           this.ledger = transactionSnapshot.ledger;
+          this.resultAwards = transactionSnapshot.resultAwards;
           transactionSnapshot = null;
         } else if (normalized === "COMMIT") {
           transactionSnapshot = null;
@@ -250,6 +263,9 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name,")
     ) {
+      const includesProfileNameInMatchResults = normalized.includes(
+        "'playerName', result_registration.captain_name",
+      );
       result = this.registrations
         .filter((registration) => registration.captain_user_id === String(values[0]))
         .map((registration) => ({
@@ -275,7 +291,28 @@ class RegistrationProfileTestDatabase {
           room_published: this.match.room_published,
           match_has_started: false,
           match_has_winner: false,
-          match_results: null,
+          match_results: this.resultAwards
+            .filter((award) => award.match_id === registration.match_id)
+            .flatMap((award) => {
+              const finisher = this.registrations.find((candidate) =>
+                candidate.id === award.registration_id
+              );
+              return finisher
+                ? [{
+                    rank: award.rank,
+                    kills: award.kills,
+                    prizeCoins: award.prize_coins,
+                    gameName: finisher.captain_game_name,
+                    teamName: finisher.team_name,
+                    ...(includesProfileNameInMatchResults
+                      ? { playerName: finisher.captain_name }
+                      : {}),
+                  }]
+                : [];
+            })
+            .sort((left, right) =>
+              left.rank - right.rank || left.gameName.localeCompare(right.gameName)
+            ),
           result_rank: null,
           result_kills: null,
           result_prize_coins: null,

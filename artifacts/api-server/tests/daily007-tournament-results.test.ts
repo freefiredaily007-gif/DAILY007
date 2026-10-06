@@ -245,13 +245,30 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(completedResultsList.status, 200);
     assert.deepEqual(
       completedResultsList.body.data.map((entry: any) => ({
+        playerName: entry.playerName,
+        gameName: entry.gameName,
+        teamName: entry.teamName,
         tournamentId: entry.tournamentId,
         rank: entry.rank,
         prizeCoins: entry.prizeCoins,
       })),
       [
-        { tournamentId: TEST_MATCH_ID, rank: 1, prizeCoins: 1_500 },
-        { tournamentId: TEST_MATCH_ID, rank: 2, prizeCoins: 600 },
+        {
+          playerName: "First Place",
+          gameName: "WinnerFF",
+          teamName: null,
+          tournamentId: TEST_MATCH_ID,
+          rank: 1,
+          prizeCoins: 1_500,
+        },
+        {
+          playerName: "Second Place",
+          gameName: "RunnerUpFF",
+          teamName: null,
+          tournamentId: TEST_MATCH_ID,
+          rank: 2,
+          prizeCoins: 600,
+        },
       ],
     );
 
