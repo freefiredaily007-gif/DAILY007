@@ -4,7 +4,7 @@ type TestUser = {
   email: string;
   role: "user" | "tournament_admin";
   wallet_coins: number;
-  phone: null;
+  phone: string | null;
   game_uid: null;
   status: "active";
   auth_version: number;
@@ -84,6 +84,9 @@ type RegistrationProfileTransactionSnapshot = {
 export const TEST_PLAYER_ID = "74000000-0000-4000-8000-000000000001";
 export const TEST_MATCH_ID = "74000000-0000-4000-8000-000000000002";
 export const TEST_TOURNAMENT_ADMIN_ID = "74000000-0000-4000-8000-000000000003";
+export const PUBLIC_PARTICIPANT_PRIVATE_EMAIL = "participant-private-email-8d74@example.test";
+export const PUBLIC_PARTICIPANT_PRIVATE_PHONE = "+1-555-019-8274";
+export const PUBLIC_PARTICIPANT_PRIVATE_WALLET = 839174263;
 
 class RegistrationProfileTestDatabase {
   user!: TestUser;
@@ -153,6 +156,12 @@ class RegistrationProfileTestDatabase {
     this.resultAwards = [];
     this.connectCount = 0;
     this.failRosterInsertAtPosition = null;
+  }
+
+  seedPublicParticipantPrivacySentinels(): void {
+    this.user.email = PUBLIC_PARTICIPANT_PRIVATE_EMAIL;
+    this.user.phone = PUBLIC_PARTICIPANT_PRIVATE_PHONE;
+    this.user.wallet_coins = PUBLIC_PARTICIPANT_PRIVATE_WALLET;
   }
 
   addOtherRegistration(status: CapturedRegistration["status"] = "approved"): {
