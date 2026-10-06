@@ -105,24 +105,29 @@ function prepareApiSession() {
   storedSession = JSON.stringify(savedSession);
 }
 
-function mockApiRequests(t, statsFailure) {
+function mockApiRequests(t, { statsFailure, statsResponse } = {}) {
   const requests = [];
   t.mock.method(http, "get", async (path) => {
     requests.push(path);
     if (path === "/auth/me") {
       return {
         data: {
-          success: true,
-          data: {
-            id: "verified-player",
-            name: "Verified Player",
-            email: "verified@example.test",
-            coins: 17,
-          },
+          id: "verified-player",
+          name: "Verified Player",
+          email: "verified@example.test",
+          phone: "5550107",
+          gameUid: "FF-VERIFIED",
+          role: "user",
+          status: "active",
+          coins: 17,
+          walletCoins: 17,
         },
       };
     }
-    if (path === "/me/stats") throw statsFailure;
+    if (path === "/me/stats") {
+      if (statsFailure) throw statsFailure;
+      return { data: statsResponse };
+    }
     assert.fail(`Unexpected API request: ${path}`);
   });
   return requests;
@@ -183,7 +188,7 @@ test("temporary profile-statistics failures preserve the verified account", asyn
   for (const failure of failures) {
     await t.test(failure.name, async (subtest) => {
       prepareApiSession();
-      const requests = mockApiRequests(subtest, failure.error);
+      const requests = mockApiRequests(subtest, { statsFailure: failure.error });
 
       const user = await Api.me();
 
@@ -202,12 +207,50 @@ test("temporary profile-statistics failures preserve the verified account", asyn
   }
 });
 
+test("successful profile statistics map every counter and leave statsError clear", async (t) => {
+  const responses = [
+    {
+      name: "camel-case prizeCoins",
+      stats: { matches: 27, wins: 11, kills: 94, prizeCoins: 640 },
+      expectedPrizeCoins: 640,
+    },
+    {
+      name: "supported snake-case prize_coins alias",
+      stats: { matches: 18, wins: 6, kills: 52, prize_coins: 375 },
+      expectedPrizeCoins: 375,
+    },
+  ];
+
+  for (const response of responses) {
+    await t.test(response.name, async (subtest) => {
+      prepareApiSession();
+      const requests = mockApiRequests(subtest, {
+        statsResponse: response.stats,
+      });
+
+      const user = await Api.me();
+
+      assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
+      assert.equal(user.id, "verified-player");
+      assert.equal(user.name, "Verified Player");
+      assert.equal(user.email, "verified@example.test");
+      assert.equal(user.coins, 17);
+      assert.equal(user.token, savedSession.token);
+      assert.equal(user.matches, response.stats.matches);
+      assert.equal(user.wins, response.stats.wins);
+      assert.equal(user.kills, response.stats.kills);
+      assert.equal(user.prizeCoins, response.expectedPrizeCoins);
+      assert.equal(user.statsError, undefined);
+    });
+  }
+});
+
 test("401 and 403 from profile statistics still reject the session", async (t) => {
   for (const status of [401, 403]) {
     await t.test(`HTTP ${status}`, async (subtest) => {
       prepareApiSession();
       const failure = responseError(status);
-      const requests = mockApiRequests(subtest, failure);
+      const requests = mockApiRequests(subtest, { statsFailure: failure });
 
       await assert.rejects(Api.me(), (error) => error === failure);
       assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
