@@ -439,7 +439,10 @@ export const Api = {
   adminClearRoom: async () => ({}),
   adminPublishResult: async () => ({}),
   updateTournament: async () => ({}),
-  createTournament: async () => ({}),
+  createTournament: async (payload: Record<string, unknown>) => {
+    adminPreviewMutationCalls.push({ method: "createTournament", payload: { ...payload } });
+    return {};
+  },
   deleteTournament: async () => ({}),
   adminAdjustCoins: async (userId: string, amount: number, reason: string) => {
     adminPreviewMutationCalls.push({ method: "adminAdjustCoins", userId, amount, reason });

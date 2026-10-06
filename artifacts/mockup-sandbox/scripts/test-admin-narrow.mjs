@@ -29,6 +29,7 @@ const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
+const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
 const browserErrors = [];
@@ -261,6 +262,38 @@ async function clickTextLabel(text) {
   await delay(130);
 }
 
+async function clickTournamentFormControl(text, description) {
+  const prepared = await evaluate(`(() => {
+    const form = document.querySelector('[data-testid="admin-tournament-create-form"]');
+    if (!form) return false;
+    const controls = [...form.querySelectorAll('[role="button"], button, [tabindex="0"]')];
+    const control = controls.find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+    if (!control) return false;
+    control.scrollIntoView({ block: "center", inline: "nearest" });
+    return true;
+  })()`);
+  assert(prepared, `Could not find ${description} in the tournament creation form.`);
+  await delay(100);
+  const clicked = await evaluate(`(() => {
+    const form = document.querySelector('[data-testid="admin-tournament-create-form"]');
+    if (!form) return false;
+    const controls = [...form.querySelectorAll('[role="button"], button, [tabindex="0"]')];
+    const control = controls.find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+    if (!control) return false;
+    const rect = control.getBoundingClientRect();
+    const hitTarget = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const visible = rect.width > 0 && rect.height > 0 &&
+      rect.left >= -1 && rect.right <= window.innerWidth + 1 &&
+      rect.top >= -1 && rect.bottom <= window.innerHeight + 1;
+    const hitTestable = Boolean(hitTarget && (control === hitTarget || control.contains(hitTarget)));
+    if (!visible || !hitTestable) return false;
+    control.click();
+    return true;
+  })()`);
+  assert(clicked, `${description} is not visible and tappable in the tournament creation form.`);
+  await delay(130);
+}
+
 async function clickRowButton(marker, action, description) {
   const clicked = await evaluate(`(() => {
     const marker = ${JSON.stringify(marker)};
@@ -448,6 +481,35 @@ async function assertVisibleAdminControlsFit(width, description) {
       control.scrollWidth <= control.clientWidth + 2,
       `${description} control "${control.label}" is clipped horizontally at ${width}px ` +
         `(content ${control.scrollWidth}px, box ${control.clientWidth}px).`,
+    );
+  }
+}
+
+async function assertAdminFormControlBounds(width, description) {
+  const controls = await evaluate(`(() => {
+    const form = document.querySelector('[data-testid="admin-tournament-create-form"]');
+    if (!form) return null;
+    return [...form.querySelectorAll('input, textarea, button, [role="button"], [tabindex="0"]')]
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          label: element.getAttribute('aria-label') || element.textContent?.trim() ||
+            element.getAttribute('placeholder') || element.tagName,
+          left: rect.left,
+          right: rect.right,
+        };
+      });
+  })()`);
+  assert(controls, `${description}: the tournament creation form is missing.`);
+  for (const control of controls) {
+    assert(
+      control.left >= -1 && control.right <= width + 1,
+      `${description} control "${control.label}" extends outside the ${width}px viewport ` +
+        `(${control.left.toFixed(1)}–${control.right.toFixed(1)}px).`,
     );
   }
 }
@@ -2050,6 +2112,26 @@ async function setInputValue(selector, value) {
   await delay(90);
 }
 
+async function setTournamentFormValue(selector, value) {
+  const updated = await evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) return false;
+    input.scrollIntoView({ block: "center", inline: "nearest" });
+    const prototype = input instanceof HTMLInputElement
+      ? window.HTMLInputElement.prototype
+      : window.HTMLTextAreaElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (!setter) return false;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.focus();
+    return true;
+  })()`);
+  assert(updated, `Could not enter text into tournament field ${selector}.`);
+  await delay(90);
+}
+
 async function assertKeyboardReachability(scrollTestId, inputTestId, actionTestId, description) {
   const state = await evaluate(`(() => {
     const scrollSelector = ${JSON.stringify(`[data-testid="${scrollTestId}"]`)};
@@ -2423,6 +2505,93 @@ async function checkAdminTournamentKeyboard() {
   await assertAdminFormLayoutRecovered("result-entry", resultState.clientHeight, "Tournament result entry");
 }
 
+async function checkAdminTournamentCreationSaveAtLargeText() {
+  await setViewport(320, 1.5);
+  assert(
+    await evaluate("window.__daily007LargeTextScale === 1.5"),
+    "The tournament creation preview did not apply 1.5× Android text scale.",
+  );
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tab-tournaments"]'))`,
+    "Admin navigation",
+  );
+  await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments Admin tab");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]'))`,
+    "Admin tournament screen",
+  );
+  await clickButton("NEW");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]'))`,
+    "tournament creation form",
+  );
+
+  await clickTournamentFormControl("Clash Squad", "Clash Squad mode");
+  await clickTournamentFormControl("Duo", "Duo format");
+  await clickTournamentFormControl("9", "tournament start hour");
+  await clickTournamentFormControl("35", "tournament start minute");
+  await clickTournamentFormControl("PM", "tournament start period");
+  await clickTournamentFormControl("CS banner", "Clash Squad banner");
+  await assertVisibleAdminControlsFit(320, "selected tournament creation form");
+
+  const name = "Clash Night 7";
+  const date = "2031-06-17";
+  const imageUrl = "https://example.invalid/clash-night.png";
+  const rules = "Bring your own device.\nNo scripts or exploits.";
+  const prizeDist = "1st: 500 coins\n2nd: 200 coins";
+  await setTournamentFormValue('input[placeholder="Tournament name *"]', name);
+  await setTournamentFormValue('input[placeholder="Date (YYYY-MM-DD, IST) *"]', date);
+  await setTournamentFormValue('input[placeholder="Entry coins *"]', "35");
+  await setTournamentFormValue('input[placeholder="Prize pool"]', "700");
+  await setTournamentFormValue('input[placeholder="Optional custom banner image URL (HTTPS)"]', imageUrl);
+  await setTournamentFormValue('textarea[placeholder="Rules (one per line)"]', rules);
+  await setTournamentFormValue('textarea[placeholder="Prize distribution (e.g. 1st: 500 coins)"]', prizeDist);
+
+  await assertText("2 team slots · 4 players", "selected Clash Squad Duo capacity");
+  await assertText("Selected: 9:35 PM", "selected tournament start time");
+  await assertAdminFormControlBounds(320, "populated tournament creation form");
+  await assertPageHasNoHorizontalOverflow(320, "populated tournament creation form");
+  await assertVisibleTextFits(
+    '[data-testid="admin-tournament-create-form"]',
+    320,
+    "populated tournament creation form",
+  );
+
+  await resetAdminMutationCalls();
+  await clickTournamentFormControl("CREATE", "Create tournament action");
+  await waitForCondition(
+    `document.body.innerText.includes("Tournament created successfully") &&
+      !document.querySelector('[data-testid="admin-tournament-create-form"]')`,
+    "successful tournament creation and form closure",
+  );
+  await assertAdminMutation({
+    method: "createTournament",
+    payload: {
+      name,
+      mode: "Clash Squad",
+      teamType: "Duo",
+      date,
+      time: "9:35 PM",
+      entryCoins: 35,
+      prizePool: 700,
+      totalSlots: 2,
+      rules,
+      banner: "cs",
+      imageUrl,
+      prizeDist,
+    },
+  }, "Tournament creation");
+
+  const successState = await evaluate(`({
+    successVisible: document.body.innerText.includes("Tournament created successfully"),
+    formClosed: !document.querySelector('[data-testid="admin-tournament-create-form"]'),
+    width: window.innerWidth,
+  })`);
+  assert(successState?.successVisible, "The successful tournament creation message was not visible.");
+  assert(successState.formClosed, "The tournament creation form remained open after success.");
+  assert(successState.width === 320, "The tournament creation flow left the 320px viewport.");
+}
+
 let vitePort;
 
 try {
@@ -2511,6 +2680,7 @@ try {
     homeCarouselOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
+    adminTournamentCreateSaveOnly ||
     adminActionsOnly
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
@@ -2542,6 +2712,8 @@ try {
           ? "Wallet and Edit Profile"
         : adminKeyboardFormsOnly
           ? "Admin tournament keyboard forms"
+        : adminTournamentCreateSaveOnly
+          ? "Admin tournament creation at 320px with 1.5× text"
         : adminActionsOnly
           ? "Admin selected-record actions"
           : "player and Admin tournament screens",
@@ -2574,6 +2746,13 @@ try {
         `Browser errors during Player first-load checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A failed first Player tournament load shows the correct error with no cards; a later successful load shows the card and clears the error.");
+    } else if (adminTournamentCreateSaveOnly) {
+      await checkAdminTournamentCreationSaveAtLargeText();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during large-text tournament creation checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Tournament creation at 320px/1.5× submits every entered setting and shows success.");
     } else if (adminActionsOnly) {
       await setViewport(390);
       await checkAdminSelectedRecordMutations();

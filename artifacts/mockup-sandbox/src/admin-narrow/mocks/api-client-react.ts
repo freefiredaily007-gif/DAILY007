@@ -410,3 +410,7 @@ export function useDaily007AdminSetVideoActive() {
 export function useDaily007AdminUpdateVideo() {
   return noMutation();
 }
+
+export function useDaily007AdminDeleteUser() {
+  return noMutation();
+}
