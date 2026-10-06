@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
+export const DAILY007_LOGIN_FAILURE_MESSAGE = "Email or password is incorrect.";
+
 // Unknown emails still run scrypt; the derived hash is discarded.
 const UNKNOWN_EMAIL_SALT = Buffer.alloc(16);
 

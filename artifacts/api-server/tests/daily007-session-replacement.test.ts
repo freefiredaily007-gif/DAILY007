@@ -101,7 +101,7 @@ test("unknown-email and wrong-password login checks each hash exactly once", asy
   assert.deepEqual(hashCalls[1].salt, Buffer.from(storedCredentials.password_salt, "hex"));
 });
 
-test("unknown emails and wrong passwords return the same public login error on both routes", async () => {
+test("unknown emails, wrong passwords, and blocked accounts share one public login error", async () => {
   signupTestDb.reset();
 
   await withServer(async (origin) => {
@@ -120,6 +120,7 @@ test("unknown emails and wrong passwords return the same public login error on b
       { label: "Daily007 v2", loginPath: "/daily007/v2/auth/login" },
       { label: "compatibility", loginPath: "/auth/login" },
     ];
+    const unknownEmailResponses: JsonResult[] = [];
 
     for (const route of loginRoutes) {
       const unknownEmail = await request(origin, route.loginPath, "POST", {
@@ -148,7 +149,26 @@ test("unknown emails and wrong passwords return the same public login error on b
         unknownEmail.body.error,
         `${route.label} must return the same public error for both failures`,
       );
+      unknownEmailResponses.push(unknownEmail);
     }
+
+    const blockedAccount = [...signupTestDb.users.values()].find((user) => user.email === email);
+    assert.ok(blockedAccount, "the test signup should exist in the isolated signup database");
+    blockedAccount.status = "blocked";
+
+    for (const [index, route] of loginRoutes.entries()) {
+      const blockedLogin = await request(origin, route.loginPath, "POST", {
+        email,
+        password,
+      });
+      assert.equal(blockedLogin.status, 401, `${route.label} blocked account should be rejected generically`);
+      assert.deepEqual(
+        blockedLogin.body,
+        unknownEmailResponses[index]?.body,
+        `${route.label} must not reveal that this blocked email belongs to an account`,
+      );
+    }
+    assert.equal(blockedAccount.auth_version, 0, "blocked login attempts must not create or rotate a session");
   });
 });
 

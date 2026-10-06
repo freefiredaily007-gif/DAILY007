@@ -8,7 +8,10 @@ import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mod
 import { storedTournamentTimeFromInstant, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials, isRoomCredentialReleaseOpen } from "../lib/daily007-room-access";
 import { hasTournamentAdminAccess, isFullAdminRole, type Daily007Role } from "../lib/daily007-roles";
-import { verifyDaily007LoginPassword } from "../lib/daily007-login-password";
+import {
+  DAILY007_LOGIN_FAILURE_MESSAGE,
+  verifyDaily007LoginPassword,
+} from "../lib/daily007-login-password";
 import {
   daily007TokenConfigured,
   isSessionVersionCurrent,
@@ -266,15 +269,12 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
   );
   const user = result.rows[0];
   if (body.password.length > 200) {
-    fail(res, 401, "Email or password is incorrect.");
+    fail(res, 401, DAILY007_LOGIN_FAILURE_MESSAGE);
     return;
   }
-  if (user?.status === "blocked") {
-    fail(res, 403, "This account is blocked.");
-    return;
-  }
-  if (!await verifyDaily007LoginPassword(body.password, user ?? null, hashPassword)) {
-    fail(res, 401, "Email or password is incorrect.");
+  const passwordMatches = await verifyDaily007LoginPassword(body.password, user ?? null, hashPassword);
+  if (!passwordMatches || user?.status === "blocked") {
+    fail(res, 401, DAILY007_LOGIN_FAILURE_MESSAGE);
     return;
   }
   const rotated = await pool.query<{ auth_version: number }>(
@@ -285,7 +285,7 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
     [user.id],
   );
   if (!rotated.rows[0]) {
-    fail(res, 401, "Account could not be signed in. Please try again.");
+    fail(res, 401, DAILY007_LOGIN_FAILURE_MESSAGE);
     return;
   }
   const token = makeToken(user.id, rotated.rows[0].auth_version);

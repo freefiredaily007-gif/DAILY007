@@ -5,7 +5,10 @@ import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials } from "../lib/daily007-room-access";
-import { verifyDaily007LoginPassword } from "../lib/daily007-login-password";
+import {
+  DAILY007_LOGIN_FAILURE_MESSAGE,
+  verifyDaily007LoginPassword,
+} from "../lib/daily007-login-password";
 import { parsePasswordChangeInput, passwordHashesMatch } from "../lib/daily007-password-change";
 import {
   cancelUnderfilledTournamentAndRefund,
@@ -292,10 +295,10 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     [body.email.trim().toLowerCase()],
   );
   const user = result.rows[0];
-  if (body.password.length > 200) return fail(res, 401, "Email or password is incorrect.");
-  if (user?.status === "blocked") return fail(res, 403, "This account is blocked.");
-  if (!await verifyDaily007LoginPassword(body.password, user ?? null, hashPassword)) {
-    return fail(res, 401, "Email or password is incorrect.");
+  if (body.password.length > 200) return fail(res, 401, DAILY007_LOGIN_FAILURE_MESSAGE);
+  const passwordMatches = await verifyDaily007LoginPassword(body.password, user ?? null, hashPassword);
+  if (!passwordMatches || user?.status === "blocked") {
+    return fail(res, 401, DAILY007_LOGIN_FAILURE_MESSAGE);
   }
   const rotated = await pool.query<{ auth_version: number }>(
     `UPDATE daily007_v2_users
@@ -305,7 +308,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     [user.id],
   );
   if (!rotated.rows[0]) {
-    return fail(res, 401, "Account could not be signed in. Please try again.");
+    return fail(res, 401, DAILY007_LOGIN_FAILURE_MESSAGE);
   }
   const token = makeToken(user.id, rotated.rows[0].auth_version);
   if (!token) return fail(res, 503, "Daily007 authentication is not configured.");
