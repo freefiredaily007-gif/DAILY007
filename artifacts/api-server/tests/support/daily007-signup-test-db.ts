@@ -46,6 +46,14 @@ type Snapshot = {
   nextReferralId: number;
 };
 
+type AdvisoryLockBarrier = {
+  expectedArrivals: number;
+  arrivals: number;
+  promise: Promise<void>;
+  release: () => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 export const SIGNUP_TEST_REFERRAL_CODE = "ABCDE";
 const REFERRER_ID = "40000000-0000-4000-8000-000000000001";
 export const SIGNUP_TEST_LEGACY_REFERRAL_CODE = referralCodeForUserId(REFERRER_ID);
@@ -82,10 +90,14 @@ class MemorySignupDatabase {
   private nextUserId = 2;
   private nextLedgerId = 1;
   private nextReferralId = 1;
+  private advisoryLockTails = new Map<string, Promise<void>>();
+  private advisoryLockBarrier: AdvisoryLockBarrier | null = null;
+  advisoryLockWaitCount = 0;
   private shouldFailNextReferralSignupRewardLedgerWrite = false;
   private shouldFailNextReferralShortCodeInsert = false;
 
   reset(): void {
+    this.advisoryLockBarrier?.release();
     const referrer: SignupUser = {
       id: REFERRER_ID,
       name: "Referral Test Owner",
@@ -114,6 +126,33 @@ class MemorySignupDatabase {
     this.nextUserId = 2;
     this.nextLedgerId = 1;
     this.nextReferralId = 1;
+    this.advisoryLockTails.clear();
+    this.advisoryLockWaitCount = 0;
+  }
+
+  synchronizeNextAdvisoryLockQueries(expectedArrivals: number): void {
+    if (!Number.isInteger(expectedArrivals) || expectedArrivals < 1) {
+      throw new Error("Advisory lock synchronization requires a positive integer.");
+    }
+    this.advisoryLockBarrier?.release();
+
+    let resolveBarrier!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      resolveBarrier = resolve;
+    });
+    let barrier!: AdvisoryLockBarrier;
+    barrier = {
+      expectedArrivals,
+      arrivals: 0,
+      promise,
+      release: () => {
+        clearTimeout(barrier.timeout);
+        if (this.advisoryLockBarrier === barrier) this.advisoryLockBarrier = null;
+        resolveBarrier();
+      },
+      timeout: setTimeout(() => barrier.release(), 2_000),
+    };
+    this.advisoryLockBarrier = barrier;
   }
 
   failNextReferralSignupRewardLedgerWrite(): void {
@@ -152,10 +191,41 @@ class MemorySignupDatabase {
     this.nextReferralId = snapshot.nextReferralId;
   }
 
+  private async acquireAdvisoryTransactionLock(key: string): Promise<() => void> {
+    const previous = this.advisoryLockTails.get(key);
+    if (previous) this.advisoryLockWaitCount += 1;
+
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    this.advisoryLockTails.set(key, current);
+    if (previous) await previous;
+
+    return () => {
+      releaseCurrent();
+      if (this.advisoryLockTails.get(key) === current) {
+        this.advisoryLockTails.delete(key);
+      }
+    };
+  }
+
+  private async waitForAdvisoryLockBarrier(): Promise<void> {
+    const barrier = this.advisoryLockBarrier;
+    if (!barrier) return;
+    barrier.arrivals += 1;
+    if (barrier.arrivals >= barrier.expectedArrivals) barrier.release();
+    await barrier.promise;
+  }
+
   async connect() {
     let transactionSnapshot: Snapshot | null = null;
+    const transactionLockReleases: (() => void)[] = [];
+    const releaseTransactionLocks = () => {
+      for (const release of transactionLockReleases.splice(0).reverse()) release();
+    };
     return {
-      query: async <T = unknown>(sql: string, values: unknown[] = []) => {
+      query: async <T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> => {
         const normalized = sql.replace(/\s+/g, " ").trim();
         if (normalized === "BEGIN") {
           transactionSnapshot = this.snapshot();
@@ -163,16 +233,27 @@ class MemorySignupDatabase {
         }
         if (normalized === "COMMIT") {
           transactionSnapshot = null;
+          releaseTransactionLocks();
           return { rows: [] as T[] };
         }
         if (normalized === "ROLLBACK") {
           if (transactionSnapshot) this.restore(transactionSnapshot);
           transactionSnapshot = null;
+          releaseTransactionLocks();
+          return { rows: [] as T[] };
+        }
+        if (normalized.startsWith("SELECT pg_advisory_xact_lock(")) {
+          await this.waitForAdvisoryLockBarrier();
+          const releaseLock = await this.acquireAdvisoryTransactionLock(
+            String(values[0] ?? ""),
+          );
+          transactionLockReleases.push(releaseLock);
+          transactionSnapshot = this.snapshot();
           return { rows: [] as T[] };
         }
         return this.query<T>(normalized, values);
       },
-      release: () => {},
+      release: releaseTransactionLocks,
     };
   }
 

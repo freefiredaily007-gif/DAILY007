@@ -391,6 +391,111 @@ test("referred Google signup and repeat sign-in keep one 10-coin referral reward
   }
 });
 
+test("simultaneous referred Google sign-ins create one account and one 10-coin reward", async () => {
+  signupTestDb.reset();
+  signupTestDb.synchronizeNextAdvisoryLockQueries(2);
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signIns = await Promise.all([
+        googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE),
+        googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE),
+      ]);
+
+      assert.deepEqual(
+        signIns.map(({ status }) => status).sort((left, right) => left - right),
+        [200, 201],
+        "one request should create the referred account while the other reuses it",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.equal(
+        signupTestDb.advisoryLockWaitCount,
+        1,
+        "the requests should contend on the same transaction-scoped identity lock",
+      );
+
+      const linkedAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(linkedAccounts.length, 1);
+      assert.equal(signupTestDb.users.size, 2, "only the seeded referrer and one Google account should exist");
+      const account = linkedAccounts[0];
+      assert.ok(account);
+      assert.equal(account.email, "google-signup@example.test");
+      assert.equal(account.wallet_coins, 10);
+      assert.ok(signIns.every(({ body }) => body.id === account.id));
+      assert.ok(signIns.every(({ body }) => body.coins === 10));
+      assert.ok(signIns.every(({ body }) => typeof body.token === "string"));
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: account.id,
+          code: SIGNUP_TEST_REFERRAL_CODE,
+        }],
+      );
+
+      assert.deepEqual(
+        signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          user_id: account.id,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+
+      const walletResponses = await Promise.all(signIns.map(async ({ body }) => {
+        const response = await fetch(`${origin}/wallet/transactions`, {
+          headers: { authorization: `Bearer ${String(body.token)}` },
+        });
+        return {
+          status: response.status,
+          history: response.status === 200
+            ? await response.json() as Array<Record<string, unknown>>
+            : [],
+        };
+      }));
+      const validWalletHistories = walletResponses.filter(({ status }) => status === 200);
+      assert.equal(validWalletHistories.length, 1, "only the latest simultaneous sign-in session should remain valid");
+      assert.deepEqual(
+        validWalletHistories[0].history.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+      assert.deepEqual(
+        walletResponses.map(({ status }) => status).sort((left, right) => left - right),
+        [200, 401],
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("referral reward ledger failure rolls back a Google signup and Clerk identity link", async () => {
   signupTestDb.reset();
   signupTestDb.failNextReferralSignupRewardLedgerWrite();
