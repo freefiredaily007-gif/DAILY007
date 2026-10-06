@@ -39,6 +39,14 @@ const FORMULA_TEAMMATE_NAMES = [
   "=HYPERLINK(\"https://example.test\", \"mate\")",
   "+5+6",
 ] as const;
+const MULTILINE_PROFILE_NAME = "Daily007\r\nCaptain";
+const MULTILINE_CAPTAIN_GAME_NAME = "Fire\r\nStorm";
+const MULTILINE_TEAM_NAME = "Blue\r\nFire";
+const MULTILINE_TEAMMATE_NAMES = [
+  "North\r\nEast",
+  "South\r\nWest",
+  "West\r\nNorth",
+] as const;
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -231,6 +239,52 @@ async function getWithToken(origin: string, path: string, token: string): Promis
 function parseCsvRow(line: string): string[] {
   return [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)]
     .map(([, value]) => value.replaceAll('""', '"'));
+}
+
+function parseCsvDocument(input: string): string[][] {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let value = "";
+  let insideQuotes = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+    if (insideQuotes) {
+      if (character === '"') {
+        if (input[index + 1] === '"') {
+          value += '"';
+          index += 1;
+        } else {
+          insideQuotes = false;
+        }
+      } else {
+        value += character;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      insideQuotes = true;
+    } else if (character === ",") {
+      record.push(value);
+      value = "";
+    } else if (character === "\r" || character === "\n") {
+      if (character === "\r" && input[index + 1] === "\n") index += 1;
+      record.push(value);
+      records.push(record);
+      record = [];
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+
+  if (insideQuotes) throw new Error("CSV ended inside a quoted cell.");
+  if (record.length > 0 || value.length > 0) {
+    record.push(value);
+    records.push(record);
+  }
+  return records;
 }
 
 for (const request of registrationRequests) {
@@ -550,6 +604,76 @@ test("admin registration CSV apostrophe-guards formula-like captain, team, and t
           `'${formulaValue}`,
           `${column} should retain the apostrophe guard before its formula marker`,
         );
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
+test("admin registration CSV keeps embedded CR/LF in saved names within one record", async () => {
+  registrationProfileTestDb.reset(MULTILINE_PROFILE_NAME);
+  const teammates = MULTILINE_TEAMMATE_NAMES.map((name, index) => ({
+    name,
+    uid: [TEAMMATE_UID, TEAMMATE_TWO_UID, TEAMMATE_THREE_UID][index],
+  }));
+  const csvRegistrationRequest: RegistrationRequest = {
+    ...registrationRequests[0],
+    body: {
+      ...registrationRequests[0].body,
+      captainGameName: MULTILINE_CAPTAIN_GAME_NAME,
+      teamName: MULTILINE_TEAM_NAME,
+      teammates,
+    },
+  };
+
+  try {
+    await withServer(async (origin) => {
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
+      assert.equal(response.status, 201);
+
+      const registration = registrationProfileTestDb.registrations[0];
+      const savedRoster = registrationProfileTestDb.roster
+        .filter((member) => member.registration_id === registration.id)
+        .sort((left, right) => left.position - right.position);
+
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+
+      const records = parseCsvDocument(await csvResponse.text());
+      assert.equal(records.length, 2, "Header and registration should form exactly two CSV records.");
+      const [headers, values] = records;
+      assert.ok(headers);
+      assert.ok(values);
+      assert.equal(values.length, headers.length);
+
+      const expectedNames: Record<string, string> = {
+        captain_profile_name: registration.captain_name,
+        captain_game_name: registration.captain_game_name,
+        team_name: registration.team_name,
+        teammate_1_name: savedRoster[0].member_name,
+        teammate_2_name: savedRoster[1].member_name,
+        teammate_3_name: savedRoster[2].member_name,
+      };
+      for (const [column, savedName] of Object.entries(expectedNames)) {
+        const index = headers.indexOf(column);
+        assert.notEqual(index, -1, `CSV header should include ${column}`);
+        assert.equal(
+          values[index],
+          savedName,
+          `${column} should restore the exact saved name including embedded CR/LF.`,
+        );
+        assert.ok(savedName.includes("\r\n"), `${column} fixture value should contain embedded CR/LF.`);
       }
     });
   } finally {
