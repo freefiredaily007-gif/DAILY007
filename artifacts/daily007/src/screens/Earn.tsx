@@ -23,9 +23,9 @@ import {
 import { C } from '../components/ui';
 import { apiError } from '../lib/api';
 import {
-  copyReferralLinkToClipboard,
+  copyReferralLinkToClipboardWithFallback,
   openReferralInBrowserWithFallback,
-  shareReferralInvite,
+  shareReferralInviteWithFallback,
 } from '../lib/referral-invite';
 
 const rechargeStatusLabel: Record<string, string> = {
@@ -80,15 +80,12 @@ export default function Earn() {
   const shareInvite = async () => {
     if (!dashboard?.code || !dashboard.referralLink) return;
     setActionError('');
-    try {
-      await shareReferralInvite(
-        dashboard.code,
-        dashboard.referralLink,
-        (content) => Share.share(content),
-      );
-    } catch {
-      setActionError('Could not open the share sheet. You can copy the code instead.');
-    }
+    await shareReferralInviteWithFallback(
+      dashboard.code,
+      dashboard.referralLink,
+      (content) => Share.share(content),
+      setActionError,
+    );
   };
 
   const openReferralLink = async () => {
@@ -104,17 +101,15 @@ export default function Earn() {
   const copyReferralLink = async () => {
     if (!dashboard?.referralLink) return;
     setActionError('');
-    try {
-      await copyReferralLinkToClipboard(
-        dashboard.referralLink,
-        Clipboard.setStringAsync,
-      );
-      setLinkCopied(true);
-      Alert.alert('Invite link copied', 'Send the link to a friend. It opens Daily007 signup with your referral code filled in.');
-      setTimeout(() => setLinkCopied(false), 1800);
-    } catch {
-      setActionError('Could not copy the invite link. Try the share button instead.');
-    }
+    const copiedSuccessfully = await copyReferralLinkToClipboardWithFallback(
+      dashboard.referralLink,
+      Clipboard.setStringAsync,
+      setActionError,
+    );
+    if (!copiedSuccessfully) return;
+    setLinkCopied(true);
+    Alert.alert('Invite link copied', 'Send the link to a friend. It opens Daily007 signup with your referral code filled in.');
+    setTimeout(() => setLinkCopied(false), 1800);
   };
 
   const openYoutubeChannel = async () => {

@@ -3,10 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   copyReferralLinkToClipboard,
+  copyReferralLinkToClipboardWithFallback,
   openReferralInBrowserWithFallback,
   referralBrowserOpenFallbackMessage,
+  referralInviteCopyFallbackMessage,
+  referralShareFallbackMessage,
   referralSignupFromUrl,
   shareReferralInvite,
+  shareReferralInviteWithFallback,
 } from "../src/lib/referral-invite.ts";
 
 const configuredDomain = "daily007.example.test";
@@ -87,7 +91,7 @@ test("Earn copies the server-provided HTTPS referral link without changing its c
   assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
   assert.match(
     earnSource,
-    /copyReferralLinkToClipboard\(\s*dashboard\.referralLink,\s*Clipboard\.setStringAsync/,
+    /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*Clipboard\.setStringAsync,\s*setActionError/,
   );
   assert.match(earnSource, /testID="referral-copy-link"[\s\S]*?onPress=\{copyReferralLink\}/);
 });
@@ -109,9 +113,79 @@ test("Earn shares the same server-provided HTTPS referral link and query code", 
   assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
   assert.match(
     earnSource,
-    /shareReferralInvite\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\)/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*setActionError/,
   );
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
+});
+
+test("a clipboard rejection shows Earn's share-button fallback without native services or API calls", async (t) => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const clipboardValues = [];
+  const fallbackMessages = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+  const networkRequests = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("Unexpected network request");
+  });
+
+  const copied = await copyReferralLinkToClipboardWithFallback(
+    referralLink,
+    async (value) => {
+      clipboardValues.push(value);
+      throw new Error("Clipboard unavailable");
+    },
+    (message) => fallbackMessages.push(message),
+  );
+
+  assert.equal(copied, false);
+  assert.deepEqual(clipboardValues, [referralLink]);
+  assert.deepEqual(fallbackMessages, [referralInviteCopyFallbackMessage]);
+  assert.equal(
+    fallbackMessages[0],
+    "Could not copy the invite link. Try the share button instead.",
+  );
+  assert.equal(networkRequests.mock.callCount(), 0);
+  assert.match(
+    earnSource,
+    /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*Clipboard\.setStringAsync,\s*setActionError/,
+  );
+  assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
+});
+
+test("a rejected share sheet shows Earn's copy-code fallback without native services or API calls", async (t) => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const sharedValues = [];
+  const fallbackMessages = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+  const networkRequests = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("Unexpected network request");
+  });
+
+  const shared = await shareReferralInviteWithFallback(
+    "ABC12",
+    referralLink,
+    async (content) => {
+      sharedValues.push(content);
+      throw new Error("Share sheet unavailable");
+    },
+    (message) => fallbackMessages.push(message),
+  );
+
+  assert.equal(shared, false);
+  assert.equal(sharedValues.length, 1);
+  assert.equal(sharedValues[0].url, referralLink);
+  assert.deepEqual(fallbackMessages, [referralShareFallbackMessage]);
+  assert.equal(
+    fallbackMessages[0],
+    "Could not open the share sheet. You can copy the code instead.",
+  );
+  assert.equal(networkRequests.mock.callCount(), 0);
+  assert.match(
+    earnSource,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*setActionError/,
+  );
+  assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
 });
 
 test("configured HTTPS invites open signup with the ref code prefilled", () => {

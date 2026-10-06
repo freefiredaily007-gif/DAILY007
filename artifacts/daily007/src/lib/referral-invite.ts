@@ -73,6 +73,23 @@ export async function copyReferralLinkToClipboard(
   await setClipboardString(referralLink);
 }
 
+export const referralInviteCopyFallbackMessage =
+  'Could not copy the invite link. Try the share button instead.';
+
+export async function copyReferralLinkToClipboardWithFallback(
+  referralLink: string,
+  setClipboardString: (text: string) => Promise<unknown>,
+  showFallback: (message: string) => void,
+): Promise<boolean> {
+  try {
+    await copyReferralLinkToClipboard(referralLink, setClipboardString);
+    return true;
+  } catch {
+    showFallback(referralInviteCopyFallbackMessage);
+    return false;
+  }
+}
+
 export async function shareReferralInvite(
   code: string,
   referralLink: string,
@@ -82,4 +99,22 @@ export async function shareReferralInvite(
     message: `Join FreeFire Daily007 with my referral code ${code} and get 10 bonus coins. I get 5 coins after your first approved recharge of at least 50 coins.\n\nOpen Daily007: ${referralLink}`,
     url: referralLink,
   });
+}
+
+export const referralShareFallbackMessage =
+  'Could not open the share sheet. You can copy the code instead.';
+
+export async function shareReferralInviteWithFallback(
+  code: string,
+  referralLink: string,
+  share: ShareReferralInvite,
+  showFallback: (message: string) => void,
+): Promise<boolean> {
+  try {
+    await shareReferralInvite(code, referralLink, share);
+    return true;
+  } catch {
+    showFallback(referralShareFallbackMessage);
+    return false;
+  }
 }
