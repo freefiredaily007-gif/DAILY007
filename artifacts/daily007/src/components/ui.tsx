@@ -590,7 +590,7 @@ const st = StyleSheet.create({
 });
 
 const adminSt = StyleSheet.create({
-  btn: { borderRadius: 10, paddingVertical: 12.5, minHeight: 43, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  btn: { borderRadius: 10, paddingVertical: 12.5, minWidth: 48, minHeight: 48, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   btnText: { fontFamily: 'Inter_700Bold', fontSize: 12, letterSpacing: 0.9 },
   card: { backgroundColor: '#11161f', borderRadius: 14, borderColor: 'rgba(77,163,255,0.09)', borderTopColor: 'rgba(255,176,32,0.24)', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
   input: { backgroundColor: '#0e131b', borderColor: 'rgba(77,163,255,0.12)', borderRadius: 10, fontFamily: 'Inter_400Regular', fontSize: 13 },

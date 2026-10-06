@@ -163,7 +163,7 @@ const st = StyleSheet.create({
   logoutTxt: { color: A.red, fontSize: 8, fontWeight: '900', letterSpacing: 0.6, fontFamily: 'Inter_700Bold' },
   navWrap: { borderTopWidth: 1, borderTopColor: '#2a3558', backgroundColor: '#0d1220ee', shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   nav: { paddingHorizontal: 8, paddingVertical: 6, gap: 4 },
-  navItem: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, minWidth: 66, borderWidth: 1, borderColor: 'transparent' },
+  navItem: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, minWidth: 66, minHeight: 48, borderWidth: 1, borderColor: 'transparent' },
   navActive: { backgroundColor: 'rgba(255,176,32,0.08)', borderColor: 'rgba(255,176,32,0.3)' },
   navIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
   navIconActive: { backgroundColor: 'rgba(255,176,32,0.14)', borderColor: 'rgba(255,176,32,0.42)', shadowColor: A.gold, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 4 },

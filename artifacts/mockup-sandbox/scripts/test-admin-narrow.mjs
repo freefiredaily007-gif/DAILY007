@@ -21,6 +21,7 @@ const adminTabs = [
   ["notifications", "Notify"],
   ["settings", "Settings"],
 ];
+const minimumAndroidTouchTarget = 48; // CSS pixels equal dp in the 1× Android mobile emulation.
 const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
@@ -750,6 +751,8 @@ async function checkAdminTabs(width, { requireReachability = false } = {}) {
         background: style.backgroundColor,
         border: style.borderColor,
         label: label?.textContent?.trim() ?? '',
+        touchWidth: itemRect.width,
+        touchHeight: itemRect.height,
         labelFits: !!labelRect && label.scrollWidth <= label.clientWidth + 2,
         itemVisible: !!portRect && itemRect.left >= portRect.left - 1 && itemRect.right <= portRect.right + 1,
         bodyWidth: document.documentElement.scrollWidth,
@@ -762,6 +765,12 @@ async function checkAdminTabs(width, { requireReachability = false } = {}) {
       `${label} did not show the selected-tab style at ${width}px.`,
     );
     assert(selected.labelFits, `${label} label is clipped at ${width}px.`);
+    assert(
+      selected.touchWidth >= minimumAndroidTouchTarget &&
+        selected.touchHeight >= minimumAndroidTouchTarget,
+      `${label} Admin tab is smaller than the ${minimumAndroidTouchTarget}×${minimumAndroidTouchTarget} Android touch target at ${width}px ` +
+        `(actual=${selected.touchWidth.toFixed(1)}×${selected.touchHeight.toFixed(1)}).`,
+    );
     assert(selected.itemVisible, `${label} is not scrolled into view at ${width}px.`);
     assert(selected.bodyWidth <= width + 1, `The page is horizontally wider than ${width}px on the ${label} tab.`);
   }
@@ -888,6 +897,13 @@ async function assertAdminRowActionsFit(
     assert(
       action.scrollWidth <= action.clientWidth + 2,
       `${description}: the "${action.label}" label is clipped at ${width}px.`,
+    );
+    assert(
+      action.width >= minimumAndroidTouchTarget &&
+        action.height >= minimumAndroidTouchTarget,
+      `${description}: the "${action.label}" action is smaller than the ` +
+        `${minimumAndroidTouchTarget}×${minimumAndroidTouchTarget} Android touch target at ${width}px ` +
+        `(actual=${action.width.toFixed(1)}×${action.height.toFixed(1)}).`,
     );
     assert(
       action.height > 0 &&
@@ -3191,7 +3207,7 @@ try {
       await checkTournamentStates(width);
       assert(browserErrors.length === 0, `Browser errors at ${width}px: ${browserErrors.join(" | ")}`);
       console.log(
-        `PASS ${width}px — all 11 Admin tabs, populated registration/payment/wallet/user rows and actions, and tournament management states.`,
+        `PASS ${width}px — all 11 Admin tabs and populated row actions meet 48×48 Android targets; registration, payment, wallet, user, and tournament management states remain usable.`,
       );
     }
 
