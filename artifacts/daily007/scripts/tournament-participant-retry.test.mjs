@@ -140,3 +140,80 @@ test("a failed participant request can be retried and replaced by the current li
     else globalThis.document = previousDocument;
   }
 });
+
+test("a failed participant refresh exposes retry instead of cached entries, then replaces them", async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const documentStub = {
+    visibilityState: "visible",
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    document: documentStub,
+  };
+  globalThis.document = documentStub;
+
+  let client;
+  let unsubscribe = () => {};
+  try {
+    const { QueryClient, QueryObserver } = await import("@tanstack/react-query");
+    const queryKey = ["tournament-participant-cached-retry-regression"];
+    const cachedParticipants = {
+      participants: [{ players: ["Cached Player"], status: "approved" }],
+    };
+    const currentParticipants = {
+      participants: [{ players: ["Updated Player"], status: "approved" }],
+    };
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKey, cachedParticipants);
+
+    let requestCount = 0;
+    const observer = new QueryObserver(client, {
+      queryKey,
+      queryFn: async () => {
+        requestCount += 1;
+        if (requestCount === 1) throw new Error("Temporary participant outage");
+        return currentParticipants;
+      },
+      retry: false,
+      enabled: false,
+    });
+    unsubscribe = observer.subscribe(() => {});
+
+    assert.deepEqual(observer.getCurrentResult().data, cachedParticipants);
+    const failedRefresh = await observer.refetch();
+    assert.equal(failedRefresh.isError, true);
+    assert.deepEqual(failedRefresh.data, cachedParticipants);
+    assert.equal(observer.getCurrentResult().isError, true);
+
+    const errorBranch = detailSource
+      .split(") : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (")[1]
+      ?.split(") : participants.length === 0 ? (")[0];
+    assert.ok(errorBranch, "A cached-data request error should render the participant retry state.");
+    assert.match(errorBranch, /Participant list couldn’t be loaded\./);
+    assert.match(errorBranch, /title="RETRY PARTICIPANTS"/);
+    assert.match(errorBranch, /onPress=\{retryParticipants\}/);
+    assert.ok(
+      detailSource.indexOf("participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching)")
+        < detailSource.indexOf("participants.length === 0 ?"),
+      "The error state must take precedence over rendering cached participant entries.",
+    );
+
+    const recoveredRefresh = await observer.refetch();
+    assert.equal(recoveredRefresh.isSuccess, true);
+    assert.deepEqual(recoveredRefresh.data, currentParticipants);
+    assert.equal(observer.getCurrentResult().isError, false);
+    assert.deepEqual(observer.getCurrentResult().data, currentParticipants);
+    assert.equal(requestCount, 2);
+  } finally {
+    unsubscribe();
+    client?.clear();
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
