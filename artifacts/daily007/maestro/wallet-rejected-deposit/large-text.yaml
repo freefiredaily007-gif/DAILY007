@@ -1,0 +1,16 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/wallet-rejected-deposit-test
+- extendedWaitUntil:
+    visible:
+      id: wallet-rejected-deposit-fixture-banner
+    timeout: 15000
+- assertVisible:
+    text: "Deposit request. Status: Rejected. Original rupee amount: ₹1,250. Coin amount: 250 coins. Date: 2026-10-05 10:12. UTR: TEST-UPI-554. Rejection reason: The UPI reference on the payment receipt does not match the reference in the request. Contact support and include your payment date to request another review."
+- assertVisible:
+    id: wallet-rejected-deposit-reason
+- extendedWaitUntil:
+    visible:
+      text: "Reason wraps fully without clipping"
+    timeout: 15000

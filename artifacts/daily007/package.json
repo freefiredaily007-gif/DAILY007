@@ -33,6 +33,7 @@
     "test:withdrawal-upi-copy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/withdrawal-upi-copy.test.mjs",
     "test:wallet-cancellation-history": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-cancellation-history.test.mjs",
     "test:wallet-rejected-deposit-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-rejected-deposit-accessibility.test.mjs",
+    "test:android-wallet-rejected-deposit": "node scripts/run-android-wallet-rejected-deposit.mjs",
     "test:signup-keyboard": "node scripts/signup-keyboard.test.mjs",
     "test:profile-password": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/profile-password.test.mjs"
   },

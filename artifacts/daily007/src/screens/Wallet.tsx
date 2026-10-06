@@ -8,11 +8,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
 import {
-  walletRejectedDepositAccessibilityLabel,
   walletTransactionAccessibilityLabel,
   walletTransactionAmount,
   walletTransactionDescription,
 } from '../lib/wallet-transaction-display';
+import { WalletRejectedDepositRow } from '../components/WalletRejectedDepositRow';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
@@ -241,45 +241,34 @@ export default function Wallet() {
           const isRejectedDeposit = item.isRequest &&
             item.requestType === 'payment' &&
             item.status === 'rejected';
-          const largeRejectedDeposit = isRejectedDeposit && fontScale >= 1.5;
           const description = walletTransactionDescription(item);
           const amountLabel = walletTransactionAmount(item);
           const depositAmountLabel = item.isRequest && item.requestType === 'payment'
             ? depositAmountInr(item.coins, item.amount, coinToMoneyRate)
             : undefined;
-          const rowAccessibilityLabel = isRejectedDeposit
-            ? walletRejectedDepositAccessibilityLabel({
-                rupeeAmount: depositAmountLabel ?? '',
-                coins: item.coins,
-                createdAt: item.createdAt,
-                reference: item.reference,
-                reviewReason: item.reviewReason,
-              })
-            : isCancellationRefund
-              ? walletTransactionAccessibilityLabel(item)
-              : undefined;
+          if (isRejectedDeposit) {
+            return (
+              <WalletRejectedDepositRow
+                item={item}
+                depositAmountLabel={depositAmountLabel ?? ''}
+              />
+            );
+          }
+          const rowAccessibilityLabel = isCancellationRefund
+            ? walletTransactionAccessibilityLabel(item)
+            : undefined;
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
             <Card
-              accessible={isRejectedDeposit || isCancellationRefund || undefined}
-              accessibilityRole={isRejectedDeposit || isCancellationRefund ? 'text' : undefined}
+              accessible={isCancellationRefund || undefined}
+              accessibilityRole={isCancellationRefund ? 'text' : undefined}
               accessibilityLabel={rowAccessibilityLabel}
-              testID={isRejectedDeposit
-                ? 'wallet-rejected-deposit-row'
-                : isCancellationRefund ? 'wallet-cancellation-refund-row' : undefined}
+              testID={isCancellationRefund ? 'wallet-cancellation-refund-row' : undefined}
               style={[
-                {
-                  flexDirection: largeRejectedDeposit ? 'column' : 'row',
-                  alignItems: largeRejectedDeposit ? 'stretch' : 'center',
-                  justifyContent: largeRejectedDeposit ? 'flex-start' : 'space-between',
-                },
-                largeRejectedDeposit && s.rejectedDepositLargeCard,
+                { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
               ]}
             >
-              <View style={[
-                { flex: 1, minWidth: 0 },
-                largeRejectedDeposit && s.rejectedDepositContentLarge,
-              ]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <View style={[s.txHeader, fontScale >= 1.5 && s.txHeaderLarge]}>
                   <Text style={[s.txTitle, fontScale >= 1.5 && s.txTitleLarge]}>{description}</Text>
                   {item.isRequest && (
@@ -314,10 +303,7 @@ export default function Wallet() {
                 {item.isRequest && item.requestType === 'withdrawal' && item.payoutStatus === 'paid' &&
                   <Text style={s.reviewText}>Manual payout recorded</Text>}
                 {item.isRequest && item.reviewReason && (
-                  <Text style={[
-                    s.reviewText,
-                    largeRejectedDeposit && s.rejectedDepositReasonLarge,
-                  ]}>
+                  <Text style={s.reviewText}>
                     Reason: {item.reviewReason}
                   </Text>
                 )}
@@ -325,7 +311,6 @@ export default function Wallet() {
               <Text style={[
                 s.txAmount,
                 { color: pos ? C.green : C.red },
-                largeRejectedDeposit && s.rejectedDepositAmountLarge,
               ]}>
                 {item.isRequest
                   ? item.requestType === 'payment'
@@ -481,10 +466,6 @@ const s = StyleSheet.create({
   txTitleLarge: { width: '100%', maxWidth: '100%', flexShrink: 1 },
   txDate: { color: C.dim, fontSize: 11, marginTop: 3 },
   txAmount: { fontWeight: '900', fontSize: 16 },
-  rejectedDepositLargeCard: { gap: 6 },
-  rejectedDepositContentLarge: { flex: 0, width: '100%', maxWidth: '100%' },
-  rejectedDepositAmountLarge: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'left' },
-  rejectedDepositReasonLarge: { width: '100%', maxWidth: '100%', flexShrink: 1 },
   modalBg: { flex: 1, backgroundColor: '#000a', justifyContent: 'flex-end' },
   modalBgLarge: { paddingBottom: 12 },
   modal: { backgroundColor: C.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, maxHeight: '85%' },
