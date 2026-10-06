@@ -710,12 +710,13 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                 FROM daily007_v2_result_awards published
                 JOIN daily007_v2_registrations result_registration
                   ON result_registration.id = published.registration_id
-               WHERE published.match_id = m.id) AS match_results,
+                WHERE published.match_id = m.id AND m.status <> 'cancelled') AS match_results,
             award.rank AS result_rank, award.kills AS result_kills, award.prize_coins AS result_prize_coins,
             (SELECT count(*)::integer FROM daily007_v2_registrations active
               WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) AS registered_count
        FROM daily007_v2_registrations r JOIN daily007_v2_matches m ON m.id = r.match_id
-       LEFT JOIN daily007_v2_result_awards award ON award.registration_id = r.id
+        LEFT JOIN daily007_v2_result_awards award
+          ON award.registration_id = r.id AND m.status <> 'cancelled'
        WHERE r.captain_user_id = $1
       ORDER BY r.created_at DESC`,
     [account.id],

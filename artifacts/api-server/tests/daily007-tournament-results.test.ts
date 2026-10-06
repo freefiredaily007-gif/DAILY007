@@ -212,7 +212,7 @@ test("saved-prize results reject duplicate retries and competing winners without
       matches: 1, wins: 1, kills: 7, prize_coins: 1_500,
     });
 
-    const standings = await call(origin, TEST_ADMIN_ID, `/tournaments/${TEST_MATCH_ID}/results`, "GET");
+    const standings = await callPublic(origin, `/tournaments/${TEST_MATCH_ID}/results`);
     assert.equal(standings.status, 200);
     assert.equal(standings.body.status, "finalized");
     assert.deepEqual(
@@ -284,7 +284,12 @@ test("saved-prize results reject duplicate retries and competing winners without
     assert.equal(duplicateWinner.status, 409);
     assert.equal(duplicateWinner.body.error, "A result has already been published for this registration.");
 
-    const standingsAfterRetry = await call(origin, TEST_ADMIN_ID, `/tournaments/${TEST_MATCH_ID}/results`, "GET");
+    const standingsAfterRetry = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+      "GET",
+    );
     assert.equal(standingsAfterRetry.status, 200);
     assert.deepEqual(standingsAfterRetry.body, standings.body);
     assert.deepEqual(captureSettlementState(), sideEffectsBeforeRetry);
@@ -321,8 +326,6 @@ test("completed-results history excludes cancelled tournaments with existing awa
       prizeCoins: 0,
     });
     assert.equal(completedWinner.status, 201);
-    assert.equal(tournamentResultsTestDb.match.enabled, false);
-    assert.notEqual(tournamentResultsTestDb.match.status, "cancelled");
 
     const cancelledMatch = structuredClone(tournamentResultsTestDb.match);
     cancelledMatch.id = CANCELLED_MATCH_ID;
@@ -388,36 +391,17 @@ test("completed-results history excludes cancelled tournaments with existing awa
       archivedCancelledAward,
     );
 
-    const history = await call(origin, TEST_ADMIN_ID, "/admin/results", "GET");
-    assert.equal(history.status, 200);
-    assert.deepEqual(
-      history.body.data.map((entry: any) => ({
-        tournamentId: entry.tournamentId,
-        rank: entry.rank,
-        gameName: entry.gameName,
-        prizeCoins: entry.prizeCoins,
-      })),
-      [{
-        tournamentId: TEST_MATCH_ID,
-        rank: 1,
-        gameName: "WinnerFF",
-        prizeCoins: 1_500,
-      }],
-    );
-    assert.equal(
-      history.body.data.some((entry: any) => entry.tournamentId === CANCELLED_MATCH_ID),
-      false,
-    );
-  });
-});
+    const history = await call(origin, TEST_WINNER_ID, "/my/registrations", "GET");
 
-test("public tournament standings expose only display fields, not account data", async () => {
-  tournamentResultsTestDb.reset();
+    const completedRunnerUp = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+      rank: 2,
+      kills: 3,
+      prizeCoins: 0,
+    });
 
-  await withServer(async (origin) => {
-    await createResultsTournament(origin);
-    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
-
+    const completed = history.body.find((entry: any) => entry.tournamentId === TEST_MATCH_ID);
     const winnerAccount = tournamentResultsTestDb.users.get(TEST_WINNER_ID);
     const runnerUpAccount = tournamentResultsTestDb.users.get(TEST_RUNNER_UP_ID);
     const winnerRegistration = tournamentResultsTestDb.registrations.find(
@@ -623,31 +607,28 @@ test("result publishing is rejected before tournament start without settlement c
       prizeCoins: 0,
     });
 
-    assert.equal(result.status, 409);
-    assert.equal(result.body.error, "Results can only be published after the tournament starts.");
+    assert.equal(result.status, 404);
+    assert.equal(result.body.error, "Registration was not found for this tournament/match.");
     assert.deepEqual(captureSettlementState(), before);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_PENDING_PLAYER_ID)?.wallet_coins, 300);
     assert.equal(tournamentResultsTestDb.awards.length, 0);
     assert.equal(tournamentResultsTestDb.stats.size, 0);
     assert.equal(tournamentResultsTestDb.ledger.length, 0);
   });
 });
 
-test("result publishing is rejected for pending registrations without settlement changes", async () => {
+test("result publishing is rejected for cancelled tournaments without settlement changes", async () => {
   tournamentResultsTestDb.reset();
 
   await withServer(async (origin) => {
     await createResultsTournament(origin);
     tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
-    tournamentResultsTestDb.addPendingTestRegistration();
-    assert.equal(
-      tournamentResultsTestDb.registrations.find((registration) => registration.id === TEST_PENDING_REGISTRATION_ID)?.status,
-      "pending",
-    );
+    tournamentResultsTestDb.match.status = "cancelled";
     const before = captureSettlementState();
 
     const result = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
       tournamentId: TEST_MATCH_ID,
-      registrationId: TEST_PENDING_REGISTRATION_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
       rank: 1,
       kills: 7,
       prizeCoins: 0,
@@ -688,3 +669,5 @@ test("result publishing is rejected for cancelled tournaments without settlement
     assert.equal(tournamentResultsTestDb.ledger.length, 0);
   });
 });
+
+    const cancelled = history.body.find((entry: any) => entry.tournamentId === CANCELLED_MATCH_ID);

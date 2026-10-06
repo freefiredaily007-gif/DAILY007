@@ -383,6 +383,94 @@ class MemoryTournamentResultsDatabase {
         .find((candidate) => candidate.id === values[0]);
       rows = match ? [{ enabled: match.enabled, status: match.status }] : [];
     } else if (normalized.startsWith(
+      "SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,",
+    )) {
+      const matches = [this.match, ...this.additionalMatches];
+      const excludesCancelledArray = normalized.includes(
+        "WHERE published.match_id = m.id AND m.status <> 'cancelled'",
+      );
+      const excludesCancelledIndividual = normalized.includes(
+        "ON award.registration_id = r.id AND m.status <> 'cancelled'",
+      );
+      rows = this.registrations
+        .filter((registration) => registration.captain_user_id === values[0])
+        .flatMap((registration) => {
+          const match = matches.find((candidate) => candidate.id === registration.match_id);
+          if (!match) return [];
+          const visibleAwards = this.awards.filter((award) =>
+            award.match_id === match.id && (!excludesCancelledArray || match.status !== "cancelled"),
+          );
+          const individualAward = this.awards.find((award) =>
+            award.registration_id === registration.id &&
+            (!excludesCancelledIndividual || match.status !== "cancelled"),
+          );
+          return [{
+            id: registration.id,
+            match_id: registration.match_id,
+            captain_user_id: registration.captain_user_id,
+            captain_name: registration.captain_name,
+            captain_game_name: registration.captain_game_name,
+            captain_game_uid: null,
+            team_name: registration.team_name,
+            entry_coins_paid: match.entry_coins,
+            status: registration.status,
+            created_at: new Date(Date.now() - 60 * 60 * 1000),
+            title: match.title,
+            mode: match.mode,
+            game_mode: match.game_mode,
+            team_type: match.team_type,
+            capacity: match.capacity,
+            starts_at: match.starts_at,
+            match_entry_coins: match.entry_coins,
+            match_status: match.status,
+            prize_pool: match.prize_pool,
+            rules: match.rules,
+            banner: match.banner,
+            image_url: match.image_url,
+            prize_distribution: match.prize_distribution,
+            enabled: match.enabled,
+            is_full: match.is_full,
+            room_id: match.room_id,
+            room_password: match.room_password,
+            room_time: null,
+            room_published: match.room_published,
+            match_has_started: match.starts_at.getTime() <= Date.now() + 5.5 * 60 * 60 * 1000,
+            match_has_winner: this.awards.some((award) =>
+              award.match_id === match.id && award.rank === 1,
+            ),
+            match_results: visibleAwards.length
+              ? visibleAwards
+                .map((award) => {
+                  const resultRegistration = this.registrations.find(
+                    (candidate) => candidate.id === award.registration_id,
+                  )!;
+                  return {
+                    rank: award.rank,
+                    kills: award.kills,
+                    prizeCoins: award.prize_coins,
+                    gameName: resultRegistration.captain_game_name,
+                    teamName: resultRegistration.team_name,
+                  };
+                })
+                .sort((left, right) =>
+                  left.rank - right.rank || left.gameName.localeCompare(right.gameName),
+                )
+              : null,
+            result_rank: individualAward?.rank ?? null,
+            result_kills: individualAward?.kills ?? null,
+            result_prize_coins: individualAward?.prize_coins ?? null,
+            registered_count: this.registrations.filter((candidate) =>
+              candidate.match_id === match.id &&
+              ["approved", "pending"].includes(candidate.status),
+            ).length,
+          }];
+        })
+        .sort((left, right) => right.created_at.getTime() - left.created_at.getTime());
+    } else if (normalized ===
+      "SELECT position, member_name, member_uid FROM daily007_v2_roster WHERE registration_id = $1 ORDER BY position"
+    ) {
+      rows = [];
+    } else if (normalized.startsWith(
       "SELECT award.registration_id, award.rank, award.kills, award.prize_coins, COALESCE",
     )) {
       rows = this.awards
