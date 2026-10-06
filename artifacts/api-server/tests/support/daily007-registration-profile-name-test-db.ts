@@ -62,6 +62,16 @@ export type CapturedLedgerEntry = {
   registration_id: string;
 };
 
+type RegistrationProfileTransactionSnapshot = {
+  user: TestUser;
+  tournamentAdmin: TestUser;
+  additionalUsers: TestUser[];
+  match: TestMatch;
+  registrations: CapturedRegistration[];
+  roster: CapturedRosterMember[];
+  ledger: CapturedLedgerEntry[];
+};
+
 export const TEST_PLAYER_ID = "74000000-0000-4000-8000-000000000001";
 export const TEST_MATCH_ID = "74000000-0000-4000-8000-000000000002";
 export const TEST_TOURNAMENT_ADMIN_ID = "74000000-0000-4000-8000-000000000003";
@@ -75,6 +85,7 @@ class RegistrationProfileTestDatabase {
   roster: CapturedRosterMember[] = [];
   ledger: CapturedLedgerEntry[] = [];
   connectCount = 0;
+  failRosterInsertAtPosition: number | null = null;
 
   constructor() {
     this.reset();
@@ -130,6 +141,7 @@ class RegistrationProfileTestDatabase {
     this.roster = [];
     this.ledger = [];
     this.connectCount = 0;
+    this.failRosterInsertAtPosition = null;
   }
 
   async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
@@ -138,8 +150,34 @@ class RegistrationProfileTestDatabase {
 
   async connect() {
     this.connectCount += 1;
+    let transactionSnapshot: RegistrationProfileTransactionSnapshot | null = null;
     return {
-      query: <T = unknown>(sql: string, values: unknown[] = []) => this.execute<T>(sql, values),
+      query: <T = unknown>(sql: string, values: unknown[] = []) => {
+        const normalized = sql.replace(/\s+/g, " ").trim();
+        if (normalized === "BEGIN") {
+          transactionSnapshot = {
+            user: structuredClone(this.user),
+            tournamentAdmin: structuredClone(this.tournamentAdmin),
+            additionalUsers: structuredClone(this.additionalUsers),
+            match: structuredClone(this.match),
+            registrations: structuredClone(this.registrations),
+            roster: structuredClone(this.roster),
+            ledger: structuredClone(this.ledger),
+          };
+        } else if (normalized === "ROLLBACK" && transactionSnapshot) {
+          this.user = transactionSnapshot.user;
+          this.tournamentAdmin = transactionSnapshot.tournamentAdmin;
+          this.additionalUsers = transactionSnapshot.additionalUsers;
+          this.match = transactionSnapshot.match;
+          this.registrations = transactionSnapshot.registrations;
+          this.roster = transactionSnapshot.roster;
+          this.ledger = transactionSnapshot.ledger;
+          transactionSnapshot = null;
+        } else if (normalized === "COMMIT") {
+          transactionSnapshot = null;
+        }
+        return this.execute<T>(sql, values);
+      },
       release: () => {},
     };
   }
@@ -259,6 +297,9 @@ class RegistrationProfileTestDatabase {
       normalized.startsWith("INSERT INTO daily007_v2_roster (registration_id, position, member_uid, member_name)")
     ) {
       const [registrationId, position, memberUid, memberName] = values;
+      if (Number(position) === this.failRosterInsertAtPosition) {
+        throw new Error(`Injected roster insert failure at position ${String(position)}.`);
+      }
       this.roster.push({
         registration_id: String(registrationId),
         position: Number(position),

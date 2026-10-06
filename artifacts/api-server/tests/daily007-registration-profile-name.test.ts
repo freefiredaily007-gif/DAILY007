@@ -137,7 +137,7 @@ async function sendTeamEdit(
   });
   return {
     status: response.status,
-    body: await response.json() as Record<string, unknown>,
+    body: await response.json().catch(() => ({})) as Record<string, unknown>,
   };
 }
 
@@ -471,6 +471,51 @@ test("team edits change only Free Fire and roster details, not the captain profi
           member_name: member.name,
         })),
       );
+      assert.equal(registrationProfileTestDb.user.wallet_coins, originalWallet);
+      assert.deepEqual(registrationProfileTestDb.ledger, originalLedger);
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
+test("team edits roll back captain details and the saved roster when a teammate insert fails", async () => {
+  registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+  try {
+    await withServer(async (origin) => {
+      const registered = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
+      assert.equal(registered.status, 201);
+      assert.equal(registrationProfileTestDb.registrations.length, 1);
+
+      const registration = registrationProfileTestDb.registrations[0];
+      const originalRegistration = structuredClone(registration);
+      const originalRoster = structuredClone(registrationProfileTestDb.roster);
+      const originalWallet = registrationProfileTestDb.user.wallet_coins;
+      const originalLedger = structuredClone(registrationProfileTestDb.ledger);
+      assert.equal(originalRegistration.captain_name, PROFILE_NAME);
+      assert.equal(originalRegistration.entry_coins_paid, 7);
+      assert.equal(originalWallet, 93);
+      assert.equal(originalLedger.length, 1);
+
+      registrationProfileTestDb.failRosterInsertAtPosition = 2;
+      const failedEdit = await sendTeamEdit(origin, registration.id, {
+        captainGameName: "UpdatedFireCaptain",
+        captainGameUid: "FF-CAPTAIN-UPDATED",
+        teamName: "Red Dragon",
+        teammates: [
+          { name: "UpdatedMateOne", uid: "FF-MATE-UPDATED-1" },
+          { name: "UpdatedMateTwo", uid: "FF-MATE-UPDATED-2" },
+          { name: "UpdatedMateThree", uid: "FF-MATE-UPDATED-3" },
+        ],
+      });
+
+      assert.equal(failedEdit.status, 500);
+      assert.deepEqual(registrationProfileTestDb.registrations[0], originalRegistration);
+      assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
       assert.equal(registrationProfileTestDb.user.wallet_coins, originalWallet);
       assert.deepEqual(registrationProfileTestDb.ledger, originalLedger);
     });
