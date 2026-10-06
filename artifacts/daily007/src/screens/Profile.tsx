@@ -1,6 +1,8 @@
 // Profile — avatar, stats, edit profile, notifications, leaderboard, logout
 import React from 'react';
-import { View, ScrollView, StyleSheet, Modal, useWindowDimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, Modal, Platform, useWindowDimensions } from 'react-native';
+import * as Application from 'expo-application';
+import Constants from 'expo-constants';
 import { ReadableText as Text } from '../components/typography';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../App';
@@ -13,6 +15,13 @@ import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from '../lib
 export default function Profile() {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
+  const appVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '—';
+  const configuredBuild = Platform.OS === 'ios'
+    ? Constants.expoConfig?.ios?.buildNumber
+    : Constants.expoConfig?.android?.versionCode;
+  const appBuild = Application.nativeBuildVersion
+    ?? (configuredBuild == null ? '—' : String(configuredBuild));
+  const buildLabel = Platform.OS === 'ios' ? 'iOS build' : 'Android build';
   const { user, logout, refresh } = useApp();
   const profileEmail = String(user?.email ?? '');
   const displayProfileEmail = fontScale >= 1.5
@@ -201,6 +210,11 @@ export default function Profile() {
         <Text style={s.statsError}>Admin setup availability could not be checked: {bootstrapStatusError}</Text>
       )}
       {!!setupError && <Text style={s.statsError}>{setupError}</Text>}
+      <SectionTitle accent={C.blue}>APP INFO</SectionTitle>
+      <Card testID="profile-app-metadata">
+        <KV k="App version" v={appVersion} />
+        <KV k={buildLabel} v={appBuild} />
+      </Card>
       <Btn title="LOGOUT" kind="danger" onPress={logout} />
     </ScrollView>
     <Modal

@@ -36,6 +36,7 @@ export default defineConfig({
       { find: /^expo-auth-session$/, replacement: mocks("auth-session.ts") },
       { find: /^expo-web-browser$/, replacement: mocks("web-browser.ts") },
       { find: /^expo-constants$/, replacement: mocks("expo-constants.ts") },
+      { find: /^expo-application$/, replacement: mocks("expo-application.ts") },
       { find: /^expo-network$/, replacement: mocks("network.ts") },
       { find: /^expo-image-picker$/, replacement: path.join(sandboxRoot, "src/admin-narrow/mocks/image-picker.ts") },
       { find: /^expo-clipboard$/, replacement: path.join(sandboxRoot, "src/admin-narrow/mocks/clipboard.ts") },

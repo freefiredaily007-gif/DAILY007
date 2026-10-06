@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -161,6 +161,9 @@ async function stopProcess(child) {
 }
 
 try {
+  const appConfig = JSON.parse(await readFile(path.join(daily007Root, "app.json"), "utf8")).expo;
+  const expectedAppVersion = appConfig.version;
+  const expectedAndroidBuild = String(appConfig.android.versionCode);
   const vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-google-signup-wallet-"));
@@ -489,6 +492,44 @@ try {
     `window.__daily007GoogleSignupWalletTest.snapshot()
       .then((state) => state.calls.filter((call) => call.method === "GET" && call.path === "/auth/me").length >= 2)`,
     "Profile's authenticated refresh after linking Google",
+  );
+  const appInfo = await evaluate(`(() => {
+    const card = document.querySelector('[data-testid="profile-app-metadata"]');
+    return { text: card?.innerText ?? null, pageText: document.body.innerText };
+  })()`);
+  assert.ok(appInfo.pageText.includes("APP INFO"), "Profile should include an app information section.");
+  assert.ok(appInfo.text?.includes(expectedAppVersion), "Profile should show the native app version.");
+  assert.ok(appInfo.text?.includes("Android build"), "Android should be identified as the build value.");
+  assert.ok(appInfo.text?.includes(expectedAndroidBuild), "Profile should show the native Android build number.");
+  const largeTextMetadata = await evaluate(`(() => {
+    const card = document.querySelector('[data-testid="profile-app-metadata"]');
+    if (!card) return null;
+    const leaves = [...card.querySelectorAll("*")].filter((node) =>
+      node.children.length === 0 && node.textContent?.trim(),
+    );
+    for (const leaf of leaves) leaf.style.setProperty("font-size", "19.5px", "important");
+    return {
+      text: card.innerText,
+      clientWidth: card.clientWidth,
+      scrollWidth: card.scrollWidth,
+      leaves: leaves.map((leaf) => ({
+        text: leaf.textContent.trim(),
+        width: leaf.getBoundingClientRect().width,
+        height: leaf.getBoundingClientRect().height,
+        fontSize: Number.parseFloat(getComputedStyle(leaf).fontSize),
+      })),
+    };
+  })()`);
+  assert.ok(largeTextMetadata, "The app information card should remain present at large text.");
+  assert.ok(largeTextMetadata.text.includes(expectedAppVersion));
+  assert.ok(largeTextMetadata.text.includes(expectedAndroidBuild));
+  assert.ok(
+    largeTextMetadata.scrollWidth <= largeTextMetadata.clientWidth + 1,
+    "The app information card should not overflow horizontally at 1.5× text size.",
+  );
+  assert.ok(
+    largeTextMetadata.leaves.every((leaf) => leaf.width > 0 && leaf.height > 0 && leaf.fontSize >= 19.5),
+    "App version labels and values should remain visible at 1.5× text size.",
   );
   const successfulLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(successfulLink, "after successful Google linking");
