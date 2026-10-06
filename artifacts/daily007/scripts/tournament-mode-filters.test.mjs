@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import ts from 'typescript';
 import {
   HOME_GAME_MODE_CARDS,
   homeModeRouteParams,
@@ -8,6 +9,11 @@ import {
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
+import { getRoomCredentialSchedule } from '../src/lib/roomCredentialTiming.ts';
+import {
+  getTournamentLifecycleState,
+  MAX_TIMEOUT_MS,
+} from '../src/lib/tournamentLifecycle.ts';
 
 const homeSource = await readFile(
   new URL('../src/screens/Home.tsx', import.meta.url),
@@ -25,10 +31,51 @@ const tournamentsSource = await readFile(
   new URL('../src/screens/Tournaments.tsx', import.meta.url),
   'utf8',
 );
+const tournamentsSourceFile = ts.createSourceFile(
+  'Tournaments.tsx',
+  tournamentsSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
 const appSource = await readFile(
   new URL('../src/App.tsx', import.meta.url),
   'utf8',
 );
+
+function loadLifecycleRefreshEffect(scope) {
+  let effectCallback = null;
+
+  function visit(node) {
+    if (
+      ts.isCallExpression(node)
+      && node.expression.getText(tournamentsSourceFile) === 'useEffect'
+      && ts.isArrowFunction(node.arguments[0])
+      && node.arguments[0].body.getText(tournamentsSourceFile).includes('const transitions = items.flatMap')
+    ) {
+      effectCallback = node.arguments[0];
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(tournamentsSourceFile);
+  assert.ok(effectCallback, 'the screen lifecycle-boundary effect should be present');
+
+  const javascript = ts.transpileModule(
+    `const __effect = (${effectCallback.getText(tournamentsSourceFile)});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __effect;`,
+  )(...Object.values(scope));
+}
 
 test('Solo and Squad selections keep the selected game mode in their route params', () => {
   for (const teamType of ['solo', 'squad']) {
@@ -158,6 +205,71 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
     tournamentsSource,
     /ListEmptyComponent=\{<Empty text=\{tournamentListEmptyMessage\(/,
   );
+});
+
+test('a match crossing its start time updates selected-mode tabs and counts automatically', () => {
+  const startAtMs = Date.parse('2026-10-06T14:00:00.000Z');
+  const startsAt = new Date(startAtMs).toISOString();
+  const selectedMode = 'clash_squad';
+  const items = [
+    { id: 'clash-starting', gameMode: selectedMode, startsAt },
+    { id: 'battle-starting', gameMode: 'battle_royale', startsAt },
+  ];
+  let fakeNow = startAtMs - 1_000;
+  let clockNow = fakeNow;
+  let loadCalls = 0;
+  const timers = [];
+  const clearedTimers = [];
+  const lifecycleEffect = loadLifecycleRefreshEffect({
+    items,
+    getRoomCredentialSchedule,
+    MAX_TIMEOUT_MS,
+    Date: { now: () => fakeNow },
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => clearedTimers.push(timer),
+    setClockNow: (value) => { clockNow = value; },
+    load: () => { loadCalls += 1; },
+  });
+
+  const cleanup = lifecycleEffect();
+  assert.equal(timers.length, 1, 'the screen should schedule a timer for the nearest start');
+  assert.equal(timers[0].delayMs, 1_020, 'the refresh should run just after the scheduled start');
+
+  fakeNow = startAtMs + 20;
+  timers[0].callback();
+  assert.equal(clockNow, fakeNow, 'the timer should advance the screen lifecycle clock');
+  assert.equal(loadCalls, 1, 'the timer should reload tournament data without manual refresh');
+
+  const tabsAt = (now) => tournamentTabsForRoute(
+    items,
+    { gameMode: selectedMode },
+    (tournament) => getTournamentLifecycleState(tournament, now),
+  );
+  const beforeTabs = tabsAt(startAtMs - 1);
+  const afterTabs = tabsAt(clockNow);
+  const counts = (tabs) => Object.fromEntries(
+    Object.entries(tabs).map(([name, tournaments]) => [name, tournaments.length]),
+  );
+
+  assert.deepEqual(beforeTabs.upcoming.map((tournament) => tournament.id), ['clash-starting']);
+  assert.deepEqual(beforeTabs.ongoing, []);
+  assert.deepEqual(counts(beforeTabs), { upcoming: 1, ongoing: 0, completed: 0 });
+  assert.deepEqual(afterTabs.upcoming, []);
+  assert.deepEqual(afterTabs.ongoing.map((tournament) => tournament.id), ['clash-starting']);
+  assert.deepEqual(counts(afterTabs), { upcoming: 0, ongoing: 1, completed: 0 });
+  for (const tabs of [beforeTabs, afterTabs]) {
+    assert.ok(
+      Object.values(tabs).flat().every((tournament) => tournament.gameMode === selectedMode),
+      'another game mode must not appear in any selected-mode tab',
+    );
+  }
+
+  cleanup();
+  assert.deepEqual(clearedTimers, [timers[0]]);
 });
 
 test('a slower earlier load cannot replace newer rows or tab counts', async () => {

@@ -9,6 +9,7 @@ import {
   tournamentListEmptyMessage,
   tournamentTabsForRoute,
 } from "../../daily007/src/lib/tournamentFilters";
+import { getTournamentLifecycleState } from "../../daily007/src/lib/tournamentLifecycle";
 
 const apiTournaments = [
   { id: "battle-solo", gameMode: "battle_royale", mode: "Battle Royale", teamType: "Solo" },
@@ -73,6 +74,40 @@ test("switching lifecycle tabs keeps results and counts scoped to each Home game
       assert.equal(tabs[tab].length, expectedTabs[tab].length);
       assert.ok(tabs[tab].every((tournament) => tournament.gameMode === card.gameMode));
     }
+  }
+});
+
+test("a match moves from upcoming to ongoing at its scheduled start without mode leaks", () => {
+  const startAtMs = Date.parse("2026-10-06T14:00:00.000Z");
+  const startsAt = new Date(startAtMs).toISOString();
+  const selectedMode = "clash_squad";
+  const matches = [
+    { id: "clash-starting", gameMode: selectedMode, startsAt },
+    { id: "battle-starting", gameMode: "battle_royale", startsAt },
+  ];
+  const tabsAt = (now: number) => tournamentTabsForRoute(
+    matches,
+    { gameMode: selectedMode },
+    (tournament) => getTournamentLifecycleState(tournament, now),
+  );
+  const beforeTabs = tabsAt(startAtMs - 1);
+  const afterTabs = tabsAt(startAtMs + 1);
+  const counts = (tabs: ReturnType<typeof tabsAt>) => ({
+    upcoming: tabs.upcoming.length,
+    ongoing: tabs.ongoing.length,
+    completed: tabs.completed.length,
+  });
+
+  assert.deepEqual(beforeTabs.upcoming.map((tournament) => tournament.id), ["clash-starting"]);
+  assert.deepEqual(counts(beforeTabs), { upcoming: 1, ongoing: 0, completed: 0 });
+  assert.deepEqual(afterTabs.upcoming, []);
+  assert.deepEqual(afterTabs.ongoing.map((tournament) => tournament.id), ["clash-starting"]);
+  assert.deepEqual(counts(afterTabs), { upcoming: 0, ongoing: 1, completed: 0 });
+  for (const tabs of [beforeTabs, afterTabs]) {
+    assert.ok(
+      Object.values(tabs).flat().every((tournament) => tournament.gameMode === selectedMode),
+      "another game mode must not appear in any selected-mode tab",
+    );
   }
 });
 
