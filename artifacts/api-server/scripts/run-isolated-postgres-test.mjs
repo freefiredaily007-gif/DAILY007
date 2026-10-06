@@ -37,12 +37,15 @@ async function availablePort() {
 const bundlePath = process.argv[2];
 if (!bundlePath) throw new Error('Pass the bundled PostgreSQL integration test path.');
 
-const directory = await mkdtemp(path.join(os.tmpdir(), 'daily007-results-postgres-'));
+const fixturesDirectory = fileURLToPath(new URL('../tests/fixtures/', import.meta.url));
+const schemaName = process.argv[3] ?? 'daily007-tournament-results-concurrency.sql';
+if (path.basename(schemaName) !== schemaName || !schemaName.endsWith('.sql')) {
+  throw new Error('Pass a SQL fixture filename from tests/fixtures.');
+}
+const schemaPath = path.join(fixturesDirectory, schemaName);
+const directory = await mkdtemp(path.join(os.tmpdir(), 'daily007-isolated-postgres-'));
 const dataDirectory = path.join(directory, 'data');
 const logPath = path.join(directory, 'postgres.log');
-const schemaPath = fileURLToPath(
-  new URL('../tests/fixtures/daily007-tournament-results-concurrency.sql', import.meta.url),
-);
 let serverStarted = false;
 let exitCode = 1;
 
