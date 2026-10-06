@@ -165,7 +165,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
         <Text style={st.pLabel}>CAPTAIN APPLICATION PROFILE NAME</Text>
         <Input
-          accessibilityLabel="Captain application profile name"
+          accessibilityLabel="Captain Daily007 profile name, read-only"
           placeholder="Set your name in Profile before joining"
           value={captainProfileName}
           editable={false}
@@ -191,6 +191,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
           <>
             <Text style={st.pLabel}>TEAM NAME</Text>
             <Input
+              accessibilityLabel="Team name"
               placeholder="Team name"
               value={teamName}
               onChangeText={setTeamName}
@@ -203,12 +204,14 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
           <View key={i} style={{ marginBottom: 4 }}>
             <Text style={st.pLabel}>TEAMMATE {i + 1}</Text>
             <Input
+              accessibilityLabel={`Teammate ${i + 1} Free Fire in-game name`}
               placeholder={`Teammate ${i + 1} Free Fire in-game name`}
               value={member.name}
               onChangeText={(v) => setMember(i, 'name', v)}
               autoCapitalize="words"
             />
             <Input
+              accessibilityLabel={`Teammate ${i + 1} Free Fire UID, optional`}
               placeholder={`Teammate ${i + 1} Free Fire UID (optional)`}
               value={member.uid}
               onChangeText={(v) => setMember(i, 'uid', v)}
