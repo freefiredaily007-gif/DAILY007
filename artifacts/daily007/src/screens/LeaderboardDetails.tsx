@@ -201,13 +201,17 @@ function PlayerRow({
         <>
           <View style={styles.playerMainLarge}>
             <Text style={[styles.playerRank, styles.playerRankLarge, { color }]}>#{standing.rank}</Text>
-            <View style={[styles.playerAvatar, styles.playerAvatarLarge, { backgroundColor: avatarColor(standing.userId) }]}>
+            <View
+              style={[styles.playerAvatar, styles.playerAvatarLarge, { backgroundColor: avatarColor(standing.userId) }]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
               <Text style={[styles.playerInitial, styles.playerInitialLarge]}>{initials(standing.name)}</Text>
             </View>
             <Text style={[styles.playerName, styles.playerNameLarge]}>{standing.name}</Text>
           </View>
           <View style={styles.playerCoinsLarge}>
-            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text accessible={false} style={styles.coinEmoji}>🪙</Text>
             <Text style={styles.playerCoinsText}>
               {standing.points.toLocaleString("en-IN")} Coins
             </Text>
@@ -216,14 +220,18 @@ function PlayerRow({
       ) : (
         <>
           <Text style={[styles.playerRank, { color }]}>#{standing.rank}</Text>
-          <View style={[styles.playerAvatar, { backgroundColor: avatarColor(standing.userId) }]}>
+          <View
+            style={[styles.playerAvatar, { backgroundColor: avatarColor(standing.userId) }]}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
             <Text style={styles.playerInitial}>{initials(standing.name)}</Text>
           </View>
           <Text numberOfLines={fontScale <= 1 ? 1 : undefined} style={styles.playerName}>
             {standing.name}
           </Text>
           <View style={styles.playerCoins}>
-            <Text style={styles.coinEmoji}>🪙</Text>
+            <Text accessible={false} style={styles.coinEmoji}>🪙</Text>
             <Text style={styles.playerCoinsText}>{standing.points.toLocaleString("en-IN")}</Text>
           </View>
         </>

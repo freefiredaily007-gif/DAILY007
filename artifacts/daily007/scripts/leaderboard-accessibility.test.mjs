@@ -59,6 +59,24 @@ test("expanded player rows announce rank, player, and coin score as one ordered 
   assert.match(rootTag, /testID=\{`leaderboard-player-\$\{standing\.rank\}`\}/);
   assert.match(rootTag, /accessibilityLabel=\{leaderboardPlayerAccessibilityLabel\(standing\)\}/);
 
+  const avatarLocations = [
+    playerRowSource.indexOf("styles.playerAvatarLarge"),
+    playerRowSource.indexOf("styles.playerAvatar,"),
+  ];
+  for (const avatarStyleIndex of avatarLocations) {
+    const avatarStart = playerRowSource.lastIndexOf("<View", avatarStyleIndex);
+    const avatarEnd = playerRowSource.indexOf(">", avatarStart);
+    assert.ok(avatarStart >= 0 && avatarEnd > avatarStyleIndex, "Each row avatar needs an accessible wrapper.");
+    const avatarTag = playerRowSource.slice(avatarStart, avatarEnd + 1);
+    assert.match(avatarTag, /accessibilityElementsHidden/);
+    assert.match(avatarTag, /importantForAccessibility="no-hide-descendants"/);
+  }
+  assert.equal(
+    (playerRowSource.match(/<Text accessible=\{false\} style=\{styles\.coinEmoji\}>🪙<\/Text>/g) ?? []).length,
+    2,
+    "Both expanded-row layouts must hide the decorative coin icon.",
+  );
+
   const label = leaderboardPlayerAccessibilityLabel({
     rank: 4,
     name: "Test Player",
@@ -264,9 +282,20 @@ for (const [cycle, ranks] of [
     }));
     const topTwenty = selectLeaderboardTopTwenty(data);
     const expandedRows = selectLeaderboardExpandedRows(topTwenty);
+    const spokenLabels = topTwenty.map(leaderboardPlayerAccessibilityLabel);
 
     assert.deepEqual(topTwenty.map((standing) => standing.rank), expectedTopTwentyRanks);
     assert.deepEqual(expandedRows.map((standing) => standing.rank), expectedExpandedRanks);
+    assert.equal(new Set(spokenLabels).size, 20, "Every Top 20 entry must have a distinguishable spoken label.");
+    assert.deepEqual(
+      spokenLabels.map((label) => label.match(/^Rank (\d+),/)?.[1]),
+      expectedTopTwentyRanks.map(String),
+    );
+    assert.equal(
+      spokenLabels[19],
+      `Rank 20, ${cycle} Player 20, ${(20 * 100).toLocaleString("en-IN")} coins`,
+      "Rank 20 must announce its rank, player, and score.",
+    );
   });
 }
 
