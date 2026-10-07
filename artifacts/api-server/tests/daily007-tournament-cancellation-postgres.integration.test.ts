@@ -166,8 +166,29 @@ async function waitForBlockedCancellation(blockerPid: number, timeoutMs = 5_000)
   throw new Error("Timed out waiting for PostgreSQL to block the held tournament cancellation.");
 }
 
-function captureCancellation(matchId: string): Promise<CancellationOutcome> {
-  return cancelUnderfilledTournamentAndRefund(matchId, true).then(
+async function waitForPausedRefundFailure(timeoutMs = 5_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number }>(
+      `SELECT pid
+         FROM pg_stat_activity
+        WHERE pid <> pg_backend_pid()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE $1`,
+      ["%INSERT INTO daily007_v2_wallet_ledger%"],
+    );
+    const pid = result.rows[0]?.pid;
+    if (pid) return Number(pid);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Timed out waiting for the first cancellation refund write to pause.");
+}
+
+function captureCancellation(
+  matchId: string,
+  automaticOnly = true,
+): Promise<CancellationOutcome> {
+  return cancelUnderfilledTournamentAndRefund(matchId, automaticOnly).then(
     (value) => ({ status: "fulfilled" as const, value }),
     (reason: unknown) => ({ status: "rejected" as const, reason }),
   );
@@ -337,6 +358,187 @@ test("cancelling one tournament completes while a different PostgreSQL tournamen
       [firstCancellation, independentCancellation].filter(
         (cancellation): cancellation is Promise<CancellationOutcome> => cancellation !== undefined,
       ),
+    );
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a waiting PostgreSQL cancellation succeeds after the first refund write rolls back", async () => {
+  const fixture = await createFixture();
+  const matchId = fixture.matchIds[0];
+  const pauseKey = 740082n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let firstCancellation: Promise<CancellationOutcome> | undefined;
+  let waitingCancellation: Promise<CancellationOutcome> | undefined;
+
+  try {
+    const firstRegistration = await pool.query<{ id: string }>(
+      `SELECT id
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND status IN ('approved', 'pending')
+        ORDER BY captain_user_id, id
+        LIMIT 1`,
+      [matchId],
+    );
+    const failingRegistrationId = firstRegistration.rows[0]?.id;
+    assert.ok(
+      failingRegistrationId,
+      "The underfilled tournament needs a paid registration.",
+    );
+
+    await pool.query("CREATE SEQUENCE daily007_test_cancel_refund_fail_once");
+    await pool.query(`
+      CREATE FUNCTION daily007_test_fail_first_cancel_refund() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.match_id = '${matchId}'::uuid
+           AND NEW.registration_id = '${failingRegistrationId}'::uuid THEN
+          IF nextval('daily007_test_cancel_refund_fail_once') = 1 THEN
+            PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+            RAISE EXCEPTION 'Injected PostgreSQL cancellation refund failure';
+          END IF;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_fail_first_cancel_refund
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_first_cancel_refund()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    firstCancellation = captureCancellation(matchId, false);
+    const firstPid = await waitForPausedRefundFailure();
+    waitingCancellation = captureCancellation(matchId, false);
+    await waitForBlockedCancellation(firstPid);
+
+    await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+    pauseLockHeld = false;
+
+    const [first, waiting] = await Promise.all([
+      firstCancellation,
+      waitingCancellation,
+    ]);
+    assert.equal(first.status, "rejected");
+    if (first.status === "rejected") {
+      assert.match(
+        String(first.reason),
+        /Injected PostgreSQL cancellation refund failure/,
+      );
+    }
+    assert.equal(waiting.status, "fulfilled");
+    if (waiting.status === "fulfilled") {
+      assert.deepEqual(waiting.value, {
+        id: matchId,
+        status: "cancelled",
+        registrationsRefunded: 2,
+        accountsRefunded: 2,
+        coinsRefunded: 65,
+      });
+    }
+
+    const match = await pool.query<{ status: string; enabled: boolean }>(
+      "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(match.rows, [{ status: "cancelled", enabled: false }]);
+
+    const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 125],
+        [fixture.payerIds[1], 240],
+        [fixture.payerIds[2], 300],
+      ]),
+    );
+
+    const refunds = await pool.query<{
+      registration_id: string;
+      user_id: string;
+      amount: number;
+      balance_after: number;
+      reason: string;
+      idempotency_key: string;
+    }>(
+      `SELECT registration_id, user_id, amount, balance_after, reason, idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'
+        ORDER BY registration_id`,
+      [matchId],
+    );
+    assert.equal(
+      refunds.rows.length,
+      2,
+      "the successful retry must leave exactly one cancellation refund per paid registration",
+    );
+    assert.deepEqual(
+      new Map(
+        refunds.rows.map((refund) => [
+          refund.registration_id,
+          {
+            userId: refund.user_id,
+            amount: refund.amount,
+            balanceAfter: refund.balance_after,
+            reason: refund.reason,
+            idempotencyKey: refund.idempotency_key,
+          },
+        ]),
+      ),
+      new Map([
+        [
+          fixture.registrationIds[0],
+          {
+            userId: fixture.payerIds[0],
+            amount: 25,
+            balanceAfter: 125,
+            reason: "tournament_cancel_refund",
+            idempotencyKey: `daily007:tournament-cancel:${matchId}:${fixture.registrationIds[0]}`,
+          },
+        ],
+        [
+          fixture.registrationIds[1],
+          {
+            userId: fixture.payerIds[1],
+            amount: 40,
+            balanceAfter: 240,
+            reason: "tournament_cancel_refund",
+            idempotencyKey: `daily007:tournament-cancel:${matchId}:${fixture.registrationIds[1]}`,
+          },
+        ],
+      ]),
+    );
+  } finally {
+    if (blocker) {
+      if (pauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker.release();
+    }
+    await Promise.allSettled(
+      [firstCancellation, waitingCancellation].filter(
+        (cancellation): cancellation is Promise<CancellationOutcome> =>
+          cancellation !== undefined,
+      ),
+    );
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_fail_first_cancel_refund ON daily007_v2_wallet_ledger",
+    );
+    await pool.query(
+      "DROP FUNCTION IF EXISTS daily007_test_fail_first_cancel_refund()",
+    );
+    await pool.query(
+      "DROP SEQUENCE IF EXISTS daily007_test_cancel_refund_fail_once",
     );
     await cleanupFixture(fixture);
   }

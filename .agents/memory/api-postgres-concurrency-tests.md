@@ -45,6 +45,12 @@ To exercise an isolated PostgreSQL write failure without mocking the transaction
 
 **How to apply:** Use a generated safe constraint name and unique session key, expect an HTTP failure, verify wallet/ledger/session state is unchanged, then drop the constraint and clean up the fixture.
 
+For a one-shot PostgreSQL failure that must be followed by a successful retry, use a sequence to gate the first trigger execution rather than a transactional table flag.
+
+**Why:** Sequence increments survive transaction rollback, while a flag change made inside the failed transaction rolls back and would cause the retry to fail again.
+
+**How to apply:** Increment a fixture-owned sequence for the targeted ledger row, pause and raise only when `nextval` returns its first value, then remove the trigger, function, and sequence after all requests settle.
+
 **Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
 
 **Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.
