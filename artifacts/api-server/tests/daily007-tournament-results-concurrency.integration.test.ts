@@ -172,6 +172,34 @@ async function createFixture(playerCount = 2): Promise<TournamentFixture> {
   }
 }
 
+async function seedExistingPlayerHistory(player: PlayerFixture): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const walletUpdate = await client.query(
+      "UPDATE daily007_v2_users SET wallet_coins = 1000 WHERE id = $1",
+      [player.userId],
+    );
+    assert.equal(walletUpdate.rowCount, 1, "the seeded history player must exist");
+    await client.query(
+      `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
+       VALUES ($1, 5, 1, 42, 500)`,
+      [player.userId],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+       VALUES ($1, 500, 1000, 'match_prize')`,
+      [player.userId],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function cleanupFixture(fixture: TournamentFixture): Promise<void> {
   const client = await pool.connect();
   const playerIds = fixture.players.map((player) => player.userId);
@@ -1043,6 +1071,7 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
   assert.ok(winner && runnerUp, "winner and runner-up fixtures are required");
 
   try {
+    await seedExistingPlayerHistory(runnerUp);
     await withServer(async (origin) => {
       const winningResult = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
       assert.equal(
@@ -1069,10 +1098,10 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
       });
       const runnerUpStateBefore = await captureSettlementState(fixture, runnerUp);
       assert.deepEqual(runnerUpStateBefore, {
-        walletCoins: 100,
+        walletCoins: 1000,
         awards: winnerStateAfterFirst.awards,
-        stats: null,
-        ledger: [],
+        stats: { matches: 5, wins: 1, kills: 42, prize_coins: 500 },
+        ledger: [{ amount: 500, balance_after: 1000, reason: "match_prize" }],
         match: winnerStateAfterFirst.match,
       });
 
@@ -1124,7 +1153,7 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
       assert.equal(retry.body.registrationId, runnerUp.registrationId);
       assert.equal(retry.body.userId, runnerUp.userId);
       assert.equal(retry.body.prizeCoins, 250);
-      assert.equal(retry.body.walletCoins, 350);
+      assert.equal(retry.body.walletCoins, 1250);
 
       const winnerAfterRetry = await captureSettlementState(fixture, winner);
       assert.equal(winnerAfterRetry.walletCoins, winnerStateAfterFirst.walletCoins);
@@ -1135,25 +1164,34 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
       assert.deepEqual(winnerAfterRetry.awards[0], winnerStateAfterFirst.awards[0]);
 
       const runnerUpAfterRetry = await captureSettlementState(fixture, runnerUp);
-      assert.deepEqual(runnerUpAfterRetry, {
-        walletCoins: 350,
-        awards: [{
-          registration_id: winner.registrationId,
-          user_id: winner.userId,
-          rank: 1,
-          kills: 7,
-          prize_coins: 500,
-        }, {
-          registration_id: runnerUp.registrationId,
-          user_id: runnerUp.userId,
-          rank: 2,
-          kills: 3,
-          prize_coins: 250,
-        }],
-        stats: { matches: 1, wins: 0, kills: 3, prize_coins: 250 },
-        ledger: [{ amount: 250, balance_after: 350, reason: "match_prize" }],
-        match: winnerStateAfterFirst.match,
+      assert.equal(runnerUpAfterRetry.walletCoins, 1250);
+      assert.deepEqual(runnerUpAfterRetry.awards, [{
+        registration_id: winner.registrationId,
+        user_id: winner.userId,
+        rank: 1,
+        kills: 7,
+        prize_coins: 500,
+      }, {
+        registration_id: runnerUp.registrationId,
+        user_id: runnerUp.userId,
+        rank: 2,
+        kills: 3,
+        prize_coins: 250,
+      }]);
+      assert.deepEqual(runnerUpAfterRetry.stats, {
+        matches: 6,
+        wins: 1,
+        kills: 45,
+        prize_coins: 750,
       });
+      assert.deepEqual(
+        [...runnerUpAfterRetry.ledger].sort((left, right) => left.balance_after - right.balance_after),
+        [
+          { amount: 500, balance_after: 1000, reason: "match_prize" },
+          { amount: 250, balance_after: 1250, reason: "match_prize" },
+        ],
+      );
+      assert.deepEqual(runnerUpAfterRetry.match, winnerStateAfterFirst.match);
 
       const standingsAfterRetry = await publicStandings(origin, fixture.matchId);
       assert.equal(standingsAfterRetry.status, 200);
