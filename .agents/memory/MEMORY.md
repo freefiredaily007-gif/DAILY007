@@ -2,7 +2,7 @@
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
 - [Daily007 Google auth concurrency tests](daily007-google-auth-concurrency.md) — synchronize same-identity requests at the transaction lock; Promise.all alone may produce sequential DB entry.
 - [Daily007 withdrawable purchases](daily007-withdrawable-purchases.md) — purchased coins must remain withdrawable; do not substitute ordinary store consumables for an approved gateway.
-- [Daily007 Google auth bridge](google-auth-bridge.md) — Same-email sign-in never links automatically; recovery needs another Full Admin or the sole-admin owner code.
+- [Daily007 Google auth bridge](google-auth-bridge.md) — Never auto-link by email; recovery requires an active account and the approved Full Admin or owner-code path.
 - [Daily007 single-session policy](daily007-single-session.md) — a new sign-in replaces prior sessions; Google linking preserves the current one.
 - [Daily007 offline session recovery](daily007-offline-session-recovery.md) — Android 16 confirms auto-retry on reconnect and resume; transient failures retain the saved session.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.

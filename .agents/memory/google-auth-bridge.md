@@ -9,6 +9,12 @@ Keep Daily007's own account ID, email/password option, and bearer token as the i
 
 **How to apply:** Never auto-link by email or trust an email sent by the app. Verify the provider session server-side, use a unique immutable provider subject, and require both valid sessions for ordinary account linking. The separate recovery exception requires a different Full Admin, an audit note, and fresh verification of the Google subject and email; it binds Google to the same local account without replacing its password, wallet, or tournament history. Tournament Admins cannot view or approve recovery requests.
 
+A pending Google recovery request cannot link an account that has become blocked since submission; approval requires the account to still be active.
+
+**Why:** Pending requests can outlive an account block, and allowing one to complete would reconnect an account whose access was withdrawn.
+
+**How to apply:** Re-check the target's current status during approval and leave both the Google link and review fields unchanged when the account is blocked.
+
 As of 2026-10-03, the production Daily007 account has one Full Admin. That administrator's own recovery request cannot be approved under the two-person rule until a second reviewer or a separate owner-controlled recovery method exists.
 
 **Why:** The requester confirmed there is no second Full Admin, so allowing the existing self-review path would leave their request permanently pending.

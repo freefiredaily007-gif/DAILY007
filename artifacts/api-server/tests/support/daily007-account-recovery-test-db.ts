@@ -68,6 +68,12 @@ class MemoryRecoveryDatabase {
     return seeded;
   }
 
+  blockUser(userId: string): void {
+    const user = this.users.get(userId);
+    if (!user) throw new Error("Cannot block an unknown recovery test account.");
+    user.status = "blocked";
+  }
+
   async connect(): Promise<{ query: Query; release(): void }> {
     let transactionSnapshot: Snapshot | null = null;
     return {

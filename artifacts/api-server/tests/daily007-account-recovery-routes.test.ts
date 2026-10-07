@@ -304,6 +304,85 @@ test("an active, distinct Full Admin can approve a pending request after fresh G
   });
 });
 
+test("a pending recovery request cannot link an account blocked after the request was submitted", async () => {
+  recoveryTestDb.reset();
+  const player = recoveryTestDb.seedUser({
+    id: PLAYER_ID,
+    name: "Player Recovery",
+    email: "player@example.test",
+    status: "active",
+  });
+  recoveryTestDb.seedUser({
+    id: REVIEWER_ID,
+    name: "Full Admin Reviewer",
+    email: "reviewer@example.test",
+    role: "admin",
+    status: "active",
+  });
+  resetMockGoogleUser(verifiedGoogleUser(PLAYER_CLERK_ID, "player@example.test"));
+
+  await withRecoveryServer(async (origin) => {
+    const submitted = await postJson(
+      origin,
+      "/auth/google/recovery-request",
+      {},
+      clerkHeaders(PLAYER_CLERK_ID),
+    );
+    assert.equal(submitted.status, 202);
+    assert.equal(player.clerk_user_id, null);
+
+    const request = recoveryRecordForUser(PLAYER_ID);
+    assert.ok(request, "the active account should have a pending recovery request");
+    assert.equal(request.status, "pending");
+
+    recoveryTestDb.blockUser(PLAYER_ID);
+    const stateBeforeApproval = persistentState();
+    const queryCountBeforeApproval = recoveryTestDb.queryHistory.length;
+    const reviewerToken = makeToken(REVIEWER_ID);
+    assert.ok(reviewerToken);
+    const approval = await postJson(
+      origin,
+      `/admin/account-recovery-requests/${request.id}/approve`,
+      { reviewNote: REVIEW_NOTE },
+      { authorization: `Bearer ${reviewerToken}` },
+    );
+
+    assert.equal(approval.status, 409);
+    assert.deepEqual(approval.body, {
+      error: "The account or verified Google identity changed. Do not approve this request; refresh and review it again.",
+    });
+    assert.deepEqual(persistentState(), stateBeforeApproval,
+      "a rejected approval must leave the blocked account and pending audit record unchanged");
+    assert.equal(player.status, "blocked");
+    assert.equal(player.clerk_user_id, null);
+    assert.deepEqual({
+      status: request.status,
+      reviewed_at: request.reviewed_at,
+      reviewed_by: request.reviewed_by,
+      review_note: request.review_note,
+      review_method: request.review_method,
+    }, {
+      status: "pending",
+      reviewed_at: null,
+      reviewed_by: null,
+      review_note: null,
+      review_method: null,
+    });
+
+    const approvalQueries = recoveryTestDb.queryHistory.slice(queryCountBeforeApproval);
+    assert.equal(
+      approvalQueries.some(({ sql }) => sql.startsWith("UPDATE daily007_v2_users SET clerk_user_id = $2")),
+      false,
+      "the blocked account must not be linked to the recovery request's Google identity",
+    );
+    assert.equal(
+      approvalQueries.some(({ sql }) => sql.startsWith("UPDATE daily007_v2_google_recovery_requests")),
+      false,
+      "the pending recovery audit record must not be marked reviewed",
+    );
+  });
+});
+
 test("self-review, non-Full-Admin review, and changed Google identity leave links and audit records unchanged", async () => {
   recoveryTestDb.reset();
   recoveryTestDb.seedUser({
