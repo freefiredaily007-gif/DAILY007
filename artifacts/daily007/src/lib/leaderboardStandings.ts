@@ -2,6 +2,12 @@ type RankedStanding = {
   rank: number;
 };
 
+export function selectLeaderboardPodiumRanks(largeText: boolean): Array<1 | 2 | 3> {
+  // Accessibility traversal follows the rendered order: left-to-right for the standard layout,
+  // and top-to-bottom rank order when large text stacks the cards vertically.
+  return largeText ? [1, 2, 3] : [2, 1, 3];
+}
+
 export function selectLeaderboardTopTwenty<T extends RankedStanding>(
   standings: readonly T[] | undefined,
 ): T[] {

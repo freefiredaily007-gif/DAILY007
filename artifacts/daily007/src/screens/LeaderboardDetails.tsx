@@ -27,6 +27,7 @@ import {
 import {
   leaderboardPlayerAccessibilityLabel,
   leaderboardPodiumAccessibilityLabel,
+  selectLeaderboardPodiumRanks,
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
 } from "../lib/leaderboardStandings";
@@ -284,11 +285,10 @@ export default function LeaderboardDetails({ navigation, route }: any) {
     }
   }, [cycle, period?.standings]);
   const standings = selectLeaderboardTopTwenty(period?.standings);
-  const podium = [
-    { rank: 2 as const, standing: standings.find((standing) => standing.rank === 2) },
-    { rank: 1 as const, standing: standings.find((standing) => standing.rank === 1) },
-    { rank: 3 as const, standing: standings.find((standing) => standing.rank === 3) },
-  ];
+  const podium = selectLeaderboardPodiumRanks(largeText).map((rank) => ({
+    rank,
+    standing: standings.find((standing) => standing.rank === rank),
+  }));
   const remainingPlayers = selectLeaderboardExpandedRows(standings);
   const accent = cycle === "weekly" ? C.blue : C.purple;
 

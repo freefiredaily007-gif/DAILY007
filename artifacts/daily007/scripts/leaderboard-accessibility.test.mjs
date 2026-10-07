@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   leaderboardPlayerAccessibilityLabel,
   leaderboardPodiumAccessibilityLabel,
+  selectLeaderboardPodiumRanks,
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
 } from "../src/lib/leaderboardStandings.ts";
@@ -128,6 +129,25 @@ test("podium entries expose one ordered VoiceOver label without decorative stops
       `Rank ${rank}, player not available, coin score not available`,
     );
   }
+});
+
+test("podium VoiceOver traversal follows the visible order in both layouts", () => {
+  const standardOrder = selectLeaderboardPodiumRanks(false);
+  const largeTextOrder = selectLeaderboardPodiumRanks(true);
+  assert.deepEqual(standardOrder, [2, 1, 3], "The standard podium is read left to right.");
+  assert.deepEqual(largeTextOrder, [1, 2, 3], "The large-text podium is read top to bottom.");
+  for (const order of [standardOrder, largeTextOrder]) {
+    assert.equal(new Set(order).size, 3, "Each podium rank must appear exactly once.");
+    assert.deepEqual([...order].sort(), [1, 2, 3], "Every podium rank must be reachable.");
+  }
+
+  assert.match(screenSource, /const podium = selectLeaderboardPodiumRanks\(largeText\)\.map\(\(rank\) => \(/);
+  assert.match(
+    screenSource,
+    /\{podium\.map\(\(\{ rank, standing \}\) => \(\s*<PodiumEntry key=\{rank\} rank=\{rank\} standing=\{standing\} largeText=\{largeText\} \/>/,
+  );
+  assert.match(screenSource, /podium: \{ flexDirection: "row"/);
+  assert.match(screenSource, /podiumLarge: \{ flexDirection: "column"/);
 });
 
 test("top-three refresh changes announce affected ranks, players, and scores", () => {
