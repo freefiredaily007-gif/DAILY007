@@ -21,6 +21,7 @@ import {
   MAX_TIMEOUT_MS,
 } from '../lib/tournamentLifecycle';
 import { createFocusedLatestRequestGate } from '../lib/focusedLatestRequest';
+import { tournamentResultAccessibilityLabel } from '../lib/tournamentResultAccessibility';
 
 export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
@@ -296,6 +297,16 @@ export default function MyMatches() {
                         const avatarColors = ['#e94721', '#65423b', '#1f675c', '#5c4b7d'];
                         return (
                           <View
+                            testID={`my-matches-result-${rank}-${index}`}
+                            accessible
+                            accessibilityRole="text"
+                            accessibilityLabel={tournamentResultAccessibilityLabel({
+                              rank,
+                              gameName,
+                              teamName,
+                              kills: entry.kills,
+                              prizeCoins: entry.prizeCoins,
+                            })}
                             key={`${entry.rank ?? 'rank'}-${index}`}
                             style={[
                               s.resultRow,
@@ -303,17 +314,33 @@ export default function MyMatches() {
                               index === results.length - 1 && s.resultRowLast,
                             ]}
                           >
-                            <View style={[s.rankMedal, rankStyle]}>
+                            <View
+                              style={[s.rankMedal, rankStyle]}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                            >
                               <Text style={s.rankNumber}>{rank}</Text>
                             </View>
-                            <View style={[s.resultAvatar, { backgroundColor: avatarColors[index % avatarColors.length] }]}>
+                            <View
+                              style={[s.resultAvatar, { backgroundColor: avatarColors[index % avatarColors.length] }]}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                            >
                               <Text style={s.resultAvatarInitial}>{avatarName.charAt(0).toUpperCase()}</Text>
                             </View>
-                            <View style={s.resultIdentity}>
+                            <View
+                              style={s.resultIdentity}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                            >
                               <Text style={s.resultName}>{winnerName}</Text>
                               {!!resultMeta && <Text style={s.resultKills}>{resultMeta}</Text>}
                             </View>
-                              <View style={[s.prizeWrap, fontScale >= 1.5 && s.prizeWrapLarge]}>
+                            <View
+                              style={[s.prizeWrap, fontScale >= 1.5 && s.prizeWrapLarge]}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                            >
                               <View style={s.prizeAmountRow}>
                                 <View style={s.coinIcon}><Text style={s.coinStar}>★</Text></View>
                                 <Text style={s.prizeAmount}>{entry.prizeCoins ?? 0}</Text>

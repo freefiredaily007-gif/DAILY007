@@ -4,9 +4,14 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import ts from "typescript";
+import { tournamentResultAccessibilityLabel } from "../src/lib/tournamentResultAccessibility.ts";
 
 const myMatchesSource = readFileSync(
   new URL("../src/screens/MyMatches.tsx", import.meta.url),
+  "utf8",
+);
+const resultAccessibilitySource = readFileSync(
+  new URL("../src/lib/tournamentResultAccessibility.ts", import.meta.url),
   "utf8",
 );
 const myMatchesSourceFile = ts.createSourceFile(
@@ -64,6 +69,7 @@ function renderMatchCard(item) {
     Badge,
     Btn: () => null,
     RoomCredentialsPanel: () => null,
+    tournamentResultAccessibilityLabel,
     C: { green: "green", red: "red", gold: "gold", orange: "orange" },
     s: new Proxy({}, { get: (_target, name) => String(name) }),
     fontScale: 1,
@@ -120,4 +126,52 @@ test("My Matches results show Free Fire details without the account profile name
     new RegExp(profileName),
     "The account profile name must not appear in rendered card text.",
   );
+});
+
+test("each result announces all standings details as one accessible row", () => {
+  const rowMarker = "testID={`my-matches-result-${rank}-${index}`}";
+  const markerIndex = myMatchesSource.indexOf(rowMarker);
+  const rowStart = myMatchesSource.lastIndexOf("<View", markerIndex);
+  const rowEnd = myMatchesSource.indexOf(">", markerIndex);
+
+  assert.ok(markerIndex >= 0, "Each result row needs a stable test ID.");
+  assert.ok(rowStart >= 0 && rowEnd > markerIndex, "Each result needs an accessible row wrapper.");
+  const rowTag = myMatchesSource.slice(rowStart, rowEnd + 1);
+  assert.match(rowTag, /\baccessible\b/);
+  assert.match(rowTag, /accessibilityRole="text"/);
+  assert.match(rowTag, /accessibilityLabel=\{tournamentResultAccessibilityLabel\(\{/);
+
+  assert.equal(
+    (rowTag.match(/accessibilityLabel=/g) ?? []).length,
+    1,
+    "A result should expose exactly one combined accessibility label.",
+  );
+  assert.equal(
+    (myMatchesSource.match(/accessibilityElementsHidden\s+importantForAccessibility="no-hide-descendants"/g) ?? []).length,
+    4,
+    "The rank badge, initials, visible labels, and prize art must not create duplicate stops.",
+  );
+  assert.match(resultAccessibilitySource, /`Rank \$\{rank\}`/);
+  assert.match(resultAccessibilitySource, /`Free Fire name \$\{describeValue\(gameName, 'unavailable'\)\}`/);
+  assert.match(resultAccessibilitySource, /spokenTeam/);
+  assert.match(resultAccessibilitySource, /spokenKills/);
+  assert.match(resultAccessibilitySource, /`prize \$\{spokenPrize\}`/);
+});
+
+test("the spoken result includes all expected details and excludes the account profile name", () => {
+  const profileName = "Daily007 Profile Name";
+  const label = tournamentResultAccessibilityLabel({
+    rank: 2,
+    gameName: "FireCaptain",
+    teamName: "Blue Fire",
+    kills: 5,
+    prizeCoins: 50,
+    playerName: profileName,
+  });
+
+  assert.equal(
+    label,
+    "Rank 2, Free Fire name FireCaptain, team Blue Fire, 5 kills, prize 50 coins",
+  );
+  assert.doesNotMatch(label, new RegExp(profileName));
 });
