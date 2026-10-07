@@ -735,6 +735,87 @@ test("concurrent runner-up retries for the same registration award and pay exact
   }
 });
 
+test("saved runner-up results are discoverable before a winner and retries do not pay twice", async () => {
+  const fixture = await createFixture();
+  const runnerUp = fixture.players[1];
+
+  try {
+    await withServer(async (origin) => {
+      const published = await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
+      assert.equal(published.status, 201, `runner-up result should save: ${JSON.stringify(published.body)}`);
+      assert.equal(published.body.registrationId, runnerUp.registrationId);
+      assert.equal(published.body.prizeCoins, 250);
+      assert.equal(published.body.walletCoins, 350);
+
+      const stateAfterPublish = await captureSettlementState(fixture, runnerUp);
+      assert.deepEqual(stateAfterPublish, {
+        walletCoins: 350,
+        awards: [{
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          rank: 2,
+          kills: 3,
+          prize_coins: 250,
+        }],
+        stats: { matches: 1, wins: 0, kills: 3, prize_coins: 250 },
+        ledger: [{ amount: 250, balance_after: 350, reason: "match_prize" }],
+        match: { enabled: true, status: "open" },
+      }, "the placement should be saved without declaring a winner or completing the match");
+
+      const defaultResponse = await fetch(`${origin}/admin/results`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(defaultResponse.status, 200);
+      const defaultBody = await defaultResponse.json() as {
+        data: Array<Record<string, unknown>>;
+      };
+      assert.equal(
+        defaultBody.data.some((entry) => entry.tournamentId === fixture.matchId),
+        false,
+        "unfinalized placements should remain hidden from the default completed-results list",
+      );
+
+      const recoveryResponse = await fetch(`${origin}/admin/results?includeUnfinalized=true`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(recoveryResponse.status, 200);
+      const recoveryBody = await recoveryResponse.json() as {
+        success: boolean;
+        data: Array<Record<string, unknown>>;
+      };
+      assert.equal(recoveryBody.success, true);
+      const recovered = recoveryBody.data.find(
+        (entry) =>
+          entry.tournamentId === fixture.matchId &&
+          entry.registrationId === runnerUp.registrationId,
+      );
+      assert.ok(recovered, "the committed placement must be discoverable for response-loss recovery");
+      assert.deepEqual({
+        tournamentId: recovered.tournamentId,
+        registrationId: recovered.registrationId,
+        rank: recovered.rank,
+        prizeCoins: recovered.prizeCoins,
+      }, {
+        tournamentId: fixture.matchId,
+        registrationId: runnerUp.registrationId,
+        rank: 2,
+        prizeCoins: 250,
+      });
+
+      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
+      assert.equal(retry.status, 409);
+      assert.equal(retry.body.error, "A result has already been published for this registration.");
+      assert.deepEqual(
+        await captureSettlementState(fixture, runnerUp),
+        stateAfterPublish,
+        "retrying must not change the player's wallet, ledger, award, stats, or tournament state",
+      );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("concurrent first- and second-place results cannot pay one registration twice", async () => {
   const fixture = await createFixture();
   const player = fixture.players[0];
