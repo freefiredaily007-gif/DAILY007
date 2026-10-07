@@ -10,6 +10,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
 import { useFocusEffect } from '@react-navigation/native';
@@ -27,7 +28,7 @@ import {
   getCreditedVideoWatchSeconds,
   type VideoPlaybackSample,
 } from '../lib/video-watch-progress';
-import { openYouTubeVideo } from '../lib/video-links';
+import { openVideoInBrowser, openYouTubeVideo } from '../lib/video-links';
 
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
@@ -177,6 +178,10 @@ export default function Video() {
   const [progressPercent, setProgressPercent] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [playerFailed, setPlayerFailed] = useState(false);
+  const [externalLinkError, setExternalLinkError] = useState(false);
+  const [externalLinkStatus, setExternalLinkStatus] = useState('');
+  const [externalLinkCopyFailed, setExternalLinkCopyFailed] = useState(false);
+  const [externalLinkAction, setExternalLinkAction] = useState<'youtube' | 'browser' | 'copy' | null>(null);
   const [rewardMessage, setRewardMessage] = useState('');
   const [rewardError, setRewardError] = useState('');
   const [rewardPending, setRewardPending] = useState(false);
@@ -344,6 +349,10 @@ export default function Video() {
     setProgressPercent(0);
     setPlayerReady(false);
     setPlayerFailed(false);
+    setExternalLinkError(false);
+    setExternalLinkStatus('');
+    setExternalLinkCopyFailed(false);
+    setExternalLinkAction(null);
     setRewardMessage('');
     setRewardError('');
     setRetrySession(null);
@@ -378,7 +387,10 @@ export default function Video() {
   }, [playerReady, playerFailed, selectedVideo?.id, showPlayer]);
 
   const openOnYouTube = useCallback(async () => {
-    if (!selectedVideo) return;
+    if (!selectedVideo || externalLinkAction) return;
+    setExternalLinkAction('youtube');
+    setExternalLinkStatus('');
+    setExternalLinkCopyFailed(false);
     try {
       await openYouTubeVideo(
         Platform.OS,
@@ -386,10 +398,46 @@ export default function Video() {
         selectedVideo.url,
         (url) => Linking.openURL(url),
       );
+      setExternalLinkError(false);
     } catch {
-      setPlayerFailed(true);
+      setExternalLinkError(true);
+    } finally {
+      setExternalLinkAction(null);
     }
-  }, [selectedVideo?.url, selectedVideo?.youtubeId]);
+  }, [externalLinkAction, selectedVideo?.url, selectedVideo?.youtubeId]);
+
+  const retryVideoInBrowser = useCallback(async () => {
+    if (!selectedVideo || externalLinkAction) return;
+    setExternalLinkAction('browser');
+    setExternalLinkStatus('');
+    setExternalLinkCopyFailed(false);
+    try {
+      await openVideoInBrowser(selectedVideo.url, (url) => Linking.openURL(url));
+      setExternalLinkError(false);
+    } catch {
+      setExternalLinkError(true);
+      setExternalLinkStatus('The browser still could not open the video. Copy the URL or try again later.');
+    } finally {
+      setExternalLinkAction(null);
+    }
+  }, [externalLinkAction, selectedVideo?.url]);
+
+  const copyVideoLink = useCallback(async () => {
+    if (!selectedVideo || externalLinkAction) return;
+    setExternalLinkAction('copy');
+    setExternalLinkStatus('');
+    setExternalLinkCopyFailed(false);
+    try {
+      const copied = await Clipboard.setStringAsync(selectedVideo.url);
+      if (!copied) throw new Error('Clipboard did not confirm the copy.');
+      setExternalLinkStatus('Video link copied. Paste it into YouTube or a browser.');
+    } catch {
+      setExternalLinkCopyFailed(true);
+      setExternalLinkStatus('Automatic copy failed. Select and copy the video URL below.');
+    } finally {
+      setExternalLinkAction(null);
+    }
+  }, [externalLinkAction, selectedVideo?.url]);
 
   const player = !selectedVideo ? null : Platform.OS === 'web'
     ? React.createElement('iframe' as any, {
@@ -455,10 +503,76 @@ export default function Video() {
             ) : null}
           </View>
 
-          {playerFailed ? (
+          {playerFailed && !externalLinkError ? (
             <View style={styles.errorCard}>
               <Feather name="alert-circle" size={18} color={colors.destructive} />
               <Text style={styles.errorText}>This video could not be embedded. Open it on YouTube instead.</Text>
+            </View>
+          ) : null}
+          {externalLinkError ? (
+            <View style={styles.externalRecoveryCard} testID="video-open-link-error">
+              <View style={styles.externalRecoveryHeading}>
+                <Feather name="alert-circle" size={18} color={colors.destructive} />
+                <Text
+                  accessibilityRole="text"
+                  accessibilityLiveRegion="polite"
+                  style={styles.errorText}
+                >
+                  Couldn’t open this video in YouTube or your browser. Retry the browser link or copy it to open it manually.
+                </Text>
+              </View>
+              <View style={styles.externalRecoveryActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry opening the video in your browser"
+                  accessibilityHint="Opens the saved video link directly in your browser."
+                  accessibilityState={{ busy: externalLinkAction === 'browser', disabled: externalLinkAction !== null }}
+                  testID="video-retry-browser"
+                  disabled={externalLinkAction !== null}
+                  onPress={() => { void retryVideoInBrowser(); }}
+                  style={styles.externalRecoveryButton}
+                >
+                  <Feather name="refresh-cw" size={15} color={colors.primary} />
+                  <Text style={styles.externalButtonText}>
+                    {externalLinkAction === 'browser' ? 'OPENING BROWSER…' : 'RETRY IN BROWSER'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy video link"
+                  accessibilityHint="Copies the saved video URL so you can paste it into another app."
+                  accessibilityState={{ busy: externalLinkAction === 'copy', disabled: externalLinkAction !== null }}
+                  testID="video-copy-link"
+                  disabled={externalLinkAction !== null}
+                  onPress={() => { void copyVideoLink(); }}
+                  style={styles.externalRecoveryButton}
+                >
+                  <Feather name="copy" size={15} color={colors.primary} />
+                  <Text style={styles.externalButtonText}>
+                    {externalLinkAction === 'copy' ? 'COPYING LINK…' : 'COPY VIDEO LINK'}
+                  </Text>
+                </Pressable>
+              </View>
+              {externalLinkStatus ? (
+                <Text
+                  accessibilityRole="text"
+                  accessibilityLiveRegion="polite"
+                  testID="video-open-link-status"
+                  style={styles.externalLinkStatus}
+                >
+                  {externalLinkStatus}
+                </Text>
+              ) : null}
+              {externalLinkCopyFailed ? (
+                <Text
+                  accessibilityRole="text"
+                  selectable
+                  testID="video-manual-link"
+                  style={styles.manualVideoUrl}
+                >
+                  {selectedVideo.url}
+                </Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -531,12 +645,16 @@ export default function Video() {
           <Pressable
             accessibilityRole="link"
             accessibilityLabel="Open the video on YouTube"
+            accessibilityState={{ busy: externalLinkAction === 'youtube', disabled: externalLinkAction !== null }}
             testID="video-open-youtube"
+            disabled={externalLinkAction !== null}
             onPress={() => { void openOnYouTube(); }}
             style={styles.externalButton}
           >
             <Feather name="external-link" size={16} color={colors.primary} />
-            <Text style={styles.externalButtonText}>OPEN ON YOUTUBE</Text>
+            <Text style={styles.externalButtonText}>
+              {externalLinkAction === 'youtube' ? 'OPENING VIDEO…' : 'OPEN ON YOUTUBE'}
+            </Text>
           </Pressable>
         </>
       ) : (
@@ -745,6 +863,20 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       marginTop: 10,
     },
     errorText: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, flex: 1 },
+    externalRecoveryCard: {
+      marginTop: 10,
+      padding: 12,
+      gap: 10,
+      backgroundColor: colors.card,
+      borderColor: colors.destructive,
+      borderWidth: 1,
+      borderRadius: colors.radius,
+    },
+    externalRecoveryHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+    externalRecoveryActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 14, rowGap: 4 },
+    externalRecoveryButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
+    externalLinkStatus: { color: colors.accent, fontSize: 12, lineHeight: 18 },
+    manualVideoUrl: { color: colors.primary, fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
     progressHeader: {
       flexDirection: 'row',
       alignItems: 'center',

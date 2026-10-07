@@ -162,6 +162,7 @@ function renderError(rewardError) {
   const element = evaluateJsxConditional(findJsxConditional("!!rewardError"), {
     React,
     rewardError,
+    sessionStartFailedRef: { current: false },
     View: createTestView,
     Text: createTestText,
     Feather: () => null,
@@ -337,6 +338,7 @@ test("returning from a stale player refreshes the active catalog", async () => {
     },
   };
   const closePlayer = loadScreenCallback("closePlayer", {
+    playbackCycleRef: { current: 0 },
     setShowPlayer: (value) => { state.showPlayer = value; },
     setSelectedVideoId: (value) => { state.selectedVideoId = value; },
     setRetrySession: (value) => { state.retrySession = value; },

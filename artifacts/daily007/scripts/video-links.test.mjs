@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { openYouTubeVideo } from '../src/lib/video-links.ts';
+import { openVideoInBrowser, openYouTubeVideo } from '../src/lib/video-links.ts';
+
+const videoScreenSource = readFileSync(
+  new URL('../src/screens/Video.tsx', import.meta.url),
+  'utf8',
+);
 
 test('Android opens the selected video in the YouTube app first', async () => {
   const openedUrls = [];
@@ -27,6 +33,30 @@ test('Android falls back to the saved browser URL if the YouTube app link fails'
   assert.deepEqual(openedUrls, ['vnd.youtube://abc-123', videoUrl]);
 });
 
+test('Android reports the browser error after both YouTube and browser links fail', async () => {
+  const openedUrls = [];
+  const videoUrl = 'https://www.youtube.com/watch?v=abc-123';
+
+  await assert.rejects(
+    openYouTubeVideo('android', 'abc-123', videoUrl, async (url) => {
+      openedUrls.push(url);
+      throw new Error(url.startsWith('vnd.youtube:') ? 'No YouTube app handler' : 'No browser handler');
+    }),
+    /No browser handler/,
+  );
+
+  assert.deepEqual(openedUrls, ['vnd.youtube://abc-123', videoUrl]);
+});
+
+test('the recovery retry opens only the saved HTTPS URL', async () => {
+  const openedUrls = [];
+  const videoUrl = 'https://www.youtube.com/watch?v=abc-123';
+
+  await openVideoInBrowser(videoUrl, async (url) => { openedUrls.push(url); });
+
+  assert.deepEqual(openedUrls, [videoUrl]);
+});
+
 test('non-Android platforms keep opening the saved video URL', async () => {
   const openedUrls = [];
   const videoUrl = 'https://www.youtube.com/watch?v=abc-123';
@@ -34,4 +64,27 @@ test('non-Android platforms keep opening the saved video URL', async () => {
   await openYouTubeVideo('ios', 'abc-123', videoUrl, async (url) => { openedUrls.push(url); });
 
   assert.deepEqual(openedUrls, [videoUrl]);
+});
+
+test('double failure offers browser retry and copy recovery without resetting selection or search', () => {
+  const externalActionSource = videoScreenSource.slice(
+    videoScreenSource.indexOf('const openOnYouTube ='),
+    videoScreenSource.indexOf('const player = !selectedVideo'),
+  );
+
+  assert.match(externalActionSource, /setExternalLinkError\(true\)/);
+  assert.match(externalActionSource, /openVideoInBrowser\(selectedVideo\.url/);
+  assert.match(externalActionSource, /Clipboard\.setStringAsync\(selectedVideo\.url\)/);
+  assert.doesNotMatch(
+    externalActionSource,
+    /setSelectedVideoId\(null\)|setSearchQuery\(['"]{2}\)|setShowPlayer\(false\)/,
+  );
+  assert.match(videoScreenSource, /Couldn’t open this video in YouTube or your browser\./);
+  assert.match(videoScreenSource, /testID="video-open-link-error"/);
+  assert.match(videoScreenSource, /testID="video-retry-browser"/);
+  assert.match(videoScreenSource, /testID="video-copy-link"/);
+  assert.match(videoScreenSource, /testID="video-open-link-status"/);
+  assert.match(videoScreenSource, /selectable[\s\S]*?testID="video-manual-link"/);
+  assert.match(videoScreenSource, /playerFailed && !externalLinkError/);
+  assert.match(videoScreenSource, /value={searchQuery}/);
 });

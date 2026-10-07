@@ -17,3 +17,10 @@ export async function openYouTubeVideo(
 
   await openURL(videoUrl);
 }
+
+export async function openVideoInBrowser(
+  videoUrl: string,
+  openURL: OpenUrl,
+): Promise<void> {
+  await openURL(videoUrl);
+}
