@@ -785,6 +785,99 @@ test("a failed monthly Full Admin prize save rolls back both schedules and activ
         originalActivePeriodSnapshots,
         "active-period prize snapshots must roll back with the settings",
       );
+
+      daily007LeaderboardTestDb.failRewardSettingWriteFor = null;
+      const retryRewards = {
+        weekly: { firstPlaceCoins: 711, secondPlaceCoins: 712, thirdPlaceCoins: 713 },
+        monthly: { firstPlaceCoins: 811, secondPlaceCoins: 812, thirdPlaceCoins: 813 },
+      };
+      const successfulRetry = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        retryRewards,
+      );
+
+      assert.equal(successfulRetry.status, 200);
+      assert.deepEqual(
+        {
+          weekly: {
+            firstPlaceCoins: successfulRetry.body.weekly.firstPlaceCoins,
+            secondPlaceCoins: successfulRetry.body.weekly.secondPlaceCoins,
+            thirdPlaceCoins: successfulRetry.body.weekly.thirdPlaceCoins,
+          },
+          monthly: {
+            firstPlaceCoins: successfulRetry.body.monthly.firstPlaceCoins,
+            secondPlaceCoins: successfulRetry.body.monthly.secondPlaceCoins,
+            thirdPlaceCoins: successfulRetry.body.monthly.thirdPlaceCoins,
+          },
+        },
+        retryRewards,
+        "the retry must return the new weekly and monthly schedules",
+      );
+      assert.deepEqual(daily007LeaderboardTestDb.rewardSettings.get("weekly"), {
+        cycle_type: "weekly",
+        first_place_coins: retryRewards.weekly.firstPlaceCoins,
+        second_place_coins: retryRewards.weekly.secondPlaceCoins,
+        third_place_coins: retryRewards.weekly.thirdPlaceCoins,
+      });
+      assert.deepEqual(daily007LeaderboardTestDb.rewardSettings.get("monthly"), {
+        cycle_type: "monthly",
+        first_place_coins: retryRewards.monthly.firstPlaceCoins,
+        second_place_coins: retryRewards.monthly.secondPlaceCoins,
+        third_place_coins: retryRewards.monthly.thirdPlaceCoins,
+      });
+      assert.deepEqual(
+        [...daily007LeaderboardTestDb.periods.values()]
+          .filter((candidate) => candidate.status === "active")
+          .map((candidate) => ({
+            cycleType: candidate.cycle_type,
+            payoutConfiguration: candidate.payout_configuration,
+          }))
+          .sort((left, right) => left.cycleType.localeCompare(right.cycleType)),
+        [
+          {
+            cycleType: "monthly",
+            payoutConfiguration: [
+              { rank: 1, coins: retryRewards.monthly.firstPlaceCoins },
+              { rank: 2, coins: retryRewards.monthly.secondPlaceCoins },
+              { rank: 3, coins: retryRewards.monthly.thirdPlaceCoins },
+            ],
+          },
+          {
+            cycleType: "weekly",
+            payoutConfiguration: [
+              { rank: 1, coins: retryRewards.weekly.firstPlaceCoins },
+              { rank: 2, coins: retryRewards.weekly.secondPlaceCoins },
+              { rank: 3, coins: retryRewards.weekly.thirdPlaceCoins },
+            ],
+          },
+        ],
+        "the retry must update both active-period prize snapshots to match the saved schedules",
+      );
+      assert.deepEqual(
+        daily007LeaderboardTestDb.rewardSettingWriteAttempts,
+        ["weekly", "monthly", "weekly", "monthly"],
+        "the retry must complete both schedule writes after the failure is cleared",
+      );
+
+      const retriedPlayerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(retriedPlayerRead.status, 200);
+      const retriedPlayerView = await retriedPlayerRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+      assert.deepEqual(retriedPlayerView.weekly.rewards, [
+        { rank: 1, coins: retryRewards.weekly.firstPlaceCoins },
+        { rank: 2, coins: retryRewards.weekly.secondPlaceCoins },
+        { rank: 3, coins: retryRewards.weekly.thirdPlaceCoins },
+      ]);
+      assert.deepEqual(retriedPlayerView.monthly.rewards, [
+        { rank: 1, coins: retryRewards.monthly.firstPlaceCoins },
+        { rank: 2, coins: retryRewards.monthly.secondPlaceCoins },
+        { rank: 3, coins: retryRewards.monthly.thirdPlaceCoins },
+      ]);
     });
   } finally {
     daily007LeaderboardTestDb.reset();
