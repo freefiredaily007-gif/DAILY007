@@ -102,10 +102,11 @@ async function roleTransaction<T>(
   req: Request,
   requiredRole: Daily007RoleRequirement,
   work: (client: Daily007MutationClient) => Promise<T>,
+  lockMode: "shared" | "exclusive" = "shared",
 ): Promise<T> {
   const id = userId(req);
   if (!id) throw Object.assign(new Error("A valid Daily007 account is required."), { status: 401 });
-  return withDaily007RoleTransaction(id, requiredRole, work);
+  return withDaily007RoleTransaction(id, requiredRole, work, lockMode);
 }
 async function markDaily007VideoCatalogSeeded(client: Daily007MutationClient): Promise<void> {
   await client.query(
@@ -869,7 +870,7 @@ router.patch("/admin/users/:id", authenticate, async (req, res): Promise<void> =
          VALUES ($1, $2, $3, $4)`, [id, body.coinsDelta, next, `admin_adjustment:${reason}`],
       );
       return update.rows[0];
-    });
+    }, setStatus ? "exclusive" : "shared");
     if (!user) { error(res, 404, "User not found."); return; }
     res.json(user);
   } catch (e) { respondFailure(res, e); }

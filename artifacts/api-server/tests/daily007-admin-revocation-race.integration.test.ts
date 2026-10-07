@@ -1024,9 +1024,9 @@ test("a protected mutation queued behind an admin block is rejected before writi
           },
         );
         await waitForQueryBlockedBy(
-          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "SELECT pg_advisory_xact_lock(740073)",
           "UPDATE daily007_v2_users SET status = COALESCE($2, status)",
-          "the block request to wait for the in-flight admin mutation",
+          "the block request to queue behind the in-flight admin mutation",
         );
 
         await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
@@ -1046,7 +1046,7 @@ test("a protected mutation queued behind an admin block is rejected before writi
           },
         );
         await waitForQueryBlockedBy(
-          "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+          "SELECT pg_advisory_xact_lock_shared(740073)",
           "UPDATE daily007_v2_users SET status = COALESCE($2, status)",
           "the second protected write to wait behind the in-flight block update",
         );
@@ -1140,5 +1140,197 @@ test("a protected mutation queued behind an admin block is rejected before writi
       "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
       [[actorId, blockerAdminId, targetId]],
     );
+  }
+});
+
+test("opposing admin blocks serialize without a deadlock and reject the blocked admin", async () => {
+  const firstAdminId = randomUUID();
+  const secondAdminId = randomUUID();
+  const targetId = randomUUID();
+  const pauseKey = 740080n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let firstBlockPromise: Promise<JsonResponse> | undefined;
+  let secondBlockPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'First Opposing Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Second Opposing Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Opposing Block Wallet Target', $6, 'test-salt', 'test-hash', 'user', 100)`,
+      [
+        firstAdminId,
+        `opposing-admin-one-${firstAdminId}@example.test`,
+        secondAdminId,
+        `opposing-admin-two-${secondAdminId}@example.test`,
+        targetId,
+        `opposing-wallet-target-${targetId}@example.test`,
+      ],
+    );
+    await pool.query(
+      "CREATE TABLE daily007_test_paused_admin_blocks (id uuid PRIMARY KEY)",
+    );
+    await pool.query(
+      "INSERT INTO daily007_test_paused_admin_blocks (id) VALUES ($1)",
+      [secondAdminId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_admin_block() RETURNS trigger AS $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM daily007_test_paused_admin_blocks
+           WHERE id = NEW.id
+        )
+           AND NEW.status = 'blocked'
+           AND OLD.status IS DISTINCT FROM NEW.status THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_admin_block
+      BEFORE UPDATE ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_admin_block()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        firstBlockPromise = patchJson(
+          origin,
+          `/admin/users/${secondAdminId}`,
+          firstAdminId,
+          { status: "blocked" },
+        );
+        await waitForBlockedQuery(
+          "UPDATE daily007_v2_users SET status = COALESCE($2, status)",
+          "the first block update after it acquired its transaction locks",
+        );
+
+        secondBlockPromise = patchJson(
+          origin,
+          `/admin/users/${firstAdminId}`,
+          secondAdminId,
+          { status: "blocked" },
+        );
+        await waitForQueryBlockedBy(
+          "SELECT pg_advisory_xact_lock(740073)",
+          "UPDATE daily007_v2_users SET status = COALESCE($2, status)",
+          "the opposing block request to queue behind the first status transaction",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+        pauseLockHeld = false;
+        const [firstBlock, secondBlock] = await Promise.all([
+          firstBlockPromise,
+          secondBlockPromise,
+        ]);
+        assert.equal(firstBlock.status, 200, JSON.stringify(firstBlock.body));
+        assert.equal(firstBlock.body.status, "blocked");
+        assert.equal(secondBlock.status, 403, JSON.stringify(secondBlock.body));
+
+        const laterAction = await patchJson(
+          origin,
+          `/admin/users/${targetId}`,
+          secondAdminId,
+          {
+            coinsDelta: 1,
+            reason: "blocked admin must not adjust wallets",
+          },
+        );
+        assert.equal(laterAction.status, 403, JSON.stringify(laterAction.body));
+      } finally {
+        if (pauseLockHeld) {
+          await blocker!
+            .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+            .catch(() => undefined);
+          pauseLockHeld = false;
+        }
+      }
+    });
+
+    const admins = await pool.query<{ id: string; status: string }>(
+      "SELECT id, status FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[firstAdminId, secondAdminId]],
+    );
+    assert.deepEqual(
+      new Map(admins.rows.map(({ id, status }) => [id, status])),
+      new Map([
+        [firstAdminId, "active"],
+        [secondAdminId, "blocked"],
+      ]),
+    );
+
+    const target = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [targetId],
+    );
+    const ledger = await pool.query(
+      "SELECT amount, reason FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [targetId],
+    );
+    assert.equal(target.rows[0]?.wallet_coins, 100);
+    assert.deepEqual(ledger.rows, []);
+  } finally {
+    if (blocker) {
+      if (pauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (firstBlockPromise || secondBlockPromise) {
+      await Promise.allSettled(
+        [firstBlockPromise, secondBlockPromise].filter(
+          Boolean,
+        ) as Promise<JsonResponse>[],
+      );
+    }
+
+    const cleanupStatements = [
+      "DROP TRIGGER IF EXISTS daily007_test_pause_admin_block ON daily007_v2_users",
+      "DROP FUNCTION IF EXISTS daily007_test_pause_admin_block()",
+      "DROP TABLE IF EXISTS daily007_test_paused_admin_blocks",
+    ];
+    const cleanupErrors: unknown[] = [];
+    for (const statement of cleanupStatements) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const cleanup of [
+      () =>
+        pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [
+          targetId,
+        ]),
+      () =>
+        pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [
+          [firstAdminId, secondAdminId, targetId],
+        ]),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up the opposing admin block fixture.",
+      );
+    }
   }
 });

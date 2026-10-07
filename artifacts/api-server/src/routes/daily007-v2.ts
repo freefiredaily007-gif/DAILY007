@@ -183,12 +183,17 @@ export async function withDaily007RoleTransaction<T>(
   accountId: string,
   requiredRole: Daily007RoleRequirement,
   work: (client: Daily007MutationClient) => Promise<T>,
+  lockMode: "shared" | "exclusive" = "shared",
 ): Promise<T> {
   return withTransaction(async (client) => {
-    // Role changes take the exclusive variant before locking the actor and target rows.
-    // Sharing the same gate first avoids lock-order deadlocks with mutations touching
-    // another administrator's row.
-    await client.query("SELECT pg_advisory_xact_lock_shared(740073)");
+    // Status and role changes take the exclusive variant before locking actor and
+    // target rows. Sharing the same gate first prevents lock-order deadlocks with
+    // mutations touching another administrator's row.
+    await client.query(
+      lockMode === "exclusive"
+        ? "SELECT pg_advisory_xact_lock(740073)"
+        : "SELECT pg_advisory_xact_lock_shared(740073)",
+    );
     await assertDaily007RoleLocked(client, accountId, requiredRole);
     return work(client);
   });
