@@ -87,6 +87,16 @@ test('payment and withdrawal success feedback is polite without changing payout 
   assert.match(payoutAction, /setOkMsg\('Manual payout recorded'\)/);
 });
 
+test('successful UPI copying announces politely without changing the focused button label', () => {
+  assert.match(
+    screenSource,
+    /<Msg\s+kind="ok"\s+text=\{copiedUpiId \? 'Withdrawal UPI ID copied' : ''\}\s+accessibilityLiveRegion="polite"\s+testID="withdrawal-upi-copy-success"\s*\/>/,
+    'A confirmed copy must announce a concise success message politely.',
+  );
+  assert.match(screenSource, /accessibilityLabel="Copy withdrawal UPI ID"/);
+  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="assertive" \/>/);
+});
+
 test('copy sends the exact account text and only shows COPIED after clipboard success', async () => {
   const requestId = 'withdrawal-42';
   const account = '  Player.Name+pay@bank  ';

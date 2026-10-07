@@ -112,6 +112,12 @@ export default function AdminPayments() {
       </View>
       <Msg kind="err" text={err} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} accessibilityLiveRegion="polite" />
+      <Msg
+        kind="ok"
+        text={copiedUpiId ? 'Withdrawal UPI ID copied' : ''}
+        accessibilityLiveRegion="polite"
+        testID="withdrawal-upi-copy-success"
+      />
       {!list ? <Loading /> : list.length === 0 ? <Empty text={`No ${tab} requests.`} /> : list.map((p) => (
         <Card key={p.kind + ':' + p.id} style={{ marginBottom: 10 }}>
           <Text style={st.pName}>
