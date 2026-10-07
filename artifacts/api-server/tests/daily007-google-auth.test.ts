@@ -1115,7 +1115,7 @@ test("legacy referral code gives Google signup one 10-coin referral reward", asy
   }
 });
 
-test("an unregistered legacy referral code does not create a Google account or signup reward", async () => {
+test("a rejected legacy referral code lets the same Google identity retry successfully", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
 
@@ -1165,7 +1165,85 @@ test("an unregistered legacy referral code does not create a Google account or s
         (user) => user.email === "referrer@example.test",
       );
       assert.ok(referrer);
+      assert.equal(
+        signupTestDb.shortCodeOwners.get(SIGNUP_TEST_REFERRAL_CODE),
+        referrer.id,
+        "the retry code must be registered and valid",
+      );
       assert.equal(referrer.wallet_coins, 0);
+
+      const retry = await googleAuth(
+        origin,
+        undefined,
+        SIGNUP_TEST_REFERRAL_CODE,
+      );
+      assert.equal(retry.status, 201, "the same Google identity should be able to retry with a valid code");
+      assert.equal(retry.body.coins, 10);
+      assert.equal(typeof retry.body.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+
+      const googleAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(googleAccounts.length, 1, "the retry should create exactly one linked account");
+      assert.equal(signupTestDb.users.size, 2, "only the referrer and one Google account should exist");
+      const account = googleAccounts[0];
+      assert.ok(account);
+      assert.equal(account.id, retry.body.id);
+      assert.equal(account.email, "google-signup@example.test");
+      assert.equal(account.wallet_coins, 10);
+
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: account.id,
+          code: SIGNUP_TEST_REFERRAL_CODE,
+        }],
+        "the retry should create exactly one referral relationship using the valid code",
+      );
+      assert.equal(signupTestDb.referrals.length, 1);
+      assert.equal(signupTestDb.ledger.length, 1, "the retry should create exactly one reward ledger entry");
+      assert.deepEqual(
+        signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          user_id: account.id,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+      assert.equal(signupTestDb.shortCodesByUser.size, 2);
+      assert.equal(signupTestDb.shortCodeOwners.size, 2);
+      assert.equal(signupTestDb.legacyCodeOwners.size, 2);
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(retry.body.token)}` },
+      });
+      assert.equal(walletResponse.status, 200);
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(walletHistory.length, 1);
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
     });
   } finally {
     signupTestDb.reset();
