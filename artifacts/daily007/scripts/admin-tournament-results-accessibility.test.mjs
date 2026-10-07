@@ -186,6 +186,38 @@ test('ambiguous submissions refresh saved results and show the stored rank and p
   assert.doesNotMatch(catchBody, /Api\.adminPublishResult/);
 });
 
+test('saved placement and winner recovery each announce once without republishing', () => {
+  const publishMethod = screenSource.slice(
+    screenSource.indexOf('const publishResult = async'),
+    screenSource.indexOf('\n  useEffect(() => { load(); }, [load]);'),
+  );
+  const catchBody = publishMethod.match(/} catch \(e: any\) \{([\s\S]*?)\n    } finally/)?.[1];
+  assert.ok(catchBody, 'The publish flow must recover from a lost or duplicate response.');
+
+  const branches = catchBody.match(
+    /if \(savedRank === 1\) \{([\s\S]*?)\n          } else \{([\s\S]*?)\n          }\n          return;/,
+  );
+  assert.ok(branches, 'Saved winners and placements must use separate recovery behavior.');
+  const winnerRecovery = branches[1];
+  const placementRecovery = branches[2];
+
+  assert.equal(
+    (winnerRecovery.match(/setOkMsg\(recoveredMessage\)/g) ?? []).length,
+    1,
+    'A saved winner should publish one recovery announcement.',
+  );
+  assert.match(winnerRecovery, /await load\(\)/);
+  assert.match(winnerRecovery, /setTab\('completed'\)/);
+  assert.equal(
+    (placementRecovery.match(/setResultSuccess\(recoveredMessage\)/g) ?? []).length,
+    1,
+    'A saved placement should publish one recovery announcement.',
+  );
+  for (const branch of [winnerRecovery, placementRecovery]) {
+    assert.doesNotMatch(branch, /Api\.adminPublishResult/, 'Recovery must not submit another payout.');
+  }
+});
+
 test('placement and winner publication success messages are politely announced', () => {
   const placementMessage = screenSource.match(
     /<Msg\s+kind="ok"\s+text=\{resultSuccess\}\s+accessibilityLiveRegion="polite"\s*\/>/,
