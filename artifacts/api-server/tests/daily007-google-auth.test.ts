@@ -1211,6 +1211,100 @@ test("a valid referral code does not change rewards when a password account link
   }
 });
 
+test("a replaced Daily007 session cannot link Google or change the account's rewards", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token: staleToken } = await createPasswordAccount(
+        origin,
+        "google-signup@example.test",
+      );
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "existing-stale-link-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "existing-stale-link-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "existing-stale-link-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const replacementLogin = await postJson(origin, "/daily007/v2/auth/login", {
+        email: "google-signup@example.test",
+        password: "google-link-test-password",
+      });
+      assert.equal(replacementLogin.status, 200, "a second sign-in should replace the first session");
+      const replacementToken = String(replacementLogin.body.token);
+      assert.notEqual(replacementToken, staleToken);
+
+      const balanceBeforeLinkAttempt = account.wallet_coins;
+      const referralsBeforeLinkAttempt = structuredClone(signupTestDb.referrals);
+      const ledgerBeforeLinkAttempt = structuredClone(signupTestDb.ledger);
+      const accountCountBeforeLinkAttempt = signupTestDb.users.size;
+      const authVersionBeforeLinkAttempt = account.auth_version;
+
+      const staleLink = await googleAuth(
+        origin,
+        staleToken,
+        SIGNUP_TEST_REFERRAL_CODE,
+      );
+
+      assert.equal(staleLink.status, 401);
+      assert.match(String(staleLink.body.error), /session was replaced by a newer sign-in/i);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.equal(account.clerk_user_id, null, "the stale session must not link Google");
+      assert.equal(account.wallet_coins, balanceBeforeLinkAttempt);
+      assert.equal(account.auth_version, authVersionBeforeLinkAttempt);
+      assert.equal(signupTestDb.users.size, accountCountBeforeLinkAttempt);
+      assert.deepEqual(
+        signupTestDb.referrals,
+        referralsBeforeLinkAttempt,
+        "a rejected link must not change referral relationships",
+      );
+      assert.deepEqual(
+        signupTestDb.ledger,
+        ledgerBeforeLinkAttempt,
+        "a rejected link must not add, remove, or change wallet history",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${replacementToken}` },
+      });
+      assert.equal(walletResponse.status, 200, "the replacement session should remain active");
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        ledgerBeforeLinkAttempt.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        })),
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("a logged-out Google identity cannot claim a password account or access its Wallet", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
