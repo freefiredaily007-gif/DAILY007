@@ -250,9 +250,28 @@ function PlayerRow({
   );
 }
 
-export default function LeaderboardDetails({ navigation, route }: any) {
-  const { fontScale } = useWindowDimensions();
-  const largeText = fontScale >= 1.5;
+export default function LeaderboardDetails(props: any) {
+  const nativeTestFixture = __DEV__
+    ? props.route?.params?.__nativeLeaderboardTestFixture
+    : undefined;
+  if (nativeTestFixture) {
+    return (
+      <LeaderboardDetailsContent
+        {...props}
+        query={{
+          data: nativeTestFixture,
+          error: null,
+          isLoading: false,
+          isRefetchError: false,
+          refetch: async () => ({ data: nativeTestFixture }),
+        }}
+      />
+    );
+  }
+  return <LiveLeaderboardDetails {...props} />;
+}
+
+function LiveLeaderboardDetails({ navigation, route }: any) {
   const query = useDaily007ListLeaderboards({
     query: {
       queryKey: getDaily007ListLeaderboardsQueryKey(),
@@ -264,6 +283,12 @@ export default function LeaderboardDetails({ navigation, route }: any) {
       refetchLeaderboardOnFocus(query.refetch);
     }, [query.refetch]),
   );
+  return <LeaderboardDetailsContent navigation={navigation} route={route} query={query} />;
+}
+
+function LeaderboardDetailsContent({ navigation, route, query }: any) {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.5;
   const [showTop20, setShowTop20] = React.useState(false);
   const [topThreeAnnouncement, setTopThreeAnnouncement] = React.useState("");
   const topThreeSnapshots = React.useRef<Partial<Record<CycleType, LeaderboardTopThreeSnapshot>>>({});
