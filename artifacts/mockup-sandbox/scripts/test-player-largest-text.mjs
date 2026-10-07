@@ -836,7 +836,30 @@ async function checkUnavailableVideoRewardFlow() {
 async function checkUnavailableVideoCatalogRefreshFailure() {
   const unavailableMessage = "This video is no longer available for rewards.";
   const catalogError = "Could not load videos. Check your connection and try again.";
+  const searchQuery = "Preview video";
   await navigateToScreen("VideoRefreshFailure", "Tutorial Videos");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-catalog-search\"]'))",
+    "video catalog search before filtering",
+  );
+  await setInputValue('[data-testid="video-catalog-search"]', searchQuery, "the shared video title filter");
+  await waitForCondition(
+    `document.querySelector('[data-testid="video-catalog-search"]')?.value === ${JSON.stringify(searchQuery)}
+      && Boolean(document.querySelector('[data-testid="video-catalog-card-unavailable-video"]'))
+      && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))`,
+    "both preview videos matching the search filter",
+  );
+  const filteredCatalog = await evaluate(`(() => ({
+    searchValue: document.querySelector('[data-testid="video-catalog-search"]')?.value ?? null,
+    unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
+    activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+  }))()`);
+  assert(
+    filteredCatalog.searchValue === searchQuery
+      && filteredCatalog.unavailableCard
+      && filteredCatalog.activeCard,
+    `The search should match both videos before opening the unavailable one: ${JSON.stringify(filteredCatalog)}`,
+  );
   await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "video that becomes unavailable");
   await waitForCondition(
     "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
@@ -914,16 +937,20 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
     errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
     unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
     activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+    searchValue: document.querySelector('[data-testid="video-catalog-search"]')?.value ?? null,
+    oneFilteredResult: document.body.innerText.includes("Tutorial Videos (1)"),
     refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
   }))()`);
   assert(
     !recoveredCatalog.errorVisible
       && !recoveredCatalog.unavailableCard
       && recoveredCatalog.activeCard
+      && recoveredCatalog.searchValue === searchQuery
+      && recoveredCatalog.oneFilteredResult
       && recoveredCatalog.refreshes === 3,
-    `Retrying the catalog should remove only the unavailable video: ${JSON.stringify(recoveredCatalog)}`,
+    `Retrying the catalog should preserve the search and show its remaining active result: ${JSON.stringify(recoveredCatalog)}`,
   );
-  console.log("PASS — catalog reload stays available across two failures and recovers on the third attempt.");
+  console.log("PASS — catalog reload stays available across two failures, preserves search, and recovers on the third attempt.");
 }
 
 async function checkTransientVideoRewardRetry() {
