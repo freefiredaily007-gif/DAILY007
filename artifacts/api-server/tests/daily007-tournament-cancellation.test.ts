@@ -401,7 +401,9 @@ test("overlapping cancellation attempts refund each registration only once", asy
 
 test("a waiting cancellation succeeds after the first refund write rolls back", async () => {
   resetAtomicCancellationFixture();
-  autoCancellationTestDb.failNextRefundWriteAfterFirstWalletMutation(ATOMIC_MATCH_ID);
+  autoCancellationTestDb.failNextRefundWriteAfterWalletMutation(
+    ATOMIC_MATCH_ID,
+  );
 
   const firstAttempt = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID);
   const waitingAttempt = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID);
@@ -442,6 +444,86 @@ test("a waiting cancellation succeeds after the first refund write rolls back", 
       registrationId,
       { userId, amount },
     ])),
+    new Map([
+      [FIRST_REGISTRATION_ID, { userId: FIRST_PAYER_ID, amount: 25 }],
+      [SECOND_REGISTRATION_ID, { userId: SECOND_PAYER_ID, amount: 40 }],
+    ]),
+  );
+});
+
+test("a waiting cancellation succeeds after a later refund write rolls back earlier refunds", async () => {
+  resetAtomicCancellationFixture();
+  autoCancellationTestDb.failNextRefundWriteAfterWalletMutation(
+    ATOMIC_MATCH_ID,
+    SECOND_REGISTRATION_ID,
+  );
+
+  const firstAttempt = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID);
+  const waitingAttempt = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID);
+  await autoCancellationTestDb.waitForMatchRowLockWaitCount(ATOMIC_MATCH_ID);
+
+  const [first, waiting] = await Promise.allSettled([
+    firstAttempt,
+    waitingAttempt,
+  ]);
+  assert.equal(
+    autoCancellationTestDb.matchRowLockWaitCount(ATOMIC_MATCH_ID),
+    1,
+  );
+  assert.ok(first.status === "rejected", "the later refund write should fail");
+  assert.match(
+    String(first.reason),
+    /Injected tournament cancellation refund write failure/,
+  );
+  assert.ok(
+    waiting.status === "fulfilled",
+    "the cancellation waiting on the row lock should succeed",
+  );
+  assert.deepEqual(waiting.value, {
+    id: ATOMIC_MATCH_ID,
+    status: "cancelled",
+    registrationsRefunded: 2,
+    accountsRefunded: 2,
+    coinsRefunded: 65,
+  });
+
+  assert.equal(
+    autoCancellationTestDb.matches.get(ATOMIC_MATCH_ID)?.status,
+    "cancelled",
+  );
+  assert.equal(
+    autoCancellationTestDb.accounts.get(FIRST_PAYER_ID)?.wallet_coins,
+    125,
+  );
+  assert.equal(
+    autoCancellationTestDb.accounts.get(SECOND_PAYER_ID)?.wallet_coins,
+    240,
+  );
+  assert.deepEqual(autoCancellationTestDb.mutationTrace, [
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+    `wallet:${SECOND_PAYER_ID}`,
+    `refund-write-failure:${SECOND_REGISTRATION_ID}`,
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+    `wallet:${SECOND_PAYER_ID}`,
+    `ledger:${SECOND_REGISTRATION_ID}`,
+  ]);
+
+  const cancellationRefunds = [
+    ...autoCancellationTestDb.ledger.values(),
+  ].filter(
+    ({ matchId, reason }) =>
+      matchId === ATOMIC_MATCH_ID && reason === "tournament_cancel_refund",
+  );
+  assert.equal(cancellationRefunds.length, 2);
+  assert.deepEqual(
+    new Map(
+      cancellationRefunds.map(({ registrationId, userId, amount }) => [
+        registrationId,
+        { userId, amount },
+      ]),
+    ),
     new Map([
       [FIRST_REGISTRATION_ID, { userId: FIRST_PAYER_ID, amount: 25 }],
       [SECOND_REGISTRATION_ID, { userId: SECOND_PAYER_ID, amount: 40 }],

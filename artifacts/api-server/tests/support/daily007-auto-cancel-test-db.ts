@@ -115,7 +115,7 @@ class Daily007AutoCancelTestDatabase {
   settings: Record<string, unknown> = {};
   private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
   private readonly failedMatchFinalizations = new Set<string>();
-  private readonly failedRefundWrites = new Set<string>();
+  private readonly failedRefundWrites = new Map<string, string | null>();
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
@@ -144,8 +144,11 @@ class Daily007AutoCancelTestDatabase {
     this.failedMatchFinalizations.add(matchId);
   }
 
-  failNextRefundWriteAfterFirstWalletMutation(matchId: string): void {
-    this.failedRefundWrites.add(matchId);
+  failNextRefundWriteAfterWalletMutation(
+    matchId: string,
+    registrationId?: string,
+  ): void {
+    this.failedRefundWrites.set(matchId, registrationId ?? null);
   }
 
   setNow(nowMs: number): void {
@@ -368,13 +371,23 @@ class Daily007AutoCancelTestDatabase {
       const key = String(idempotencyKey);
       const matchIdString = String(matchId);
       const registrationIdString = String(registrationId);
-      if (this.failedRefundWrites.delete(matchIdString)) {
+      const failingRegistrationId = this.failedRefundWrites.get(matchIdString);
+      if (
+        this.failedRefundWrites.has(matchIdString) &&
+        (failingRegistrationId === null ||
+          failingRegistrationId === registrationIdString)
+      ) {
+        this.failedRefundWrites.delete(matchIdString);
         if (this.mutationTrace.at(-1) !== `wallet:${String(userId)}`) {
-          throw new Error("Injected refund write failure requires a preceding wallet mutation.");
+          throw new Error(
+            "Injected refund write failure requires a preceding wallet mutation.",
+          );
         }
         await this.waitForMatchRowLockWaitCount(matchIdString);
         this.mutationTrace.push(`refund-write-failure:${registrationIdString}`);
-        throw new Error(`Injected tournament cancellation refund write failure: ${matchIdString}`);
+        throw new Error(
+          `Injected tournament cancellation refund write failure: ${matchIdString}`,
+        );
       }
       if (!this.ledger.has(key)) {
         this.ledger.set(key, {
