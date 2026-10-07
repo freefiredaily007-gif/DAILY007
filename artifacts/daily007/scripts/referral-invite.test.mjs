@@ -56,7 +56,7 @@ test("Earn opens the HTTPS invite URL successfully in Expo's browser without cha
   assert.match(earnSource, /WebBrowser\.openBrowserAsync\(url\)/);
   assert.match(
     earnSource,
-    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*\(url\) => WebBrowser\.openBrowserAsync\(url\),\s*showReferralOpenFallback/,
+    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*async \(url\) => \{\s*if \(__DEV__ && simulateReferralBrowserOpenFailure\) \{\s*throw new Error\('Simulated referral browser open failure'\);\s*\}\s*return WebBrowser\.openBrowserAsync\(url\);\s*\},\s*showReferralOpenFallback/,
   );
   assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
   assert.match(earnSource, /testID="referral-open-link"[\s\S]*?onPress=\{openReferralLink\}/);
@@ -96,7 +96,7 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
   );
   assert.match(
     earnSource,
-    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*\(url\) => WebBrowser\.openBrowserAsync\(url\),\s*showReferralOpenFallback,\s*\);/,
+    /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*async \(url\) => \{\s*if \(__DEV__ && simulateReferralBrowserOpenFailure\) \{\s*throw new Error\('Simulated referral browser open failure'\);\s*\}\s*return WebBrowser\.openBrowserAsync\(url\);\s*\},\s*showReferralOpenFallback,\s*\);/,
   );
   assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 1);
   assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
@@ -105,6 +105,77 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
     fallbackMessages[0],
     "Could not open the invite link. Copy or share it and open it in a browser.",
   );
+});
+
+test("Earn's development-only browser failure simulation announces recovery only after Open Invite fails", async () => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const errorUpdates = [];
+  const openedUrls = [];
+  const accessibilityAnnouncements = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+  const setActionError = (message) => errorUpdates.push(message);
+  const showReferralOpenFallback = (message) => {
+    setActionError(message);
+    accessibilityAnnouncements.push(message);
+  };
+  const makeOpenReferralLink = (isDev, simulateFailure) => loadEarnAction(
+    earnSource,
+    "openReferralLink",
+    {
+      dashboard: { referralLink },
+      setActionError,
+      openReferralInBrowserWithFallback,
+      WebBrowser: {
+        openBrowserAsync: async (url) => {
+          openedUrls.push(url);
+          return { type: "opened" };
+        },
+      },
+      showReferralOpenFallback,
+      __DEV__: isDev,
+      simulateReferralBrowserOpenFailure: simulateFailure,
+    },
+  );
+
+  assert.match(
+    earnSource,
+    /const \[simulateReferralBrowserOpenFailure, setSimulateReferralBrowserOpenFailure\] = useState\(false\)/,
+  );
+  assert.match(
+    earnSource,
+    /\{__DEV__ \? \(\s*<Pressable[\s\S]*?testID="referral-simulate-browser-open-failure"/,
+  );
+  assert.match(
+    earnSource,
+    /if \(__DEV__ && simulateReferralBrowserOpenFailure\) \{\s*throw new Error\('Simulated referral browser open failure'\);/,
+  );
+  assert.match(
+    earnSource,
+    /onPress=\{\(\) => setSimulateReferralBrowserOpenFailure\(\(current\) => !current\)\}/,
+  );
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 1);
+
+  await makeOpenReferralLink(true, true)();
+  assert.deepEqual(openedUrls, []);
+  assert.deepEqual(errorUpdates, [
+    "",
+    "Could not open the invite link. Copy or share it and open it in a browser.",
+  ]);
+  assert.deepEqual(accessibilityAnnouncements, [
+    "Could not open the invite link. Copy or share it and open it in a browser.",
+  ]);
+
+  await makeOpenReferralLink(true, false)();
+  assert.deepEqual(openedUrls, [referralLink]);
+  assert.deepEqual(accessibilityAnnouncements, [
+    "Could not open the invite link. Copy or share it and open it in a browser.",
+  ]);
+
+  await makeOpenReferralLink(false, true)();
+  assert.deepEqual(openedUrls, [referralLink, referralLink]);
+  assert.deepEqual(accessibilityAnnouncements, [
+    "Could not open the invite link. Copy or share it and open it in a browser.",
+  ]);
 });
 
 test("Earn copies the server-provided HTTPS referral link without changing its code", async () => {

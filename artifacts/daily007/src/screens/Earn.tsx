@@ -41,6 +41,7 @@ export default function Earn() {
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [simulateReferralBrowserOpenFailure, setSimulateReferralBrowserOpenFailure] = useState(false);
   const [taskError, setTaskError] = useState('');
   const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
   const waitingForYoutubeReturn = useRef(false);
@@ -100,7 +101,12 @@ export default function Earn() {
     setActionError('');
     await openReferralInBrowserWithFallback(
       dashboard.referralLink,
-      (url) => WebBrowser.openBrowserAsync(url),
+      async (url) => {
+        if (__DEV__ && simulateReferralBrowserOpenFailure) {
+          throw new Error('Simulated referral browser open failure');
+        }
+        return WebBrowser.openBrowserAsync(url);
+      },
       showReferralOpenFallback,
     );
   };
@@ -297,6 +303,26 @@ export default function Earn() {
                 <Feather name={linkCopied ? 'check' : 'copy'} size={18} color={C.gold} />
               </Pressable>
             </View>
+            {__DEV__ ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  simulateReferralBrowserOpenFailure
+                    ? 'Stop simulating invite browser failures'
+                    : 'Simulate invite browser failure'
+                }
+                accessibilityHint="Development-only: make Open Invite fail so you can test the copy and share recovery message."
+                testID="referral-simulate-browser-open-failure"
+                onPress={() => setSimulateReferralBrowserOpenFailure((current) => !current)}
+                style={s.devTestButton}
+              >
+                <Text accessible={false} style={s.devTestButtonText}>
+                  {simulateReferralBrowserOpenFailure
+                    ? 'DEV TEST: browser failure ON'
+                    : 'DEV TEST: simulate browser failure'}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               testID="referral-share-invite"
@@ -405,6 +431,8 @@ const s = StyleSheet.create({
   linkButton: { minHeight: 48, flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 8 },
   linkText: { flex: 1, minWidth: 0, flexShrink: 1, color: C.blue, fontSize: 11, lineHeight: 16, textDecorationLine: 'underline' },
   iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  devTestButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: C.gold, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7, marginTop: 6 },
+  devTestButtonText: { color: C.gold, fontSize: 11, fontWeight: '800' },
   shareButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.gold, borderRadius: 10, paddingVertical: 12, marginTop: 10 },
   shareButtonText: { color: C.bg, fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
