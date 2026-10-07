@@ -608,6 +608,36 @@ test("v2 admin room saves remain supported by the isolated room-access fixture",
   });
 });
 
+test("compatibility room saves reject cancelled tournaments without changing room or registration state", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.status = "cancelled";
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+
+  await withServer(async (origin) => {
+    const rejected = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/room`,
+      "PUT",
+      adminToken,
+      {
+        roomId: "REPLACEMENT-CANCELLED-ROOM",
+        roomPassword: "replacement-cancelled-password",
+      },
+    );
+
+    assert.equal(rejected.status, 409);
+    assert.deepEqual(rejected.body, {
+      error: "A cancelled tournament has no room to manage.",
+    });
+    assert.deepEqual(roomAccessTestDb.match, matchBefore);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+  });
+});
+
 test("both admin room save APIs reject blank or oversized credentials without changing saved room state", async () => {
   roomAccessTestDb.reset();
 
