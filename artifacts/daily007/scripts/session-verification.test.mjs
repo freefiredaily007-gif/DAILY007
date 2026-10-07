@@ -371,6 +371,12 @@ test("successful profile statistics map every counter and leave statsError clear
   }
 });
 
+function renderedProfileStatCards(markup) {
+  return [...markup.matchAll(
+    /<div data-testid="profile-stat-card"><span data-testid="profile-stat-value">([^<]*)<\/span><span data-testid="profile-stat-label">([^<]*)<\/span><\/div>/g,
+  )].map(([, value, label]) => [label, value]);
+}
+
 test("Profile renders successfully refreshed totals under their matching labels", async (t) => {
   prepareApiSession();
   const statsResponse = { matches: 27, wins: 11, kills: 94, prizeCoins: 640 };
@@ -384,9 +390,7 @@ test("Profile renders successfully refreshed totals under their matching labels"
   assert.equal(refreshedUser.prizeCoins, 640);
 
   const markup = renderToStaticMarkup(createProfileScreen(refreshedUser));
-  const statCards = [...markup.matchAll(
-    /<div data-testid="profile-stat-card"><span data-testid="profile-stat-value">([^<]*)<\/span><span data-testid="profile-stat-label">([^<]*)<\/span><\/div>/g,
-  )].map(([, value, label]) => [label, value]);
+  const statCards = renderedProfileStatCards(markup);
 
   assert.deepEqual(statCards, [
     ["MATCHES", "27"],
@@ -395,6 +399,40 @@ test("Profile renders successfully refreshed totals under their matching labels"
     ["PRIZES", "🪙640"],
   ]);
   assert.doesNotMatch(markup, /Profile statistics are loading|Profile statistics unavailable:/);
+});
+
+test("Profile shows unavailable totals after successful malformed statistics", async (t) => {
+  prepareApiSession();
+  const requests = mockApiRequests(t, {
+    statsResponse: { matches: 9, wins: 2, kills: "many", prizeCoins: 120 },
+  });
+  const user = await Api.me();
+
+  assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
+  assert.equal(user.id, "verified-player");
+  assert.equal(user.name, "Verified Player");
+  assert.equal(user.matches, undefined);
+  assert.equal(user.wins, undefined);
+  assert.equal(user.kills, undefined);
+  assert.equal(user.prizeCoins, undefined);
+  assert.equal(user.statsError, "Profile statistics response is incomplete.");
+
+  const markup = renderToStaticMarkup(createProfileScreen(user));
+  const statCards = renderedProfileStatCards(markup);
+
+  assert.match(markup, /Verified Player/);
+  assert.deepEqual(statCards, [
+    ["MATCHES", "—"],
+    ["WINS", "—"],
+    ["KILLS", "—"],
+    ["PRIZES", "🪙—"],
+  ]);
+  assert.equal(statCards.some(([, value]) => /\b0\b/.test(value)), false);
+  assert.match(
+    markup,
+    /Profile statistics unavailable: Profile statistics response is incomplete\./,
+  );
+  assert.doesNotMatch(markup, /Profile statistics are loading/);
 });
 
 test("successful but malformed profile statistics preserve the account and leave totals unavailable", async (t) => {
