@@ -1,0 +1,28 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/session-verification-test?scenario=transient
+- extendedWaitUntil:
+    visible:
+      id: session-verification-paused-title
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "Verification attempts: 2"
+    timeout: 15000
+- assertVisible:
+    id: session-verification-test-saved-token
+- assertVisible: "Saved test session token: native-session-recovery-token"
+- assertVisible:
+    id: session-verification-retry
+- extendedWaitUntil:
+    visible:
+      id: session-verification-test-retry-ready
+    timeout: 10000
+- tapOn:
+    id: session-verification-retry
+- extendedWaitUntil:
+    visible:
+      id: session-verification-test-verified
+    timeout: 15000
+- assertVisible: "Verified after tapping Retry"
+- assertVisible: "Verified Native Test Player"

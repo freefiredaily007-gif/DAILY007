@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
-import { restoreDaily007Session } from "../src/lib/session-verification.ts";
+import {
+  restoreDaily007Session,
+  subscribeToSessionVerificationRecovery,
+} from "../src/lib/session-verification.ts";
 
 const SESSION_KEY = "daily007_v2_session";
 const savedSession = {
@@ -325,6 +328,77 @@ test("a later successful retry restores the still-saved session", async () => {
   assert.equal(storage.removeCalls, 0);
 });
 
+test("restoring connectivity while verification is paused retries without user input", async () => {
+  let networkListener;
+  let networkState = { isConnected: false, isInternetReachable: false };
+  let retries = 0;
+  const network = {
+    addNetworkStateListener(listener) {
+      networkListener = listener;
+      return { remove() {} };
+    },
+    async getNetworkStateAsync() {
+      return networkState;
+    },
+  };
+  const appState = {
+    addEventListener() {
+      return { remove() {} };
+    },
+  };
+
+  const unsubscribe = subscribeToSessionVerificationRecovery(
+    true,
+    () => { retries += 1; },
+    network,
+    appState,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retries, 0);
+
+  networkState = { isConnected: true, isInternetReachable: true };
+  networkListener(networkState);
+  assert.equal(retries, 1);
+  unsubscribe();
+});
+
+test("returning to the foreground rechecks connectivity and retries automatically", async () => {
+  let appStateListener;
+  let networkState = { isConnected: false, isInternetReachable: false };
+  let retries = 0;
+  const network = {
+    addNetworkStateListener() {
+      return { remove() {} };
+    },
+    async getNetworkStateAsync() {
+      return networkState;
+    },
+  };
+  const appState = {
+    addEventListener(_event, listener) {
+      appStateListener = listener;
+      return { remove() {} };
+    },
+  };
+
+  const unsubscribe = subscribeToSessionVerificationRecovery(
+    true,
+    () => { retries += 1; },
+    network,
+    appState,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  networkState = { isConnected: true, isInternetReachable: true };
+  appStateListener("background");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retries, 0);
+
+  appStateListener("active");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retries, 1);
+  unsubscribe();
+});
+
 test("a successful verification refreshes account data while retaining the saved token", async () => {
   const storage = mockStorage();
   const result = await restoreFromMockStorage(storage, async () => ({
@@ -351,15 +425,16 @@ test("a successful verification refreshes account data while retaining the saved
 
 test("App shows a retry button instead of the authentication screen for transient verification failures", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const pausedScreen = await readFile(
+    new URL("../src/components/SessionVerificationPaused.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(appSource, /result\.status === 'retry'\) setVerificationSession\(result\.session\)/);
   assert.match(appSource, /if \(!user && verificationSession\) return/);
-  assert.match(appSource, /Your session is still saved/);
-  assert.match(appSource, /testID="session-verification-retry"/);
+  assert.match(pausedScreen, /Your session is still saved/);
+  assert.match(pausedScreen, /testID="session-verification-retry"/);
   assert.match(appSource, /restoreDaily007Session\(\s*async \(\) => savedSession/);
-  assert.match(appSource, /Network\.addNetworkStateListener\(retryIfOnline\)/);
-  assert.match(appSource, /Network\.getNetworkStateAsync\(\)\.then\(retryIfOnline\)/);
-  assert.match(appSource, /state !== 'active'/);
+  assert.match(appSource, /subscribeToSessionVerificationRecovery\(/);
   assert.match(appSource, /void retrySessionVerification\(\)/);
   assert.match(appSource, /if \(verificationRequest\.current\) return verificationRequest\.current/);
-  assert.match(appSource, /onPress=\{\(\) => \{ void retrySessionVerification\(\); \}\}/);
 });

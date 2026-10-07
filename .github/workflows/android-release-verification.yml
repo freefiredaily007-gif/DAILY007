@@ -61,6 +61,11 @@ jobs:
       - name: Verify native leaderboard text-scale test coverage
         run: pnpm --filter @workspace/daily007 run test:leaderboard-native-text-scale
 
+      - name: Verify saved-session recovery test coverage
+        run: |
+          pnpm --filter @workspace/daily007 run test:session-verification
+          pnpm --filter @workspace/daily007 run test:session-verification-native
+
       - name: Verify Expo Go matches the app SDK
         run: |
           node <<'NODE'
@@ -146,3 +151,5 @@ jobs:
               pnpm --filter @workspace/daily007 run test:android-wallet-cancellation-refund
             EXPO_DEV_URL=exp://127.0.0.1:8081 \
               pnpm --filter @workspace/daily007 run test:android-leaderboard-large-text
+            EXPO_DEV_URL=exp://127.0.0.1:8081 \
+              pnpm --filter @workspace/daily007 run test:android-session-verification

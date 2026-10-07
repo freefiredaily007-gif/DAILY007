@@ -32,6 +32,8 @@
     "test:tournament-card-artwork": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-card-artwork.test.mjs",
     "test:referral-invite": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/referral-invite.test.mjs",
     "test:session-verification": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/session-verification.test.mjs",
+    "test:session-verification-native": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/session-verification-native.test.mjs",
+    "test:android-session-verification": "node scripts/run-android-session-verification.mjs",
     "test:google-sso-handoff": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/google-sso-handoff.test.mjs",
     "test:google-signup-wallet": "node scripts/test-google-signup-wallet.mjs",
     "test:withdrawal-upi-copy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/withdrawal-upi-copy.test.mjs",

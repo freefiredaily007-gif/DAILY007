@@ -4,6 +4,59 @@ export type SessionRestoreResult<T> =
   | { status: 'rejected' }
   | { status: 'retry'; session: T };
 
+export interface SessionVerificationNetworkState {
+  isConnected?: boolean | null;
+  isInternetReachable?: boolean | null;
+}
+
+export interface SessionVerificationNetworkSource {
+  addNetworkStateListener(
+    listener: (state: SessionVerificationNetworkState) => void,
+  ): { remove: () => void };
+  getNetworkStateAsync(): Promise<SessionVerificationNetworkState>;
+}
+
+export interface SessionVerificationAppStateSource {
+  addEventListener(
+    type: 'change',
+    listener: (state: string) => void,
+  ): { remove: () => void };
+}
+
+export function subscribeToSessionVerificationRecovery(
+  paused: boolean,
+  retry: () => void,
+  network: SessionVerificationNetworkSource,
+  appState: SessionVerificationAppStateSource,
+): () => void {
+  if (!paused) return () => {};
+
+  let active = true;
+  const retryIfOnline = (state: SessionVerificationNetworkState) => {
+    if (
+      active &&
+      state.isConnected === true &&
+      state.isInternetReachable !== false
+    ) {
+      retry();
+    }
+  };
+  const networkSubscription = network.addNetworkStateListener(retryIfOnline);
+  const appStateSubscription = appState.addEventListener('change', (state) => {
+    if (state !== 'active') return;
+    void network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
+  });
+
+  // Connectivity can return before either listener is attached.
+  void network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
+
+  return () => {
+    active = false;
+    networkSubscription.remove();
+    appStateSubscription.remove();
+  };
+}
+
 function isAuthenticationRejection(error: unknown): boolean {
   const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
   return status === 401 || status === 403;

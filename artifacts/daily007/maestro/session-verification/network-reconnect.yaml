@@ -1,0 +1,14 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/session-verification-test?scenario=network
+- extendedWaitUntil:
+    visible:
+      id: session-verification-paused-title
+    timeout: 20000
+- assertVisible: "SESSION VERIFICATION PAUSED"
+- assertVisible:
+    id: session-verification-retry
+- assertVisible:
+    id: session-verification-test-saved-token
+- assertVisible: "Saved test session token: native-session-recovery-token"

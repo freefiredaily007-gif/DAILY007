@@ -32,7 +32,11 @@ import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
-import { restoreDaily007Session } from './lib/session-verification';
+import {
+  restoreDaily007Session,
+  subscribeToSessionVerificationRecovery,
+} from './lib/session-verification';
+import { SessionVerificationPaused } from './components/SessionVerificationPaused';
 import {
   refreshAccessAfterPending,
   refreshAccessIfActive,
@@ -211,32 +215,12 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   }, [verificationSession]);
 
   useEffect(() => {
-    if (!verificationSession) return;
-
-    let active = true;
-    const retryIfOnline = (networkState: Network.NetworkState) => {
-      if (
-        active &&
-        networkState.isConnected === true &&
-        networkState.isInternetReachable !== false
-      ) {
-        void retrySessionVerification();
-      }
-    };
-    const networkSubscription = Network.addNetworkStateListener(retryIfOnline);
-    const appStateSubscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') return;
-      void Network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
-    });
-
-    // Check the current state as well, in case connectivity returned before the listener was attached.
-    void Network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
-
-    return () => {
-      active = false;
-      networkSubscription.remove();
-      appStateSubscription.remove();
-    };
+    return subscribeToSessionVerificationRecovery(
+      !!verificationSession,
+      () => { void retrySessionVerification(); },
+      Network,
+      AppState,
+    );
   }, [verificationSession, retrySessionVerification]);
 
   const refresh = useCallback((): Promise<User | null> => {
@@ -328,25 +312,10 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   );
 
   if (!user && verificationSession) return (
-    <View style={s.boot}>
-      <Text style={s.verificationTitle}>SESSION VERIFICATION PAUSED</Text>
-      <Text style={s.verificationMessage}>
-        Daily007 could not verify your saved sign-in right now. Your session is still saved. Check your connection and try again.
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Retry session verification"
-        accessibilityState={{ disabled: retryingVerification }}
-        disabled={retryingVerification}
-        onPress={() => { void retrySessionVerification(); }}
-        style={[s.retryButton, retryingVerification && s.retryButtonDisabled]}
-        testID="session-verification-retry"
-      >
-        {retryingVerification
-          ? <ActivityIndicator color="#070a12" />
-          : <Text style={s.retryButtonText}>RETRY VERIFICATION</Text>}
-      </Pressable>
-    </View>
+    <SessionVerificationPaused
+      onRetry={() => { void retrySessionVerification(); }}
+      retrying={retryingVerification}
+    />
   );
 
   if (!user) return <Auth
@@ -403,9 +372,4 @@ export default function App() {
 const s = StyleSheet.create({
   boot: { flex: 1, backgroundColor: '#070a12', alignItems: 'center', justifyContent: 'center' },
   logo: { color: '#ff3d3d', fontSize: 30, fontWeight: '900', letterSpacing: 3, textShadowColor: '#ff3d3d66', textShadowRadius: 20 },
-  verificationTitle: { color: '#FFD54D', fontSize: 20, fontWeight: '900', textAlign: 'center', letterSpacing: 0.6 },
-  verificationMessage: { color: '#F5F7FF', fontSize: 15, lineHeight: 22, textAlign: 'center', maxWidth: 330, marginTop: 14, paddingHorizontal: 18 },
-  retryButton: { backgroundColor: '#ff3d3d', borderRadius: 12, minWidth: 210, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, paddingHorizontal: 20, marginTop: 24 },
-  retryButtonDisabled: { opacity: 0.72 },
-  retryButtonText: { color: '#070a12', fontWeight: '900', letterSpacing: 0.5 },
 });
