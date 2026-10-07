@@ -654,6 +654,68 @@ test("Full Admin prize updates leave pending approval payout snapshots unchanged
         originalPendingSnapshots,
         "pending periods must keep the payout configuration captured when they ended",
       );
+
+      const approvals = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/approvals",
+        "GET",
+      );
+      assert.equal(approvals.status, 200);
+      assert.deepEqual(
+        approvals.body.periods
+          .map((item: { cycleType: string; rewards: RewardSeed[] }) => ({
+            cycleType: item.cycleType,
+            rewards: item.rewards,
+          }))
+          .sort((left: { cycleType: string }, right: { cycleType: string }) =>
+            left.cycleType.localeCompare(right.cycleType),
+          ),
+        [
+          {
+            cycleType: "monthly",
+            rewards: [
+              { rank: 1, coins: 25 },
+              { rank: 2, coins: 0 },
+              { rank: 3, coins: 5 },
+            ],
+          },
+          {
+            cycleType: "weekly",
+            rewards: [
+              { rank: 1, coins: 50 },
+              { rank: 2, coins: 40 },
+              { rank: 3, coins: 0 },
+            ],
+          },
+        ],
+      );
+
+      const weeklyApproval = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        `/daily007/v2/admin/leaderboards/periods/${TEST_WEEKLY_PERIOD_ID}/approve`,
+        "POST",
+      );
+      assert.equal(weeklyApproval.status, 200);
+      assert.deepEqual(weeklyApproval.body.rewards, [
+        { rank: 1, coins: 50 },
+        { rank: 2, coins: 40 },
+        { rank: 3, coins: 0 },
+      ]);
+      assert.deepEqual(
+        weeklyApproval.body.payouts.map((payout: { rank: number; userId: string; coins: number }) => ({
+          rank: payout.rank,
+          userId: payout.userId,
+          coins: payout.coins,
+        })),
+        [
+          { rank: 1, userId: TEST_PLAYER_ONE_ID, coins: 50 },
+          { rank: 2, userId: TEST_PLAYER_TWO_ID, coins: 40 },
+        ],
+      );
+      assert.equal(daily007LeaderboardTestDb.users.get(TEST_PLAYER_ONE_ID)?.wallet_coins, 150);
+      assert.equal(daily007LeaderboardTestDb.users.get(TEST_PLAYER_TWO_ID)?.wallet_coins, 140);
     });
   } finally {
     daily007LeaderboardTestDb.reset();
