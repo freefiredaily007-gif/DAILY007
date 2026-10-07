@@ -129,6 +129,8 @@ export default function TDetail() {
   const mode = String(t.mode || '').toLowerCase();
   const teamTournament = Number(t.teamSize ?? 1) > 1;
   const participants = participantsQuery.data?.participants ?? [];
+  const participantListUnavailable = participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching);
+  const participantCountLabel = participantListUnavailable ? 'COUNT UNAVAILABLE' : participants.length;
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const tournamentStatus = isCompleted ? 'completed' : String(t.status || '').toLowerCase();
@@ -210,7 +212,7 @@ export default function TDetail() {
       </Card>
 
       <SectionTitle accent={C.orange} icon={teamTournament ? 'users' : 'user'}>
-        {teamTournament ? `JOINED TEAMS · ${participants.length}` : `JOINED PLAYERS · ${participants.length}`}
+        {teamTournament ? `JOINED TEAMS · ${participantCountLabel}` : `JOINED PLAYERS · ${participantCountLabel}`}
       </SectionTitle>
       {participantsRetryAnnouncement ? (
         <Text
@@ -228,7 +230,7 @@ export default function TDetail() {
           <ActivityIndicator color={C.neon} />
           <Text style={s.participantsHint}>Loading participants…</Text>
         </Card>
-      ) : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (
+      ) : participantListUnavailable ? (
         <Card>
           <Text
             accessible

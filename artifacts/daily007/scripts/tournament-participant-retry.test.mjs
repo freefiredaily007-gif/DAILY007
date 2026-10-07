@@ -14,6 +14,26 @@ const uiSource = readFileSync(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const participantAvailabilityExpression = detailSource.match(
+  /const participantListUnavailable = ([^;]+);/,
+)?.[1];
+const participantCountExpression = detailSource.match(
+  /const participantCountLabel = ([^;]+);/,
+)?.[1];
+const evaluateParticipantAvailability = participantAvailabilityExpression
+  ? new Function(
+    "participantsQuery",
+    "retryingParticipants",
+    `return (${participantAvailabilityExpression});`,
+  )
+  : null;
+const evaluateParticipantCount = participantCountExpression
+  ? new Function(
+    "participantListUnavailable",
+    "participants",
+    `return (${participantCountExpression});`,
+  )
+  : null;
 
 async function waitFor(predicate, message) {
   const deadline = Date.now() + 1_000;
@@ -25,7 +45,7 @@ async function waitFor(predicate, message) {
 
 test("TalkBack gets retry guidance and outcome announcements without disabling the focused control", () => {
   const errorBranch = detailSource
-    .split(") : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (")[1]
+    .split(") : participantListUnavailable ? (")[1]
     ?.split(") : participants.length === 0 ? (")[0];
   const retryStatusOffset = detailSource.indexOf('testID="participants-retry-status"');
   const participantStateOffset = detailSource.indexOf("participantsQuery.isLoading && !participantsQuery.data");
@@ -34,7 +54,7 @@ test("TalkBack gets retry guidance and outcome announcements without disabling t
   assert.match(errorBranch, /Participant list couldn’t be loaded\./);
   assert.match(
     detailSource,
-    /participantsQuery\.isError \|\| \(retryingParticipants && participantsQuery\.isFetching\) \?/,
+    /const participantListUnavailable = participantsQuery\.isError \|\| \(retryingParticipants && participantsQuery\.isFetching\);/,
   );
   assert.match(errorBranch, /<Btn\b/);
   assert.match(errorBranch, /title="RETRY PARTICIPANTS"/);
@@ -72,7 +92,7 @@ test("TalkBack gets retry guidance and outcome announcements without disabling t
 
 test("participant retry guidance and control wrap at enlarged text without clipping", () => {
   const errorBranch = detailSource
-    .split(") : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (")[1]
+    .split(") : participantListUnavailable ? (")[1]
     ?.split(") : participants.length === 0 ? (")[0];
   const retryButton = errorBranch?.match(/<Btn\b[\s\S]*?\/>/)?.[0];
   const retryTextStyle = uiSource.match(/btnText: \{[^}]+\}/)?.[0];
@@ -189,7 +209,10 @@ test("a failed participant refresh exposes retry instead of cached entries, then
     const { QueryClient, QueryObserver } = await import("@tanstack/react-query");
     const queryKey = ["tournament-participant-cached-retry-regression"];
     const cachedParticipants = {
-      participants: [{ players: ["Cached Player"], status: "approved" }],
+      participants: [
+        { players: ["Cached Player One"], status: "approved" },
+        { players: ["Cached Player Two"], status: "approved" },
+      ],
     };
     const currentParticipants = {
       participants: [{ players: ["Updated Player"], status: "approved" }],
@@ -215,16 +238,36 @@ test("a failed participant refresh exposes retry instead of cached entries, then
     assert.equal(failedRefresh.isError, true);
     assert.deepEqual(failedRefresh.data, cachedParticipants);
     assert.equal(observer.getCurrentResult().isError, true);
+    assert.ok(evaluateParticipantAvailability, "The screen should expose a testable participant availability expression.");
+    assert.ok(evaluateParticipantCount, "The section heading should derive its count label from query availability.");
+    assert.equal(
+      evaluateParticipantCount(
+        evaluateParticipantAvailability(failedRefresh, false),
+        failedRefresh.data.participants,
+      ),
+      "COUNT UNAVAILABLE",
+      "A failed refresh must hide the cached participant total.",
+    );
+    assert.equal(
+      evaluateParticipantCount(
+        evaluateParticipantAvailability({ isError: false, isFetching: true }, true),
+        cachedParticipants.participants,
+      ),
+      "COUNT UNAVAILABLE",
+      "An in-progress retry must not present the cached total as current.",
+    );
 
     const errorBranch = detailSource
-      .split(") : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (")[1]
+      .split(") : participantListUnavailable ? (")[1]
       ?.split(") : participants.length === 0 ? (")[0];
     assert.ok(errorBranch, "A cached-data request error should render the participant retry state.");
     assert.match(errorBranch, /Participant list couldn’t be loaded\./);
     assert.match(errorBranch, /title="RETRY PARTICIPANTS"/);
     assert.match(errorBranch, /onPress=\{retryParticipants\}/);
+    assert.match(detailSource, /JOINED (?:TEAMS|PLAYERS) · \$\{participantCountLabel\}/);
+    assert.match(detailSource, /participantCountLabel = participantListUnavailable \? 'COUNT UNAVAILABLE' : participants\.length/);
     assert.ok(
-      detailSource.indexOf("participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching)")
+      detailSource.indexOf(") : participantListUnavailable ? (")
         < detailSource.indexOf("participants.length === 0 ?"),
       "The error state must take precedence over rendering cached participant entries.",
     );
@@ -234,6 +277,14 @@ test("a failed participant refresh exposes retry instead of cached entries, then
     assert.deepEqual(recoveredRefresh.data, currentParticipants);
     assert.equal(observer.getCurrentResult().isError, false);
     assert.deepEqual(observer.getCurrentResult().data, currentParticipants);
+    assert.equal(
+      evaluateParticipantCount(
+        evaluateParticipantAvailability(recoveredRefresh, false),
+        recoveredRefresh.data.participants,
+      ),
+      1,
+      "A successful retry should restore the count from the latest participant list.",
+    );
     assert.equal(requestCount, 2);
   } finally {
     unsubscribe();
