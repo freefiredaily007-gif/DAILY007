@@ -379,3 +379,79 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
     "the cursor wraps only after reaching the end and no sweep exceeds 100 candidates",
   );
 });
+
+test("a cursor wrap reaches a tournament that becomes underfilled behind it", async () => {
+  const earlierMatch = match("cursor-earlier-match", "clash_squad", "clash", 2);
+  earlierMatch.startsAtWallMs = scheduledStartWallTime - 2_000;
+  const laterMatch = match("cursor-later-match", "lone_wolf", "clash", 3);
+  laterMatch.startsAtWallMs = scheduledStartWallTime - 1_000;
+
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [earlierMatch, laterMatch],
+    registrations: [
+      registration("cursor-earlier-refund", earlierMatch.id, "payer-earlier", 17, "approved"),
+      registration("cursor-earlier-filler", earlierMatch.id, "payer-filler", 19, "approved"),
+      registration("cursor-later-first", laterMatch.id, "payer-a-later", 11, "approved"),
+      registration("cursor-later-failure", laterMatch.id, "payer-z-missing", 13, "pending"),
+    ],
+    accounts: [
+      { id: "payer-earlier", wallet_coins: 40 },
+      { id: "payer-a-later", wallet_coins: 50 },
+    ],
+  });
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, [1]);
+  assert.equal(autoCancellationTestDb.matches.get(earlierMatch.id)?.status, "open");
+  assert.equal(autoCancellationTestDb.matches.get(laterMatch.id)?.status, "open");
+  assert.deepEqual(
+    autoCancellationTestDb.settings.__daily007AutoCancelCursor,
+    {
+      id: laterMatch.id,
+      startsAt: new Date(laterMatch.startsAtWallMs).toISOString(),
+    },
+    "the cursor must advance past the earlier, still-full tournament",
+  );
+  assert.equal(autoCancellationTestDb.accounts.get("payer-a-later")?.wallet_coins, 50);
+  assert.equal(autoCancellationTestDb.ledger.size, 0);
+
+  const fillerRegistration = autoCancellationTestDb.registrations.find(
+    ({ id }) => id === "cursor-earlier-filler",
+  );
+  assert.ok(fillerRegistration);
+  fillerRegistration.status = "rejected";
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.deepEqual(
+    autoCancellationTestDb.candidateSelectionSizes,
+    [1, 0, 2],
+    "after exhausting the cursor, the wrapped batch must include the newly eligible earlier tournament and the still-eligible later one",
+  );
+  assert.ok(autoCancellationTestDb.candidateSelectionSizes.every((size) => size <= 100));
+  assert.equal(autoCancellationTestDb.matches.get(earlierMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get("payer-earlier")?.wallet_coins, 57);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === earlierMatch.id).length,
+    1,
+    "the earlier tournament must be refunded exactly once",
+  );
+  assert.equal(autoCancellationTestDb.matches.get(laterMatch.id)?.status, "open");
+  assert.equal(autoCancellationTestDb.accounts.get("payer-a-later")?.wallet_coins, 50);
+  assert.deepEqual(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === laterMatch.id),
+    [],
+    "the later tournament's partial refund attempt must still roll back",
+  );
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.accounts.get("payer-earlier")?.wallet_coins, 57);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === earlierMatch.id).length,
+    1,
+  );
+  assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, [1, 0, 2, 0, 1]);
+});
