@@ -14,6 +14,25 @@ const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial
 const adminInitialLoadFailureOnly = new URLSearchParams(location.search).has("admin-initial-load-failure-only");
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const scheduledStartGapMs = 3_000;
+const boundaryCase = new URLSearchParams(location.search).get("boundary") || "month-end";
+const fixedBoundaryStarts = {
+  "month-end": {
+    name: "IST Month-End Boundary",
+    laterName: "Later Month-End Start",
+    startsAt: "2026-05-01T00:00:01+05:30",
+  },
+  "new-year": {
+    name: "IST New Year Boundary",
+    laterName: "Later New Year Start",
+    startsAt: "2027-01-01T00:00:01+05:30",
+  },
+};
+const selectedBoundary = fixedBoundaryStarts[boundaryCase];
+if (!selectedBoundary) throw new Error(`Unsupported scheduled-start boundary: ${boundaryCase}`);
+const firstScheduledTournamentName = scheduledStartOnly ? selectedBoundary.name : "IST Start Boundary";
+const laterScheduledTournamentName = scheduledStartOnly
+  ? selectedBoundary.laterName
+  : "Later IST Tournament Boundary";
 const nextIstMidnightStart = (timestamp) => {
   const istNow = new Date(timestamp + IST_OFFSET_MS);
   return Date.UTC(
@@ -26,9 +45,11 @@ const nextIstMidnightStart = (timestamp) => {
   ) - IST_OFFSET_MS;
 };
 let scheduledStartMs = scheduledStartOnly
-  ? nextIstMidnightStart(Date.now())
+  ? Date.parse(selectedBoundary.startsAt)
   : Date.now() + 10 * 60 * 1000;
-let laterScheduledStartMs = scheduledStartMs + scheduledStartGapMs;
+let laterScheduledStartMs = scheduledStartOnly
+  ? scheduledStartMs + scheduledStartGapMs
+  : scheduledStartMs + scheduledStartGapMs;
 let fakeNow = scheduledStartMs - (scheduledStartOnly ? 2_000 : 60 * 1000);
 Date.now = () => fakeNow;
 
@@ -75,11 +96,11 @@ const scheduledTournament = (id, name, startsAtMs) => {
 
 void import("./mocks/api.ts").then(async (apiMocks) => {
   const scheduledTournaments = [
-    scheduledTournament("resume-boundary", "IST Start Boundary", scheduledStartMs),
+    scheduledTournament("resume-boundary", firstScheduledTournamentName, scheduledStartMs),
   ];
   if (scheduledStartOnly) {
     scheduledTournaments.push(
-      scheduledTournament("resume-boundary-later", "Later IST Tournament Boundary", laterScheduledStartMs),
+      scheduledTournament("resume-boundary-later", laterScheduledTournamentName, laterScheduledStartMs),
     );
   }
   apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
@@ -112,44 +133,48 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getVisibilityState: () => visibilityState,
     updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),
     getScheduledStartInfo: () => {
-      const istStart = new Date(scheduledStartMs + IST_OFFSET_MS).toISOString();
       const istBeforeStart = new Date(fakeNow + IST_OFFSET_MS).toISOString();
-      const istDate = new Date(scheduledStartMs + IST_OFFSET_MS);
       return {
         browserTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        startsAt: apiMocks.previewTournaments[0]?.startsAt,
-        date: apiMocks.previewTournaments[0]?.date,
-        time: apiMocks.previewTournaments[0]?.time,
-        startMs: scheduledStartMs,
-        istDate: istStart.slice(0, 10),
-        istDateLabel: `${String(istDate.getUTCDate()).padStart(2, "0")} ${istDate.toLocaleString("en", {
-          month: "short",
-          timeZone: "UTC",
-        }).toUpperCase()}`,
-        istTime: istStart.slice(11, 19),
+        nowMs: fakeNow,
         beforeIstDate: istBeforeStart.slice(0, 10),
         beforeIstTime: istBeforeStart.slice(11, 19),
-        utcDate: new Date(scheduledStartMs).toISOString().slice(0, 10),
+        schedules: apiMocks.previewTournaments.slice(0, scheduledStartOnly ? 2 : 1).map((tournament, index) => {
+          const startMs = index === 0 ? scheduledStartMs : laterScheduledStartMs;
+          const istStart = new Date(startMs + IST_OFFSET_MS).toISOString();
+          const istDate = new Date(startMs + IST_OFFSET_MS);
+          return {
+            name: tournament.name,
+            startsAt: tournament.startsAt,
+            date: tournament.date,
+            time: tournament.time,
+            startMs,
+            istDate: istStart.slice(0, 10),
+            istDateLabel: `${String(istDate.getUTCDate()).padStart(2, "0")} ${istDate.toLocaleString("en", {
+              month: "short",
+              timeZone: "UTC",
+            }).toUpperCase()}`,
+            istTime: istStart.slice(11, 19),
+            utcDate: new Date(startMs).toISOString().slice(0, 10),
+          };
+        }),
       };
     },
     advanceClockPastFirstStart: () => { fakeNow = scheduledStartMs + 100; },
+    setClockBeforeSecondStart: () => { fakeNow = laterScheduledStartMs - 2_000; },
     advanceClockPastSecondStart: () => { fakeNow = laterScheduledStartMs + 100; },
     prepareAdminForScheduledStart: () => {
-      scheduledStartMs = scheduledStartOnly
-        ? nextIstMidnightStart(fakeNow)
-        : fakeNow + 2_500;
-      laterScheduledStartMs = scheduledStartMs + scheduledStartGapMs;
       fakeNow = scheduledStartMs - 2_000;
       Object.assign(
         apiMocks.previewTournaments[0],
-        scheduledTournament("resume-boundary", "IST Start Boundary", scheduledStartMs),
+        scheduledTournament("resume-boundary", firstScheduledTournamentName, scheduledStartMs),
       );
       if (scheduledStartOnly) {
         Object.assign(
           apiMocks.previewTournaments[1],
           scheduledTournament(
             "resume-boundary-later",
-            "Later IST Tournament Boundary",
+            laterScheduledTournamentName,
             laterScheduledStartMs,
           ),
         );

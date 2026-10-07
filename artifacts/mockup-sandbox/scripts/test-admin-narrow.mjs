@@ -2814,48 +2814,94 @@ async function checkTournamentResume() {
   );
 }
 
-async function assertNearMidnightIstSchedule(screenName) {
-  const schedule = await evaluate("window.__daily007TournamentResume.getScheduledStartInfo()");
+const istRolloverExpectations = [
+  {
+    name: "IST Month-End Boundary",
+    laterName: "Later Month-End Start",
+    date: "2026-05-01",
+    dateLabel: "01 MAY",
+    previousDate: "2026-04-30",
+    utcDate: "2026-04-30",
+  },
+  {
+    name: "IST New Year Boundary",
+    laterName: "Later New Year Start",
+    date: "2027-01-01",
+    dateLabel: "01 JAN",
+    previousDate: "2026-12-31",
+    utcDate: "2026-12-31",
+  },
+];
+
+async function assertIstRolloverSchedules(screenName, expected) {
+  const scheduleInfo = await evaluate("window.__daily007TournamentResume.getScheduledStartInfo()");
   assert(
-    schedule.browserTimeZone === "America/Los_Angeles",
+    scheduleInfo.browserTimeZone === "America/Los_Angeles",
     `${screenName} scheduled-start test must run with a non-IST browser timezone.`,
   );
   assert(
-    schedule.istTime === "00:00:01",
-    `${screenName} tournament must start one second after midnight IST, got ${schedule.istTime}.`,
+    scheduleInfo.schedules.length === 2,
+    `${screenName} must load both schedules for the fixed IST calendar boundary.`,
   );
-  assert(
-    schedule.beforeIstTime.startsWith("23:59:59") &&
-      schedule.beforeIstDate !== schedule.istDate,
-    `${screenName} clock must cross the IST calendar date at the scheduled start.`,
-  );
-  assert(
-    schedule.utcDate !== schedule.istDate,
-    `${screenName} scheduled start must fall on a different UTC date than IST.`,
-  );
-  assert(
-    schedule.startsAt.endsWith("+05:30") &&
-      Date.parse(schedule.startsAt) === schedule.startMs,
-    `${screenName} scheduled timestamp must preserve the correct IST offset and instant.`,
-  );
-  return schedule;
+  for (const [index, name] of [expected.name, expected.laterName].entries()) {
+    const schedule = scheduleInfo.schedules[index];
+    assert(schedule.name === name, `${screenName} schedule ${index + 1} must be ${name}.`);
+    assert(
+      schedule.istDate === expected.date &&
+        schedule.date === expected.date &&
+        schedule.istDateLabel === expected.dateLabel,
+      `${screenName} ${expected.name} must retain IST date ${expected.date} (${expected.dateLabel}), got ${schedule.date} / ${schedule.istDateLabel}.`,
+    );
+    assert(
+      schedule.istTime === (index === 0 ? "00:00:01" : "00:00:04"),
+      `${screenName} ${name} must keep its exact IST start time, got ${schedule.istTime}.`,
+    );
+    assert(
+      schedule.utcDate === expected.utcDate,
+      `${screenName} ${expected.name} must cross the UTC date boundary too.`,
+    );
+    assert(
+      schedule.startsAt.endsWith("+05:30") &&
+        Date.parse(schedule.startsAt) === schedule.startMs,
+      `${screenName} ${expected.name} must preserve the IST offset and compare against its exact real start instant.`,
+    );
+  }
+  return scheduleInfo;
 }
 
-async function checkTournamentScheduledStart() {
+async function assertClockImmediatelyBeforeIstBoundary(screenName, scheduleInfo, expected, index) {
+  const schedule = scheduleInfo.schedules[index];
+  const expectedDate = index === 0 ? expected.previousDate : expected.date;
+  const expectedTime = index === 0 ? "23:59:59" : "00:00:02";
+  assert(
+    scheduleInfo.beforeIstTime === expectedTime &&
+      scheduleInfo.beforeIstDate === expectedDate &&
+      schedule.startMs - scheduleInfo.nowMs === 2_000,
+    `${screenName} clock must be two seconds before ${schedule.name} on ${expectedDate}, got ${scheduleInfo.beforeIstDate} ${scheduleInfo.beforeIstTime}.`,
+  );
+}
+
+async function checkTournamentScheduledStart(boundaryIndex) {
+  const expected = istRolloverExpectations[boundaryIndex];
+  const firstName = expected.name;
+  const laterName = expected.laterName;
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
     "the timed-start preview to initialize",
   );
   await waitForCondition(
-    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')",
-    "the player list to load both upcoming IST tournaments",
+    `window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes(${JSON.stringify(firstName)}) && document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `the player list to load both ${expected.name} test tournaments`,
   );
-  const playerSchedule = await assertNearMidnightIstSchedule("Player");
-  const playerDateTime = `${playerSchedule.istDateLabel} • ${playerSchedule.time} IST`;
-  assert(
-    await evaluate(`document.body.innerText.includes(${JSON.stringify(playerDateTime)})`),
-    `Player card must display its IST date and time (${playerDateTime}) in a non-IST browser timezone.`,
-  );
+  const playerScheduleInfo = await assertIstRolloverSchedules("Player", expected);
+  await assertClockImmediatelyBeforeIstBoundary("Player", playerScheduleInfo, expected, 0);
+  for (const schedule of playerScheduleInfo.schedules) {
+    const playerDateTime = `${schedule.istDateLabel} • ${schedule.time} IST`;
+    assert(
+      await evaluate(`document.body.innerText.includes(${JSON.stringify(playerDateTime)})`),
+      `Player card for ${schedule.name} must display its IST date and time (${playerDateTime}) in a non-IST browser timezone.`,
+    );
+  }
 
   await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
   await waitForCondition(
@@ -2872,45 +2918,58 @@ async function checkTournamentScheduledStart() {
   let tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Later IST Tournament Boundary')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)})`,
     "the player list timer to move only the first tournament into Ongoing",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStarts,
     "The first player start-time transition must not depend on an AppState visibility/resume event.",
   );
-  await assertText("IST Start Boundary", "the first player tournament after its scheduled start");
+  await assertText(firstName, `${expected.name} after its scheduled start`);
   await clickSelector('[data-testid="tournament-tab-upcoming"]', "player Upcoming filter");
   await waitForCondition(
-    "document.body.innerText.includes('Later IST Tournament Boundary') && !document.body.innerText.includes('IST Start Boundary')",
+    `document.body.innerText.includes(${JSON.stringify(laterName)}) && !document.body.innerText.includes(${JSON.stringify(firstName)})`,
     "the later player tournament to remain Upcoming after the first start",
   );
+  await evaluate("window.__daily007TournamentResume.setClockBeforeSecondStart()");
+  const playerBeforeNewYear = await evaluate("window.__daily007TournamentResume.getScheduledStartInfo()");
+  await assertClockImmediatelyBeforeIstBoundary("Player", playerBeforeNewYear, expected, 1);
   await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `the later ${expected.name} tournament to remain Upcoming immediately before its exact start`,
+  );
+  await clickSelector('[data-testid="tournament-tab-upcoming"]', "player Upcoming filter before New Year start");
+  await assertText(laterName, `the later ${expected.name} tournament just before its scheduled start`);
+  await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter before New Year start");
   tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastSecondStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && document.body.innerText.includes(${JSON.stringify(laterName)})`,
     "the player list timer to move the later tournament into Ongoing at its own start",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStarts,
     "The second player start-time transition must not depend on an AppState visibility/resume event.",
   );
-  await assertText("IST Start Boundary", "the first player tournament after both scheduled starts");
-  await assertText("Later IST Tournament Boundary", "the later player tournament after its scheduled start");
+  await assertText(firstName, `${expected.name} after both scheduled starts`);
+  await assertText(laterName, `the later ${expected.name} tournament after its scheduled start`);
 
   await evaluate("window.__daily007TournamentResume.prepareAdminForScheduledStart()");
   await evaluate("window.__daily007TournamentResume.showAdmin()");
   await waitForCondition(
-    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary')",
-    "the Admin list to load both upcoming IST tournaments",
+    `window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes(${JSON.stringify(firstName)}) && document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `the Admin list to load both ${expected.name} test tournaments`,
   );
-  const adminSchedule = await assertNearMidnightIstSchedule("Admin");
-  const adminDateTime = `${adminSchedule.date} • ${adminSchedule.time} IST`;
-  assert(
-    await evaluate(`document.body.innerText.includes(${JSON.stringify(adminDateTime)})`),
-    `Admin card must display its IST date and time (${adminDateTime}) in a non-IST browser timezone.`,
-  );
+  const adminScheduleInfo = await assertIstRolloverSchedules("Admin", expected);
+  await assertClockImmediatelyBeforeIstBoundary("Admin", adminScheduleInfo, expected, 0);
+  for (const schedule of adminScheduleInfo.schedules) {
+    const adminDateTime = `${schedule.date} • ${schedule.time} IST`;
+    assert(
+      await evaluate(`document.body.innerText.includes(${JSON.stringify(adminDateTime)})`),
+      `Admin card for ${schedule.name} must display its IST date and time (${adminDateTime}) in a non-IST browser timezone.`,
+    );
+  }
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
   await waitForCondition(
     "document.body.innerText.includes('No ongoing tournaments.')",
@@ -2927,24 +2986,34 @@ async function checkTournamentScheduledStart() {
   await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Later IST Tournament Boundary') && document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)}) && document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
     "the Admin clock to move only the first tournament into Ongoing even when its scheduled refresh fails",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStarts,
     "The first Admin start-time transition must not depend on an app background/resume event.",
   );
-  await assertText("IST Start Boundary", "the first Admin tournament after its scheduled start");
+  await assertText(firstName, `${expected.name} after its scheduled start`);
   await clickSelector('[data-testid="admin-tournament-tab-upcoming"]', "Admin Upcoming filter");
   await waitForCondition(
-    "document.body.innerText.includes('Later IST Tournament Boundary') && !document.body.innerText.includes('IST Start Boundary')",
+    `document.body.innerText.includes(${JSON.stringify(laterName)}) && !document.body.innerText.includes(${JSON.stringify(firstName)})`,
     "the later Admin tournament to remain Upcoming after the first start",
   );
+  await evaluate("window.__daily007TournamentResume.setClockBeforeSecondStart()");
+  const adminBeforeNewYear = await evaluate("window.__daily007TournamentResume.getScheduledStartInfo()");
+  await assertClockImmediatelyBeforeIstBoundary("Admin", adminBeforeNewYear, expected, 1);
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `the later ${expected.name} tournament to remain Upcoming immediately before its exact start`,
+  );
+  await clickSelector('[data-testid="admin-tournament-tab-upcoming"]', "Admin Upcoming filter before New Year start");
+  await assertText(laterName, `the later ${expected.name} tournament just before its scheduled start`);
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter before New Year start");
   tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastSecondStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes('IST Start Boundary') && document.body.innerText.includes('Later IST Tournament Boundary') && !document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && document.body.innerText.includes(${JSON.stringify(laterName)}) && !document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
     "the Admin list timer to move the later tournament into Ongoing at its own start",
   );
   assert(
@@ -2955,8 +3024,8 @@ async function checkTournamentScheduledStart() {
     !await evaluate("document.body.innerText.includes('Could not refresh tournaments: Temporary network error')"),
     "A successful scheduled Admin refresh should clear the earlier request error.",
   );
-  await assertText("IST Start Boundary", "the first Admin tournament after both scheduled starts");
-  await assertText("Later IST Tournament Boundary", "the later Admin tournament after its scheduled start");
+  await assertText(firstName, `${expected.name} after both scheduled starts`);
+  await assertText(laterName, `the later ${expected.name} tournament after its scheduled start`);
 }
 
 async function readHomeCarouselState() {
@@ -4171,7 +4240,7 @@ try {
     : resumeOnly
       ? "tournament-resume-preview.html"
     : scheduledStartOnly
-      ? "tournament-resume-preview.html?scheduled-start-only=1"
+      ? "tournament-resume-preview.html?scheduled-start-only=1&boundary=month-end"
       : homeCarouselOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
@@ -4365,12 +4434,16 @@ try {
       );
       console.log("PASS — Admin tournament creation, room setup, and result-entry actions remain visible and enabled at 375×450 with a simulated Android keyboard, and each layout recovers after dismissal.");
     } else if (scheduledStartOnly) {
-      await checkTournamentScheduledStart();
+      await checkTournamentScheduledStart(0);
+      await cdp("Page.navigate", {
+        url: `http://127.0.0.1:${vitePort}/tournament-resume-preview.html?scheduled-start-only=1&boundary=new-year`,
+      });
+      await checkTournamentScheduledStart(1);
       assert(
         browserErrors.length === 0,
         `Browser errors during scheduled-start checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Player and Admin tournament cards cross midnight IST, display the correct IST date/time, and move from Upcoming to Ongoing without AppState events.");
+      console.log("PASS — Player and Admin cards preserve the fixed month-end and New Year IST dates in Los Angeles time, with Upcoming/Ongoing transitions at the exact start instants.");
     } else if (keyboardFormsOnly) {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);
