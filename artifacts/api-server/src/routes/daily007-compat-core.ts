@@ -9,6 +9,7 @@ import {
   DAILY007_LOGIN_FAILURE_MESSAGE,
   verifyDaily007LoginPassword,
 } from "../lib/daily007-login-password";
+import { checkDaily007LoginThrottle } from "../lib/daily007-login-throttle";
 import { parsePasswordChangeInput, passwordHashesMatch } from "../lib/daily007-password-change";
 import {
   cancelUnderfilledTournamentAndRefund,
@@ -355,6 +356,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   if (!record(body) || typeof body.email !== "string" || typeof body.password !== "string") {
     return fail(res, 400, "Email and password are required.");
   }
+  if (!checkDaily007LoginThrottle(req, res)) return;
   const result = await pool.query<{
     id: string; name: string; email: string; phone: string | null; game_uid: string | null;
     role: string; status: string; wallet_coins: number; password_salt: string; password_hash: string;

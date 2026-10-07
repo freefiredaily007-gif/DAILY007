@@ -6,6 +6,7 @@
 - [Daily007 single-session policy](daily007-single-session.md) — a new sign-in replaces prior sessions; Google linking preserves the current one.
 - [Daily007 offline session recovery](daily007-offline-session-recovery.md) — Android 16 confirms auto-retry on reconnect and resume; transient failures retain the saved session.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
+- [Daily007 login throttling](daily007-login-throttling.md) — keep abuse limits short-lived, shared across login aliases, and independent of account/email existence.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
 - [Expo Metro during API codegen](expo-metro-codegen.md) — confirm generated files and a later bundle before treating transient missing-module logs as a persistent failure.

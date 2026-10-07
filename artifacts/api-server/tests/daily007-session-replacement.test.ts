@@ -6,12 +6,18 @@ import type { Server } from "node:http";
 
 import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
 import daily007V2Router from "../src/routes/daily007-v2";
+import {
+  createDaily007LoginThrottle,
+  DAILY007_LOGIN_ATTEMPT_LIMIT,
+  DAILY007_LOGIN_RATE_LIMIT_MESSAGE,
+} from "../src/lib/daily007-login-throttle";
 import { verifyDaily007LoginPassword } from "../src/lib/daily007-login-password";
 import { signupTestDb } from "./support/daily007-signup-test-db";
 
 const TEST_AUTH_SECRET = "session-replacement-tests-only-secret-at-least-32-chars";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
+let requestIpSequence = 0;
 
 after(() => {
   signupTestDb.reset();
@@ -19,10 +25,11 @@ after(() => {
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
 });
 
-type JsonResult = { status: number; body: any };
+type JsonResult = { status: number; body: any; retryAfter: string | null };
 
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
+  app.set("trust proxy", 1);
   app.use(express.json());
   app.use(daily007V2Router);
   app.use(daily007CompatCoreRouter);
@@ -49,16 +56,22 @@ async function request(
   method: "GET" | "POST",
   body?: Record<string, unknown>,
   token?: string,
+  clientIp = `192.0.2.${++requestIpSequence}`,
 ): Promise<JsonResult> {
   const response = await fetch(`${origin}${path}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-forwarded-for": clientIp,
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  return { status: response.status, body: await response.json() };
+  return {
+    status: response.status,
+    body: await response.json(),
+    retryAfter: response.headers.get("retry-after"),
+  };
 }
 
 function makeLegacyToken(userId: string): string {
@@ -99,6 +112,126 @@ test("unknown-email and wrong-password login checks each hash exactly once", asy
   assert.equal(hashCalls.length, 2, "wrong password must perform one password hash");
   assert.equal(hashCalls[1].password, "wrong-password");
   assert.deepEqual(hashCalls[1].salt, Buffer.from(storedCredentials.password_salt, "hex"));
+});
+
+test("login throttling recovers after its short window and is isolated by client IP", () => {
+  let now = 10_000;
+  const throttle = createDaily007LoginThrottle({
+    limit: 2,
+    windowMs: 1_000,
+    now: () => now,
+  });
+
+  assert.deepEqual(throttle.consume("192.0.2.10"), { allowed: true });
+  assert.deepEqual(throttle.consume("192.0.2.10"), { allowed: true });
+  assert.deepEqual(
+    throttle.consume("192.0.2.10"),
+    { allowed: false, retryAfterSeconds: 1 },
+  );
+  assert.deepEqual(throttle.consume("192.0.2.11"), { allowed: true });
+
+  now += 1_000;
+  assert.deepEqual(
+    throttle.consume("192.0.2.10"),
+    { allowed: true },
+    "the same client can try again when the window expires",
+  );
+});
+
+test("a burst from one client IP cannot exceed the configured login limit", () => {
+  const throttle = createDaily007LoginThrottle({
+    limit: 3,
+    windowMs: 1_000,
+  });
+  const results = Array.from(
+    { length: 12 },
+    () => throttle.consume("192.0.2.12"),
+  );
+
+  assert.equal(results.filter((result) => result.allowed).length, 3);
+  assert.equal(results.filter((result) => !result.allowed).length, 9);
+});
+
+test("both password-login routes share the same IP limit for known and unknown emails", async () => {
+  signupTestDb.reset();
+
+  await withServer(async (origin) => {
+    const email = "login-throttle-test@example.test";
+    const password = "login-throttle-test-password";
+    const registration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      { name: "Login Throttle Test", email, password },
+    );
+    assert.equal(registration.status, 201);
+
+    const clientIp = "198.51.100.40";
+    const loginRoutes = [
+      "/daily007/v2/auth/login",
+      "/auth/login",
+    ];
+
+    for (let attempt = 0; attempt < DAILY007_LOGIN_ATTEMPT_LIMIT; attempt += 1) {
+      const knownEmail = attempt % 2 === 0;
+      const response = await request(
+        origin,
+        loginRoutes[attempt % loginRoutes.length]!,
+        "POST",
+        {
+          email: knownEmail ? email : "unknown-login-throttle@example.test",
+          password: `${password}-incorrect`,
+        },
+        undefined,
+        clientIp,
+      );
+      assert.equal(response.status, 401);
+      assert.equal(response.body.error, "Email or password is incorrect.");
+    }
+
+    const limitedKnownEmail = await request(
+      origin,
+      loginRoutes[0]!,
+      "POST",
+      { email, password: `${password}-incorrect` },
+      undefined,
+      clientIp,
+    );
+    const limitedUnknownEmail = await request(
+      origin,
+      loginRoutes[1]!,
+      "POST",
+      { email: "unknown-login-throttle@example.test", password },
+      undefined,
+      clientIp,
+    );
+
+    assert.equal(limitedKnownEmail.status, 429);
+    assert.equal(limitedUnknownEmail.status, 429);
+    assert.deepEqual(
+      limitedKnownEmail.body,
+      { error: DAILY007_LOGIN_RATE_LIMIT_MESSAGE },
+    );
+    assert.deepEqual(limitedUnknownEmail.body, limitedKnownEmail.body);
+    assert.ok(Number(limitedKnownEmail.retryAfter) > 0);
+    assert.ok(Number(limitedKnownEmail.retryAfter) <= 60);
+    assert.ok(Number(limitedUnknownEmail.retryAfter) > 0);
+    assert.ok(Number(limitedUnknownEmail.retryAfter) <= 60);
+
+    const loginFromAnotherIp = await request(
+      origin,
+      loginRoutes[1]!,
+      "POST",
+      { email, password },
+      undefined,
+      "198.51.100.41",
+    );
+    assert.equal(
+      loginFromAnotherIp.status,
+      200,
+      "rate-limiting one client IP must not lock the account for other players",
+    );
+  });
 });
 
 test("unknown emails, wrong passwords, and blocked accounts share one public login error", async () => {
