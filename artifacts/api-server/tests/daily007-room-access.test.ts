@@ -638,6 +638,78 @@ test("compatibility room saves reject cancelled tournaments without changing roo
   });
 });
 
+test("both admin room save APIs accept and preserve 200-character credentials", async () => {
+  roomAccessTestDb.reset();
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+  const credentials = {
+    roomId: "R".repeat(200),
+    roomPassword: "P".repeat(200),
+  };
+  const routes = [
+    {
+      label: "v2",
+      path: `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+    },
+    {
+      label: "compatibility",
+      path: `/admin/tournaments/${TEST_MATCH_ID}/room`,
+    },
+  ];
+
+  await withServer(async (origin) => {
+    for (const route of routes) {
+      const saved = await request(
+        origin,
+        route.path,
+        "PUT",
+        adminToken,
+        credentials,
+      );
+
+      assert.equal(saved.status, 200, `${route.label} should accept 200-character credentials`);
+      if (route.label === "v2") {
+        assert.deepEqual(saved.body, {
+          match: { id: TEST_MATCH_ID, published: true },
+        });
+      } else {
+        assert.deepEqual(saved.body, {
+          id: TEST_MATCH_ID,
+          roomPublished: true,
+          roomTime: matchBefore.room_time,
+          ...credentials,
+        });
+      }
+
+      assert.equal(roomAccessTestDb.match.room_id, credentials.roomId);
+      assert.equal(roomAccessTestDb.match.room_password, credentials.roomPassword);
+      assert.equal(roomAccessTestDb.match.room_id?.length, 200);
+      assert.equal(roomAccessTestDb.match.room_password?.length, 200);
+      assert.equal(roomAccessTestDb.match.room_published, true);
+      assert.equal(roomAccessTestDb.match.status, matchBefore.status);
+      assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+
+      const readBack = await request(
+        origin,
+        `/admin/tournaments/${TEST_MATCH_ID}/room`,
+        "GET",
+        adminToken,
+      );
+      assert.equal(readBack.status, 200);
+      assert.deepEqual(readBack.body, {
+        id: TEST_MATCH_ID,
+        roomId: credentials.roomId,
+        roomPassword: credentials.roomPassword,
+        roomTime: matchBefore.room_time,
+        roomPublished: true,
+      });
+    }
+  });
+});
+
 test("both admin room save APIs reject blank or oversized credentials without changing saved room state", async () => {
   roomAccessTestDb.reset();
 

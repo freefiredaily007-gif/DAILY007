@@ -203,6 +203,20 @@ class RoomAccessTestDatabase {
       rows = first === this.match.id ? [{ id: this.match.id }] : [];
     } else if (normalized === "SELECT status FROM daily007_v2_matches WHERE id = $1") {
       rows = first === this.match.id ? [{ status: this.match.status }] : [];
+    } else if (
+      normalized ===
+      "SELECT id, status, room_id, room_password, room_time, room_published FROM daily007_v2_matches WHERE id = $1"
+    ) {
+      rows = first === this.match.id
+        ? [{
+            id: this.match.id,
+            status: this.match.status,
+            room_id: this.match.room_id,
+            room_password: this.match.room_password,
+            room_time: this.match.room_time,
+            room_published: this.match.room_published,
+          }]
+        : [];
     } else if (normalized ===
       "SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name, r.captain_game_name, roster.position, roster.member_name FROM daily007_v2_registrations r LEFT JOIN daily007_v2_roster roster ON roster.registration_id = r.id WHERE r.match_id = $1 AND r.status IN ('approved', 'pending') ORDER BY r.created_at, r.id, roster.position"
     ) {
