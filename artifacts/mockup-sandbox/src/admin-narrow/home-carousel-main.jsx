@@ -13,9 +13,13 @@ if (!rootElement) throw new Error("Home carousel preview root is missing.");
 
 const root = createRoot(rootElement);
 const realSetInterval = globalThis.setInterval.bind(globalThis);
+const realClearInterval = globalThis.clearInterval.bind(globalThis);
 const realClearTimeout = globalThis.clearTimeout.bind(globalThis);
 const homePollIntervals = [];
 const carouselAutoAdvanceIntervals = [];
+const screenReaderListeners = new Set();
+const accessibilityAnnouncements = [];
+let fakeScreenReaderEnabled = false;
 const scheduledStartMs = Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
 let fakeNow = scheduledStartMs - 60_000;
 let startTimerFired = false;
@@ -92,6 +96,17 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   );
   apiMocks.configureHomeCarouselRegistrationPreview();
 
+  const { AccessibilityInfo } = await import("react-native");
+  AccessibilityInfo.isScreenReaderEnabled = () => Promise.resolve(fakeScreenReaderEnabled);
+  AccessibilityInfo.addEventListener = (eventName, listener) => {
+    if (eventName !== "screenReaderChanged") return { remove() {} };
+    screenReaderListeners.add(listener);
+    return { remove: () => screenReaderListeners.delete(listener) };
+  };
+  AccessibilityInfo.announceForAccessibility = (announcement) => {
+    accessibilityAnnouncements.push(announcement);
+  };
+
   const [{ default: Home, mergeHomeTournamentItems }, { HOME_TOURNAMENT_REFRESH_INTERVAL_MS }] =
     await Promise.all([
       import("../../../daily007/src/screens/Home"),
@@ -102,13 +117,23 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       homePollIntervals.push({ callback, intervalMs });
     }
     if (intervalMs === 3500) {
-      carouselAutoAdvanceIntervals.push({
+      const interval = {
         callback: () => callback(...args),
         intervalMs,
-      });
-      return 0;
+        active: true,
+      };
+      carouselAutoAdvanceIntervals.push(interval);
+      return interval;
     }
     return realSetInterval(callback, intervalMs, ...args);
+  };
+  globalThis.clearInterval = (handle) => {
+    const carouselInterval = carouselAutoAdvanceIntervals.find((interval) => interval === handle);
+    if (carouselInterval) {
+      carouselInterval.active = false;
+      return;
+    }
+    realClearInterval(handle);
   };
   window.__daily007HomeCarouselTest = {
     ready: true,
@@ -118,13 +143,21 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getHomePollCount: () => homePollIntervals.length,
     getHomePollIntervalMs: () => homePollIntervals[0]?.intervalMs ?? null,
     getCarouselAutoAdvanceIntervalMs: () =>
-      carouselAutoAdvanceIntervals.at(-1)?.intervalMs ?? null,
+      [...carouselAutoAdvanceIntervals].reverse().find((interval) => interval.active)?.intervalMs ?? null,
     advanceCarousel: () => {
-      const interval = carouselAutoAdvanceIntervals.at(-1);
+      const interval = [...carouselAutoAdvanceIntervals].reverse().find((item) => item.active);
       if (!interval) return false;
       interval.callback();
       return true;
     },
+    setScreenReaderEnabled: (enabled) => {
+      fakeScreenReaderEnabled = enabled;
+      for (const listener of screenReaderListeners) listener(enabled);
+    },
+    getScreenReaderEnabled: () => fakeScreenReaderEnabled,
+    getScreenReaderListenerCount: () => screenReaderListeners.size,
+    getAccessibilityAnnouncements: () => [...accessibilityAnnouncements],
+    clearAccessibilityAnnouncements: () => accessibilityAnnouncements.splice(0),
     hasScheduledStartTimer: () => typeof scheduledStartTimerCallback === "function",
     advancePastScheduledStart: () => {
       if (!scheduledStartTimerCallback) return false;

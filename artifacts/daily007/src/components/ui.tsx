@@ -147,10 +147,12 @@ export function GCard({
   glowColor,
   accessibilityLabel,
   accessibilityHint,
+  accessibilityState,
   testID,
 }: {
   children: React.ReactNode; onPress?: () => void; style?: any; glowColor?: string;
   accessibilityLabel?: string; accessibilityHint?: string; testID?: string;
+  accessibilityState?: React.ComponentProps<typeof Pressable>['accessibilityState'];
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const press = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
@@ -166,6 +168,7 @@ export function GCard({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
+      accessibilityState={accessibilityState}
       testID={testID}
       onPressIn={press}
       onPressOut={release}

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -93,7 +94,10 @@ function connectCdp(url) {
         }
         if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
           const text = message.params.args?.map((arg) => arg.value ?? arg.description ?? "").join(" ");
-          browserErrors.push(text || "Browser console error.");
+          const stack = message.params.stackTrace?.callFrames
+            ?.slice(0, 4)
+            .map((frame) => `${frame.url}:${frame.lineNumber + 1}`);
+          browserErrors.push(`${text || "Browser console error."}${stack?.length ? ` (${stack.join(" <- ")})` : ""}`);
         }
         if (message.id) {
           const item = pending.get(message.id);
@@ -2969,6 +2973,18 @@ async function readHomeCarouselState() {
         const rect = card.getBoundingClientRect();
         return {
           id: card.getAttribute('data-testid')?.replace('home-upcoming-card-', ''),
+          label: card.getAttribute('aria-label'),
+          role: card.getAttribute('role'),
+          ariaPressed: card.getAttribute('aria-pressed'),
+          ariaSelected: card.getAttribute('aria-selected'),
+          ariaCurrent: card.getAttribute('aria-current'),
+          selected:
+            card.getAttribute('aria-pressed') === 'true' ||
+            card.getAttribute('aria-selected') === 'true' ||
+            card.getAttribute('aria-current') === 'true',
+          focusStops:
+            Number(card.matches('button, [role="button"], [tabindex="0"]')) +
+            card.querySelectorAll('button, [role="button"], [tabindex="0"]').length,
           left: rect.left,
           right: rect.right,
           clientWidth: card.clientWidth,
@@ -2979,6 +2995,108 @@ async function readHomeCarouselState() {
       activePage: dots.findIndex((dot) => Number.parseFloat(getComputedStyle(dot).width) >= 15),
     };
   })()`);
+}
+
+async function assertHomeCarouselAccessibility(cards, selectedPage, description) {
+  const state = await readHomeCarouselState();
+  assert(state, `${description}: the Home carousel is missing.`);
+  assert(
+    state.activePage === selectedPage,
+    `${description}: expected selected page ${selectedPage + 1}, found ${state.activePage + 1}.`,
+  );
+  assert(
+    state.cards.length === cards.length,
+    `${description}: expected ${cards.length} cards, found ${state.cards.length}.`,
+  );
+  for (const [index, expected] of cards.entries()) {
+    const card = state.cards[index];
+    assert(card.id === expected.id, `${description}: card ${index + 1} should be ${expected.id}.`);
+    assert(
+      card.label?.includes(expected.name) &&
+        card.label.includes(`Position ${index + 1} of ${cards.length}`),
+      `${description}: ${expected.id} needs its name and position in the accessible label; received ${JSON.stringify(card.label)}.`,
+    );
+    assert(card.role === 'button', `${description}: ${expected.id} should be one accessible button.`);
+    assert(
+      card.focusStops === 1,
+      `${description}: ${expected.id} exposes ${card.focusStops} focus stops instead of one.`,
+    );
+  }
+}
+
+function assertHomeCarouselNativeSelectedStateIsPassedThrough() {
+  const homeSource = readFileSync(
+    path.join(workspaceRoot, "artifacts/daily007/src/screens/Home.tsx"),
+    "utf8",
+  );
+  const cardSource = readFileSync(
+    path.join(workspaceRoot, "artifacts/daily007/src/components/ui.tsx"),
+    "utf8",
+  );
+  assert(
+    /accessibilityState=\{\{\s*selected\s*\}\}/.test(homeSource),
+    "Home cards must expose their current page through the native selected accessibility state.",
+  );
+  assert(
+    /accessibilityState=\{accessibilityState\}/.test(cardSource),
+    "GCard must pass the native selected accessibility state to its Pressable.",
+  );
+}
+
+async function checkHomeCarouselTalkBackNavigation(cards, width, description) {
+  await assertHomeCarouselAccessibility(cards, 0, `${description} initial state`);
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.getScreenReaderListenerCount() > 0 && window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === 3500",
+    `${description} to initialize screen-reader and carousel controls`,
+  );
+  await evaluate("window.__daily007HomeCarouselTest.clearAccessibilityAnnouncements()");
+  await evaluate("window.__daily007HomeCarouselTest.setScreenReaderEnabled(true)");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === null",
+    `${description} to pause automatic page changes while TalkBack is enabled`,
+  );
+
+  let expectedAnnouncementCount = 0;
+  for (let index = 1; index < cards.length; index += 1) {
+    await swipeHomeCarousel("left", `${description} page ${index + 1}`);
+    await waitForHomeCarouselCard(cards[index].id, index, width, `${description} page ${index + 1}`);
+    await assertHomeCarouselAccessibility(cards, index, `${description} page ${index + 1}`);
+    expectedAnnouncementCount += 1;
+    await waitForCondition(
+      `window.__daily007HomeCarouselTest.getAccessibilityAnnouncements().length === ${expectedAnnouncementCount}`,
+      `${description} to announce page ${index + 1} once`,
+    );
+    const announcements = await evaluate("window.__daily007HomeCarouselTest.getAccessibilityAnnouncements()");
+    assert(
+      announcements.at(-1) ===
+        `Selected Upcoming match: ${cards[index].name}. Match ${index + 1} of ${cards.length}.`,
+      `${description} announced the wrong match or position: ${JSON.stringify(announcements)}`,
+    );
+  }
+
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.advanceCarousel()") === false,
+    `${description} should not auto-advance while TalkBack is enabled.`,
+  );
+  await assertHomeCarouselAccessibility(cards, cards.length - 1, `${description} while TalkBack is enabled`);
+
+  for (let index = cards.length - 2; index >= 0; index -= 1) {
+    await swipeHomeCarousel("right", `${description} page ${index + 1}`);
+    await waitForHomeCarouselCard(cards[index].id, index, width, `${description} page ${index + 1}`);
+    await assertHomeCarouselAccessibility(cards, index, `${description} page ${index + 1}`);
+    expectedAnnouncementCount += 1;
+    await waitForCondition(
+      `window.__daily007HomeCarouselTest.getAccessibilityAnnouncements().length === ${expectedAnnouncementCount}`,
+      `${description} to announce page ${index + 1} once`,
+    );
+  }
+
+  await evaluate("window.__daily007HomeCarouselTest.setScreenReaderEnabled(false)");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === 3500",
+    `${description} to resume automatic page changes after TalkBack is disabled`,
+  );
+  await evaluate("window.__daily007HomeCarouselTest.clearAccessibilityAnnouncements()");
 }
 
 async function waitForHomeCarouselCard(id, pageIndex, width, description) {
@@ -3105,6 +3223,7 @@ async function assertHomeCarouselCardOpens(id, description) {
 }
 
 async function checkHomeCarousel(width) {
+  assertHomeCarouselNativeSelectedStateIsPassedThrough();
   await waitForCondition(
     "window.__daily007HomeCarouselTest?.ready === true",
     "Home to initialize",
@@ -3129,6 +3248,15 @@ async function checkHomeCarousel(width) {
     `Home did not install the expected auto-advance interval at ${width}px.`,
   );
   await waitForHomeCarouselCard("starting-soon", 0, width, "The first Upcoming tournament");
+  await checkHomeCarouselTalkBackNavigation(
+    [
+      { id: "starting-soon", name: "Starting at IST" },
+      { id: "later-one", name: "Later Tournament One" },
+      { id: "later-two", name: "Later Tournament Two" },
+    ],
+    width,
+    `Three-card Home carousel at ${width}px`,
+  );
 
   await swipeHomeCarousel("left", "the first Upcoming tournament");
   await waitForHomeCarouselCard("later-one", 1, width, "The second Upcoming tournament after a manual swipe");
@@ -3171,6 +3299,14 @@ async function checkHomeCarousel(width) {
     `Home did not preserve and re-index the two later tournaments after the scheduled start at ${width}px: ${JSON.stringify(remainingState)}.`,
   );
   await waitForHomeCarouselCard("later-one", 0, width, "The first remaining tournament");
+  await checkHomeCarouselTalkBackNavigation(
+    [
+      { id: "later-one", name: "Later Tournament One" },
+      { id: "later-two", name: "Later Tournament Two" },
+    ],
+    width,
+    `Two-card Home carousel at ${width}px`,
+  );
   await assertHomeCarouselCardOpens("later-one", "The first remaining tournament");
   await swipeHomeCarousel("left", "the first remaining tournament");
   await waitForHomeCarouselCard("later-two", 1, width, "The second remaining tournament after a manual swipe");

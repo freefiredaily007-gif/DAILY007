@@ -1,6 +1,6 @@
 // Home — premium esports landing: header, hero, live matches, game modes, quick actions, social
 import React, { useCallback, useState, useRef } from 'react';
-import { AppState, View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, AppState, View, ScrollView, Pressable, StyleSheet, RefreshControl, Linking, Image, Animated, Easing, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import bannerSquad from '../assets/banner-squad.jpg';
 import bannerClash from '../assets/banner-clash.jpg';
@@ -103,8 +103,10 @@ export default function Home() {
   const [clockNow, setClockNow] = useState(Date.now());
   const [links, setLinks] = useState<any>({});
   const [page, setPage] = useState(0);
+  const [screenReaderEnabled, setScreenReaderEnabled] = useState<boolean | null>(null);
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
+  const screenReaderEventReceivedRef = useRef(false);
   const loadRequestGuardRef = useRef(createHomeRefreshRequestGuard());
   const activeRequestsRef = useRef(0);
   const homePollInFlightRef = useRef(false);
@@ -114,6 +116,20 @@ export default function Home() {
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const openTournamentDetail = (id: string) => nav.getParent().push('TDetail', { id });
+  React.useEffect(() => {
+    let active = true;
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', (enabled) => {
+      screenReaderEventReceivedRef.current = true;
+      setScreenReaderEnabled(enabled);
+    });
+    AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+      if (active && !screenReaderEventReceivedRef.current) setScreenReaderEnabled(enabled);
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
   const load = useCallback(async () => {
     const requestId = loadRequestGuardRef.current.start();
     activeRequestsRef.current += 1;
@@ -227,17 +243,26 @@ export default function Home() {
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
     const p = Math.round(x / carouselPageSize);
-    if (p !== pageRef.current) { pageRef.current = p; setPage(p); }
+    if (p !== pageRef.current) {
+      pageRef.current = p;
+      setPage(p);
+      const selectedTournament = upcomingItems[p];
+      if (screenReaderEnabled && selectedTournament) {
+        AccessibilityInfo.announceForAccessibility(
+          `Selected Upcoming match: ${selectedTournament.name ?? 'Match'}. Match ${p + 1} of ${Math.min(upcomingItems.length, 8)}.`,
+        );
+      }
+    }
   };
   // auto-scroll every 3.5s when more than one match
   React.useEffect(() => {
-    if (upcomingItems.length <= 1) return;
+    if (upcomingItems.length <= 1 || screenReaderEnabled !== false) return;
     const iv = setInterval(() => {
       const next = (pageRef.current + 1) % Math.min(upcomingItems.length, 8);
       try { carouselRef.current?.scrollTo({ x: next * carouselPageSize, animated: true }); } catch {}
     }, 3500);
     return () => clearInterval(iv);
-  }, [upcomingItems.length, carouselPageSize]);
+  }, [upcomingItems.length, carouselPageSize, screenReaderEnabled]);
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
@@ -340,11 +365,12 @@ export default function Home() {
             testID="home-upcoming-carousel"
             horizontal pagingEnabled
             showsHorizontalScrollIndicator={false}
-            onScroll={onCarouselScroll} scrollEventThrottle={16}
+            onScroll={onCarouselScroll}
+            scrollEventThrottle={16}
             style={{ flexGrow: 0 }}
             contentContainerStyle={{ paddingHorizontal: 0 }}
             decelerationRate="fast">
-            {upcomingItems.slice(0, 8).map((t) => {
+        {upcomingItems.slice(0, 8).map((t, index) => {
               const filled = t.filledSlots ?? t.filled ?? 0;
               const total = t.totalSlots ?? tournamentModeFallback(t);
               const stt = statusOf(t, clockNow);
@@ -366,6 +392,8 @@ export default function Home() {
               const ctaLabel = joined
                 ? capacityFull ? 'JOINED · SLOTS FULL' : 'JOINED'
                 : ongoing ? 'VIEW MATCH' : capacityFull ? 'SLOTS FULL' : 'JOIN NOW ›';
+          const cardPosition = `Position ${index + 1} of ${Math.min(upcomingItems.length, 8)}`;
+          const selected = index === page;
         return (
           <View
             key={t.id}
@@ -378,6 +406,9 @@ export default function Home() {
             <GCard
               testID={`home-upcoming-card-${t.id}`}
               onPress={() => openTournamentDetail(t.id)}
+              accessibilityLabel={`Upcoming match: ${t.name ?? 'Match'}. ${cardPosition}.`}
+              accessibilityHint="Opens match details."
+              accessibilityState={{ selected }}
               glowColor={ongoing ? C.red : br ? C.orange : C.purple}
               style={[s.matchCard, { width: carouselCardWidth }]}
             >
@@ -448,17 +479,16 @@ export default function Home() {
               <View style={s.slotBar}>
                 <View style={[s.slotFill, { width: `${Math.min(100, (filled / Math.max(1, total)) * 100)}%` }]} />
               </View>
-              <Pressable
-                disabled={!joined && capacityFull && !ongoing}
-                style={({ pressed }) => [
+              <View
+                pointerEvents="none"
+                style={[
                   s.joinBtn,
                   joined && { backgroundColor: C.green + '22', borderColor: C.green + '77' },
                   !joined && capacityFull && !ongoing && { backgroundColor: C.card2, borderColor: C.border },
-                  pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
                 ]}
-                onPress={() => openTournamentDetail(t.id)}>
+              >
                 <Text style={[s.joinBtnT, joined && { color: C.green }, !joined && capacityFull && !ongoing && { color: C.dim }]}>{ctaLabel}</Text>
-              </Pressable>
+              </View>
             </View>
             </GCard>
           </View>

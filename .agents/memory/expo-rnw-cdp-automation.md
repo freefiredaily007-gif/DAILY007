@@ -33,6 +33,12 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 
 **How to apply:** Keep React Native's native accessibility props for TalkBack, test their label content in the isolated RNW preview, and confirm actual TalkBack behavior separately when an Android device is available.
 
+**Rule:** React Native Web may omit native `accessibilityState.selected` from a button's ARIA attributes; verify native state prop propagation separately instead of adding web-only state props.
+
+**Why:** A Daily007 carousel preview exposed its accessible label and button role but no selected-state attribute, even while the native `selected` prop was passed through.
+
+**How to apply:** Assert that the native prop reaches the Pressable in source-level checks, use the web preview for labels and focusability, and confirm selected-state speech on Android.
+
 **Rule:** For a tall list card, scroll each action into the nearest overflowing scroll container before hit-testing; centering the whole card may still leave its bottom actions off-screen.
 
 **Why:** At 1.5× text, long wallet and user identity cards exceeded the phone viewport, so moving the card as a whole did not make its actions reachable.
