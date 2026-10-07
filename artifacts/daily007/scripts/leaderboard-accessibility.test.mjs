@@ -131,6 +131,40 @@ test("podium entries expose one ordered VoiceOver label without decorative stops
   }
 });
 
+for (const [cycle, standings] of [
+  [
+    "Weekly",
+    [
+      { name: "Asha", points: 120_000 },
+      { name: "Bimal", points: 95_000 },
+      { name: "Chandra", points: 80_000 },
+    ],
+  ],
+  [
+    "Monthly",
+    [
+      { name: "Dev", points: 420_000 },
+      { name: "Esha", points: 350_000 },
+      { name: "Farah", points: 290_000 },
+    ],
+  ],
+]) {
+  test(`${cycle} podium labels distinguish ranks, names, and scores`, () => {
+    const spokenLabels = standings.map((standing, index) =>
+      leaderboardPodiumAccessibilityLabel(index + 1, standing),
+    );
+
+    assert.deepEqual(
+      spokenLabels,
+      standings.map(
+        (standing, index) =>
+          `Rank ${index + 1}, ${standing.name}, ${standing.points.toLocaleString("en-IN")} coins`,
+      ),
+    );
+    assert.equal(new Set(spokenLabels).size, 3, "Each podium entry must have a distinct spoken label.");
+  });
+}
+
 test("podium VoiceOver traversal follows the visible order in both layouts", () => {
   const standardOrder = selectLeaderboardPodiumRanks(false);
   const largeTextOrder = selectLeaderboardPodiumRanks(true);

@@ -52,7 +52,7 @@
 - [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — keep payout UPI IDs visible and easy for admins to copy from withdrawal requests.
 - [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — snapshot ended cycles for Full Admin payout approval; require fresh prizes and explicit next-boundary scheduling.
 - [Daily007 leaderboard large text](daily007-leaderboard-large-text.md) — preserve the 1.5× layout breakpoint; wrap compact podium scores and expanded names instead of truncating them.
-- [Daily007 leaderboard TalkBack](daily007-leaderboard-talkback.md) — native Android confirmation found clear rank/name/score entries in both cycles without decorative duplicates.
+- [Daily007 leaderboard screen readers](daily007-leaderboard-talkback.md) — native Android and iOS confirmation found clear rank/name/score entries without decorative duplicates.
 - [Daily007 Home mode-card screen readers](daily007-home-mode-screen-reader.md) — VoiceOver and TalkBack announce mode and all team sizes in one stop, without decorative stops.
 - [Daily007 room-detail TalkBack](daily007-room-details-talkback.md) — iQOO Neo 10 / Android 16 confirmed labeled room values, distinct copy controls, and spoken copy feedback.
 - [Daily007 full-capacity TalkBack](daily007-full-capacity-talkback.md) — iQOO Neo 10 / Android 16 confirmed one rejection-and-capacity announcement without repetition or focus movement.
