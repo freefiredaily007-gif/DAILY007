@@ -68,8 +68,28 @@ export function StatCard({ icon, value, label, tint, onPress, trend }: { icon: k
   );
 }
 
-export function ActionBtn({ title, onPress, kind = 'primary', loading, small, disabled, testID }: {
-  title: string; onPress: () => void; kind?: 'primary' | 'ghost' | 'danger' | 'gold' | 'green'; loading?: boolean; small?: boolean; disabled?: boolean; testID?: string;
+export function ActionBtn({
+  title,
+  onPress,
+  kind = 'primary',
+  loading,
+  small,
+  disabled,
+  testID,
+  accessibilityLabel,
+  accessibilityHint,
+  accessibilityState,
+}: {
+  title: string;
+  onPress: () => void;
+  kind?: 'primary' | 'ghost' | 'danger' | 'gold' | 'green';
+  loading?: boolean;
+  small?: boolean;
+  disabled?: boolean;
+  testID?: string;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  accessibilityState?: React.ComponentProps<typeof Pressable>['accessibilityState'];
 }) {
   const bg: Record<string, any> = {
     primary: { backgroundColor: A.red },
@@ -79,8 +99,22 @@ export function ActionBtn({ title, onPress, kind = 'primary', loading, small, di
     green: { backgroundColor: 'rgba(34,197,94,0.16)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.5)' },
   };
   const fg: Record<string, string> = { primary: A.bg, ghost: A.text, danger: '#fca5a5', gold: '#1a1200', green: '#86efac' };
+  const isDisabled = Boolean(disabled || loading);
   return (
-    <Pressable testID={testID} onPress={onPress} disabled={disabled || loading} style={({ pressed }) => [s.btn, small && s.btnSmall, bg[kind], pressed && { opacity: 0.8 }, (disabled || loading) && { opacity: 0.5 }]}>
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{
+        ...accessibilityState,
+        disabled: isDisabled || accessibilityState?.disabled,
+        ...(loading ? { busy: true } : {}),
+      }}
+      style={({ pressed }) => [s.btn, small && s.btnSmall, bg[kind], pressed && { opacity: 0.8 }, isDisabled && { opacity: 0.5 }]}
+    >
       {loading ? <ActivityIndicator size="small" color={fg[kind]} /> : <Text style={[s.btnTxt, small && { fontSize: 10.5 }, { color: fg[kind] }]}>{title}</Text>}
     </Pressable>
   );
@@ -102,18 +136,77 @@ export function StatusTag({ status, label = status }: { status: string; label?: 
   return <View style={[s.tag, { backgroundColor: m.bg, borderColor: swapThemeColor(m.c) + '55' }]}><Text style={[s.tagTxt, { color: m.c }]}>{(label || '—').toUpperCase()}</Text></View>;
 }
 
-export function ConfirmDialog({ visible, title, message, onCancel, onConfirm, confirmTitle = 'CONFIRM', danger, cancelTestID, confirmTestID }: {
-  visible: boolean; title: string; message: string; onCancel: () => void; onConfirm: () => void; confirmTitle?: string; danger?: boolean; cancelTestID?: string; confirmTestID?: string;
+export function ConfirmDialog({
+  visible,
+  title,
+  message,
+  onCancel,
+  onConfirm,
+  confirmTitle = 'CONFIRM',
+  danger,
+  cancelTestID,
+  confirmTestID,
+  announcementLabel,
+  announcementLiveRegion,
+  cancelAccessibilityLabel,
+  confirmAccessibilityLabel,
+  confirmAccessibilityHint,
+}: {
+  visible: boolean;
+  title: string;
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmTitle?: string;
+  danger?: boolean;
+  cancelTestID?: string;
+  confirmTestID?: string;
+  announcementLabel?: string;
+  announcementLiveRegion?: 'none' | 'polite' | 'assertive';
+  cancelAccessibilityLabel?: string;
+  confirmAccessibilityLabel?: string;
+  confirmAccessibilityHint?: string;
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={s.overlay}>
-        <View style={s.dialog}>
-          <Text style={s.dialogTitle}>{title}</Text>
-          <Text style={s.dialogMsg}>{message}</Text>
+        <View style={s.dialog} accessibilityViewIsModal>
+          {announcementLabel ? (
+            <View
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={announcementLabel}
+              accessibilityLiveRegion={announcementLiveRegion}
+            >
+              <Text accessible={false} style={s.dialogTitle}>{title}</Text>
+              <Text accessible={false} style={s.dialogMsg}>{message}</Text>
+            </View>
+          ) : (
+            <>
+              <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
+              <Text style={s.dialogMsg}>{message}</Text>
+            </>
+          )}
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
-            <View style={{ flex: 1 }}><ActionBtn title="CANCEL" kind="ghost" onPress={onCancel} testID={cancelTestID} /></View>
-            <View style={{ flex: 1 }}><ActionBtn title={confirmTitle} kind={danger ? 'danger' : 'primary'} onPress={onConfirm} testID={confirmTestID} /></View>
+            <View style={{ flex: 1 }}>
+              <ActionBtn
+                title="CANCEL"
+                kind="ghost"
+                onPress={onCancel}
+                testID={cancelTestID}
+                accessibilityLabel={cancelAccessibilityLabel}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <ActionBtn
+                title={confirmTitle}
+                kind={danger ? 'danger' : 'primary'}
+                onPress={onConfirm}
+                testID={confirmTestID}
+                accessibilityLabel={confirmAccessibilityLabel}
+                accessibilityHint={confirmAccessibilityHint}
+              />
+            </View>
           </View>
         </View>
       </View>
@@ -133,36 +226,69 @@ export function PromptDialog({
   autoCapitalize,
   autoCorrect,
   accessibilityLabel,
+  accessibilityHint,
   inputTestID,
   cancelTestID,
   confirmTestID,
+  cancelAccessibilityLabel,
+  confirmAccessibilityLabel,
+  confirmAccessibilityHint,
+  submitting = false,
+  submittingLabel = 'PLEASE WAIT',
+  submittingAccessibilityLabel,
+  submittingMessage,
 }: {
   visible: boolean;
   title: string;
   message?: string;
   onCancel: () => void;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string) => void | boolean | Promise<void | boolean>;
   confirmTitle?: string;
   keyboardType?: any;
   placeholder?: string;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   autoCorrect?: boolean;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
   inputTestID?: string;
   cancelTestID?: string;
   confirmTestID?: string;
+  cancelAccessibilityLabel?: string;
+  confirmAccessibilityLabel?: string;
+  confirmAccessibilityHint?: string;
+  submitting?: boolean;
+  submittingLabel?: string;
+  submittingAccessibilityLabel?: string;
+  submittingMessage?: string;
 }) {
   const [val, setVal] = useState('');
+  const submitInFlight = useRef(false);
   const close = () => {
+    if (submitting) return;
     setVal('');
     onCancel();
+  };
+  const submit = async () => {
+    if (submitting || submitInFlight.current) return;
+    submitInFlight.current = true;
+    try {
+      const accepted = await onSubmit(val);
+      if (accepted !== false) setVal('');
+    } finally {
+      submitInFlight.current = false;
+    }
   };
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <View style={s.overlay}>
-        <View style={s.dialog}>
-          <Text style={s.dialogTitle}>{title}</Text>
+        <View style={s.dialog} accessibilityViewIsModal>
+          <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
           {!!message && <Text style={s.dialogMsg}>{message}</Text>}
+          {submitting && !!submittingMessage && (
+            <Text accessibilityLiveRegion="polite" style={s.dialogMsg}>
+              {submittingMessage}
+            </Text>
+          )}
           <TextInput
             value={val}
             onChangeText={setVal}
@@ -171,14 +297,36 @@ export function PromptDialog({
             autoCorrect={autoCorrect}
             autoFocus
             accessibilityLabel={accessibilityLabel ?? title}
+            accessibilityHint={accessibilityHint}
             testID={inputTestID}
             placeholder={placeholder}
             placeholderTextColor="#5b6478"
             style={[s.input, { marginTop: 12 }]}
           />
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-            <View style={{ flex: 1 }}><ActionBtn title="CANCEL" kind="ghost" onPress={close} testID={cancelTestID} /></View>
-            <View style={{ flex: 1 }}><ActionBtn title={confirmTitle} onPress={() => { onSubmit(val); setVal(''); }} testID={confirmTestID} /></View>
+            <View style={{ flex: 1 }}>
+              <ActionBtn
+                title="CANCEL"
+                kind="ghost"
+                onPress={close}
+                disabled={submitting}
+                testID={cancelTestID}
+                accessibilityLabel={cancelAccessibilityLabel}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <ActionBtn
+                title={submitting ? submittingLabel : confirmTitle}
+                onPress={() => { void submit(); }}
+                loading={submitting}
+                testID={confirmTestID}
+                accessibilityLabel={submitting
+                  ? submittingAccessibilityLabel ?? confirmAccessibilityLabel ?? submittingLabel
+                  : confirmAccessibilityLabel}
+                accessibilityHint={submitting ? undefined : confirmAccessibilityHint}
+                accessibilityState={{ disabled: submitting, busy: submitting }}
+              />
+            </View>
           </View>
         </View>
       </View>

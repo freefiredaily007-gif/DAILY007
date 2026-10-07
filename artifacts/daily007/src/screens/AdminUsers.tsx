@@ -87,34 +87,40 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     }
   };
 
-  const confirmDeleteUser = async (email: string) => {
+  const confirmDeleteUser = async (email: string): Promise<boolean> => {
     const user = deleteEmailTarget;
-    if (!user || busy === user.$id) return;
+    if (!user || busy === user.$id) return false;
     if (email.trim().toLowerCase() !== String(user.email).trim().toLowerCase()) {
       toast('The email does not match this account. No data was removed.', 'error');
-      return;
+      return false;
     }
-    setDeleteEmailTarget(null);
     setBusy(user.$id);
     try {
       const result = await deleteUserMutation.mutateAsync({
         id: user.$id,
         data: { confirmationEmail: email.trim() },
       });
+      setDeleteEmailTarget(null);
       toast(
         `Permanently removed ${user.name}, including any linked Google sign-in from Daily007. ${result.removed.registrations} registrations and ${result.removed.resultAwards} result awards were deleted.`,
         'success',
       );
       await load();
+      return true;
     } catch (e) {
       toast(errMessage(e), 'error');
       await load();
+      return false;
     } finally {
       setBusy(null);
     }
   };
 
   const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
+  const deleteBusy = Boolean(deleteEmailTarget && busy === deleteEmailTarget.$id);
+  const deleteWarningMessage = deleteWarningTarget
+    ? `${deleteWarningTarget.name} (${deleteWarningTarget.email}) and all of their Daily007 account data will be permanently removed, including wallet and payment history, withdrawals, tournament registrations, results, referrals, notifications, video claims, leaderboard entries, and uploaded payment proofs. Their teammates will remain Daily007 users but will be removed from these tournament rosters. Any linked Google sign-in to Daily007 will be removed, but their Google account itself will remain. This cannot be undone.`
+    : '';
 
   return (
     <ScreenWrap onRefresh={load}>
@@ -180,6 +186,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
                   small
                   onPress={() => setDeleteWarningTarget(u)}
                   loading={busy === u.$id}
+                  accessibilityLabel={`Permanently delete account for ${u.name}, ${u.email}`}
+                  accessibilityHint="Opens a permanent-loss warning and requires entering this account's email."
                   testID={`delete-user-${u.$id}`}
                 />
               </View>
@@ -207,10 +215,19 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       <ConfirmDialog
         visible={deleteWarningTarget !== null}
         title="Permanently delete this player?"
-        message={deleteWarningTarget
-          ? `${deleteWarningTarget.name} (${deleteWarningTarget.email}) will be permanently removed, including any Google sign-in link to Daily007, wallet and payment history, withdrawals, tournament registrations and teammate rosters, results, referrals, notifications, video claims, leaderboard entries, and uploaded payment proofs. This does not delete their Google account. This cannot be undone.`
-          : ''}
+        message={deleteWarningMessage}
+        announcementLabel={deleteWarningTarget
+          ? `Permanent deletion warning. ${deleteWarningMessage}`
+          : undefined}
+        announcementLiveRegion="polite"
         confirmTitle="CONTINUE"
+        cancelAccessibilityLabel={deleteWarningTarget
+          ? `Cancel permanent deletion of ${deleteWarningTarget.name}`
+          : undefined}
+        confirmAccessibilityLabel={deleteWarningTarget
+          ? `Continue to email confirmation for ${deleteWarningTarget.name}`
+          : undefined}
+        confirmAccessibilityHint="The account is not removed until its email is entered."
         danger
         onCancel={() => setDeleteWarningTarget(null)}
         onConfirm={() => {
@@ -224,18 +241,38 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       <PromptDialog
         visible={deleteEmailTarget !== null}
         title="Confirm permanent deletion"
-        message="Type the account email exactly as shown. All Daily007 data and any linked Google sign-in will be removed. The Google account itself will not be deleted."
+        message={deleteEmailTarget
+          ? `Type ${deleteEmailTarget.email} exactly as shown. This removes ${deleteEmailTarget.name}'s Daily007 data and linked Daily007 sign-in, but does not delete their Google account.`
+          : ''}
         confirmTitle="DELETE PERMANENTLY"
         keyboardType="email-address"
         autoCapitalize="none"
         autoCorrect={false}
-        accessibilityLabel="Type the player's email to confirm permanent deletion"
+        accessibilityLabel={deleteEmailTarget
+          ? `Type the exact email ${deleteEmailTarget.email} to confirm permanent deletion of ${deleteEmailTarget.name}'s Daily007 account`
+          : "Type the player's email to confirm permanent deletion"}
+        accessibilityHint="Enter the account email shown above. A mismatch will leave the account unchanged."
         placeholder={deleteEmailTarget?.email ?? ''}
         inputTestID="user-delete-confirmation-email"
         cancelTestID="cancel-user-delete-email"
         confirmTestID="confirm-user-delete"
+        cancelAccessibilityLabel={deleteEmailTarget
+          ? `Cancel permanent deletion of ${deleteEmailTarget.name}`
+          : undefined}
+        confirmAccessibilityLabel={deleteEmailTarget
+          ? `Delete ${deleteEmailTarget.name}'s Daily007 account permanently`
+          : undefined}
+        confirmAccessibilityHint="Submits the email and begins permanent removal."
+        submitting={deleteBusy}
+        submittingLabel="DELETING"
+        submittingAccessibilityLabel={deleteEmailTarget
+          ? `Deleting ${deleteEmailTarget.name}'s account`
+          : 'Deleting account'}
+        submittingMessage={deleteEmailTarget
+          ? `Deleting ${deleteEmailTarget.name}'s account permanently. Please wait.`
+          : undefined}
         onCancel={() => setDeleteEmailTarget(null)}
-        onSubmit={(email) => { void confirmDeleteUser(email); }}
+        onSubmit={confirmDeleteUser}
       />
     </ScreenWrap>
   );
