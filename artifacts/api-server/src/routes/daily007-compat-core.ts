@@ -515,9 +515,14 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
     [id],
   );
 
+  const currentMatch = await pool.query<{ enabled: boolean; status: string }>(
+    "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
+    [id],
+  );
   const winner = result.rows.find((row) => Number(row.rank) === 1);
-  const finalized = match.rows[0].enabled === false &&
-    match.rows[0].status !== "cancelled" &&
+  const current = currentMatch.rows[0];
+  const finalized = current?.enabled === false &&
+    current.status !== "cancelled" &&
     Boolean(winner);
   res.json({
     tournamentId: id,

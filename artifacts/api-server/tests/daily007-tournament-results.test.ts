@@ -325,6 +325,43 @@ test("saved-prize results reject duplicate retries and competing winners without
   });
 });
 
+test("public standings hide a rank-one award when cancellation commits between reads", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+    const winner = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 8,
+      prizeCoins: 0,
+    });
+    assert.equal(winner.status, 201);
+
+    const archivedWinnerAward = structuredClone(
+      tournamentResultsTestDb.awards.find((award) =>
+        award.match_id === TEST_MATCH_ID && award.rank === 1,
+      ),
+    );
+    assert.ok(archivedWinnerAward, "the completed tournament should have an archived rank-one award");
+    tournamentResultsTestDb.cancelMatchAfterNextPublicResultsStatusRead(TEST_MATCH_ID);
+
+    const standings = await callPublic(
+      origin,
+      `/tournaments/${TEST_MATCH_ID}/results`,
+    );
+
+    assert.equal(tournamentResultsTestDb.match.status, "cancelled");
+    assert.equal(standings.status, 200);
+    assert.equal(standings.body.status, "draft");
+    assert.equal(standings.body.finalizedAt, null);
+    assert.deepEqual(standings.body.entries, []);
+    assert.deepEqual(tournamentResultsTestDb.awards, [archivedWinnerAward]);
+  });
+});
+
 test("published results exclude cancelled tournaments with existing awards", async () => {
   tournamentResultsTestDb.reset();
 

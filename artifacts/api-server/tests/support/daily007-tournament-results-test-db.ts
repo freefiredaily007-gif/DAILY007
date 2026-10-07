@@ -90,6 +90,7 @@ class MemoryTournamentResultsDatabase {
   additionalMatches: TestMatch[] = [];
   finalizationFailureObservation: FinalizationFailureObservation | null = null;
   private failNextMatchFinalization = false;
+  private cancelMatchAfterPublicResultsStatusReadId: string | null = null;
 
   reset(): void {
     this.users = new Map([
@@ -106,10 +107,15 @@ class MemoryTournamentResultsDatabase {
     this.additionalMatches = [];
     this.finalizationFailureObservation = null;
     this.failNextMatchFinalization = false;
+    this.cancelMatchAfterPublicResultsStatusReadId = null;
   }
 
   failOnNextMatchFinalization(): void {
     this.failNextMatchFinalization = true;
+  }
+
+  cancelMatchAfterNextPublicResultsStatusRead(matchId: string): void {
+    this.cancelMatchAfterPublicResultsStatusReadId = matchId;
   }
 
   approveTestRegistrations(): void {
@@ -400,6 +406,10 @@ class MemoryTournamentResultsDatabase {
       const match = [this.match, ...this.additionalMatches]
         .find((candidate) => candidate.id === values[0]);
       rows = match ? [{ enabled: match.enabled, status: match.status }] : [];
+      if (match?.id === this.cancelMatchAfterPublicResultsStatusReadId) {
+        match.status = "cancelled";
+        this.cancelMatchAfterPublicResultsStatusReadId = null;
+      }
     } else if (normalized.startsWith(
       "SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,",
     )) {
