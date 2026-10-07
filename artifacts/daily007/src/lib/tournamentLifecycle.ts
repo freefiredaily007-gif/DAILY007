@@ -4,6 +4,14 @@ export const MAX_TIMEOUT_MS = 2_147_000_000;
 export const MAX_COMPLETED_TOURNAMENTS = 10;
 export const HOME_TOURNAMENT_REFRESH_INTERVAL_MS = 30_000;
 
+export function createHomeRefreshRequestGuard() {
+  let latestRequestId = 0;
+  return {
+    start: () => ++latestRequestId,
+    isCurrent: (requestId: number) => requestId === latestRequestId,
+  };
+}
+
 export function shouldRefreshHomeTournaments(appState: string): boolean {
   return appState === 'active';
 }

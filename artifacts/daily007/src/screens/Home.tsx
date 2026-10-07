@@ -13,6 +13,7 @@ import { useApp } from '../App';
 import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, Msg, glow, Pulse, fmtTime12, getTournamentFormatPresentation } from '../components/ui';
 import { inr } from '../lib/coins';
 import {
+  createHomeRefreshRequestGuard,
   didAppReturnToForeground,
   getUpcomingHomeTournaments,
   getTournamentLifecycleState,
@@ -104,6 +105,7 @@ export default function Home() {
   const [page, setPage] = useState(0);
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
+  const loadRequestGuardRef = useRef(createHomeRefreshRequestGuard());
   const activeRequestsRef = useRef(0);
   const homePollInFlightRef = useRef(false);
   const resumeRefreshPendingRef = useRef(false);
@@ -113,12 +115,14 @@ export default function Home() {
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const openTournamentDetail = (id: string) => nav.getParent().push('TDetail', { id });
   const load = useCallback(async () => {
+    const requestId = loadRequestGuardRef.current.start();
     activeRequestsRef.current += 1;
     try {
       const [tournamentsResult, registrationsResult] = await Promise.allSettled([
         api.tournaments('?enabled=true'),
         api.myRegistrations(),
       ]);
+      if (!loadRequestGuardRef.current.isCurrent(requestId)) return;
       if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;
       if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
       const r = tournamentsResult.value;
@@ -137,10 +141,12 @@ export default function Home() {
       setClockNow(Date.now());
       setLoadError('');
     } catch (e: any) {
-      setLoadError(e?.message || 'Could not load tournaments.');
+      if (loadRequestGuardRef.current.isCurrent(requestId)) {
+        setLoadError(e?.message || 'Could not load tournaments.');
+      }
     } finally {
       activeRequestsRef.current -= 1;
-      setLoading(false);
+      if (loadRequestGuardRef.current.isCurrent(requestId)) setLoading(false);
       if (
         activeRequestsRef.current === 0 &&
         resumeRefreshPendingRef.current &&

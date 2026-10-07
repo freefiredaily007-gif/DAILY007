@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  createHomeRefreshRequestGuard,
   didAppReturnToForeground,
   getUpcomingHomeTournaments,
   getTournamentLifecycleState,
@@ -66,6 +67,95 @@ test("Home queues a foreground refresh when an older request is still running", 
   );
   assert.match(homeSource, /activeRequestsRef\.current === 0 &&\s*resumeRefreshPendingRef\.current/);
   assert.match(homeSource, /refreshHomeIfIdleRef\.current\(\)/);
+});
+
+test("out-of-order Home refreshes keep the newest paired tournament and registration snapshot", async () => {
+  const guard = createHomeRefreshRequestGuard();
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+  };
+  let visibleSnapshot = {
+    tournaments: ["cached tournament"],
+    registrations: ["cached registration"],
+  };
+  let visibleError = "";
+  const applyPairedRefresh = async (requestId, tournamentsPromise, registrationsPromise) => {
+    const [tournamentsResult, registrationsResult] = await Promise.allSettled([
+      tournamentsPromise,
+      registrationsPromise,
+    ]);
+    if (!guard.isCurrent(requestId)) return;
+    if (tournamentsResult.status !== "fulfilled" || registrationsResult.status !== "fulfilled") {
+      visibleError = "Could not load tournaments.";
+      return;
+    }
+    visibleSnapshot = {
+      tournaments: tournamentsResult.value,
+      registrations: registrationsResult.value,
+    };
+    visibleError = "";
+  };
+
+  const olderRegistration = deferred();
+  const olderRequestId = guard.start();
+  const olderRefresh = applyPairedRefresh(
+    olderRequestId,
+    Promise.resolve(["older tournament"]),
+    olderRegistration.promise,
+  );
+
+  const newerRequestId = guard.start();
+  await applyPairedRefresh(
+    newerRequestId,
+    Promise.resolve(["newer tournament"]),
+    Promise.resolve(["newer registration"]),
+  );
+  olderRegistration.resolve(["older registration"]);
+  await olderRefresh;
+
+  assert.deepEqual(visibleSnapshot, {
+    tournaments: ["newer tournament"],
+    registrations: ["newer registration"],
+  });
+  assert.equal(visibleError, "");
+
+  const olderRegistrationAfterFailure = deferred();
+  const olderRequestAfterFailureId = guard.start();
+  const olderRefreshAfterFailure = applyPairedRefresh(
+    olderRequestAfterFailureId,
+    Promise.resolve(["stale tournament"]),
+    olderRegistrationAfterFailure.promise,
+  );
+  const newerFailureRequestId = guard.start();
+  await applyPairedRefresh(
+    newerFailureRequestId,
+    Promise.reject(new Error("newest request failed")),
+    Promise.resolve(["newer registration"]),
+  );
+  assert.equal(visibleError, "Could not load tournaments.");
+  olderRegistrationAfterFailure.resolve(["stale registration"]);
+  await olderRefreshAfterFailure;
+  assert.deepEqual(visibleSnapshot, {
+    tournaments: ["newer tournament"],
+    registrations: ["newer registration"],
+  });
+  assert.equal(visibleError, "Could not load tournaments.");
+
+  const loadMethod = homeSource.match(
+    /const load = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/,
+  )?.[1];
+  assert.ok(loadMethod, "Home must define its paired refresh loader.");
+  assert.match(loadMethod, /const requestId = loadRequestGuardRef\.current\.start\(\)/);
+  assert.match(loadMethod, /Promise\.allSettled/);
+  const staleResponseGuard = loadMethod.indexOf(
+    "if (!loadRequestGuardRef.current.isCurrent(requestId)) return;",
+  );
+  const applyItems = loadMethod.indexOf("setItems(");
+  assert.ok(staleResponseGuard >= 0 && staleResponseGuard < applyItems);
+  assert.match(loadMethod, /if \(loadRequestGuardRef\.current\.isCurrent\(requestId\)\) \{\s*setLoadError/);
+  assert.match(loadMethod, /if \(loadRequestGuardRef\.current\.isCurrent\(requestId\)\) setLoading\(false\)/);
 });
 
 test("a tournament that starts while Home is backgrounded leaves the upcoming carousel", () => {
