@@ -25,15 +25,22 @@ if (
 
 const fixture = {
   playerId: randomUUID(),
+  otherPlayerId: randomUUID(),
   knownTournamentId: randomUUID(),
   missingTournamentId: randomUUID(),
 };
 
 after(async () => {
   try {
-    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [fixture.playerId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id IN ($1, $2)",
+      [fixture.playerId, fixture.otherPlayerId],
+    );
     await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [fixture.knownTournamentId]);
-    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [fixture.playerId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id IN ($1, $2)",
+      [fixture.playerId, fixture.otherPlayerId],
+    );
   } finally {
     if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
     else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
@@ -52,6 +59,12 @@ async function seedLegacyRefunds(): Promise<void> {
       [fixture.playerId, `wallet-history-${fixture.playerId}@example.test`],
     );
     await client.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, wallet_coins)
+       VALUES ($1, 'Other wallet history test player', $2, 'test-salt', 'test-hash', 83)`,
+      [fixture.otherPlayerId, `wallet-history-${fixture.otherPlayerId}@example.test`],
+    );
+    await client.query(
       "INSERT INTO daily007_v2_matches (id, title) VALUES ($1, $2)",
       [fixture.knownTournamentId, "Legacy Clash Cup"],
     );
@@ -67,6 +80,15 @@ async function seedLegacyRefunds(): Promise<void> {
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.missingTournamentId}` }),
         JSON.stringify({ description: "Legacy cancellation refund — tournament ID unavailable" }),
+      ],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, match_id, details, created_at)
+       VALUES ($1, 83, 83, 'tournament_cancel_refund', NULL, $2::jsonb, now())`,
+      [
+        fixture.otherPlayerId,
+        JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
       ],
     );
     await client.query("COMMIT");
@@ -108,7 +130,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   }
 }
 
-test("Wallet history resolves legacy refund UUIDs using PostgreSQL and keeps missing-tournament IDs readable", async () => {
+test("Wallet history resolves legacy refund UUIDs and excludes another player's refund for the same tournament", async () => {
   await seedLegacyRefunds();
 
   await withServer(async (origin) => {
