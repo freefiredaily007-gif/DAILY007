@@ -866,6 +866,79 @@ test("Tournament Admin cannot read Full Admin leaderboard reward settings or cha
   }
 });
 
+test("Full Admin can read weekly and monthly reward settings without changing the fixture", async () => {
+  daily007LeaderboardTestDb.reset();
+  const now = new Date();
+  seedOpenPeriods(now);
+  const windows = {
+    weekly: leaderboardPeriodWindow("weekly", now),
+    monthly: leaderboardPeriodWindow("monthly", now),
+  };
+  const originalFixture = structuredClone({
+    users: daily007LeaderboardTestDb.users,
+    matches: daily007LeaderboardTestDb.matches,
+    awards: daily007LeaderboardTestDb.awards,
+    periods: daily007LeaderboardTestDb.periods,
+    rewardSettings: daily007LeaderboardTestDb.rewardSettings,
+    ledger: daily007LeaderboardTestDb.ledger,
+    failWalletUpdateFor: daily007LeaderboardTestDb.failWalletUpdateFor,
+    failRewardSettingWriteFor: daily007LeaderboardTestDb.failRewardSettingWriteFor,
+    rewardSettingWriteAttempts: daily007LeaderboardTestDb.rewardSettingWriteAttempts,
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const settings = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "GET",
+      );
+
+      assert.equal(settings.status, 200);
+      assert.deepEqual(settings.body, {
+        weekly: {
+          firstPlaceCoins: 50,
+          secondPlaceCoins: 40,
+          thirdPlaceCoins: 30,
+          currentPeriodStartsAt: windows.weekly.startsAt.toISOString(),
+          currentPeriodEndsAt: windows.weekly.endsAt.toISOString(),
+          currentPeriodStatus: "active",
+          latestPeriodStatus: "active",
+          canStartNextCycle: false,
+        },
+        monthly: {
+          firstPlaceCoins: 90,
+          secondPlaceCoins: 60,
+          thirdPlaceCoins: 30,
+          currentPeriodStartsAt: windows.monthly.startsAt.toISOString(),
+          currentPeriodEndsAt: windows.monthly.endsAt.toISOString(),
+          currentPeriodStatus: "active",
+          latestPeriodStatus: "active",
+          canStartNextCycle: false,
+        },
+      });
+      assert.deepEqual(
+        structuredClone({
+          users: daily007LeaderboardTestDb.users,
+          matches: daily007LeaderboardTestDb.matches,
+          awards: daily007LeaderboardTestDb.awards,
+          periods: daily007LeaderboardTestDb.periods,
+          rewardSettings: daily007LeaderboardTestDb.rewardSettings,
+          ledger: daily007LeaderboardTestDb.ledger,
+          failWalletUpdateFor: daily007LeaderboardTestDb.failWalletUpdateFor,
+          failRewardSettingWriteFor: daily007LeaderboardTestDb.failRewardSettingWriteFor,
+          rewardSettingWriteAttempts: daily007LeaderboardTestDb.rewardSettingWriteAttempts,
+        }),
+        originalFixture,
+        "a successful settings read must leave the in-memory leaderboard fixture unchanged",
+      );
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("Full Admin must approve ended cycles and schedule fresh prizes before the next cycles start", async () => {
   daily007LeaderboardTestDb.reset();
   const now = new Date();
