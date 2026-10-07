@@ -263,17 +263,17 @@ async function publicStandings(origin: string, matchId: string) {
   };
 }
 
-async function installResultFinalizationFailure(matchId: string): Promise<void> {
-  assert.match(matchId, /^[0-9a-f-]{36}$/i);
+async function installRunnerUpLedgerFailure(userId: string): Promise<void> {
+  assert.match(userId, /^[0-9a-f-]{36}$/i);
   await pool.query("CREATE SEQUENCE daily007_test_result_failure_observed_seq");
   await pool.query(`
-    CREATE FUNCTION daily007_test_fail_result_finalization() RETURNS trigger
+    CREATE FUNCTION daily007_test_fail_runner_up_ledger() RETURNS trigger
     LANGUAGE plpgsql
     AS $body$
     BEGIN
-      IF OLD.enabled IS TRUE AND NEW.enabled IS FALSE AND NEW.id::text = TG_ARGV[0] THEN
+      IF NEW.user_id::text = TG_ARGV[0] AND NEW.reason = 'match_prize' THEN
         PERFORM nextval('daily007_test_result_failure_observed_seq');
-        RAISE EXCEPTION 'Injected failure at tournament result finalization'
+        RAISE EXCEPTION 'Injected failure at runner-up prize ledger insert'
           USING ERRCODE = 'XX000';
       END IF;
       RETURN NEW;
@@ -281,18 +281,18 @@ async function installResultFinalizationFailure(matchId: string): Promise<void> 
     $body$
   `);
   await pool.query(`
-    CREATE TRIGGER daily007_test_fail_result_finalization
-    BEFORE UPDATE OF enabled ON daily007_v2_matches
+    CREATE TRIGGER daily007_test_fail_runner_up_ledger
+    BEFORE INSERT ON daily007_v2_wallet_ledger
     FOR EACH ROW
-    EXECUTE FUNCTION daily007_test_fail_result_finalization('${matchId}')
+    EXECUTE FUNCTION daily007_test_fail_runner_up_ledger('${userId}')
   `);
 }
 
-async function removeResultFinalizationFailure(): Promise<void> {
+async function removeRunnerUpLedgerFailure(): Promise<void> {
   await pool.query(
-    "DROP TRIGGER IF EXISTS daily007_test_fail_result_finalization ON daily007_v2_matches",
+    "DROP TRIGGER IF EXISTS daily007_test_fail_runner_up_ledger ON daily007_v2_wallet_ledger",
   );
-  await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_result_finalization()");
+  await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_runner_up_ledger()");
   await pool.query("DROP SEQUENCE IF EXISTS daily007_test_result_failure_observed_seq");
 }
 
@@ -1037,54 +1037,24 @@ test("concurrent first-, second-, and third-place results preserve configured pr
   }
 });
 
-test("late PostgreSQL result-write failure rolls back settlement and permits one retry", async () => {
+test("failed runner-up payout preserves the earlier winner and permits one retry", async () => {
   const fixture = await createFixture();
-  const winner = fixture.players[0];
+  const [winner, runnerUp] = fixture.players;
+  assert.ok(winner && runnerUp, "winner and runner-up fixtures are required");
 
   try {
-    await installResultFinalizationFailure(fixture.matchId);
     await withServer(async (origin) => {
-      const before = await captureSettlementState(fixture, winner);
-      const standingsBefore = await publicStandings(origin, fixture.matchId);
-      assert.equal(standingsBefore.status, 200);
-      assert.deepEqual(standingsBefore.body, {
-        tournamentId: fixture.matchId,
-        status: "draft",
-        finalizedAt: null,
-        entries: [],
-      });
-
-      const failed = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
-      assert.equal(failed.status, 500, `expected injected database failure: ${JSON.stringify(failed.body)}`);
-
-      const failureEvidence = await pool.query<{ last_value: string; is_called: boolean }>(
-        "SELECT last_value::text, is_called FROM daily007_test_result_failure_observed_seq",
-      );
-      assert.equal(Number(failureEvidence.rows[0]?.last_value), 1);
+      const winningResult = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
       assert.equal(
-        failureEvidence.rows[0]?.is_called,
-        true,
-        "the failure trigger must run after the route reaches the final match update",
+        winningResult.status,
+        201,
+        `the first-place payout must commit before the runner-up attempt: ${JSON.stringify(winningResult.body)}`,
       );
+      assert.equal(winningResult.body.prizeCoins, 500);
+      assert.equal(winningResult.body.walletCoins, 600);
 
-      assert.deepEqual(
-        await captureSettlementState(fixture, winner),
-        before,
-        "wallet, ledger, stats, awards, and match state must roll back",
-      );
-      const standingsAfterFailure = await publicStandings(origin, fixture.matchId);
-      assert.deepEqual(standingsAfterFailure, standingsBefore, "public standings must remain a draft");
-
-      await removeResultFinalizationFailure();
-      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
-      assert.equal(retry.status, 201, `retry should succeed: ${JSON.stringify(retry.body)}`);
-      assert.equal(retry.body.registrationId, winner.registrationId);
-      assert.equal(retry.body.userId, winner.userId);
-      assert.equal(retry.body.prizeCoins, 500);
-      assert.equal(retry.body.walletCoins, 600);
-
-      const afterRetry = await captureSettlementState(fixture, winner);
-      assert.deepEqual(afterRetry, {
+      const winnerStateAfterFirst = await captureSettlementState(fixture, winner);
+      assert.deepEqual(winnerStateAfterFirst, {
         walletCoins: 600,
         awards: [{
           registration_id: winner.registrationId,
@@ -1097,12 +1067,19 @@ test("late PostgreSQL result-write failure rolls back settlement and permits one
         ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
         match: { enabled: false, status: "open" },
       });
+      const runnerUpStateBefore = await captureSettlementState(fixture, runnerUp);
+      assert.deepEqual(runnerUpStateBefore, {
+        walletCoins: 100,
+        awards: winnerStateAfterFirst.awards,
+        stats: null,
+        ledger: [],
+        match: winnerStateAfterFirst.match,
+      });
 
-      const standingsAfterRetry = await publicStandings(origin, fixture.matchId);
-      assert.equal(standingsAfterRetry.status, 200);
-      assert.equal(standingsAfterRetry.body.status, "finalized");
-      assert.ok(standingsAfterRetry.body.finalizedAt);
-      assert.deepEqual(standingsAfterRetry.body.entries, [{
+      const standingsBeforeFailure = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsBeforeFailure.status, 200);
+      assert.equal(standingsBeforeFailure.body.status, "finalized");
+      assert.deepEqual(standingsBeforeFailure.body.entries, [{
         rank: 1,
         kills: 7,
         prizeCoins: 500,
@@ -1110,13 +1087,101 @@ test("late PostgreSQL result-write failure rolls back settlement and permits one
         teamName: null,
       }]);
 
-      const duplicate = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
+      await installRunnerUpLedgerFailure(runnerUp.userId);
+      const failed = await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
+      assert.equal(failed.status, 500, `expected injected database failure: ${JSON.stringify(failed.body)}`);
+
+      const failureEvidence = await pool.query<{ last_value: string; is_called: boolean }>(
+        "SELECT last_value::text, is_called FROM daily007_test_result_failure_observed_seq",
+      );
+      assert.equal(Number(failureEvidence.rows[0]?.last_value), 1);
+      assert.equal(
+        failureEvidence.rows[0]?.is_called,
+        true,
+        "the failure trigger must run after the runner-up award, stats, and wallet update are attempted",
+      );
+
+      assert.deepEqual(
+        await captureSettlementState(fixture, winner),
+        winnerStateAfterFirst,
+        "the previously committed winner award, wallet, ledger, stats, and match state must remain unchanged",
+      );
+      assert.deepEqual(
+        await captureSettlementState(fixture, runnerUp),
+        runnerUpStateBefore,
+        "the failed runner-up award, wallet credit, ledger row, and stats must all roll back",
+      );
+      const standingsAfterFailure = await publicStandings(origin, fixture.matchId);
+      assert.deepEqual(
+        standingsAfterFailure,
+        standingsBeforeFailure,
+        "the published winner standings must remain unchanged after the runner-up failure",
+      );
+
+      await removeRunnerUpLedgerFailure();
+      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
+      assert.equal(retry.status, 201, `retry should succeed: ${JSON.stringify(retry.body)}`);
+      assert.equal(retry.body.registrationId, runnerUp.registrationId);
+      assert.equal(retry.body.userId, runnerUp.userId);
+      assert.equal(retry.body.prizeCoins, 250);
+      assert.equal(retry.body.walletCoins, 350);
+
+      const winnerAfterRetry = await captureSettlementState(fixture, winner);
+      assert.equal(winnerAfterRetry.walletCoins, winnerStateAfterFirst.walletCoins);
+      assert.deepEqual(winnerAfterRetry.stats, winnerStateAfterFirst.stats);
+      assert.deepEqual(winnerAfterRetry.ledger, winnerStateAfterFirst.ledger);
+      assert.deepEqual(winnerAfterRetry.match, winnerStateAfterFirst.match);
+      assert.equal(winnerAfterRetry.awards.length, 2);
+      assert.deepEqual(winnerAfterRetry.awards[0], winnerStateAfterFirst.awards[0]);
+
+      const runnerUpAfterRetry = await captureSettlementState(fixture, runnerUp);
+      assert.deepEqual(runnerUpAfterRetry, {
+        walletCoins: 350,
+        awards: [{
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 7,
+          prize_coins: 500,
+        }, {
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          rank: 2,
+          kills: 3,
+          prize_coins: 250,
+        }],
+        stats: { matches: 1, wins: 0, kills: 3, prize_coins: 250 },
+        ledger: [{ amount: 250, balance_after: 350, reason: "match_prize" }],
+        match: winnerStateAfterFirst.match,
+      });
+
+      const standingsAfterRetry = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsAfterRetry.status, 200);
+      assert.equal(standingsAfterRetry.body.status, "finalized");
+      assert.deepEqual(standingsAfterRetry.body.entries, [
+        {
+          rank: 1,
+          kills: 7,
+          prizeCoins: 500,
+          gameName: "TestGame1",
+          teamName: null,
+        },
+        {
+          rank: 2,
+          kills: 3,
+          prizeCoins: 250,
+          gameName: "TestGame2",
+          teamName: null,
+        },
+      ]);
+
+      const duplicate = await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
       assert.equal(duplicate.status, 409);
-      assert.deepEqual(await captureSettlementState(fixture, winner), afterRetry);
+      assert.deepEqual(await captureSettlementState(fixture, runnerUp), runnerUpAfterRetry);
     });
   } finally {
     try {
-      await removeResultFinalizationFailure();
+      await removeRunnerUpLedgerFailure();
     } finally {
       await cleanupFixture(fixture);
     }
