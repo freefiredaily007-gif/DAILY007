@@ -8,11 +8,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
 import {
-  walletTransactionAccessibilityLabel,
   walletTransactionAmount,
   walletTransactionDescription,
 } from '../lib/wallet-transaction-display';
 import { WalletRejectedDepositRow } from '../components/WalletRejectedDepositRow';
+import { WalletCancellationRefundRow } from '../components/WalletCancellationRefundRow';
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
@@ -254,16 +254,12 @@ export default function Wallet() {
               />
             );
           }
-          const rowAccessibilityLabel = isCancellationRefund
-            ? walletTransactionAccessibilityLabel(item)
-            : undefined;
+          if (isCancellationRefund) {
+            return <WalletCancellationRefundRow item={item} />;
+          }
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
             <Card
-              accessible={isCancellationRefund || undefined}
-              accessibilityRole={isCancellationRefund ? 'text' : undefined}
-              accessibilityLabel={rowAccessibilityLabel}
-              testID={isCancellationRefund ? 'wallet-cancellation-refund-row' : undefined}
               style={[
                 { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
               ]}

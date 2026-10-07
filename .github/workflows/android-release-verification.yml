@@ -55,6 +55,9 @@ jobs:
       - name: Run join recovery regression tests
         run: pnpm --filter @workspace/daily007 run test:tournament-join-recovery
 
+      - name: Run Wallet refund accessibility regression tests
+        run: pnpm --filter @workspace/daily007 run test:wallet-cancellation-history
+
       - name: Verify Expo Go matches the app SDK
         run: |
           node <<'NODE'
@@ -136,3 +139,5 @@ jobs:
             adb shell pm path host.exp.exponent
             EXPO_DEV_URL=exp://127.0.0.1:8081 \
               pnpm --filter @workspace/daily007 run test:android-join-recovery
+            EXPO_DEV_URL=exp://127.0.0.1:8081 \
+              pnpm --filter @workspace/daily007 run test:android-wallet-cancellation-refund
