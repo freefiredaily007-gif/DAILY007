@@ -20,17 +20,22 @@ import AdminLeaderboards from './AdminLeaderboards';
 import logoImg from '../assets/logo.jpg';
 import { adminNavigationForRole, canNavigateAdminScreen } from '../lib/roleNavigation';
 
-const NAV: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
+const NAV: {
+  key: string;
+  label: string;
+  accessibilityLabel?: string;
+  icon: keyof typeof Feather.glyphMap;
+}[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
-  { key: 'leaderboards', label: 'Rewards', icon: 'award' },
+  { key: 'leaderboards', label: 'Rewards', accessibilityLabel: 'Leaderboard rewards', icon: 'award' },
   { key: 'tournaments', label: 'Tournaments', icon: 'award' },
-  { key: 'registrations', label: 'Regs', icon: 'file-text' },
+  { key: 'registrations', label: 'Regs', accessibilityLabel: 'Registrations', icon: 'file-text' },
   { key: 'payments', label: 'Payments', icon: 'credit-card' },
   { key: 'wallet', label: 'Wallet', icon: 'database' },
-  { key: 'earnTasks', label: 'Earn', icon: 'youtube' },
+  { key: 'earnTasks', label: 'Earn', accessibilityLabel: 'Earn tasks', icon: 'youtube' },
   { key: 'videos', label: 'Videos', icon: 'video' },
   { key: 'users', label: 'Users', icon: 'users' },
-  { key: 'notifications', label: 'Notify', icon: 'bell' },
+  { key: 'notifications', label: 'Notify', accessibilityLabel: 'Notifications', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {
@@ -123,6 +128,9 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
                 <Pressable
                   key={n.key}
                   testID={`admin-tab-${n.key}`}
+                  accessibilityRole="tab"
+                  accessibilityLabel={n.accessibilityLabel ?? n.label}
+                  accessibilityState={{ selected: active }}
                   onLayout={(event) => { navItemOffsets.current[n.key] = event.nativeEvent.layout.x; }}
                   onPress={() => navigate(n.key)}
                   style={[st.navItem, active && st.navActive]}

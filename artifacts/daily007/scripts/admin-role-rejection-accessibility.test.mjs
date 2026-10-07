@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { adminNavigationForRole } from '../src/lib/roleNavigation.ts';
 
 const toastSource = await readFile(
   new URL('../src/components/adminKit.tsx', import.meta.url),
@@ -14,9 +15,65 @@ const typographySource = await readFile(
   new URL('../src/components/typography.tsx', import.meta.url),
   'utf8',
 );
+const adminAppSource = await readFile(
+  new URL('../src/screens/AdminApp.tsx', import.meta.url),
+  'utf8',
+);
+const ADMIN_NAV_KEYS = [
+  'dashboard',
+  'leaderboards',
+  'tournaments',
+  'registrations',
+  'payments',
+  'wallet',
+  'earnTasks',
+  'videos',
+  'users',
+  'notifications',
+  'settings',
+];
+const ADMIN_NAV_ITEMS = ADMIN_NAV_KEYS.map((key) => ({ key }));
 const roleChangeSuccessToast = usersSource.match(
   /toast\(granting \? ([\s\S]*?), 'success'\);/,
 )?.[1] ?? '';
+
+test('Admin tabs expose readable names and announce the selected section', () => {
+  assert.match(adminAppSource, /accessibilityRole="tab"/);
+  assert.match(adminAppSource, /accessibilityLabel=\{n\.accessibilityLabel \?\? n\.label\}/);
+  assert.match(adminAppSource, /accessibilityState=\{\{ selected: active \}\}/);
+  assert.match(adminAppSource, /const active = activeScreen === n\.key/);
+  assert.match(adminAppSource, /const activeScreen = navigation\.activeScreen/);
+  assert.match(adminAppSource, /adminNavigationForRole\(user\.role, screen, NAV\)/);
+
+  for (const [key, label] of [
+    ['leaderboards', 'Leaderboard rewards'],
+    ['registrations', 'Registrations'],
+    ['earnTasks', 'Earn tasks'],
+    ['notifications', 'Notifications'],
+  ]) {
+    assert.match(
+      adminAppSource,
+      new RegExp(`key: '${key}', label: '[^']+', accessibilityLabel: '${label}'`),
+    );
+  }
+});
+
+test('Full Admin and Tournament Admin expose the correct selected section', () => {
+  const roleCases = [
+    { role: 'admin', screen: 'payments', expectedActiveScreen: 'payments' },
+    { role: 'tournament_admin', screen: 'wallet', expectedActiveScreen: 'tournaments' },
+  ];
+
+  for (const { role, screen, expectedActiveScreen } of roleCases) {
+    const navigation = adminNavigationForRole(role, screen, ADMIN_NAV_ITEMS);
+    const selectedTabs = navigation.visibleNavKeys.filter(
+      (key) => key === navigation.activeScreen,
+    );
+
+    assert.equal(navigation.activeScreen, expectedActiveScreen);
+    assert.deepEqual(selectedTabs, [expectedActiveScreen]);
+  }
+});
 
 test('admin error toasts expose the exact message as an assertive TalkBack alert', () => {
   assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
