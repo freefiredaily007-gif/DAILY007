@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { PixelRatio, RefreshControl, View } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import {
   useDaily007AdminCreateVideo,
@@ -52,6 +52,7 @@ export default function AdminVideos() {
   const [refreshing, setRefreshing] = useState(false);
   const videos: ManagedVideo[] = (videosQuery.data?.videos ?? []) as ManagedVideo[];
   const mutationsBusy = isCreating || isToggling || isSavingEdit || isDeleting;
+  const enlargedText = PixelRatio.getFontScale() >= 1.3;
 
   const refreshVideos = async () => {
     setRefreshing(true);
@@ -222,12 +223,12 @@ export default function AdminVideos() {
         <Card key={video.id} style={{ marginBottom: 10 }}>
           <View style={styles.videoHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.videoTitle}>{video.title}</Text>
-              <Text style={styles.videoTopic}>TOPIC · {video.topic}</Text>
+              <Text testID={`admin-video-title-${video.id}`} style={styles.videoTitle}>{video.title}</Text>
+              <Text testID={`admin-video-topic-${video.id}`} style={styles.videoTopic}>TOPIC · {video.topic}</Text>
               <Text numberOfLines={1} style={styles.videoUrl}>{video.url}</Text>
             </View>
             <View style={[styles.status, video.active ? styles.statusActive : styles.statusInactive]}>
-              <Text style={[styles.statusText, video.active ? styles.statusTextActive : styles.statusTextInactive]}>
+              <Text testID={`admin-video-status-${video.id}`} style={[styles.statusText, video.active ? styles.statusTextActive : styles.statusTextInactive]}>
                 {video.active ? 'ACTIVE' : 'HIDDEN'}
               </Text>
             </View>
@@ -285,8 +286,8 @@ export default function AdminVideos() {
           ) : (
             <View style={styles.videoFooter}>
               <Text style={styles.videoReward}>1 coin per completed view · repeat views count</Text>
-              <View style={styles.videoActions}>
-                <View style={styles.actionItem}>
+              <View style={[styles.videoActions, enlargedText && styles.videoActionsEnlarged]}>
+                <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
                   <Btn
                     title="EDIT"
                     kind="gold"
@@ -296,7 +297,7 @@ export default function AdminVideos() {
                     testID={`admin-video-edit-${video.id}`}
                   />
                 </View>
-                <View style={styles.actionItem}>
+                <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
                   <Btn
                     title={video.active ? 'HIDE' : 'ACTIVATE'}
                     kind={video.active ? 'ghost' : 'green'}
@@ -306,7 +307,7 @@ export default function AdminVideos() {
                     testID={`admin-video-toggle-${video.id}`}
                   />
                 </View>
-                <View style={styles.actionItem}>
+                <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
                   <Btn
                     title="DELETE"
                     kind="danger"
@@ -362,6 +363,8 @@ const styles = {
   },
   videoReward: { color: A.sub, fontSize: 10, flex: 1 },
   videoActions: { flexDirection: 'row' as const, gap: 8 },
+  videoActionsEnlarged: { flexWrap: 'wrap' as const },
   actionItem: { flex: 1 },
+  actionItemEnlarged: { flexBasis: 132, minWidth: 132 },
   editActions: { flexDirection: 'row' as const, gap: 10, marginTop: 4 },
 };

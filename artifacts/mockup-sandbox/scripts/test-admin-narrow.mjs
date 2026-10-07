@@ -1023,6 +1023,188 @@ async function checkPopulatedAdminLists(width, { requireReachability = false } =
   );
 }
 
+async function assertNotificationTypesFit(width) {
+  const state = await evaluate(`(() => [...document.querySelectorAll('[data-testid^="notification-type-"]')].map((control) => {
+    const rect = control.getBoundingClientRect();
+    const text = [...control.querySelectorAll('*')].find((element) =>
+      element.children.length === 0 && element.textContent.trim()
+    );
+    const textRect = text?.getBoundingClientRect();
+    return {
+      label: control.textContent.trim(),
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+      height: rect.height,
+      textLeft: textRect?.left ?? null,
+      textRight: textRect?.right ?? null,
+      textClientWidth: text?.clientWidth ?? 0,
+      textScrollWidth: text?.scrollWidth ?? 0,
+    };
+  }))()`);
+  assert(state?.length === 6, `All six notification audience labels should render at ${width}px.`);
+  for (const control of state) {
+    assert(
+      control.width > 0 &&
+        control.left >= -1 &&
+        control.right <= width + 1,
+      `Notification audience "${control.label}" is outside the ${width}px viewport.`,
+    );
+    assert(
+      control.textLeft >= control.left - 1 &&
+        control.textRight <= control.right + 1 &&
+        control.textScrollWidth <= control.textClientWidth + 2,
+      `Notification audience "${control.label}" is clipped at ${width}px.`,
+    );
+  }
+  await assertPageHasNoHorizontalOverflow(width, "Notification audience labels");
+}
+
+async function checkRemainingAdminListsAtLargeText(width) {
+  await openAdminTab("videos", "Videos");
+  await waitForCondition(
+    "document.body.innerText.includes('Daily007 Guide: Joining the International Free Fire Championship')",
+    "the fake managed videos to load",
+  );
+  for (const video of [
+    {
+      id: "preview-admin-video-active-international-guide",
+      title: "Daily007 Guide: Joining the International Free Fire Championship",
+      actions: ["EDIT", "HIDE", "DELETE"],
+      status: "ACTIVE",
+      description: "Active managed video",
+    },
+    {
+      id: "preview-admin-video-hidden-prize-guide",
+      title: "How to Review Match Results and Claim Your Championship Prize",
+      actions: ["EDIT", "ACTIVATE", "DELETE"],
+      status: "HIDDEN",
+      description: "Hidden managed video",
+    },
+  ]) {
+    await assertHorizontalFit(
+      `[data-testid="admin-video-title-${video.id}"]`,
+      `${video.description} title`,
+      width,
+    );
+    await assertHorizontalFit(
+      `[data-testid="admin-video-topic-${video.id}"]`,
+      `${video.description} topic`,
+      width,
+    );
+    await assertHorizontalFit(
+      `[data-testid="admin-video-status-${video.id}"]`,
+      `${video.description} status`,
+      width,
+    );
+    await assertAdminRowActionsFit(
+      video.title,
+      video.actions,
+      width,
+      video.description,
+      { requireReachability: true },
+    );
+  }
+  await assertPageHasNoHorizontalOverflow(width, "Managed video list");
+
+  await openAdminTab("earnTasks", "Earn");
+  await waitForCondition(
+    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    "the fake YouTube task claims to load",
+  );
+  for (const claim of [
+    {
+      userName: "Ananya Daily007 Championship Champion With A Long Name",
+      description: "First pending YouTube task claim",
+    },
+    {
+      userName: "Rohan Free Fire Strategist and National Tournament Finalist",
+      description: "Second pending YouTube task claim",
+    },
+  ]) {
+    await assertAdminRowActionsFit(
+      claim.userName,
+      ["APPROVE & CREDIT", "REJECT"],
+      width,
+      claim.description,
+      { requireReachability: true },
+    );
+  }
+  await assertPageHasNoHorizontalOverflow(width, "YouTube task claim list");
+
+  await openAdminTab("notifications", "Notifications");
+  await assertNotificationTypesFit(width);
+  await clickSelector(
+    '[data-testid="notification-type-selected"]',
+    "Select Users notification audience",
+  );
+  await waitForCondition(
+    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    "the fake notification recipients to load",
+  );
+  for (const recipient of [
+    {
+      id: "preview-user-ananya-championship-2026",
+      email: "ananya.champion.with.a.long.fake.address@example.invalid",
+    },
+    {
+      id: "preview-user-rohan-free-fire-2026",
+      email: "rohan.preview.player@example.invalid",
+    },
+    {
+      id: "preview-notification-recipient-meera-2026",
+      email: "meera.international.championship.preview@example.invalid",
+    },
+    {
+      id: "preview-notification-recipient-kabir-2026",
+      email: "kabir.national.tournament.finalist.preview@example.invalid",
+    },
+  ]) {
+    const selector = `[data-testid="notification-recipient-${recipient.id}"]`;
+    await assertVisibleTextFits(
+      selector,
+      width,
+      `Notification recipient ${recipient.email}`,
+    );
+    await assertReachableControl(
+      selector,
+      `Notification recipient ${recipient.email}`,
+    );
+  }
+  await clickSelector(
+    '[data-testid="notification-recipient-preview-user-ananya-championship-2026"]',
+    "Select the first preview notification recipient",
+  );
+
+  await setTournamentFormValue(
+    '[data-testid="admin-notification-title"]',
+    "Daily007 Championship Update",
+  );
+  await setTournamentFormValue(
+    '[data-testid="admin-notification-body"]',
+    "Room details for the international championship are ready. Open My Matches before the scheduled start.",
+  );
+  await assertReachableControl(
+    '[data-testid="admin-notification-send"]',
+    "Send notification action",
+  );
+  await resetAdminMutationCalls();
+  await clickSelector(
+    '[data-testid="admin-notification-send"]',
+    "Send notification action",
+  );
+  await assertAdminMutation({
+    method: "adminSendNotification",
+    payload: {
+      title: "Daily007 Championship Update",
+      body: "Room details for the international championship are ready. Open My Matches before the scheduled start.",
+      type: "selected",
+      userIds: ["preview-user-ananya-championship-2026"],
+    },
+  }, "Selected-recipient notification");
+  await assertPageHasNoHorizontalOverflow(width, "Selected-recipient notification");
+}
+
 async function assertAdminSearchField(testId, value, width, description) {
   const field = await evaluate(`(() => {
     const input = document.querySelector('[data-testid="${testId}"]');
@@ -3229,12 +3411,13 @@ try {
       );
       await checkPopulatedAdminLists(width);
       await checkAdminSearchResultsAtLargeText(width);
+      await checkRemainingAdminListsAtLargeText(width);
       assert(
         browserErrors.length === 0,
         `Browser errors at ${width}px with 1.5× text: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        `PASS ${width}px at 1.5× text — populated registration, payment, wallet, and user rows, plus long Wallet/Users searches and results, fit without clipping or page overflow.`,
+        `PASS ${width}px at 1.5× text — populated registration, payment, wallet, user, video, earn-task, and notification rows and actions remain usable without clipping or page overflow.`,
       );
     }
 

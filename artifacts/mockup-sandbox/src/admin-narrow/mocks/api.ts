@@ -112,6 +112,27 @@ const previewAdminUsers = [
   },
 ];
 
+const previewNotificationRecipients = [
+  {
+    $id: "preview-notification-recipient-meera-2026",
+    name: "Meera Daily007 International Free Fire Championship Player",
+    email: "meera.international.championship.preview@example.invalid",
+    coins: 12000,
+    status: "active",
+    role: "user",
+    createdAt: "2026-09-22T11:20:00.000Z",
+  },
+  {
+    $id: "preview-notification-recipient-kabir-2026",
+    name: "Kabir Free Fire National Tournament Finalist and Squad Captain",
+    email: "kabir.national.tournament.finalist.preview@example.invalid",
+    coins: 8450,
+    status: "active",
+    role: "user",
+    createdAt: "2026-09-14T16:05:00.000Z",
+  },
+];
+
 const previewAdminRegistrations = [
   {
     id: "preview-registration-pending-long-identifier-2026",
@@ -342,7 +363,10 @@ export const Api = {
   adminPayments: async () => previewAdminPayments.map((payment) => ({ ...payment })),
   adminWithdrawals: async () => previewAdminWithdrawals.map((withdrawal) => ({ ...withdrawal })),
   adminTransactions: async () => previewAdminTransactions.map((transaction) => ({ ...transaction })),
-  adminUsers: async () => previewAdminUsers.map((user) => ({ ...user })),
+  adminUsers: async () => [
+    ...previewAdminUsers,
+    ...(isAdminLargestTextPreview() ? previewNotificationRecipients : []),
+  ].map((user) => ({ ...user })),
   tournaments: async () => {
     tournamentReadCount += 1;
     if (nextTournamentReadError !== null) {
@@ -470,7 +494,16 @@ export const Api = {
     adminPreviewMutationCalls.push({ method: "adminRegAction", id, action });
     return {};
   },
-  adminSendNotification: async () => ({}),
+  adminSendNotification: async (payload: Record<string, unknown>) => {
+    adminPreviewMutationCalls.push({
+      method: "adminSendNotification",
+      payload: {
+        ...payload,
+        ...(Array.isArray(payload.userIds) ? { userIds: [...payload.userIds] } : {}),
+      },
+    });
+    return {};
+  },
   adminSetUser: async (id: string, payload: Record<string, unknown>) => {
     adminPreviewMutationCalls.push({ method: "adminSetUser", id, payload: { ...payload } });
     return {};

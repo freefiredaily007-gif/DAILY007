@@ -118,6 +118,54 @@ const largestTextVideos = [
   },
 ];
 
+const adminLargeTextVideos = [
+  {
+    id: "preview-admin-video-active-international-guide",
+    title: "Daily007 Guide: Joining the International Free Fire Championship",
+    topic: "Tournament registration, approved player rosters, and room details",
+    youtubeId: "preview-admin-video-active",
+    url: "https://youtu.be/D7JoinGuide",
+    active: true,
+    createdAt: "2026-09-18T09:30:00.000Z",
+  },
+  {
+    id: "preview-admin-video-hidden-prize-guide",
+    title: "How to Review Match Results and Claim Your Championship Prize",
+    topic: "Match placements, wallet history, and tournament reward questions",
+    youtubeId: "preview-admin-video-hidden",
+    url: "https://youtu.be/D7PrizeHelp",
+    active: false,
+    createdAt: "2026-09-12T14:15:00.000Z",
+  },
+];
+
+const adminLargeTextYoutubeClaims = [
+  {
+    id: "preview-admin-youtube-claim-ananya-2026",
+    userName: "Ananya Daily007 Championship Champion With A Long Name",
+    email: "ananya.champion.with.a.long.fake.address@example.invalid",
+    userId: "preview-user-ananya-championship-2026",
+    rewardCoins: 2500,
+    status: "pending",
+    createdAt: "2026-10-06T14:35:00.000Z",
+    reviewedAt: null,
+    reviewReason: null,
+    transactionId: null,
+  },
+  {
+    id: "preview-admin-youtube-claim-rohan-2026",
+    userName: "Rohan Free Fire Strategist and National Tournament Finalist",
+    email: "rohan.international.tournament.preview.player@example.invalid",
+    userId: "preview-user-rohan-free-fire-2026",
+    rewardCoins: 1500,
+    status: "pending",
+    createdAt: "2026-10-05T08:20:00.000Z",
+    reviewedAt: null,
+    reviewReason: null,
+    transactionId: null,
+  },
+];
+
 const rewardPreviewVideos = [
   {
     id: "unavailable-video",
@@ -384,7 +432,15 @@ export function useDaily007AdminUpdateLeaderboardRewards() {
 }
 
 export function useDaily007AdminListYoutubeSubscribeClaims() {
-  return noQuery({ claims: [], totalCompleted: 0 });
+  const scale = Number(
+    (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })
+      .__daily007LargeTextScale,
+  );
+  return noQuery(
+    Number.isFinite(scale) && scale > 1
+      ? { claims: adminLargeTextYoutubeClaims, totalCompleted: 1234 }
+      : { claims: [], totalCompleted: 0 },
+  );
 }
 
 export function useDaily007AdminReviewYoutubeSubscribeClaim() {
@@ -392,7 +448,13 @@ export function useDaily007AdminReviewYoutubeSubscribeClaim() {
 }
 
 export function useDaily007AdminListVideos() {
-  return noQuery({ videos: [] });
+  const scale = Number(
+    (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })
+      .__daily007LargeTextScale,
+  );
+  return noQuery({
+    videos: Number.isFinite(scale) && scale > 1 ? adminLargeTextVideos : [],
+  });
 }
 
 export function useDaily007AdminCreateVideo() {

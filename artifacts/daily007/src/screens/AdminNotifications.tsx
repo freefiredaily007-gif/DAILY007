@@ -76,8 +76,8 @@ export default function AdminNotifications() {
             </Pressable>
           ))}
         </View>
-        <TextInput placeholder="Title (e.g. Tournament Announcement)" placeholderTextColor="#5b6478" value={title} onChangeText={setTitle} style={st.input} />
-        <TextInput placeholder="Message…" placeholderTextColor="#5b6478" value={body} onChangeText={setBody} multiline style={[st.input, { height: 90, textAlignVertical: 'top' }]} />
+        <TextInput testID="admin-notification-title" placeholder="Title (e.g. Tournament Announcement)" placeholderTextColor="#5b6478" value={title} onChangeText={setTitle} style={st.input} />
+        <TextInput testID="admin-notification-body" placeholder="Message…" placeholderTextColor="#5b6478" value={body} onChangeText={setBody} multiline style={[st.input, { height: 90, textAlignVertical: 'top' }]} />
         {type === 'selected' && (
           <View style={st.recipients}>
             <Text style={st.label}>RECIPIENTS · {selected.length} selected</Text>
@@ -88,7 +88,7 @@ export default function AdminNotifications() {
               </View>
             ) : users ? (
               <>
-                <TextInput placeholder="Search name or email…" placeholderTextColor={A.sub} value={search} onChangeText={setSearch} style={st.input} />
+                <TextInput testID="admin-notification-recipient-search" placeholder="Search name or email…" placeholderTextColor={A.sub} value={search} onChangeText={setSearch} style={st.input} />
                 {users.length === 0 && <Text style={st.hint}>No users available.</Text>}
                 {users.length > 0 && visibleUsers.length === 0 && <Text style={st.hint}>No matching users.</Text>}
                 {visibleUsers.map((u) => {
@@ -112,7 +112,7 @@ export default function AdminNotifications() {
           </View>
         )}
         <View style={{ marginTop: 12 }}>
-          <Btn title="SEND NOTIFICATION" onPress={send} loading={busy} disabled={type === 'selected' && (usersLoading || !!usersError || !users)} />
+          <Btn testID="admin-notification-send" title="SEND NOTIFICATION" onPress={send} loading={busy} disabled={type === 'selected' && (usersLoading || !!usersError || !users)} />
         </View>
       </Card>
       <SectionTitle title="TEMPLATES" sub="tap to prefill" />
