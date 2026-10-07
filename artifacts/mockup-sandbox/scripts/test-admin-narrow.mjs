@@ -403,6 +403,47 @@ async function assertText(text, label = text) {
   }
 }
 
+async function assertBodyTextAbsent(text, description = text) {
+  const found = await evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`);
+  assert(!found, `${description} should no longer be visible.`);
+}
+
+async function assertAdminRecordState(marker, { includes = [], excludes = [] } = {}, description = marker) {
+  const rowText = await evaluate(`(() => {
+    const marker = ${JSON.stringify(marker)};
+    const markerElement = [...document.querySelectorAll('*')].find((element) =>
+      element.children.length === 0 && element.textContent.trim() === marker
+    );
+    if (!markerElement) return null;
+    const controlsIn = (element) => [...element.querySelectorAll('[role="button"], button, [tabindex="0"]')];
+    let row = markerElement;
+    while (row && controlsIn(row).length === 0) row = row.parentElement;
+    return row?.innerText ?? null;
+  })()`);
+  assert(typeof rowText === "string", `Could not find the ${description} row in the current Admin view.`);
+  for (const text of includes) {
+    assert(rowText.includes(text), `${description} should include "${text}". Current row: ${JSON.stringify(rowText)}`);
+  }
+  for (const text of excludes) {
+    assert(!rowText.includes(text), `${description} should not include "${text}". Current row: ${JSON.stringify(rowText)}`);
+  }
+  return rowText;
+}
+
+async function waitForAdminRecordState(marker, state, description = marker) {
+  const deadline = Date.now() + 10_000;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      return await assertAdminRecordState(marker, state, description);
+    } catch (error) {
+      lastError = error;
+      await delay(75);
+    }
+  }
+  throw new Error(`${description} did not refresh: ${lastError?.message || "timed out"}`);
+}
+
 async function waitForCondition(expression, description) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -1310,6 +1351,8 @@ async function checkAdminSelectedRecordMutations() {
   );
   const registrationMarker =
     "Ananya Daily007 Championship Champion With A Long Name — International Free Fire Finals Squad";
+  const registrationToRejectMarker =
+    "Rohan Free Fire Strategist — Preview Registration To Reject";
   const approvedRegistrationMarker = "Rohan Free Fire Strategist — Preview Approved Team";
 
   await clickSelector('[data-testid="admin-tab-registrations"]', "Registrations tab");
@@ -1324,85 +1367,180 @@ async function checkAdminSelectedRecordMutations() {
     id: "preview-registration-pending-long-identifier-2026",
     action: "approve",
   }, "Registration approval");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(registrationMarker)})`,
+    "the approved registration to leave the pending list",
+  );
+  await assertText(registrationToRejectMarker, "the unrelated pending registration");
+  await clickTextLabel("APPROVED");
+  await assertText(registrationMarker, "the approved selected registration");
+  await assertText(approvedRegistrationMarker, "the unrelated approved registration");
+  await assertBodyTextAbsent(registrationToRejectMarker, "the still-pending registration in the approved list");
 
+  await clickTextLabel("PENDING");
+  await assertText(registrationToRejectMarker, "the pending registration selected for rejection");
   await resetAdminMutationCalls();
-  await clickRowButton(registrationMarker, "REJECT", "pending registration");
+  await clickRowButton(registrationToRejectMarker, "REJECT", "pending registration");
   await assertAdminMutation({
     method: "adminRegAction",
-    id: "preview-registration-pending-long-identifier-2026",
+    id: "preview-registration-pending-rejection-2026",
     action: "reject",
   }, "Registration rejection");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(registrationToRejectMarker)})`,
+    "the rejected registration to leave the pending list",
+  );
+  await clickTextLabel("REJECTED");
+  await assertText(registrationToRejectMarker, "the rejected selected registration");
+  await assertText("Preview Rejected Player — Preview Rejected Team", "the unrelated rejected registration");
+  await assertBodyTextAbsent(registrationMarker, "the approved registration in the rejected list");
 
   await clickTextLabel("APPROVED");
+  await assertText(registrationMarker, "the approved registration retained after another registration was rejected");
+  await assertText(approvedRegistrationMarker, "the approved registration selected for deletion");
   await resetAdminMutationCalls();
   await clickRowButton(approvedRegistrationMarker, "DELETE", "approved registration");
   await assertAdminMutation({
     method: "adminDeleteRegistration",
     id: "preview-registration-approved-2026",
   }, "Registration deletion");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(registrationMarker)}) && !document.body.innerText.includes(${JSON.stringify(approvedRegistrationMarker)})`,
+    "the selected registration to be deleted while the unrelated approved registration remains",
+  );
 
   await clickSelector('[data-testid="admin-tab-payments"]', "Payments tab");
+  const paymentMarker =
+    "Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026";
+  const paymentToRejectMarker =
+    "Kavya Championship Deposit To Reject · User ID: preview-user-payment-rejection-2026";
+  const pendingWithdrawalMarker =
+    "Rohan International Tournament Champion · User ID: preview-user-rohan-championship-account-2026";
+  const withdrawalToApproveMarker =
+    "Meera Pending Payout To Approve · User ID: preview-user-withdrawal-approval-2026";
+  const approvedPayoutMarker =
+    "Approved Preview Payout Player · User ID: preview-user-approved-payout-2026";
+  const approvedPayoutControlMarker =
+    "Control Approved Payout Player · User ID: preview-user-approved-payout-control-2026";
   await waitForCondition(
-    "document.body.innerText.includes('Ananya Championship Participant With A Long Display Name')",
+    `document.body.innerText.includes(${JSON.stringify(paymentMarker)})`,
     "the selected fake deposit to load",
   );
   await resetAdminMutationCalls();
-  await clickRowButton(
-    "Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026",
-    "APPROVE",
-    "pending deposit",
-  );
+  await clickRowButton(paymentMarker, "APPROVE", "pending deposit");
   await assertAdminMutation({
     method: "adminPaymentAction",
     id: "preview-payment-pending-long-reference-2026",
     action: "approve",
   }, "Deposit approval");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(paymentMarker)}) && document.body.innerText.includes(${JSON.stringify(paymentToRejectMarker)}) && document.body.innerText.includes(${JSON.stringify(pendingWithdrawalMarker)})`,
+    "the approved deposit to leave pending while unrelated requests remain pending",
+  );
 
   await resetAdminMutationCalls();
-  await clickRowButton(
-    "Rohan International Tournament Champion · User ID: preview-user-rohan-championship-account-2026",
-    "REJECT",
-    "pending withdrawal",
+  await clickRowButton(paymentToRejectMarker, "REJECT", "pending deposit");
+  await assertText("Reject request", "the deposit rejection dialog");
+  await setLastVisibleInput("Preview deposit rejection reason", "deposit rejection reason");
+  await clickDialogButton("Reject request", "REJECT", "deposit rejection dialog");
+  await assertAdminMutation({
+    method: "adminPaymentAction",
+    id: "preview-payment-pending-rejection-2026",
+    action: "reject",
+    reason: "Preview deposit rejection reason",
+  }, "Deposit rejection");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(paymentToRejectMarker)}) && document.body.innerText.includes(${JSON.stringify(pendingWithdrawalMarker)})`,
+    "the rejected deposit to leave pending while the withdrawals remain pending",
   );
+
+  await clickTextLabel("REJECTED");
+  await assertText(paymentToRejectMarker, "the rejected deposit");
+  await waitForCondition(
+    "document.body.innerText.includes('Review note: Preview deposit rejection reason')",
+    "the rejected deposit reason to appear",
+  );
+  await assertBodyTextAbsent(paymentMarker, "the approved deposit in the rejected list");
+
+  await clickTextLabel("PENDING");
+  await assertText(pendingWithdrawalMarker, "the pending withdrawal selected for rejection");
+  await assertText(withdrawalToApproveMarker, "the unrelated pending withdrawal");
+  await resetAdminMutationCalls();
+  await clickRowButton(pendingWithdrawalMarker, "REJECT", "pending withdrawal");
   await assertText("Reject request", "the withdrawal rejection dialog");
-  await setLastVisibleInput("Preview rejection reason", "withdrawal rejection reason");
+  await setLastVisibleInput("Preview withdrawal rejection reason", "withdrawal rejection reason");
   await clickDialogButton("Reject request", "REJECT", "withdrawal rejection dialog");
   await assertAdminMutation({
     method: "adminWithdrawalAction",
     id: "preview-withdrawal-pending-long-reference-2026",
     action: "reject",
-    reason: "Preview rejection reason",
+    reason: "Preview withdrawal rejection reason",
   }, "Withdrawal rejection");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(pendingWithdrawalMarker)}) && document.body.innerText.includes(${JSON.stringify(withdrawalToApproveMarker)})`,
+    "the rejected withdrawal to leave pending while the other withdrawal remains pending",
+  );
+  await clickTextLabel("REJECTED");
+  await assertText(pendingWithdrawalMarker, "the rejected withdrawal");
+  await waitForCondition(
+    "document.body.innerText.includes('Review note: Preview withdrawal rejection reason')",
+    "the rejected withdrawal reason to appear",
+  );
+  await assertText(paymentToRejectMarker, "the unrelated rejected deposit");
+
+  await clickTextLabel("PENDING");
+  await assertText(withdrawalToApproveMarker, "the unrelated pending withdrawal retained after rejection");
+  await resetAdminMutationCalls();
+  await clickRowButton(withdrawalToApproveMarker, "APPROVE", "pending withdrawal");
+  await assertAdminMutation({
+    method: "adminWithdrawalAction",
+    id: "preview-withdrawal-pending-approval-2026",
+    action: "approve",
+  }, "Withdrawal approval");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(withdrawalToApproveMarker)})`,
+    "the approved withdrawal to leave pending",
+  );
 
   await clickTextLabel("APPROVED");
   await waitForCondition(
-    "document.body.innerText.includes('Approved Preview Payout Player · User ID: preview-user-approved-payout-2026')",
-    "the selected approved withdrawal to load",
+    `document.body.innerText.includes(${JSON.stringify(approvedPayoutMarker)}) && document.body.innerText.includes(${JSON.stringify(withdrawalToApproveMarker)}) && document.body.innerText.includes(${JSON.stringify(paymentMarker)})`,
+    "the approved deposit and withdrawals to load",
   );
+  await assertText(approvedPayoutControlMarker, "the unrelated approved withdrawal");
   await resetAdminMutationCalls();
-  await clickRowButton(
-    "Approved Preview Payout Player · User ID: preview-user-approved-payout-2026",
-    "RECORD MANUAL PAYOUT SENT",
-    "approved withdrawal",
-  );
+  await clickRowButton(approvedPayoutMarker, "RECORD MANUAL PAYOUT SENT", "approved withdrawal");
   await assertText("Record manual payout", "the manual payout confirmation");
   await clickDialogButton("Record manual payout", "MARK PAID", "manual payout confirmation");
   await assertAdminMutation({
     method: "adminMarkWithdrawalPaid",
     id: "preview-withdrawal-approved-manual-payout-2026",
   }, "Manual withdrawal payout");
+  await waitForAdminRecordState(
+    approvedPayoutMarker,
+    { excludes: ["RECORD MANUAL PAYOUT SENT"] },
+    "the withdrawal with its manual payout recorded",
+  );
+  await assertAdminRecordState(
+    approvedPayoutControlMarker,
+    { includes: ["RECORD MANUAL PAYOUT SENT"] },
+    "the unrelated approved withdrawal",
+  );
+  await assertAdminRecordState(
+    withdrawalToApproveMarker,
+    { includes: ["RECORD MANUAL PAYOUT SENT"] },
+    "the separately approved withdrawal",
+  );
 
   await clickSelector('[data-testid="admin-tab-wallet"]', "Wallet tab");
+  const userEmail = "ananya.champion.with.a.long.fake.address@example.invalid";
+  const otherUserEmail = "rohan.preview.player@example.invalid";
   await waitForCondition(
-    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    `document.body.innerText.includes(${JSON.stringify(userEmail)})`,
     "the selected fake Wallet user to load",
   );
   await resetAdminMutationCalls();
-  await clickRowButton(
-    "ananya.champion.with.a.long.fake.address@example.invalid",
-    "+ ADD",
-    "Wallet user",
-  );
+  await clickRowButton(userEmail, "+ ADD", "Wallet user");
   await assertText("Add coins", "the Wallet coin adjustment dialog");
   await setLastVisibleInput("321", "Wallet coin amount");
   await clickDialogButton("Add coins", "ADD", "Wallet coin adjustment dialog");
@@ -1412,13 +1550,19 @@ async function checkAdminSelectedRecordMutations() {
     amount: 321,
     reason: "Admin added coins",
   }, "Wallet coin addition");
+  await waitForAdminRecordState(
+    userEmail,
+    { includes: ["987654642 COINS"] },
+    "the wallet user after coins were added",
+  );
+  await assertAdminRecordState(
+    otherUserEmail,
+    { includes: ["425000 COINS"] },
+    "the unrelated wallet user after coins were added",
+  );
 
   await resetAdminMutationCalls();
-  await clickRowButton(
-    "ananya.champion.with.a.long.fake.address@example.invalid",
-    "− DEDUCT",
-    "Wallet user",
-  );
+  await clickRowButton(userEmail, "− DEDUCT", "Wallet user");
   await assertText("Deduct coins", "the Wallet deduction dialog");
   await setLastVisibleInput("87", "Wallet coin deduction amount");
   await clickDialogButton("Deduct coins", "DEDUCT", "Wallet deduction dialog");
@@ -1428,13 +1572,55 @@ async function checkAdminSelectedRecordMutations() {
     amount: -87,
     reason: "Admin deducted coins",
   }, "Wallet coin deduction");
+  await waitForAdminRecordState(
+    userEmail,
+    { includes: ["987654555 COINS"] },
+    "the wallet user after coins were deducted",
+  );
+  await assertAdminRecordState(
+    otherUserEmail,
+    { includes: ["425000 COINS"] },
+    "the unrelated wallet user after coins were deducted",
+  );
 
   await clickSelector('[data-testid="admin-tab-users"]', "Users tab");
   await waitForCondition(
-    "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
+    `document.body.innerText.includes(${JSON.stringify(userEmail)})`,
     "the selected fake Admin user to load",
   );
   const userId = "preview-user-ananya-championship-2026";
+  const otherUserId = "preview-user-rohan-free-fire-2026";
+
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["PLAYER", "987654555 COINS"], excludes: ["· BLOCKED"] },
+    "the unchanged target user before role changes",
+  );
+  await assertAdminRecordState(
+    otherUserEmail,
+    { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "425000 COINS"] },
+    "the other user before role changes",
+  );
+
+  await resetAdminMutationCalls();
+  await clickSelector(`[data-testid="change-user-role-${otherUserId}"]`, "other user role action");
+  await clickSelector('[data-testid="confirm-tournament-admin-change"]', "confirm other user role action");
+  await assertAdminMutation({
+    method: "adminSetUserRole",
+    id: otherUserId,
+    role: "user",
+  }, "Other user role change");
+  await waitForAdminRecordState(
+    otherUserEmail,
+    { includes: ["PLAYER", "· BLOCKED"] },
+    "the other user after their role changed",
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["PLAYER", "987654555 COINS"], excludes: ["· BLOCKED"] },
+    "the unrelated user after the other user's role changed",
+  );
+
   await resetAdminMutationCalls();
   await clickSelector(`[data-testid="change-user-role-${userId}"]`, "user role action");
   await clickSelector('[data-testid="confirm-tournament-admin-change"]', "confirm user role action");
@@ -1443,13 +1629,48 @@ async function checkAdminSelectedRecordMutations() {
     id: userId,
     role: "tournament_admin",
   }, "User role change");
+  await waitForAdminRecordState(
+    userEmail,
+    { includes: ["TOURNAMENT ADMIN", "987654555 COINS"], excludes: ["· BLOCKED"] },
+    "the selected user after their role changed",
+  );
+  await assertAdminRecordState(
+    otherUserEmail,
+    { includes: ["PLAYER", "· BLOCKED", "425000 COINS"] },
+    "the other user after the selected user's role changed",
+  );
 
   await resetAdminMutationCalls();
-  await clickRowButton(
-    "ananya.champion.with.a.long.fake.address@example.invalid",
-    "BLOCK",
-    "Admin user",
+  await clickRowButton(otherUserEmail, "UNBLOCK", "blocked Admin user");
+  const unblockPrompt = await evaluate(`(() => {
+    const alert = window.__daily007AdminAlert;
+    return alert ? { kind: alert.kind, title: alert.title, message: alert.message, buttons: alert.buttons } : null;
+  })()`);
+  assert(
+    unblockPrompt?.kind === "alert" &&
+      unblockPrompt.title === "Unblock user?" &&
+      unblockPrompt.buttons?.includes("Unblock"),
+    `Unblocking the selected user did not request the expected confirmation: ${JSON.stringify(unblockPrompt)}.`,
   );
+  await evaluate(`window.__daily007AdminAlert.choose("Unblock")`);
+  await assertAdminMutation({
+    method: "adminSetUser",
+    id: otherUserId,
+    payload: { status: "active" },
+  }, "User unblock");
+  await waitForAdminRecordState(
+    otherUserEmail,
+    { includes: ["PLAYER", "425000 COINS"], excludes: ["· BLOCKED"] },
+    "the unblocked user",
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["TOURNAMENT ADMIN", "987654555 COINS"], excludes: ["· BLOCKED"] },
+    "the unrelated user after the other user's status changed",
+  );
+
+  await resetAdminMutationCalls();
+  await clickRowButton(userEmail, "BLOCK", "Admin user");
   const blockPrompt = await evaluate(`(() => {
     const alert = window.__daily007AdminAlert;
     return alert ? { kind: alert.kind, title: alert.title, message: alert.message, buttons: alert.buttons } : null;
@@ -1464,8 +1685,17 @@ async function checkAdminSelectedRecordMutations() {
     id: userId,
     payload: { status: "blocked" },
   }, "User block");
+  await waitForAdminRecordState(
+    userEmail,
+    { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "987654555 COINS"] },
+    "the blocked selected user",
+  );
+  await assertAdminRecordState(
+    otherUserEmail,
+    { includes: ["PLAYER", "425000 COINS"], excludes: ["· BLOCKED"] },
+    "the unrelated user after the selected user was blocked",
+  );
 
-  const otherUserEmail = "rohan.preview.player@example.invalid";
   await resetAdminMutationCalls();
   await clickRowButton(otherUserEmail, "− COINS", "second Admin user");
   const coinPrompt = await evaluate(`(() => {
@@ -1485,6 +1715,16 @@ async function checkAdminSelectedRecordMutations() {
     amount: -44,
     reason: "Admin deducted coins",
   }, "User coin deduction");
+  await waitForAdminRecordState(
+    otherUserEmail,
+    { includes: ["PLAYER", "424956 COINS"], excludes: ["· BLOCKED"] },
+    "the other user after their coins were deducted",
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "987654555 COINS"] },
+    "the unrelated user after the other user's coins were deducted",
+  );
 }
 
 async function checkTournamentStates(width, { largeText = false, landscape = false } = {}) {
@@ -3346,7 +3586,7 @@ try {
         `Browser errors during Admin selected-record action checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        "PASS — Registration, payment, withdrawal, wallet, and user actions submit the selected fake record and intended operation through the isolated Admin API mock.",
+        "PASS — Admin actions update only the selected local preview record and preserve unrelated rows.",
       );
     } else if (adminKeyboardFormsOnly) {
       await checkAdminTournamentKeyboard();
@@ -3428,7 +3668,7 @@ try {
       `Browser errors during Admin selected-record action checks: ${browserErrors.join(" | ")}`,
     );
     console.log(
-      "PASS — Registration, payment, withdrawal, wallet, and user actions submit the selected fake record and intended operation through the isolated Admin API mock.",
+      "PASS — Admin actions update only the selected local preview record and preserve unrelated rows.",
     );
   }
 } catch (error) {

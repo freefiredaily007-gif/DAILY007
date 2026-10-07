@@ -150,6 +150,21 @@ const previewAdminRegistrations = [
     createdAt: "2026-10-05T08:45:00.000Z",
   },
   {
+    id: "preview-registration-pending-rejection-2026",
+    userId: previewAdminUsers[1].$id,
+    playerName: "Rohan Free Fire Strategist",
+    teamName: "Preview Registration To Reject",
+    captainGameName: "RohanReservePlayer",
+    gameUid: "FFUID-22113344556677889900",
+    tournamentId: "preview-tournament-international-grand-finals-2026",
+    tournamentName: "Daily007 International Free Fire Championship Grand Finals",
+    mode: "Battle Royale",
+    teamType: "Squad",
+    entryCoins: 76543,
+    status: "pending",
+    createdAt: "2026-10-05T07:20:00.000Z",
+  },
+  {
     id: "preview-registration-approved-2026",
     userId: previewAdminUsers[1].$id,
     playerName: "Rohan Free Fire Strategist",
@@ -194,6 +209,18 @@ const previewAdminPayments = [
     proofAvailable: false,
     createdAt: "2026-10-05T09:10:00.000Z",
   },
+  {
+    id: "preview-payment-pending-rejection-2026",
+    userId: "preview-user-payment-rejection-2026",
+    userName: "Kavya Championship Deposit To Reject",
+    coins: 76543,
+    amount: 76543,
+    payerUpiId: "kavya.daily007.preview.payer@upi",
+    txnId: "PREVIEW-UTR-20261005-221133445566778899",
+    status: "pending",
+    proofAvailable: false,
+    createdAt: "2026-10-05T07:55:00.000Z",
+  },
 ];
 
 const previewAdminWithdrawals = [
@@ -209,6 +236,17 @@ const previewAdminWithdrawals = [
     createdAt: "2026-10-05T09:25:00.000Z",
   },
   {
+    id: "preview-withdrawal-pending-approval-2026",
+    userId: "preview-user-withdrawal-approval-2026",
+    userName: "Meera Pending Payout To Approve",
+    coins: 3210,
+    amount: 3210,
+    method: "upi",
+    account: "meera.preview.payout@upi",
+    status: "pending",
+    createdAt: "2026-10-05T08:50:00.000Z",
+  },
+  {
     id: "preview-withdrawal-approved-manual-payout-2026",
     userId: "preview-user-approved-payout-2026",
     userName: "Approved Preview Payout Player",
@@ -219,6 +257,18 @@ const previewAdminWithdrawals = [
     status: "approved",
     payoutStatus: "manual_payout_required",
     createdAt: "2026-10-04T16:40:00.000Z",
+  },
+  {
+    id: "preview-withdrawal-approved-control-2026",
+    userId: "preview-user-approved-payout-control-2026",
+    userName: "Control Approved Payout Player",
+    coins: 2468,
+    amount: 2468,
+    method: "upi",
+    account: "control.preview.payout@upi",
+    status: "approved",
+    payoutStatus: "manual_payout_required",
+    createdAt: "2026-10-04T14:30:00.000Z",
   },
 ];
 
@@ -231,6 +281,44 @@ const previewAdminTransactions = [
     createdAt: "2026-10-05T09:35:00.000Z",
   },
 ];
+
+let adminPreviewTransactionSequence = 0;
+
+function findPreviewAdminRecord<T extends { id: string }>(
+  records: T[],
+  id: string,
+  recordType: string,
+): T {
+  const record = records.find((candidate) => candidate.id === id);
+  if (!record) throw new Error(`Isolated preview ${recordType} ${id} was not found.`);
+  return record;
+}
+
+function findPreviewAdminUser(userId: string) {
+  const user = [...previewAdminUsers, ...previewNotificationRecipients]
+    .find((candidate) => candidate.$id === userId);
+  if (!user) throw new Error(`Isolated preview user ${userId} was not found.`);
+  return user;
+}
+
+function setPreviewRequestStatus<T extends { id: string; status: string }>(
+  records: T[],
+  id: string,
+  action: string,
+  recordType: string,
+  reason?: string,
+) {
+  if (action !== "approve" && action !== "reject") {
+    throw new Error(`Unsupported isolated preview ${recordType} action: ${action}.`);
+  }
+  const record = findPreviewAdminRecord(records, id, recordType);
+  record.status = action === "approve" ? "approved" : "rejected";
+  if (reason !== undefined) Object.assign(record, { reviewReason: reason });
+  if (recordType === "withdrawal" && action === "approve") {
+    Object.assign(record, { payoutStatus: "manual_payout_required" });
+  }
+  return { ...record };
+}
 
 const empty = async () => [];
 let tournamentReadCount = 0;
@@ -469,30 +557,67 @@ export const Api = {
   },
   deleteTournament: async () => ({}),
   adminAdjustCoins: async (userId: string, amount: number, reason: string) => {
+    if (!Number.isSafeInteger(amount) || amount === 0) {
+      throw new Error("Preview wallet adjustments must use a nonzero whole number of coins.");
+    }
+    const user = findPreviewAdminUser(userId);
+    const nextBalance = Number(user.coins ?? 0) + amount;
+    if (!Number.isSafeInteger(nextBalance) || nextBalance < 0) {
+      throw new Error(`Preview wallet adjustment would make ${user.name}'s balance invalid.`);
+    }
+    user.coins = nextBalance;
+    previewAdminTransactions.unshift({
+      $id: `preview-admin-adjustment-${++adminPreviewTransactionSequence}`,
+      title: `${reason} · ${user.name}`,
+      note: reason,
+      coins: amount,
+      createdAt: new Date().toISOString(),
+    });
     adminPreviewMutationCalls.push({ method: "adminAdjustCoins", userId, amount, reason });
-    return {};
+    return { userId, coins: nextBalance };
   },
   adminDeleteRegistration: async (id: string) => {
+    const index = previewAdminRegistrations.findIndex((registration) => registration.id === id);
+    if (index === -1) throw new Error(`Isolated preview registration ${id} was not found.`);
+    previewAdminRegistrations.splice(index, 1);
     adminPreviewMutationCalls.push({ method: "adminDeleteRegistration", id });
-    return {};
+    return { id, deleted: true };
   },
   adminMarkWithdrawalPaid: async (id: string) => {
+    const withdrawal = findPreviewAdminRecord(previewAdminWithdrawals, id, "withdrawal");
+    if (withdrawal.status !== "approved" || withdrawal.payoutStatus !== "manual_payout_required") {
+      throw new Error(`Isolated preview withdrawal ${id} is not awaiting a manual payout.`);
+    }
+    withdrawal.payoutStatus = "paid";
     adminPreviewMutationCalls.push({ method: "adminMarkWithdrawalPaid", id });
-    return {};
+    return { id, payoutStatus: "paid" };
   },
   adminPaymentAction: async (id: string, action: string, reason?: string) => {
+    const payment = setPreviewRequestStatus(
+      previewAdminPayments,
+      id,
+      action,
+      "payment",
+      reason,
+    );
     adminPreviewMutationCalls.push({
       method: "adminPaymentAction",
       id,
       action,
       ...(reason === undefined ? {} : { reason }),
     });
-    return {};
+    return payment;
   },
   adminPaymentProofUrl: async () => ({ url: "" }),
   adminRegAction: async (id: string, action: string) => {
+    const registration = setPreviewRequestStatus(
+      previewAdminRegistrations,
+      id,
+      action,
+      "registration",
+    );
     adminPreviewMutationCalls.push({ method: "adminRegAction", id, action });
-    return {};
+    return registration;
   },
   adminSendNotification: async (payload: Record<string, unknown>) => {
     adminPreviewMutationCalls.push({
@@ -505,21 +630,38 @@ export const Api = {
     return {};
   },
   adminSetUser: async (id: string, payload: Record<string, unknown>) => {
+    const user = findPreviewAdminUser(id);
+    if (payload.status !== "active" && payload.status !== "blocked") {
+      throw new Error(`Unsupported isolated preview user status: ${String(payload.status)}.`);
+    }
+    user.status = payload.status;
     adminPreviewMutationCalls.push({ method: "adminSetUser", id, payload: { ...payload } });
-    return {};
+    return { ...user };
   },
   adminSetUserRole: async (id: string, role: string) => {
+    if (role !== "user" && role !== "tournament_admin") {
+      throw new Error(`Unsupported isolated preview user role: ${role}.`);
+    }
+    const user = findPreviewAdminUser(id);
+    user.role = role;
     adminPreviewMutationCalls.push({ method: "adminSetUserRole", id, role });
-    return {};
+    return { ...user };
   },
   adminWithdrawalAction: async (id: string, action: string, reason?: string) => {
+    const withdrawal = setPreviewRequestStatus(
+      previewAdminWithdrawals,
+      id,
+      action,
+      "withdrawal",
+      reason,
+    );
     adminPreviewMutationCalls.push({
       method: "adminWithdrawalAction",
       id,
       action,
       ...(reason === undefined ? {} : { reason }),
     });
-    return {};
+    return withdrawal;
   },
 };
 
