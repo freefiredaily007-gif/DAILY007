@@ -92,6 +92,12 @@ class MemorySignupDatabase {
     referralExists: boolean;
     walletCoins: number | null;
   } | null = null;
+  welcomeSignupRewardLedgerFailureContext: {
+    accountExists: boolean;
+    legacyCodeExists: boolean;
+    shortCodeExists: boolean;
+    walletCoins: number | null;
+  } | null = null;
   referralCodeInsertFailureContext: {
     accountExists: boolean;
     legacyCodeExists: boolean;
@@ -104,6 +110,7 @@ class MemorySignupDatabase {
   private advisoryLockBarrier: AdvisoryLockBarrier | null = null;
   private authVersionUpdatePause: AuthVersionUpdatePause | null = null;
   advisoryLockWaitCount = 0;
+  private shouldFailNextWelcomeSignupRewardLedgerWrite = false;
   private shouldFailNextReferralSignupRewardLedgerWrite = false;
   private shouldFailNextReferralShortCodeInsert = false;
 
@@ -132,7 +139,9 @@ class MemorySignupDatabase {
     this.referrals = [];
     this.ledger = [];
     this.referralSignupRewardLedgerFailureContext = null;
+    this.welcomeSignupRewardLedgerFailureContext = null;
     this.referralCodeInsertFailureContext = null;
+    this.shouldFailNextWelcomeSignupRewardLedgerWrite = false;
     this.shouldFailNextReferralSignupRewardLedgerWrite = false;
     this.shouldFailNextReferralShortCodeInsert = false;
     this.nextUserId = 2;
@@ -203,6 +212,11 @@ class MemorySignupDatabase {
   failNextReferralSignupRewardLedgerWrite(): void {
     this.referralSignupRewardLedgerFailureContext = null;
     this.shouldFailNextReferralSignupRewardLedgerWrite = true;
+  }
+
+  failNextWelcomeSignupRewardLedgerWrite(): void {
+    this.welcomeSignupRewardLedgerFailureContext = null;
+    this.shouldFailNextWelcomeSignupRewardLedgerWrite = true;
   }
 
   failNextReferralShortCodeInsert(): void {
@@ -471,6 +485,18 @@ class MemorySignupDatabase {
       }
       const reason = normalized.match(/VALUES \(\$1, \$2, \$3, '([^']+)'/)?.[1];
       if (!reason) throw new Error(`Unexpected signup ledger insert: ${normalized}`);
+      if (reason === "Welcome Signup Bonus" && this.shouldFailNextWelcomeSignupRewardLedgerWrite) {
+        const signupUserId = String(userId);
+        const signupUser = this.users.get(signupUserId);
+        this.welcomeSignupRewardLedgerFailureContext = {
+          accountExists: Boolean(signupUser),
+          legacyCodeExists: [...this.legacyCodeOwners.values()].includes(signupUserId),
+          shortCodeExists: this.shortCodesByUser.has(signupUserId),
+          walletCoins: signupUser?.wallet_coins ?? null,
+        };
+        this.shouldFailNextWelcomeSignupRewardLedgerWrite = false;
+        throw new Error("Simulated welcome signup reward ledger write failure.");
+      }
       if (reason === "Referral Signup Bonus" && this.shouldFailNextReferralSignupRewardLedgerWrite) {
         const referredUserId = String(userId);
         const referredUser = this.users.get(referredUserId);

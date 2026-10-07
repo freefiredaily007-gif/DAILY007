@@ -333,6 +333,41 @@ test("referral reward ledger failure rolls back all signup writes", async () => 
   });
 });
 
+test("welcome bonus ledger failure rolls back the non-referred signup account and referral codes", async () => {
+  signupTestDb.reset();
+  signupTestDb.failNextWelcomeSignupRewardLedgerWrite();
+
+  await withServer(async (origin) => {
+    const email = "welcome-ledger-failure@example.test";
+    const failedSignup = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      {
+        name: "Welcome Ledger Failure Player",
+        email,
+        password: "test-password-123",
+      },
+    );
+
+    assert.equal(failedSignup.status, 500);
+    assert.deepEqual(signupTestDb.welcomeSignupRewardLedgerFailureContext, {
+      accountExists: true,
+      legacyCodeExists: true,
+      shortCodeExists: true,
+      walletCoins: 10,
+    });
+
+    assert.equal([...signupTestDb.users.values()].some((user) => user.email === email), false);
+    assert.equal(signupTestDb.users.size, 1);
+    assert.equal(signupTestDb.shortCodesByUser.size, 1);
+    assert.equal(signupTestDb.shortCodeOwners.size, 1);
+    assert.equal(signupTestDb.legacyCodeOwners.size, 1);
+    assert.equal(signupTestDb.referrals.length, 0);
+    assert.equal(signupTestDb.ledger.length, 0);
+  });
+});
+
 test("referral code insert failure rolls back the new account and partial code rows", async () => {
   signupTestDb.reset();
   signupTestDb.failNextReferralShortCodeInsert();
