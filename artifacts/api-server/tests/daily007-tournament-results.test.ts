@@ -22,6 +22,16 @@ const TEST_AUTH_SECRET = "tournament-results-tests-only-secret-value-at-least-32
 const CANCELLED_MATCH_ID = "70000000-0000-4000-8000-000000000009";
 const CANCELLED_REGISTRATION_ID = "70000000-0000-4000-8000-000000000010";
 const CANCELLED_AWARD_ID = "70000000-0000-4000-8000-000000000011";
+const PROFILE_STATS_MATCH_TWO_ID = "70000000-0000-4000-8000-000000000012";
+const PROFILE_STATS_MATCH_THREE_ID = "70000000-0000-4000-8000-000000000013";
+const PROFILE_STATS_PENDING_MATCH_ID = "70000000-0000-4000-8000-000000000014";
+const PROFILE_STATS_REGISTRATION_TWO_ID = "70000000-0000-4000-8000-000000000015";
+const PROFILE_STATS_REGISTRATION_THREE_ID = "70000000-0000-4000-8000-000000000016";
+const PROFILE_STATS_PENDING_REGISTRATION_ID = "70000000-0000-4000-8000-000000000017";
+const PROFILE_STATS_AWARD_ONE_ID = "70000000-0000-4000-8000-000000000018";
+const PROFILE_STATS_AWARD_TWO_ID = "70000000-0000-4000-8000-000000000019";
+const PROFILE_STATS_AWARD_THREE_ID = "70000000-0000-4000-8000-000000000020";
+const PROFILE_STATS_RUNNER_UP_AWARD_ID = "70000000-0000-4000-8000-000000000021";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -670,4 +680,124 @@ test("result publishing is rejected for cancelled tournaments without settlement
   });
 });
 
-    const cancelled = history.body.find((entry: any) => entry.tournamentId === CANCELLED_MATCH_ID);
+test("authenticated profile totals match saved results across distinct approved matches", async () => {
+  tournamentResultsTestDb.reset();
+  tournamentResultsTestDb.match.status = "completed";
+  tournamentResultsTestDb.match.enabled = false;
+
+  for (const [index, matchId] of [
+    PROFILE_STATS_MATCH_TWO_ID,
+    PROFILE_STATS_MATCH_THREE_ID,
+    PROFILE_STATS_PENDING_MATCH_ID,
+  ].entries()) {
+    const match = structuredClone(tournamentResultsTestDb.match);
+    match.id = matchId;
+    match.title = `Profile stats match ${index + 2}`;
+    match.starts_at = new Date(Date.UTC(2026, 0, index + 2));
+    tournamentResultsTestDb.additionalMatches.push(match);
+  }
+
+  tournamentResultsTestDb.registrations = [
+    {
+      id: TEST_WINNER_REGISTRATION_ID,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_WINNER_ID,
+      captain_name: "First Place",
+      captain_game_name: "WinnerFF",
+      team_name: null,
+      status: "approved",
+    },
+    {
+      id: PROFILE_STATS_REGISTRATION_TWO_ID,
+      match_id: PROFILE_STATS_MATCH_TWO_ID,
+      captain_user_id: TEST_WINNER_ID,
+      captain_name: "First Place",
+      captain_game_name: "WinnerFF",
+      team_name: null,
+      status: "approved",
+    },
+    {
+      id: PROFILE_STATS_REGISTRATION_THREE_ID,
+      match_id: PROFILE_STATS_MATCH_THREE_ID,
+      captain_user_id: TEST_WINNER_ID,
+      captain_name: "First Place",
+      captain_game_name: "WinnerFF",
+      team_name: null,
+      status: "approved",
+    },
+    {
+      id: PROFILE_STATS_PENDING_REGISTRATION_ID,
+      match_id: PROFILE_STATS_PENDING_MATCH_ID,
+      captain_user_id: TEST_WINNER_ID,
+      captain_name: "First Place",
+      captain_game_name: "WinnerFF",
+      team_name: null,
+      status: "pending",
+    },
+    {
+      id: TEST_RUNNER_UP_REGISTRATION_ID,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_RUNNER_UP_ID,
+      captain_name: "Second Place",
+      captain_game_name: "RunnerUpFF",
+      team_name: null,
+      status: "approved",
+    },
+  ];
+  tournamentResultsTestDb.awards = [
+    {
+      id: PROFILE_STATS_AWARD_ONE_ID,
+      match_id: TEST_MATCH_ID,
+      registration_id: TEST_WINNER_REGISTRATION_ID,
+      user_id: TEST_WINNER_ID,
+      rank: 1,
+      kills: 7,
+      prize_coins: 1_500,
+      created_at: new Date(Date.UTC(2026, 0, 1)),
+    },
+    {
+      id: PROFILE_STATS_AWARD_TWO_ID,
+      match_id: PROFILE_STATS_MATCH_TWO_ID,
+      registration_id: PROFILE_STATS_REGISTRATION_TWO_ID,
+      user_id: TEST_WINNER_ID,
+      rank: 1,
+      kills: 11,
+      prize_coins: 2_500,
+      created_at: new Date(Date.UTC(2026, 0, 2)),
+    },
+    {
+      id: PROFILE_STATS_AWARD_THREE_ID,
+      match_id: PROFILE_STATS_MATCH_THREE_ID,
+      registration_id: PROFILE_STATS_REGISTRATION_THREE_ID,
+      user_id: TEST_WINNER_ID,
+      rank: 2,
+      kills: 4,
+      prize_coins: 350,
+      created_at: new Date(Date.UTC(2026, 0, 3)),
+    },
+    {
+      id: PROFILE_STATS_RUNNER_UP_AWARD_ID,
+      match_id: TEST_MATCH_ID,
+      registration_id: TEST_RUNNER_UP_REGISTRATION_ID,
+      user_id: TEST_RUNNER_UP_ID,
+      rank: 2,
+      kills: 3,
+      prize_coins: 600,
+      created_at: new Date(Date.UTC(2026, 0, 1)),
+    },
+  ];
+
+  await withServer(async (origin) => {
+    const response = await call(origin, TEST_WINNER_ID, "/me/stats", "GET");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, {
+      matches: 3,
+      wins: 2,
+      kills: 22,
+      prizeCoins: 4_350,
+    });
+    assert.equal(response.body.prizeCoins, 4_350);
+    assert.equal(Object.hasOwn(response.body, "prize_coins"), false);
+  });
+});

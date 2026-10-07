@@ -244,6 +244,24 @@ class MemoryTournamentResultsDatabase {
     } else if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
       const user = this.users.get(String(values[0]));
       rows = user ? [{ role: user.role, status: user.status }] : [];
+    } else if (normalized.startsWith(
+      "SELECT (SELECT count(DISTINCT r.match_id)::int FROM daily007_v2_registrations r",
+    )) {
+      const userId = String(values[0]);
+      const approvedMatchIds = new Set(
+        this.registrations
+          .filter((registration) =>
+            registration.captain_user_id === userId && registration.status === "approved",
+          )
+          .map((registration) => registration.match_id),
+      );
+      const awards = this.awards.filter((award) => award.user_id === userId);
+      rows = [{
+        matches: approvedMatchIds.size,
+        wins: awards.filter((award) => award.rank === 1).length,
+        kills: awards.reduce((total, award) => total + award.kills, 0),
+        prizeCoins: awards.reduce((total, award) => total + award.prize_coins, 0),
+      }];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_matches")) {
       const [
         title,
