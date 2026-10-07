@@ -45,6 +45,7 @@
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.
 - [Daily007 YouTube link behavior](daily007-youtube-link-behavior.md) — only the explicit YouTube action leaves the in-app player; Android opens the selected video in YouTube first, with browser fallback.
 - [Daily007 tournament captain name](daily007-tournament-captain-name.md) — use the read-only Daily007 profile name for the captain instead of asking for a separate real name.
+- [Daily007 tournament UID reuse](daily007-tournament-uid-reuse.md) — Free Fire UIDs conflict only within the same tournament; reusing them elsewhere must not block team edits.
 - [Daily007 tournament auto-confirmation](daily007-tournament-auto-confirm.md) — new joins confirm immediately, with any entry-fee deduction in the same transaction.
 - [Daily007 automatic tournament cancellation](daily007-auto-cancellation.md) — preserve private sweep progress across API restarts while refunding only eligible underfilled matches.
 - [Daily007 room credential release](daily007-room-credentials.md) — saving credentials schedules access at five minutes before the tournament’s scheduled start, for approved registrants only.

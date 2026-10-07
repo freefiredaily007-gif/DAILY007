@@ -830,7 +830,7 @@ test("team edits change only Free Fire and roster details, not the captain profi
   }
 });
 
-test("team edits reject UIDs from another active registration without changing either team", async () => {
+test("team edits reject UIDs from another active registration in the same tournament", async () => {
   const duplicateUidCases = [
     { status: "approved" as const, useTeammateUid: false },
     { status: "pending" as const, useTeammateUid: true },
@@ -871,6 +871,93 @@ test("team edits reject UIDs from another active registration without changing e
         assert.match(String(attemptedEdit.body.error), /already registered/i);
         assert.deepEqual(registrationProfileTestDb.registrations, originalRegistrations);
         assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+      });
+    } finally {
+      registrationProfileTestDb.reset();
+    }
+  }
+});
+
+test("team edits allow UIDs from another tournament and leave that tournament's team unchanged", async () => {
+  const crossTournamentUidCases = [
+    { status: "approved" as const, useTeammateUid: false },
+    { status: "pending" as const, useTeammateUid: true },
+  ];
+  const otherMatchId = "74000000-0000-4000-8000-000000000099";
+
+  for (const crossTournamentUidCase of crossTournamentUidCases) {
+    registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+    try {
+      await withServer(async (origin) => {
+        const registered = await sendRegistration(
+          origin,
+          registrationRequests[0].path,
+          registrationRequests[0].body,
+        );
+        assert.equal(registered.status, 201);
+        const editedRegistration = registrationProfileTestDb.registrations[0];
+
+        const otherTournament = registrationProfileTestDb.addOtherRegistration(
+          crossTournamentUidCase.status,
+          otherMatchId,
+        );
+        assert.ok(registrationProfileTestDb.additionalMatches.some((match) => match.id === otherMatchId));
+        assert.notEqual(otherTournament.registration.match_id, editedRegistration.match_id);
+        const reusedUid = crossTournamentUidCase.useTeammateUid
+          ? otherTournament.roster[0].member_uid
+          : otherTournament.registration.captain_game_uid;
+        assert.ok(reusedUid);
+
+        const currentWallet = registrationProfileTestDb.user.wallet_coins;
+        const currentLedger = structuredClone(registrationProfileTestDb.ledger);
+        const attemptedEdit = await sendTeamEdit(origin, editedRegistration.id, {
+          captainGameName: "UpdatedFireCaptain",
+          captainGameUid: "FF-CAPTAIN-CROSS-TOURNAMENT",
+          teamName: "Current Tournament Squad",
+          teammates: [
+            { name: "UpdatedMateOne", uid: "FF-MATE-CROSS-TOURNAMENT-1" },
+            { name: "UpdatedMateTwo", uid: reusedUid },
+            { name: "UpdatedMateThree", uid: "FF-MATE-CROSS-TOURNAMENT-3" },
+          ],
+        });
+
+        assert.equal(attemptedEdit.status, 200);
+        assert.deepEqual(
+          {
+            captain_name: editedRegistration.captain_name,
+            captain_game_name: editedRegistration.captain_game_name,
+            captain_game_uid: editedRegistration.captain_game_uid,
+            team_name: editedRegistration.team_name,
+            entry_coins_paid: editedRegistration.entry_coins_paid,
+          },
+          {
+            captain_name: PROFILE_NAME,
+            captain_game_name: "UpdatedFireCaptain",
+            captain_game_uid: "FF-CAPTAIN-CROSS-TOURNAMENT",
+            team_name: "Current Tournament Squad",
+            entry_coins_paid: 7,
+          },
+        );
+        assert.deepEqual(
+          registrationProfileTestDb.roster
+            .filter((member) => member.registration_id === editedRegistration.id)
+            .map((member) => member.member_uid),
+          ["FF-MATE-CROSS-TOURNAMENT-1", reusedUid, "FF-MATE-CROSS-TOURNAMENT-3"],
+        );
+        assert.deepEqual(
+          registrationProfileTestDb.registrations.find(
+            (registration) => registration.id === otherTournament.registration.id,
+          ),
+          otherTournament.registration,
+        );
+        assert.deepEqual(
+          registrationProfileTestDb.roster.filter(
+            (member) => member.registration_id === otherTournament.registration.id,
+          ),
+          otherTournament.roster,
+        );
+        assert.equal(registrationProfileTestDb.user.wallet_coins, currentWallet);
+        assert.deepEqual(registrationProfileTestDb.ledger, currentLedger);
       });
     } finally {
       registrationProfileTestDb.reset();

@@ -75,6 +75,7 @@ type RegistrationProfileTransactionSnapshot = {
   tournamentAdmin: TestUser;
   additionalUsers: TestUser[];
   match: TestMatch;
+  additionalMatches: TestMatch[];
   registrations: CapturedRegistration[];
   roster: CapturedRosterMember[];
   ledger: CapturedLedgerEntry[];
@@ -93,6 +94,7 @@ class RegistrationProfileTestDatabase {
   tournamentAdmin!: TestUser;
   additionalUsers: TestUser[] = [];
   match!: TestMatch;
+  additionalMatches: TestMatch[] = [];
   registrations: CapturedRegistration[] = [];
   roster: CapturedRosterMember[] = [];
   ledger: CapturedLedgerEntry[] = [];
@@ -150,6 +152,7 @@ class RegistrationProfileTestDatabase {
       room_time: "",
       room_published: false,
     };
+    this.additionalMatches = [];
     this.registrations = [];
     this.roster = [];
     this.ledger = [];
@@ -164,10 +167,20 @@ class RegistrationProfileTestDatabase {
     this.user.wallet_coins = PUBLIC_PARTICIPANT_PRIVATE_WALLET;
   }
 
-  addOtherRegistration(status: CapturedRegistration["status"] = "approved"): {
+  addOtherRegistration(
+    status: CapturedRegistration["status"] = "approved",
+    matchId = this.match.id,
+  ): {
     registration: CapturedRegistration;
     roster: CapturedRosterMember[];
   } {
+    if (matchId !== this.match.id && !this.additionalMatches.some((match) => match.id === matchId)) {
+      this.additionalMatches.push({
+        ...structuredClone(this.match),
+        id: matchId,
+        title: "Other Fire Tournament",
+      });
+    }
     const captainUserId = "74000000-0000-4000-8000-000000000004";
     const registrationId = "74000000-0000-4000-8000-000000000011";
     this.additionalUsers.push({
@@ -178,7 +191,7 @@ class RegistrationProfileTestDatabase {
     });
     const registration: CapturedRegistration = {
       id: registrationId,
-      match_id: this.match.id,
+      match_id: matchId,
       captain_user_id: captainUserId,
       captain_name: "Other Daily007 Player",
       captain_game_name: "OtherFireCaptain",
@@ -232,6 +245,7 @@ class RegistrationProfileTestDatabase {
             tournamentAdmin: structuredClone(this.tournamentAdmin),
             additionalUsers: structuredClone(this.additionalUsers),
             match: structuredClone(this.match),
+            additionalMatches: structuredClone(this.additionalMatches),
             registrations: structuredClone(this.registrations),
             roster: structuredClone(this.roster),
             ledger: structuredClone(this.ledger),
@@ -242,6 +256,7 @@ class RegistrationProfileTestDatabase {
           this.tournamentAdmin = transactionSnapshot.tournamentAdmin;
           this.additionalUsers = transactionSnapshot.additionalUsers;
           this.match = transactionSnapshot.match;
+          this.additionalMatches = transactionSnapshot.additionalMatches;
           this.registrations = transactionSnapshot.registrations;
           this.roster = transactionSnapshot.roster;
           this.ledger = transactionSnapshot.ledger;
@@ -340,9 +355,10 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT m.id, m.starts_at, m.status, m.enabled, m.mode, m.game_mode, m.team_type,")
     ) {
-      result = String(values[0]) === this.match.id
-        ? [{ ...structuredClone(this.match), database_now: new Date(), has_result: false }]
-        : [];
+      const match = [this.match, ...this.additionalMatches].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = match ? [{ ...structuredClone(match), database_now: new Date(), has_result: false }] : [];
     } else if (
       normalized.startsWith("SELECT id, status FROM daily007_v2_registrations WHERE id = $1 AND match_id = $2")
     ) {
@@ -354,6 +370,7 @@ class RegistrationProfileTestDatabase {
       result = registration ? [{ id: registration.id, status: registration.status }] : [];
     } else if (
       normalized.startsWith("SELECT r.id FROM daily007_v2_registrations r") &&
+      normalized.includes("r.match_id = $1") &&
       normalized.includes("r.id <> $2")
     ) {
       const matchId = String(values[0]);
