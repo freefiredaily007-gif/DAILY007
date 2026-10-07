@@ -15,6 +15,12 @@ For duplicate-delivery races, hold the target session row, wait until the first 
 
 **How to apply:** Use `pg_blocking_pids` to establish the first/second wait relationship, release the blocker only after both requests are queued, and verify the loser returns the existing ledger entry without adding another one.
 
+For a protected action queued behind an account block, pause the block only after it owns the actor's row lock; do not rely on seeing a compatible `FOR SHARE` role check blocked by a block request that is itself waiting.
+
+**Why:** In PostgreSQL, the attempted lock-queue probe did not report the second role check as blocked by the earlier `FOR UPDATE` waiter, so it could not prove the intended order.
+
+**How to apply:** Let the in-flight protected action finish, hold the block's status update before commit with a test advisory lock, start the second protected request, and verify `pg_blocking_pids` links its role check to the active block update.
+
 For concurrent video completions from two sessions owned by one player, use different videos so the requests contend at the shared wallet row rather than serializing on a video row. Observe both requests queued at the wallet lock before releasing it, then verify each session points to its own idempotency-keyed ledger row.
 
 **Why:** Reusing one video can serialize completions before the wallet update and hide a lost balance update or crossed session-to-ledger link.
