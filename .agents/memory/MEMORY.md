@@ -50,7 +50,7 @@
 - [Daily007 room credential release](daily007-room-credentials.md) — saving credentials schedules access at five minutes before the tournament’s scheduled start, for approved registrants only.
 - [Daily007 public participant rosters](daily007-public-participant-roster.md) — show team names and Free Fire handles only; keep account details and UIDs private.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.
-- [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — keep payout UPI IDs visible and easy for admins to copy from withdrawal requests.
+- [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — preserve exact payout IDs; TalkBack on iQOO Neo 10 / Android 16 confirmed polite copy-success feedback.
 - [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — snapshot ended cycles for Full Admin payout approval; require fresh prizes and explicit next-boundary scheduling.
 - [Daily007 leaderboard large text](daily007-leaderboard-large-text.md) — preserve the 1.5× layout breakpoint; wrap compact podium scores and expanded names instead of truncating them.
 - [Daily007 leaderboard screen readers](daily007-leaderboard-talkback.md) — native Android and iOS confirmation found clear rank/name/score entries without decorative duplicates.
