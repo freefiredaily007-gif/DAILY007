@@ -533,22 +533,22 @@ test("Full Admin approval pays only configured ranks once and rolls back a faile
   });
 });
 
-test("Full Admin prize saves reach the player API immediately and remain available after reopening", async () => {
+test("Full Admin saves and reopens distinct six-digit weekly and monthly prizes", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());
   const savedRewards = {
-    weekly: { firstPlaceCoins: 111, secondPlaceCoins: 222, thirdPlaceCoins: 333 },
-    monthly: { firstPlaceCoins: 444, secondPlaceCoins: 555, thirdPlaceCoins: 666 },
+    weekly: { firstPlaceCoins: 123456, secondPlaceCoins: 234567, thirdPlaceCoins: 345678 },
+    monthly: { firstPlaceCoins: 456789, secondPlaceCoins: 567890, thirdPlaceCoins: 678901 },
   };
   const expectedWeekly = [
-    { rank: 1, coins: 111 },
-    { rank: 2, coins: 222 },
-    { rank: 3, coins: 333 },
+    { rank: 1, coins: 123456 },
+    { rank: 2, coins: 234567 },
+    { rank: 3, coins: 345678 },
   ];
   const expectedMonthly = [
-    { rank: 1, coins: 444 },
-    { rank: 2, coins: 555 },
-    { rank: 3, coins: 666 },
+    { rank: 1, coins: 456789 },
+    { rank: 2, coins: 567890 },
+    { rank: 3, coins: 678901 },
   ];
 
   try {
@@ -579,6 +579,29 @@ test("Full Admin prize saves reach the player API immediately and remain availab
         savedRewards.monthly,
       );
 
+      const savedAdminRead = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "GET",
+      );
+      assert.equal(savedAdminRead.status, 200);
+      assert.deepEqual(
+        {
+          weekly: {
+            firstPlaceCoins: savedAdminRead.body.weekly.firstPlaceCoins,
+            secondPlaceCoins: savedAdminRead.body.weekly.secondPlaceCoins,
+            thirdPlaceCoins: savedAdminRead.body.weekly.thirdPlaceCoins,
+          },
+          monthly: {
+            firstPlaceCoins: savedAdminRead.body.monthly.firstPlaceCoins,
+            secondPlaceCoins: savedAdminRead.body.monthly.secondPlaceCoins,
+            thirdPlaceCoins: savedAdminRead.body.monthly.thirdPlaceCoins,
+          },
+        },
+        savedRewards,
+      );
+
       const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
       assert.equal(playerRead.status, 200);
       const playerView = await playerRead.json() as {
@@ -589,14 +612,28 @@ test("Full Admin prize saves reach the player API immediately and remain availab
       assert.deepEqual(playerView.weekly.rewards, expectedWeekly);
       assert.deepEqual(playerView.monthly.rewards, expectedMonthly);
 
-      const reopenedRead = await fetch(`${origin}/daily007/v2/leaderboards`);
-      assert.equal(reopenedRead.status, 200);
-      const reopenedView = await reopenedRead.json() as {
-        weekly: { rewards: RewardSeed[] };
-        monthly: { rewards: RewardSeed[] };
-      };
-      assert.deepEqual(reopenedView.weekly.rewards, expectedWeekly);
-      assert.deepEqual(reopenedView.monthly.rewards, expectedMonthly);
+      const reopenedAdminRead = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "GET",
+      );
+      assert.equal(reopenedAdminRead.status, 200);
+      assert.deepEqual(
+        {
+          weekly: {
+            firstPlaceCoins: reopenedAdminRead.body.weekly.firstPlaceCoins,
+            secondPlaceCoins: reopenedAdminRead.body.weekly.secondPlaceCoins,
+            thirdPlaceCoins: reopenedAdminRead.body.weekly.thirdPlaceCoins,
+          },
+          monthly: {
+            firstPlaceCoins: reopenedAdminRead.body.monthly.firstPlaceCoins,
+            secondPlaceCoins: reopenedAdminRead.body.monthly.secondPlaceCoins,
+            thirdPlaceCoins: reopenedAdminRead.body.monthly.thirdPlaceCoins,
+          },
+        },
+        savedRewards,
+      );
     });
   } finally {
     // The test runs only against its in-memory fixture and leaves it at baseline.
