@@ -98,6 +98,21 @@ const SECOND_VERIFIED_GOOGLE_USER = {
   }],
 } as unknown as User;
 
+const MISMATCHED_VERIFIED_GOOGLE_USER = {
+  ...VERIFIED_GOOGLE_USER,
+  emailAddresses: [{
+    emailAddress: "different-google-signup@example.test",
+    verification: { status: "verified" },
+  }],
+  externalAccounts: [{
+    provider: "google",
+    emailAddress: "different-google-signup@example.test",
+    firstName: "Google",
+    lastName: "Signup",
+    verification: { status: "verified" },
+  }],
+} as unknown as User;
+
 type JsonResult = { status: number; body: Record<string, any> };
 
 async function postJson(
@@ -1204,6 +1219,98 @@ test("a valid referral code does not change rewards when a password account link
       assert.equal(repeat.body.id, account.id);
       assert.equal(repeat.body.coins, 73);
       assert.equal(account.wallet_coins, 73);
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("a verified Google email mismatch cannot link an account or change its rewards", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(MISMATCHED_VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(
+        origin,
+        "google-signup@example.test",
+      );
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      assert.equal(
+        signupTestDb.shortCodeOwners.get(SIGNUP_TEST_REFERRAL_CODE),
+        referrer.id,
+        "the supplied referral code must be valid",
+      );
+      signupTestDb.referrals.push({
+        id: "existing-email-mismatch-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "existing-email-mismatch-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "existing-email-mismatch-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const balanceBeforeLinkAttempt = account.wallet_coins;
+      const referralsBeforeLinkAttempt = structuredClone(signupTestDb.referrals);
+      const ledgerBeforeLinkAttempt = structuredClone(signupTestDb.ledger);
+      const accountCountBeforeLinkAttempt = signupTestDb.users.size;
+      const authVersionBeforeLinkAttempt = account.auth_version;
+      assert.notEqual(account.email, "different-google-signup@example.test");
+
+      const rejectedLink = await googleAuth(
+        origin,
+        token,
+        SIGNUP_TEST_REFERRAL_CODE,
+      );
+
+      assert.equal(rejectedLink.status, 409);
+      assert.match(String(rejectedLink.body.error), /verified Google email must match/i);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.equal(account.clerk_user_id, null, "the mismatched Google identity must remain unlinked");
+      assert.equal(account.wallet_coins, balanceBeforeLinkAttempt);
+      assert.equal(account.auth_version, authVersionBeforeLinkAttempt);
+      assert.equal(signupTestDb.users.size, accountCountBeforeLinkAttempt);
+      assert.deepEqual(
+        signupTestDb.referrals,
+        referralsBeforeLinkAttempt,
+        "the supplied referral code must not change referral relationships",
+      );
+      assert.deepEqual(
+        signupTestDb.ledger,
+        ledgerBeforeLinkAttempt,
+        "the mismatched link must not change wallet history or rewards",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletResponse.status, 200, "the current Daily007 session should remain valid");
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        ledgerBeforeLinkAttempt.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        })),
+      );
     });
   } finally {
     signupTestDb.reset();
