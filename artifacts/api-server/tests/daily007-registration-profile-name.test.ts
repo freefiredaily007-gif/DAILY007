@@ -131,6 +131,74 @@ test("my registration results contain Free Fire and team names but no other play
   }
 });
 
+test("public tournament participants include approved and pending teams but omit rejected teams", async () => {
+  registrationProfileTestDb.reset();
+  try {
+    const approved = registrationProfileTestDb.addOtherRegistration(
+      "approved",
+      TEST_MATCH_ID,
+      "Approved",
+    );
+    const pending = registrationProfileTestDb.addOtherRegistration(
+      "pending",
+      TEST_MATCH_ID,
+      "Pending",
+    );
+    const rejected = registrationProfileTestDb.addOtherRegistration(
+      "rejected",
+      TEST_MATCH_ID,
+      "Rejected",
+    );
+
+    assert.deepEqual(
+      registrationProfileTestDb.registrations.map((registration) => registration.status),
+      ["approved", "pending", "rejected"],
+      "The isolated tournament fixture should contain all registration statuses.",
+    );
+
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/tournaments/${TEST_MATCH_ID}/participants`);
+      assert.equal(response.status, 200);
+      const payload = await response.json() as {
+        tournamentId: string;
+        participants: { teamName: string; players: string[]; status: string }[];
+      };
+
+      assert.equal(payload.tournamentId, TEST_MATCH_ID);
+      assert.deepEqual(payload.participants, [
+        {
+          teamName: approved.registration.team_name,
+          players: [
+            approved.registration.captain_game_name,
+            ...approved.roster.map((member) => member.member_name),
+          ],
+          status: "approved",
+        },
+        {
+          teamName: pending.registration.team_name,
+          players: [
+            pending.registration.captain_game_name,
+            ...pending.roster.map((member) => member.member_name),
+          ],
+          status: "pending",
+        },
+      ]);
+      assert.equal(
+        JSON.stringify(payload).includes(rejected.registration.captain_game_name),
+        false,
+        "Rejected captains must not be exposed by the unauthenticated participant endpoint.",
+      );
+      assert.equal(
+        JSON.stringify(payload).includes(rejected.registration.team_name),
+        false,
+        "Rejected teams must not be exposed by the unauthenticated participant endpoint.",
+      );
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 type RegistrationRequest = {
   label: string;
   path: string;

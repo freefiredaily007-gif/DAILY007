@@ -170,6 +170,7 @@ class RegistrationProfileTestDatabase {
   addOtherRegistration(
     status: CapturedRegistration["status"] = "approved",
     matchId = this.match.id,
+    label = "Other",
   ): {
     registration: CapturedRegistration;
     roster: CapturedRosterMember[];
@@ -181,22 +182,23 @@ class RegistrationProfileTestDatabase {
         title: "Other Fire Tournament",
       });
     }
-    const captainUserId = "74000000-0000-4000-8000-000000000004";
-    const registrationId = "74000000-0000-4000-8000-000000000011";
+    const labelSlug = label.replace(/[^a-zA-Z0-9]/g, "") || "Other";
+    const captainUserId = `74000000-0000-4000-8000-${String(this.additionalUsers.length + 4).padStart(12, "0")}`;
+    const registrationId = `74000000-0000-4000-8000-${String(this.registrations.length + 11).padStart(12, "0")}`;
     this.additionalUsers.push({
       ...structuredClone(this.user),
       id: captainUserId,
-      name: "Other Daily007 Player",
-      email: "other-captain-profile-test@example.test",
+      name: `${label} Daily007 Player`,
+      email: `${labelSlug.toLowerCase()}-captain-profile-test@example.test`,
     });
     const registration: CapturedRegistration = {
       id: registrationId,
       match_id: matchId,
       captain_user_id: captainUserId,
-      captain_name: "Other Daily007 Player",
-      captain_game_name: "OtherFireCaptain",
-      captain_game_uid: "FF-OTHER-CAPTAIN-UID",
-      team_name: "Other Fire",
+      captain_name: `${label} Daily007 Player`,
+      captain_game_name: `${labelSlug}FireCaptain`,
+      captain_game_uid: `FF-${labelSlug.toUpperCase()}-CAPTAIN-UID`,
+      team_name: `${label} Fire`,
       entry_coins_paid: this.match.entry_coins,
       status,
       created_at: new Date(),
@@ -205,20 +207,20 @@ class RegistrationProfileTestDatabase {
       {
         registration_id: registrationId,
         position: 1,
-        member_uid: "FF-OTHER-TEAMMATE-UID",
-        member_name: "Other FireMate",
+        member_uid: `FF-${labelSlug.toUpperCase()}-TEAMMATE-UID`,
+        member_name: `${label} FireMate`,
       },
       {
         registration_id: registrationId,
         position: 2,
-        member_uid: "FF-OTHER-TEAMMATE-TWO-UID",
-        member_name: "Other FireMateTwo",
+        member_uid: `FF-${labelSlug.toUpperCase()}-TEAMMATE-TWO-UID`,
+        member_name: `${label} FireMateTwo`,
       },
       {
         registration_id: registrationId,
         position: 3,
-        member_uid: "FF-OTHER-TEAMMATE-THREE-UID",
-        member_name: "Other FireMateThree",
+        member_uid: `FF-${labelSlug.toUpperCase()}-TEAMMATE-THREE-UID`,
+        member_name: `${label} FireMateThree`,
       },
     ];
     this.registrations.push(registration);
@@ -431,10 +433,14 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name,")
     ) {
+      const statusFilter = normalized.match(/r\.status IN \(([^)]*)\)/i)?.[1];
+      const allowedStatuses = statusFilter === undefined
+        ? undefined
+        : [...statusFilter.matchAll(/'([^']+)'/g)].map(([, status]) => status);
       result = this.registrations
         .filter((registration) =>
           registration.match_id === String(values[0]) &&
-          ["approved", "pending"].includes(registration.status)
+          (!allowedStatuses || allowedStatuses.includes(registration.status))
         )
         .flatMap((registration) => {
           const roster = this.roster
