@@ -12,6 +12,7 @@
     "test:video-unavailable-screen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-unavailable-screen.test.mjs",
     "test:video-links": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-links.test.mjs",
     "test:my-matches-resume-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/my-matches-resume-refresh.test.mjs",
+    "test:my-matches-results": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/my-matches-results.test.mjs",
     "test:room-credentials-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/room-credentials-accessibility.test.mjs",
     "test:room-credentials-clock-skew": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/room-credentials-clock-skew.test.mjs",
     "test:tournament-mode-filters": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-mode-filters.test.mjs",
