@@ -98,6 +98,48 @@ test("clipboard success and failure return clear feedback for TalkBack announcem
   assert.match(panelSource, /testID="room-credential-copy-feedback"/);
 });
 
+test("a successful retry copies the selected value and replaces the prior failure feedback", async () => {
+  let simulateClipboardFailure = true;
+  let clipboardValue;
+  let visibleFeedback;
+  const writeClipboard = async (value) => {
+    if (simulateClipboardFailure) throw new Error("Simulated clipboard failure");
+    clipboardValue = value;
+    return true;
+  };
+
+  visibleFeedback = await copyRoomCredentialToClipboard(
+    "Room ID",
+    "FAKE-ROOM-123",
+    writeClipboard,
+  );
+  assert.deepEqual(visibleFeedback, {
+    kind: "failure",
+    message: "Could not copy Room ID. Please try again.",
+  });
+
+  simulateClipboardFailure = false;
+  visibleFeedback = await copyRoomCredentialToClipboard(
+    "Room ID",
+    "FAKE-ROOM-123",
+    writeClipboard,
+  );
+
+  assert.equal(clipboardValue, "FAKE-ROOM-123");
+  assert.deepEqual(visibleFeedback, {
+    kind: "success",
+    message: "Room ID copied to clipboard.",
+  });
+  assert.match(
+    panelSource,
+    /setCopyFeedback\(feedback\);\s*AccessibilityInfo\.announceForAccessibility\(feedback\.message\);/,
+  );
+  assert.match(
+    panelSource,
+    /testID="room-credential-copy-feedback"[\s\S]*?>\s*\{copyFeedback\.message\}/,
+  );
+});
+
 test("clipboard failure simulation is development-only and covers both credentials", () => {
   assert.match(
     panelSource,
@@ -118,5 +160,9 @@ test("clipboard failure simulation is development-only and covers both credentia
   assert.match(
     panelSource,
     /\{__DEV__ \? \(\s*<Pressable[\s\S]*?testID="room-credential-simulate-clipboard-failure"/,
+  );
+  assert.match(
+    panelSource,
+    /setSimulateClipboardFailure\(nextValue\);[\s\S]*?nextValue\s*\?\s*'Clipboard failure simulation on\.'\s*:\s*'Clipboard failure simulation off\.'/,
   );
 });
