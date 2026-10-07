@@ -965,6 +965,70 @@ test("team edits allow UIDs from another tournament and leave that tournament's 
   }
 });
 
+test("team edits allow UIDs from rejected entries and leave the rejected team unchanged", async () => {
+  for (const useTeammateUid of [false, true]) {
+    registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+    try {
+      await withServer(async (origin) => {
+        const registered = await sendRegistration(
+          origin,
+          registrationRequests[0].path,
+          registrationRequests[0].body,
+        );
+        assert.equal(registered.status, 201);
+        const editedRegistration = registrationProfileTestDb.registrations[0];
+
+        const cancelledEntry = registrationProfileTestDb.addOtherRegistration("rejected");
+        assert.equal(cancelledEntry.registration.status, "rejected");
+        assert.equal(cancelledEntry.registration.match_id, editedRegistration.match_id);
+        const reusedUid = useTeammateUid
+          ? cancelledEntry.roster[0].member_uid
+          : cancelledEntry.registration.captain_game_uid;
+        assert.ok(reusedUid);
+
+        const originalCancelledRegistration = structuredClone(cancelledEntry.registration);
+        const originalCancelledRoster = structuredClone(cancelledEntry.roster);
+        const originalWallet = registrationProfileTestDb.user.wallet_coins;
+        const originalLedger = structuredClone(registrationProfileTestDb.ledger);
+        const attemptedEdit = await sendTeamEdit(origin, editedRegistration.id, {
+          captainGameName: "UpdatedFireCaptain",
+          captainGameUid: "FF-CAPTAIN-AFTER-CANCELLED-ENTRY",
+          teamName: "Current Tournament Squad",
+          teammates: [
+            { name: "UpdatedMateOne", uid: "FF-MATE-AFTER-CANCELLED-1" },
+            { name: "UpdatedMateTwo", uid: reusedUid },
+            { name: "UpdatedMateThree", uid: "FF-MATE-AFTER-CANCELLED-3" },
+          ],
+        });
+
+        assert.equal(attemptedEdit.status, 200);
+        assert.deepEqual(
+          registrationProfileTestDb.roster
+            .filter((member) => member.registration_id === editedRegistration.id)
+            .map((member) => member.member_uid),
+          ["FF-MATE-AFTER-CANCELLED-1", reusedUid, "FF-MATE-AFTER-CANCELLED-3"],
+        );
+        assert.deepEqual(
+          registrationProfileTestDb.registrations.find(
+            (registration) => registration.id === cancelledEntry.registration.id,
+          ),
+          originalCancelledRegistration,
+        );
+        assert.deepEqual(
+          registrationProfileTestDb.roster.filter(
+            (member) => member.registration_id === cancelledEntry.registration.id,
+          ),
+          originalCancelledRoster,
+        );
+        assert.equal(registrationProfileTestDb.user.wallet_coins, originalWallet);
+        assert.deepEqual(registrationProfileTestDb.ledger, originalLedger);
+      });
+    } finally {
+      registrationProfileTestDb.reset();
+    }
+  }
+});
+
 test("team edits roll back captain details and the saved roster when a teammate insert fails", async () => {
   registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
   try {

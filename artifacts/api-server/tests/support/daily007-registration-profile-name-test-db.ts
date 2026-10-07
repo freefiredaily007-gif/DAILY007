@@ -42,7 +42,7 @@ export type CapturedRegistration = {
   captain_game_uid: string;
   team_name: string;
   entry_coins_paid: number;
-  status: "approved" | "pending";
+  status: "approved" | "pending" | "rejected";
   created_at: Date;
 };
 
