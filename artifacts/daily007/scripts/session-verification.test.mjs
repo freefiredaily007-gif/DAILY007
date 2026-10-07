@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import test, { mock } from "node:test";
+import ts from "typescript";
 import {
   restoreDaily007Session,
   subscribeToSessionVerificationRecovery,
@@ -58,6 +61,17 @@ registerHooks({
 });
 
 const { Api, http, setSession } = await import("../src/lib/api.ts");
+const profileSource = await readFile(
+  new URL("../src/screens/Profile.tsx", import.meta.url),
+  "utf8",
+);
+const profileSourceFile = ts.createSourceFile(
+  "Profile.tsx",
+  profileSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
 
 function mockStorage(initialSession = savedSession) {
   let value = initialSession ? JSON.stringify(initialSession) : null;
@@ -134,6 +148,110 @@ function mockApiRequests(t, { statsFailure, statsResponse } = {}) {
     assert.fail(`Unexpected API request: ${path}`);
   });
   return requests;
+}
+
+function createProfileScreen(user) {
+  let profileDeclaration = null;
+
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "Profile") {
+      profileDeclaration = node;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(profileSourceFile);
+  assert.ok(profileDeclaration, "Profile should export its screen component.");
+  const componentSource = profileDeclaration
+    .getText(profileSourceFile)
+    .replace(/^export\s+default\s+/, "");
+  const javascript = ts.transpileModule(componentSource, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.React,
+      module: ts.ModuleKind.None,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+
+  const s = new Proxy({}, {
+    get: (_target, key) => ({ profileStyle: String(key) }),
+  });
+  const View = ({ children, style }) => {
+    const styleList = Array.isArray(style) ? style : [style];
+    const isStatCard = styleList.some((entry) => entry?.profileStyle === "stat");
+    return React.createElement(
+      "div",
+      isStatCard ? { "data-testid": "profile-stat-card" } : undefined,
+      children,
+    );
+  };
+  const Text = ({ children, style, accessibilityLabel }) => {
+    const testId = style?.profileStyle === "statV"
+      ? "profile-stat-value"
+      : style?.profileStyle === "statL"
+        ? "profile-stat-label"
+        : undefined;
+    const props = {
+      ...(testId ? { "data-testid": testId } : {}),
+      ...(accessibilityLabel ? { "aria-label": accessibilityLabel } : {}),
+    };
+    return React.createElement("span", props, children);
+  };
+  const Card = ({ children, testID }) => React.createElement(
+    "section",
+    testID ? { "data-testid": testID } : undefined,
+    children,
+  );
+  const SectionTitle = ({ children }) => React.createElement("h2", null, children);
+  const Button = ({ title, children, testID }) => React.createElement(
+    "button",
+    testID ? { "data-testid": testID } : undefined,
+    children ?? title,
+  );
+  const KeyValue = ({ k, v }) => React.createElement(
+    "div",
+    null,
+    React.createElement("span", null, k),
+    React.createElement("span", null, v),
+  );
+  const scope = {
+    React,
+    ScrollView: ({ children }) => React.createElement("main", null, children),
+    View,
+    Modal: ({ visible, children }) => visible
+      ? React.createElement("div", null, children)
+      : null,
+    Text,
+    Input: () => null,
+    SectionTitle,
+    Card,
+    Btn: Button,
+    KV: KeyValue,
+    GoogleSSOButton: () => null,
+    useWindowDimensions: () => ({ width: 402, fontScale: 1 }),
+    Platform: { OS: "android" },
+    Application: { nativeApplicationVersion: "1.0.0", nativeBuildVersion: "7" },
+    Constants: {
+      expoConfig: { version: "1.0.0", android: { versionCode: 7 } },
+    },
+    useApp: () => ({ user, refresh: async () => user, logout() {} }),
+    useNavigation: () => ({ navigate() {} }),
+    useDaily007ChangePassword: () => ({
+      mutateAsync: async () => {},
+      isPending: false,
+    }),
+    Api: { adminBootstrapStatus: async () => ({ available: false }) },
+    apiError: () => "Request failed.",
+    PROFILE_PASSWORD_MAX_LENGTH: 200,
+    submitProfilePasswordChange: async () => null,
+    C: new Proxy({}, { get: (_target, key) => String(key) }),
+    s,
+  };
+  const Profile = new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn Profile;`,
+  )(...Object.values(scope));
+  return React.createElement(Profile);
 }
 
 test("401 and 403 verification responses clear the saved session", async () => {
@@ -251,6 +369,32 @@ test("successful profile statistics map every counter and leave statsError clear
       assert.equal(user.statsError, undefined);
     });
   }
+});
+
+test("Profile renders successfully refreshed totals under their matching labels", async (t) => {
+  prepareApiSession();
+  const statsResponse = { matches: 27, wins: 11, kills: 94, prizeCoins: 640 };
+  const requests = mockApiRequests(t, { statsResponse });
+  const refreshedUser = await Api.me();
+
+  assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
+  assert.equal(refreshedUser.matches, 27);
+  assert.equal(refreshedUser.wins, 11);
+  assert.equal(refreshedUser.kills, 94);
+  assert.equal(refreshedUser.prizeCoins, 640);
+
+  const markup = renderToStaticMarkup(createProfileScreen(refreshedUser));
+  const statCards = [...markup.matchAll(
+    /<div data-testid="profile-stat-card"><span data-testid="profile-stat-value">([^<]*)<\/span><span data-testid="profile-stat-label">([^<]*)<\/span><\/div>/g,
+  )].map(([, value, label]) => [label, value]);
+
+  assert.deepEqual(statCards, [
+    ["MATCHES", "27"],
+    ["WINS", "11"],
+    ["KILLS", "94"],
+    ["PRIZES", "🪙640"],
+  ]);
+  assert.doesNotMatch(markup, /Profile statistics are loading|Profile statistics unavailable:/);
 });
 
 test("successful but malformed profile statistics preserve the account and leave totals unavailable", async (t) => {
