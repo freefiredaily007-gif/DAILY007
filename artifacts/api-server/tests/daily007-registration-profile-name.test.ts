@@ -970,9 +970,15 @@ test("admin registration CSV keeps embedded CR/LF in saved names within one reco
       assert.equal(response.status, 201);
 
       const registration = registrationProfileTestDb.registrations[0];
+      assert.ok(registration);
       const savedRoster = registrationProfileTestDb.roster
         .filter((member) => member.registration_id === registration.id)
         .sort((left, right) => left.position - right.position);
+      const laterRegistration = registrationProfileTestDb.addOtherRegistration(
+        "approved",
+        TEST_MATCH_ID,
+        "Later",
+      );
 
       const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
       assert.ok(adminToken);
@@ -984,29 +990,56 @@ test("admin registration CSV keeps embedded CR/LF in saved names within one reco
       assert.equal(csvResponse.status, 200);
 
       const records = parseCsvDocument(await csvResponse.text());
-      assert.equal(records.length, 2, "Header and registration should form exactly two CSV records.");
-      const [headers, values] = records;
+      assert.equal(records.length, 3, "Header and two registrations should form exactly three CSV records.");
+      const [headers, multilineValues, laterValues] = records;
       assert.ok(headers);
-      assert.ok(values);
-      assert.equal(values.length, headers.length);
+      assert.ok(multilineValues);
+      assert.ok(laterValues);
+      assert.equal(multilineValues.length, headers.length);
+      assert.equal(laterValues.length, headers.length);
 
-      const expectedNames: Record<string, string> = {
-        captain_profile_name: registration.captain_name,
-        captain_game_name: registration.captain_game_name,
-        team_name: registration.team_name,
-        teammate_1_name: savedRoster[0].member_name,
-        teammate_2_name: savedRoster[1].member_name,
-        teammate_3_name: savedRoster[2].member_name,
-      };
-      for (const [column, savedName] of Object.entries(expectedNames)) {
-        const index = headers.indexOf(column);
-        assert.notEqual(index, -1, `CSV header should include ${column}`);
-        assert.equal(
-          values[index],
-          savedName,
-          `${column} should restore the exact saved name including embedded CR/LF.`,
-        );
-        assert.ok(savedName.includes("\r\n"), `${column} fixture value should contain embedded CR/LF.`);
+      const registrationRows = [
+        {
+          label: "multiline registration",
+          values: multilineValues,
+          names: {
+            captain_profile_name: registration.captain_name,
+            captain_game_name: registration.captain_game_name,
+            team_name: registration.team_name,
+            teammate_1_name: savedRoster[0].member_name,
+            teammate_2_name: savedRoster[1].member_name,
+            teammate_3_name: savedRoster[2].member_name,
+          },
+        },
+        {
+          label: "later registration",
+          values: laterValues,
+          names: {
+            captain_profile_name: laterRegistration.registration.captain_name,
+            captain_game_name: laterRegistration.registration.captain_game_name,
+            team_name: laterRegistration.registration.team_name,
+            teammate_1_name: laterRegistration.roster[0].member_name,
+            teammate_2_name: laterRegistration.roster[1].member_name,
+            teammate_3_name: laterRegistration.roster[2].member_name,
+          },
+        },
+      ];
+      for (const row of registrationRows) {
+        for (const [column, expectedName] of Object.entries(row.names)) {
+          const index = headers.indexOf(column);
+          assert.notEqual(index, -1, `CSV header should include ${column}`);
+          assert.equal(
+            row.values[index],
+            expectedName,
+            `${row.label} ${column} should remain exact and under its expected header.`,
+          );
+          if (row.label === "multiline registration") {
+            assert.ok(
+              expectedName.includes("\r\n"),
+              `${column} fixture value should contain embedded CR/LF.`,
+            );
+          }
+        }
       }
     });
   } finally {
