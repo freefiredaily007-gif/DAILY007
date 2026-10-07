@@ -340,6 +340,18 @@ export default function LeaderboardDetails({ navigation, route }: any) {
           })}
         </View>
 
+        {query.isRefetchError && period ? (
+          <Text
+            accessible
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+            testID="leaderboard-stale-data-warning"
+            style={styles.staleDataWarning}
+          >
+            Couldn't refresh the leaderboard. Showing saved results, which may be out of date.
+          </Text>
+        ) : null}
+
         {period?.rewards ? (
           <View
             style={styles.rewardsPanel}
@@ -496,6 +508,18 @@ const styles = StyleSheet.create({
   },
   content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 28 },
   tabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  staleDataWarning: {
+    color: C.text,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.orange,
+    backgroundColor: C.card2,
+  },
   rewardsPanel: {
     gap: 8,
     marginBottom: 14,

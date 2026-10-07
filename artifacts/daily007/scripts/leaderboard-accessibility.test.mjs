@@ -258,6 +258,22 @@ test("empty and unavailable leaderboard guidance is exposed as readable text", (
   assert.match(error, /Leaderboard is unavailable: \$\{apiError\(query\.error\)\}/);
 });
 
+test("a failed refresh with a selected cached period announces that results may be stale", () => {
+  const warning = textForTestId("leaderboard-stale-data-warning");
+  assert.match(warning, /\baccessible\b/);
+  assert.match(warning, /accessibilityRole="text"/);
+  assert.match(warning, /accessibilityLiveRegion="polite"/);
+  assert.match(
+    warning,
+    /Couldn't refresh the leaderboard\. Showing saved results, which may be out of date\./,
+  );
+  assert.match(
+    screenSource,
+    /\{query\.isRefetchError && period \? \(\s*<Text[\s\S]*?testID="leaderboard-stale-data-warning"/,
+    "Only a failed background refresh with the selected period still available should show the stale warning.",
+  );
+});
+
 test("loading, error, unavailable, empty, and populated states stay distinct", () => {
   const branchMarkers = [
     "{query.isLoading ? (",
