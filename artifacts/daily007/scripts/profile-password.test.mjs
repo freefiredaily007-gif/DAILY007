@@ -198,11 +198,22 @@ test("Profile wires its password inputs to the shared 200-character limit", () =
     /if \(validationError\) \{\s*setPasswordError\(validationError\);\s*return;\s*\}/,
     "Profile should show the validation message and stop before reporting success.",
   );
+  const passwordErrorMarkup = profileSource.match(
+    /<Text style=\{s\.modalError\}[^>]*>\{passwordError\}<\/Text>/,
+  )?.[0];
+  assert.ok(passwordErrorMarkup, "Profile should render validation errors in the password modal.");
   assert.match(
-    profileSource,
-    /\{!!passwordError && <Text style=\{s\.modalError\}>\{passwordError\}<\/Text>\}/,
-    "Profile should render validation errors in the password modal.",
+    passwordErrorMarkup,
+    /accessibilityLiveRegion="polite"/,
+    "The password conflict should be announced without interrupting TalkBack.",
   );
+  assert.equal(
+    (passwordErrorMarkup.match(/accessibilityLiveRegion=/g) ?? []).length,
+    1,
+    "The password error should have exactly one live-region announcement.",
+  );
+  assert.doesNotMatch(passwordErrorMarkup, /accessibilityRole="alert"/);
+  assert.doesNotMatch(profileSource, /setAccessibilityFocus/);
   assert.equal(PROFILE_PASSWORD_MAX_LENGTH, 200);
 });
 

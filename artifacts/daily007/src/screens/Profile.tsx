@@ -298,7 +298,7 @@ export default function Profile() {
             returnKeyType="done"
             onSubmitEditing={submitPasswordChange}
           />
-          {!!passwordError && <Text style={s.modalError}>{passwordError}</Text>}
+          {!!passwordError && <Text style={s.modalError} accessibilityLiveRegion="polite">{passwordError}</Text>}
           <Btn testID="profile-password-submit" title="UPDATE PASSWORD" kind="gold" loading={passwordBusy} onPress={submitPasswordChange} />
           <Btn title="CANCEL" kind="ghost" disabled={passwordBusy} onPress={closePasswordModal} />
         </View>

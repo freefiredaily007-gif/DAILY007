@@ -1224,6 +1224,10 @@ async function checkProfilePasswordConflictRetry() {
   await setInputValue(currentSelector, "wrong-current-password", "the current password");
   await setInputValue(newSelector, "replacement-password", "the new password");
   await setInputValue(confirmSelector, "replacement-password", "the confirmation password");
+  await evaluate(`document.querySelector('[data-testid="profile-password-submit"]')?.focus()`);
+  const focusedControlBeforeConflict = await evaluate(
+    "document.activeElement?.getAttribute('data-testid') ?? null",
+  );
   await clickSelector('[data-testid="profile-password-submit"]', "Profile password submit");
   await waitForCondition(
     `document.body.innerText.includes(${JSON.stringify(conflictMessage)})`,
@@ -1232,12 +1236,26 @@ async function checkProfilePasswordConflictRetry() {
 
   const afterConflict = await evaluate(`(() => ({
     messageVisible: document.body.innerText.includes(${JSON.stringify(conflictMessage)}),
+    announcements: [...document.querySelectorAll('[aria-live]')]
+      .filter((node) => node.textContent?.trim() === ${JSON.stringify(conflictMessage)})
+      .map((node) => node.getAttribute('aria-live')),
+    focusedControl: document.activeElement?.getAttribute('data-testid') ?? null,
     currentPassword: document.querySelector(${JSON.stringify(currentSelector)})?.value ?? null,
     newPassword: document.querySelector(${JSON.stringify(newSelector)})?.value ?? null,
     confirmPassword: document.querySelector(${JSON.stringify(confirmSelector)})?.value ?? null,
     requests: window.__daily007PasswordChangePreview?.requests ?? [],
   }))()`);
   assert(afterConflict.messageVisible, "The password-change conflict must be visible in the Profile dialog.");
+  assert.deepEqual(
+    afterConflict.announcements,
+    ["polite"],
+    "The conflict should have one polite live-region announcement, not a duplicate or interrupting announcement.",
+  );
+  assert.equal(
+    afterConflict.focusedControl,
+    focusedControlBeforeConflict,
+    "Announcing the conflict must not move focus away from the password submit control.",
+  );
   assert(
     JSON.stringify({
       currentPassword: afterConflict.currentPassword,
