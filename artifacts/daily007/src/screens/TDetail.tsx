@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
@@ -33,6 +33,8 @@ export default function TDetail() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [retryingParticipants, setRetryingParticipants] = useState(false);
+  const [participantsRetryAnnouncement, setParticipantsRetryAnnouncement] = useState('');
+  const retryParticipantsInFlight = useRef(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
@@ -79,10 +81,23 @@ export default function TDetail() {
     ]);
   }, [load, participantsQuery.refetch, resultsQuery.refetch]);
   const retryParticipants = async () => {
+    if (retryParticipantsInFlight.current || participantsQuery.isFetching) return;
+    retryParticipantsInFlight.current = true;
     setRetryingParticipants(true);
+    setParticipantsRetryAnnouncement('Retrying participant list.');
     try {
-      await participantsQuery.refetch();
+      const result = await participantsQuery.refetch();
+      setParticipantsRetryAnnouncement(
+        result.isSuccess
+          ? 'Participant list updated.'
+          : 'Retry failed. The participant list is still unavailable. You can retry again.',
+      );
+    } catch {
+      setParticipantsRetryAnnouncement(
+        'Retry failed. The participant list is still unavailable. You can retry again.',
+      );
     } finally {
+      retryParticipantsInFlight.current = false;
       setRetryingParticipants(false);
     }
   };
@@ -197,6 +212,17 @@ export default function TDetail() {
       <SectionTitle accent={C.orange} icon={teamTournament ? 'users' : 'user'}>
         {teamTournament ? `JOINED TEAMS · ${participants.length}` : `JOINED PLAYERS · ${participants.length}`}
       </SectionTitle>
+      {participantsRetryAnnouncement ? (
+        <Text
+          accessible
+          accessibilityRole="text"
+          accessibilityLiveRegion="polite"
+          testID="participants-retry-status"
+          style={s.participantsRetryStatus}
+        >
+          {participantsRetryAnnouncement}
+        </Text>
+      ) : null}
       {participantsQuery.isLoading && !participantsQuery.data && !retryingParticipants ? (
         <Card style={s.participantsLoading}>
           <ActivityIndicator color={C.neon} />
@@ -204,12 +230,22 @@ export default function TDetail() {
         </Card>
       ) : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (
         <Card>
-          <Text style={s.participantsHint}>Participant list couldn’t be loaded. Try again here or pull down to retry.</Text>
+          <Text
+            accessible
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+            testID="participants-error-guidance"
+            style={s.participantsHint}
+          >
+            Participant list couldn’t be loaded. Try again here or pull down to retry.
+          </Text>
           <Btn
             title="RETRY PARTICIPANTS"
             kind="ghost"
             onPress={retryParticipants}
             loading={participantsQuery.isFetching}
+            preserveAccessibilityFocusWhileLoading
+            accessibilityLabel="Retry participant list"
             accessibilityHint="Loads the latest list of joined players and teams."
             accessibilityState={{ busy: participantsQuery.isFetching }}
             style={{ marginTop: 10, alignSelf: 'stretch', minHeight: 48 }}
@@ -357,6 +393,9 @@ const s = StyleSheet.create({
   rules: { color: C.sub, fontSize: 12, marginTop: 10, lineHeight: 18 },
   participantsLoading: { alignItems: 'center' },
   participantsHint: { color: C.sub, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  participantsRetryStatus: {
+    color: C.sub, fontSize: 12, fontWeight: '600', lineHeight: 18, marginBottom: 8,
+  },
   participantCard: { padding: 12, marginBottom: 8 },
   participantHeader: { flexDirection: 'row', alignItems: 'center' },
   participantNumber: {

@@ -77,6 +77,7 @@ export function Btn({
   kind = 'primary',
   small,
   loading,
+  preserveAccessibilityFocusWhileLoading = false,
   style,
   accessibilityLabel,
   accessibilityHint,
@@ -84,7 +85,8 @@ export function Btn({
   testID,
 }: {
   title: string; onPress?: () => void; disabled?: boolean;
-  kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean; style?: any;
+  kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean;
+  preserveAccessibilityFocusWhileLoading?: boolean; style?: any;
   accessibilityLabel?: string; accessibilityHint?: string;
   accessibilityState?: React.ComponentProps<typeof Pressable>['accessibilityState'];
   testID?: string;
@@ -101,7 +103,7 @@ export function Btn({
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || loading}
+      disabled={disabled || (loading && !preserveAccessibilityFocusWhileLoading)}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || title}
       accessibilityHint={accessibilityHint}
@@ -117,7 +119,7 @@ export function Btn({
         style,
       ]}
     >
-      {loading ? <ActivityIndicator color={C.bg} size="small" />
+      {loading ? <ActivityIndicator accessible={false} color={C.bg} size="small" />
         : <Text style={[st.btnText, adminSurface && adminSt.btnText, { color: k.fg }]}>{title}</Text>}
     </Pressable>
   );

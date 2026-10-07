@@ -23,10 +23,12 @@ async function waitFor(predicate, message) {
   }
 }
 
-test("the participant error state exposes an accessible retry that reflects refetch progress", () => {
+test("TalkBack gets retry guidance and outcome announcements without disabling the focused control", () => {
   const errorBranch = detailSource
     .split(") : participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching) ? (")[1]
     ?.split(") : participants.length === 0 ? (")[0];
+  const retryStatusOffset = detailSource.indexOf('testID="participants-retry-status"');
+  const participantStateOffset = detailSource.indexOf("participantsQuery.isLoading && !participantsQuery.data");
 
   assert.ok(errorBranch, "The participant error state should remain distinct from the empty state.");
   assert.match(errorBranch, /Participant list couldn’t be loaded\./);
@@ -37,10 +39,35 @@ test("the participant error state exposes an accessible retry that reflects refe
   assert.match(errorBranch, /<Btn\b/);
   assert.match(errorBranch, /title="RETRY PARTICIPANTS"/);
   assert.match(errorBranch, /onPress=\{retryParticipants\}/);
+  assert.match(errorBranch, /accessibilityRole="text"/);
+  assert.match(errorBranch, /accessibilityLiveRegion="polite"/);
+  assert.match(errorBranch, /testID="participants-error-guidance"/);
+  assert.match(errorBranch, /accessibilityLabel="Retry participant list"/);
   assert.match(errorBranch, /loading=\{participantsQuery\.isFetching\}/);
+  assert.match(errorBranch, /preserveAccessibilityFocusWhileLoading/);
   assert.match(errorBranch, /accessibilityState=\{\{ busy: participantsQuery\.isFetching \}\}/);
   assert.match(errorBranch, /testID="participants-retry"/);
+  assert.match(detailSource, /setParticipantsRetryAnnouncement\('Retrying participant list\.'/);
+  assert.match(detailSource, /'Participant list updated\.'/);
+  assert.match(detailSource, /Retry failed\. The participant list is still unavailable\. You can retry again\./);
+  assert.match(detailSource, /result\.isSuccess/);
+  assert.match(
+    detailSource,
+    /<Text\s+accessible\s+accessibilityRole="text"\s+accessibilityLiveRegion="polite"\s+testID="participants-retry-status"/,
+  );
+  assert.ok(
+    retryStatusOffset >= 0 && retryStatusOffset < participantStateOffset,
+    "Retry status must remain mounted outside the error branch so recovery is announced after it closes.",
+  );
+  assert.match(detailSource, /if \(retryParticipantsInFlight\.current \|\| participantsQuery\.isFetching\) return;/);
   assert.match(detailSource, /await participantsQuery\.refetch\(\)/);
+  assert.match(uiSource, /preserveAccessibilityFocusWhileLoading = false/);
+  assert.match(
+    uiSource,
+    /disabled=\{disabled \|\| \(loading && !preserveAccessibilityFocusWhileLoading\)\}/,
+  );
+  assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel \|\| title\}/);
+  assert.match(uiSource, /accessibilityState=\{accessibilityState\}/);
 });
 
 test("participant retry guidance and control wrap at enlarged text without clipping", () => {
