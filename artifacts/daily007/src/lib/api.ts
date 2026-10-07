@@ -234,7 +234,9 @@ export const Api = {
         kills: toCounter(stats?.kills),
         prizeCoins: toCounter(stats?.prizeCoins ?? stats?.prize_coins),
       };
-      if (Object.values(counters).some((value) => !Number.isFinite(value))) {
+      if (Object.values(counters).some(
+        (value) => !Number.isFinite(value) || !Number.isInteger(value) || value < 0,
+      )) {
         throw new Error('Profile statistics response is incomplete.');
       }
       return { ...user, ...counters, statsError: undefined };

@@ -446,6 +446,14 @@ test("successful but malformed profile statistics preserve the account and leave
       stats: { matches: 9, wins: 2, kills: "many", prizeCoins: 120 },
     },
     {
+      name: "a negative match total",
+      stats: { matches: -1, wins: 2, kills: 31, prizeCoins: 120 },
+    },
+    {
+      name: "a fractional kill total",
+      stats: { matches: 9, wins: 2, kills: 31.5, prizeCoins: 120 },
+    },
+    {
       name: "a null kill total",
       stats: { matches: 9, wins: 2, kills: null, prizeCoins: 120 },
     },
