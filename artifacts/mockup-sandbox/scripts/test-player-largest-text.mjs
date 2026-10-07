@@ -948,6 +948,12 @@ async function checkVideoWatchStartFailure() {
     "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
     "video playback simulator after opening an active video",
   );
+  const startControlFocused = await evaluate(`(() => {
+    const control = document.querySelector('[data-testid="video-preview-start-playback"]');
+    control?.focus();
+    return Boolean(control && document.activeElement === control);
+  })()`);
+  assert(startControlFocused, "The playback-start control should be focusable before the session fails.");
   await evaluate(`(() => {
     window.__daily007VideoNow = performance.timeOrigin + performance.now();
     Date.now = () => window.__daily007VideoNow;
@@ -965,6 +971,16 @@ async function checkVideoWatchStartFailure() {
     sessions: window.__videoRewardPreviewCalls?.sessions.length ?? 0,
     completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
     retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+    liveRegion: document.querySelector('[data-testid="video-watch-error"]')?.getAttribute('aria-live') ?? null,
+    liveRegionCount: document.querySelectorAll('[data-testid="video-watch-error"][aria-live="polite"]').length,
+    errorFocused: (() => {
+      const error = document.querySelector('[data-testid="video-watch-error"]');
+      return Boolean(error && (document.activeElement === error || error.contains(document.activeElement)));
+    })(),
+    focusStayedOnStart:
+      document.activeElement === document.querySelector('[data-testid="video-preview-start-playback"]'),
+    focusableLiveRegions: [...document.querySelectorAll('[data-testid="video-watch-error"]')]
+      .filter((error) => error.matches('button, a[href], input, [tabindex="0"]')).length,
   }))()`);
   assert(
     failedStart.errorVisible
@@ -974,6 +990,14 @@ async function checkVideoWatchStartFailure() {
       && failedStart.completions === 0
       && !failedStart.retryClaim,
     `A failed session start must show its error without a session, completion, or claim retry: ${JSON.stringify(failedStart)}`,
+  );
+  assert(
+    failedStart.liveRegion === "polite"
+      && failedStart.liveRegionCount === 1
+      && !failedStart.errorFocused
+      && failedStart.focusStayedOnStart
+      && failedStart.focusableLiveRegions === 0,
+    `The session-start error should announce politely without moving or trapping focus: ${JSON.stringify(failedStart)}`,
   );
 
   await clickSelector('[data-testid="video-preview-finish-playback"]', "finish playback without a watch session");

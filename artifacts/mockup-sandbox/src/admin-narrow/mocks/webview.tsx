@@ -20,6 +20,8 @@ export default function WebView({ style, onMessage }: WebViewProps) {
       {rewardPreview ? (
         <>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Simulate video playback start"
             testID="video-preview-start-playback"
             onPress={() => {
               sendMessage(onMessage, { type: "ready" });
@@ -34,6 +36,8 @@ export default function WebView({ style, onMessage }: WebViewProps) {
             <Text>Simulate video playback start</Text>
           </Pressable>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Simulate completed video"
             testID="video-preview-finish-playback"
             onPress={() => {
               for (let currentTime = 1; currentTime <= 7; currentTime += 1) {

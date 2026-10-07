@@ -497,7 +497,11 @@ export default function Video() {
             </View>
           ) : null}
           {!!rewardError ? (
-            <View testID="video-watch-error" style={styles.errorCard}>
+            <View
+              testID="video-watch-error"
+              accessibilityLiveRegion={sessionStartFailedRef.current ? 'polite' : undefined}
+              style={styles.errorCard}
+            >
               <Feather name="alert-circle" size={16} color={colors.destructive} />
               <Text style={styles.errorText}>{rewardError}</Text>
             </View>
