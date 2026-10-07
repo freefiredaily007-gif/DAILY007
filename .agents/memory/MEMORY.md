@@ -25,6 +25,7 @@
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
 - [Daily007 referral links](daily007-referral-links.md) — use simple five-letter codes and keep clickable invites working with legacy codes.
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user targets Google Play; each client release needs a new native build and higher versionCode.
+- [Daily007 Android emulator release checks](daily007-android-emulator-release-checks.md) — hosted GitHub Actions emulator workflow has passed; retain it as an Android release gate.
 - [Daily007 installed app metadata](daily007-app-metadata.md) — use expo-application for native version/build readouts; config values are only a fallback, not proof of an installed binary.
 - [Daily007 production tournament data](daily007-production-tournament-data.md) — replace only production matches with the current development set; do not overwrite unrelated production data.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
