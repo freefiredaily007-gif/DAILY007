@@ -152,6 +152,26 @@ test('the standalone Results screen connects validation and API errors to a poli
   assert.match(resultsSource, /catch \(e: any\) \{ setErr\(apiError\(e\)\); \}/);
 });
 
+test('the standalone Results screen shows a polite list-load error and lets admins retry', () => {
+  const listLoader = resultsSource.match(
+    /const loadTournaments = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[\]\);/,
+  )?.[0];
+  assert.ok(listLoader, 'The tournament list must have a reusable loader for initial load and retry.');
+  assert.match(listLoader, /await Api\.tournaments\(\)/);
+  assert.match(listLoader, /setListLoadError\('Could not load tournaments\. Please try again\.'\)/);
+  assert.doesNotMatch(listLoader, /setList\(\[\]\)/, 'A failed request must not look like a successful empty list.');
+
+  assert.match(
+    resultsSource,
+    /<Msg kind="err" text=\{listLoadError\} accessibilityLiveRegion="polite" \/>/,
+    'The tournament-list failure must be announced through the shared polite message component.',
+  );
+  assert.match(resultsSource, /title="RETRY TOURNAMENTS"/);
+  assert.match(resultsSource, /accessibilityHint="Attempts to load the tournament list again\."/);
+  assert.match(resultsSource, /testID="admin-results-retry-tournaments"/);
+  assert.match(resultsSource, /onPress=\{\(\) => \{ void loadTournaments\(\); \}\}/);
+});
+
 test('the shared Msg forwards live-region semantics without replacing its existing text styling', () => {
   assert.match(uiSource, /accessibilityLiveRegion\?: 'none' \| 'polite' \| 'assertive';/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);

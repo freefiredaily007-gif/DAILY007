@@ -16,9 +16,12 @@ export default function AdminResults({
   onInitialTournamentHandled?: () => void;
 }) {
   const [list, setList] = useState<Tournament[] | null>(null);
+  const [listLoading, setListLoading] = useState(true);
+  const [listLoadError, setListLoadError] = useState('');
   const [sel, setSel] = useState<Tournament | null>(null);
   const [regs, setRegs] = useState<AdminRegistration[] | null>(null);
   const requestId = useRef(0);
+  const listRequestId = useRef(0);
   const [regId, setRegId] = useState('');
   const [rank, setRank] = useState('1');
   const [kills, setKills] = useState('');
@@ -28,18 +31,29 @@ export default function AdminResults({
   const [clockNow, setClockNow] = useState(Date.now());
   const initialTournamentHandled = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    Api.tournaments().then((tournaments) => {
-      if (active) {
+  const loadTournaments = useCallback(async () => {
+    const currentRequest = ++listRequestId.current;
+    setListLoading(true);
+    setListLoadError('');
+    try {
+      const tournaments = await Api.tournaments();
+      if (listRequestId.current === currentRequest) {
         setList(tournaments);
         setClockNow(Date.now());
       }
-    }).catch(() => {
-      if (active) setList([]);
-    });
-    return () => { active = false; };
+    } catch {
+      if (listRequestId.current === currentRequest) {
+        setListLoadError('Could not load tournaments. Please try again.');
+      }
+    } finally {
+      if (listRequestId.current === currentRequest) setListLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadTournaments();
+    return () => { listRequestId.current++; };
+  }, [loadTournaments]);
 
   useEffect(() => {
     if (!list) return;
@@ -125,8 +139,16 @@ export default function AdminResults({
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>RESULTS</Text>
       <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
+      <Msg kind="err" text={listLoadError} accessibilityLiveRegion="polite" />
       <Msg kind="ok" text={okMsg} />
-      {!list ? <Loading /> : !sel ? list.map((t) => {
+      {!list ? (listLoading ? <Loading accessibilityLabel="Loading tournaments" /> : (
+        <Btn
+          title="RETRY TOURNAMENTS"
+          accessibilityHint="Attempts to load the tournament list again."
+          testID="admin-results-retry-tournaments"
+          onPress={() => { void loadTournaments(); }}
+        />
+      )) : !sel ? list.map((t) => {
         const lifecycle = getTournamentLifecycleState(t, clockNow);
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
