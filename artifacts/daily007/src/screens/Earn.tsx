@@ -69,7 +69,8 @@ export default function Earn() {
   const copyCode = async () => {
     if (!dashboard?.code) return;
     try {
-      await Clipboard.setStringAsync(dashboard.code);
+      const copiedSuccessfully = await Clipboard.setStringAsync(dashboard.code);
+      if (!copiedSuccessfully) throw new Error('Clipboard did not confirm the copy.');
       setCopied(true);
       Alert.alert('Referral code copied', 'Share it with a friend when they create their account.');
       setTimeout(() => setCopied(false), 1800);

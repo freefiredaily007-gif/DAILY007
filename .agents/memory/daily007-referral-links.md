@@ -10,3 +10,9 @@ Referral invites should be directly usable: the shared link is a clickable HTTPS
 **How to apply:** Serve the web export at `/` and keep native Expo manifests on their existing routes; use the explicit browser API for the in-app open action; preserve HTTPS query parameters, old app-scheme links, legacy referral codes, and the existing reward policy.
 
 On 2026-10-04, the user confirmed that the installed Android app's **OPEN INVITE** action opened the HTTPS signup page in a browser rather than an Expo launcher, and signup applied the exact referral code shown in Earn.
+
+For referral-code copies, treat a resolved `false` from Expo Clipboard as a failed write, just like a rejection; keep the share fallback available and do not show copied-success feedback.
+
+**Why:** `Clipboard.setStringAsync` resolves to a boolean, so a failed write may not throw.
+
+**How to apply:** Check the resolved value before showing success for referral-code copy actions, and preserve an alternate sharing path on either failure mode.

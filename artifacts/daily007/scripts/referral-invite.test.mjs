@@ -16,6 +16,20 @@ import {
 const configuredDomain = "daily007.example.test";
 const nativeContext = { platform: "native", configuredDomain };
 
+function loadEarnAction(source, actionName, dependencies) {
+  const marker = `  const ${actionName} = async () => {`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `Earn should define its ${actionName} action.`);
+  const bodyStart = start + marker.length;
+  const end = source.indexOf("\n  };", bodyStart);
+  assert.notEqual(end, -1, `Earn's ${actionName} action should have a complete body.`);
+  const body = source.slice(bodyStart, end);
+  return new Function(
+    ...Object.keys(dependencies),
+    `return async () => {${body}\n};`,
+  )(...Object.values(dependencies));
+}
+
 test("Earn opens the HTTPS invite URL successfully in Expo's browser without changing the flow", async () => {
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const openedUrls = [];
@@ -135,7 +149,7 @@ test("Earn shares the same server-provided HTTPS referral link and query code", 
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
 
-test("a clipboard rejection shows Earn's share-button fallback without native services or API calls", async (t) => {
+test("a referral-link clipboard rejection shows Earn's share-button fallback without native services or API calls", async (t) => {
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const clipboardValues = [];
   const fallbackMessages = [];
@@ -167,6 +181,85 @@ test("a clipboard rejection shows Earn's share-button fallback without native se
   );
   assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
+});
+
+test("a failed referral-code clipboard write preserves Earn's working share fallback without native services or API calls", async (t) => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const dashboard = { code: "ABC12", referralLink };
+  const clipboardValues = [];
+  const copiedStates = [];
+  const alerts = [];
+  const sharedValues = [];
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+  const networkRequests = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("Unexpected network request");
+  });
+  let actionError = "";
+  let clipboardFailureMode = "reject";
+  const setActionError = (message) => { actionError = message; };
+
+  const copyCode = loadEarnAction(earnSource, "copyCode", {
+    dashboard,
+    Clipboard: {
+      setStringAsync: async (value) => {
+        clipboardValues.push(value);
+        if (clipboardFailureMode === "reject") throw new Error("Clipboard unavailable");
+        return false;
+      },
+    },
+    setCopied: (value) => copiedStates.push(value),
+    Alert: { alert: (...args) => alerts.push(args) },
+    setTimeout: () => assert.fail("A failed copy must not schedule the copied-success state reset."),
+    setActionError,
+  });
+  await copyCode();
+
+  assert.deepEqual(clipboardValues, ["ABC12"]);
+  assert.deepEqual(copiedStates, []);
+  assert.deepEqual(alerts, []);
+  assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+  assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
+  assert.match(earnSource, /const copiedSuccessfully = await Clipboard\.setStringAsync\(dashboard\.code\);/);
+
+  clipboardFailureMode = "false";
+  await copyCode();
+
+  assert.deepEqual(clipboardValues, ["ABC12", "ABC12"]);
+  assert.deepEqual(copiedStates, []);
+  assert.deepEqual(alerts, []);
+  assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+
+  const shareInvite = loadEarnAction(earnSource, "shareInvite", {
+    dashboard,
+    Share: {
+      share: async (content) => {
+        sharedValues.push(content);
+      },
+    },
+    shareReferralInviteWithFallback,
+    setActionError,
+  });
+  await shareInvite();
+
+  assert.equal(actionError, "");
+  assert.equal(sharedValues.length, 1);
+  assert.equal(sharedValues[0].url, referralLink);
+  assert.match(sharedValues[0].message, /referral code ABC12/);
+
+  const dashboardSectionStart = earnSource.indexOf("!!dashboard && (");
+  const shareButtonStart = earnSource.indexOf('testID="referral-share-invite"');
+  const shareButtonEnd = earnSource.indexOf("</Pressable>", shareButtonStart);
+  const shareButtonSource = earnSource.slice(
+    earnSource.lastIndexOf("<Pressable", shareButtonStart),
+    shareButtonEnd + "</Pressable>".length,
+  );
+  assert.ok(dashboardSectionStart >= 0 && dashboardSectionStart < shareButtonStart);
+  assert.ok(shareButtonEnd > shareButtonStart);
+  assert.match(shareButtonSource, /onPress=\{shareInvite\}/);
+  assert.match(shareButtonSource, /SHARE INVITE LINK/);
+  assert.doesNotMatch(shareButtonSource, /actionError|copied/);
+  assert.equal(networkRequests.mock.callCount(), 0);
 });
 
 test("a rejected share sheet shows Earn's copy-code fallback without native services or API calls", async (t) => {
