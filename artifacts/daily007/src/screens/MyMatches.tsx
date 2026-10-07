@@ -19,10 +19,12 @@ import {
   getTournamentLifecycleState,
   MAX_TIMEOUT_MS,
 } from '../lib/tournamentLifecycle';
+import { createFocusedLatestRequestGate } from '../lib/focusedLatestRequest';
 
 export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
   const navigation: any = useNavigation();
+  const [registrationRequests] = useState(createFocusedLatestRequestGate);
   const [regs, setRegs] = useState<any[]>([]);
   const [tab, setTab] = useState<'upcoming' | 'ongoing' | 'completed'>('upcoming');
   const [loading, setLoading] = useState(true);
@@ -32,21 +34,24 @@ export default function MyMatches() {
   const appState = useRef(AppState.currentState);
 
   const load = useCallback(async () => {
-    try {
-      setError('');
-      const data = await Api.myRegistrations();
-      const registrations = Array.isArray(data) ? data : [];
-      setRegs(registrations);
-      const timeSample = registrations.find((registration: any) =>
-        Number.isFinite(registration.serverNowMs),
-      )?.serverNowMs;
-      setServerNowMs(Number.isFinite(timeSample) ? timeSample : null);
-    } catch (e) {
-      setError(apiError(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    await registrationRequests.run(
+      () => Api.myRegistrations(),
+      () => setError(''),
+      (result) => {
+        if (result.ok) {
+          const registrations = Array.isArray(result.value) ? result.value : [];
+          setRegs(registrations);
+          const timeSample = registrations.find((registration: any) =>
+            Number.isFinite(registration.serverNowMs),
+          )?.serverNowMs;
+          setServerNowMs(Number.isFinite(timeSample) ? timeSample : null);
+        } else {
+          setError(apiError(result.error));
+        }
+        setLoading(false);
+      },
+    );
+  }, [registrationRequests]);
 
   const refreshMatches = useCallback(() => {
     setClockNow(Date.now());
@@ -54,6 +59,7 @@ export default function MyMatches() {
   }, [load]);
 
   useFocusEffect(useCallback(() => {
+    registrationRequests.setFocused(true);
     appState.current = AppState.currentState;
     refreshMatches();
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -67,10 +73,11 @@ export default function MyMatches() {
       }
     });
     return () => {
+      registrationRequests.setFocused(false);
       subscription.remove();
       networkSubscription.remove();
     };
-  }, [refreshMatches]));
+  }, [refreshMatches, registrationRequests]));
 
   useEffect(() => {
     const transitions = regs.flatMap((registration) => {
