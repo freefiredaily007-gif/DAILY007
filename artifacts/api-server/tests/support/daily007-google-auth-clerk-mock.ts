@@ -19,11 +19,15 @@ type MockRequest = {
   auth?: { userId?: string | null };
 };
 
-let mockGoogleUser: User | null = null;
+let mockGoogleUsers = new Map<string, User>();
 let userLookupCount = 0;
 
 export function resetMockGoogleUser(user: User | null = null): void {
-  mockGoogleUser = user;
+  resetMockGoogleUsers(user ? [user] : []);
+}
+
+export function resetMockGoogleUsers(users: User[] = []): void {
+  mockGoogleUsers = new Map(users.map((user) => [user.id, structuredClone(user)]));
   userLookupCount = 0;
 }
 
@@ -39,10 +43,11 @@ export const clerkClient = {
   users: {
     async getUser(userId: string): Promise<User> {
       userLookupCount += 1;
-      if (!mockGoogleUser || mockGoogleUser.id !== userId) {
+      const user = mockGoogleUsers.get(userId);
+      if (!user) {
         throw new Error("No matching mocked Google identity is configured.");
       }
-      return structuredClone(mockGoogleUser);
+      return structuredClone(user);
     },
   },
 };

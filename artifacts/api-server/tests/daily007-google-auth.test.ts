@@ -14,6 +14,7 @@ import { logoutDaily007 } from "../../daily007/src/lib/logout";
 import {
   getMockGoogleUserLookupCount,
   resetMockGoogleUser,
+  resetMockGoogleUsers,
 } from "./support/daily007-google-auth-clerk-mock";
 import type { User as MockGoogleUser } from "./support/daily007-google-auth-clerk-mock";
 import {
@@ -24,6 +25,7 @@ import {
 } from "./support/daily007-signup-test-db";
 
 const GOOGLE_CLERK_USER_ID = "clerk-google-signup-test";
+const SECOND_GOOGLE_CLERK_USER_ID = "clerk-google-signup-test-second";
 const TEST_AUTH_SECRET = "google-signup-reward-tests-only-secret-at-least-32-chars";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
@@ -38,7 +40,9 @@ async function withGoogleAuthServer(run: (origin: string) => Promise<void>): Pro
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    Object.assign(req, { auth: { userId: GOOGLE_CLERK_USER_ID } });
+    Object.assign(req, {
+      auth: { userId: req.get("x-mock-clerk-user-id") ?? GOOGLE_CLERK_USER_ID },
+    });
     next();
   });
   app.use(daily007V2Router);
@@ -77,6 +81,23 @@ const VERIFIED_GOOGLE_USER = {
   }],
 } as unknown as User;
 
+const SECOND_VERIFIED_GOOGLE_USER = {
+  id: SECOND_GOOGLE_CLERK_USER_ID,
+  firstName: "Second",
+  lastName: "Player",
+  emailAddresses: [{
+    emailAddress: "second-google-signup@example.test",
+    verification: { status: "verified" },
+  }],
+  externalAccounts: [{
+    provider: "google",
+    emailAddress: "second-google-signup@example.test",
+    firstName: "Second",
+    lastName: "Player",
+    verification: { status: "verified" },
+  }],
+} as unknown as User;
+
 type JsonResult = { status: number; body: Record<string, any> };
 
 async function postJson(
@@ -102,6 +123,26 @@ function googleAuth(
     authorization: "Bearer mocked-clerk-session",
     ...(dailyToken ? { "X-Daily007-Token": dailyToken } : {}),
   });
+}
+
+async function rawGoogleSignup(
+  origin: string,
+  clerkUserId: string,
+): Promise<{ status: number; body: Record<string, any> | null }> {
+  const response = await fetch(`${origin}/auth/google`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer mocked-clerk-session",
+      "content-type": "application/json",
+      "x-mock-clerk-user-id": clerkUserId,
+    },
+    body: JSON.stringify({ referralCode: SIGNUP_TEST_REFERRAL_CODE }),
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: response.status === 201 ? JSON.parse(text) as Record<string, any> : null,
+  };
 }
 
 async function createPasswordAccount(origin: string, email: string) {
@@ -625,6 +666,185 @@ test("a same-identity sign-in waiting on a failed referral reward succeeds after
       );
     });
   } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("a failed referral reward rollback preserves another identity's completed Google signup", async () => {
+  signupTestDb.reset();
+  signupTestDb.synchronizeNextAdvisoryLockQueries(2);
+  signupTestDb.failNextReferralSignupRewardLedgerWrite();
+  const failurePause = signupTestDb.pauseNextReferralSignupRewardLedgerFailure();
+  resetMockGoogleUsers([
+    VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+    SECOND_VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+  ]);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const identities = [
+        {
+          clerkUserId: GOOGLE_CLERK_USER_ID,
+          email: "google-signup@example.test",
+        },
+        {
+          clerkUserId: SECOND_GOOGLE_CLERK_USER_ID,
+          email: "second-google-signup@example.test",
+        },
+      ];
+      const signIns = identities.map((identity) => ({
+        ...identity,
+        result: rawGoogleSignup(origin, identity.clerkUserId).then((result) => ({
+          ...identity,
+          ...result,
+        })),
+      }));
+
+      try {
+        let failureReachedTimeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            failurePause.reached,
+            new Promise<void>((_resolve, reject) => {
+              failureReachedTimeout = setTimeout(
+                () => reject(new Error("The referral reward failure was not reached.")),
+                2_000,
+              );
+            }),
+          ]);
+        } finally {
+          if (failureReachedTimeout) clearTimeout(failureReachedTimeout);
+        }
+
+        const firstCompleted = await Promise.race(signIns.map(({ result }) => result));
+        assert.equal(
+          firstCompleted.status,
+          201,
+          "the independent signup should commit while the failed transaction remains open",
+        );
+        assert.ok(firstCompleted.body);
+
+        failurePause.release();
+        const results = await Promise.all(signIns.map(({ result }) => result));
+        assert.deepEqual(
+          results.map(({ status }) => status).sort((left, right) => left - right),
+          [201, 500],
+          "one identity should fail while the other completes",
+        );
+        assert.equal(getMockGoogleUserLookupCount(), 2);
+        assert.equal(
+          signupTestDb.advisoryLockWaitCount,
+          0,
+          "different Clerk identities must not contend on the identity lock",
+        );
+        assert.equal(
+          signupTestDb.activeAdvisoryLockCount,
+          0,
+          "both completed signup transactions must release their locks",
+        );
+        assert.deepEqual(signupTestDb.referralSignupRewardLedgerFailureContext, {
+          accountExists: true,
+          referralExists: true,
+          walletCoins: 10,
+        }, "the failed signup should roll back after its referral and wallet changes began");
+
+        const successfulSignup = results.find(({ status }) => status === 201);
+        const failedSignup = results.find(({ status }) => status === 500);
+        assert.ok(successfulSignup?.body);
+        assert.ok(failedSignup);
+        const failedUserId = signupTestDb.failedReferralSignupRewardUserId;
+        assert.ok(failedUserId, "the injected failure should identify the account being rolled back");
+
+        assert.equal(signupTestDb.users.has(failedUserId), false);
+        assert.equal(
+          [...signupTestDb.users.values()].some(
+            (user) => user.email === failedSignup.email ||
+              user.clerk_user_id === failedSignup.clerkUserId,
+          ),
+          false,
+          "the failed identity must not leave an account or identity link",
+        );
+        assert.equal(
+          signupTestDb.referrals.some((referral) => referral.referred_user_id === failedUserId),
+          false,
+          "the failed identity must not leave a referral relationship",
+        );
+        assert.equal(
+          signupTestDb.ledger.some((entry) => entry.user_id === failedUserId),
+          false,
+          "the failed identity must not leave a wallet entry",
+        );
+
+        const successfulAccount = signupTestDb.users.get(String(successfulSignup.body.id));
+        assert.ok(successfulAccount);
+        assert.equal(successfulAccount.clerk_user_id, successfulSignup.clerkUserId);
+        assert.equal(successfulAccount.email, successfulSignup.email);
+        assert.equal(successfulAccount.wallet_coins, 10);
+        assert.equal(successfulSignup.body.coins, 10);
+        assert.equal(typeof successfulSignup.body.token, "string");
+        assert.equal(signupTestDb.users.size, 2, "the referrer and only the successful Google account should remain");
+
+        const referrer = [...signupTestDb.users.values()].find(
+          (user) => user.email === "referrer@example.test",
+        );
+        assert.ok(referrer);
+        assert.deepEqual(
+          signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+            referrer_user_id,
+            referred_user_id,
+            code,
+          })),
+          [{
+            referrer_user_id: referrer.id,
+            referred_user_id: successfulAccount.id,
+            code: SIGNUP_TEST_REFERRAL_CODE,
+          }],
+          "the successful identity's referral must survive the other transaction's rollback",
+        );
+        assert.deepEqual(
+          signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+            user_id,
+            amount,
+            balance_after,
+            reason,
+          })),
+          [{
+            user_id: successfulAccount.id,
+            amount: 10,
+            balance_after: 10,
+            reason: "Referral Signup Bonus",
+          }],
+          "only the successful signup's 10-coin reward should remain",
+        );
+
+        const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+          headers: { authorization: `Bearer ${String(successfulSignup.body.token)}` },
+        });
+        assert.equal(walletResponse.status, 200);
+        const walletHistory = await walletResponse.json() as {
+          amount: number;
+          balanceAfter: number;
+          reason: string;
+        }[];
+        assert.deepEqual(
+          walletHistory.map(({ amount, balanceAfter, reason }) => ({
+            amount,
+            balanceAfter,
+            reason,
+          })),
+          [{
+            amount: 10,
+            balanceAfter: 10,
+            reason: "Referral Signup Bonus",
+          }],
+        );
+      } finally {
+        failurePause.release();
+      }
+    });
+  } finally {
+    failurePause.release();
     signupTestDb.reset();
     resetMockGoogleUser();
   }

@@ -34,17 +34,8 @@ type SignupReferral = {
   code: string;
 };
 
-type Snapshot = {
-  users: Map<string, SignupUser>;
-  shortCodesByUser: Map<string, string>;
-  shortCodeOwners: Map<string, string>;
-  legacyCodeOwners: Map<string, string>;
-  referrals: SignupReferral[];
-  ledger: SignupLedgerEntry[];
-  nextUserId: number;
-  nextLedgerId: number;
-  nextReferralId: number;
-};
+type UndoAction = () => void;
+type RecordUndoAction = (undo: UndoAction) => void;
 
 type AdvisoryLockBarrier = {
   expectedArrivals: number;
@@ -62,15 +53,19 @@ type AuthVersionUpdatePause = {
   claimed: boolean;
 };
 
+type ReferralRewardLedgerFailurePause = {
+  reached: Promise<void>;
+  markReached: () => void;
+  resume: Promise<void>;
+  release: () => void;
+  claimed: boolean;
+};
+
 export const SIGNUP_TEST_REFERRAL_CODE = "ABCDE";
 const REFERRER_ID = "40000000-0000-4000-8000-000000000001";
 const UNKNOWN_REFERRER_ID = "40000000-0000-4000-8000-000000000099";
 export const SIGNUP_TEST_LEGACY_REFERRAL_CODE = referralCodeForUserId(REFERRER_ID);
 export const SIGNUP_TEST_UNKNOWN_LEGACY_REFERRAL_CODE = referralCodeForUserId(UNKNOWN_REFERRER_ID);
-
-function cloneMap<T>(source: Map<string, T>): Map<string, T> {
-  return new Map([...source].map(([key, value]) => [key, structuredClone(value)]));
-}
 
 function userIdFor(sequence: number): string {
   return `40000000-0000-4000-8000-${sequence.toString().padStart(12, "0")}`;
@@ -92,6 +87,7 @@ class MemorySignupDatabase {
     referralExists: boolean;
     walletCoins: number | null;
   } | null = null;
+  failedReferralSignupRewardUserId: string | null = null;
   welcomeSignupRewardLedgerFailureContext: {
     accountExists: boolean;
     legacyCodeExists: boolean;
@@ -109,6 +105,7 @@ class MemorySignupDatabase {
   private advisoryLockTails = new Map<string, Promise<void>>();
   private advisoryLockBarrier: AdvisoryLockBarrier | null = null;
   private authVersionUpdatePause: AuthVersionUpdatePause | null = null;
+  private referralRewardLedgerFailurePause: ReferralRewardLedgerFailurePause | null = null;
   advisoryLockWaitCount = 0;
   get activeAdvisoryLockCount(): number {
     return this.advisoryLockTails.size;
@@ -120,6 +117,7 @@ class MemorySignupDatabase {
   reset(): void {
     this.advisoryLockBarrier?.release();
     this.authVersionUpdatePause?.release();
+    this.referralRewardLedgerFailurePause?.release();
     const referrer: SignupUser = {
       id: REFERRER_ID,
       name: "Referral Test Owner",
@@ -142,6 +140,7 @@ class MemorySignupDatabase {
     this.referrals = [];
     this.ledger = [];
     this.referralSignupRewardLedgerFailureContext = null;
+    this.failedReferralSignupRewardUserId = null;
     this.welcomeSignupRewardLedgerFailureContext = null;
     this.referralCodeInsertFailureContext = null;
     this.shouldFailNextWelcomeSignupRewardLedgerWrite = false;
@@ -153,6 +152,7 @@ class MemorySignupDatabase {
     this.advisoryLockTails.clear();
     this.advisoryLockWaitCount = 0;
     this.authVersionUpdatePause = null;
+    this.referralRewardLedgerFailurePause = null;
   }
 
   synchronizeNextAdvisoryLockQueries(expectedArrivals: number): void {
@@ -214,7 +214,39 @@ class MemorySignupDatabase {
 
   failNextReferralSignupRewardLedgerWrite(): void {
     this.referralSignupRewardLedgerFailureContext = null;
+    this.failedReferralSignupRewardUserId = null;
     this.shouldFailNextReferralSignupRewardLedgerWrite = true;
+  }
+
+  pauseNextReferralSignupRewardLedgerFailure(): {
+    reached: Promise<void>;
+    release: () => void;
+  } {
+    this.referralRewardLedgerFailurePause?.release();
+
+    let markReached!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      markReached = resolve;
+    });
+    let resumeFailure!: () => void;
+    const resume = new Promise<void>((resolve) => {
+      resumeFailure = resolve;
+    });
+    let pause!: ReferralRewardLedgerFailurePause;
+    pause = {
+      reached,
+      markReached,
+      resume,
+      claimed: false,
+      release: () => {
+        resumeFailure();
+        if (this.referralRewardLedgerFailurePause === pause) {
+          this.referralRewardLedgerFailurePause = null;
+        }
+      },
+    };
+    this.referralRewardLedgerFailurePause = pause;
+    return { reached, release: () => pause.release() };
   }
 
   failNextWelcomeSignupRewardLedgerWrite(): void {
@@ -225,32 +257,6 @@ class MemorySignupDatabase {
   failNextReferralShortCodeInsert(): void {
     this.referralCodeInsertFailureContext = null;
     this.shouldFailNextReferralShortCodeInsert = true;
-  }
-
-  private snapshot(): Snapshot {
-    return {
-      users: cloneMap(this.users),
-      shortCodesByUser: cloneMap(this.shortCodesByUser),
-      shortCodeOwners: cloneMap(this.shortCodeOwners),
-      legacyCodeOwners: cloneMap(this.legacyCodeOwners),
-      referrals: structuredClone(this.referrals),
-      ledger: structuredClone(this.ledger),
-      nextUserId: this.nextUserId,
-      nextLedgerId: this.nextLedgerId,
-      nextReferralId: this.nextReferralId,
-    };
-  }
-
-  private restore(snapshot: Snapshot): void {
-    this.users = snapshot.users;
-    this.shortCodesByUser = snapshot.shortCodesByUser;
-    this.shortCodeOwners = snapshot.shortCodeOwners;
-    this.legacyCodeOwners = snapshot.legacyCodeOwners;
-    this.referrals = snapshot.referrals;
-    this.ledger = snapshot.ledger;
-    this.nextUserId = snapshot.nextUserId;
-    this.nextLedgerId = snapshot.nextLedgerId;
-    this.nextReferralId = snapshot.nextReferralId;
   }
 
   private async acquireAdvisoryTransactionLock(key: string): Promise<() => void> {
@@ -281,7 +287,8 @@ class MemorySignupDatabase {
   }
 
   async connect() {
-    let transactionSnapshot: Snapshot | null = null;
+    let transactionActive = false;
+    let transactionUndo: UndoAction[] = [];
     const transactionLockReleases: (() => void)[] = [];
     const releaseTransactionLocks = () => {
       for (const release of transactionLockReleases.splice(0).reverse()) release();
@@ -290,17 +297,22 @@ class MemorySignupDatabase {
       query: async <T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> => {
         const normalized = sql.replace(/\s+/g, " ").trim();
         if (normalized === "BEGIN") {
-          transactionSnapshot = this.snapshot();
+          transactionActive = true;
+          transactionUndo = [];
           return { rows: [] as T[] };
         }
         if (normalized === "COMMIT") {
-          transactionSnapshot = null;
+          transactionActive = false;
+          transactionUndo = [];
           releaseTransactionLocks();
           return { rows: [] as T[] };
         }
         if (normalized === "ROLLBACK") {
-          if (transactionSnapshot) this.restore(transactionSnapshot);
-          transactionSnapshot = null;
+          if (transactionActive) {
+            for (const undo of transactionUndo.reverse()) undo();
+          }
+          transactionActive = false;
+          transactionUndo = [];
           releaseTransactionLocks();
           return { rows: [] as T[] };
         }
@@ -310,16 +322,22 @@ class MemorySignupDatabase {
             String(values[0] ?? ""),
           );
           transactionLockReleases.push(releaseLock);
-          transactionSnapshot = this.snapshot();
           return { rows: [] as T[] };
         }
-        return this.query<T>(normalized, values);
+        const recordUndo = transactionActive
+          ? (undo: UndoAction) => transactionUndo.push(undo)
+          : undefined;
+        return this.query<T>(normalized, values, recordUndo);
       },
       release: releaseTransactionLocks,
     };
   }
 
-  async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
+  async query<T = unknown>(
+    sql: string,
+    values: unknown[] = [],
+    recordUndo?: RecordUndoAction,
+  ): Promise<{ rows: T[] }> {
     const normalized = sql.replace(/\s+/g, " ").trim();
     const first = String(values[0] ?? "");
     let rows: unknown[] = [];
@@ -351,6 +369,9 @@ class MemorySignupDatabase {
         clerk_user_id: clerkUserId == null ? null : String(clerkUserId),
       };
       this.users.set(user.id, user);
+      recordUndo?.(() => {
+        if (this.users.get(user.id) === user) this.users.delete(user.id);
+      });
       rows = [this.accountRow(user)];
     } else if (normalized.startsWith("SELECT pg_advisory_xact_lock(")) {
       rows = [];
@@ -374,7 +395,13 @@ class MemorySignupDatabase {
     )) {
       const user = this.users.get(first);
       if (user && !user.clerk_user_id) {
+        const previousClerkUserId = user.clerk_user_id;
         user.clerk_user_id = String(values[1]);
+        recordUndo?.(() => {
+          if (user.clerk_user_id === String(values[1])) {
+            user.clerk_user_id = previousClerkUserId;
+          }
+        });
         rows = [this.accountRow(user)];
       }
     } else if (normalized.startsWith(
@@ -394,7 +421,11 @@ class MemorySignupDatabase {
     )) {
       const user = this.users.get(first);
       if (user) {
+        const previousRole = user.role;
         user.role = values[1] as SignupUser["role"];
+        recordUndo?.(() => {
+          if (user.role === values[1]) user.role = previousRole;
+        });
         rows = [{ id: user.id, role: user.role }];
       }
     } else if (normalized.startsWith(
@@ -426,7 +457,14 @@ class MemorySignupDatabase {
       "INSERT INTO daily007_v2_referral_codes (user_id, code)",
     )) {
       const [userId, code] = values.map(String);
-      if (!this.legacyCodeOwners.has(code)) this.legacyCodeOwners.set(code, userId);
+      if (!this.legacyCodeOwners.has(code)) {
+        this.legacyCodeOwners.set(code, userId);
+        recordUndo?.(() => {
+          if (this.legacyCodeOwners.get(code) === userId) {
+            this.legacyCodeOwners.delete(code);
+          }
+        });
+      }
     } else if (normalized.startsWith(
       "INSERT INTO daily007_v2_referral_short_codes (user_id, code)",
     )) {
@@ -443,6 +481,14 @@ class MemorySignupDatabase {
       if (!this.shortCodesByUser.has(userId) && !this.shortCodeOwners.has(code)) {
         this.shortCodesByUser.set(userId, code);
         this.shortCodeOwners.set(code, userId);
+        recordUndo?.(() => {
+          if (this.shortCodesByUser.get(userId) === code) {
+            this.shortCodesByUser.delete(userId);
+          }
+          if (this.shortCodeOwners.get(code) === userId) {
+            this.shortCodeOwners.delete(code);
+          }
+        });
       }
     } else if (normalized.startsWith(
       "SELECT code FROM daily007_v2_referral_short_codes WHERE user_id = $1",
@@ -468,6 +514,10 @@ class MemorySignupDatabase {
         code,
       };
       this.referrals.push(referral);
+      recordUndo?.(() => {
+        const referralIndex = this.referrals.findIndex((item) => item.id === referral.id);
+        if (referralIndex !== -1) this.referrals.splice(referralIndex, 1);
+      });
       rows = [{ id: referral.id }];
     } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {
       const user = this.users.get(first);
@@ -480,7 +530,14 @@ class MemorySignupDatabase {
     } else if (normalized.startsWith("UPDATE daily007_v2_users SET wallet_coins")) {
       const user = this.users.get(first);
       if (!user) throw new Error(`Signup test user not found for wallet update: ${first}`);
-      user.wallet_coins = Number(values[1]);
+      const previousWalletCoins = user.wallet_coins;
+      const updatedWalletCoins = Number(values[1]);
+      user.wallet_coins = updatedWalletCoins;
+      recordUndo?.(() => {
+        if (user.wallet_coins === updatedWalletCoins) {
+          user.wallet_coins = previousWalletCoins;
+        }
+      });
     } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
       const [userId, amount, balanceAfter, idempotencyKey, details] = values;
       if (this.ledger.some((item) => item.idempotency_key === idempotencyKey)) {
@@ -510,7 +567,14 @@ class MemorySignupDatabase {
           ),
           walletCoins: referredUser?.wallet_coins ?? null,
         };
+        this.failedReferralSignupRewardUserId = referredUserId;
         this.shouldFailNextReferralSignupRewardLedgerWrite = false;
+        const pause = this.referralRewardLedgerFailurePause;
+        if (pause && !pause.claimed) {
+          pause.claimed = true;
+          pause.markReached();
+          await pause.resume;
+        }
         throw new Error("Simulated referral signup reward ledger write failure.");
       }
       const entry: SignupLedgerEntry = {
@@ -524,6 +588,10 @@ class MemorySignupDatabase {
         created_at: new Date(this.nextLedgerId),
       };
       this.ledger.push(entry);
+      recordUndo?.(() => {
+        const ledgerIndex = this.ledger.findIndex((item) => item.id === entry.id);
+        if (ledgerIndex !== -1) this.ledger.splice(ledgerIndex, 1);
+      });
     } else if (normalized.startsWith("UPDATE daily007_v2_users SET auth_version = auth_version + 1")) {
       const pause = this.authVersionUpdatePause;
       if (pause && !pause.claimed) {
@@ -534,7 +602,13 @@ class MemorySignupDatabase {
       const user = this.users.get(first);
       const statusGuarded = /\bAND\s+status\s*=\s*'active'/i.test(normalized);
       if (user && (!statusGuarded || user.status === "active")) {
+        const previousAuthVersion = user.auth_version;
         user.auth_version += 1;
+        recordUndo?.(() => {
+          if (user.auth_version === previousAuthVersion + 1) {
+            user.auth_version = previousAuthVersion;
+          }
+        });
         rows = [{ auth_version: user.auth_version }];
       }
     } else if (normalized.startsWith(
