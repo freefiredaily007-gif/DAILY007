@@ -881,10 +881,34 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
 
   await clickSelector('[data-testid="video-catalog-reload"]', "retry video catalog refresh");
   await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))
+      && window.__videoRewardPreviewCalls?.listRefetches === 2`,
+    "catalog error and reload action after the second consecutive refresh failure",
+  );
+  const repeatedFailure = await evaluate(`(() => ({
+    errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+    reloadVisible: document.querySelector('[data-testid="video-catalog-reload"]') !== null,
+    unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
+    activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+    refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+  }))()`);
+  assert(
+    repeatedFailure.errorVisible
+      && repeatedFailure.reloadVisible
+      && !repeatedFailure.unavailableCard
+      && !repeatedFailure.activeCard
+      && repeatedFailure.refreshes === 2,
+    `A second failed refresh should keep recovery available and hide stale catalog entries: ${JSON.stringify(repeatedFailure)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-reload"]', "retry video catalog refresh after the second failure");
+  await waitForCondition(
     `document.body.innerText.includes('Preview video that remains available')
       && !document.body.innerText.includes('Preview video that becomes unavailable')
-      && !document.body.innerText.includes(${JSON.stringify(catalogError)})`,
-    "refreshed catalog after retry",
+      && !document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && window.__videoRewardPreviewCalls?.listRefetches === 3`,
+    "refreshed catalog after the third attempt succeeds",
   );
   const recoveredCatalog = await evaluate(`(() => ({
     errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
@@ -896,10 +920,10 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
     !recoveredCatalog.errorVisible
       && !recoveredCatalog.unavailableCard
       && recoveredCatalog.activeCard
-      && recoveredCatalog.refreshes === 2,
+      && recoveredCatalog.refreshes === 3,
     `Retrying the catalog should remove only the unavailable video: ${JSON.stringify(recoveredCatalog)}`,
   );
-  console.log("PASS — catalog reload recovers from an unavailable-video refresh failure.");
+  console.log("PASS — catalog reload stays available across two failures and recovers on the third attempt.");
 }
 
 async function checkTransientVideoRewardRetry() {

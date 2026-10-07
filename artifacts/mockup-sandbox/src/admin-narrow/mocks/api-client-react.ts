@@ -235,7 +235,7 @@ export function useDaily007ListVideos() {
   const refetch = useCallback(async () => {
     const calls = getVideoRewardPreviewCalls();
     calls.listRefetches += 1;
-    if (mode === "unavailableRefreshFailure" && calls.listRefetches === 1) {
+    if (mode === "unavailableRefreshFailure" && calls.listRefetches <= 2) {
       setRefreshFailed(true);
       return { error: new Error("Temporary video catalog refresh failure.") };
     }
