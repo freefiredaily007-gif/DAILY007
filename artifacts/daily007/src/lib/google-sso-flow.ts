@@ -40,20 +40,17 @@ export async function runGoogleSSOAttempt<T>({
   getErrorMessage,
 }: GoogleSSOAttemptOptions<T>): Promise<void> {
   setLoading(true);
+  let errorMessage: string | undefined;
   try {
     const result = await authenticate();
-    if (result.status === 'cancelled') return;
-    if (result.status === 'error') {
-      showError(result.message);
-      return;
-    }
-
-    await onSuccess(result.value);
+    if (result.status === 'error') errorMessage = result.message;
+    else if (result.status === 'success') await onSuccess(result.value);
   } catch (error) {
-    showError(getErrorMessage(error));
+    errorMessage = getErrorMessage(error);
   } finally {
     setLoading(false);
   }
+  if (errorMessage !== undefined) showError(errorMessage);
 }
 
 export async function runGoogleSSOFlow<T>({

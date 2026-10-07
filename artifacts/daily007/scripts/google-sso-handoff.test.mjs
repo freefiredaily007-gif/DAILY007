@@ -263,6 +263,7 @@ test("a mismatched active Clerk session is a retryable error", async () => {
 test("a rejected Clerk activation restores the Google button and reports a retryable error", async () => {
   const loadingChanges = [];
   const errors = [];
+  const attemptEvents = [];
   let successCalls = 0;
   let exchanges = 0;
   const result = await runGoogleSSOAttempt({
@@ -281,8 +282,14 @@ test("a rejected Clerk activation restores the Google button and reports a retry
         return "unexpected";
       },
     }),
-    setLoading: (loading) => loadingChanges.push(loading),
-    showError: (message) => errors.push(message),
+    setLoading: (loading) => {
+      loadingChanges.push(loading);
+      attemptEvents.push(`loading:${loading}`);
+    },
+    showError: (message) => {
+      errors.push(message);
+      attemptEvents.push(`error:${message}`);
+    },
     onSuccess: () => {
       successCalls += 1;
     },
@@ -292,6 +299,10 @@ test("a rejected Clerk activation restores the Google button and reports a retry
   assert.equal(result, undefined);
   assert.deepEqual(loadingChanges, [true, false]);
   assert.deepEqual(errors, ["Clerk activation failed. Please try again."]);
+  assert.deepEqual(
+    attemptEvents,
+    ["loading:true", "loading:false", "error:Clerk activation failed. Please try again."],
+  );
   assert.equal(exchanges, 0);
   assert.equal(successCalls, 0);
 });
@@ -299,6 +310,7 @@ test("a rejected Clerk activation restores the Google button and reports a retry
 test("a rejected Daily007 token exchange restores the Google button and reports a retryable error", async () => {
   const loadingChanges = [];
   const errors = [];
+  const attemptEvents = [];
   let successCalls = 0;
   const result = await runGoogleSSOAttempt({
     authenticate: () => runGoogleSSOFlow({
@@ -310,8 +322,14 @@ test("a rejected Daily007 token exchange restores the Google button and reports 
         throw new Error("Daily007 is temporarily unavailable");
       },
     }),
-    setLoading: (loading) => loadingChanges.push(loading),
-    showError: (message) => errors.push(message),
+    setLoading: (loading) => {
+      loadingChanges.push(loading);
+      attemptEvents.push(`loading:${loading}`);
+    },
+    showError: (message) => {
+      errors.push(message);
+      attemptEvents.push(`error:${message}`);
+    },
     onSuccess: () => {
       successCalls += 1;
     },
@@ -321,6 +339,10 @@ test("a rejected Daily007 token exchange restores the Google button and reports 
   assert.equal(result, undefined);
   assert.deepEqual(loadingChanges, [true, false]);
   assert.deepEqual(errors, ["Daily007 is temporarily unavailable. Please try again."]);
+  assert.deepEqual(
+    attemptEvents,
+    ["loading:true", "loading:false", "error:Daily007 is temporarily unavailable. Please try again."],
+  );
   assert.equal(successCalls, 0);
 });
 
@@ -409,6 +431,10 @@ test("the React Native button and callback route use the isolated handoff and me
     new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
     "utf8",
   );
+  const uiSource = await readFile(
+    new URL("../src/components/ui.tsx", import.meta.url),
+    "utf8",
+  );
   const callbackSource = await readFile(
     new URL("../app/sso-callback.tsx", import.meta.url),
     "utf8",
@@ -420,8 +446,10 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(buttonSource, /disabled=\{disabled \|\| loading\}/);
   assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
   assert.match(buttonSource, /return `\$\{message\} Please try again\.`/);
-  assert.match(buttonSource, /setError\(message\);[\s\S]*?onError\?\.\(message\);/);
-  assert.match(buttonSource, /\{!!error && !onError && <Msg kind="err" text=\{error\} \/>/);
+  assert.match(buttonSource, /onError && Platform\.OS === 'android'[\s\S]*?AccessibilityInfo\.announceForAccessibility\(message\)/);
+  assert.match(buttonSource, /accessibilityLabel=\{error\}[\s\S]*?accessibilityLiveRegion="assertive"/);
+  assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
   assert.match(buttonSource, /getActiveSession:\s*\(\)\s*=>\s*getClerkInstance\(\)\.session/);
   assert.match(buttonSource, /strategy:\s*'oauth_google'/);
   assert.match(buttonSource, /AuthSession\.makeRedirectUri\(\{ scheme: 'daily007', path: 'sso-callback' \}\)/);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View, Platform } from 'react-native';
+import { AccessibilityInfo, Pressable, StyleSheet, View, Platform } from 'react-native';
 import { ReadableText as Text } from './typography';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -24,6 +24,13 @@ type Props = {
 };
 
 const RECOVERY_CONFLICT = 'An account already uses this email. Sign in with your password, then connect Google in Profile.';
+
+function reportGoogleError(onError: Props['onError'], message: string) {
+  onError?.(message);
+  if (onError && Platform.OS === 'android') {
+    AccessibilityInfo.announceForAccessibility(message);
+  }
+}
 
 export default function GoogleSSOButton(props: Props) {
   if (!clerkConfigured) {
@@ -61,12 +68,25 @@ function GoogleButtonFrame({
 }
 
 function UnavailableButton({ onError, disabled, label = 'Continue with Google' }: Props) {
+  const [error, setError] = useState('');
+  const showError = () => {
+    const message = 'Google sign-in is not configured in this build. Email and password login are still available.';
+    setError(message);
+    reportGoogleError(onError, message);
+  };
+
   return (
-    <GoogleButtonFrame
-      label={label}
-      disabled={disabled}
-      onPress={() => onError?.('Google sign-in is not configured in this build. Email and password login are still available.')}
-    />
+    <>
+      <GoogleButtonFrame label={label} disabled={disabled} onPress={showError} />
+      {!!error && !onError && (
+        <Msg
+          kind="err"
+          text={error}
+          accessibilityLabel={error}
+          accessibilityLiveRegion="assertive"
+        />
+      )}
+    </>
   );
 }
 
@@ -95,7 +115,7 @@ function ConfiguredGoogleButton({
 
   const showError = (message: string) => {
     setError(message);
-    onError?.(message);
+    reportGoogleError(onError, message);
     if (allowRecoveryRequest && message === RECOVERY_CONFLICT) setRecoveryAvailable(true);
   };
 
@@ -256,7 +276,14 @@ function ConfiguredGoogleButton({
           If an eligible account matches, a Full Admin will review it. Google will not be linked until ownership is verified.
         </Text>
       )}
-      {!!error && !onError && <Msg kind="err" text={error} />}
+      {!!error && !onError && (
+        <Msg
+          kind="err"
+          text={error}
+          accessibilityLabel={error}
+          accessibilityLiveRegion="assertive"
+        />
+      )}
     </>
   );
 }
