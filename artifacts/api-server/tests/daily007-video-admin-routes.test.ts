@@ -290,6 +290,23 @@ test("Full Admin can update a watched video's title and topic while keeping its 
     assert.equal(updated.body.topic, "Clash Squad");
     assert.equal(updated.body.youtubeId, "a1b2C3d4E5F");
     assert.equal(updated.body.url, "https://youtu.be/a1b2C3d4E5F");
+
+    const catalogResponse = await fetch(`${origin}/videos`);
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json() as {
+      videos: Array<{
+        id: string;
+        title: string;
+        topic: string;
+        youtubeId: string;
+      }>;
+    };
+    const catalogVideo = catalog.videos.find((video) => video.id === videoId);
+    assert.ok(catalogVideo, "the watched video should remain visible in the public catalog");
+    assert.equal(catalogVideo.title, "Corrected Tournament Highlights");
+    assert.equal(catalogVideo.topic, "Clash Squad");
+    assert.equal(catalogVideo.youtubeId, "a1b2C3d4E5F");
+
     assert.deepEqual(videoTestDb.videos, [{
       ...videosBefore[0],
       title: "Corrected Tournament Highlights",
