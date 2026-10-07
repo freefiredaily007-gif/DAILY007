@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import {
   leaderboardPlayerAccessibilityLabel,
   leaderboardPodiumAccessibilityLabel,
@@ -46,6 +47,30 @@ function textForTestId(testId) {
   const end = screenSource.indexOf("</Text>", markerIndex);
   assert.ok(start >= 0 && end > markerIndex, `Expected ${testId} on a Text element.`);
   return screenSource.slice(start, end + "</Text>".length);
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function createRetryQueryObserver(name, queryFn) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const observer = new QueryObserver(client, {
+    queryKey: ["leaderboard-load-retry", name],
+    queryFn,
+    retry: false,
+    enabled: false,
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  return { client, observer, unsubscribe };
 }
 
 test("expanded player rows announce rank, player, and coin score as one ordered label", () => {
@@ -369,6 +394,20 @@ test("empty and unavailable leaderboard guidance is exposed as readable text", (
   assert.match(error, /Leaderboard is unavailable: \$\{apiError\(query\.error\)\}/);
 });
 
+test("a no-data API error exposes an accessible retry action", () => {
+  const retryButton = pressableForTestId("leaderboard-retry-button");
+  assert.match(retryButton, /accessible/);
+  assert.match(retryButton, /accessibilityRole="button"/);
+  assert.match(retryButton, /accessibilityLabel="Retry leaderboard load"/);
+  assert.match(retryButton, /onPress=\{\(\) => void query\.refetch\(\)\}/);
+  assert.match(retryButton, /<Text style=\{styles\.retryButtonText\}>Try again<\/Text>/);
+
+  const errorBranchStart = screenSource.indexOf(") : query.error && !period ? (");
+  const errorBranchEnd = screenSource.indexOf(") : !period ? (", errorBranchStart);
+  assert.ok(errorBranchStart >= 0 && errorBranchEnd > errorBranchStart);
+  assert.match(screenSource.slice(errorBranchStart, errorBranchEnd), /leaderboard-retry-button/);
+});
+
 test("a failed refresh with a selected cached period announces that results may be stale", () => {
   const warning = textForTestId("leaderboard-stale-data-warning");
   assert.match(warning, /\baccessible\b/);
@@ -414,6 +453,79 @@ test("loading, error, unavailable, empty, and populated states stay distinct", (
   const loadingComponent = uiSource.slice(loadingStart, loadingEnd);
   assert.match(loadingComponent, /accessibilityRole=\{accessibilityLabel \? "progressbar" : undefined\}/);
   assert.match(loadingComponent, /accessibilityLabel=\{accessibilityLabel\}/);
+});
+
+test("a leaderboard retry succeeds and shows a distinct loading state", async () => {
+  const retryResponse = createDeferred();
+  let requestCount = 0;
+  const { client, observer, unsubscribe } = createRetryQueryObserver(
+    "success",
+    async () => {
+      requestCount += 1;
+      if (requestCount === 1) throw new Error("temporary API error");
+      return retryResponse.promise;
+    },
+  );
+
+  try {
+    const initialFailure = await observer.refetch();
+    assert.equal(initialFailure.isError, true);
+    assert.equal(initialFailure.data, undefined);
+
+    const retryRequest = observer.refetch();
+    const retrying = observer.getCurrentResult();
+    assert.equal(retrying.isLoading, true);
+    assert.equal(retrying.isError, false);
+    assert.equal(retrying.isFetching, true);
+
+    retryResponse.resolve({
+      weekly: { standings: [{ rank: 1, userId: "player-1", name: "Asha", points: 12 }] },
+    });
+    const recovered = await retryRequest;
+    assert.equal(recovered.isSuccess, true);
+    assert.equal(recovered.data.weekly.standings[0].name, "Asha");
+    assert.equal(requestCount, 2);
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
+});
+
+test("a leaderboard retry that fails again restores the no-data error state", async () => {
+  const retryResponse = createDeferred();
+  let requestCount = 0;
+  const { client, observer, unsubscribe } = createRetryQueryObserver(
+    "failure",
+    async () => {
+      requestCount += 1;
+      if (requestCount === 1) throw new Error("initial API error");
+      return retryResponse.promise;
+    },
+  );
+
+  try {
+    const initialFailure = await observer.refetch();
+    assert.equal(initialFailure.isError, true);
+    assert.equal(initialFailure.data, undefined);
+
+    const retryRequest = observer.refetch();
+    const retrying = observer.getCurrentResult();
+    assert.equal(retrying.isLoading, true);
+    assert.equal(retrying.isError, false);
+    assert.equal(retrying.isFetching, true);
+
+    retryResponse.reject(new Error("API is still unavailable"));
+    const repeatedFailure = await retryRequest;
+    assert.equal(repeatedFailure.isError, true);
+    assert.equal(repeatedFailure.isLoading, false);
+    assert.equal(repeatedFailure.isFetching, false);
+    assert.equal(repeatedFailure.data, undefined);
+    assert.equal(repeatedFailure.error.message, "API is still unavailable");
+    assert.equal(requestCount, 2);
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
 });
 
 for (const [cycle, ranks] of [

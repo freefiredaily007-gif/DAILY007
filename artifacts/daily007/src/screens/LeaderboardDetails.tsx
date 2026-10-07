@@ -423,6 +423,16 @@ export default function LeaderboardDetails({ navigation, route }: any) {
             >
               {`Leaderboard is unavailable: ${apiError(query.error)}`}
             </Text>
+            <Pressable
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Retry leaderboard load"
+              testID="leaderboard-retry-button"
+              onPress={() => void query.refetch()}
+              style={styles.retryButton}
+            >
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </Pressable>
           </View>
         ) : !period ? (
           <View style={styles.message}>
@@ -748,4 +758,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.card,
   },
   messageText: { color: C.sub, fontSize: 13, lineHeight: 19, textAlign: "center" },
+  retryButton: {
+    minHeight: 44,
+    minWidth: 112,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.blue,
+    backgroundColor: C.card,
+  },
+  retryButtonText: { color: C.blue, fontSize: 14, fontWeight: "800" },
 });
