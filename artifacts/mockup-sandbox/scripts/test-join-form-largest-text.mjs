@@ -18,6 +18,14 @@ let socket;
 let temporaryProfile;
 let vitePort;
 let messageId = 0;
+const inputValueSelectors = [
+  'input[placeholder="Captain Free Fire in-game name"]',
+  'input[placeholder="Captain Free Fire UID"]',
+  'input[placeholder="Team name"]',
+  'input[placeholder="Teammate 1 Free Fire in-game name"]',
+  'input[placeholder="Teammate 2 Free Fire in-game name"]',
+  'input[placeholder="Teammate 3 Free Fire in-game name"]',
+];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -114,7 +122,7 @@ async function waitForCondition(expression, description) {
   throw new Error(`${description} did not render. Page text: ${text}`);
 }
 
-async function checkLayout(width) {
+async function checkLayout(width, height) {
   const state = await evaluate(`(() => {
     const root = document.querySelector('[data-testid="player-screen"]');
     if (!root) return { missingRoot: true };
@@ -159,6 +167,7 @@ async function checkLayout(width) {
     });
     return {
       width: window.innerWidth,
+      height: window.innerHeight,
       documentWidth: document.documentElement.scrollWidth,
       root: [rootRect.left, rootRect.right, rootRect.top, rootRect.bottom],
       textIssues,
@@ -168,6 +177,7 @@ async function checkLayout(width) {
   })()`);
   assert(!state.missingRoot, `The registration screen did not mount at ${width}px.`);
   assert(state.width === width, `The registration preview was not rendered at ${width}px.`);
+  assert(state.height === height, `The registration preview was not rendered at ${height}px tall.`);
   assert(state.documentWidth <= width + 1, `The registration screen overflows horizontally at ${width}px.`);
   assert(state.textIssues.length === 0, `Registration text is clipped at ${width}px: ${JSON.stringify(state.textIssues.slice(0, 8))}`);
   const expectedLabels = [
@@ -201,6 +211,16 @@ async function checkLayout(width) {
     `The Squad registration did not expose a usable vertical scroll area at ${width}px: ${JSON.stringify(state.scroll)}`,
   );
   return state;
+}
+
+async function setViewport(width, height) {
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await delay(120);
 }
 
 async function checkReachable(selector, description, width) {
@@ -245,6 +265,17 @@ async function checkReachable(selector, description, width) {
   return state;
 }
 
+async function assertFormValues(expectedValues, stage) {
+  const values = await evaluate(`(() => {
+    const selectors = ${JSON.stringify(inputValueSelectors)};
+    return selectors.map((selector) => document.querySelector(selector)?.value ?? null);
+  })()`);
+  assert(
+    JSON.stringify(values) === JSON.stringify(expectedValues),
+    `Registration values changed ${stage}: ${JSON.stringify(values)}`,
+  );
+}
+
 async function setInputValue(selector, value, description) {
   const updated = await evaluate(`(() => {
     const input = document.querySelector(${JSON.stringify(selector)});
@@ -260,46 +291,110 @@ async function setInputValue(selector, value, description) {
 }
 
 async function runAtWidth(width) {
-  await cdp("Emulation.setDeviceMetricsOverride", {
-    width,
-    height: 820,
-    deviceScaleFactor: 1,
-    mobile: true,
-  });
+  await setViewport(width, 820);
   await cdp("Page.navigate", { url: `http://127.0.0.1:${vitePort}${previewUrl}` });
   await waitForCondition(
     "Boolean(document.querySelector('[data-testid=\"player-screen\"]') && document.querySelector('[data-testid=\"join-form-submit\"]'))",
     "the Squad registration screen",
   );
   await delay(120);
-  const layout = await checkLayout(width);
+  const layout = await checkLayout(width, 820);
 
-  await setInputValue('input[placeholder="Captain Free Fire in-game name"]', "Test Captain", "captain name");
-  await setInputValue('input[placeholder="Captain Free Fire UID"]', "FF-TEST-CAPTAIN", "captain UID");
-  await setInputValue('input[placeholder="Team name"]', "Test Squad", "team name");
+  const expectedValues = [
+    "Test Captain",
+    "FF-TEST-CAPTAIN",
+    "Test Squad",
+    "Test Teammate 1",
+    "Test Teammate 2",
+    "Test Teammate 3",
+  ];
+  await setInputValue(inputValueSelectors[0], expectedValues[0], "captain name");
+  await setInputValue(inputValueSelectors[1], expectedValues[1], "captain UID");
+  await setInputValue(inputValueSelectors[2], expectedValues[2], "team name");
   for (let teammate = 1; teammate <= 3; teammate += 1) {
     await setInputValue(
-      `input[placeholder="Teammate ${teammate} Free Fire in-game name"]`,
-      `Test Teammate ${teammate}`,
+      inputValueSelectors[teammate + 2],
+      expectedValues[teammate + 2],
       `teammate ${teammate} name`,
     );
   }
 
-  const join = await checkReachable('[data-testid="join-form-submit"]', "Join action", width);
+  await assertFormValues(expectedValues, "before opening the keyboard");
+  const teammateSelector = inputValueSelectors[5];
+  const focused = await evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(teammateSelector)});
+    input?.focus();
+    return Boolean(input && document.activeElement === input);
+  })()`);
+  assert(focused, `Could not focus a teammate field at ${width}px.`);
+
+  const keyboardHeight = 470;
+  await setViewport(width, keyboardHeight);
+  const keyboardLayout = await checkLayout(width, keyboardHeight);
+  assert(
+    keyboardLayout.scroll.clientHeight < layout.scroll.clientHeight,
+    `The form viewport did not shrink while the keyboard was simulated at ${width}px.`,
+  );
+  const teammate = await checkReachable(
+    teammateSelector,
+    "Focused teammate field with keyboard open",
+    width,
+  );
+  assert(teammate.scrollTop > 0, `The focused teammate field did not scroll into view at ${width}px.`);
+  await assertFormValues(expectedValues, "after focusing and scrolling with the keyboard open");
+
+  const join = await checkReachable(
+    '[data-testid="join-form-submit"]',
+    "Join action with keyboard open",
+    width,
+  );
   await evaluate(`document.querySelector('[data-testid="join-form-submit"]').click()`);
   await waitForCondition(
     "document.body.innerText.includes('Insufficient wallet balance: this entry costs 7 coins.')",
     "the simulated registration error",
   );
-  const cancel = await checkReachable('[data-testid="join-form-cancel"]', "Cancel action", width);
+  assert(
+    await evaluate(`window.innerHeight === ${keyboardHeight} && document.activeElement === document.querySelector(${JSON.stringify(teammateSelector)})`),
+    `Submitting with the keyboard open unexpectedly dismissed it at ${width}px.`,
+  );
+  const cancel = await checkReachable(
+    '[data-testid="join-form-cancel"]',
+    "Cancel action with keyboard open",
+    width,
+  );
   await evaluate(`document.querySelector('[data-testid="join-form-cancel"]').click()`);
   await waitForCondition("window.__joinFormCancelCount === 1", "the Cancel action");
   assert(
     !(await evaluate("document.body.innerText.includes('Registration confirmed')")),
     `A rejected registration showed a success message at ${width}px.`,
   );
+  assert(
+    await evaluate(`window.innerHeight === ${keyboardHeight} && document.activeElement === document.querySelector(${JSON.stringify(teammateSelector)})`),
+    `Cancel with the keyboard open unexpectedly dismissed it at ${width}px.`,
+  );
+  await assertFormValues(expectedValues, "after using Join and Cancel with the keyboard open");
+
+  await evaluate(`document.querySelector(${JSON.stringify(teammateSelector)}).blur()`);
+  await setViewport(width, 820);
+  const dismissedKeyboardLayout = await checkLayout(width, 820);
+  assert(
+    dismissedKeyboardLayout.scroll.scrollHeight > dismissedKeyboardLayout.scroll.clientHeight + 100,
+    `The form stopped scrolling after keyboard dismissal at ${width}px.`,
+  );
+  const joinDismissed = await checkReachable(
+    '[data-testid="join-form-submit"]',
+    "Join action after keyboard dismissal",
+    width,
+  );
+  const cancelDismissed = await checkReachable(
+    '[data-testid="join-form-cancel"]',
+    "Cancel action after keyboard dismissal",
+    width,
+  );
+  await assertFormValues(expectedValues, "after keyboard dismissal and scrolling");
+
   console.log(
-    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, Join and Cancel reachable after scrolling (scrollTop ${join.scrollTop}/${cancel.scrollTop}).`,
+    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, focused teammate and Join/Cancel reachable with keyboard open and dismissed (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}).`,
   );
 }
 

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import type { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
+import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildJoinFormPayload } from '../lib/joinFormPayload';
 import { validateJoinForm, type JoinFormField } from '../lib/joinFormValidation';
@@ -156,7 +157,12 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   };
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareScrollViewCompat
+      style={{ flex: 1, minHeight: 0 }}
+      contentContainerStyle={st.wrap}
+      keyboardShouldPersistTaps="handled"
+      bottomOffset={72}
+    >
       <Text onPress={onCancel} style={st.back}>← BACK</Text>
       <Text style={st.h}>{editing ? `EDIT TEAM · ${teamType.toUpperCase()}` : title}</Text>
       <Text style={st.sub}>
@@ -295,7 +301,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
           testID="join-form-cancel"
         />
       </View>
-    </ScrollView>
+    </KeyboardAwareScrollViewCompat>
   );
 }
 

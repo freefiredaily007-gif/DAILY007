@@ -21,6 +21,7 @@ export default defineConfig({
       { find: /^react-native$/, replacement: mock("react-native-large-text.tsx") },
       { find: /^react-native-web$/, replacement: path.join(daily007Root, "node_modules/react-native-web") },
       { find: /^@expo\/vector-icons$/, replacement: mock("vector-icons.tsx") },
+      { find: /^\.\.\/\.\.\/components\/KeyboardAwareScrollViewCompat$/, replacement: mock("keyboard-scroll.tsx") },
     ],
     dedupe: ["react", "react-dom"],
   },
