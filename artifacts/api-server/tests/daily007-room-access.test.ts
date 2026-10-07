@@ -546,6 +546,21 @@ test("clearing and compatibility-saving room credentials preserves registrations
     assert.equal(JSON.stringify(legacyAfterSave.body).includes(matchBefore.room_id!), false);
     assert.equal(JSON.stringify(legacyAfterSave.body).includes(matchBefore.room_password!), false);
 
+    setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS - 60_000));
+
+    const publicListingAfterSave = await requestPublic(origin, "/tournaments");
+    assert.equal(publicListingAfterSave.status, 200);
+    assert.equal(publicListingAfterSave.body.length, 1);
+    assertPublicTournamentOmitsRoomCredentials(publicListingAfterSave.body[0]);
+
+    const publicDetailAfterSave = await requestPublic(
+      origin,
+      `/tournaments/${TEST_MATCH_ID}`,
+    );
+    assert.equal(publicDetailAfterSave.status, 200);
+    assertPublicTournamentOmitsRoomCredentials(publicDetailAfterSave.body);
+
+    roomAccessTestDb.match.starts_at = matchBefore.starts_at;
     assert.equal(roomAccessTestDb.match.status, matchBefore.status);
     assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
     assert.deepEqual(
