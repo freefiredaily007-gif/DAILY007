@@ -1,0 +1,138 @@
+name: Android release verification
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tournament-join-recovery:
+    name: Tournament join recovery (Android emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Keep this Expo Go release aligned with the Expo SDK in daily007/package.json.
+      EXPO_GO_VERSION: 57.0.9
+      MAESTRO_VERSION: 2.7.0
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Set up Java for Maestro
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run join recovery regression tests
+        run: pnpm --filter @workspace/daily007 run test:tournament-join-recovery
+
+      - name: Verify Expo Go matches the app SDK
+        run: |
+          node <<'NODE'
+          const appPackage = require("./artifacts/daily007/package.json");
+          const expoVersion = appPackage.devDependencies?.expo ?? appPackage.dependencies?.expo;
+          const sdkMajor = expoVersion?.match(/\d+/)?.[0];
+          const expoGoMajor = process.env.EXPO_GO_VERSION?.split(".")[0];
+          if (!sdkMajor || sdkMajor !== expoGoMajor) {
+            console.error(`Expo Go ${process.env.EXPO_GO_VERSION} does not match app Expo SDK ${expoVersion}.`);
+            process.exit(1);
+          }
+          console.log(`Expo Go ${process.env.EXPO_GO_VERSION} matches Expo SDK ${sdkMajor}.`);
+          NODE
+
+      - name: Download Expo Go for Android emulator
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/expo/expo-go-releases/releases/download/Expo-Go-${EXPO_GO_VERSION}/Expo-Go-${EXPO_GO_VERSION}.apk" \
+            --output "$RUNNER_TEMP/expo-go.apk"
+
+      - name: Install Maestro CLI
+        run: |
+          export MAESTRO_VERSION
+          curl --fail --silent --show-error --location https://get.maestro.mobile.dev | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.maestro/bin:$PATH"
+          maestro --version
+
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Maestro flows on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -euo pipefail
+
+            adb install -r "$RUNNER_TEMP/expo-go.apk"
+            adb reverse tcp:8081 tcp:8081
+
+            EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
+            EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
+            EXPO_NO_TELEMETRY=1 \
+            CI=1 \
+              pnpm --filter @workspace/daily007 exec expo start \
+                --go --localhost --port 8081 \
+                > "$RUNNER_TEMP/daily007-metro.log" 2>&1 &
+            METRO_PID=$!
+
+            cleanup() {
+              kill "$METRO_PID" 2>/dev/null || true
+            }
+            trap cleanup EXIT
+
+            metro_ready=false
+            for attempt in $(seq 1 90); do
+              if curl --fail --silent http://127.0.0.1:8081/status | grep -q "packager-status:running"; then
+                metro_ready=true
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$metro_ready" != true ]; then
+              cat "$RUNNER_TEMP/daily007-metro.log"
+              echo "Metro did not become ready on port 8081." >&2
+              exit 1
+            fi
+
+            adb shell pm path host.exp.exponent
+            EXPO_DEV_URL=exp://127.0.0.1:8081 \
+              pnpm --filter @workspace/daily007 run test:android-join-recovery
