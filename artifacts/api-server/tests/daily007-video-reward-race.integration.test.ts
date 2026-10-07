@@ -37,6 +37,10 @@ type JsonResponse = {
   body: Record<string, unknown>;
 };
 
+type SessionInsertOutcome =
+  | { kind: "inserted"; sessionId: string }
+  | { kind: "failed"; error: unknown };
+
 async function withServer(
   run: (origin: string) => Promise<void>,
   beforeClose: () => Promise<void> = async () => undefined,
@@ -91,6 +95,22 @@ async function sendJson(
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function sendPermanentDelete(
+  origin: string,
+  videoId: string,
+  adminId: string,
+): Promise<JsonResponse> {
+  const response = await fetch(`${origin}/admin/videos/${videoId}`, {
+    method: "DELETE",
+    headers: authHeaders(adminId),
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: text ? JSON.parse(text) as Record<string, unknown> : {},
+  };
 }
 
 async function createFixture(
@@ -192,6 +212,23 @@ async function cleanupFixture(fixture: TestFixture): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+async function snapshotUnrelatedVideoState(videoId: string): Promise<{
+  videos: unknown[];
+  watchSessions: unknown[];
+}> {
+  const [videos, watchSessions] = await Promise.all([
+    pool.query(
+      "SELECT * FROM daily007_v2_videos WHERE id <> $1 ORDER BY id",
+      [videoId],
+    ),
+    pool.query(
+      "SELECT * FROM daily007_v2_video_watch_sessions WHERE video_id <> $1 ORDER BY id",
+      [videoId],
+    ),
+  ]);
+  return { videos: videos.rows, watchSessions: watchSessions.rows };
 }
 
 async function backendPid(client: { query<T>(sql: string): Promise<{ rows: T[] }> }): Promise<number> {
@@ -1122,6 +1159,208 @@ test("a committed watch start wins the PostgreSQL video-disable race before deac
     if (videoBlocker) {
       await videoBlocker.query("ROLLBACK").catch(() => undefined);
       videoBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a committed watch start keeps its video when permanent deletion races in PostgreSQL", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const adminId = fixture.adminId;
+  const playerId = fixture.playerId;
+  const videoId = fixture.videoId;
+  const unrelatedBefore = await snapshotUnrelatedVideoState(videoId);
+  let videoBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<unknown>[] = [];
+  try {
+    await withServer(async (origin) => {
+      videoBlocker = await pool.connect();
+      await videoBlocker.query("BEGIN");
+      await videoBlocker.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+        [videoId],
+      );
+      const blockerPid = await backendPid(videoBlocker);
+
+      const start = sendJson(
+        origin,
+        "/videos/watch/start",
+        playerId,
+        "POST",
+        { videoId, durationSeconds: 30, attemptId: randomUUID() },
+      );
+      inFlight.push(start);
+      const startPid = await waitForBlockedBackend(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 AND active = true FOR SHARE",
+        [blockerPid],
+      );
+
+      const deletion = sendPermanentDelete(origin, videoId, adminId);
+      inFlight.push(deletion);
+      const deletePid = await waitForBlockedBackend(
+        "FROM daily007_v2_videos",
+        [startPid],
+      );
+      assert.notEqual(deletePid, startPid);
+
+      await videoBlocker.query("COMMIT");
+      videoBlocker.release();
+      videoBlocker = null;
+
+      const [startResponse, deleteResponse] = await Promise.all([start, deletion]);
+      assert.equal(startResponse.status, 201);
+      assert.equal(typeof startResponse.body.sessionId, "string");
+      const sessionId = startResponse.body.sessionId as string;
+      fixture.sessionId = sessionId;
+      assert.equal(deleteResponse.status, 409);
+      assert.equal(
+        deleteResponse.body.error,
+        "This video has watch history. Hide it instead of permanently deleting it.",
+      );
+    }, async () => {
+      if (videoBlocker) {
+        await videoBlocker.query("ROLLBACK").catch(() => undefined);
+        videoBlocker.release();
+        videoBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+
+    const [videos, sessions] = await Promise.all([
+      pool.query<{ id: string }>(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1",
+        [videoId],
+      ),
+      pool.query<{ id: string; user_id: string; video_id: string }>(
+        `SELECT id, user_id, video_id
+           FROM daily007_v2_video_watch_sessions
+          WHERE video_id = $1`,
+        [videoId],
+      ),
+    ]);
+    assert.equal(videos.rows.length, 1, "the video must remain after watch history commits first");
+    assert.equal(sessions.rows.length, 1, "the committed watch session must remain");
+    assert.equal(sessions.rows[0]?.user_id, playerId);
+    assert.equal(sessions.rows[0]?.video_id, videoId);
+    assert.equal(sessions.rows[0]?.id, fixture.sessionId);
+    assert.deepEqual(await snapshotUnrelatedVideoState(videoId), unrelatedBefore);
+  } finally {
+    if (videoBlocker) {
+      await videoBlocker.query("ROLLBACK").catch(() => undefined);
+      videoBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a permanent delete queued before a watch-session insert leaves no orphan", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const adminId = fixture.adminId;
+  const playerId = fixture.playerId;
+  const videoId = fixture.videoId;
+  const unrelatedBefore = await snapshotUnrelatedVideoState(videoId);
+  let videoBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let insertClient: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let insertAttempt: Promise<SessionInsertOutcome> | null = null;
+  const inFlight: Promise<unknown>[] = [];
+  try {
+    await withServer(async (origin) => {
+      videoBlocker = await pool.connect();
+      await videoBlocker.query("BEGIN");
+      await videoBlocker.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+        [videoId],
+      );
+      const blockerPid = await backendPid(videoBlocker);
+
+      const deletion = sendPermanentDelete(origin, videoId, adminId);
+      inFlight.push(deletion);
+      const deletePid = await waitForBlockedBackend(
+        "FROM daily007_v2_videos",
+        [blockerPid],
+      );
+
+      insertClient = await pool.connect();
+      await insertClient.query("BEGIN");
+      const insertPid = await backendPid(insertClient);
+      insertAttempt = insertClient.query<{ id: string }>(
+        `INSERT INTO daily007_v2_video_watch_sessions
+           (user_id, video_id, duration_seconds, start_attempt_id)
+         VALUES ($1, $2, 30, $3)
+         RETURNING id`,
+        [playerId, videoId, randomUUID()],
+      ).then(
+        (result) => ({
+          kind: "inserted" as const,
+          sessionId: result.rows[0]?.id ?? "",
+        }),
+        (error: unknown) => ({ kind: "failed" as const, error }),
+      );
+      const blockedInsertPid = await waitForBlockedBackend(
+        "INSERT INTO daily007_v2_video_watch_sessions",
+        [deletePid],
+      );
+      assert.equal(blockedInsertPid, insertPid);
+
+      await videoBlocker.query("COMMIT");
+      videoBlocker.release();
+      videoBlocker = null;
+
+      const [deleteResponse, insertOutcome] = await Promise.all([deletion, insertAttempt]);
+      assert.equal(deleteResponse.status, 204);
+      assert.deepEqual(deleteResponse.body, {});
+      if (insertOutcome.kind !== "failed") {
+        assert.fail("the watch-session insert should fail after the video deletion commits");
+      }
+      assert.equal(
+        (insertOutcome.error as { code?: string }).code,
+        "23503",
+        "the session's video foreign key should reject an insert after deletion",
+      );
+
+      await insertClient.query("ROLLBACK");
+      insertClient.release();
+      insertClient = null;
+    }, async () => {
+      if (videoBlocker) {
+        await videoBlocker.query("ROLLBACK").catch(() => undefined);
+        videoBlocker.release();
+        videoBlocker = null;
+      }
+      await Promise.allSettled([
+        ...inFlight,
+        ...(insertAttempt ? [insertAttempt] : []),
+      ]);
+      if (insertClient) {
+        await insertClient.query("ROLLBACK").catch(() => undefined);
+        insertClient.release();
+        insertClient = null;
+      }
+    });
+
+    const [videos, sessions] = await Promise.all([
+      pool.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1",
+        [videoId],
+      ),
+      pool.query(
+        "SELECT id FROM daily007_v2_video_watch_sessions WHERE video_id = $1",
+        [videoId],
+      ),
+    ]);
+    assert.equal(videos.rows.length, 0, "the committed deletion should remove the video");
+    assert.equal(sessions.rows.length, 0, "a failed insert must not leave an orphan session");
+    assert.deepEqual(await snapshotUnrelatedVideoState(videoId), unrelatedBefore);
+  } finally {
+    if (videoBlocker) {
+      await videoBlocker.query("ROLLBACK").catch(() => undefined);
+      videoBlocker.release();
+    }
+    if (insertClient) {
+      await insertClient.query("ROLLBACK").catch(() => undefined);
+      insertClient.release();
     }
     await cleanupFixture(fixture);
   }

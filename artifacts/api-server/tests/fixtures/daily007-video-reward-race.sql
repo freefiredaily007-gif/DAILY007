@@ -48,3 +48,8 @@ CREATE TABLE daily007_v2_video_watch_sessions (
   reward_ledger_id uuid UNIQUE REFERENCES daily007_v2_wallet_ledger(id),
   UNIQUE (user_id, start_attempt_id)
 );
+
+CREATE TABLE daily007_v2_settings (
+  id integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  settings jsonb NOT NULL DEFAULT '{}'::jsonb
+);

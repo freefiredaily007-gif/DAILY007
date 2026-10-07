@@ -9,6 +9,12 @@ description: Lock-order observations for integration tests that exercise API req
 
 **How to apply:** Gate each interleaving on observed lock waits, include queued backends when asserting blocker relationships, and create uniquely identified test rows that can be deleted by ID in `finally` cleanup.
 
+**Rule:** When `waitForBlockedBackend` matches SQL from `pg_stat_activity.query`, use a short contiguous fragment for multiline statements; the query text keeps its line breaks.
+
+**Why:** A reconstructed one-line fragment did not match the permanent-delete query, causing the lock-order test to time out despite the request being queued.
+
+**How to apply:** Match a distinctive contiguous phrase such as the table name and verify the blocker PID separately with `pg_blocking_pids`.
+
 For duplicate-delivery races, hold the target session row, wait until the first request is blocked on it, then issue the second request and verify PostgreSQL reports it queued behind the first before releasing the blocker. Assert both responses and the final wallet, ledger, and session pointer.
 
 **Why:** Launching two HTTP requests close together does not prove they overlapped at the database lock; a deterministic queue makes the duplicate-write ordering reproducible.
