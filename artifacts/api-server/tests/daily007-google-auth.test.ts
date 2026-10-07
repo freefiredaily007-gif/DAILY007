@@ -545,6 +545,57 @@ test("referral reward ledger failure rolls back a Google signup and Clerk identi
       );
       assert.ok(referrer);
       assert.equal(referrer.wallet_coins, 0, "the failed signup must not change the referrer's wallet");
+
+      const retriedSignup = await googleAuth(
+        origin,
+        undefined,
+        SIGNUP_TEST_REFERRAL_CODE,
+      );
+      assert.equal(retriedSignup.status, 201, "the same verified Google identity should be able to retry");
+      assert.equal(retriedSignup.body.coins, 10);
+      assert.equal(typeof retriedSignup.body.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+
+      const retriedAccountId = String(retriedSignup.body.id);
+      const linkedAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(linkedAccounts.length, 1, "retry should leave exactly one account linked to the Google identity");
+      assert.equal(signupTestDb.users.size, 2, "retry should leave only the referrer and one Google account");
+      const retriedAccount = signupTestDb.users.get(retriedAccountId);
+      assert.ok(retriedAccount);
+      assert.equal(retriedAccount.email, "google-signup@example.test");
+      assert.equal(retriedAccount.clerk_user_id, GOOGLE_CLERK_USER_ID);
+      assert.equal(retriedAccount.wallet_coins, 10);
+
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: retriedAccountId,
+          code: SIGNUP_TEST_REFERRAL_CODE,
+        }],
+        "retry should create exactly one referral relationship",
+      );
+      assert.deepEqual(
+        signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          user_id: retriedAccountId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+        "retry should create exactly one 10-coin referral reward",
+      );
     });
   } finally {
     signupTestDb.reset();
