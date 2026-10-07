@@ -58,6 +58,7 @@
 - [Daily007 room-detail TalkBack](daily007-room-details-talkback.md) — iQOO Neo 10 / Android 16 confirmed labeled room values, distinct copy controls, and spoken copy feedback.
 - [Daily007 full-capacity TalkBack](daily007-full-capacity-talkback.md) — iQOO Neo 10 / Android 16 confirmed one rejection-and-capacity announcement without repetition or focus movement.
 - [Daily007 admin results TalkBack](daily007-admin-results-talkback.md) — iQOO Neo 10 / Android 16 confirmed TalkBack support from player selection through errors, outcomes, and publishing state.
+- [Admin payments TalkBack](daily007-admin-payments-talkback.md) — iQOO Neo 10/Android 16 confirmed success announcements without focus shifts or speech interruptions.
 - [Daily007 rejected deposit TalkBack](daily007-wallet-rejected-deposit-talkback.md) — iQOO Neo 10 / Android 16 confirmed the grouped summary and readable rejected-deposit reason at 1.5× text.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — QueryObserver disables polling in Node server mode; client tests need a browser-like global before import.
