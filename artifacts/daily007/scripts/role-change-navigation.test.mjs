@@ -24,6 +24,14 @@ const ADMIN_NAV_KEYS = [
   "notifications",
   "settings",
 ];
+const SENSITIVE_ADMIN_SCREEN_KEYS = [
+  "payments",
+  "wallet",
+  "leaderboards",
+  "earnTasks",
+  "videos",
+];
+const TOURNAMENT_ADMIN_NAV_KEYS = ["tournaments", "registrations"];
 const PLAYER_TAB_NAMES = ["Home", "Video", "Earn", "Wallet", "Profile"];
 const ADMIN_NAV_ITEMS = ADMIN_NAV_KEYS.map((key) => ({ key }));
 
@@ -340,29 +348,34 @@ test("Full Admin becomes a player after refresh without removing the saved sign-
   );
 });
 
-test("Full Admin can see and open the Videos management screen", () => {
-  const navigation = adminNavigationForRole("admin", "videos", ADMIN_NAV_ITEMS);
+test("Full Admin can see and open payment, wallet, and reward management screens", () => {
+  for (const screen of SENSITIVE_ADMIN_SCREEN_KEYS) {
+    const navigation = adminNavigationForRole("admin", screen, ADMIN_NAV_ITEMS);
 
-  assert.deepEqual(navigation, {
-    activeScreen: "videos",
-    visibleNavKeys: ADMIN_NAV_KEYS,
-  });
-  assert.equal(canNavigateAdminScreen("admin", "videos"), true);
+    assert.equal(navigation.activeScreen, screen, `Full Admin should open ${screen}`);
+    assert.deepEqual(navigation.visibleNavKeys, ADMIN_NAV_KEYS);
+    assert.equal(canNavigateAdminScreen("admin", screen), true);
+  }
 });
 
-test("Tournament Admin cannot see or directly open Videos management", () => {
-  const navigation = adminNavigationForRole(
-    "tournament_admin",
-    "videos",
-    ADMIN_NAV_ITEMS,
-  );
+test("Tournament Admin cannot see or directly open payment, wallet, or reward management", () => {
+  for (const screen of SENSITIVE_ADMIN_SCREEN_KEYS) {
+    const navigation = adminNavigationForRole(
+      "tournament_admin",
+      screen,
+      ADMIN_NAV_ITEMS,
+    );
 
-  assert.deepEqual(navigation, {
-    activeScreen: "tournaments",
-    visibleNavKeys: ["tournaments", "registrations"],
-  });
-  assert.equal(canNavigateAdminScreen("tournament_admin", "videos"), false);
-  assert.equal(canNavigateAdminScreen("tournament_admin", navigation.activeScreen), true);
+    assert.deepEqual(navigation, {
+      activeScreen: "tournaments",
+      visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
+    }, `Tournament Admin should fall back from ${screen}`);
+    assert.equal(canNavigateAdminScreen("tournament_admin", screen), false);
+    assert.equal(
+      canNavigateAdminScreen("tournament_admin", navigation.activeScreen),
+      true,
+    );
+  }
 });
 
 test("App and AdminApp use the tested refresh and role-navigation decisions", async () => {
@@ -408,9 +421,18 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     /const navigate = \(next: string\) => \{\s*if \(canNavigateAdminScreen\(user\.role, next\)\) setScreen\(next\);\s*\};/,
   );
   assert.match(adminSource, /visibleNav\.map\(\(n\) =>/);
-  assert.match(adminSource, /\{ key: 'videos', label: 'Videos', icon: 'video' \}/);
-  assert.match(adminSource, /videos:\s*AdminVideos/);
+  for (const [key, component] of [
+    ["payments", "AdminPayments"],
+    ["wallet", "AdminWallet"],
+    ["leaderboards", "AdminLeaderboards"],
+    ["earnTasks", "AdminEarnTasks"],
+    ["videos", "AdminVideos"],
+  ]) {
+    assert.match(adminSource, new RegExp(`\\{ key: '${key}', label:`));
+    assert.match(adminSource, new RegExp(`${key}:\\s*${component}`));
+  }
   assert.match(adminSource, /const activeScreen = navigation\.activeScreen/);
   assert.match(adminSource, /\[activeScreen\]\s*\|\|\s*AdminDashboard/);
   assert.match(adminSource, /<Screen\s+go=\{navigate\}/);
+  assert.match(adminSource, /onPress=\{\(\) => navigate\(n\.key\)\}/);
 });
