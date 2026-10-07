@@ -12,6 +12,10 @@ import {
   getLeaderboardTopThreeUpdateAnnouncement,
   selectLeaderboardTopThreeSnapshot,
 } from "../src/lib/leaderboardRefreshPolicy.ts";
+import {
+  getLeaderboardCycleFromRouteParam,
+  handleLeaderboardCycleArrowKey,
+} from "../src/lib/leaderboardCycleNavigation.ts";
 
 const screenSource = await readFile(
   new URL("../src/screens/LeaderboardDetails.tsx", import.meta.url),
@@ -248,25 +252,98 @@ test("cycle tabs expose their names and selection, and switching closes the expa
   const tabsEnd = screenSource.indexOf("</View>", tabsStart);
   assert.ok(tabsStart >= 0 && tabsEnd > tabsStart, "Both cycle tabs must be rendered in their tab list.");
 
+  const tablistStart = screenSource.lastIndexOf("<View", tabsStart);
+  const tablistProps = screenSource.slice(tablistStart, tabsStart);
+  assert.match(tablistProps, /accessibilityRole="tablist"/);
+  assert.match(tablistProps, /\{\.\.\.tablistKeyboardProps\}/);
+
+  const keyboardPropsStart = screenSource.indexOf("const tablistKeyboardProps:");
+  const keyboardPropsEnd = screenSource.indexOf("\n  const data =", keyboardPropsStart);
+  assert.ok(keyboardPropsStart >= 0 && keyboardPropsEnd > keyboardPropsStart);
+  const keyboardProps = screenSource.slice(keyboardPropsStart, keyboardPropsEnd);
+  assert.match(keyboardProps, /Platform\.OS === "web"/);
+  assert.match(
+    keyboardProps,
+    /handleLeaderboardCycleArrowKey\(cycle, event\.nativeEvent\.key, \{/,
+  );
+  assert.match(keyboardProps, /nextTabRef\.current\?\.focus\(\);/);
+  assert.match(keyboardProps, /selectCycle,/);
+
   const cycleTabs = screenSource.slice(tabsStart, tabsEnd);
   assert.match(cycleTabs, /accessibilityRole="tab"/);
   assert.match(cycleTabs, /accessibilityState=\{\{ selected \}\}/);
   assert.match(
     cycleTabs,
+    /tabIndex=\{Platform\.OS === "web" \? \(selected \? 0 : -1\) : undefined\}/,
+  );
+  assert.match(
+    cycleTabs,
     /accessibilityLabel=\{key === "weekly" \? "Weekly leaderboard" : "Monthly leaderboard"\}/,
   );
   assert.match(cycleTabs, /testID=\{`leaderboard-details-tab-\$\{key\}`\}/);
+  assert.match(cycleTabs, /ref=\{key === "weekly" \? weeklyTabRef : monthlyTabRef\}/);
   assert.match(cycleTabs, /const selected = cycle === key;/);
 
   const selectedCycleOnRoute = screenSource.match(
-    /const cycle: CycleType = route\?\.params\?\.cycleType === "monthly" \? "monthly" : "weekly";/,
+    /const cycle: CycleType = getLeaderboardCycleFromRouteParam\(route\?\.params\?\.cycleType\);/,
   );
   assert.ok(selectedCycleOnRoute, "The selected tab must follow the currently displayed cycle.");
 
-  const onPress = cycleTabs.match(/onPress=\{\(\) => \{([\s\S]*?)\}\}/);
-  assert.ok(onPress, "Each tab must have a cycle-switching handler.");
-  assert.match(onPress[1], /setShowTop20\(false\);/);
-  assert.match(onPress[1], /navigation\.setParams\(\{ cycleType: key \}\);/);
+  assert.match(cycleTabs, /onPress=\{\(\) => selectCycle\(key\)\}/);
+  assert.match(
+    screenSource,
+    /const selectCycle = \(nextCycle: CycleType\) => \{\s*setShowTop20\(false\);\s*navigation\.setParams\(\{ cycleType: nextCycle \}\);\s*\};/,
+  );
+  assert.match(screenSource, /const period = data\?\.\[cycle\];/);
+});
+
+test("left and right arrows move focus, select the tab, and display its leaderboard cycle", () => {
+  const cases = [
+    { focused: "weekly", key: "ArrowRight", expected: "monthly" },
+    { focused: "monthly", key: "ArrowRight", expected: "weekly" },
+    { focused: "weekly", key: "ArrowLeft", expected: "monthly" },
+    { focused: "monthly", key: "ArrowLeft", expected: "weekly" },
+  ];
+  const periods = {
+    weekly: { cycle: "weekly", label: "Weekly standings" },
+    monthly: { cycle: "monthly", label: "Monthly standings" },
+  };
+
+  for (const { focused, key, expected } of cases) {
+    let focusedTab = focused;
+    let routeCycleType = focused;
+    let preventedDefault = false;
+    const nextCycle = handleLeaderboardCycleArrowKey(focused, key, {
+      preventDefault: () => {
+        preventedDefault = true;
+      },
+      focusTab: (cycle) => {
+        focusedTab = cycle;
+      },
+      selectCycle: (cycle) => {
+        routeCycleType = cycle;
+      },
+    });
+    const displayedCycle = getLeaderboardCycleFromRouteParam(routeCycleType);
+
+    assert.equal(nextCycle, expected);
+    assert.equal(preventedDefault, true);
+    assert.equal(focusedTab, expected);
+    assert.equal(displayedCycle, expected);
+    assert.equal(periods[displayedCycle].cycle, expected);
+    assert.equal(periods[displayedCycle].label, `${expected === "weekly" ? "Weekly" : "Monthly"} standings`);
+  }
+
+  let ignoredKeySideEffects = 0;
+  assert.equal(
+    handleLeaderboardCycleArrowKey("weekly", "Enter", {
+      preventDefault: () => ignoredKeySideEffects++,
+      focusTab: () => ignoredKeySideEffects++,
+      selectCycle: () => ignoredKeySideEffects++,
+    }),
+    null,
+  );
+  assert.equal(ignoredKeySideEffects, 0, "Enter must remain available to native tab activation.");
 });
 
 test("empty and unavailable leaderboard guidance is exposed as readable text", () => {
@@ -372,7 +449,7 @@ for (const [cycle, ranks] of [
 test("the screen selects the active Weekly or Monthly period before ranking its entries", () => {
   assert.match(
     screenSource,
-    /const cycle: CycleType = route\?\.params\?\.cycleType === "monthly" \? "monthly" : "weekly";/,
+    /const cycle: CycleType = getLeaderboardCycleFromRouteParam\(route\?\.params\?\.cycleType\);/,
   );
   assert.match(screenSource, /const period = data\?\.\[cycle\];/);
   assert.match(screenSource, /const standings = selectLeaderboardTopTwenty\(period\?\.standings\);/);

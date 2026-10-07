@@ -13,6 +13,7 @@
 - [Mockup sandbox typecheck conflicts](mockup-sandbox-typecheck.md) — unrelated React type-version conflicts in shared sandbox UI can fail typecheck while an isolated Vite browser test passes.
 - [Admin large-text preview checks](daily007-admin-large-text-preview.md) — distinguish layout clipping from expected horizontal scrolling inside populated single-line inputs.
 - [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — separate native accessibility grouping from web roles; check control reachability, locale values, and card bounds.
+- [RN Web keyboard event typing](rnw-keyboard-event-types.md) — package-root types may omit runtime key handlers; guard web behavior and keep the handler narrowly typed.
 - [Daily007 Android Back behavior](daily007-android-back.md) — hardware Back first hides the keyboard in Wallet/Edit Profile; values and second-Back behavior were confirmed on Android.
 - [Daily007 signup keyboard](daily007-signup-keyboard.md) — iQOO Neo 10 / Android 16 confirmed Next navigation through signup fields and Done leaving Create Account reachable.
 - [Expo Go loading diagnosis](expo-go-loading-diagnosis.md) — the generic blue error page is not an auth diagnosis; verify native build/server health and distinguish it from phone execution.

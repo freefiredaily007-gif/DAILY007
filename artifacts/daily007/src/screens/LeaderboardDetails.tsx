@@ -31,8 +31,13 @@ import {
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
 } from "../lib/leaderboardStandings";
+import {
+  getLeaderboardCycleFromRouteParam,
+  handleLeaderboardCycleArrowKey,
+  type LeaderboardCycle,
+} from "../lib/leaderboardCycleNavigation";
 
-type CycleType = "weekly" | "monthly";
+type CycleType = LeaderboardCycle;
 type Standing = {
   rank: number;
   userId: string;
@@ -46,6 +51,10 @@ type Standing = {
 type RewardPayout = {
   rank: number;
   coins: number;
+};
+type WebKeyDownEvent = {
+  nativeEvent: { key: string };
+  preventDefault: () => void;
 };
 type Period = {
   cycleType: CycleType;
@@ -258,7 +267,27 @@ export default function LeaderboardDetails({ navigation, route }: any) {
   const [showTop20, setShowTop20] = React.useState(false);
   const [topThreeAnnouncement, setTopThreeAnnouncement] = React.useState("");
   const topThreeSnapshots = React.useRef<Partial<Record<CycleType, LeaderboardTopThreeSnapshot>>>({});
-  const cycle: CycleType = route?.params?.cycleType === "monthly" ? "monthly" : "weekly";
+  const weeklyTabRef = React.useRef<React.ComponentRef<typeof Pressable> | null>(null);
+  const monthlyTabRef = React.useRef<React.ComponentRef<typeof Pressable> | null>(null);
+  const selectCycle = (nextCycle: CycleType) => {
+    setShowTop20(false);
+    navigation.setParams({ cycleType: nextCycle });
+  };
+  const cycle: CycleType = getLeaderboardCycleFromRouteParam(route?.params?.cycleType);
+  const tablistKeyboardProps: {
+    onKeyDown?: (event: WebKeyDownEvent) => void;
+  } = Platform.OS === "web" ? {
+    onKeyDown: (event) => {
+      handleLeaderboardCycleArrowKey(cycle, event.nativeEvent.key, {
+        preventDefault: () => event.preventDefault(),
+        focusTab: (nextCycle) => {
+          const nextTabRef = nextCycle === "weekly" ? weeklyTabRef : monthlyTabRef;
+          nextTabRef.current?.focus();
+        },
+        selectCycle,
+      });
+    },
+  } : {};
   const data = query.data as unknown as {
     weekly?: Period;
     monthly?: Period;
@@ -309,7 +338,11 @@ export default function LeaderboardDetails({ navigation, route }: any) {
         showsVerticalScrollIndicator={false}
         testID="leaderboard-details-scroll"
       >
-        <View style={styles.tabs} accessibilityRole="tablist">
+        <View
+          {...tablistKeyboardProps}
+          style={styles.tabs}
+          accessibilityRole="tablist"
+        >
           {(["weekly", "monthly"] as const).map((key) => {
             const selected = cycle === key;
             const tabColor = key === "weekly" ? C.blue : C.purple;
@@ -320,10 +353,9 @@ export default function LeaderboardDetails({ navigation, route }: any) {
                 accessibilityState={{ selected }}
                 accessibilityLabel={key === "weekly" ? "Weekly leaderboard" : "Monthly leaderboard"}
                 testID={`leaderboard-details-tab-${key}`}
-                onPress={() => {
-                  setShowTop20(false);
-                  navigation.setParams({ cycleType: key });
-                }}
+                ref={key === "weekly" ? weeklyTabRef : monthlyTabRef}
+                tabIndex={Platform.OS === "web" ? (selected ? 0 : -1) : undefined}
+                onPress={() => selectCycle(key)}
                 style={[
                   styles.tab,
                   selected && {
