@@ -173,6 +173,42 @@ test("cancellation and dismissal return quietly without a token exchange", async
   }
 });
 
+test("cancellation and dismissal restore the Google button without reporting an outcome", async () => {
+  for (const type of ["cancel", "dismiss"]) {
+    let loading = false;
+    const loadingChanges = [];
+    const errors = [];
+    const successes = [];
+    let exchanges = 0;
+
+    await runGoogleSSOAttempt({
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => null,
+        async startSSOFlow() {
+          return { authSessionResult: { type } };
+        },
+        async exchangeToken() {
+          exchanges += 1;
+          return "unexpected";
+        },
+      }),
+      setLoading(value) {
+        loading = value;
+        loadingChanges.push(value);
+      },
+      showError: (message) => errors.push(message),
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+
+    assert.equal(loading, false, type);
+    assert.deepEqual(loadingChanges, [true, false], type);
+    assert.deepEqual(errors, [], type);
+    assert.deepEqual(successes, [], type);
+    assert.equal(exchanges, 0, type);
+  }
+});
+
 test("a missing active Clerk session after activation is a retryable error", async () => {
   let exchanges = 0;
   const result = await runGoogleSSOFlow({
