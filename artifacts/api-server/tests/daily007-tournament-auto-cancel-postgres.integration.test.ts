@@ -4,7 +4,9 @@ import test, { after } from "node:test";
 import { pool } from "@workspace/db";
 import { runDaily007AutoCancellationSweep } from "../src/lib/daily007-tournament-auto-cancel";
 
-const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
+const testDatabaseUrl = process.env.DATABASE_URL
+  ? new URL(process.env.DATABASE_URL)
+  : null;
 const testDatabasePort = process.env.DAILY007_TEST_POSTGRES_PORT;
 
 if (
@@ -14,11 +16,14 @@ if (
   testDatabaseUrl.pathname !== "/postgres" ||
   testDatabaseUrl.port !== testDatabasePort
 ) {
-  throw new Error("This integration test must run through the isolated PostgreSQL test runner.");
+  throw new Error(
+    "This integration test must run through the isolated PostgreSQL test runner.",
+  );
 }
 
 const FINALIZATION_TRIGGER = "daily007_test_fail_late_auto_cancel_finalization";
-const FINALIZATION_FUNCTION = "daily007_test_fail_late_auto_cancel_finalization";
+const FINALIZATION_FUNCTION =
+  "daily007_test_fail_late_auto_cancel_finalization";
 const FINALIZATION_SEQUENCE = "daily007_test_auto_cancel_finalization_attempts";
 
 type CancellationFixture = {
@@ -62,16 +67,40 @@ async function createFixture(): Promise<CancellationFixture> {
     );
 
     const registrations = [
-      { id: fixture.registrationIds[0], matchId: fixture.matchIds[0], payerId: fixture.payerIds[0], fee: 25, status: "approved" },
-      { id: fixture.registrationIds[1], matchId: fixture.matchIds[0], payerId: fixture.payerIds[1], fee: 40, status: "pending" },
-      { id: fixture.registrationIds[2], matchId: fixture.matchIds[1], payerId: fixture.payerIds[2], fee: 18, status: "approved" },
+      {
+        id: fixture.registrationIds[0],
+        matchId: fixture.matchIds[0],
+        payerId: fixture.payerIds[0],
+        fee: 25,
+        status: "approved",
+      },
+      {
+        id: fixture.registrationIds[1],
+        matchId: fixture.matchIds[0],
+        payerId: fixture.payerIds[1],
+        fee: 40,
+        status: "pending",
+      },
+      {
+        id: fixture.registrationIds[2],
+        matchId: fixture.matchIds[1],
+        payerId: fixture.payerIds[2],
+        fee: 18,
+        status: "approved",
+      },
     ];
     for (const registration of registrations) {
       await client.query(
         `INSERT INTO daily007_v2_registrations
            (id, match_id, captain_user_id, entry_coins_paid, status)
          VALUES ($1, $2, $3, $4, $5)`,
-        [registration.id, registration.matchId, registration.payerId, registration.fee, registration.status],
+        [
+          registration.id,
+          registration.matchId,
+          registration.payerId,
+          registration.fee,
+          registration.status,
+        ],
       );
     }
     await client.query("COMMIT");
@@ -84,7 +113,9 @@ async function createFixture(): Promise<CancellationFixture> {
   }
 }
 
-async function installLateFinalizationFailure(fixture: CancellationFixture): Promise<void> {
+async function installLateFinalizationFailure(
+  fixture: CancellationFixture,
+): Promise<void> {
   const [failedMatchId] = fixture.matchIds;
   const [firstPayerId, secondPayerId] = fixture.payerIds;
   await pool.query(`CREATE SEQUENCE ${FINALIZATION_SEQUENCE}`);
@@ -133,7 +164,10 @@ async function cleanupFixture(fixture: CancellationFixture): Promise<void> {
       "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
       [fixture.matchIds],
     );
-    await client.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [fixture.payerIds]);
+    await client.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
     await client.query("DELETE FROM daily007_v2_settings WHERE id = 1");
     await client.query("COMMIT");
   } catch (error) {
@@ -151,9 +185,10 @@ test("late PostgreSQL tournament finalization failure rolls back refunds and the
 
     await runDaily007AutoCancellationSweep();
 
-    const triggerAttempt = await pool.query<{ last_value: string; is_called: boolean }>(
-      `SELECT last_value::text, is_called FROM ${FINALIZATION_SEQUENCE}`,
-    );
+    const triggerAttempt = await pool.query<{
+      last_value: string;
+      is_called: boolean;
+    }>(`SELECT last_value::text, is_called FROM ${FINALIZATION_SEQUENCE}`);
     assert.deepEqual(
       triggerAttempt.rows[0],
       { last_value: "1", is_called: true },
@@ -200,19 +235,31 @@ test("late PostgreSQL tournament finalization failure rolls back refunds and the
         WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
       [fixture.matchIds[0]],
     );
-    assert.equal(failedRefunds.rows[0]?.count, 0, "failed tournament refunds must leave no ledger entries");
+    assert.equal(
+      failedRefunds.rows[0]?.count,
+      0,
+      "failed tournament refunds must leave no ledger entries",
+    );
 
     const followingMatch = await pool.query<{ status: string }>(
       "SELECT status FROM daily007_v2_matches WHERE id = $1",
       [fixture.matchIds[1]],
     );
-    assert.equal(followingMatch.rows[0]?.status, "cancelled", "the later tournament must still be cancelled");
+    assert.equal(
+      followingMatch.rows[0]?.status,
+      "cancelled",
+      "the later tournament must still be cancelled",
+    );
 
     const followingPayer = await pool.query<{ wallet_coins: number }>(
       "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
       [fixture.payerIds[2]],
     );
-    assert.equal(followingPayer.rows[0]?.wallet_coins, 88, "the later tournament's entry fee must be refunded");
+    assert.equal(
+      followingPayer.rows[0]?.wallet_coins,
+      88,
+      "the later tournament's entry fee must be refunded",
+    );
 
     const followingRefund = await pool.query<{
       user_id: string;
@@ -227,14 +274,16 @@ test("late PostgreSQL tournament finalization failure rolls back refunds and the
         WHERE match_id = $1`,
       [fixture.matchIds[1]],
     );
-    assert.deepEqual(followingRefund.rows, [{
-      user_id: fixture.payerIds[2],
-      amount: 18,
-      balance_after: 88,
-      reason: "tournament_cancel_refund",
-      registration_id: fixture.registrationIds[2],
-      idempotency_key: `daily007:tournament-cancel:${fixture.matchIds[1]}:${fixture.registrationIds[2]}`,
-    }]);
+    assert.deepEqual(followingRefund.rows, [
+      {
+        user_id: fixture.payerIds[2],
+        amount: 18,
+        balance_after: 88,
+        reason: "tournament_cancel_refund",
+        registration_id: fixture.registrationIds[2],
+        idempotency_key: `daily007:tournament-cancel:${fixture.matchIds[1]}:${fixture.registrationIds[2]}`,
+      },
+    ]);
   } finally {
     const cleanupErrors: unknown[] = [];
     for (const statement of [
@@ -254,7 +303,10 @@ test("late PostgreSQL tournament finalization failure rolls back refunds and the
       cleanupErrors.push(error);
     }
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(cleanupErrors, "Failed to clean up isolated tournament cancellation fixtures.");
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up isolated tournament cancellation fixtures.",
+      );
     }
   }
 });
