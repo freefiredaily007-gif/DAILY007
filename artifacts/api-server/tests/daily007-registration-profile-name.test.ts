@@ -310,8 +310,9 @@ async function sendRegistration(
   origin: string,
   path: string,
   body: Record<string, unknown>,
+  providedToken?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const token = makeToken(TEST_PLAYER_ID, 0);
+  const token = providedToken ?? makeToken(TEST_PLAYER_ID, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
   const response = await fetch(`${origin}${path}`, {
     method: "POST",
@@ -331,8 +332,9 @@ async function sendTeamEdit(
   origin: string,
   registrationId: string,
   body: Record<string, unknown>,
+  providedToken?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const token = makeToken(TEST_PLAYER_ID, 0);
+  const token = providedToken ?? makeToken(TEST_PLAYER_ID, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
   const response = await fetch(`${origin}/my/registrations/${registrationId}/team`, {
     method: "PATCH",
@@ -347,6 +349,80 @@ async function sendTeamEdit(
     body: await response.json().catch(() => ({})) as Record<string, unknown>,
   };
 }
+
+test("blocked player cannot register or edit an approved team with a previously valid session", async () => {
+  registrationProfileTestDb.reset(PROFILE_NAME);
+  try {
+    const sessionToken = makeToken(TEST_PLAYER_ID, 0);
+    assert.ok(sessionToken, "test account should receive a Daily007 session token");
+
+    await withServer(async (origin) => {
+      const initialRegistration = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+        sessionToken,
+      );
+      assert.equal(initialRegistration.status, 201);
+      const approvedRegistration = registrationProfileTestDb.registrations.find(
+        (registration) => registration.captain_user_id === TEST_PLAYER_ID,
+      );
+      assert.ok(approvedRegistration, "The player should have an approved registration before being blocked.");
+      assert.equal(approvedRegistration.status, "approved");
+
+      const captureRegistrationAndWalletState = () => ({
+        registrations: structuredClone(registrationProfileTestDb.registrations),
+        roster: structuredClone(registrationProfileTestDb.roster),
+        ledger: structuredClone(registrationProfileTestDb.ledger),
+        walletCoins: registrationProfileTestDb.user.wallet_coins,
+        match: structuredClone(registrationProfileTestDb.match),
+        connectCount: registrationProfileTestDb.connectCount,
+      });
+      const stateBeforeBlockedRequests = captureRegistrationAndWalletState();
+      registrationProfileTestDb.user.status = "blocked";
+
+      const teamEditBody = {
+        captainGameName: "BlockedEditCaptain",
+        captainGameUid: "FF-BLOCKED-EDIT-CAPTAIN",
+        teamName: "Blocked Edit Squad",
+        teammates: [
+          { name: "BlockedEditMateOne", uid: "FF-BLOCKED-EDIT-ONE" },
+          { name: "BlockedEditMateTwo", uid: "FF-BLOCKED-EDIT-TWO" },
+          { name: "BlockedEditMateThree", uid: "FF-BLOCKED-EDIT-THREE" },
+        ],
+      };
+      const blockedAttempts = [
+        ...registrationRequests.map((request) => ({
+          label: `${request.label} registration`,
+          send: () => sendRegistration(origin, request.path, request.body, sessionToken),
+        })),
+        {
+          label: "team edit",
+          send: () => sendTeamEdit(
+            origin,
+            approvedRegistration.id,
+            teamEditBody,
+            sessionToken,
+          ),
+        },
+      ];
+
+      for (const attempt of blockedAttempts) {
+        const response = await attempt.send();
+        assert.equal(response.status, 403, `${attempt.label} should reject the blocked account.`);
+        assert.deepEqual(response.body, { error: "This account is blocked." });
+        assert.deepEqual(
+          captureRegistrationAndWalletState(),
+          stateBeforeBlockedRequests,
+          `${attempt.label} must not change registration, roster, or wallet state.`,
+        );
+        assert.equal(registrationProfileTestDb.user.status, "blocked");
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
 
 async function getWithToken(origin: string, path: string, token: string): Promise<Response> {
   return fetch(`${origin}${path}`, {

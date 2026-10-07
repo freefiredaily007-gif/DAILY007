@@ -6,7 +6,7 @@ type TestUser = {
   wallet_coins: number;
   phone: string | null;
   game_uid: null;
-  status: "active";
+  status: "active" | "blocked";
   auth_version: number;
 };
 
