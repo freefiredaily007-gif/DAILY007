@@ -3,9 +3,18 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { copyRoomCredentialToClipboard } from "../src/lib/roomCredentialCopy.ts";
 import { shouldStackRoomCredentialRows } from "../src/lib/roomCredentialLayout.ts";
+import {
+  fetchTournamentDetailSnapshot,
+  startTournamentDetailPolling,
+  TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS,
+} from "../src/lib/tournament-detail-refresh.ts";
 
 const panelSource = await readFile(
   new URL("../src/components/RoomCredentialsPanel.tsx", import.meta.url),
+  "utf8",
+);
+const detailSource = await readFile(
+  new URL("../src/screens/TDetail.tsx", import.meta.url),
   "utf8",
 );
 const rowStart = panelSource.indexOf("function CredentialRow(");
@@ -165,4 +174,148 @@ test("clipboard failure simulation is development-only and covers both credentia
     panelSource,
     /setSimulateClipboardFailure\(nextValue\);[\s\S]*?nextValue\s*\?\s*'Clipboard failure simulation on\.'\s*:\s*'Clipboard failure simulation off\.'/,
   );
+});
+
+test("room details refresh in place while focused and the interval stops on blur", async () => {
+  assert.equal(TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS, 30_000);
+  assert.match(
+    detailSource,
+    /useEffect\(\s*\(\) => startTournamentDetailPolling\(isFocused,\s*\(\) => \{\s*void load\(\);\s*\}\),\s*\[isFocused, load\]\s*\)/,
+  );
+  assert.match(
+    detailSource,
+    /const canViewRoomDetails = registrationStatus === 'approved' && tournamentStatus !== 'cancelled';/,
+  );
+  assert.match(detailSource, /configured=\{t\.myRegistration\?\.roomPublished === true\}/);
+  assert.match(detailSource, /roomId=\{t\.myRegistration\?\.roomId\}/);
+  assert.match(detailSource, /roomPassword=\{t\.myRegistration\?\.roomPassword\}/);
+
+  const snapshots = [
+    {
+      tournament: { id: "match-1", startsAt: "2026-10-08T12:00:00.000Z" },
+      registrations: [{
+        tournamentId: "match-1",
+        status: "approved",
+        roomPublished: false,
+        roomId: null,
+        roomPassword: null,
+      }],
+    },
+    {
+      tournament: { id: "match-1", startsAt: "2026-10-08T12:00:00.000Z" },
+      registrations: [{
+        tournamentId: "match-1",
+        status: "approved",
+        roomPublished: true,
+        roomId: "FAKE-ROOM-101",
+        roomPassword: "FAKE-PASS-101",
+      }],
+    },
+    {
+      tournament: { id: "match-1", startsAt: "2026-10-08T12:00:00.000Z" },
+      registrations: [{
+        tournamentId: "match-1",
+        status: "approved",
+        roomPublished: true,
+        roomId: "FAKE-ROOM-202",
+        roomPassword: "FAKE-PASS-202",
+      }],
+    },
+  ];
+  let snapshotIndex = 0;
+  const apiReads = [];
+  const api = {
+    async tournament(id) {
+      apiReads.push(["tournament", id]);
+      return snapshots[snapshotIndex].tournament;
+    },
+    async myRegistrations() {
+      apiReads.push(["my-registrations"]);
+      const registrations = snapshots[snapshotIndex].registrations;
+      snapshotIndex = Math.min(snapshotIndex + 1, snapshots.length - 1);
+      return registrations;
+    },
+  };
+  let visiblePanelProps;
+  const refresh = async () => {
+    const details = await fetchTournamentDetailSnapshot("match-1", api);
+    visiblePanelProps = {
+      configured: details.myRegistration?.roomPublished === true,
+      roomId: details.myRegistration?.roomId,
+      roomPassword: details.myRegistration?.roomPassword,
+    };
+  };
+
+  await refresh();
+  assert.deepEqual(visiblePanelProps, {
+    configured: false,
+    roomId: null,
+    roomPassword: null,
+  });
+
+  const intervals = [];
+  const timers = {
+    setInterval(callback, delayMs) {
+      const interval = { callback, delayMs, active: true };
+      intervals.push(interval);
+      return interval;
+    },
+    clearInterval(interval) {
+      interval.active = false;
+    },
+  };
+  const stopWhileBlurred = startTournamentDetailPolling(false, refresh, timers);
+  assert.equal(intervals.length, 0, "a blurred screen must not create an interval");
+  stopWhileBlurred();
+
+  const stopPolling = startTournamentDetailPolling(true, refresh, timers);
+  assert.equal(intervals.length, 1);
+  assert.equal(intervals[0].delayMs, 30_000);
+  await intervals[0].callback();
+  assert.deepEqual(visiblePanelProps, {
+    configured: true,
+    roomId: "FAKE-ROOM-101",
+    roomPassword: "FAKE-PASS-101",
+  });
+  await intervals[0].callback();
+  assert.deepEqual(visiblePanelProps, {
+    configured: true,
+    roomId: "FAKE-ROOM-202",
+    roomPassword: "FAKE-PASS-202",
+  });
+  assert.deepEqual(apiReads, [
+    ["tournament", "match-1"],
+    ["my-registrations"],
+    ["tournament", "match-1"],
+    ["my-registrations"],
+    ["tournament", "match-1"],
+    ["my-registrations"],
+  ]);
+
+  stopPolling();
+  assert.equal(intervals[0].active, false, "blurring should cancel the active interval");
+  const readsAfterBlur = apiReads.length;
+  if (intervals[0].active) await intervals[0].callback();
+  assert.equal(apiReads.length, readsAfterBlur, "the cancelled interval must not refresh after blur");
+});
+
+test("a failed detail read waits for its paired registration request to settle", async () => {
+  let finishRegistrations;
+  const pendingSnapshot = fetchTournamentDetailSnapshot("match-1", {
+    async tournament() {
+      throw new Error("Tournament read failed");
+    },
+    myRegistrations() {
+      return new Promise((resolve) => { finishRegistrations = resolve; });
+    },
+  });
+  let snapshotSettled = false;
+  void pendingSnapshot.finally(() => { snapshotSettled = true; }).catch(() => {});
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof finishRegistrations, "function");
+  assert.equal(snapshotSettled, false);
+  finishRegistrations([]);
+  await assert.rejects(pendingSnapshot, /Tournament read failed/);
+  assert.equal(snapshotSettled, true);
 });

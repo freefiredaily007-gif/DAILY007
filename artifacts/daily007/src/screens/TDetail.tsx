@@ -16,6 +16,10 @@ import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import {
+  fetchTournamentDetailSnapshot,
+  startTournamentDetailPolling,
+} from '../lib/tournament-detail-refresh';
+import {
   getTournamentResultsRefreshInterval,
   resolveTournamentWinnerState,
 } from '../lib/tournament-winner-details';
@@ -35,6 +39,7 @@ export default function TDetail() {
   const [retryingParticipants, setRetryingParticipants] = useState(false);
   const [participantsRetryAnnouncement, setParticipantsRetryAnnouncement] = useState('');
   const retryParticipantsInFlight = useRef(false);
+  const detailLoadInFlight = useRef(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
@@ -59,19 +64,18 @@ export default function TDetail() {
 
   const load = useCallback(async () => {
     if (!id) { setLoading(false); return; }
+    if (detailLoadInFlight.current) return;
+    detailLoadInFlight.current = true;
     try {
       setErr('');
-      const [tournament, registrations] = await Promise.all([
-        api.tournament(id),
-        api.myRegistrations(),
-      ]);
-      const registration = (Array.isArray(registrations) ? registrations : []).find((item: any) =>
-        String(item.tournamentId) === String(id) &&
-        ['approved', 'pending'].includes(String(item.status ?? '').toLowerCase()),
-      );
-      setT({ ...tournament, joined: !!registration, myRegistration: registration });
-    } catch (e: any) { setErr(e?.message || 'Failed to load'); }
-    setLoading(false);
+      const tournamentDetails = await fetchTournamentDetailSnapshot(String(id), api);
+      setT(tournamentDetails);
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to load');
+    } finally {
+      detailLoadInFlight.current = false;
+      setLoading(false);
+    }
   }, [id]);
   const refreshAll = useCallback(async () => {
     await Promise.all([
@@ -106,7 +110,13 @@ export default function TDetail() {
     void refreshAll();
   }, [refreshAll]));
 
+  useEffect(
+    () => startTournamentDetailPolling(isFocused, () => { void load(); }),
+    [isFocused, load],
+  );
+
   useEffect(() => {
+    if (!isFocused) return undefined;
     const schedule = getRoomCredentialSchedule(t?.startsAt);
     if (!schedule) return undefined;
     const nextTransition = [schedule.releaseAtMs, schedule.startsAtMs]
@@ -118,7 +128,7 @@ export default function TDetail() {
       void load();
     }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow));
     return () => clearTimeout(timer);
-  }, [t?.startsAt, clockNow, load]);
+  }, [t?.startsAt, clockNow, isFocused, load]);
 
   if (loading) return <View style={s.root} />;
   if (!t) return <View style={[s.root, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ color: C.sub }}>Tournament not found.</Text></View>;
