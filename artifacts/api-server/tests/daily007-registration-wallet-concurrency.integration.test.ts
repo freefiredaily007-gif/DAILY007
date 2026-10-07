@@ -32,6 +32,12 @@ type WalletRaceFixture = {
   userId: string;
   matchIds: [string, string];
   gameUids: [string, string];
+  teamType: "solo" | "duo";
+  teamNames: [string, string];
+  teammates: [
+    { name: string; uid: string },
+    { name: string; uid: string },
+  ];
   entryCoins: [number, number];
 };
 
@@ -88,6 +94,7 @@ async function registerForMatch(
   userId: string,
   matchId: string,
   gameUid: string,
+  team: { name: string; uid: string; teamName: string } | null,
 ): Promise<RegistrationResponse> {
   const response = await fetch(`${origin}/daily007/v2/matches/${matchId}/register`, {
     method: "POST",
@@ -95,17 +102,25 @@ async function registerForMatch(
     body: JSON.stringify({
       captainGameName: "Concurrent Test Player",
       captainGameUid: gameUid,
-      teammates: [],
+      ...(team
+        ? { teamName: team.teamName, teammates: [{ name: team.name, uid: team.uid }] }
+        : { teammates: [] }),
     }),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
-async function createFixture(): Promise<WalletRaceFixture> {
+async function createFixture(teamType: "solo" | "duo"): Promise<WalletRaceFixture> {
   const fixture: WalletRaceFixture = {
     userId: randomUUID(),
     matchIds: [randomUUID(), randomUUID()],
     gameUids: [`ff-${randomUUID()}`, `ff-${randomUUID()}`],
+    teamType,
+    teamNames: [`Wallet race duo ${randomUUID()}`, `Wallet race duo ${randomUUID()}`],
+    teammates: [
+      { name: "Wallet Race Teammate A", uid: `ff-${randomUUID()}` },
+      { name: "Wallet Race Teammate B", uid: `ff-${randomUUID()}` },
+    ],
     entryCoins: [7, 13],
   };
   const client = await pool.connect();
@@ -117,11 +132,20 @@ async function createFixture(): Promise<WalletRaceFixture> {
       [fixture.userId, `player-${fixture.userId}@example.test`, STARTING_WALLET_COINS],
     );
     for (const [index, matchId] of fixture.matchIds.entries()) {
+      const storageMode = teamType === "duo" ? "squad" : "solo";
+      const capacity = teamType === "duo" ? 24 : 48;
       await client.query(
         `INSERT INTO daily007_v2_matches
            (id, title, mode, game_mode, team_type, capacity, entry_coins, starts_at, status)
-         VALUES ($1, $2, 'solo', 'battle_royale', 'solo', 48, $3, now() + interval '1 day', 'open')`,
-        [matchId, `Wallet race tournament ${index + 1}`, fixture.entryCoins[index]!],
+         VALUES ($1, $2, $3, 'battle_royale', $4, $5, $6, now() + interval '1 day', 'open')`,
+        [
+          matchId,
+          `Wallet race tournament ${index + 1}`,
+          storageMode,
+          teamType,
+          capacity,
+          fixture.entryCoins[index]!,
+        ],
       );
     }
     await client.query("COMMIT");
@@ -210,14 +234,14 @@ async function waitForBlockedWalletRequests(blockerPid: number, expectedCount: n
   throw new Error(`Timed out waiting for ${expectedCount} tournament joins to block on the wallet row.`);
 }
 
-test("concurrent joins charge each tournament's own fee and serialize on the PostgreSQL wallet row", async () => {
+async function runConcurrentWalletRace(teamType: "solo" | "duo"): Promise<void> {
   let fixtureForCleanup: WalletRaceFixture | undefined;
   let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
   let blockerTransactionOpen = false;
   let submissions: Promise<RegistrationResponse>[] = [];
 
   try {
-    const fixture = await createFixture();
+    const fixture = await createFixture(teamType);
     fixtureForCleanup = fixture;
     const blocker = await pool.connect();
     blockerForCleanup = blocker;
@@ -232,7 +256,18 @@ test("concurrent joins charge each tournament's own fee and serialize on the Pos
       const blockerPid = await backendPid(blocker);
 
       submissions = fixture.matchIds.map((matchId, index) =>
-        registerForMatch(origin, fixture.userId, matchId, fixture.gameUids[index]),
+        registerForMatch(
+          origin,
+          fixture.userId,
+          matchId,
+          fixture.gameUids[index],
+          teamType === "duo"
+            ? {
+                ...fixture.teammates[index],
+                teamName: fixture.teamNames[index],
+              }
+            : null,
+        ),
       );
 
       try {
@@ -259,11 +294,12 @@ test("concurrent joins charge each tournament's own fee and serialize on the Pos
         match_id: string;
         captain_user_id: string;
         captain_game_uid: string;
+        team_name: string;
         entry_coins_paid: number;
         status: string;
         entry_coins: number;
       }>(
-        `SELECT r.id, r.match_id, r.captain_user_id, r.captain_game_uid,
+        `SELECT r.id, r.match_id, r.captain_user_id, r.captain_game_uid, r.team_name,
                 r.entry_coins_paid, r.status, m.entry_coins
            FROM daily007_v2_registrations r
            JOIN daily007_v2_matches m ON m.id = r.match_id
@@ -281,11 +317,50 @@ test("concurrent joins charge each tournament's own fee and serialize on the Pos
         assert.ok(registration, `registration for ${matchId} must exist`);
         assert.equal(registration.captain_user_id, fixture.userId);
         assert.equal(registration.captain_game_uid, fixture.gameUids[index]);
+        assert.equal(
+          registration.team_name,
+          teamType === "duo" ? fixture.teamNames[index] : "",
+        );
         assert.equal(registration.entry_coins, fixture.entryCoins[index]);
         assert.equal(registration.entry_coins_paid, fixture.entryCoins[index]);
         assert.equal(registration.status, "approved");
         assert.equal(Number(responses[index].body.entryCoinsPaid), fixture.entryCoins[index]);
         assert.equal(responses[index].body.registrationId, registration.id);
+      }
+
+      const roster = await pool.query<{
+        registration_id: string;
+        match_id: string;
+        position: number;
+        member_uid: string | null;
+        member_name: string;
+      }>(
+        `SELECT roster.registration_id, registration.match_id, roster.position,
+                roster.member_uid, roster.member_name
+           FROM daily007_v2_roster roster
+           JOIN daily007_v2_registrations registration ON registration.id = roster.registration_id
+          WHERE registration.match_id = ANY($1::uuid[]) AND registration.captain_user_id = $2
+          ORDER BY registration.match_id, roster.position`,
+        [fixture.matchIds, fixture.userId],
+      );
+      assert.equal(
+        roster.rows.length,
+        teamType === "duo" ? 2 : 0,
+        teamType === "duo"
+          ? "each duo registration must have exactly one teammate row"
+          : "solo registrations must not create teammate rows",
+      );
+      if (teamType === "duo") {
+        assert.notEqual(fixture.teammates[0].uid, fixture.teammates[1].uid);
+        for (const [index, matchId] of fixture.matchIds.entries()) {
+          const registration = registrations.rows.find((entry) => entry.match_id === matchId);
+          assert.ok(registration, `registration for ${matchId} must exist`);
+          const teammateRows = roster.rows.filter((row) => row.registration_id === registration.id);
+          assert.equal(teammateRows.length, 1, "each registration must own only its submitted teammate");
+          assert.equal(teammateRows[0].position, 1);
+          assert.equal(teammateRows[0].member_uid, fixture.teammates[index].uid);
+          assert.equal(teammateRows[0].member_name, fixture.teammates[index].name);
+        }
       }
 
       const expectedFinalBalance = STARTING_WALLET_COINS -
@@ -361,4 +436,9 @@ test("concurrent joins charge each tournament's own fee and serialize on the Pos
       if (fixtureForCleanup) await cleanupFixture(fixtureForCleanup);
     }
   }
-});
+}
+
+test("concurrent solo joins charge each tournament's own fee", () => runConcurrentWalletRace("solo"));
+
+test("concurrent duo joins keep fees and teammate rosters matched to each tournament", () =>
+  runConcurrentWalletRace("duo"));

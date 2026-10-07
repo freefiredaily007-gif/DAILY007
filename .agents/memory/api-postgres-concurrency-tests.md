@@ -27,6 +27,12 @@ For concurrent wallet debits on different matches with different fees, correlate
 
 **How to apply:** Assert each match's configured and paid fee, map its response balance to its ledger entry, and verify the ledger balance chain from the starting balance to the final wallet value.
 
+**Rule:** When expanding a concurrency test to a new registration mode, retain prior mode coverage when it exercises a distinct write path.
+
+**Why:** Team signups add roster writes; replacing a solo race with a team race would lose regression coverage for wallet-only registrations.
+
+**How to apply:** Share the race setup where practical, and assert mode-specific persisted state (team roster rows for duo, none for solo).
+
 To exercise an isolated PostgreSQL write failure without mocking the transaction, add a temporary CHECK constraint scoped to the fixture's exact ledger idempotency key and reward reason. Drop it in `finally` after the request settles.
 
 **Why:** The targeted constraint fails only the intended ledger insert, allowing the test to prove the preceding wallet update rolls back while unrelated ledger writes remain unaffected.
