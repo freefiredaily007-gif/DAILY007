@@ -3,8 +3,10 @@ name: Daily007 invite recovery TalkBack
 description: Physical TalkBack confirmation for failed referral-browser-open recovery.
 ---
 
-On 2026-10-07, the user confirmed the invite recovery TalkBack check was good on an iQOO Neo 10 running Android 16: the copy/share recovery instruction was announced after a rejected browser open, not when Earn first rendered, and not after a successful open.
+On 2026-10-07, the user confirmed the invite recovery check on both iQOO Neo 10 / Android 16 TalkBack and iPhone VoiceOver. Each screen reader announced the copy/share recovery instruction after a rejected browser open, not on Earn entry or after a successful open.
 
-**Why:** Source-level tests can check callback wiring and call counts, but cannot confirm native TalkBack speech.
+Real Safari handoffs usually succeed, so use a repeatable development-only failure simulation for physical device checks. Keep that control behind `__DEV__` and check both the rejected and successful open paths.
 
-**How to apply:** Recheck on Android if the referral open failure path, recovery message, or accessibility announcement changes.
+**Why:** Source tests can verify callback wiring and call counts, but cannot confirm native speech. Natural browser-open rejection is difficult to reproduce reliably on a physical iPhone.
+
+**How to apply:** When the browser-open fallback or its announcement changes, verify on iOS and Android with VoiceOver/TalkBack: no message on screen entry, one recovery announcement after rejection, and no fallback after success.
