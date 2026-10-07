@@ -12,6 +12,7 @@ import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
 } from '../lib/roomCredentialTiming';
+import { createFocusedRetryController, isUsableNetworkState } from '../lib/focusedRetry';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import {
   compareTournamentStartTime,
@@ -25,6 +26,7 @@ export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
   const navigation: any = useNavigation();
   const [registrationRequests] = useState(createFocusedLatestRequestGate);
+  const [retryController] = useState(createFocusedRetryController);
   const [regs, setRegs] = useState<any[]>([]);
   const [tab, setTab] = useState<'upcoming' | 'ongoing' | 'completed'>('upcoming');
   const [loading, setLoading] = useState(true);
@@ -32,13 +34,21 @@ export default function MyMatches() {
   const [clockNow, setClockNow] = useState(Date.now());
   const [serverNowMs, setServerNowMs] = useState<number | null>(null);
   const appState = useRef(AppState.currentState);
+  const latestLoadFailed = useRef(false);
+  const loadRef = useRef<() => Promise<void>>(async () => {});
 
   const load = useCallback(async () => {
     await registrationRequests.run(
       () => Api.myRegistrations(),
-      () => setError(''),
+      () => {
+        retryController.cancelPending();
+        latestLoadFailed.current = false;
+      },
       (result) => {
         if (result.ok) {
+          latestLoadFailed.current = false;
+          retryController.markSuccess();
+          setError('');
           const registrations = Array.isArray(result.value) ? result.value : [];
           setRegs(registrations);
           const timeSample = registrations.find((registration: any) =>
@@ -46,12 +56,17 @@ export default function MyMatches() {
           )?.serverNowMs;
           setServerNowMs(Number.isFinite(timeSample) ? timeSample : null);
         } else {
+          latestLoadFailed.current = true;
           setError(apiError(result.error));
+          retryController.scheduleRetry(() => {
+            void loadRef.current();
+          });
         }
         setLoading(false);
       },
     );
-  }, [registrationRequests]);
+  }, [registrationRequests, retryController]);
+  loadRef.current = load;
 
   const refreshMatches = useCallback(() => {
     setClockNow(Date.now());
@@ -59,25 +74,48 @@ export default function MyMatches() {
   }, [load]);
 
   useFocusEffect(useCallback(() => {
+    let active = true;
     registrationRequests.setFocused(true);
+    retryController.setFocused(true);
+    latestLoadFailed.current = false;
     appState.current = AppState.currentState;
-    refreshMatches();
     const subscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = didAppReturnToForeground(appState.current, nextState);
       appState.current = nextState;
       if (returnedToApp) refreshMatches();
     });
+    const updateNetworkState = (
+      networkState: Parameters<typeof isUsableNetworkState>[0],
+      refreshAfterFailure: boolean,
+    ) => {
+      const usable = isUsableNetworkState(networkState);
+      retryController.setNetworkUsable(usable);
+      if (usable && refreshAfterFailure) refreshMatches();
+    };
+    let networkEventRevision = 0;
+    const initialNetworkEventRevision = networkEventRevision;
     const networkSubscription = Network.addNetworkStateListener((networkState) => {
-      if (networkState.isConnected === true && networkState.isInternetReachable !== false) {
-        refreshMatches();
-      }
+      if (!active) return;
+      networkEventRevision += 1;
+      updateNetworkState(networkState, true);
     });
+    void Network.getNetworkStateAsync().then((networkState) => {
+      if (!active || networkEventRevision !== initialNetworkEventRevision) return;
+      updateNetworkState(networkState, latestLoadFailed.current);
+    }).catch(() => {
+      if (active) retryController.setNetworkUsable(false);
+    });
+    refreshMatches();
     return () => {
+      active = false;
       registrationRequests.setFocused(false);
+      retryController.setFocused(false);
+      retryController.setNetworkUsable(false);
+      latestLoadFailed.current = false;
       subscription.remove();
       networkSubscription.remove();
     };
-  }, [refreshMatches, registrationRequests]));
+  }, [refreshMatches, registrationRequests, retryController]));
 
   useEffect(() => {
     const transitions = regs.flatMap((registration) => {
