@@ -60,11 +60,13 @@ async function seedLegacyRefunds(): Promise<void> {
          (user_id, amount, balance_after, reason, match_id, details, created_at)
        VALUES
          ($1, 27, 142, 'tournament_cancel_refund', NULL, $2::jsonb, now()),
-         ($1, 19, 115, 'tournament_cancel_refund', NULL, $3::jsonb, now() - interval '1 second')`,
+         ($1, 19, 115, 'tournament_cancel_refund', NULL, $3::jsonb, now() - interval '1 second'),
+         ($1, 11, 96, 'tournament_cancel_refund', NULL, $4::jsonb, now() - interval '2 seconds')`,
       [
         fixture.playerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.missingTournamentId}` }),
+        JSON.stringify({ description: "Legacy cancellation refund — tournament ID unavailable" }),
       ],
     );
     await client.query("COMMIT");
@@ -134,6 +136,11 @@ test("Wallet history resolves legacy refund UUIDs using PostgreSQL and keeps mis
           amount: 19,
           reason: "tournament_cancel_refund",
           description: `Entry fee refunded — tournament ${fixture.missingTournamentId} (tournament cancelled)`,
+        },
+        {
+          amount: 11,
+          reason: "tournament_cancel_refund",
+          description: "Legacy cancellation refund — tournament ID unavailable",
         },
       ],
     );
