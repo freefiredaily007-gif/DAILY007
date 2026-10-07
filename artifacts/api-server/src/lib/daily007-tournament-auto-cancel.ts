@@ -4,12 +4,47 @@ import { cancelUnderfilledTournamentAndRefund } from "./daily007-tournament-canc
 
 const AUTO_CANCEL_INTERVAL_MS = 15_000;
 const AUTO_CANCEL_BATCH_SIZE = 100;
+const AUTO_CANCEL_CURSOR_SETTING = "__daily007AutoCancelCursor";
 
 let schedulerTimer: NodeJS.Timeout | undefined;
 let sweepRunning = false;
-let lastCandidateCursor: { id: string; startsAt: Date | string } | null = null;
 
-function selectCandidates(after: typeof lastCandidateCursor) {
+type CandidateCursor = { id: string; startsAt: Date | string };
+
+async function loadCandidateCursor(): Promise<CandidateCursor | null> {
+  const result = await pool.query<{ settings: Record<string, unknown> }>(
+    "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+  );
+  const cursor = result.rows[0]?.settings?.[AUTO_CANCEL_CURSOR_SETTING];
+  if (!cursor || typeof cursor !== "object" || Array.isArray(cursor)) return null;
+  const value = cursor as { id?: unknown; startsAt?: unknown };
+  if (
+    typeof value.id !== "string" ||
+    !value.id ||
+    typeof value.startsAt !== "string" ||
+    !Number.isFinite(Date.parse(value.startsAt))
+  ) {
+    return null;
+  }
+  return { id: value.id, startsAt: new Date(value.startsAt).toISOString() };
+}
+
+async function saveCandidateCursor(cursor: CandidateCursor | null): Promise<void> {
+  await pool.query(
+    `INSERT INTO daily007_v2_settings (id, settings)
+     VALUES (1, jsonb_build_object('__daily007AutoCancelCursor', $1::jsonb))
+     ON CONFLICT (id) DO UPDATE
+       SET settings = jsonb_set(
+         COALESCE(daily007_v2_settings.settings, '{}'::jsonb),
+         '{__daily007AutoCancelCursor}',
+         $1::jsonb,
+         true
+       )`,
+    [JSON.stringify(cursor)],
+  );
+}
+
+function selectCandidates(after: CandidateCursor | null) {
   return pool.query<{ id: string; startsAt: Date | string }>(
     `SELECT m.id, m.starts_at AS "startsAt"
        FROM daily007_v2_matches m
@@ -30,9 +65,9 @@ function selectCandidates(after: typeof lastCandidateCursor) {
            WHERE award.match_id = m.id AND award.rank = 1
         )
         AND (
-          $2 IS NULL
-          OR m.starts_at > $2
-          OR (m.starts_at = $2 AND m.id > $3)
+          $2::timestamptz IS NULL
+          OR m.starts_at > $2::timestamptz
+          OR (m.starts_at = $2::timestamptz AND m.id > $3::uuid)
         )
       ORDER BY m.starts_at ASC, m.id ASC
       LIMIT $1`,
@@ -44,14 +79,15 @@ export async function runDaily007AutoCancellationSweep(): Promise<void> {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
+    let lastCandidateCursor = await loadCandidateCursor();
     let candidates = await selectCandidates(lastCandidateCursor);
     if (candidates.rows.length === 0 && lastCandidateCursor !== null) {
       lastCandidateCursor = null;
+      await saveCandidateCursor(null);
       candidates = await selectCandidates(null);
     }
 
     for (const candidate of candidates.rows) {
-      lastCandidateCursor = { id: candidate.id, startsAt: candidate.startsAt };
       try {
         const result = await cancelUnderfilledTournamentAndRefund(candidate.id, true);
         if (result) {
@@ -65,6 +101,8 @@ export async function runDaily007AutoCancellationSweep(): Promise<void> {
       } catch (err) {
         logger.error({ err, tournamentId: candidate.id }, "Automatic tournament cancellation failed");
       }
+      lastCandidateCursor = { id: candidate.id, startsAt: candidate.startsAt };
+      await saveCandidateCursor(lastCandidateCursor);
     }
   } catch (err) {
     logger.error({ err }, "Automatic tournament cancellation sweep failed");

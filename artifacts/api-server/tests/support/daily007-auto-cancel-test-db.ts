@@ -112,12 +112,14 @@ class Daily007AutoCancelTestDatabase {
   registrations: TestRegistration[] = [];
   accounts = new Map<string, TestAccount>();
   ledger = new Map<string, TestLedgerEntry>();
+  settings: Record<string, unknown> = {};
   private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
   private readonly failedMatchFinalizations = new Set<string>();
   private readonly failedRefundWrites = new Set<string>();
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
+  readonly candidateSelectionSizes: number[] = [];
 
   reset(seed: TestDatabaseSeed): void {
     this.nowMs = seed.nowMs;
@@ -130,10 +132,12 @@ class Daily007AutoCancelTestDatabase {
         structuredClone(entry),
       ]),
     );
+    this.settings = {};
     this.matchRowLocks.clear();
     this.failedMatchFinalizations.clear();
     this.failedRefundWrites.clear();
     this.mutationTrace.length = 0;
+    this.candidateSelectionSizes.length = 0;
   }
 
   failNextMatchFinalization(matchId: string): void {
@@ -225,7 +229,14 @@ class Daily007AutoCancelTestDatabase {
     const normalized = sql.replace(/\s+/g, " ").trim();
     let rows: unknown[] = [];
 
-    if (
+    if (normalized === "SELECT settings FROM daily007_v2_settings WHERE id = 1") {
+      rows = [{ settings: structuredClone(this.settings) }];
+    } else if (
+      normalized.startsWith("INSERT INTO daily007_v2_settings (id, settings)") &&
+      normalized.includes("__daily007AutoCancelCursor")
+    ) {
+      this.settings.__daily007AutoCancelCursor = JSON.parse(String(values[0])) as unknown;
+    } else if (
       normalized.startsWith('SELECT m.id, m.starts_at AS "startsAt" FROM daily007_v2_matches m') &&
       normalized.includes("ORDER BY m.starts_at ASC, m.id ASC") &&
       normalized.includes("LIMIT $1")
@@ -260,6 +271,7 @@ class Daily007AutoCancelTestDatabase {
         )
         .slice(0, batchSize)
         .map((match) => ({ id: match.id, startsAt: new Date(match.startsAtWallMs) }));
+      this.candidateSelectionSizes.push(rows.length);
     } else if (normalized.includes("FOR UPDATE OF m")) {
       const match = this.matches.get(String(values[0]));
       rows = match ? [{

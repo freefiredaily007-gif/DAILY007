@@ -44,7 +44,7 @@
 - [Daily007 YouTube link behavior](daily007-youtube-link-behavior.md) — only the explicit YouTube action leaves the in-app player; Android opens the selected video in YouTube first, with browser fallback.
 - [Daily007 tournament captain name](daily007-tournament-captain-name.md) — use the read-only Daily007 profile name for the captain instead of asking for a separate real name.
 - [Daily007 tournament auto-confirmation](daily007-tournament-auto-confirm.md) — new joins confirm immediately, with any entry-fee deduction in the same transaction.
-- [Daily007 automatic tournament cancellation](daily007-auto-cancellation.md) — only underfilled Clash Squad/Lone Wolf matches cancel at start, refunding each original payer once.
+- [Daily007 automatic tournament cancellation](daily007-auto-cancellation.md) — preserve private sweep progress across API restarts while refunding only eligible underfilled matches.
 - [Daily007 room credential release](daily007-room-credentials.md) — saving credentials schedules access at five minutes before the tournament’s scheduled start, for approved registrants only.
 - [Daily007 public participant rosters](daily007-public-participant-roster.md) — show team names and Free Fire handles only; keep account details and UIDs private.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.

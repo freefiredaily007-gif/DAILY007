@@ -152,6 +152,7 @@ async function settings(): Promise<Record<string, unknown>> {
   );
   const storedSettings = { ...(result.rows[0]?.settings ?? {}) };
   delete storedSettings.__daily007VideoCatalogSeeded;
+  delete storedSettings.__daily007AutoCancelCursor;
   const current = { ...SETTINGS_DEFAULTS, ...storedSettings };
   for (const key of ["whatsappLink", "instagramLink", "youtubeLink"] as const) {
     if (typeof current[key] !== "string" || !current[key].trim()) {
@@ -1041,8 +1042,16 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
                  '__daily007VideoCatalogSeeded',
                  daily007_v2_settings.settings->'__daily007VideoCatalogSeeded'
                )
-             ELSE '{}'::jsonb
-           END,
+               ELSE '{}'::jsonb
+             END ||
+             CASE
+               WHEN daily007_v2_settings.settings ? '__daily007AutoCancelCursor'
+                 THEN jsonb_build_object(
+                   '__daily007AutoCancelCursor',
+                   daily007_v2_settings.settings->'__daily007AutoCancelCursor'
+                 )
+               ELSE '{}'::jsonb
+             END,
              updated_by = EXCLUDED.updated_by,
              updated_at = now()`,
       [JSON.stringify(next), userId(req)],

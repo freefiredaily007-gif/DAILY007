@@ -337,7 +337,21 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
   assert.equal(autoCancellationTestDb.ledger.size, 0);
   assert.equal(autoCancellationTestDb.matches.get(validMatch.id)?.status, "open");
   assert.equal(autoCancellationTestDb.accounts.get("payer-valid")?.wallet_coins, 70);
+  assert.deepEqual(
+    autoCancellationTestDb.candidateSelectionSizes,
+    [100],
+    "the first sweep must process only its 100-candidate batch",
+  );
+  assert.deepEqual(
+    autoCancellationTestDb.settings.__daily007AutoCancelCursor,
+    {
+      id: matches[matches.length - 1]!.id,
+      startsAt: new Date(matchStart).toISOString(),
+    },
+    "the position after the failing batch must be stored outside the API process",
+  );
 
+  // A fresh invocation reads its position from the persistent settings row, as a restarted process will.
   await runDaily007AutoCancellationSweep();
 
   assert.equal(autoCancellationTestDb.matches.get(validMatch.id)?.status, "cancelled");
@@ -347,6 +361,11 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
     [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === validMatch.id).length,
     1,
   );
+  assert.deepEqual(
+    autoCancellationTestDb.candidateSelectionSizes,
+    [100, 1],
+    "the restarted sweep must begin after the persisted cursor and process only the later tournament",
+  );
 
   await runDaily007AutoCancellationSweep();
 
@@ -354,4 +373,9 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
   assert.equal(autoCancellationTestDb.accounts.get("payer-valid")?.wallet_coins, 83);
   assert.equal(autoCancellationTestDb.matches.get(validMatch.id)?.status, "cancelled");
   assert.equal(autoCancellationTestDb.mutationTrace.length, failingMatchCount * 4 + 2);
+  assert.deepEqual(
+    autoCancellationTestDb.candidateSelectionSizes,
+    [100, 1, 0, 100],
+    "the cursor wraps only after reaching the end and no sweep exceeds 100 candidates",
+  );
 });
