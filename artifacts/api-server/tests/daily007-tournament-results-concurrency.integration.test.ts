@@ -38,7 +38,7 @@ type PlayerFixture = {
 type TournamentFixture = {
   adminId: string;
   matchId: string;
-  players: [PlayerFixture, PlayerFixture];
+  players: [PlayerFixture, PlayerFixture, ...PlayerFixture[]];
 };
 
 after(async () => {
@@ -109,14 +109,18 @@ async function submitResult(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
-async function createFixture(): Promise<TournamentFixture> {
+async function createFixture(playerCount = 2): Promise<TournamentFixture> {
+  if (!Number.isSafeInteger(playerCount) || playerCount < 2) {
+    throw new Error("A tournament result fixture requires at least two players.");
+  }
   const fixture: TournamentFixture = {
     adminId: randomUUID(),
     matchId: randomUUID(),
-    players: [
-      { userId: randomUUID(), registrationId: randomUUID(), gameUid: `uid-${randomUUID()}` },
-      { userId: randomUUID(), registrationId: randomUUID(), gameUid: `uid-${randomUUID()}` },
-    ],
+    players: Array.from({ length: playerCount }, () => ({
+      userId: randomUUID(),
+      registrationId: randomUUID(),
+      gameUid: `uid-${randomUUID()}`,
+    })) as TournamentFixture["players"],
   };
   const client = await pool.connect();
   try {
@@ -139,7 +143,7 @@ async function createFixture(): Promise<TournamentFixture> {
       `INSERT INTO daily007_v2_matches
          (id, title, mode, game_mode, team_type, capacity, prize_pool, prize_distribution, starts_at)
        VALUES ($1, 'Isolated result race', 'solo', 'battle_royale', 'solo', 48,
-                750, '1st: 500 coins\n2nd: 250 coins', now() - interval '1 hour')`,
+                875, '1st: 500 coins\n2nd: 250 coins\n3rd: 125 coins', now() - interval '1 hour')`,
       [fixture.matchId],
     );
     for (const [index, player] of fixture.players.entries()) {
@@ -316,7 +320,11 @@ async function waitForBlockedResultRequests(
       ["%FOR UPDATE OF r, m%"],
     );
     if (result.rows.length >= expectedCount) {
-      assert.equal(result.rows.length, expectedCount, "Only the two competing result requests should be blocked.");
+      assert.equal(
+        result.rows.length,
+        expectedCount,
+        `Only the ${expectedCount} competing result requests should be blocked.`,
+      );
       const requestPids = new Set(result.rows.map((row) => Number(row.pid)));
       assert.ok(
         result.rows.some((row) => row.blockers.includes(blockerPid)),
@@ -797,10 +805,10 @@ test("concurrent first- and second-place results cannot pay one registration twi
   }
 });
 
-test("concurrent first- and second-place results preserve both payouts and standings", async () => {
-  const fixture = await createFixture();
-  const winner = fixture.players[0];
-  const runnerUp = fixture.players[1];
+test("concurrent first-, second-, and third-place results preserve configured prizes and standings", async () => {
+  const fixture = await createFixture(3);
+  const [winner, runnerUp, thirdPlace] = fixture.players;
+  assert.ok(winner && runnerUp && thirdPlace, "three uniquely identified player fixtures are required");
   const blocker = await pool.connect();
   let blockerTransactionOpen = false;
   let submissions: Promise<ResultResponse>[] = [];
@@ -818,11 +826,12 @@ test("concurrent first- and second-place results preserve both payouts and stand
       submissions = [
         submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7),
         submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3),
+        submitResult(origin, fixture.adminId, fixture.matchId, thirdPlace, 3, 5),
       ];
 
       try {
-        const waitingRequests = await waitForBlockedResultRequests(blockerPid, 2);
-        assert.equal(waitingRequests.length, 2);
+        const waitingRequests = await waitForBlockedResultRequests(blockerPid, 3);
+        assert.equal(waitingRequests.length, 3);
         await blocker.query("COMMIT");
         blockerTransactionOpen = false;
       } finally {
@@ -833,7 +842,7 @@ test("concurrent first- and second-place results preserve both payouts and stand
       }
 
       const results = await Promise.all(submissions);
-      assert.deepEqual(results.map((result) => result.status), [201, 201]);
+      assert.deepEqual(results.map((result) => result.status), [201, 201, 201]);
       assert.deepEqual(results.map((result) => ({
         registrationId: result.body.registrationId,
         userId: result.body.userId,
@@ -851,6 +860,12 @@ test("concurrent first- and second-place results preserve both payouts and stand
           userId: runnerUp.userId,
           prizeCoins: 250,
           walletCoins: 350,
+        },
+        {
+          registrationId: thirdPlace.registrationId,
+          userId: thirdPlace.userId,
+          prizeCoins: 125,
+          walletCoins: 225,
         },
       ]);
 
@@ -879,6 +894,13 @@ test("concurrent first- and second-place results preserve both payouts and stand
           kills: 3,
           prizeCoins: 250,
           gameName: "TestGame2",
+          teamName: null,
+        },
+        {
+          rank: 3,
+          kills: 5,
+          prizeCoins: 125,
+          gameName: "TestGame3",
           teamName: null,
         },
       ]);
@@ -911,16 +933,24 @@ test("concurrent first- and second-place results preserve both payouts and stand
           kills: 3,
           prize_coins: 250,
         },
+        {
+          registration_id: thirdPlace.registrationId,
+          user_id: thirdPlace.userId,
+          rank: 3,
+          kills: 5,
+          prize_coins: 125,
+        },
       ]);
       assert.equal(awards.rows.filter((award) => award.rank === 1).length, 1);
 
       const wallets = await pool.query<{ id: string; wallet_coins: number }>(
         "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
-        [[winner.userId, runnerUp.userId]],
+        [[winner.userId, runnerUp.userId, thirdPlace.userId]],
       );
       assert.deepEqual(wallets.rows, [
         { id: winner.userId, wallet_coins: 600 },
         { id: runnerUp.userId, wallet_coins: 350 },
+        { id: thirdPlace.userId, wallet_coins: 225 },
       ].sort((left, right) => left.id.localeCompare(right.id)));
 
       const ledger = await pool.query<{
@@ -933,7 +963,7 @@ test("concurrent first- and second-place results preserve both payouts and stand
            FROM daily007_v2_wallet_ledger
           WHERE user_id = ANY($1::uuid[])
           ORDER BY user_id`,
-        [[winner.userId, runnerUp.userId]],
+        [[winner.userId, runnerUp.userId, thirdPlace.userId]],
       );
       assert.deepEqual(ledger.rows, [
         {
@@ -946,6 +976,12 @@ test("concurrent first- and second-place results preserve both payouts and stand
           user_id: runnerUp.userId,
           amount: 250,
           balance_after: 350,
+          reason: "match_prize",
+        },
+        {
+          user_id: thirdPlace.userId,
+          amount: 125,
+          balance_after: 225,
           reason: "match_prize",
         },
       ].sort((left, right) => left.user_id.localeCompare(right.user_id)));
@@ -961,7 +997,7 @@ test("concurrent first- and second-place results preserve both payouts and stand
            FROM daily007_v2_user_stats
           WHERE user_id = ANY($1::uuid[])
           ORDER BY user_id`,
-        [[winner.userId, runnerUp.userId]],
+        [[winner.userId, runnerUp.userId, thirdPlace.userId]],
       );
       assert.deepEqual(stats.rows, [
         {
@@ -978,7 +1014,20 @@ test("concurrent first- and second-place results preserve both payouts and stand
           kills: 3,
           prize_coins: 250,
         },
+        {
+          user_id: thirdPlace.userId,
+          matches: 1,
+          wins: 0,
+          kills: 5,
+          prize_coins: 125,
+        },
       ].sort((left, right) => left.user_id.localeCompare(right.user_id)));
+
+      const match = await pool.query<{ enabled: boolean; status: string }>(
+        "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
+        [fixture.matchId],
+      );
+      assert.deepEqual(match.rows, [{ enabled: false, status: "open" }]);
     });
   } finally {
     if (blockerTransactionOpen) await blocker.query("ROLLBACK");
