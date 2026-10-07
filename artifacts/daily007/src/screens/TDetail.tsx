@@ -314,6 +314,7 @@ export default function TDetail() {
                 kind="ghost"
                 onPress={() => { void resultsQuery.refetch(); }}
                 loading={resultsQuery.isFetching}
+                accessibilityState={{ busy: resultsQuery.isFetching }}
                 style={{ marginTop: 10 }}
                 testID="winner-results-retry"
               />

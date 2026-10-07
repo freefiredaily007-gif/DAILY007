@@ -111,8 +111,8 @@ function renderWinnerFixture(fixture) {
   const View = ({ children }) => React.createElement("div", null, children);
   const Text = ({ children }) => React.createElement("span", null, children);
   const SectionTitle = ({ children }) => React.createElement("h2", null, children);
-  const Btn = ({ children, title, onPress, testID }) => {
-    buttons.push({ onPress, testID });
+  const Btn = ({ children, title, onPress, testID, accessibilityState }) => {
+    buttons.push({ accessibilityState, onPress, testID });
     return React.createElement(
       "button",
       { "data-testid": testID, onClick: onPress },
@@ -428,6 +428,52 @@ test("a rendered winner error hides stale details and retry reveals the recovere
   assert.match(winnerCard, /125 coins/);
   assert.ok(winnerCard.includes(inr(125)));
   assert.doesNotMatch(recovered.markup, /Stale Champion|75 coins/);
+});
+
+test("winner-details retry exposes busy state only while the request is fetching", async () => {
+  let resolveRefetch;
+  let refetchCalls = 0;
+  const refetchPromise = new Promise((resolve) => {
+    resolveRefetch = resolve;
+  });
+  const fixture = {
+    tournament: { status: "completed" },
+    participants: [],
+    teamTournament: false,
+    resultsError: true,
+    resultsFetching: false,
+    results: [],
+    refetchResults: () => {
+      refetchCalls += 1;
+      return refetchPromise;
+    },
+  };
+
+  const failed = renderWinnerFixture(fixture);
+  const retryButton = failed.buttons.find(
+    ({ testID }) => testID === "winner-results-retry",
+  );
+  assert.deepEqual(retryButton?.accessibilityState, { busy: false });
+  assert.match(failed.markup, /RETRY WINNER DETAILS/);
+
+  retryButton.onPress();
+  fixture.resultsFetching = true;
+  const retrying = renderWinnerFixture(fixture);
+  const retryingButton = retrying.buttons.find(
+    ({ testID }) => testID === "winner-results-retry",
+  );
+  assert.deepEqual(retryingButton?.accessibilityState, { busy: true });
+  assert.match(retrying.markup, /RETRY WINNER DETAILS/);
+  assert.equal(refetchCalls, 1);
+
+  resolveRefetch();
+  await refetchPromise;
+  fixture.resultsFetching = false;
+  const settled = renderWinnerFixture(fixture);
+  const settledButton = settled.buttons.find(
+    ({ testID }) => testID === "winner-results-retry",
+  );
+  assert.deepEqual(settledButton?.accessibilityState, { busy: false });
 });
 
 test("tournament result status and winner details poll only while focused without overlapping requests", async () => {
