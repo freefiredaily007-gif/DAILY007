@@ -110,6 +110,9 @@ class MemorySignupDatabase {
   private advisoryLockBarrier: AdvisoryLockBarrier | null = null;
   private authVersionUpdatePause: AuthVersionUpdatePause | null = null;
   advisoryLockWaitCount = 0;
+  get activeAdvisoryLockCount(): number {
+    return this.advisoryLockTails.size;
+  }
   private shouldFailNextWelcomeSignupRewardLedgerWrite = false;
   private shouldFailNextReferralSignupRewardLedgerWrite = false;
   private shouldFailNextReferralShortCodeInsert = false;
