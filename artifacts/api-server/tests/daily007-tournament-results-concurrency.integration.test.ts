@@ -606,6 +606,99 @@ test("concurrent retries for the same registration publish and pay exactly once"
   }
 });
 
+test("concurrent runner-up retries for the same registration award and pay exactly once", async () => {
+  const fixture = await createFixture();
+  const runnerUp = fixture.players[1];
+  const otherPlayer = fixture.players[0];
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let submissions: Promise<ResultResponse>[] = [];
+
+  try {
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [fixture.matchId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      submissions = [
+        submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 6),
+        submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 9),
+      ];
+
+      try {
+        const waitingRequests = await waitForBlockedResultRequests(blockerPid, 2);
+        assert.equal(waitingRequests.length, 2);
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const results = await Promise.all(submissions);
+      assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
+
+      const successful = results.find((result) => result.status === 201);
+      const rejected = results.find((result) => result.status === 409);
+      assert.ok(successful, "one runner-up result request must succeed");
+      assert.ok(rejected, "the concurrent runner-up retry must be rejected");
+      assert.equal(
+        rejected.body.error,
+        "A result has already been published for this registration.",
+      );
+      assert.equal(successful.body.registrationId, runnerUp.registrationId);
+      assert.equal(successful.body.userId, runnerUp.userId);
+      assert.equal(successful.body.prizeCoins, 250);
+      assert.equal(successful.body.walletCoins, 350);
+      const successfulKills = results[0].status === 201 ? 6 : 9;
+
+      const runnerUpState = await captureSettlementState(fixture, runnerUp);
+      assert.deepEqual(runnerUpState, {
+        walletCoins: 350,
+        awards: [{
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          rank: 2,
+          kills: successfulKills,
+          prize_coins: 250,
+        }],
+        stats: {
+          matches: 1,
+          wins: 0,
+          kills: successfulKills,
+          prize_coins: 250,
+        },
+        ledger: [{
+          amount: 250,
+          balance_after: 350,
+          reason: "match_prize",
+        }],
+        match: {
+          enabled: true,
+          status: "open",
+        },
+      });
+
+      const otherPlayerState = await captureSettlementState(fixture, otherPlayer);
+      assert.equal(otherPlayerState.walletCoins, 100);
+      assert.equal(otherPlayerState.stats, null);
+      assert.deepEqual(otherPlayerState.ledger, []);
+      assert.equal(otherPlayerState.awards.length, 1);
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await Promise.allSettled(submissions);
+    await cleanupFixture(fixture);
+  }
+});
+
 test("concurrent first- and second-place results preserve both payouts and standings", async () => {
   const fixture = await createFixture();
   const winner = fixture.players[0];
