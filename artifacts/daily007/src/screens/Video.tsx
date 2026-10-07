@@ -133,8 +133,10 @@ export default function Video() {
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const playbackCycleRef = useRef(0);
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
   const closePlayer = useCallback(() => {
+    playbackCycleRef.current += 1;
     setShowPlayer(false);
     setSelectedVideoId(null);
     setRetrySession(null);
@@ -167,7 +169,6 @@ export default function Video() {
   const startAttemptIdRef = useRef<string | null>(null);
   const startingSessionRef = useRef(false);
   const sessionStartFailedRef = useRef(false);
-  const playbackCycleRef = useRef(0);
   const appLifecycleCycleRef = useRef(0);
   const appIsActiveRef = useRef(
     AppState.currentState !== 'background' && AppState.currentState !== 'inactive',

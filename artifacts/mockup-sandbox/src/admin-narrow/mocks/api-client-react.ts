@@ -189,6 +189,7 @@ type VideoRewardPreviewMode =
   | "unavailableRefreshFailure"
   | "transient"
   | "startFailure"
+  | "delayedStart"
   | null;
 type VideoRewardPreviewCalls = {
   starts: unknown[];
@@ -215,8 +216,10 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
   videoWatchStartFailures = 0;
   const preview = globalThis as typeof globalThis & {
     __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
+    __resolvePendingVideoWatchStart?: () => void;
   };
   preview.__videoRewardPreviewCalls = { starts: [], sessions: [], completions: [], listRefetches: 0 };
+  preview.__resolvePendingVideoWatchStart = undefined;
 }
 
 export function useDaily007ListVideos() {
@@ -270,7 +273,20 @@ export function useDaily007StartVideoWatch() {
           throw new Error("The video watch session could not be created.");
         }
         const sessionId = `preview-video-watch-session-${calls.starts.length}`;
-        calls.sessions.push(sessionId);
+        if (videoRewardPreviewMode === "delayedStart" && calls.starts.length === 1) {
+          await new Promise<void>((resolve) => {
+            const preview = globalThis as typeof globalThis & {
+              __resolvePendingVideoWatchStart?: () => void;
+            };
+            preview.__resolvePendingVideoWatchStart = () => {
+              preview.__resolvePendingVideoWatchStart = undefined;
+              calls.sessions.push(sessionId);
+              resolve();
+            };
+          });
+        } else {
+          calls.sessions.push(sessionId);
+        }
         return { sessionId };
       },
     };
@@ -295,7 +311,7 @@ export function useDaily007CompleteVideoWatch() {
           };
           throw error;
         }
-        if (transientCompletionFailures === 0) {
+        if (mode === "transient" && transientCompletionFailures === 0) {
           transientCompletionFailures += 1;
           throw new Error("Temporary completion network failure.");
         }

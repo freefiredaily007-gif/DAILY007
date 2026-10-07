@@ -1055,6 +1055,108 @@ async function checkVideoWatchStartFailure() {
   console.log("PASS — failed watch-session creation offers no reward claim and allows a fresh start.");
 }
 
+async function checkDelayedVideoWatchStart() {
+  await navigateToScreen("VideoDelayedStart", "Tutorial Videos");
+  await clickSelector(
+    '[data-testid="video-catalog-card-still-active-video"]',
+    "active video for the delayed watch-session test",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator before a delayed session start",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "start playback with a pending session request");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 1
+      && typeof window.__resolvePendingVideoWatchStart === "function"`,
+    "pending video-watch session request",
+  );
+
+  const pendingStart = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts.length ?? 0,
+    sessions: window.__videoRewardPreviewCalls?.sessions.length ?? 0,
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+  }))()`);
+  assert(
+    pendingStart.starts === 1
+      && pendingStart.sessions === 0
+      && pendingStart.completions === 0
+      && !pendingStart.retryClaim,
+    `The initial playback should wait for its session without claiming a reward: ${JSON.stringify(pendingStart)}`,
+  );
+
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "end playback before the session request resolves");
+  const endedPlayback = await evaluate(`(() => ({
+    sessions: window.__videoRewardPreviewCalls?.sessions.length ?? 0,
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+  }))()`);
+  assert(
+    endedPlayback.sessions === 0 && endedPlayback.completions === 0 && !endedPlayback.retryClaim,
+    `Ending playback with a pending session must not complete or expose a claim retry: ${JSON.stringify(endedPlayback)}`,
+  );
+
+  await evaluate("window.__resolvePendingVideoWatchStart?.()");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.sessions.length === 1
+      && typeof window.__resolvePendingVideoWatchStart !== "function"`,
+    "late server response for the ended playback",
+  );
+  const lateReply = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts.length ?? 0,
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+    errorVisible: document.querySelector('[data-testid="video-watch-error"]') !== null,
+  }))()`);
+  assert(
+    lateReply.starts === 1
+      && lateReply.sessions[0] === "preview-video-watch-session-1"
+      && lateReply.completions === 0
+      && !lateReply.retryClaim
+      && !lateReply.errorVisible,
+    `A late session reply must not affect the finished playback or offer a claim retry: ${JSON.stringify(lateReply)}`,
+  );
+
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "start a fresh playback after the delayed reply");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 2
+      && window.__videoRewardPreviewCalls?.sessions.length === 2`,
+    "fresh server watch session for the later playback",
+  );
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "complete the later playback");
+  await waitForCondition(
+    `document.body.innerText.includes("1 coin added to your wallet.")
+      && window.__videoRewardPreviewCalls?.completions.length === 1`,
+    "reward completion from the later playback",
+  );
+  const freshPlayback = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts ?? [],
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+  }))()`);
+  assert(
+    freshPlayback.starts.length === 2
+      && freshPlayback.sessions[0] === "preview-video-watch-session-1"
+      && freshPlayback.sessions[1] === "preview-video-watch-session-2"
+      && freshPlayback.completions.length === 1
+      && freshPlayback.completions[0]?.data?.sessionId === "preview-video-watch-session-2"
+      && !freshPlayback.retryClaim,
+    `A later playback must claim only with its own fresh session: ${JSON.stringify(freshPlayback)}`,
+  );
+  console.log("PASS — a late session reply cannot reward ended playback, and a fresh playback uses its own session.");
+}
+
 async function checkProfilePasswordConflictRetry() {
   const conflictMessage = "The password changed in another session. Sign in again and retry.";
   const successMessage = "Password changed. Other sessions stay active until the next sign-in.";
@@ -1196,6 +1298,7 @@ try {
       await checkUnavailableVideoCatalogRefreshFailure();
       await checkTransientVideoRewardRetry();
       await checkVideoWatchStartFailure();
+      await checkDelayedVideoWatchStart();
     }
 
     await navigateToScreen("Home", "GAME MODES");
