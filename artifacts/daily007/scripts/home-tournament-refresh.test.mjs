@@ -91,6 +91,39 @@ test("remaining upcoming cards stay swipeable and open their tournament details"
   assert.match(homeSource, /onPress=\{\(\) => openTournamentDetail\(t\.id\)\}/);
 });
 
+test("a failed refresh keeps upcoming cards visible and offers a retry", () => {
+  const refreshFailureNotice = homeSource.match(
+    /\{!loading && upcomingItems\.length > 0 && loadError && \([\s\S]*?testID="home-upcoming-refresh-error"[\s\S]*?\n\s*\)\}/,
+  )?.[0];
+
+  assert.ok(refreshFailureNotice, "A failed refresh with visible cards must show an inline notice.");
+  assert.match(refreshFailureNotice, /The cards shown may be out of date/);
+  assert.match(refreshFailureNotice, /accessibilityLiveRegion="polite"/);
+  assert.match(refreshFailureNotice, /testID="home-upcoming-retry"/);
+  assert.match(refreshFailureNotice, /accessibilityRole="button"/);
+  assert.match(refreshFailureNotice, /onPress=\{onRefresh\}/);
+  assert.match(refreshFailureNotice, /disabled=\{refreshing\}/);
+  assert.match(refreshFailureNotice, /RETRYING…/);
+  assert.ok(
+    homeSource.indexOf('testID="home-upcoming-refresh-error"') <
+      homeSource.indexOf('testID="home-upcoming-carousel"'),
+    "The refresh notice must render without replacing the carousel.",
+  );
+
+  const loadMethod = homeSource.match(
+    /const load = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/,
+  )?.[1];
+  const loadFailure = loadMethod?.match(/catch \(e: any\) \{([\s\S]*?)\n\s*\} finally/)?.[1];
+  assert.ok(loadFailure, "Home must retain an explicit refresh-failure handler.");
+  assert.match(loadFailure, /setLoadError/);
+  assert.doesNotMatch(loadFailure, /setItems/, "A failed refresh must not clear existing cards.");
+
+  const refreshHandler = homeSource.match(
+    /const onRefresh = async \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1];
+  assert.match(refreshHandler ?? "", /await load\(\)/);
+});
+
 test("a cancelled or disabled tournament closes while unaffected upcoming matches remain visible", () => {
   const now = Date.parse("2026-10-04T12:00:00Z");
   const latest = [

@@ -10,7 +10,7 @@ import modeClashLogo from '../assets/mode-clash-logo.jpg';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { api, Api } from '../lib/api';
 import { useApp } from '../App';
-import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, glow, Pulse, fmtTime12, getTournamentFormatPresentation } from '../components/ui';
+import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, Msg, glow, Pulse, fmtTime12, getTournamentFormatPresentation } from '../components/ui';
 import { inr } from '../lib/coins';
 import {
   didAppReturnToForeground,
@@ -300,6 +300,31 @@ export default function Home() {
           <Text style={s.viewAll}>VIEW ALL →</Text>
         </Pressable>
       </View>
+      {!loading && upcomingItems.length > 0 && loadError && (
+        <View testID="home-upcoming-refresh-error" style={s.upcomingRefreshNotice}>
+          <Msg
+            kind="err"
+            text={`Could not refresh tournaments. The cards shown may be out of date. ${loadError}`}
+            accessibilityLiveRegion="polite"
+          />
+          <Pressable
+            testID="home-upcoming-retry"
+            onPress={onRefresh}
+            disabled={refreshing}
+            accessibilityRole="button"
+            accessibilityLabel={refreshing ? 'Retrying tournament refresh' : 'Retry tournament refresh'}
+            accessibilityHint="Loads the latest tournament cards and registration status."
+            accessibilityState={{ disabled: refreshing }}
+            style={({ pressed }) => [
+              s.upcomingRetryButton,
+              refreshing && s.upcomingRetryDisabled,
+              pressed && !refreshing && { opacity: 0.78 },
+            ]}
+          >
+            <Text style={s.upcomingRetryText}>{refreshing ? 'RETRYING…' : 'RETRY'}</Text>
+          </Pressable>
+        </View>
+      )}
       {loading ? <Loading /> : upcomingItems.length === 0 ? (
         <Empty icon="🎮" text={loadError ? `Tournament data is unavailable: ${loadError}` : 'No upcoming tournaments are available right now.'} actionLabel="CHECK MATCHES" onAction={() => goTab('tournaments')} />
       ) : (
@@ -582,6 +607,14 @@ const s = StyleSheet.create({
   secRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 14, marginBottom: 8 },
   secRowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
   viewAllPressableLarge: { alignSelf: 'flex-end' },
+  upcomingRefreshNotice: { marginHorizontal: 16, marginBottom: 8 },
+  upcomingRetryButton: {
+    alignSelf: 'flex-start', minHeight: 44, marginTop: 8, paddingHorizontal: 14,
+    justifyContent: 'center', borderRadius: 10, borderWidth: 1,
+    borderColor: C.orange + '77', backgroundColor: C.orange + '14',
+  },
+  upcomingRetryDisabled: { opacity: 0.62 },
+  upcomingRetryText: { color: C.orange, fontWeight: '900', fontSize: 12, letterSpacing: 1.2 },
   secTitle: { color: C.text, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
   viewAll: { color: C.neon, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
   mBanner: { height: 110, backgroundColor: '#0a0e1e' },
