@@ -25,6 +25,7 @@ const adminTabs = [
 const minimumAndroidTouchTarget = 48; // CSS pixels equal dp in the 1× Android mobile emulation.
 const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
+const registrationInitialLoadFailureOnly = process.argv.includes("--registration-initial-load-failure-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
@@ -2526,6 +2527,49 @@ async function checkTournamentInitialLoadFailure() {
   );
 }
 
+async function checkRegistrationInitialLoadFailure() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the Player registration-failure preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && window.__daily007TournamentResume.getMyRegistrationReadCount() > 0 && document.body.innerText.includes('Could not confirm which tournaments you have joined: Initial registration request failed')",
+    "the successful tournament list and failed first registration lookup",
+  );
+  await assertText("IST Start Boundary", "the tournament card after registration lookup fails");
+  await assertText(
+    "ENTRY STATUS UNKNOWN · TAP TO CHECK →",
+    "the card's safe status while joined state is unknown",
+  );
+  assert(
+    !await evaluate("document.body.innerText.includes('JOIN NOW')"),
+    "The Player list must not offer a join action while joined status is unknown.",
+  );
+  assert(
+    await evaluate("Boolean(document.querySelector('[data-testid=\"player-tournament-list\"]'))"),
+    "The Player tournament list should remain mounted after only the registration lookup fails.",
+  );
+
+  const readsAfterFailure = await evaluate(`({
+    tournaments: window.__daily007TournamentResume.getTournamentReadCount(),
+    registrations: window.__daily007TournamentResume.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007TournamentResume.retryAfterInitialLoadFailure()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsAfterFailure.tournaments} &&
+      window.__daily007TournamentResume.getMyRegistrationReadCount() > ${readsAfterFailure.registrations} &&
+      document.body.innerText.includes('Joined') &&
+      !document.body.innerText.includes('ENTRY STATUS UNKNOWN') &&
+      !document.body.innerText.includes('Could not confirm which tournaments you have joined')`,
+    "a later successful registration lookup to confirm joined status",
+  );
+  await assertText("IST Start Boundary", "the tournament card after registration recovery");
+  assert(
+    await evaluate("Boolean(document.querySelector('[data-testid=\"player-tournament-list\"]'))"),
+    "The tournament list must remain mounted after registration recovery.",
+  );
+}
+
 async function checkAdminInitialLoadFailure() {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -4235,6 +4279,8 @@ try {
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
     : manualRefreshOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
+    : registrationInitialLoadFailureOnly
+      ? "tournament-resume-preview.html?registration-initial-load-failure-only=1"
     : initialLoadFailureOnly
     ? "tournament-resume-preview.html?initial-load-failure-only=1"
     : resumeOnly
@@ -4306,6 +4352,7 @@ try {
   if (
     resumeOnly ||
     initialLoadFailureOnly ||
+    registrationInitialLoadFailureOnly ||
     adminInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
     manualRefreshOnly ||
@@ -4321,13 +4368,13 @@ try {
       width: adminLandscapeOnly
         ? 800
         : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-          || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-          || initialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -4340,6 +4387,8 @@ try {
         ? "Home carousel"
         : initialLoadFailureOnly
           ? "Player first-load failure"
+        : registrationInitialLoadFailureOnly
+          ? "Player registration lookup failure"
         : adminInitialLoadFailureOnly
           ? "Admin first-load failure"
         : adminRetryConcurrencyOnly
@@ -4386,6 +4435,13 @@ try {
         `Browser errors during Admin Retry concurrency checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Repeated taps while an Admin Retry is pending do not duplicate requests; failure re-enables the control for recovery.");
+    } else if (registrationInitialLoadFailureOnly) {
+      await checkRegistrationInitialLoadFailure();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Player registration-failure checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — A successful Player tournament list remains available when the first registration lookup fails; joined status is clearly unknown and safely updates after retry.");
     } else if (adminInitialLoadFailureOnly) {
       await checkAdminInitialLoadFailure();
       assert(

@@ -331,7 +331,7 @@ let deferredTournamentRead: {
 } | null = null;
 let playerLargestTextPreview = false;
 let myRegistrationReadCount = 0;
-let homeCarouselRegistrationPreview: any[] | null = null;
+let myRegistrationPreview: any[] | null = null;
 let deferredHomeRegistrationRead: {
   promise: Promise<any[]>;
   resolve: (registrations: any[]) => void;
@@ -496,12 +496,12 @@ export const Api = {
     if (playerLargestTextPreview) {
       return largestTextRegistrations.map((registration) => ({ ...registration }));
     }
-    if (homeCarouselRegistrationPreview !== null) {
+    if (myRegistrationPreview !== null) {
       if (deferredHomeRegistrationRead && !deferredHomeRegistrationRead.claimed) {
         deferredHomeRegistrationRead.claimed = true;
         return deferredHomeRegistrationRead.promise;
       }
-      return homeCarouselRegistrationPreview.map((registration) => ({ ...registration }));
+      return myRegistrationPreview.map((registration) => ({ ...registration }));
     }
     return empty();
   },
@@ -693,12 +693,20 @@ export function getTournamentReadCount() {
 }
 
 export function configureHomeCarouselRegistrationPreview(registrations: any[] = []) {
-  homeCarouselRegistrationPreview = registrations.map((registration) => ({ ...registration }));
+  configureMyRegistrationPreview(registrations);
+}
+
+export function configureMyRegistrationPreview(registrations: any[] = []) {
+  myRegistrationPreview = registrations.map((registration) => ({ ...registration }));
   myRegistrationReadCount = 0;
 }
 
 export function setHomeCarouselRegistrationPreview(registrations: any[]) {
-  homeCarouselRegistrationPreview = registrations.map((registration) => ({ ...registration }));
+  setMyRegistrationPreview(registrations);
+}
+
+export function setMyRegistrationPreview(registrations: any[]) {
+  myRegistrationPreview = registrations.map((registration) => ({ ...registration }));
 }
 
 export function deferNextHomeCarouselRegistrationRead() {
@@ -709,7 +717,7 @@ export function deferNextHomeCarouselRegistrationRead() {
   deferredHomeRegistrationRead = { promise, resolve, claimed: false };
 }
 
-export function releaseHomeCarouselRegistrationRead(registrations = homeCarouselRegistrationPreview ?? []) {
+export function releaseHomeCarouselRegistrationRead(registrations = myRegistrationPreview ?? []) {
   const deferred = deferredHomeRegistrationRead;
   if (!deferred) return false;
   deferredHomeRegistrationRead = null;
@@ -722,6 +730,10 @@ export function getMyRegistrationReadCount() {
 }
 
 export function failNextHomeCarouselRegistrationRead(message = "Temporary registration refresh failure") {
+  failNextMyRegistrationRead(message);
+}
+
+export function failNextMyRegistrationRead(message = "Temporary registration refresh failure") {
   nextMyRegistrationReadError = message;
 }
 

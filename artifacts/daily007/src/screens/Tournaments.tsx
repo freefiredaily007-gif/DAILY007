@@ -26,6 +26,7 @@ export default function Tournaments() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [registrationError, setRegistrationError] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
   const hasLoadedList = useRef(false);
@@ -38,11 +39,20 @@ export default function Tournaments() {
   const load = useCallback(async () => {
     const request = loadRequests.current.begin();
     try {
-      const [list, registrations] = await Promise.all([
-        api.tournaments(),
-        api.myRegistrations(),
+      const [listResult, registrationsResult] = await Promise.allSettled([
+        Promise.resolve().then(() => api.tournaments()),
+        Promise.resolve().then(() => api.myRegistrations()),
       ]);
       if (!loadRequests.current.isCurrent(request)) return;
+      if (listResult.status === 'rejected') {
+        setError(apiError(listResult.reason));
+        return;
+      }
+      const registrationStatusKnown = registrationsResult.status === 'fulfilled';
+      const registrations = registrationStatusKnown ? registrationsResult.value : [];
+      setRegistrationError(
+        registrationStatusKnown ? '' : apiError(registrationsResult.reason),
+      );
       const registrationByTournament = new Map<string, any>();
       for (const registration of Array.isArray(registrations) ? registrations : []) {
         const status = String(registration.status ?? '').toLowerCase();
@@ -51,11 +61,12 @@ export default function Tournaments() {
         const previous = registrationByTournament.get(tournamentId);
         if (!previous || status === 'approved') registrationByTournament.set(tournamentId, registration);
       }
-      setItems((Array.isArray(list) ? list : []).map((tournament: any) => {
+      setItems((Array.isArray(listResult.value) ? listResult.value : []).map((tournament: any) => {
         const myRegistration = registrationByTournament.get(String(tournament.id));
         return {
           ...tournament,
-          joined: Boolean(myRegistration),
+          joined: registrationStatusKnown ? Boolean(myRegistration) : undefined,
+          joinedStatusUnknown: !registrationStatusKnown,
           myRegistration,
         };
       }));
@@ -160,6 +171,12 @@ export default function Tournaments() {
               <Msg
                 kind="err"
                 text={`${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${error}`}
+              />
+            )}
+            {!!registrationError && (
+              <Msg
+                kind="err"
+                text={`Could not confirm which tournaments you have joined: ${registrationError}. Entry status is unknown; refresh before joining.`}
               />
             )}
           </View>

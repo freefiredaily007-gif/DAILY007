@@ -404,12 +404,21 @@ export function MatchCard({
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
   const { format, showFormatBanner, showBattleRoyalePoster } = formatPresentation;
   const usesArtCard = showFormatBanner || showBattleRoyalePoster;
-  const ctaText = joined
+  const statusUnknown = t?.joinedStatusUnknown === true;
+  const ctaText = statusUnknown
+    ? 'ENTRY STATUS UNKNOWN · TAP TO CHECK →'
+    : joined
     ? s.key === 'full' ? 'Joined · Slots Full' : 'Joined'
     : s.key === 'ongoing' ? 'VIEW MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →';
-  const ctaColor = joined ? C.green : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.dim : C.neon;
-  const ctaBackground = joined ? C.green + '22' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.card2 : C.neon + '22';
-  const ctaBorder = joined ? C.green + '77' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.border : C.neon + '77';
+  const ctaColor = statusUnknown
+    ? C.gold
+    : joined ? C.green : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.dim : C.neon;
+  const ctaBackground = statusUnknown
+    ? C.gold + '22'
+    : joined ? C.green + '22' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.card2 : C.neon + '22';
+  const ctaBorder = statusUnknown
+    ? C.gold + '77'
+    : joined ? C.green + '77' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.border : C.neon + '77';
   return (
     <GCard
       onPress={onPress}

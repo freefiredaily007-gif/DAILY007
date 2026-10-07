@@ -11,6 +11,7 @@ if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 const root = createRoot(rootElement);
 const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
 const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
+const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
 const adminInitialLoadFailureOnly = new URLSearchParams(location.search).has("admin-initial-load-failure-only");
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const scheduledStartGapMs = 3_000;
@@ -104,6 +105,16 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     );
   }
   apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
+  if (registrationInitialLoadFailureOnly) {
+    apiMocks.configureMyRegistrationPreview([
+      {
+        id: "preview-registration-recovered",
+        tournamentId: "resume-boundary",
+        status: "approved",
+      },
+    ]);
+    apiMocks.failNextMyRegistrationRead("Initial registration request failed");
+  }
   if (initialLoadFailureOnly || adminInitialLoadFailureOnly) {
     apiMocks.failNextTournamentRead(
       adminInitialLoadFailureOnly
@@ -125,6 +136,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   window.__daily007TournamentResume = {
     ready: true,
     getTournamentReadCount: apiMocks.getTournamentReadCount,
+    getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
     deferNextTournamentRead: apiMocks.deferNextTournamentRead,
