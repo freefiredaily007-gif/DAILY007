@@ -603,6 +603,66 @@ test("referral reward ledger failure rolls back a Google signup and Clerk identi
   }
 });
 
+test("referral short-code failure rolls back a Google signup and Clerk identity link", async () => {
+  signupTestDb.reset();
+  const originalShortCodesByUser = new Map(signupTestDb.shortCodesByUser);
+  const originalShortCodeOwners = new Map(signupTestDb.shortCodeOwners);
+  const originalLegacyCodeOwners = new Map(signupTestDb.legacyCodeOwners);
+  signupTestDb.failNextReferralShortCodeInsert();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const failedSignup = await fetch(`${origin}/auth/google`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer mocked-clerk-session",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+
+      assert.equal(failedSignup.status, 500);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.deepEqual(signupTestDb.referralCodeInsertFailureContext, {
+        accountExists: true,
+        legacyCodeExists: true,
+        shortCodeExists: false,
+      }, "the failure should occur after the account and legacy referral code are written");
+
+      assert.equal(signupTestDb.users.size, 1, "the failed signup must not leave a new account");
+      assert.equal(
+        [...signupTestDb.users.values()].some(
+          (user) => user.email === "google-signup@example.test",
+        ),
+        false,
+        "the failed signup must not leave its account email behind",
+      );
+      assert.equal(
+        [...signupTestDb.users.values()].some(
+          (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+        ),
+        false,
+        "the failed signup must not leave the Clerk identity linked",
+      );
+      assert.deepEqual(signupTestDb.shortCodesByUser, originalShortCodesByUser);
+      assert.deepEqual(signupTestDb.shortCodeOwners, originalShortCodeOwners);
+      assert.deepEqual(signupTestDb.legacyCodeOwners, originalLegacyCodeOwners);
+      assert.equal(signupTestDb.referrals.length, 0);
+      assert.equal(signupTestDb.ledger.length, 0);
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      assert.equal(referrer.wallet_coins, 0);
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("legacy referral code gives Google signup one 10-coin referral reward", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
