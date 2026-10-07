@@ -123,10 +123,22 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     );
   }
 
-  const [{ default: Tournaments }, { default: AdminTournaments }] = await Promise.all([
+  const [
+    { default: Tournaments },
+    { default: AdminTournaments },
+    { AdminUiProvider },
+  ] = await Promise.all([
     import("../../../daily007/src/screens/Tournaments"),
     import("../../../daily007/src/screens/AdminTournaments"),
+    import("../../../daily007/src/components/ui"),
   ]);
+  const renderAdmin = () => root.render(
+    React.createElement(
+      AdminUiProvider,
+      null,
+      React.createElement(AdminTournaments),
+    ),
+  );
 
   const setVisibility = (state) => {
     visibilityState = state;
@@ -207,8 +219,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       setVisibility("hidden");
       setVisibility("visible");
     },
-    showAdmin: () => root.render(React.createElement(AdminTournaments)),
+    showAdmin: renderAdmin,
   };
 
-  root.render(React.createElement(adminInitialLoadFailureOnly ? AdminTournaments : Tournaments));
+  if (adminInitialLoadFailureOnly) renderAdmin();
+  else root.render(React.createElement(Tournaments));
 });

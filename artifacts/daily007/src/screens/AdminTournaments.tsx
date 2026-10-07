@@ -471,7 +471,12 @@ export default function AdminTournaments() {
       <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
       {!!loadError && (
         <View style={st.loadRetry}>
-          <Msg kind="err" text={loadError} accessibilityLiveRegion="polite" />
+          <Msg
+            kind="err"
+            text={loadError}
+            accessibilityLiveRegion="polite"
+            testID="admin-tournament-load-error"
+          />
           <Btn
             title="RETRY"
             small

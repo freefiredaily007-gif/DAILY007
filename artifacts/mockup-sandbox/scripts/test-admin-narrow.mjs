@@ -27,6 +27,7 @@ const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
 const registrationInitialLoadFailureOnly = process.argv.includes("--registration-initial-load-failure-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
+const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
@@ -168,9 +169,10 @@ async function setViewport(width, fontScale = 1, previewFile = "admin-narrow-pre
     deviceScaleFactor: 1,
     mobile: true,
   });
-  await cdp("Page.navigate", {
-    url: `http://127.0.0.1:${vitePort}/${previewFile}?run=${width}&fontScale=${fontScale}`,
-  });
+  const previewUrl = new URL(previewFile, `http://127.0.0.1:${vitePort}/`);
+  previewUrl.searchParams.set("run", String(width));
+  previewUrl.searchParams.set("fontScale", String(fontScale));
+  await cdp("Page.navigate", { url: previewUrl.href });
   await waitForPage();
   await delay(150);
 }
@@ -2570,7 +2572,22 @@ async function checkRegistrationInitialLoadFailure() {
   );
 }
 
-async function checkAdminInitialLoadFailure() {
+async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
+  const recoveredTournamentName = largeText
+    ? "Daily007 International Free Fire Championship Grand Finals"
+    : "IST Start Boundary";
+  if (largeText) {
+    await setViewport(
+      390,
+      1.5,
+      "tournament-resume-preview.html?admin-initial-load-failure-only=1",
+    );
+    assert(
+      await evaluate("window.__daily007LargeTextScale === 1.5"),
+      "The Admin recovery preview must use Android's 1.5× text scale.",
+    );
+  }
+
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
     "the Admin first-load failure preview to initialize",
@@ -2582,9 +2599,28 @@ async function checkAdminInitialLoadFailure() {
   await assertText("TOURNAMENTS", "the Admin tournament screen after its initial request fails");
   await assertText("RETRY", "the Admin initial-load recovery action");
   assert(
-    !await evaluate("document.body.innerText.includes('IST Start Boundary')"),
+    !await evaluate(`document.body.innerText.includes(${JSON.stringify(recoveredTournamentName)})`),
     "An Admin initial-load failure must not show a tournament card before data loads.",
   );
+  if (largeText) {
+    await assertVisibleTextFits(
+      '[data-testid="admin-tournament-load-error"]',
+      390,
+      "The Admin tournament error at 1.5× text",
+    );
+    await assertReachableControl(
+      '[data-testid="admin-tournament-refresh-retry"]',
+      "The Admin Retry control at 1.5× text",
+    );
+    const retryHeight = await evaluate(
+      "document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]')?.getBoundingClientRect().height ?? 0",
+    );
+    assert(
+      retryHeight >= minimumAndroidTouchTarget,
+      `The Admin Retry control is smaller than the ${minimumAndroidTouchTarget}px Android touch target at 1.5× text (height=${retryHeight}px).`,
+    );
+    await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  }
   const retryVisible = await evaluate(`(() => {
     const retry = document.querySelector('[data-testid="admin-tournament-refresh-retry"]');
     if (!retry) return false;
@@ -2595,15 +2631,22 @@ async function checkAdminInitialLoadFailure() {
   assert(retryVisible, "The Admin initial-load Retry control must be visible and enabled.");
 
   const readsBeforeRetry = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
-  await clickSelector(
-    '[data-testid="admin-tournament-refresh-retry"]',
-    "Admin initial-load Retry",
-  );
+  if (largeText) {
+    await tapSelector(
+      '[data-testid="admin-tournament-refresh-retry"]',
+      "Admin initial-load Retry at 1.5× text",
+    );
+  } else {
+    await clickSelector(
+      '[data-testid="admin-tournament-refresh-retry"]',
+      "Admin initial-load Retry",
+    );
+  }
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments') && !document.body.innerText.includes('Could not refresh tournaments')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry} && document.body.innerText.includes(${JSON.stringify(recoveredTournamentName)}) && !document.body.innerText.includes('Could not load tournaments') && !document.body.innerText.includes('Could not refresh tournaments')`,
     "a successful Admin retry to show tournament cards and clear the initial-load error",
   );
-  await assertText("IST Start Boundary", "the Admin tournament after initial-load recovery");
+  await assertText(recoveredTournamentName, "the Admin tournament after initial-load recovery");
   assert(
     !await evaluate("document.body.innerText.includes('Could not load tournaments')"),
     "A successful Admin retry must clear the initial-load error.",
@@ -4275,7 +4318,7 @@ try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = adminInitialLoadFailureOnly || adminRetryConcurrencyOnly
+  const previewPath = adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
     : manualRefreshOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
@@ -4354,6 +4397,7 @@ try {
     initialLoadFailureOnly ||
     registrationInitialLoadFailureOnly ||
     adminInitialLoadFailureOnly ||
+    adminLargeTextInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
     manualRefreshOnly ||
     scheduledStartOnly ||
@@ -4368,13 +4412,13 @@ try {
       width: adminLandscapeOnly
         ? 800
         : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
-          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -4391,6 +4435,8 @@ try {
           ? "Player registration lookup failure"
         : adminInitialLoadFailureOnly
           ? "Admin first-load failure"
+        : adminLargeTextInitialLoadFailureOnly
+          ? "Admin first-load failure at 1.5× text"
         : adminRetryConcurrencyOnly
           ? "Admin Retry concurrency"
         : manualRefreshOnly
@@ -4442,6 +4488,13 @@ try {
         `Browser errors during Player registration-failure checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A successful Player tournament list remains available when the first registration lookup fails; joined status is clearly unknown and safely updates after retry.");
+    } else if (adminLargeTextInitialLoadFailureOnly) {
+      await checkAdminInitialLoadFailure({ largeText: true });
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during large-text Admin initial-load recovery checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — At Android 1.5× text, the Admin error remains readable, Retry is visible and tappable, and a successful retry loads tournaments and clears the error.");
     } else if (adminInitialLoadFailureOnly) {
       await checkAdminInitialLoadFailure();
       assert(
