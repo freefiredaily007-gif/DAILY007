@@ -171,6 +171,7 @@ class RegistrationProfileTestDatabase {
     status: CapturedRegistration["status"] = "approved",
     matchId = this.match.id,
     label = "Other",
+    includeRoster = true,
   ): {
     registration: CapturedRegistration;
     roster: CapturedRosterMember[];
@@ -224,10 +225,10 @@ class RegistrationProfileTestDatabase {
       },
     ];
     this.registrations.push(registration);
-    this.roster.push(...roster);
+    if (includeRoster) this.roster.push(...roster);
     return {
       registration: structuredClone(registration),
-      roster: structuredClone(roster),
+      roster: includeRoster ? structuredClone(roster) : [],
     };
   }
 

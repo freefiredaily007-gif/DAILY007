@@ -199,6 +199,53 @@ test("public tournament participants include approved and pending teams but omit
   }
 });
 
+test("public participant with no saved teammates still contains its captain once", async () => {
+  registrationProfileTestDb.reset();
+  try {
+    const captainOnly = registrationProfileTestDb.addOtherRegistration(
+      "approved",
+      TEST_MATCH_ID,
+      "Rosterless",
+      false,
+    );
+
+    assert.deepEqual(captainOnly.roster, []);
+    assert.equal(
+      registrationProfileTestDb.roster.some(
+        (member) => member.registration_id === captainOnly.registration.id,
+      ),
+      false,
+      "The isolated fixture must not save teammate rows for this registration.",
+    );
+
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/tournaments/${TEST_MATCH_ID}/participants`);
+      assert.equal(response.status, 200);
+      const payload = await response.json() as {
+        tournamentId: string;
+        participants: { teamName: string | null; players: unknown[]; status: string }[];
+      };
+
+      assert.equal(payload.tournamentId, TEST_MATCH_ID);
+      assert.deepEqual(payload.participants, [
+        {
+          teamName: captainOnly.registration.team_name,
+          players: [captainOnly.registration.captain_game_name],
+          status: "approved",
+        },
+      ]);
+
+      const players = payload.participants[0].players;
+      assert.equal(players.length, 1, "The captain should appear exactly once.");
+      assert.equal(players[0], captainOnly.registration.captain_game_name);
+      assert.equal(players.includes(captainOnly.registration.captain_game_uid), false);
+      assert.equal(players.some((player) => player === null), false);
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 type RegistrationRequest = {
   label: string;
   path: string;
