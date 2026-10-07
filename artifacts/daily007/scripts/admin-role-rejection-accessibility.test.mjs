@@ -48,12 +48,34 @@ test('successful role removals name the affected user and resulting player role'
   assert.match(roleChangeSuccessToast, /`\$\{u\.name\} is now a player`/);
 });
 
-test('last Full Admin rejection refreshes and keeps the user row available', () => {
+test('a failed refresh after last Full Admin rejection keeps the role unchanged', () => {
   const rejectedRoleBranch = usersSource.match(
     /if \(message === 'At least one full administrator must remain\.'\) \{([\s\S]*?)\n\s*\} else \{/,
   )?.[1];
+  const refreshFailureBranch = rejectedRoleBranch?.match(
+    /\} catch \(refreshError\) \{([\s\S]*?)\n\s*return;/,
+  )?.[1] ?? '';
+  const loadBranch = usersSource.match(
+    /const load = async \(\) => \{([\s\S]*?)\n\s*\};/,
+  )?.[1] ?? '';
 
   assert.ok(rejectedRoleBranch, 'The final Full Admin safeguard branch must remain present.');
+  assert.match(
+    rejectedRoleBranch,
+    /try \{\s*setUsers\(\(await Api\.adminUsers\(\)\) \?\? \[\]\);\s*\} catch \(refreshError\)/,
+    'The row should update only after a successful follow-up user-list request.',
+  );
+  assert.ok(refreshFailureBranch, 'The follow-up refresh failure must be handled explicitly.');
+  assert.doesNotMatch(
+    refreshFailureBranch,
+    /setUsers\(/,
+    'A failed refresh must leave the last loaded role row unchanged.',
+  );
+  assert.doesNotMatch(
+    refreshFailureBranch,
+    /'success'/,
+    'A failed refresh must not announce a successful role change.',
+  );
   const refreshIndex = rejectedRoleBranch.indexOf('setUsers((await Api.adminUsers()) ?? []);');
   const toastIndex = rejectedRoleBranch.indexOf(
     "toast('At least one Full Admin must remain. This account was not changed.', 'error');",
@@ -64,8 +86,13 @@ test('last Full Admin rejection refreshes and keeps the user row available', () 
     rejectedRoleBranch,
     /toast\(\s*`At least one Full Admin must remain\. This account was not changed\. User list refresh failed: \$\{errMessage\(refreshError\)\}`,\s*'error',\s*\)/,
   );
+  assert.match(loadBranch, /setUsers\(u \?\? \[\]\)/);
+  assert.match(
+    usersSource,
+    /u\.role === 'admin' \? 'FULL ADMIN' : u\.role === 'tournament_admin' \? 'TOURNAMENT ADMIN' : 'PLAYER'/,
+    'A later successful refresh must render the server role without optimistic demotion.',
+  );
   assert.match(usersSource, /const filtered = \(users \?\? \[\]\)\.filter/);
   assert.match(usersSource, /filtered\.map\(\(u\) => \{/);
   assert.match(usersSource, /<Card key=\{u\.\$id\}>/);
-  assert.match(usersSource, /{u\.role === 'admin' \? 'FULL ADMIN'/);
 });
