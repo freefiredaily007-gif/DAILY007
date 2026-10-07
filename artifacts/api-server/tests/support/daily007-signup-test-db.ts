@@ -54,6 +54,14 @@ type AdvisoryLockBarrier = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type AuthVersionUpdatePause = {
+  reached: Promise<void>;
+  markReached: () => void;
+  resume: Promise<void>;
+  release: () => void;
+  claimed: boolean;
+};
+
 export const SIGNUP_TEST_REFERRAL_CODE = "ABCDE";
 const REFERRER_ID = "40000000-0000-4000-8000-000000000001";
 const UNKNOWN_REFERRER_ID = "40000000-0000-4000-8000-000000000099";
@@ -94,12 +102,14 @@ class MemorySignupDatabase {
   private nextReferralId = 1;
   private advisoryLockTails = new Map<string, Promise<void>>();
   private advisoryLockBarrier: AdvisoryLockBarrier | null = null;
+  private authVersionUpdatePause: AuthVersionUpdatePause | null = null;
   advisoryLockWaitCount = 0;
   private shouldFailNextReferralSignupRewardLedgerWrite = false;
   private shouldFailNextReferralShortCodeInsert = false;
 
   reset(): void {
     this.advisoryLockBarrier?.release();
+    this.authVersionUpdatePause?.release();
     const referrer: SignupUser = {
       id: REFERRER_ID,
       name: "Referral Test Owner",
@@ -130,6 +140,7 @@ class MemorySignupDatabase {
     this.nextReferralId = 1;
     this.advisoryLockTails.clear();
     this.advisoryLockWaitCount = 0;
+    this.authVersionUpdatePause = null;
   }
 
   synchronizeNextAdvisoryLockQueries(expectedArrivals: number): void {
@@ -155,6 +166,38 @@ class MemorySignupDatabase {
       timeout: setTimeout(() => barrier.release(), 2_000),
     };
     this.advisoryLockBarrier = barrier;
+  }
+
+  pauseNextAuthVersionUpdate(): {
+    reached: Promise<void>;
+    release: () => void;
+  } {
+    this.authVersionUpdatePause?.release();
+
+    let markReached!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      markReached = resolve;
+    });
+    let resumeUpdate!: () => void;
+    const resume = new Promise<void>((resolve) => {
+      resumeUpdate = resolve;
+    });
+
+    let pause!: AuthVersionUpdatePause;
+    pause = {
+      reached,
+      markReached,
+      resume,
+      claimed: false,
+      release: () => {
+        resumeUpdate();
+        if (this.authVersionUpdatePause === pause) {
+          this.authVersionUpdatePause = null;
+        }
+      },
+    };
+    this.authVersionUpdatePause = pause;
+    return { reached, release: () => pause.release() };
   }
 
   failNextReferralSignupRewardLedgerWrite(): void {
@@ -453,8 +496,15 @@ class MemorySignupDatabase {
       };
       this.ledger.push(entry);
     } else if (normalized.startsWith("UPDATE daily007_v2_users SET auth_version = auth_version + 1")) {
+      const pause = this.authVersionUpdatePause;
+      if (pause && !pause.claimed) {
+        pause.claimed = true;
+        pause.markReached();
+        await pause.resume;
+      }
       const user = this.users.get(first);
-      if (user?.status === "active") {
+      const statusGuarded = /\bAND\s+status\s*=\s*'active'/i.test(normalized);
+      if (user && (!statusGuarded || user.status === "active")) {
         user.auth_version += 1;
         rows = [{ auth_version: user.auth_version }];
       }

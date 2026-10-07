@@ -74,6 +74,22 @@ async function request(
   };
 }
 
+async function waitForAuthVersionUpdatePause(
+  reached: Promise<void>,
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reached.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), 5_000);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function makeLegacyToken(userId: string): string {
   const payload = Buffer.from(JSON.stringify({
     sub: userId,
@@ -302,6 +318,89 @@ test("unknown emails, wrong passwords, and blocked accounts share one public log
       );
     }
     assert.equal(blockedAccount.auth_version, 0, "blocked login attempts must not create or rotate a session");
+  });
+});
+
+test("a block during password login prevents both routes from creating a session", async () => {
+  signupTestDb.reset();
+
+  await withServer(async (origin) => {
+    const email = "login-block-race-test@example.test";
+    const password = "login-block-race-regression-password";
+    const registration = await request(
+      origin,
+      "/daily007/v2/auth/register",
+      "POST",
+      { name: "Login Block Race Test", email, password },
+    );
+    assert.equal(registration.status, 201);
+
+    const account = [...signupTestDb.users.values()].find(
+      (user) => user.email === email,
+    );
+    assert.ok(
+      account,
+      "the test signup should exist in the isolated signup database",
+    );
+    const loginRoutes = [
+      { label: "Daily007 v2", loginPath: "/daily007/v2/auth/login" },
+      { label: "compatibility", loginPath: "/auth/login" },
+    ];
+
+    for (const route of loginRoutes) {
+      account.status = "active";
+      const unknownEmail = await request(origin, route.loginPath, "POST", {
+        email: "unknown-login-block-race@example.test",
+        password,
+      });
+      assert.equal(
+        unknownEmail.status,
+        401,
+        `${route.label} unknown email should be rejected`,
+      );
+
+      const pause = signupTestDb.pauseNextAuthVersionUpdate();
+      let loginPromise: Promise<JsonResult> | undefined;
+      let pausedAtUpdate = false;
+      try {
+        loginPromise = request(origin, route.loginPath, "POST", {
+          email,
+          password,
+        });
+        pausedAtUpdate = await waitForAuthVersionUpdatePause(pause.reached);
+        if (pausedAtUpdate) account.status = "blocked";
+      } finally {
+        pause.release();
+      }
+
+      assert.ok(
+        loginPromise,
+        `${route.label} login request should have started`,
+      );
+      const blockedLogin = await loginPromise;
+      assert.equal(
+        pausedAtUpdate,
+        true,
+        `${route.label} login should pause before rotating auth_version`,
+      );
+      assert.equal(blockedLogin.status, unknownEmail.status);
+      assert.deepEqual(
+        blockedLogin.body,
+        unknownEmail.body,
+        `${route.label} must use the same public response as an unknown email`,
+      );
+      assert.equal(
+        blockedLogin.body.token,
+        undefined,
+        `${route.label} must not issue a token`,
+      );
+      assert.equal(account.status, "blocked");
+      assert.equal(
+        account.auth_version,
+        0,
+        `${route.label} must not rotate auth_version`,
+      );
+    }
   });
 });
 
