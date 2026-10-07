@@ -103,6 +103,19 @@ function seedWatchHistory(videoId: string): void {
   });
 }
 
+function seedCompletedRewardedWatchHistory(videoId: string): void {
+  videoTestDb.watchSessions.push({
+    id: "53000000-0000-4000-8000-000000000002",
+    user_id: VIDEO_TEST_PLAYER_ID,
+    video_id: videoId,
+    duration_seconds: 600,
+    reported_percent: 100,
+    started_at: new Date("2026-10-05T12:05:00.000Z"),
+    completed_at: new Date("2026-10-05T12:15:00.000Z"),
+    reward_ledger_id: "54000000-0000-4000-8000-000000000001",
+  });
+}
+
 test("Full Admin creates a video that appears in the public catalog with its title and topic", async () => {
   videoTestDb.reset();
 
@@ -286,6 +299,47 @@ test("Full Admin can update a watched video's title and topic while keeping its 
       videoTestDb.watchSessions,
       watchSessionsBefore,
       "editing descriptive details must not modify the watch-session record",
+    );
+  });
+});
+
+test("Full Admin metadata edits preserve a completed watch session and its reward reference", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
+    assert.equal(created.status, 201);
+    const videoId = String(created.body.id);
+    seedCompletedRewardedWatchHistory(videoId);
+    const completedSessionBefore = structuredClone(videoTestDb.watchSessions[0]);
+    const videosBefore = structuredClone(videoTestDb.videos);
+
+    const updated = await patchVideo(origin, VIDEO_TEST_ADMIN_ID, videoId, {
+      title: "Corrected Tournament Highlights",
+      topic: "Clash Squad",
+      url: validVideo.url,
+    });
+
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.id, videoId);
+    assert.equal(updated.body.title, "Corrected Tournament Highlights");
+    assert.equal(updated.body.topic, "Clash Squad");
+    assert.equal(updated.body.youtubeId, "a1b2C3d4E5F");
+    assert.equal(updated.body.url, "https://youtu.be/a1b2C3d4E5F");
+    assert.deepEqual(videoTestDb.videos, [{
+      ...videosBefore[0],
+      title: "Corrected Tournament Highlights",
+      topic: "Clash Squad",
+    }]);
+    assert.deepEqual(
+      videoTestDb.watchSessions,
+      [completedSessionBefore],
+      "editing descriptive details must preserve all completion and reward fields",
+    );
+    assert.ok(videoTestDb.watchSessions[0].completed_at);
+    assert.equal(
+      videoTestDb.watchSessions[0].reward_ledger_id,
+      completedSessionBefore.reward_ledger_id,
     );
   });
 });
