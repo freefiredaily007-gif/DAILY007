@@ -442,6 +442,21 @@ test("published results exclude cancelled tournaments with existing awards", asy
       archivedCancelledAward,
     );
 
+    const cancelledMyMatches = await call(
+      origin,
+      TEST_RUNNER_UP_ID,
+      "/my/registrations",
+      "GET",
+    );
+    assert.equal(cancelledMyMatches.status, 200);
+    const cancelledRegistration = cancelledMyMatches.body.find(
+      (entry: any) => entry.tournamentId === CANCELLED_MATCH_ID,
+    );
+    assert.ok(cancelledRegistration);
+    assert.equal(cancelledRegistration.tournament.status, "cancelled");
+    assert.deepEqual(cancelledRegistration.tournament.results, []);
+    assert.equal(Object.hasOwn(cancelledRegistration, "result"), false);
+
     const winnerAccount = tournamentResultsTestDb.users.get(TEST_WINNER_ID);
     const runnerUpAccount = tournamentResultsTestDb.users.get(TEST_RUNNER_UP_ID);
     const winnerRegistration = tournamentResultsTestDb.registrations.find(

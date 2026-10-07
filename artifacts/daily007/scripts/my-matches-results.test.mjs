@@ -128,6 +128,40 @@ test("My Matches results show Free Fire details without the account profile name
   );
 });
 
+test("cancelled My Matches cards announce the refund state without archived awards", () => {
+  const markup = renderMatchCard({
+    id: "registration-cancelled",
+    status: "approved",
+    result: "Old published result",
+    tournament: {
+      mode: "battle royale",
+      teamType: "squad",
+      name: "Cancelled Clash",
+      status: "cancelled",
+      results: [{
+        rank: 1,
+        kills: 17,
+        prizeCoins: 900,
+        gameName: "ArchivedWinner",
+        teamName: "Archived Team",
+      }],
+    },
+  });
+  const renderedText = markup.replace(/<[^>]*>/g, "");
+
+  assert.match(renderedText, /CANCELLED/, "The card should announce its cancelled state.");
+  assert.match(
+    renderedText,
+    /Any entry fee paid was refunded to the paying account\./,
+    "The card should announce the refund information.",
+  );
+  assert.doesNotMatch(
+    renderedText,
+    /TOURNAMENT RESULTS|Old published result|ArchivedWinner|Archived Team|17 KILLS|900/,
+    "Cancelled cards must not render or announce an old award.",
+  );
+});
+
 test("each result announces all standings details as one accessible row", () => {
   const rowMarker = "testID={`my-matches-result-${rank}-${index}`}";
   const markerIndex = myMatchesSource.indexOf(rowMarker);

@@ -224,10 +224,12 @@ export default function MyMatches() {
             const canEditTeam = editEligible && canEditRegistrationTeam(t, status, clockNow);
             const editCutoff = getTeamEditCutoff(startsAt);
             const teamEditLocked = editEligible && editCutoff !== null && clockNow >= editCutoff;
-            const result = typeof item.result === 'string'
-              ? item.result
-              : item.result?.description ?? item.result?.result ?? item.result?.placement;
-            const results = Array.isArray(t.results) ? t.results : [];
+            const result = cancelled
+              ? null
+              : typeof item.result === 'string'
+                ? item.result
+                : item.result?.description ?? item.result?.result ?? item.result?.placement;
+            const results = cancelled ? [] : Array.isArray(t.results) ? t.results : [];
             return (
               <GCard key={item.id} glowColor={roomReady ? C.green : undefined}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
