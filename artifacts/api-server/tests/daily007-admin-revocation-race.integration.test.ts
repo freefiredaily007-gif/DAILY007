@@ -406,6 +406,322 @@ test("an in-flight leaderboard payout commits before demotion, and later approva
   }
 });
 
+test("concurrent approvals of one leaderboard period pay each rank only once", async () => {
+  const firstAdminId = randomUUID();
+  const secondAdminId = randomUUID();
+  const winnerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
+  const winnerNames = [
+    "Leaderboard Race Winner 1",
+    "Leaderboard Race Winner 2",
+    "Leaderboard Race Winner 3",
+  ];
+  const startingBalances = [11, 12, 13] as const;
+  const periodId = randomUUID();
+  const pauseKey = 740078n;
+  const rewards = [
+    { rank: 1, coins: 40 },
+    { rank: 2, coins: 20 },
+    { rank: 3, coins: 10 },
+  ];
+  const standings = winnerIds.map((userId, index) => ({
+    rank: index + 1,
+    userId,
+    name: winnerNames[index],
+    points: 30 - index * 10,
+    earnings: 0,
+    wins: 3 - index,
+    kills: 4 - index,
+    matches: 5 - index,
+  }));
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let firstApprovalPromise: Promise<JsonResponse> | undefined;
+  let secondApprovalPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'First Approval Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Second Approval Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, $6, $7, 'test-salt', 'test-hash', 'user', $8),
+         ($9, $10, $11, 'test-salt', 'test-hash', 'user', $12),
+         ($13, $14, $15, 'test-salt', 'test-hash', 'user', $16)`,
+      [
+        firstAdminId,
+        `approval-admin-one-${firstAdminId}@example.test`,
+        secondAdminId,
+        `approval-admin-two-${secondAdminId}@example.test`,
+        winnerIds[0],
+        winnerNames[0],
+        `approval-winner-one-${winnerIds[0]}@example.test`,
+        startingBalances[0],
+        winnerIds[1],
+        winnerNames[1],
+        `approval-winner-two-${winnerIds[1]}@example.test`,
+        startingBalances[1],
+        winnerIds[2],
+        winnerNames[2],
+        `approval-winner-three-${winnerIds[2]}@example.test`,
+        startingBalances[2],
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES ($1, 'weekly', '2020-01-01T00:00:00Z', '2020-01-08T00:00:00Z',
+               'pending_approval', $2::jsonb, $3::jsonb)`,
+      [periodId, JSON.stringify(standings), JSON.stringify(rewards)],
+    );
+    await pool.query(
+      "CREATE TABLE daily007_test_paused_approval_race_periods (id uuid PRIMARY KEY)",
+    );
+    await pool.query(
+      "INSERT INTO daily007_test_paused_approval_race_periods (id) VALUES ($1)",
+      [periodId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_approval_race_payout() RETURNS trigger AS $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM daily007_test_paused_approval_race_periods
+           WHERE id = (NEW.details->>'periodId')::uuid
+        ) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_approval_race_payout
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_approval_race_payout()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+
+    await withServer(async (origin) => {
+      const approvalPath = `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`;
+      firstApprovalPromise = postJson(origin, approvalPath, firstAdminId, {});
+      await waitForBlockedQuery(
+        "INSERT INTO daily007_v2_wallet_ledger",
+        "the first concurrent leaderboard payout",
+      );
+
+      secondApprovalPromise = postJson(origin, approvalPath, secondAdminId, {});
+      await waitForQueryBlockedBy(
+        "hashtext",
+        "INSERT INTO daily007_v2_wallet_ledger",
+        "the second approval to queue behind the first payout transaction",
+      );
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      const [firstApproval, secondApproval] = await Promise.all([
+        firstApprovalPromise,
+        secondApprovalPromise,
+      ]);
+
+      assert.equal(
+        firstApproval.status,
+        200,
+        JSON.stringify(firstApproval.body),
+      );
+      assert.equal(firstApproval.body.periodId, periodId);
+      assert.equal(firstApproval.body.alreadyApproved, false);
+      assert.equal(firstApproval.body.approvedBy, firstAdminId);
+      assert.deepEqual(
+        (
+          firstApproval.body.payouts as {
+            rank: number;
+            userId: string;
+            name: string;
+            coins: number;
+            balanceAfter: number;
+          }[]
+        ).map(({ rank, userId, name, coins, balanceAfter }) => ({
+          rank,
+          userId,
+          name,
+          coins,
+          balanceAfter,
+        })),
+        [
+          {
+            rank: 1,
+            userId: winnerIds[0],
+            name: winnerNames[0],
+            coins: 40,
+            balanceAfter: 51,
+          },
+          {
+            rank: 2,
+            userId: winnerIds[1],
+            name: winnerNames[1],
+            coins: 20,
+            balanceAfter: 32,
+          },
+          {
+            rank: 3,
+            userId: winnerIds[2],
+            name: winnerNames[2],
+            coins: 10,
+            balanceAfter: 23,
+          },
+        ],
+      );
+
+      assert.equal(
+        secondApproval.status,
+        200,
+        JSON.stringify(secondApproval.body),
+      );
+      assert.equal(secondApproval.body.periodId, periodId);
+      assert.equal(secondApproval.body.alreadyApproved, true);
+      assert.equal(secondApproval.body.approvedBy, firstAdminId);
+      assert.equal(
+        secondApproval.body.approvedAt,
+        firstApproval.body.approvedAt,
+      );
+      assert.deepEqual(
+        secondApproval.body.standings,
+        firstApproval.body.standings,
+      );
+      assert.deepEqual(secondApproval.body.rewards, firstApproval.body.rewards);
+      assert.deepEqual(secondApproval.body.payouts, []);
+    });
+
+    const period = await pool.query<{
+      status: string;
+      approved_by: string;
+      approved_at: Date;
+      settled_at: Date;
+    }>(
+      `SELECT status, approved_by, approved_at, settled_at
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = $1`,
+      [periodId],
+    );
+    assert.equal(period.rows[0]?.status, "finalized");
+    assert.equal(period.rows[0]?.approved_by, firstAdminId);
+    assert.ok(period.rows[0]?.approved_at instanceof Date);
+    assert.ok(period.rows[0]?.settled_at instanceof Date);
+
+    const winners = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [winnerIds],
+    );
+    assert.deepEqual(
+      new Map(winners.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [winnerIds[0], 51],
+        [winnerIds[1], 32],
+        [winnerIds[2], 23],
+      ]),
+    );
+
+    const payouts = await pool.query<{
+      rank: number;
+      user_id: string;
+      amount: number;
+      balance_after: number;
+      reason: string;
+      idempotency_key: string;
+    }>(
+      `SELECT (details->>'rank')::integer AS rank, user_id, amount, balance_after,
+              reason, idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = ANY($1::uuid[])
+        ORDER BY (details->>'rank')::integer`,
+      [winnerIds],
+    );
+    assert.deepEqual(payouts.rows, [
+      {
+        rank: 1,
+        user_id: winnerIds[0],
+        amount: 40,
+        balance_after: 51,
+        reason: "Weekly Leaderboard Rank #1 Reward",
+        idempotency_key: `leaderboard-cycle:${periodId}:rank:1`,
+      },
+      {
+        rank: 2,
+        user_id: winnerIds[1],
+        amount: 20,
+        balance_after: 32,
+        reason: "Weekly Leaderboard Rank #2 Reward",
+        idempotency_key: `leaderboard-cycle:${periodId}:rank:2`,
+      },
+      {
+        rank: 3,
+        user_id: winnerIds[2],
+        amount: 10,
+        balance_after: 23,
+        reason: "Weekly Leaderboard Rank #3 Reward",
+        idempotency_key: `leaderboard-cycle:${periodId}:rank:3`,
+      },
+    ]);
+  } finally {
+    if (blocker) {
+      await blocker
+        .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+        .catch(() => undefined);
+      blocker.release();
+    }
+    if (firstApprovalPromise || secondApprovalPromise) {
+      await Promise.allSettled(
+        [firstApprovalPromise, secondApprovalPromise].filter(
+          Boolean,
+        ) as Promise<JsonResponse>[],
+      );
+    }
+
+    const cleanupStatements = [
+      "DROP TRIGGER IF EXISTS daily007_test_pause_approval_race_payout ON daily007_v2_wallet_ledger",
+      "DROP FUNCTION IF EXISTS daily007_test_pause_approval_race_payout()",
+      "DROP TABLE IF EXISTS daily007_test_paused_approval_race_periods",
+    ];
+    const cleanupErrors: unknown[] = [];
+    for (const statement of cleanupStatements) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const cleanup of [
+      () =>
+        pool.query(
+          "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
+          [winnerIds],
+        ),
+      () =>
+        pool.query(
+          "DELETE FROM daily007_v2_leaderboard_periods WHERE id = $1",
+          [periodId],
+        ),
+      () =>
+        pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [
+          [firstAdminId, secondAdminId, ...winnerIds],
+        ]),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up the concurrent leaderboard approval fixture.",
+      );
+    }
+  }
+});
+
 test("an in-flight admin mutation commits before the actor is blocked, and later mutations are rejected", async () => {
   const actorId = randomUUID();
   const blockerAdminId = randomUUID();
