@@ -43,6 +43,17 @@ CREATE TABLE daily007_v2_registrations (
   CHECK (length(btrim(captain_game_uid)) > 0)
 );
 
+CREATE TABLE daily007_v2_result_awards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
+  registration_id uuid NOT NULL UNIQUE REFERENCES daily007_v2_registrations(id),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  rank integer NOT NULL,
+  kills integer NOT NULL,
+  prize_coins integer NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE daily007_v2_roster (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   registration_id uuid NOT NULL REFERENCES daily007_v2_registrations(id) ON DELETE CASCADE,
