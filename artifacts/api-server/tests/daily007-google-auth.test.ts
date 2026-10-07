@@ -1031,16 +1031,18 @@ test("referral short-code failure rolls back a Google signup and Clerk identity 
   }
 });
 
-test("legacy referral code gives Google signup one 10-coin referral reward", async () => {
+test("lowercase legacy referral code with surrounding whitespace gives one 10-coin reward", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
 
   try {
     await withGoogleAuthServer(async (origin) => {
+      const pastedLegacyCode = ` \t${SIGNUP_TEST_LEGACY_REFERRAL_CODE.toLowerCase()} \n `;
+      assert.notEqual(pastedLegacyCode.trim(), SIGNUP_TEST_LEGACY_REFERRAL_CODE);
       const signupResponse = await googleAuth(
         origin,
         undefined,
-        SIGNUP_TEST_LEGACY_REFERRAL_CODE,
+        pastedLegacyCode,
       );
       const signup = signupResponse.body;
       assert.equal(signupResponse.status, 201);
@@ -1072,6 +1074,11 @@ test("legacy referral code gives Google signup one 10-coin referral reward", asy
       );
 
       const signupRewards = signupTestDb.ledger.filter((entry) => entry.user_id === userId);
+      assert.equal(
+        signupRewards[0]?.details.referralCode,
+        SIGNUP_TEST_LEGACY_REFERRAL_CODE,
+        "the wallet record should store the normalized legacy referral code",
+      );
       assert.deepEqual(
         signupRewards.map(({ amount, balance_after, reason }) => ({
           amount,
