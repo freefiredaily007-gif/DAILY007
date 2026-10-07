@@ -608,6 +608,52 @@ test("v2 admin room saves remain supported by the isolated room-access fixture",
   });
 });
 
+test("players cannot replace or publish room credentials through either admin save API", async () => {
+  const playerToken = makeToken(TEST_PLAYER_ID, 0);
+  assert.ok(playerToken);
+  const routes = [
+    {
+      label: "v2",
+      path: `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+    },
+    {
+      label: "compatibility",
+      path: `/admin/tournaments/${TEST_MATCH_ID}/room`,
+    },
+  ];
+  const replacementCredentials = {
+    roomId: "PLAYER-REPLACEMENT-ROOM",
+    roomPassword: "player-replacement-password",
+  };
+
+  await withServer(async (origin) => {
+    for (const route of routes) {
+      roomAccessTestDb.reset();
+      roomAccessTestDb.match.room_published = false;
+      const matchBefore = structuredClone(roomAccessTestDb.match);
+      const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+
+      const rejected = await request(
+        origin,
+        route.path,
+        "PUT",
+        playerToken,
+        replacementCredentials,
+      );
+
+      assert.equal(rejected.status, 403, `${route.label} must deny a player token`);
+      assert.deepEqual(rejected.body, {
+        error: "Tournament administrator access is required.",
+      });
+      assert.equal(roomAccessTestDb.match.room_id, matchBefore.room_id);
+      assert.equal(roomAccessTestDb.match.room_password, matchBefore.room_password);
+      assert.equal(roomAccessTestDb.match.room_published, matchBefore.room_published);
+      assert.equal(roomAccessTestDb.match.status, matchBefore.status);
+      assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+    }
+  });
+});
+
 test("compatibility room saves reject cancelled tournaments without changing room or registration state", async () => {
   roomAccessTestDb.reset();
   roomAccessTestDb.match.status = "cancelled";
