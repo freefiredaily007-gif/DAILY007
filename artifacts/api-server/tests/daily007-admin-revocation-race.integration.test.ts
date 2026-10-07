@@ -722,6 +722,217 @@ test("concurrent approvals of one leaderboard period pay each rank only once", a
   }
 });
 
+test("a later leaderboard payout failure rolls back earlier winners and keeps the period pending", async () => {
+  const adminId = randomUUID();
+  const winnerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
+  const winnerNames = [
+    "Rollback Test Winner 1",
+    "Rollback Test Winner 2",
+    "Rollback Test Winner 3",
+  ];
+  const startingBalances = [11, 12, 13] as const;
+  const periodId = randomUUID();
+  const failureSequence = "daily007_test_leaderboard_payout_failure_attempts";
+  let approvalPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Payout Failure Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, $4, $5, 'test-salt', 'test-hash', 'user', $6),
+         ($7, $8, $9, 'test-salt', 'test-hash', 'user', $10),
+         ($11, $12, $13, 'test-salt', 'test-hash', 'user', $14)`,
+      [
+        adminId,
+        `payout-failure-admin-${adminId}@example.test`,
+        winnerIds[0],
+        winnerNames[0],
+        `payout-failure-winner-one-${winnerIds[0]}@example.test`,
+        startingBalances[0],
+        winnerIds[1],
+        winnerNames[1],
+        `payout-failure-winner-two-${winnerIds[1]}@example.test`,
+        startingBalances[1],
+        winnerIds[2],
+        winnerNames[2],
+        `payout-failure-winner-three-${winnerIds[2]}@example.test`,
+        startingBalances[2],
+      ],
+    );
+
+    const standings = winnerIds.map((userId, index) => ({
+      rank: index + 1,
+      userId,
+      name: winnerNames[index],
+      points: 30 - index * 10,
+      earnings: 0,
+      wins: 3 - index,
+      kills: 4 - index,
+      matches: 5 - index,
+    }));
+    const rewards = [
+      { rank: 1, coins: 40 },
+      { rank: 2, coins: 20 },
+      { rank: 3, coins: 10 },
+    ];
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES ($1, 'weekly', '2020-01-01T00:00:00Z', '2020-01-08T00:00:00Z',
+               'pending_approval', $2::jsonb, $3::jsonb)`,
+      [periodId, JSON.stringify(standings), JSON.stringify(rewards)],
+    );
+
+    await pool.query(`CREATE SEQUENCE ${failureSequence}`);
+    await pool.query(`
+      CREATE FUNCTION daily007_test_fail_later_leaderboard_payout() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.idempotency_key = 'leaderboard-cycle:${periodId}:rank:2' THEN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM daily007_v2_wallet_ledger
+             WHERE idempotency_key = 'leaderboard-cycle:${periodId}:rank:1'
+               AND user_id = '${winnerIds[0]}'::uuid
+               AND amount = 40
+               AND balance_after = 51
+          ) THEN
+            RAISE EXCEPTION 'The first rank payout was not visible before the injected failure';
+          END IF;
+          IF (SELECT wallet_coins FROM daily007_v2_users WHERE id = '${winnerIds[0]}'::uuid) <> 51 THEN
+            RAISE EXCEPTION 'The first winner balance was not updated before the injected failure';
+          END IF;
+          PERFORM nextval('${failureSequence}');
+          RAISE EXCEPTION 'Injected failure on a later leaderboard rank payout';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_fail_later_leaderboard_payout
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_later_leaderboard_payout()
+    `);
+
+    await withServer(async (origin) => {
+      approvalPromise = postJson(
+        origin,
+        `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`,
+        adminId,
+        {},
+      );
+      const approval = await approvalPromise;
+      assert.equal(approval.status, 500, JSON.stringify(approval.body));
+      assert.equal(
+        approval.body.error,
+        "Test server encountered an unexpected error.",
+      );
+    });
+
+    const failureObserved = await pool.query<{
+      last_value: string;
+      is_called: boolean;
+    }>(`SELECT last_value::text, is_called FROM ${failureSequence}`);
+    assert.deepEqual(
+      failureObserved.rows[0],
+      { last_value: "1", is_called: true },
+      "the failure trigger must observe the earlier rank's ledger write and wallet update",
+    );
+
+    const period = await pool.query<{
+      status: string;
+      approved_by: string | null;
+      approved_at: Date | null;
+      settled_at: Date | null;
+    }>(
+      `SELECT status, approved_by, approved_at, settled_at
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = $1`,
+      [periodId],
+    );
+    assert.deepEqual(period.rows, [
+      {
+        status: "pending_approval",
+        approved_by: null,
+        approved_at: null,
+        settled_at: null,
+      },
+    ]);
+
+    const winners = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [winnerIds],
+    );
+    assert.deepEqual(
+      new Map(winners.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [winnerIds[0], startingBalances[0]],
+        [winnerIds[1], startingBalances[1]],
+        [winnerIds[2], startingBalances[2]],
+      ]),
+      "every winner balance must return to its pre-approval value",
+    );
+
+    const payoutRows = await pool.query(
+      `SELECT idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE idempotency_key LIKE $1`,
+      [`leaderboard-cycle:${periodId}:rank:%`],
+    );
+    assert.deepEqual(
+      payoutRows.rows,
+      [],
+      "no payout ledger entries may remain from the failed approval",
+    );
+  } finally {
+    if (approvalPromise) await Promise.allSettled([approvalPromise]);
+
+    const cleanupStatements = [
+      "DROP TRIGGER IF EXISTS daily007_test_fail_later_leaderboard_payout ON daily007_v2_wallet_ledger",
+      "DROP FUNCTION IF EXISTS daily007_test_fail_later_leaderboard_payout()",
+      `DROP SEQUENCE IF EXISTS ${failureSequence}`,
+    ];
+    const cleanupErrors: unknown[] = [];
+    for (const statement of cleanupStatements) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const cleanup of [
+      () =>
+        pool.query(
+          "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
+          [winnerIds],
+        ),
+      () =>
+        pool.query(
+          "DELETE FROM daily007_v2_leaderboard_periods WHERE id = $1",
+          [periodId],
+        ),
+      () =>
+        pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [
+          [adminId, ...winnerIds],
+        ]),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up the failed leaderboard payout fixture.",
+      );
+    }
+  }
+});
+
 test("an in-flight admin mutation commits before the actor is blocked, and later mutations are rejected", async () => {
   const actorId = randomUUID();
   const blockerAdminId = randomUUID();
