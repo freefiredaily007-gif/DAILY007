@@ -1366,6 +1366,123 @@ test("a permanent delete queued before a watch-session insert leaves no orphan",
   }
 });
 
+test("a catalog-setting failure after permanent deletion rolls back video and history state", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const adminId = fixture.adminId;
+  const playerId = fixture.playerId;
+  const videoId = fixture.videoId;
+  const failureConstraint = `video_seed_failure_${randomUUID().replace(/-/g, "")}`;
+  let settingsCaptured = false;
+  let hadSettingsBeforeTest = false;
+  let originalSettings: Record<string, unknown> | null = null;
+  let failureConstraintCreated = false;
+
+  try {
+    const previousSettings = await pool.query<{ settings: Record<string, unknown> }>(
+      "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+    );
+    hadSettingsBeforeTest = previousSettings.rows.length > 0;
+    originalSettings = previousSettings.rows[0]?.settings ?? null;
+    settingsCaptured = true;
+
+    const unrelatedVideoResult = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
+       VALUES ('Unrelated video', 'Other topic', $1, $2)
+       RETURNING id`,
+      [randomUUID().replace(/-/g, "").slice(0, 11), adminId],
+    );
+    const unrelatedVideoId = unrelatedVideoResult.rows[0]?.id;
+    assert.ok(unrelatedVideoId, "the unrelated video should be created");
+    fixture.additionalVideoIds.push(unrelatedVideoId);
+
+    const unrelatedSessionResult = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_video_watch_sessions
+         (user_id, video_id, duration_seconds, start_attempt_id)
+       VALUES ($1, $2, 30, $3)
+       RETURNING id`,
+      [playerId, unrelatedVideoId, randomUUID()],
+    );
+    const unrelatedSessionId = unrelatedSessionResult.rows[0]?.id;
+    assert.ok(unrelatedSessionId, "the unrelated watch session should be created");
+    fixture.additionalSessionIds.push(unrelatedSessionId);
+
+    const settingsBeforeRequestValue = {
+      __daily007VideoCatalogSeeded: false,
+      __testVideoDeleteRollback: "preserve",
+    };
+    await pool.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings`,
+      [JSON.stringify(settingsBeforeRequestValue)],
+    );
+
+    const targetBefore = await pool.query(
+      "SELECT * FROM daily007_v2_videos WHERE id = $1",
+      [videoId],
+    );
+    assert.equal(targetBefore.rows.length, 1, "the target video should exist before deletion");
+    const unrelatedBefore = await snapshotUnrelatedVideoState(videoId);
+    const watchSessionsBefore = await pool.query(
+      "SELECT * FROM daily007_v2_video_watch_sessions ORDER BY id",
+    );
+    const settingsBeforeRequest = await pool.query<{ settings: Record<string, unknown> }>(
+      "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+    );
+    assert.deepEqual(settingsBeforeRequest.rows[0]?.settings, settingsBeforeRequestValue);
+
+    await pool.query(
+      `ALTER TABLE daily007_v2_settings
+         ADD CONSTRAINT ${failureConstraint}
+         CHECK (settings ->> '__daily007VideoCatalogSeeded' IS DISTINCT FROM 'true')`,
+    );
+    failureConstraintCreated = true;
+
+    await withServer(async (origin) => {
+      const response = await sendPermanentDelete(origin, videoId, adminId);
+      assert.equal(response.status, 500);
+      assert.equal(response.body.error, "Internal server error.");
+    });
+
+    const [targetAfter, unrelatedAfter, watchSessionsAfter, settingsAfter] = await Promise.all([
+      pool.query("SELECT * FROM daily007_v2_videos WHERE id = $1", [videoId]),
+      snapshotUnrelatedVideoState(videoId),
+      pool.query("SELECT * FROM daily007_v2_video_watch_sessions ORDER BY id"),
+      pool.query("SELECT settings FROM daily007_v2_settings WHERE id = 1"),
+    ]);
+    assert.deepEqual(targetAfter.rows, targetBefore.rows, "the failed request must restore the target video");
+    assert.deepEqual(unrelatedAfter, unrelatedBefore, "unrelated videos and sessions must not change");
+    assert.deepEqual(
+      watchSessionsAfter.rows,
+      watchSessionsBefore.rows,
+      "watch history must remain unchanged after the transaction rolls back",
+    );
+    assert.deepEqual(
+      settingsAfter.rows,
+      settingsBeforeRequest.rows,
+      "the failed catalog marker update must not partially change settings",
+    );
+  } finally {
+    if (failureConstraintCreated) {
+      await pool.query(
+        `ALTER TABLE daily007_v2_settings DROP CONSTRAINT ${failureConstraint}`,
+      );
+    }
+    if (settingsCaptured) {
+      if (hadSettingsBeforeTest) {
+        await pool.query(
+          "UPDATE daily007_v2_settings SET settings = $1::jsonb WHERE id = 1",
+          [JSON.stringify(originalSettings ?? {})],
+        );
+      } else {
+        await pool.query("DELETE FROM daily007_v2_settings WHERE id = 1");
+      }
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
 test.after(async () => {
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
