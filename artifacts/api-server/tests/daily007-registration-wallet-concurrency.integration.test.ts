@@ -32,7 +32,10 @@ type WalletRaceFixture = {
   userId: string;
   matchIds: [string, string];
   gameUids: [string, string];
+  entryCoins: [number, number];
 };
+
+const STARTING_WALLET_COINS = 100;
 
 after(async () => {
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
@@ -103,21 +106,22 @@ async function createFixture(): Promise<WalletRaceFixture> {
     userId: randomUUID(),
     matchIds: [randomUUID(), randomUUID()],
     gameUids: [`ff-${randomUUID()}`, `ff-${randomUUID()}`],
+    entryCoins: [7, 13],
   };
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query(
       `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, wallet_coins)
-       VALUES ($1, 'Wallet Race Player', $2, 'test-salt', 'test-hash', 100)`,
-      [fixture.userId, `player-${fixture.userId}@example.test`],
+       VALUES ($1, 'Wallet Race Player', $2, 'test-salt', 'test-hash', $3)`,
+      [fixture.userId, `player-${fixture.userId}@example.test`, STARTING_WALLET_COINS],
     );
     for (const [index, matchId] of fixture.matchIds.entries()) {
       await client.query(
         `INSERT INTO daily007_v2_matches
            (id, title, mode, game_mode, team_type, capacity, entry_coins, starts_at, status)
-         VALUES ($1, $2, 'solo', 'battle_royale', 'solo', 48, 7, now() + interval '1 day', 'open')`,
-        [matchId, `Wallet race tournament ${index + 1}`],
+         VALUES ($1, $2, 'solo', 'battle_royale', 'solo', 48, $3, now() + interval '1 day', 'open')`,
+        [matchId, `Wallet race tournament ${index + 1}`, fixture.entryCoins[index]!],
       );
     }
     await client.query("COMMIT");
@@ -206,7 +210,7 @@ async function waitForBlockedWalletRequests(blockerPid: number, expectedCount: n
   throw new Error(`Timed out waiting for ${expectedCount} tournament joins to block on the wallet row.`);
 }
 
-test("concurrent joins to separate tournaments serialize on the PostgreSQL wallet row", async () => {
+test("concurrent joins charge each tournament's own fee and serialize on the PostgreSQL wallet row", async () => {
   let fixtureForCleanup: WalletRaceFixture | undefined;
   let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
   let blockerTransactionOpen = false;
@@ -248,11 +252,7 @@ test("concurrent joins to separate tournaments serialize on the PostgreSQL walle
         [201, 201],
         `unexpected registration responses: ${JSON.stringify(responses)}`,
       );
-      assert.deepEqual(
-        responses.map((response) => Number(response.body.walletCoins)).sort((left, right) => left - right),
-        [86, 93],
-        "each response should reflect a serialized 7-coin deduction",
-      );
+      assert.notEqual(fixture.entryCoins[0], fixture.entryCoins[1]);
 
       const registrations = await pool.query<{
         id: string;
@@ -261,11 +261,14 @@ test("concurrent joins to separate tournaments serialize on the PostgreSQL walle
         captain_game_uid: string;
         entry_coins_paid: number;
         status: string;
+        entry_coins: number;
       }>(
-        `SELECT id, match_id, captain_user_id, captain_game_uid, entry_coins_paid, status
-           FROM daily007_v2_registrations
-          WHERE match_id = ANY($1::uuid[]) AND captain_user_id = $2
-          ORDER BY match_id`,
+        `SELECT r.id, r.match_id, r.captain_user_id, r.captain_game_uid,
+                r.entry_coins_paid, r.status, m.entry_coins
+           FROM daily007_v2_registrations r
+           JOIN daily007_v2_matches m ON m.id = r.match_id
+          WHERE r.match_id = ANY($1::uuid[]) AND r.captain_user_id = $2
+          ORDER BY r.match_id`,
         [fixture.matchIds, fixture.userId],
       );
       assert.equal(registrations.rows.length, 2, "both tournament entries must be stored");
@@ -278,16 +281,24 @@ test("concurrent joins to separate tournaments serialize on the PostgreSQL walle
         assert.ok(registration, `registration for ${matchId} must exist`);
         assert.equal(registration.captain_user_id, fixture.userId);
         assert.equal(registration.captain_game_uid, fixture.gameUids[index]);
-        assert.equal(registration.entry_coins_paid, 7);
+        assert.equal(registration.entry_coins, fixture.entryCoins[index]);
+        assert.equal(registration.entry_coins_paid, fixture.entryCoins[index]);
         assert.equal(registration.status, "approved");
+        assert.equal(Number(responses[index].body.entryCoinsPaid), fixture.entryCoins[index]);
         assert.equal(responses[index].body.registrationId, registration.id);
       }
 
+      const expectedFinalBalance = STARTING_WALLET_COINS -
+        fixture.entryCoins.reduce((total, entryCoins) => total + entryCoins, 0);
       const wallet = await pool.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
         [fixture.userId],
       );
-      assert.deepEqual(wallet.rows, [{ wallet_coins: 86 }], "the player should pay exactly two entry fees");
+      assert.deepEqual(
+        wallet.rows,
+        [{ wallet_coins: expectedFinalBalance }],
+        "the player should pay exactly the two tournament-specific entry fees",
+      );
 
       const ledger = await pool.query<{
         match_id: string;
@@ -307,18 +318,36 @@ test("concurrent joins to separate tournaments serialize on the PostgreSQL walle
         new Set(ledger.rows.map((entry) => entry.match_id)),
         new Set(fixture.matchIds),
       );
-      assert.deepEqual(
-        ledger.rows.map((entry) => entry.balance_after).sort((left, right) => left - right),
-        [86, 93],
-        "ledger balances must record both sequential wallet states",
-      );
       for (const entry of ledger.rows) {
-        assert.equal(entry.amount, -7);
+        const matchIndex = fixture.matchIds.indexOf(entry.match_id);
+        assert.ok(matchIndex >= 0, "each ledger entry must belong to one of the two tournaments");
+        assert.equal(entry.amount, -fixture.entryCoins[matchIndex]);
         assert.equal(entry.reason, "match_entry");
         const registration = registrations.rows.find((row) => row.match_id === entry.match_id);
         assert.ok(registration);
         assert.equal(entry.registration_id, registration.id);
+        assert.equal(entry.amount, -registration.entry_coins);
+        assert.equal(entry.balance_after, Number(responses[matchIndex].body.walletCoins));
       }
+
+      const [firstDebit, secondDebit] = [...ledger.rows]
+        .sort((left, right) => right.balance_after - left.balance_after);
+      assert.ok(firstDebit && secondDebit, "both serialized wallet debits must have ledger entries");
+      assert.equal(
+        firstDebit.balance_after - firstDebit.amount,
+        STARTING_WALLET_COINS,
+        "the first ledger balance must start from the original wallet balance",
+      );
+      assert.equal(
+        secondDebit.balance_after - secondDebit.amount,
+        firstDebit.balance_after,
+        "the second ledger balance must start from the first debit's balance",
+      );
+      assert.equal(
+        secondDebit.balance_after,
+        expectedFinalBalance,
+        "the last ledger balance must match the final wallet balance",
+      );
     });
   } finally {
     try {

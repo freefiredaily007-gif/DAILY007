@@ -21,6 +21,12 @@ For concurrent video completions from two sessions owned by one player, use diff
 
 **How to apply:** Create separate active video/session fixtures for one unique player, hold that player's wallet row, and assert both completion results, the total ledger count, final balance, and each session's ledger pointer.
 
+For concurrent wallet debits on different matches with different fees, correlate each response and ledger row by match or registration; do not assume request-array order determines which debit acquires the wallet lock first.
+
+**Why:** PostgreSQL may serialize either request first, so comparing sorted balances alone can miss a fee recorded against the wrong tournament.
+
+**How to apply:** Assert each match's configured and paid fee, map its response balance to its ledger entry, and verify the ledger balance chain from the starting balance to the final wallet value.
+
 To exercise an isolated PostgreSQL write failure without mocking the transaction, add a temporary CHECK constraint scoped to the fixture's exact ledger idempotency key and reward reason. Drop it in `finally` after the request settles.
 
 **Why:** The targeted constraint fails only the intended ledger insert, allowing the test to prove the preceding wallet update rolls back while unrelated ledger writes remain unaffected.
