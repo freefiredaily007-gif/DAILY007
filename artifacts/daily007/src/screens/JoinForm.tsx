@@ -5,6 +5,7 @@ import type { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildJoinFormPayload } from '../lib/joinFormPayload';
+import { validateJoinForm, type JoinFormField } from '../lib/joinFormValidation';
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 
 type Member = { name: string; uid: string };
@@ -49,6 +50,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const [teamName, setTeamName] = useState(String(registration?.teamName ?? ''));
   const [members, setMembers] = useState<Member[]>(initialRoster.slice(1));
   const [err, setErr] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<JoinFormField, string>>>({});
   const [fullCapacityFailure, setFullCapacityFailure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
@@ -65,6 +67,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     setMembers(roster.slice(1));
     setTeamName(String(registration?.teamName ?? ''));
     setErr('');
+    setFieldErrors({});
     setFullCapacityFailure(false);
   }, [registration?.id, t.id, teamSize, user.gameUid]);
 
@@ -78,8 +81,16 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     setMembers((m) => m.map((x, j) => (j === i ? { ...x, [field]: v } : x)));
   };
 
+  const clearFieldValidation = (field: JoinFormField) => {
+    if (!fieldErrors[field]) return;
+    setErr('');
+    setFieldErrors({});
+    setFullCapacityFailure(false);
+  };
+
   const submit = async () => {
     setErr('');
+    setFieldErrors({});
     setFullCapacityFailure(false);
     if (editing && !canEditRegistrationTeam(t, registration?.status, Date.now())) {
       setClockNow(Date.now());
@@ -87,14 +98,18 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     }
     if (!editing && closed) return setErr('This tournament is no longer open for registration.');
     if (!editing && full) return setErr('This tournament is full. Please choose another match.');
-    if (!captainProfileName) return setErr('Add an application profile name before registering.');
-    if (!captainGameName.trim()) return setErr('Captain Free Fire in-game name is required.');
-    if (!captainGameUid.trim()) return setErr('Captain Free Fire UID is required.');
-    if (isTeam && !teamName.trim()) return setErr('Team name is required.');
-    if (members.some((member) => !member.name.trim())) return setErr(`Enter all ${teamSize - 1} teammate in-game name${teamSize === 2 ? '' : 's'}.`);
-    const submittedUids = [captainGameUid, ...members.map((member) => member.uid).filter(Boolean)]
-      .map((uid) => uid.trim().toLowerCase());
-    if (new Set(submittedUids).size !== submittedUids.length) return setErr('Each player must have a different game UID.');
+    const validation = validateJoinForm({
+      captainProfileName,
+      captainGameName,
+      captainGameUid,
+      teamName,
+      members,
+      isTeam,
+    });
+    if (validation) {
+      setFieldErrors(validation.fieldErrors);
+      return setErr(validation.message);
+    }
     setBusy(true);
     try {
       await onSubmit(buildJoinFormPayload({
@@ -131,6 +146,15 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         : ''
     : '';
 
+  const fieldErrorText = (field: JoinFormField, testID: string) => {
+    const message = fieldErrors[field];
+    return message ? (
+      <Text accessible={false} style={st.fieldError} testID={testID}>
+        {message}
+      </Text>
+    ) : null;
+  };
+
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap} keyboardShouldPersistTaps="handled">
       <Text onPress={onCancel} style={st.back}>← BACK</Text>
@@ -166,38 +190,55 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         <Text style={st.pLabel}>CAPTAIN APPLICATION PROFILE NAME</Text>
         <Input
           accessibilityLabel="Captain Daily007 profile name, read-only"
+          accessibilityHint={fieldErrors.captainProfileName}
           placeholder="Set your name in Profile before joining"
           value={captainProfileName}
           editable={false}
           selectTextOnFocus={false}
         />
+        {fieldErrorText('captainProfileName', 'join-form-error-captain-profile-name')}
         <Input
           placeholder="Captain Free Fire in-game name"
           accessibilityLabel="Captain Free Fire in-game name"
+          accessibilityHint={fieldErrors.captainGameName}
           testID="join-form-captain-game-name"
           value={captainGameName}
-          onChangeText={setCaptainGameName}
+          onChangeText={(value) => {
+            setCaptainGameName(value);
+            clearFieldValidation('captainGameName');
+          }}
           autoCapitalize="words"
         />
+        {fieldErrorText('captainGameName', 'join-form-error-captain-game-name')}
         <Input
           placeholder="Captain Free Fire UID"
           accessibilityLabel="Captain Free Fire UID"
+          accessibilityHint={fieldErrors.captainGameUid}
           testID="join-form-captain-game-uid"
           value={captainGameUid}
-          onChangeText={setCaptainGameUid}
+          onChangeText={(value) => {
+            setCaptainGameUid(value);
+            clearFieldValidation('captainGameUid');
+          }}
           keyboardType="number-pad"
         />
+        {fieldErrorText('captainGameUid', 'join-form-error-captain-game-uid')}
         {isTeam && (
           <>
             <Text style={st.pLabel}>TEAM NAME</Text>
             <Input
               accessibilityLabel="Team name"
+              accessibilityHint={fieldErrors.teamName}
               placeholder="Team name"
               value={teamName}
-              onChangeText={setTeamName}
+              onChangeText={(value) => {
+                setTeamName(value);
+                clearFieldValidation('teamName');
+              }}
               autoCapitalize="words"
               maxLength={100}
             />
+            {fieldErrorText('teamName', 'join-form-error-team-name')}
           </>
         )}
         {members.map((member, i) => (
@@ -205,18 +246,28 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
             <Text style={st.pLabel}>TEAMMATE {i + 1}</Text>
             <Input
               accessibilityLabel={`Teammate ${i + 1} Free Fire in-game name`}
+              accessibilityHint={fieldErrors[`memberName:${i}`]}
               placeholder={`Teammate ${i + 1} Free Fire in-game name`}
               value={member.name}
-              onChangeText={(v) => setMember(i, 'name', v)}
+              onChangeText={(v) => {
+                setMember(i, 'name', v);
+                clearFieldValidation(`memberName:${i}`);
+              }}
               autoCapitalize="words"
             />
+            {fieldErrorText(`memberName:${i}`, `join-form-error-teammate-name-${i + 1}`)}
             <Input
               accessibilityLabel={`Teammate ${i + 1} Free Fire UID, optional`}
+              accessibilityHint={fieldErrors[`memberUid:${i}`]}
               placeholder={`Teammate ${i + 1} Free Fire UID (optional)`}
               value={member.uid}
-              onChangeText={(v) => setMember(i, 'uid', v)}
+              onChangeText={(v) => {
+                setMember(i, 'uid', v);
+                clearFieldValidation(`memberUid:${i}`);
+              }}
               keyboardType="number-pad"
             />
+            {fieldErrorText(`memberUid:${i}`, `join-form-error-teammate-uid-${i + 1}`)}
           </View>
         ))}
       </Card>
@@ -257,4 +308,5 @@ const st = StyleSheet.create({
   capacity: { color: C.text, fontSize: 16, fontWeight: '900', marginTop: 4 },
   legacyNote: { color: C.dim, fontSize: 11, lineHeight: 16, marginBottom: 6 },
   pLabel: { color: C.orange, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: 6, marginTop: 8 },
+  fieldError: { color: C.red, fontSize: 12, lineHeight: 17, marginTop: -2, marginBottom: 8 },
 });

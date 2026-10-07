@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
 import { buildJoinFormPayload } from "../src/lib/joinFormPayload.ts";
+import { validateJoinForm } from "../src/lib/joinFormValidation.ts";
 
 const requests = [];
 const mockedHttp = {
@@ -66,6 +67,18 @@ const uiSource = await readFile(
   "utf8",
 );
 
+function validJoinForm(overrides = {}) {
+  return {
+    captainProfileName: "Daily007 Captain",
+    captainGameName: "Free Fire Captain",
+    captainGameUid: "captain-uid-101",
+    teamName: "Separate Team",
+    members: [{ name: "First Teammate", uid: "" }],
+    isTeam: true,
+    ...overrides,
+  };
+}
+
 function inputWithPlaceholder(placeholder) {
   const escaped = placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const input = [...joinFormSource.matchAll(/<Input\b([\s\S]*?)\/>/g)].find(
@@ -98,17 +111,26 @@ test("the profile name is read-only and game, team, and teammate details have se
 
   const captainGameName = inputWithPlaceholder("Captain Free Fire in-game name");
   assert.match(captainGameName, /value=\{captainGameName\}/);
-  assert.match(captainGameName, /onChangeText=\{setCaptainGameName\}/);
+  assert.match(
+    captainGameName,
+    /onChangeText=\{\(value\) => \{\s*setCaptainGameName\(value\);\s*clearFieldValidation\('captainGameName'\);/,
+  );
 
   const captainGameUid = inputWithPlaceholder("Captain Free Fire UID");
   assert.match(captainGameUid, /value=\{captainGameUid\}/);
-  assert.match(captainGameUid, /onChangeText=\{setCaptainGameUid\}/);
+  assert.match(
+    captainGameUid,
+    /onChangeText=\{\(value\) => \{\s*setCaptainGameUid\(value\);\s*clearFieldValidation\('captainGameUid'\);/,
+  );
 
   assert.match(joinFormSource, /<Text style=\{st\.pLabel\}>TEAM NAME<\/Text>/);
   const teamName = inputWithPlaceholder("Team name");
   assert.match(teamName, /accessibilityLabel="Team name"/);
   assert.match(teamName, /value=\{teamName\}/);
-  assert.match(teamName, /onChangeText=\{setTeamName\}/);
+  assert.match(
+    teamName,
+    /onChangeText=\{\(value\) => \{\s*setTeamName\(value\);\s*clearFieldValidation\('teamName'\);/,
+  );
 
   assert.match(joinFormSource, /<Text style=\{st\.pLabel\}>TEAMMATE \{i \+ 1\}<\/Text>/);
   assert.match(
@@ -117,7 +139,7 @@ test("the profile name is read-only and game, team, and teammate details have se
   );
   assert.match(
     joinFormSource,
-    /placeholder=\{`Teammate \$\{i \+ 1\} Free Fire in-game name`\}[\s\S]*?value=\{member\.name\}[\s\S]*?onChangeText=\{\(v\) => setMember\(i, 'name', v\)\}/,
+    /placeholder=\{`Teammate \$\{i \+ 1\} Free Fire in-game name`\}[\s\S]*?value=\{member\.name\}[\s\S]*?onChangeText=\{\(v\) => \{\s*setMember\(i, 'name', v\);\s*clearFieldValidation\(`memberName:\$\{i\}`\);/,
   );
   assert.match(
     joinFormSource,
@@ -125,7 +147,7 @@ test("the profile name is read-only and game, team, and teammate details have se
   );
   assert.match(
     joinFormSource,
-    /placeholder=\{`Teammate \$\{i \+ 1\} Free Fire UID \(optional\)`\}[\s\S]*?value=\{member\.uid\}[\s\S]*?onChangeText=\{\(v\) => setMember\(i, 'uid', v\)\}/,
+    /placeholder=\{`Teammate \$\{i \+ 1\} Free Fire UID \(optional\)`\}[\s\S]*?value=\{member\.uid\}[\s\S]*?onChangeText=\{\(v\) => \{\s*setMember\(i, 'uid', v\);\s*clearFieldValidation\(`memberUid:\$\{i\}`\);/,
   );
 
   assert.match(
@@ -179,6 +201,124 @@ test("TalkBack field labels follow the registration order for Solo, Duo, and Squ
     "Teammate 3 Free Fire in-game name",
     "Teammate 3 Free Fire UID, optional",
   ]);
+});
+
+test("required captain and teammate names identify the exact field that needs attention", () => {
+  const missingProfileName = validateJoinForm(validJoinForm({ captainProfileName: " " }));
+  assert.deepEqual(missingProfileName, {
+    message: "Captain Daily007 profile name is required. Add one in Profile before joining.",
+    fieldErrors: {
+      captainProfileName: "Captain Daily007 profile name is required. Add one in Profile before joining.",
+    },
+  });
+
+  const missingCaptainName = validateJoinForm(validJoinForm({ captainGameName: " " }));
+  assert.deepEqual(missingCaptainName, {
+    message: "Captain Free Fire in-game name is required.",
+    fieldErrors: { captainGameName: "Captain Free Fire in-game name is required." },
+  });
+
+  const missingTeammateName = validateJoinForm(validJoinForm({
+    members: [{ name: "First Teammate", uid: "" }, { name: " ", uid: "" }],
+  }));
+  assert.deepEqual(missingTeammateName, {
+    message: "Teammate 2 Free Fire in-game name is required.",
+    fieldErrors: {
+      "memberName:1": "Teammate 2 Free Fire in-game name is required.",
+    },
+  });
+});
+
+test("missing captain UID and team name identify the corresponding fields", () => {
+  assert.deepEqual(
+    validateJoinForm(validJoinForm({ captainGameUid: " " })),
+    {
+      message: "Captain Free Fire UID is required.",
+      fieldErrors: { captainGameUid: "Captain Free Fire UID is required." },
+    },
+  );
+  assert.deepEqual(
+    validateJoinForm(validJoinForm({ teamName: " " })),
+    {
+      message: "Team name is required.",
+      fieldErrors: { teamName: "Team name is required." },
+    },
+  );
+});
+
+test("optional teammate UIDs may be blank, while duplicate UIDs identify both conflicting fields", () => {
+  assert.equal(validateJoinForm(validJoinForm({
+    members: [
+      { name: "First Teammate", uid: "" },
+      { name: "Second Teammate", uid: "  " },
+    ],
+  })), null);
+
+  assert.deepEqual(
+    validateJoinForm(validJoinForm({
+      members: [
+        { name: "First Teammate", uid: "CAPTAIN-UID-101" },
+      ],
+    })),
+    {
+      message: "Captain Free Fire UID and Teammate 1 Free Fire UID must have different UIDs.",
+      fieldErrors: {
+        captainGameUid: "Captain Free Fire UID is also entered for Teammate 1 Free Fire UID. Enter a different UID.",
+        "memberUid:0": "Teammate 1 Free Fire UID is also entered for Captain Free Fire UID. Enter a different UID or leave this optional field blank.",
+      },
+    },
+  );
+
+  assert.deepEqual(
+    validateJoinForm(validJoinForm({
+      members: [
+        { name: "First Teammate", uid: "shared-uid" },
+        { name: "Second Teammate", uid: " SHARED-UID " },
+      ],
+    })),
+    {
+      message: "Teammate 1 Free Fire UID and Teammate 2 Free Fire UID must have different UIDs.",
+      fieldErrors: {
+        "memberUid:0": "Teammate 1 Free Fire UID is also entered for Teammate 2 Free Fire UID. Enter a different UID.",
+        "memberUid:1": "Teammate 2 Free Fire UID is also entered for Teammate 1 Free Fire UID. Enter a different UID or leave this optional field blank.",
+      },
+    },
+  );
+});
+
+test("field errors are reachable from their inputs and use one polite announcement without moving focus", () => {
+  const fieldInputs = [
+    ["Captain Free Fire in-game name", "captainGameName"],
+    ["Captain Free Fire UID", "captainGameUid"],
+    ["Team name", "teamName"],
+  ];
+  for (const [placeholder, field] of fieldInputs) {
+    const input = inputWithPlaceholder(placeholder);
+    assert.match(input, new RegExp(`accessibilityHint=\\{fieldErrors\\.${field}\\}`));
+    assert.match(joinFormSource, new RegExp(`fieldErrorText\\('${field}'`));
+  }
+
+  const profileInput = joinFormSource.match(
+    /<Input\s+accessibilityLabel="Captain Daily007 profile name, read-only"([\s\S]*?)\/>/,
+  )?.[1];
+  assert.match(profileInput ?? "", /accessibilityHint=\{fieldErrors\.captainProfileName\}/);
+  assert.match(joinFormSource, /fieldErrorText\('captainProfileName'/);
+  assert.match(
+    joinFormSource,
+    /accessibilityHint=\{fieldErrors\[`memberName:\$\{i\}`\]\}[\s\S]*?fieldErrorText\(`memberName:\$\{i\}`/,
+  );
+  assert.match(
+    joinFormSource,
+    /accessibilityHint=\{fieldErrors\[`memberUid:\$\{i\}`\]\}[\s\S]*?fieldErrorText\(`memberUid:\$\{i\}`/,
+  );
+  assert.match(joinFormSource, /<Text accessible=\{false\} style=\{st\.fieldError\}/);
+  assert.equal((joinFormSource.match(/accessibilityLiveRegion=/g) ?? []).length, 1);
+  assert.match(joinFormSource, /accessibilityLiveRegion=\{err \? 'polite' : undefined\}/);
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
+  assert.doesNotMatch(
+    joinFormSource,
+    /AccessibilityInfo\.announceForAccessibility|setAccessibilityFocus|\.focus\(/,
+  );
 });
 
 test("JoinForm values remain distinct in the submitted form and registration API payload", async () => {

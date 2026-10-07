@@ -57,6 +57,7 @@
 - [Daily007 Home mode-card screen readers](daily007-home-mode-screen-reader.md) — VoiceOver and TalkBack announce mode and all team sizes in one stop, without decorative stops.
 - [Daily007 room-detail TalkBack](daily007-room-details-talkback.md) — iQOO Neo 10 / Android 16 confirmed labeled room values, distinct copy controls, and spoken copy feedback.
 - [Daily007 full-capacity TalkBack](daily007-full-capacity-talkback.md) — iQOO Neo 10 / Android 16 confirmed one rejection-and-capacity announcement without repetition or focus movement.
+- [Daily007 registration error accessibility](daily007-join-form-accessibility.md) — keep one polite error announcement, attach details to affected inputs, and leave focus in place.
 - [Daily007 admin results TalkBack](daily007-admin-results-talkback.md) — iQOO Neo 10 / Android 16 confirmed TalkBack support from player selection through errors, outcomes, and publishing state.
 - [Admin payments TalkBack](daily007-admin-payments-talkback.md) — iQOO Neo 10/Android 16 confirmed success announcements without focus shifts or speech interruptions.
 - [Daily007 rejected deposit TalkBack](daily007-wallet-rejected-deposit-talkback.md) — iQOO Neo 10 / Android 16 confirmed the grouped summary and readable rejected-deposit reason at 1.5× text.
