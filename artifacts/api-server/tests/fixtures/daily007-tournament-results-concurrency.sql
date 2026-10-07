@@ -25,7 +25,10 @@ CREATE TABLE daily007_v2_matches (
   enabled boolean NOT NULL DEFAULT true,
   starts_at timestamptz NOT NULL,
   status text NOT NULL DEFAULT 'open',
-  is_full boolean NOT NULL DEFAULT false
+  is_full boolean NOT NULL DEFAULT false,
+  room_id text,
+  room_password text,
+  room_published boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE daily007_v2_registrations (
