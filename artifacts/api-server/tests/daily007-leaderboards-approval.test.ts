@@ -737,6 +737,13 @@ test("a failed monthly Full Admin prize save rolls back both schedules and activ
 
   try {
     await withServer(async (origin) => {
+      const originalPlayerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(originalPlayerRead.status, 200);
+      const originalPlayerView = await originalPlayerRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+
       const failedSave = await call(
         origin,
         TEST_FULL_ADMIN_ID,
@@ -749,6 +756,14 @@ test("a failed monthly Full Admin prize save rolls back both schedules and activ
       );
 
       assert.equal(failedSave.status, 503);
+      const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(playerRead.status, 200);
+      const playerView = await playerRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+      assert.deepEqual(playerView.weekly.rewards, originalPlayerView.weekly.rewards);
+      assert.deepEqual(playerView.monthly.rewards, originalPlayerView.monthly.rewards);
       assert.deepEqual(
         daily007LeaderboardTestDb.rewardSettingWriteAttempts,
         ["weekly", "monthly"],
