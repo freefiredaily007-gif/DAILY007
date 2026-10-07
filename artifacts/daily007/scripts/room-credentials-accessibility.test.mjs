@@ -180,7 +180,7 @@ test("room details refresh in place while focused and the interval stops on blur
   assert.equal(TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS, 30_000);
   assert.match(
     detailSource,
-    /useEffect\(\s*\(\) => startTournamentDetailPolling\(isFocused,\s*\(\) => \{\s*void load\(\);\s*\}\),\s*\[isFocused, load\]\s*\)/,
+    /useEffect\(\s*\(\) => startTournamentDetailPolling\(isFocused,\s*\(\) => \{\s*void load\(\);\s*\}\),\s*\[isFocused, load\]\s*,?\s*\)/,
   );
   assert.match(
     detailSource,

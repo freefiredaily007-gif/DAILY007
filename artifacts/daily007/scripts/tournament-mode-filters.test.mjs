@@ -17,6 +17,7 @@ import {
 } from '../src/lib/tournamentFilters.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
 import { getRoomCredentialSchedule } from '../src/lib/roomCredentialTiming.ts';
+import { fetchTournamentDetailSnapshot } from '../src/lib/tournament-detail-refresh.ts';
 import {
   getTournamentLifecycleState,
   MAX_TIMEOUT_MS,
@@ -445,8 +446,8 @@ test('Home tournament shortcuts push the selected detail above Home', () => {
   assert.match(detailSource, /const id = route\?\.params\?\.id;/);
   assert.match(
     detailSource,
-    /const load = useCallback\(async \(\) => \{[\s\S]*api\.tournament\(id\)[\s\S]*\}, \[id\]\);/,
-    'the detail reloads data for the ID in its own route params',
+    /const load = useCallback\(async \(\) => \{[\s\S]*fetchTournamentDetailSnapshot\(String\(id\), api\)[\s\S]*\}, \[id\]\);/,
+    'the detail reloads tournament and registration data for the ID in its own route params',
   );
   assert.match(
     appSource,
@@ -539,6 +540,8 @@ test('Home match shortcut Back flow preserves Home and loads fresh data for a se
     const load = evaluateTypeScriptExpression(loadCallback, detailSourceFile, {
       id,
       api,
+      detailLoadInFlight: { current: false },
+      fetchTournamentDetailSnapshot,
       setT: (tournament) => { screenState.tournament = tournament; },
       setLoading: (loading) => { screenState.loading = loading; },
       setErr: (error) => { screenState.error = error; },
