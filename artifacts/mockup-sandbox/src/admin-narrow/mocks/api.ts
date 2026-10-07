@@ -340,15 +340,30 @@ let deferredHomeRegistrationRead: {
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
 type AdminPreviewMutationCall = { method: string; [key: string]: unknown };
 const adminPreviewMutationCalls: AdminPreviewMutationCall[] = [];
+const adminPreviewMutationFailures = new Map<string, string>();
 const adminPreviewMutations = {
   calls: adminPreviewMutationCalls,
   reset: () => {
     adminPreviewMutationCalls.length = 0;
+    adminPreviewMutationFailures.clear();
+  },
+  failNext: (method: string, message: string) => {
+    if (!method.trim() || !message.trim()) {
+      throw new Error("An isolated Admin preview failure needs a method and an error message.");
+    }
+    adminPreviewMutationFailures.set(method, message);
   },
 };
 (globalThis as typeof globalThis & {
   __daily007AdminMutations?: typeof adminPreviewMutations;
 }).__daily007AdminMutations = adminPreviewMutations;
+
+function throwIfAdminPreviewMutationFails(method: string) {
+  const message = adminPreviewMutationFailures.get(method);
+  if (message === undefined) return;
+  adminPreviewMutationFailures.delete(method);
+  throw new Error(message);
+}
 
 function isAdminLargestTextPreview() {
   const scale = Number(
@@ -557,6 +572,7 @@ export const Api = {
   },
   deleteTournament: async () => ({}),
   adminAdjustCoins: async (userId: string, amount: number, reason: string) => {
+    throwIfAdminPreviewMutationFails("adminAdjustCoins");
     if (!Number.isSafeInteger(amount) || amount === 0) {
       throw new Error("Preview wallet adjustments must use a nonzero whole number of coins.");
     }
@@ -577,6 +593,7 @@ export const Api = {
     return { userId, coins: nextBalance };
   },
   adminDeleteRegistration: async (id: string) => {
+    throwIfAdminPreviewMutationFails("adminDeleteRegistration");
     const index = previewAdminRegistrations.findIndex((registration) => registration.id === id);
     if (index === -1) throw new Error(`Isolated preview registration ${id} was not found.`);
     previewAdminRegistrations.splice(index, 1);
@@ -584,6 +601,7 @@ export const Api = {
     return { id, deleted: true };
   },
   adminMarkWithdrawalPaid: async (id: string) => {
+    throwIfAdminPreviewMutationFails("adminMarkWithdrawalPaid");
     const withdrawal = findPreviewAdminRecord(previewAdminWithdrawals, id, "withdrawal");
     if (withdrawal.status !== "approved" || withdrawal.payoutStatus !== "manual_payout_required") {
       throw new Error(`Isolated preview withdrawal ${id} is not awaiting a manual payout.`);
@@ -593,6 +611,7 @@ export const Api = {
     return { id, payoutStatus: "paid" };
   },
   adminPaymentAction: async (id: string, action: string, reason?: string) => {
+    throwIfAdminPreviewMutationFails("adminPaymentAction");
     const payment = setPreviewRequestStatus(
       previewAdminPayments,
       id,
@@ -610,6 +629,7 @@ export const Api = {
   },
   adminPaymentProofUrl: async () => ({ url: "" }),
   adminRegAction: async (id: string, action: string) => {
+    throwIfAdminPreviewMutationFails("adminRegAction");
     const registration = setPreviewRequestStatus(
       previewAdminRegistrations,
       id,
@@ -630,6 +650,7 @@ export const Api = {
     return {};
   },
   adminSetUser: async (id: string, payload: Record<string, unknown>) => {
+    throwIfAdminPreviewMutationFails("adminSetUser");
     const user = findPreviewAdminUser(id);
     if (payload.status !== "active" && payload.status !== "blocked") {
       throw new Error(`Unsupported isolated preview user status: ${String(payload.status)}.`);
@@ -639,6 +660,7 @@ export const Api = {
     return { ...user };
   },
   adminSetUserRole: async (id: string, role: string) => {
+    throwIfAdminPreviewMutationFails("adminSetUserRole");
     if (role !== "user" && role !== "tournament_admin") {
       throw new Error(`Unsupported isolated preview user role: ${role}.`);
     }
@@ -648,6 +670,7 @@ export const Api = {
     return { ...user };
   },
   adminWithdrawalAction: async (id: string, action: string, reason?: string) => {
+    throwIfAdminPreviewMutationFails("adminWithdrawalAction");
     const withdrawal = setPreviewRequestStatus(
       previewAdminWithdrawals,
       id,

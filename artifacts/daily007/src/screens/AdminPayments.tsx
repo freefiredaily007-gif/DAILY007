@@ -72,7 +72,10 @@ export default function AdminPayments() {
       setRejectTarget(null);
       setOkMsg(target.kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected');
       await load();
-    } catch (e: any) { setErr(apiError(e)); }
+    } catch (e: any) {
+      setRejectTarget(null);
+      setErr(apiError(e));
+    }
     finally { setRejectBusy(false); }
   };
 
@@ -93,7 +96,10 @@ export default function AdminPayments() {
       setPayoutTarget(null);
       setOkMsg('Manual payout recorded');
       await load();
-    } catch (e: any) { setErr(apiError(e)); }
+    } catch (e: any) {
+      setPayoutTarget(null);
+      setErr(apiError(e));
+    }
     finally { setPayoutBusy(false); }
   };
 

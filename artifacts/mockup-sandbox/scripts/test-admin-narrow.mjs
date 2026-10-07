@@ -170,6 +170,14 @@ async function setViewport(width, fontScale = 1, previewFile = "admin-narrow-pre
   await delay(150);
 }
 
+async function reloadAdminPreviewForMutationFailureChecks() {
+  await cdp("Page.navigate", {
+    url: `http://127.0.0.1:${vitePort}/admin-narrow-preview.html?run=390&fontScale=1&scenario=mutation-failure-recovery`,
+  });
+  await waitForPage("fresh isolated Admin preview for mutation failure recovery");
+  await delay(150);
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -387,6 +395,29 @@ async function assertAdminMutation(expected, description) {
   assert(
     JSON.stringify(calls[0]) === JSON.stringify(expected),
     `${description} targeted the wrong record or operation. Expected ${JSON.stringify(expected)}, received ${JSON.stringify(calls[0])}.`,
+  );
+}
+
+async function failNextAdminMutation(method, message) {
+  const configured = await evaluate(`(() => {
+    const tracker = window.__daily007AdminMutations;
+    if (!tracker?.failNext) return false;
+    tracker.failNext(${JSON.stringify(method)}, ${JSON.stringify(message)});
+    return true;
+  })()`);
+  assert(configured, `Could not configure the isolated ${method} failure.`);
+}
+
+async function assertAdminMutationFailure(message, successMessage, description) {
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(message)})`,
+    `${description} error`,
+  );
+  await assertBodyTextAbsent(successMessage, `${description} false success message`);
+  const calls = await evaluate("window.__daily007AdminMutations?.calls ?? null");
+  assert(
+    Array.isArray(calls) && calls.length === 0,
+    `${description} should not be recorded as a successful mutation: ${JSON.stringify(calls)}.`,
   );
 }
 
@@ -1725,6 +1756,530 @@ async function checkAdminSelectedRecordMutations() {
     { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "987654555 COINS"] },
     "the unrelated user after the other user's coins were deducted",
   );
+}
+
+async function checkAdminMutationFailureRecovery() {
+  const failAndRetry = async ({
+    method,
+    error,
+    success,
+    description,
+    failAction,
+    assertUnchanged,
+    retryAction,
+  }) => {
+    await resetAdminMutationCalls();
+    await failNextAdminMutation(method, error);
+    await failAction();
+    await assertAdminMutationFailure(error, success, description);
+    await assertUnchanged();
+    await resetAdminMutationCalls();
+    await retryAction();
+  };
+
+  const registrationMarker =
+    "Ananya Daily007 Championship Champion With A Long Name — International Free Fire Finals Squad";
+  const registrationToRejectMarker =
+    "Rohan Free Fire Strategist — Preview Registration To Reject";
+  const approvedRegistrationMarker = "Rohan Free Fire Strategist — Preview Approved Team";
+  await clickSelector('[data-testid="admin-tab-registrations"]', "Registrations tab for failure recovery");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(registrationMarker)})`,
+    "the failure-recovery registration list",
+  );
+
+  await failAndRetry({
+    method: "adminRegAction",
+    error: "Preview failure: registration approval was rejected.",
+    success: "Registration approved",
+    description: "registration approval",
+    failAction: () => clickRowButton(registrationMarker, "APPROVE", "pending registration"),
+    assertUnchanged: async () => {
+      await assertAdminRecordState(registrationMarker, { includes: ["APPROVE", "REJECT"] });
+      await assertText(registrationToRejectMarker, "the unrelated pending registration");
+      await clickTextLabel("APPROVED");
+      await assertText(approvedRegistrationMarker, "the unrelated approved registration");
+      await clickTextLabel("PENDING");
+      await assertAdminRecordState(registrationMarker, { includes: ["APPROVE", "REJECT"] });
+    },
+    retryAction: async () => {
+      await clickRowButton(registrationMarker, "APPROVE", "pending registration retry");
+      await assertAdminMutation({
+        method: "adminRegAction",
+        id: "preview-registration-pending-long-identifier-2026",
+        action: "approve",
+      }, "Registration approval retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(registrationMarker)})`,
+        "the retried registration approval",
+      );
+      await assertText(registrationToRejectMarker, "the unrelated pending registration after retry");
+    },
+  });
+
+  await failAndRetry({
+    method: "adminRegAction",
+    error: "Preview failure: registration rejection was rejected.",
+    success: "Registration rejected — coins refunded",
+    description: "registration rejection",
+    failAction: () => clickRowButton(registrationToRejectMarker, "REJECT", "pending registration"),
+    assertUnchanged: async () => {
+      await assertAdminRecordState(registrationToRejectMarker, { includes: ["APPROVE", "REJECT"] });
+      await clickTextLabel("APPROVED");
+      await assertText(registrationMarker, "the unrelated approved registration");
+      await assertText(approvedRegistrationMarker, "the other unrelated approved registration");
+      await clickTextLabel("PENDING");
+      await assertAdminRecordState(registrationToRejectMarker, { includes: ["APPROVE", "REJECT"] });
+    },
+    retryAction: async () => {
+      await clickRowButton(registrationToRejectMarker, "REJECT", "pending registration retry");
+      await assertAdminMutation({
+        method: "adminRegAction",
+        id: "preview-registration-pending-rejection-2026",
+        action: "reject",
+      }, "Registration rejection retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(registrationToRejectMarker)})`,
+        "the retried registration rejection",
+      );
+    },
+  });
+
+  await clickTextLabel("APPROVED");
+  await failAndRetry({
+    method: "adminDeleteRegistration",
+    error: "Preview failure: registration deletion was rejected.",
+    success: "Registration deleted",
+    description: "registration deletion",
+    failAction: () => clickRowButton(approvedRegistrationMarker, "DELETE", "approved registration"),
+    assertUnchanged: async () => {
+      await assertAdminRecordState(approvedRegistrationMarker, { includes: ["DELETE"] });
+      await assertText(registrationMarker, "the unrelated approved registration");
+    },
+    retryAction: async () => {
+      await clickRowButton(approvedRegistrationMarker, "DELETE", "approved registration retry");
+      await assertAdminMutation({
+        method: "adminDeleteRegistration",
+        id: "preview-registration-approved-2026",
+      }, "Registration deletion retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(approvedRegistrationMarker)}) && document.body.innerText.includes(${JSON.stringify(registrationMarker)})`,
+        "the retried deletion while the other approved registration remains",
+      );
+    },
+  });
+
+  await clickSelector('[data-testid="admin-tab-payments"]', "Payments tab for failure recovery");
+  const paymentMarker =
+    "Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026";
+  const paymentToRejectMarker =
+    "Kavya Championship Deposit To Reject · User ID: preview-user-payment-rejection-2026";
+  const pendingWithdrawalMarker =
+    "Rohan International Tournament Champion · User ID: preview-user-rohan-championship-account-2026";
+  const withdrawalToApproveMarker =
+    "Meera Pending Payout To Approve · User ID: preview-user-withdrawal-approval-2026";
+  const approvedPayoutMarker =
+    "Approved Preview Payout Player · User ID: preview-user-approved-payout-2026";
+  const approvedPayoutControlMarker =
+    "Control Approved Payout Player · User ID: preview-user-approved-payout-control-2026";
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(paymentMarker)})`,
+    "the failure-recovery payment list",
+  );
+
+  await failAndRetry({
+    method: "adminPaymentAction",
+    error: "Preview failure: deposit approval was rejected.",
+    success: "Payment approved — coins credited",
+    description: "deposit approval",
+    failAction: () => clickRowButton(paymentMarker, "APPROVE", "pending deposit"),
+    assertUnchanged: async () => {
+      await assertAdminRecordState(paymentMarker, { includes: ["APPROVE", "REJECT"] });
+      await assertText(paymentToRejectMarker, "the unrelated pending deposit");
+      await assertText(pendingWithdrawalMarker, "the unrelated pending withdrawal");
+    },
+    retryAction: async () => {
+      await clickRowButton(paymentMarker, "APPROVE", "pending deposit retry");
+      await assertAdminMutation({
+        method: "adminPaymentAction",
+        id: "preview-payment-pending-long-reference-2026",
+        action: "approve",
+      }, "Deposit approval retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(paymentMarker)})`,
+        "the retried deposit approval",
+      );
+      await assertText(paymentToRejectMarker, "the unrelated pending deposit after retry");
+      await assertText(pendingWithdrawalMarker, "the unrelated pending withdrawal after retry");
+    },
+  });
+
+  const paymentRejectionReason = "Retry after isolated deposit failure";
+  await failAndRetry({
+    method: "adminPaymentAction",
+    error: "Preview failure: deposit rejection was rejected.",
+    success: "Payment rejected",
+    description: "deposit rejection",
+    failAction: async () => {
+      await clickRowButton(paymentToRejectMarker, "REJECT", "pending deposit");
+      await setLastVisibleInput("Preview deposit failure reason", "deposit rejection reason");
+      await clickDialogButton("Reject request", "REJECT", "deposit rejection dialog");
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(paymentToRejectMarker, { includes: ["APPROVE", "REJECT"] });
+      await assertText(pendingWithdrawalMarker, "the unrelated pending withdrawal");
+      await assertText(withdrawalToApproveMarker, "the other pending withdrawal");
+    },
+    retryAction: async () => {
+      await clickRowButton(paymentToRejectMarker, "REJECT", "pending deposit retry");
+      await setLastVisibleInput(paymentRejectionReason, "deposit rejection retry reason");
+      await clickDialogButton("Reject request", "REJECT", "deposit rejection retry dialog");
+      await assertAdminMutation({
+        method: "adminPaymentAction",
+        id: "preview-payment-pending-rejection-2026",
+        action: "reject",
+        reason: paymentRejectionReason,
+      }, "Deposit rejection retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(paymentToRejectMarker)})`,
+        "the retried deposit rejection",
+      );
+      await assertText(pendingWithdrawalMarker, "the unrelated pending withdrawal after retry");
+    },
+  });
+
+  const withdrawalRejectionReason = "Retry after isolated withdrawal failure";
+  await failAndRetry({
+    method: "adminWithdrawalAction",
+    error: "Preview failure: withdrawal rejection was rejected.",
+    success: "Withdrawal rejected — coins refunded",
+    description: "withdrawal rejection",
+    failAction: async () => {
+      await clickRowButton(pendingWithdrawalMarker, "REJECT", "pending withdrawal");
+      await setLastVisibleInput("Preview withdrawal failure reason", "withdrawal rejection reason");
+      await clickDialogButton("Reject request", "REJECT", "withdrawal rejection dialog");
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(pendingWithdrawalMarker, { includes: ["APPROVE", "REJECT"] });
+      await assertText(withdrawalToApproveMarker, "the unrelated pending withdrawal");
+    },
+    retryAction: async () => {
+      await clickRowButton(pendingWithdrawalMarker, "REJECT", "pending withdrawal retry");
+      await setLastVisibleInput(withdrawalRejectionReason, "withdrawal rejection retry reason");
+      await clickDialogButton("Reject request", "REJECT", "withdrawal rejection retry dialog");
+      await assertAdminMutation({
+        method: "adminWithdrawalAction",
+        id: "preview-withdrawal-pending-long-reference-2026",
+        action: "reject",
+        reason: withdrawalRejectionReason,
+      }, "Withdrawal rejection retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(pendingWithdrawalMarker)})`,
+        "the retried withdrawal rejection",
+      );
+      await assertText(withdrawalToApproveMarker, "the unrelated pending withdrawal after retry");
+    },
+  });
+
+  await failAndRetry({
+    method: "adminWithdrawalAction",
+    error: "Preview failure: withdrawal approval was rejected.",
+    success: "Withdrawal approved",
+    description: "withdrawal approval",
+    failAction: () => clickRowButton(withdrawalToApproveMarker, "APPROVE", "pending withdrawal"),
+    assertUnchanged: async () => {
+      await assertAdminRecordState(withdrawalToApproveMarker, { includes: ["APPROVE", "REJECT"] });
+      await clickTextLabel("REJECTED");
+      await assertText(pendingWithdrawalMarker, "the unrelated rejected withdrawal");
+      await waitForCondition(
+        `document.body.innerText.includes(${JSON.stringify(`Review note: ${withdrawalRejectionReason}`)})`,
+        "the unrelated rejected withdrawal and its saved reason",
+      );
+      await clickTextLabel("PENDING");
+      await assertAdminRecordState(withdrawalToApproveMarker, { includes: ["APPROVE", "REJECT"] });
+    },
+    retryAction: async () => {
+      await clickRowButton(withdrawalToApproveMarker, "APPROVE", "pending withdrawal retry");
+      await assertAdminMutation({
+        method: "adminWithdrawalAction",
+        id: "preview-withdrawal-pending-approval-2026",
+        action: "approve",
+      }, "Withdrawal approval retry");
+      await waitForCondition(
+        `!document.body.innerText.includes(${JSON.stringify(withdrawalToApproveMarker)})`,
+        "the retried withdrawal approval",
+      );
+    },
+  });
+
+  await clickTextLabel("APPROVED");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(approvedPayoutMarker)}) && document.body.innerText.includes(${JSON.stringify(approvedPayoutControlMarker)})`,
+    "approved payouts for failure recovery",
+  );
+  await failAndRetry({
+    method: "adminMarkWithdrawalPaid",
+    error: "Preview failure: manual payout recording was rejected.",
+    success: "Manual payout recorded",
+    description: "manual payout recording",
+    failAction: async () => {
+      await clickRowButton(approvedPayoutMarker, "RECORD MANUAL PAYOUT SENT", "approved withdrawal");
+      await clickDialogButton("Record manual payout", "MARK PAID", "manual payout confirmation");
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(
+        approvedPayoutMarker,
+        { includes: ["RECORD MANUAL PAYOUT SENT"] },
+        "the payout still awaiting payment",
+      );
+      await assertAdminRecordState(
+        approvedPayoutControlMarker,
+        { includes: ["RECORD MANUAL PAYOUT SENT"] },
+        "the unrelated approved payout",
+      );
+    },
+    retryAction: async () => {
+      await clickRowButton(approvedPayoutMarker, "RECORD MANUAL PAYOUT SENT", "approved withdrawal retry");
+      await clickDialogButton("Record manual payout", "MARK PAID", "manual payout retry confirmation");
+      await assertAdminMutation({
+        method: "adminMarkWithdrawalPaid",
+        id: "preview-withdrawal-approved-manual-payout-2026",
+      }, "Manual payout retry");
+      await waitForAdminRecordState(
+        approvedPayoutMarker,
+        { excludes: ["RECORD MANUAL PAYOUT SENT"] },
+        "the payout after its retry",
+      );
+      await assertAdminRecordState(
+        approvedPayoutControlMarker,
+        { includes: ["RECORD MANUAL PAYOUT SENT"] },
+        "the unrelated payout after retry",
+      );
+    },
+  });
+
+  await clickSelector('[data-testid="admin-tab-wallet"]', "Wallet tab for failure recovery");
+  const userEmail = "ananya.champion.with.a.long.fake.address@example.invalid";
+  const otherUserEmail = "rohan.preview.player@example.invalid";
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(userEmail)})`,
+    "the failure-recovery Wallet users",
+  );
+  await failAndRetry({
+    method: "adminAdjustCoins",
+    error: "Preview failure: Wallet coin addition was rejected.",
+    success: "+321 coins for Ananya Daily007 Championship Champion With A Long Name",
+    description: "Wallet coin addition",
+    failAction: async () => {
+      await clickRowButton(userEmail, "+ ADD", "Wallet user");
+      await setLastVisibleInput("321", "Wallet coin amount");
+      await clickDialogButton("Add coins", "ADD", "Wallet coin adjustment dialog");
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(
+        userEmail,
+        { includes: ["987654321 COINS", "+ ADD", "− DEDUCT"] },
+        "the Wallet user after the failed adjustment",
+      );
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["425000 COINS"] },
+        "the unrelated Wallet user after the failed adjustment",
+      );
+    },
+    retryAction: async () => {
+      await clickRowButton(userEmail, "+ ADD", "Wallet user retry");
+      await setLastVisibleInput("321", "Wallet coin amount retry");
+      await clickDialogButton("Add coins", "ADD", "Wallet coin adjustment retry dialog");
+      await assertAdminMutation({
+        method: "adminAdjustCoins",
+        userId: "preview-user-ananya-championship-2026",
+        amount: 321,
+        reason: "Admin added coins",
+      }, "Wallet coin addition retry");
+      await waitForAdminRecordState(userEmail, { includes: ["987654642 COINS"] });
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["425000 COINS"] },
+        "the unrelated Wallet user after retry",
+      );
+    },
+  });
+
+  await clickSelector('[data-testid="admin-tab-users"]', "Users tab for failure recovery");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(userEmail)})`,
+    "the failure-recovery Admin users",
+  );
+  const userId = "preview-user-ananya-championship-2026";
+  const otherUserId = "preview-user-rohan-free-fire-2026";
+  await failAndRetry({
+    method: "adminAdjustCoins",
+    error: "Preview failure: user coin deduction was rejected.",
+    success: "Coins updated",
+    description: "Admin Users coin deduction",
+    failAction: async () => {
+      await clickRowButton(userEmail, "− COINS", "Admin user");
+      const prompt = await evaluate(`(() => {
+        const alert = window.__daily007AdminAlert;
+        return alert ? { kind: alert.kind, title: alert.title } : null;
+      })()`);
+      assert(
+        prompt?.kind === "prompt" && prompt.title === "Deduct coins",
+        `The failed user coin change did not open its prompt: ${JSON.stringify(prompt)}.`,
+      );
+      await evaluate(`window.__daily007AdminAlert.submit("44")`);
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(
+        userEmail,
+        { includes: ["PLAYER", "987654642 COINS"], excludes: ["· BLOCKED"] },
+        "the Admin user after failed coin deduction",
+      );
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "425000 COINS"] },
+        "the unrelated Admin user after failed coin deduction",
+      );
+    },
+    retryAction: async () => {
+      await clickRowButton(userEmail, "− COINS", "Admin user retry");
+      await evaluate(`window.__daily007AdminAlert.submit("44")`);
+      await assertAdminMutation({
+        method: "adminAdjustCoins",
+        userId,
+        amount: -44,
+        reason: "Admin deducted coins",
+      }, "Admin Users coin deduction retry");
+      await waitForAdminRecordState(userEmail, { includes: ["987654598 COINS"] });
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["425000 COINS"] },
+        "the unrelated Admin user after coin deduction retry",
+      );
+    },
+  });
+
+  await failAndRetry({
+    method: "adminSetUserRole",
+    error: "Preview failure: Admin role change was rejected.",
+    success: "Rohan Free Fire Strategist is now a player",
+    description: "Admin role change",
+    failAction: async () => {
+      await clickSelector(`[data-testid="change-user-role-${otherUserId}"]`, "role change");
+      await clickSelector('[data-testid="confirm-tournament-admin-change"]', "confirm role change");
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "425000 COINS"] },
+        "the user after failed role change",
+      );
+      await assertAdminRecordState(
+        userEmail,
+        { includes: ["PLAYER", "987654598 COINS"], excludes: ["· BLOCKED"] },
+        "the unrelated user after failed role change",
+      );
+    },
+    retryAction: async () => {
+      await clickSelector(`[data-testid="change-user-role-${otherUserId}"]`, "role change retry");
+      await clickSelector('[data-testid="confirm-tournament-admin-change"]', "confirm role change retry");
+      await assertAdminMutation({
+        method: "adminSetUserRole",
+        id: otherUserId,
+        role: "user",
+      }, "Admin role change retry");
+      await waitForAdminRecordState(
+        otherUserEmail,
+        { includes: ["PLAYER", "· BLOCKED"] },
+        "the user after role change retry",
+      );
+      await assertAdminRecordState(
+        userEmail,
+        { includes: ["PLAYER", "987654598 COINS"], excludes: ["· BLOCKED"] },
+        "the unrelated user after role change retry",
+      );
+    },
+  });
+
+  await failAndRetry({
+    method: "adminSetUser",
+    error: "Preview failure: unblock request was rejected.",
+    success: "Rohan Free Fire Strategist unblocked",
+    description: "Admin user unblock",
+    failAction: async () => {
+      await clickRowButton(otherUserEmail, "UNBLOCK", "blocked Admin user");
+      await evaluate(`window.__daily007AdminAlert.choose("Unblock")`);
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["PLAYER", "· BLOCKED"] },
+        "the user after failed unblock",
+      );
+      await assertAdminRecordState(
+        userEmail,
+        { includes: ["PLAYER", "987654598 COINS"], excludes: ["· BLOCKED"] },
+        "the unrelated user after failed unblock",
+      );
+    },
+    retryAction: async () => {
+      await clickRowButton(otherUserEmail, "UNBLOCK", "blocked Admin user retry");
+      await evaluate(`window.__daily007AdminAlert.choose("Unblock")`);
+      await assertAdminMutation({
+        method: "adminSetUser",
+        id: otherUserId,
+        payload: { status: "active" },
+      }, "Admin user unblock retry");
+      await waitForAdminRecordState(
+        otherUserEmail,
+        { includes: ["PLAYER", "425000 COINS"], excludes: ["· BLOCKED"] },
+        "the user after unblock retry",
+      );
+    },
+  });
+
+  await failAndRetry({
+    method: "adminSetUser",
+    error: "Preview failure: block request was rejected.",
+    success: "Ananya Daily007 Championship Champion With A Long Name blocked",
+    description: "Admin user block",
+    failAction: async () => {
+      await clickRowButton(userEmail, "BLOCK", "active Admin user");
+      await evaluate(`window.__daily007AdminAlert.choose("Block")`);
+    },
+    assertUnchanged: async () => {
+      await assertAdminRecordState(
+        userEmail,
+        { includes: ["PLAYER", "987654598 COINS"], excludes: ["· BLOCKED"] },
+        "the user after failed block",
+      );
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["PLAYER", "425000 COINS"], excludes: ["· BLOCKED"] },
+        "the unrelated user after failed block",
+      );
+    },
+    retryAction: async () => {
+      await clickRowButton(userEmail, "BLOCK", "active Admin user retry");
+      await evaluate(`window.__daily007AdminAlert.choose("Block")`);
+      await assertAdminMutation({
+        method: "adminSetUser",
+        id: userId,
+        payload: { status: "blocked" },
+      }, "Admin user block retry");
+      await waitForAdminRecordState(
+        userEmail,
+        { includes: ["PLAYER", "· BLOCKED", "987654598 COINS"] },
+        "the user after block retry",
+      );
+      await assertAdminRecordState(
+        otherUserEmail,
+        { includes: ["PLAYER", "425000 COINS"], excludes: ["· BLOCKED"] },
+        "the unrelated user after block retry",
+      );
+    },
+  });
 }
 
 async function checkTournamentStates(width, { largeText = false, landscape = false } = {}) {
@@ -3581,12 +4136,14 @@ try {
     } else if (adminActionsOnly) {
       await setViewport(390);
       await checkAdminSelectedRecordMutations();
+      await reloadAdminPreviewForMutationFailureChecks();
+      await checkAdminMutationFailureRecovery();
       assert(
         browserErrors.length === 0,
-        `Browser errors during Admin selected-record action checks: ${browserErrors.join(" | ")}`,
+        `Browser errors during Admin mutation success and failure-recovery checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        "PASS — Admin actions update only the selected local preview record and preserve unrelated rows.",
+        "PASS — Admin successes update only the selected local preview record; rejected mutations show errors, clear busy state, preserve rows, and allow retry.",
       );
     } else if (adminKeyboardFormsOnly) {
       await checkAdminTournamentKeyboard();
@@ -3663,12 +4220,14 @@ try {
 
     await setViewport(390);
     await checkAdminSelectedRecordMutations();
+    await reloadAdminPreviewForMutationFailureChecks();
+    await checkAdminMutationFailureRecovery();
     assert(
       browserErrors.length === 0,
-      `Browser errors during Admin selected-record action checks: ${browserErrors.join(" | ")}`,
+      `Browser errors during Admin mutation success and failure-recovery checks: ${browserErrors.join(" | ")}`,
     );
     console.log(
-      "PASS — Admin actions update only the selected local preview record and preserve unrelated rows.",
+      "PASS — Admin successes update only the selected local preview record; rejected mutations show errors, clear busy state, preserve rows, and allow retry.",
     );
   }
 } catch (error) {
