@@ -12,6 +12,24 @@ CREATE TABLE daily007_v2_users (
   wallet_coins integer NOT NULL DEFAULT 0 CHECK (wallet_coins >= 0)
 );
 
+CREATE TABLE daily007_v2_google_recovery_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  google_clerk_user_id text NOT NULL,
+  google_email text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid REFERENCES daily007_v2_users(id),
+  review_note text,
+  review_method text CHECK (review_method IS NULL OR review_method IN ('full_admin', 'owner_code')),
+  CHECK (
+    (status = 'pending' AND reviewed_at IS NULL AND reviewed_by IS NULL AND review_note IS NULL)
+    OR (status IN ('approved', 'rejected') AND reviewed_at IS NOT NULL
+      AND reviewed_by IS NOT NULL AND char_length(review_note) BETWEEN 10 AND 500)
+  )
+);
+
 CREATE TABLE daily007_v2_wallet_ledger (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),

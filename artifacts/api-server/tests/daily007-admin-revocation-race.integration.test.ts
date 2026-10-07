@@ -5,6 +5,7 @@ import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
+import daily007AccountRecoveryRouter from "../src/routes/daily007-account-recovery";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
 import daily007LeaderboardRouter from "../src/routes/daily007-leaderboards";
 
@@ -40,6 +41,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   app.use(express.json());
   app.use(compatExtraRouter);
   app.use(daily007LeaderboardRouter);
+  app.use(daily007AccountRecoveryRouter);
   app.use((
     _error: unknown,
     _request: express.Request,
@@ -99,6 +101,62 @@ async function postJson(
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function getJson(
+  origin: string,
+  path: string,
+  userId: string,
+): Promise<{ status: number; body: unknown }> {
+  const response = await fetch(`${origin}${path}`, { headers: authHeaders(userId) });
+  return { status: response.status, body: await response.json() };
+}
+
+async function seedRecoveryQueueRaceFixture(
+  readerId: string,
+  demoterId: string,
+  playerId: string,
+  requestId: string,
+): Promise<{
+  googleEmail: string;
+  createdAt: string;
+  accountName: string;
+  accountEmail: string;
+  phone: string;
+  gameUid: string;
+}> {
+  const accountName = "Recovery Queue Player";
+  const accountEmail = `recovery-player-${playerId}@example.test`;
+  const googleEmail = `pending-google-${requestId}@example.test`;
+  const phone = "+1-555-0199";
+  const gameUid = `recovery-uid-${playerId}`;
+  const createdAt = "2026-01-02T03:04:05.000Z";
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, role, wallet_coins, phone, game_uid)
+     VALUES
+       ($1, 'Recovery Queue Reader', $2, 'test-salt', 'test-hash', 'admin', 0, NULL, NULL),
+       ($3, 'Recovery Queue Demoter', $4, 'test-salt', 'test-hash', 'admin', 0, NULL, NULL),
+       ($5, $6, $7, 'test-salt', 'test-hash', 'user', 0, $8, $9)`,
+    [
+      readerId,
+      `recovery-reader-${readerId}@example.test`,
+      demoterId,
+      `recovery-demoter-${demoterId}@example.test`,
+      playerId,
+      accountName,
+      accountEmail,
+      phone,
+      gameUid,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_google_recovery_requests
+       (id, user_id, google_clerk_user_id, google_email, created_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [requestId, playerId, `clerk-recovery-${requestId}`, googleEmail, createdAt],
+  );
+  return { googleEmail, createdAt, accountName, accountEmail, phone, gameUid };
 }
 
 async function waitForBlockedQuery(fragment: string, description: string, timeoutMs = 5_000): Promise<void> {
@@ -1332,5 +1390,185 @@ test("opposing admin blocks serialize without a deadlock and reject the blocked 
         "Failed to clean up the opposing admin block fixture.",
       );
     }
+  }
+});
+
+test("a recovery queue read waiting behind a committed demotion returns no recovery details", async () => {
+  const readerId = randomUUID();
+  const demoterId = randomUUID();
+  const playerId = randomUUID();
+  const requestId = randomUUID();
+  const pauseKey = 740081n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+  let queuePromise: Promise<{ status: number; body: unknown }> | undefined;
+
+  try {
+    const fixture = await seedRecoveryQueueRaceFixture(readerId, demoterId, playerId, requestId);
+    await pool.query("CREATE TABLE daily007_test_paused_recovery_demotions (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_paused_recovery_demotions (id) VALUES ($1)",
+      [readerId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_recovery_demotion() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.role = 'admin'
+           AND NEW.role = 'tournament_admin'
+           AND EXISTS (
+             SELECT 1 FROM daily007_test_paused_recovery_demotions WHERE id = NEW.id
+           ) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_recovery_demotion
+      BEFORE UPDATE OF role ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_recovery_demotion()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      demotionPromise = patchJson(origin, `/admin/users/${readerId}/role`, demoterId, {
+        role: "tournament_admin",
+      });
+      await waitForBlockedQuery(
+        "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role",
+        "the demotion to pause after it holds the exclusive role-change lock",
+      );
+
+      queuePromise = getJson(origin, "/admin/account-recovery-requests", readerId);
+      await waitForQueryBlockedBy(
+        "SELECT pg_advisory_xact_lock_shared(740073)",
+        "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role",
+        "the recovery queue role check to wait behind the demotion",
+      );
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      pauseLockHeld = false;
+      const [demotion, queue] = await Promise.all([demotionPromise, queuePromise]);
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+      assert.equal(queue.status, 403, JSON.stringify(queue.body));
+      assert.deepEqual(queue.body, { error: "Administrator access is required." });
+      assert.equal(JSON.stringify(queue.body).includes(fixture.googleEmail), false);
+    });
+
+    const reader = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [readerId],
+    );
+    assert.equal(reader.rows[0]?.role, "tournament_admin");
+  } finally {
+    if (blocker) {
+      if (pauseLockHeld) {
+        await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (demotionPromise || queuePromise) {
+      await Promise.allSettled(
+        [demotionPromise, queuePromise].filter(Boolean) as Promise<unknown>[],
+      );
+    }
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_recovery_demotion ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_recovery_demotion()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_recovery_demotions");
+    await pool.query("DELETE FROM daily007_v2_google_recovery_requests WHERE id = $1", [requestId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[readerId, demoterId, playerId]],
+    );
+  }
+});
+
+test("a concurrent demotion waits until an authorized recovery queue read finishes", async () => {
+  const readerId = randomUUID();
+  const demoterId = randomUUID();
+  const playerId = randomUUID();
+  const requestId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let tableLockHeld = false;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+  let queuePromise: Promise<{ status: number; body: unknown }> | undefined;
+
+  try {
+    const fixture = await seedRecoveryQueueRaceFixture(readerId, demoterId, playerId, requestId);
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "LOCK TABLE daily007_v2_google_recovery_requests IN ACCESS EXCLUSIVE MODE",
+    );
+    tableLockHeld = true;
+
+    await withServer(async (origin) => {
+      queuePromise = getJson(origin, "/admin/account-recovery-requests", readerId);
+      await waitForBlockedQuery(
+        "FROM daily007_v2_google_recovery_requests r",
+        "the authorized recovery queue query after the reader's role check",
+      );
+
+      demotionPromise = patchJson(origin, `/admin/users/${readerId}/role`, demoterId, {
+        role: "tournament_admin",
+      });
+      await waitForQueryBlockedBy(
+        "SELECT pg_advisory_xact_lock(740073)",
+        "FROM daily007_v2_google_recovery_requests r",
+        "the demotion to wait for the in-flight recovery queue read",
+      );
+
+      await blocker!.query("COMMIT");
+      tableLockHeld = false;
+      const [queue, demotion] = await Promise.all([queuePromise, demotionPromise]);
+      assert.equal(queue.status, 200, JSON.stringify(queue.body));
+      assert.deepEqual(queue.body, [{
+        id: requestId,
+        userId: playerId,
+        googleEmail: fixture.googleEmail,
+        createdAt: fixture.createdAt,
+        accountName: fixture.accountName,
+        accountEmail: fixture.accountEmail,
+        phone: fixture.phone,
+        gameUid: fixture.gameUid,
+        accountRole: "user",
+      }]);
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+
+      const afterDemotion = await getJson(origin, "/admin/account-recovery-requests", readerId);
+      assert.equal(afterDemotion.status, 403);
+      assert.deepEqual(afterDemotion.body, { error: "Administrator access is required." });
+      assert.equal(JSON.stringify(afterDemotion.body).includes(fixture.googleEmail), false);
+    });
+
+    const reader = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [readerId],
+    );
+    assert.equal(reader.rows[0]?.role, "tournament_admin");
+  } finally {
+    if (blocker) {
+      if (tableLockHeld) {
+        await blocker.query("ROLLBACK").catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (demotionPromise || queuePromise) {
+      await Promise.allSettled(
+        [demotionPromise, queuePromise].filter(Boolean) as Promise<unknown>[],
+      );
+    }
+    await pool.query("DELETE FROM daily007_v2_google_recovery_requests WHERE id = $1", [requestId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[readerId, demoterId, playerId]],
+    );
   }
 });

@@ -38,7 +38,7 @@
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
 - [Daily007 tournament detail returns](daily007-tournament-detail-back.md) — push detail routes from filtered lists so Android Back returns to the exact list entry.
 - [Daily007 Home carousel paging](daily007-carousel-paging.md) — use viewport-width page wrappers with pagingEnabled; React Native Web ignores snapToInterval.
-- [Daily007 Full Admin role changes](daily007-full-admin-role-changes.md) — serialize role demotions and re-check the remaining-admin rule inside the transaction, not only at request authorization.
+- [Daily007 Full Admin role changes](daily007-full-admin-role-changes.md) — protect sensitive reads and writes with the shared role gate; serialize demotions and enforce the last-admin rule in-transaction.
 - [Daily007 Full Admin rejection TalkBack](daily007-admin-role-rejection-talkback.md) — physical Android verification confirmed the safeguard is announced and the refreshed row remains FULL ADMIN.
 - [Daily007 database CHECK constraints](daily007-role-constraint-verification.md) — compare dev/prod definitions; rename same-name stale checks to make Publish detect expression drift.
 - [Drizzle CHECK constraint drift](drizzle-check-constraints.md) — after changing a Drizzle CHECK, verify the live PostgreSQL definition; a successful push can leave it stale.
