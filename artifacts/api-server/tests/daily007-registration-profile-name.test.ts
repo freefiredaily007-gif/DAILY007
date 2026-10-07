@@ -42,6 +42,14 @@ const FORMULA_TEAMMATE_NAMES = [
   "=HYPERLINK(\"https://example.test\", \"mate\")",
   "+5+6",
 ] as const;
+const HIDDEN_PREFIX_PROFILE_NAME = ' =HYPERLINK("https://example.test", "captain")';
+const HIDDEN_PREFIX_CAPTAIN_GAME_NAME = "\t+SUM(1,2)";
+const HIDDEN_PREFIX_TEAM_NAME = "\uFEFF-1+2";
+const HIDDEN_PREFIX_TEAMMATE_NAMES = [
+  " @SUM(3,4)",
+  "\t=HYPERLINK(\"https://example.test\", \"mate\")",
+  "\uFEFF+5+6",
+] as const;
 const MULTILINE_PROFILE_NAME = "Daily007\r\nCaptain";
 const MULTILINE_CAPTAIN_GAME_NAME = "Fire\r\nStorm";
 const MULTILINE_TEAM_NAME = "Blue\r\nFire";
@@ -864,6 +872,70 @@ test("admin registration CSV apostrophe-guards formula-like captain, team, and t
           values[index],
           `'${formulaValue}`,
           `${column} should retain the apostrophe guard before its formula marker`,
+        );
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
+test("admin registration CSV apostrophe-guards formulas after spaces, tabs, and byte-order marks", async () => {
+  registrationProfileTestDb.reset();
+  try {
+    await withServer(async (origin) => {
+      const response = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
+      assert.equal(response.status, 201);
+
+      const registration = registrationProfileTestDb.registrations[0];
+      assert.ok(registration);
+      registrationProfileTestDb.user.name = HIDDEN_PREFIX_PROFILE_NAME;
+      registration.captain_name = HIDDEN_PREFIX_PROFILE_NAME;
+      registration.captain_game_name = HIDDEN_PREFIX_CAPTAIN_GAME_NAME;
+      registration.team_name = HIDDEN_PREFIX_TEAM_NAME;
+      const savedRoster = registrationProfileTestDb.roster
+        .filter((member) => member.registration_id === registration.id)
+        .sort((left, right) => left.position - right.position);
+      assert.equal(savedRoster.length, HIDDEN_PREFIX_TEAMMATE_NAMES.length);
+      savedRoster.forEach((member, index) => {
+        member.member_name = HIDDEN_PREFIX_TEAMMATE_NAMES[index];
+      });
+
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+
+      const records = parseCsvDocument(await csvResponse.text());
+      assert.equal(records.length, 2);
+      const [headers, values] = records;
+      assert.ok(headers);
+      assert.ok(values);
+      assert.equal(values.length, headers.length);
+
+      const expectedFormulaCells: Record<string, string> = {
+        captain_profile_name: HIDDEN_PREFIX_PROFILE_NAME,
+        captain_game_name: HIDDEN_PREFIX_CAPTAIN_GAME_NAME,
+        team_name: HIDDEN_PREFIX_TEAM_NAME,
+        teammate_1_name: HIDDEN_PREFIX_TEAMMATE_NAMES[0],
+        teammate_2_name: HIDDEN_PREFIX_TEAMMATE_NAMES[1],
+        teammate_3_name: HIDDEN_PREFIX_TEAMMATE_NAMES[2],
+      };
+      for (const [column, formulaValue] of Object.entries(expectedFormulaCells)) {
+        const index = headers.indexOf(column);
+        assert.notEqual(index, -1, `CSV header should include ${column}`);
+        assert.equal(
+          values[index],
+          `'${formulaValue}`,
+          `${column} should retain the apostrophe before its original prefix and formula marker`,
         );
       }
     });
