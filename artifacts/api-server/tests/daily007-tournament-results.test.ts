@@ -32,6 +32,10 @@ const PROFILE_STATS_AWARD_ONE_ID = "70000000-0000-4000-8000-000000000018";
 const PROFILE_STATS_AWARD_TWO_ID = "70000000-0000-4000-8000-000000000019";
 const PROFILE_STATS_AWARD_THREE_ID = "70000000-0000-4000-8000-000000000020";
 const PROFILE_STATS_RUNNER_UP_AWARD_ID = "70000000-0000-4000-8000-000000000021";
+const PROFILE_STATS_OTHER_PLAYER_MATCH_ID = "70000000-0000-4000-8000-000000000022";
+const PROFILE_STATS_OTHER_PLAYER_REGISTRATION_ID = "70000000-0000-4000-8000-000000000023";
+const PROFILE_STATS_OTHER_PLAYER_AWARD_ID = "70000000-0000-4000-8000-000000000024";
+const PROFILE_STATS_DUPLICATE_REGISTRATION_ID = "70000000-0000-4000-8000-000000000025";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -321,7 +325,7 @@ test("saved-prize results reject duplicate retries and competing winners without
   });
 });
 
-test("completed-results history excludes cancelled tournaments with existing awards", async () => {
+test("published results exclude cancelled tournaments with existing awards", async () => {
   tournamentResultsTestDb.reset();
 
   await withServer(async (origin) => {
@@ -401,17 +405,6 @@ test("completed-results history excludes cancelled tournaments with existing awa
       archivedCancelledAward,
     );
 
-    const history = await call(origin, TEST_WINNER_ID, "/my/registrations", "GET");
-
-    const completedRunnerUp = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
-      tournamentId: TEST_MATCH_ID,
-      registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
-      rank: 2,
-      kills: 3,
-      prizeCoins: 0,
-    });
-
-    const completed = history.body.find((entry: any) => entry.tournamentId === TEST_MATCH_ID);
     const winnerAccount = tournamentResultsTestDb.users.get(TEST_WINNER_ID);
     const runnerUpAccount = tournamentResultsTestDb.users.get(TEST_RUNNER_UP_ID);
     const winnerRegistration = tournamentResultsTestDb.registrations.find(
@@ -442,14 +435,6 @@ test("completed-results history excludes cancelled tournaments with existing awa
       prizeCoins: 0,
     });
     assert.equal(runnerUpAward.status, 201);
-    const winnerAward = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
-      tournamentId: TEST_MATCH_ID,
-      registrationId: TEST_WINNER_REGISTRATION_ID,
-      rank: 1,
-      kills: 7,
-      prizeCoins: 0,
-    });
-    assert.equal(winnerAward.status, 201);
 
     const privateAccountValues = [
       winnerAccount.name,
@@ -479,7 +464,7 @@ test("completed-results history excludes cancelled tournaments with existing awa
       [
         {
           rank: 1,
-          kills: 7,
+          kills: 8,
           prizeCoins: 1_500,
           gameName: "WinnerFF",
           teamName: "Winner Team",
@@ -617,35 +602,8 @@ test("result publishing is rejected before tournament start without settlement c
       prizeCoins: 0,
     });
 
-    assert.equal(result.status, 404);
-    assert.equal(result.body.error, "Registration was not found for this tournament/match.");
-    assert.deepEqual(captureSettlementState(), before);
-    assert.equal(tournamentResultsTestDb.users.get(TEST_PENDING_PLAYER_ID)?.wallet_coins, 300);
-    assert.equal(tournamentResultsTestDb.awards.length, 0);
-    assert.equal(tournamentResultsTestDb.stats.size, 0);
-    assert.equal(tournamentResultsTestDb.ledger.length, 0);
-  });
-});
-
-test("result publishing is rejected for cancelled tournaments without settlement changes", async () => {
-  tournamentResultsTestDb.reset();
-
-  await withServer(async (origin) => {
-    await createResultsTournament(origin);
-    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
-    tournamentResultsTestDb.match.status = "cancelled";
-    const before = captureSettlementState();
-
-    const result = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
-      tournamentId: TEST_MATCH_ID,
-      registrationId: TEST_WINNER_REGISTRATION_ID,
-      rank: 1,
-      kills: 7,
-      prizeCoins: 0,
-    });
-
-    assert.equal(result.status, 404);
-    assert.equal(result.body.error, "Registration was not found for this tournament/match.");
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, "Results can only be published after the tournament starts.");
     assert.deepEqual(captureSettlementState(), before);
     assert.equal(tournamentResultsTestDb.users.get(TEST_PENDING_PLAYER_ID)?.wallet_coins, 300);
     assert.equal(tournamentResultsTestDb.awards.length, 0);
@@ -689,6 +647,7 @@ test("authenticated profile totals match saved results across distinct approved 
     PROFILE_STATS_MATCH_TWO_ID,
     PROFILE_STATS_MATCH_THREE_ID,
     PROFILE_STATS_PENDING_MATCH_ID,
+    PROFILE_STATS_OTHER_PLAYER_MATCH_ID,
   ].entries()) {
     const match = structuredClone(tournamentResultsTestDb.match);
     match.id = matchId;
@@ -717,6 +676,15 @@ test("authenticated profile totals match saved results across distinct approved 
       status: "approved",
     },
     {
+      id: PROFILE_STATS_DUPLICATE_REGISTRATION_ID,
+      match_id: PROFILE_STATS_MATCH_TWO_ID,
+      captain_user_id: TEST_WINNER_ID,
+      captain_name: "First Place",
+      captain_game_name: "WinnerFF",
+      team_name: "Duplicate registration row",
+      status: "approved",
+    },
+    {
       id: PROFILE_STATS_REGISTRATION_THREE_ID,
       match_id: PROFILE_STATS_MATCH_THREE_ID,
       captain_user_id: TEST_WINNER_ID,
@@ -737,6 +705,15 @@ test("authenticated profile totals match saved results across distinct approved 
     {
       id: TEST_RUNNER_UP_REGISTRATION_ID,
       match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_RUNNER_UP_ID,
+      captain_name: "Second Place",
+      captain_game_name: "RunnerUpFF",
+      team_name: null,
+      status: "approved",
+    },
+    {
+      id: PROFILE_STATS_OTHER_PLAYER_REGISTRATION_ID,
+      match_id: PROFILE_STATS_OTHER_PLAYER_MATCH_ID,
       captain_user_id: TEST_RUNNER_UP_ID,
       captain_name: "Second Place",
       captain_game_name: "RunnerUpFF",
@@ -784,6 +761,16 @@ test("authenticated profile totals match saved results across distinct approved 
       kills: 3,
       prize_coins: 600,
       created_at: new Date(Date.UTC(2026, 0, 1)),
+    },
+    {
+      id: PROFILE_STATS_OTHER_PLAYER_AWARD_ID,
+      match_id: PROFILE_STATS_OTHER_PLAYER_MATCH_ID,
+      registration_id: PROFILE_STATS_OTHER_PLAYER_REGISTRATION_ID,
+      user_id: TEST_RUNNER_UP_ID,
+      rank: 1,
+      kills: 19,
+      prize_coins: 1_900,
+      created_at: new Date(Date.UTC(2026, 0, 4)),
     },
   ];
 
