@@ -16,7 +16,11 @@ import {
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
-import { getRoomCredentialSchedule } from '../src/lib/roomCredentialTiming.ts';
+import {
+  getRoomCredentialSchedule,
+  hasServerAuthorizedRoomCredentials,
+  ROOM_CREDENTIAL_REVEAL_LEAD_MS,
+} from '../src/lib/roomCredentialTiming.ts';
 import { fetchTournamentDetailSnapshot } from '../src/lib/tournament-detail-refresh.ts';
 import {
   getTournamentLifecycleState,
@@ -66,6 +70,10 @@ const tournamentsSourceFile = ts.createSourceFile(
   ts.ScriptTarget.Latest,
   true,
   ts.ScriptKind.TSX,
+);
+const roomCredentialsPanelSource = await readFile(
+  new URL('../src/components/RoomCredentialsPanel.tsx', import.meta.url),
+  'utf8',
 );
 const appSource = await readFile(
   new URL('../src/App.tsx', import.meta.url),
@@ -142,7 +150,7 @@ function evaluateTypeScriptExpression(expression, sourceFile, scope = {}) {
   )(...Object.values(scope));
 }
 
-function createTournamentLoadHarness(api) {
+function createTournamentLoadHarness(api, now = () => Date.now()) {
   const state = {
     items: [],
     error: '',
@@ -176,6 +184,7 @@ function createTournamentLoadHarness(api) {
       setClockNow: (clockNow) => { state.clockNow = clockNow; },
       setPlayerLoadAnnouncement: (announcement) => { state.playerLoadAnnouncement = announcement; },
       setTab: (selectedTab) => { screen.selectedTab = selectedTab; },
+      Date: { now },
     },
   );
   return { load, refs, screen, state };
@@ -651,6 +660,237 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
     );
   }
 
+  cleanup();
+  assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test('an approved room refresh reveals credentials at T-5 without changing the selected game mode', async () => {
+  const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
+  const approvedSchedule = getRoomCredentialSchedule(new Date(startAtMs).toISOString());
+  assert.ok(approvedSchedule);
+  const releaseAtMs = approvedSchedule.releaseAtMs;
+  const selectedMode = 'clash_squad';
+  let fakeNow = releaseAtMs - 1_000;
+  const matches = [
+    {
+      id: 'approved-room',
+      gameMode: selectedMode,
+      teamType: 'Duo',
+      status: 'upcoming',
+      startsAt: new Date(startAtMs).toISOString(),
+    },
+    {
+      id: 'pending-room',
+      gameMode: selectedMode,
+      teamType: 'Duo',
+      status: 'upcoming',
+      startsAt: new Date(startAtMs + 10 * 60_000).toISOString(),
+    },
+    {
+      id: 'other-mode-room',
+      gameMode: 'battle_royale',
+      teamType: 'Solo',
+      status: 'upcoming',
+      startsAt: new Date(startAtMs + 20 * 60_000).toISOString(),
+    },
+  ];
+  const api = {
+    tournaments: async () => matches,
+    myRegistrations: async () => [
+      {
+        tournamentId: 'approved-room',
+        status: 'approved',
+        roomPublished: true,
+        roomId: fakeNow >= releaseAtMs ? 'ROOM-APPROVED-101' : null,
+        roomPassword: fakeNow >= releaseAtMs ? 'PASS-APPROVED-101' : null,
+      },
+      {
+        tournamentId: 'pending-room',
+        status: 'pending',
+        roomPublished: true,
+        roomId: null,
+        roomPassword: null,
+      },
+      {
+        tournamentId: 'other-mode-room',
+        status: 'approved',
+        roomPublished: true,
+        roomId: null,
+        roomPassword: null,
+      },
+    ],
+  };
+  const harness = createTournamentLoadHarness(api, () => fakeNow);
+  await harness.load();
+
+  const approvedBefore = harness.state.items.find((tournament) => tournament.id === 'approved-room');
+  assert.equal(harness.state.clockNow, fakeNow);
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      approvedBefore.myRegistration.roomId,
+      approvedBefore.myRegistration.roomPassword,
+    ),
+    false,
+    'the pre-release response must not provide room credentials',
+  );
+
+  assert.match(
+    tournamentsSource,
+    /const releaseTransition = String\(tournament\.myRegistration\?\.status \?\? ''\)\.toLowerCase\(\) === 'approved'\s*\?\s*\[schedule\.releaseAtMs\]\s*:\s*\[\]/,
+  );
+  assert.match(tournamentsSource, /now=\{clockNow\}/);
+  assert.match(roomCredentialsPanelSource, /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\)/);
+  assert.match(roomCredentialsPanelSource, /\{credentialsReady \? \(/);
+
+  const timers = [];
+  const clearedTimers = [];
+  let scheduledRefreshCalls = 0;
+  let scheduledRefresh = Promise.resolve();
+  const lifecycleEffect = loadLifecycleRefreshEffect({
+    items: harness.state.items,
+    listFocused: { current: true },
+    AppState: { currentState: 'active' },
+    lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+    getRoomCredentialSchedule,
+    MAX_TIMEOUT_MS,
+    Platform: { OS: 'web' },
+    takeTournamentStartAnnouncement,
+    announcedTournamentStarts: { current: new Set() },
+    Date: { now: () => fakeNow },
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => clearedTimers.push(timer),
+    setClockNow: (value) => { harness.state.clockNow = value; },
+    setStartAnnouncement() {},
+    load: () => {
+      scheduledRefreshCalls += 1;
+      scheduledRefresh = harness.load();
+      return scheduledRefresh;
+    },
+  });
+
+  const cleanup = lifecycleEffect();
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delayMs, 1_020, 'the next transition should be the approved registration’s T-5 release');
+  assert.equal(scheduledRefreshCalls, 0, 'room data must wait for the scheduled timer');
+
+  fakeNow = releaseAtMs + 20;
+  timers[0].callback();
+  await scheduledRefresh;
+
+  assert.equal(harness.state.clockNow, fakeNow);
+  assert.equal(scheduledRefreshCalls, 1, 'the release timer should refresh the screen without a manual action');
+  const approvedAfter = harness.state.items.find((tournament) => tournament.id === 'approved-room');
+  assert.deepEqual(
+    {
+      roomId: approvedAfter.myRegistration.roomId,
+      roomPassword: approvedAfter.myRegistration.roomPassword,
+    },
+    {
+      roomId: 'ROOM-APPROVED-101',
+      roomPassword: 'PASS-APPROVED-101',
+    },
+  );
+  assert.ok(
+    hasServerAuthorizedRoomCredentials(
+      approvedAfter.myRegistration.roomId,
+      approvedAfter.myRegistration.roomPassword,
+    ),
+    'the refreshed approved registration should now render its room values',
+  );
+  const pendingAfter = harness.state.items.find((tournament) => tournament.id === 'pending-room');
+  assert.equal(pendingAfter.myRegistration.status, 'pending');
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      pendingAfter.myRegistration.roomId,
+      pendingAfter.myRegistration.roomPassword,
+    ),
+    false,
+    'an unapproved registration must remain without credentials',
+  );
+
+  const selectedTabs = tournamentTabsForRoute(
+    harness.state.items,
+    { gameMode: selectedMode },
+    (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+  );
+  assert.ok(Object.values(selectedTabs).flat().some((tournament) => tournament.id === 'approved-room'));
+  assert.ok(Object.values(selectedTabs).flat().some((tournament) => tournament.id === 'pending-room'));
+  assert.ok(
+    Object.values(selectedTabs).flat().every((tournament) => tournament.gameMode === selectedMode),
+    'the room release refresh must not expose tournaments from another game mode',
+  );
+
+  cleanup();
+  assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test('a pending registration does not schedule a credential refresh before tournament start', async () => {
+  const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
+  const schedule = getRoomCredentialSchedule(new Date(startAtMs).toISOString());
+  assert.ok(schedule);
+  let fakeNow = schedule.releaseAtMs - 1_000;
+  const harness = createTournamentLoadHarness({
+    tournaments: async () => [{
+      id: 'pending-room',
+      gameMode: 'clash_squad',
+      teamType: 'Duo',
+      status: 'upcoming',
+      startsAt: new Date(startAtMs).toISOString(),
+    }],
+    myRegistrations: async () => [{
+      tournamentId: 'pending-room',
+      status: 'pending',
+      roomPublished: true,
+      roomId: null,
+      roomPassword: null,
+    }],
+  }, () => fakeNow);
+  await harness.load();
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      harness.state.items[0].myRegistration.roomId,
+      harness.state.items[0].myRegistration.roomPassword,
+    ),
+    false,
+  );
+
+  const timers = [];
+  const clearedTimers = [];
+  let refreshCalls = 0;
+  const lifecycleEffect = loadLifecycleRefreshEffect({
+    items: harness.state.items,
+    listFocused: { current: true },
+    AppState: { currentState: 'active' },
+    lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+    getRoomCredentialSchedule,
+    MAX_TIMEOUT_MS,
+    Platform: { OS: 'web' },
+    takeTournamentStartAnnouncement,
+    announcedTournamentStarts: { current: new Set() },
+    Date: { now: () => fakeNow },
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => clearedTimers.push(timer),
+    setClockNow: (value) => { harness.state.clockNow = value; },
+    setStartAnnouncement() {},
+    load: () => { refreshCalls += 1; },
+  });
+
+  const cleanup = lifecycleEffect();
+  assert.equal(timers.length, 1);
+  assert.equal(
+    timers[0].delayMs,
+    ROOM_CREDENTIAL_REVEAL_LEAD_MS + 1_020,
+    'a pending registration should wait until the scheduled match start, not T-5',
+  );
+  assert.equal(refreshCalls, 0);
   cleanup();
   assert.deepEqual(clearedTimers, [timers[0]]);
 });

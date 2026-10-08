@@ -4,6 +4,11 @@ import test from "node:test";
 import { copyRoomCredentialToClipboard } from "../src/lib/roomCredentialCopy.ts";
 import { shouldStackRoomCredentialRows } from "../src/lib/roomCredentialLayout.ts";
 import {
+  getRoomCredentialSchedule,
+  hasServerAuthorizedRoomCredentials,
+  ROOM_CREDENTIAL_REVEAL_LEAD_MS,
+} from "../src/lib/roomCredentialTiming.ts";
+import {
   fetchTournamentDetailSnapshot,
   startTournamentDetailPolling,
   TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS,
@@ -29,6 +34,46 @@ test("Room ID and password values are separate labeled text stops", () => {
   assert.match(rowSource, /accessibilityLabel=\{`\$\{label\}: \$\{value\}`\}/);
   assert.match(rowSource, /<Text accessible=\{false\} style=\{styles\.label\}>/);
   assert.match(rowSource, /<Text accessible=\{false\} style=\{styles\.value\} selectable>/);
+});
+
+test("room credentials stay hidden until the five-minute refresh supplies approved values", () => {
+  const startsAtMs = Date.parse("2026-10-08T14:00:00.000Z");
+  const schedule = getRoomCredentialSchedule(new Date(startsAtMs).toISOString());
+  assert.ok(schedule);
+  assert.equal(schedule.releaseAtMs, startsAtMs - ROOM_CREDENTIAL_REVEAL_LEAD_MS);
+
+  const beforeRelease = {
+    status: "approved",
+    configured: true,
+    now: schedule.releaseAtMs - 1,
+    roomId: null,
+    roomPassword: null,
+  };
+  assert.equal(beforeRelease.now < schedule.releaseAtMs, true);
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(beforeRelease.roomId, beforeRelease.roomPassword),
+    false,
+    "the server response before T-5 must not contain room values",
+  );
+
+  const afterRelease = {
+    status: "approved",
+    configured: true,
+    now: schedule.releaseAtMs + 20,
+    roomId: "FAKE-ROOM-101",
+    roomPassword: "FAKE-PASS-101",
+  };
+  assert.equal(afterRelease.now >= schedule.releaseAtMs, true);
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(afterRelease.roomId, afterRelease.roomPassword),
+    true,
+    "the approved response after T-5 should provide room values",
+  );
+
+  assert.match(panelSource, /now < schedule\.releaseAtMs/);
+  assert.match(panelSource, /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\)/);
+  assert.match(panelSource, /\{credentialsReady \? \(/);
+  assert.match(panelSource, /label="Room ID"[\s\S]*?label="Password"/);
 });
 
 test("large text on a narrow phone stacks each full-width value above its copy button", () => {
