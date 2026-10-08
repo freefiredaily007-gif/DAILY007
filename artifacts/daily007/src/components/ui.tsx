@@ -295,10 +295,25 @@ export function SectionTitle({ children, accent, icon }: { children: React.React
   );
 }
 
-export function Chip({ label, color = C.gold, onPress }: { label: string; color?: string; onPress?: () => void }) {
+export function Chip({ label, color = C.gold, onPress, testID }: {
+  label: string;
+  color?: string;
+  onPress?: () => void;
+  testID?: string;
+}) {
   const adminSurface = useAdminSurface();
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={[st.chip, adminSurface && adminSt.chip, { borderColor: swapThemeColor(color), backgroundColor: adminSurface ? swapThemeColor(color) + '12' : 'transparent' }]}>
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      disabled={!onPress}
+      style={[
+        st.chip,
+        adminSurface && adminSt.chip,
+        adminSurface && onPress && adminSt.chipTouchTarget,
+        { borderColor: swapThemeColor(color), backgroundColor: adminSurface ? swapThemeColor(color) + '12' : 'transparent' },
+      ]}
+    >
       <Text style={[st.chipText, adminSurface && adminSt.chipText, { color }]}>{label}</Text>
     </Pressable>
   );
@@ -641,6 +656,7 @@ const adminSt = StyleSheet.create({
   secRow: { marginVertical: 10 },
   secText: { fontFamily: 'Inter_700Bold', fontSize: 13, letterSpacing: 1.1 },
   chip: { borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5.5 },
+  chipTouchTarget: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   chipText: { fontFamily: 'Inter_600SemiBold', fontSize: 10.5, letterSpacing: 0.55 },
   kvV: { fontFamily: 'Inter_600SemiBold' },
 });

@@ -595,6 +595,133 @@ async function assertReachableControl(selector, description, { allowDisabled = f
   }
 }
 
+async function assertAdminTouchTargetGroup(
+  selector,
+  description,
+  width,
+  { allowHorizontalScroll = false, expectedCount } = {},
+) {
+  const targets = await evaluate(`(() => [...document.querySelectorAll(${JSON.stringify(selector)})]
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    })
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const label = element.getAttribute("aria-label") || element.textContent.trim() ||
+        element.getAttribute("placeholder") || element.tagName;
+      const disabled =
+        element.disabled === true ||
+        element.getAttribute("aria-disabled") === "true" ||
+        getComputedStyle(element).pointerEvents === "none";
+      return {
+        testID: element.getAttribute("data-testid"),
+        label,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        disabled,
+      };
+    }))()`);
+  assert(targets?.length, `${description} controls are missing at ${width}px.`);
+  if (expectedCount !== undefined) {
+    assert(
+      targets.length === expectedCount,
+      `${description} expected ${expectedCount} controls at ${width}px; found ${targets.length}.`,
+    );
+  }
+
+  for (const target of targets) {
+    assert(
+      target.width >= minimumAndroidTouchTarget &&
+        target.height >= minimumAndroidTouchTarget,
+      `${description} "${target.label}" is smaller than the ${minimumAndroidTouchTarget}×${minimumAndroidTouchTarget} Android touch target at ${width}px ` +
+        `(actual=${target.width.toFixed(1)}×${target.height.toFixed(1)}).`,
+    );
+    assert(
+      target.scrollWidth <= target.clientWidth + 2 &&
+        target.scrollHeight <= target.clientHeight + 2,
+      `${description} "${target.label}" has clipped content at ${width}px ` +
+        `(content=${target.scrollWidth}×${target.scrollHeight}, box=${target.clientWidth}×${target.clientHeight}).`,
+    );
+    assert(!target.disabled, `${description} "${target.label}" is disabled at ${width}px.`);
+  }
+
+  for (let leftIndex = 0; leftIndex < targets.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < targets.length; rightIndex += 1) {
+      const left = targets[leftIndex];
+      const right = targets[rightIndex];
+      const overlaps =
+        Math.min(left.right, right.right) - Math.max(left.left, right.left) > 1 &&
+        Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top) > 1;
+      assert(
+        !overlaps,
+        `${description} controls "${left.label}" and "${right.label}" overlap at ${width}px.`,
+      );
+    }
+  }
+
+  for (const target of targets) {
+    if (!allowHorizontalScroll) {
+      await assertReachableControl(
+        `[data-testid="${target.testID}"]`,
+        `${description} "${target.label}"`,
+      );
+      continue;
+    }
+
+    const reachability = await evaluate(`(() => {
+      const element = document.querySelector('[data-testid="${target.testID}"]');
+      if (!element) return null;
+      element.scrollIntoView({ block: "nearest", inline: "center" });
+      const rect = element.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const hit = document.elementFromPoint(centerX, centerY);
+      let scrollport = element.parentElement;
+      while (scrollport && scrollport !== document.body) {
+        const style = getComputedStyle(scrollport);
+        if (
+          (style.overflowX === "auto" || style.overflowX === "scroll") &&
+          scrollport.scrollWidth > scrollport.clientWidth + 1
+        ) break;
+        scrollport = scrollport.parentElement;
+      }
+      return {
+        centerVisible:
+          centerX >= -1 && centerX <= window.innerWidth + 1 &&
+          centerY >= -1 && centerY <= window.innerHeight + 1,
+        hitTestable: Boolean(hit && (element === hit || element.contains(hit))),
+        fullyVisible:
+          rect.left >= -1 && rect.right <= window.innerWidth + 1 &&
+          rect.top >= -1 && rect.bottom <= window.innerHeight + 1,
+        scrollable: Boolean(scrollport && scrollport !== document.body),
+        pageWidth: document.documentElement.scrollWidth,
+      };
+    })()`);
+    assert(reachability, `${description} "${target.label}" could not be inspected at ${width}px.`);
+    assert(
+      reachability.centerVisible && reachability.hitTestable,
+      `${description} "${target.label}" cannot receive a tap at its center at ${width}px.`,
+    );
+    assert(
+      reachability.fullyVisible || reachability.scrollable,
+      `${description} "${target.label}" is clipped without a horizontal scroll path at ${width}px.`,
+    );
+    assert(
+      reachability.pageWidth <= width + 1,
+      `${description} "${target.label}" causes horizontal page overflow at ${width}px.`,
+    );
+  }
+}
+
 async function assertPageHasNoHorizontalOverflow(width, description) {
   const pageWidth = await evaluate(`({
     document: document.documentElement.scrollWidth,
@@ -1168,10 +1295,41 @@ async function assertAdminRowActionsFit(
 }
 
 async function checkPopulatedAdminLists(width, { requireReachability = false } = {}) {
+  await assertAdminTouchTargetGroup(
+    '[data-testid="admin-refresh-control"], [data-testid="admin-header-logout-control"]',
+    "Admin header controls",
+    width,
+    { expectedCount: 2 },
+  );
+  await assertAdminTouchTargetGroup(
+    '[data-testid="admin-account-logout-control"]',
+    "Admin account logout control",
+    width,
+    { expectedCount: 1 },
+  );
+
   await openAdminTab("registrations", "Registrations", { requireReachability });
   await waitForCondition(
     "document.body.innerText.includes('Ananya Daily007 Championship Champion With A Long Name')",
     "the fake pending registration to load",
+  );
+  await assertAdminTouchTargetGroup(
+    '[data-testid^="admin-registration-filter-"]',
+    "Registration status filters",
+    width,
+    { expectedCount: 3 },
+  );
+  await assertAdminTouchTargetGroup(
+    '[data-testid^="admin-registration-tournament-filter-"]',
+    "Registration tournament filters",
+    width,
+    { allowHorizontalScroll: true, expectedCount: 2 },
+  );
+  await assertAdminTouchTargetGroup(
+    '[data-testid^="admin-registration-export-tournament-"]',
+    "Registration export tournament filters",
+    width,
+    { allowHorizontalScroll: true, expectedCount: 1 },
   );
   await assertAdminRowActionsFit(
     "Ananya Daily007 Championship Champion With A Long Name — International Free Fire Finals Squad",
@@ -1181,7 +1339,15 @@ async function checkPopulatedAdminLists(width, { requireReachability = false } =
     { requireReachability },
   );
 
-  await clickTextLabel("APPROVED");
+  await assertReachableControl(
+    '[data-testid="admin-registration-filter-approved"]',
+    "Approved registration filter",
+  );
+  await tapSelector('[data-testid="admin-registration-filter-approved"]', "Approved registration filter");
+  await waitForCondition(
+    "document.body.innerText.includes('Rohan Free Fire Strategist — Preview Approved Team')",
+    "approved registration to appear after selecting its filter",
+  );
   await assertAdminRowActionsFit(
     "Rohan Free Fire Strategist — Preview Approved Team",
     ["DELETE"],
@@ -1189,7 +1355,15 @@ async function checkPopulatedAdminLists(width, { requireReachability = false } =
     "Approved registration",
     { requireReachability },
   );
-  await clickTextLabel("REJECTED");
+  await assertReachableControl(
+    '[data-testid="admin-registration-filter-rejected"]',
+    "Rejected registration filter",
+  );
+  await tapSelector('[data-testid="admin-registration-filter-rejected"]', "Rejected registration filter");
+  await waitForCondition(
+    "document.body.innerText.includes('Preview Rejected Player — Preview Rejected Team')",
+    "rejected registration to appear after selecting its filter",
+  );
   await assertAdminRowActionsFit(
     "Preview Rejected Player — Preview Rejected Team",
     ["DELETE"],
@@ -1202,6 +1376,24 @@ async function checkPopulatedAdminLists(width, { requireReachability = false } =
   await waitForCondition(
     "document.body.innerText.includes('Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026')",
     "the fake pending deposit to load",
+  );
+  await assertAdminTouchTargetGroup(
+    '[data-testid^="admin-payment-filter-"]',
+    "Payment status filters",
+    width,
+    { expectedCount: 3 },
+  );
+  await assertReachableControl('[data-testid="admin-payment-filter-approved"]', "Approved payment filter");
+  await tapSelector('[data-testid="admin-payment-filter-approved"]', "Approved payment filter");
+  await waitForCondition(
+    "document.body.innerText.includes('Approved Preview Payout Player · User ID: preview-user-approved-payout-2026')",
+    "approved payment to appear after selecting its filter",
+  );
+  await assertReachableControl('[data-testid="admin-payment-filter-pending"]', "Pending payment filter");
+  await tapSelector('[data-testid="admin-payment-filter-pending"]', "Pending payment filter");
+  await waitForCondition(
+    "document.body.innerText.includes('Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026')",
+    "pending payment to reappear after selecting its filter",
   );
   await assertAdminRowActionsFit(
     "Ananya Championship Participant With A Long Display Name · User ID: preview-user-ananya-championship-account-2026",
@@ -1222,6 +1414,12 @@ async function checkPopulatedAdminLists(width, { requireReachability = false } =
   await waitForCondition(
     "document.body.innerText.includes('ananya.champion.with.a.long.fake.address@example.invalid')",
     "the fake Wallet user to load",
+  );
+  await assertAdminTouchTargetGroup(
+    '[data-testid="admin-wallet-user-search"]',
+    "Wallet user search filter",
+    width,
+    { expectedCount: 1 },
   );
   await assertAdminRowActionsFit(
     "ananya.champion.with.a.long.fake.address@example.invalid",
@@ -2829,6 +3027,12 @@ async function checkAdminMutationFailureRecovery() {
 
 async function checkTournamentStates(width, { largeText = false, landscape = false } = {}) {
   await openAdminTab("tournaments", "Tournaments", { requireReachability: landscape });
+  await assertAdminTouchTargetGroup(
+    '[data-testid^="admin-tournament-tab-"]',
+    "Tournament status filters",
+    width,
+    { expectedCount: 3 },
+  );
   if (largeText || landscape) await assertTournamentStatusTabsFit(width);
   if (landscape) {
     for (const status of ["upcoming", "ongoing", "completed"]) {

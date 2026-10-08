@@ -184,7 +184,7 @@ export default function AdminWallet() {
 }
 
 const st = StyleSheet.create({
-  search: { backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
+  search: { minHeight: 48, backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
   name: { color: '#e6e9ef', fontWeight: '900', fontSize: 14 },
   sub: { color: '#5b6478', fontSize: 11, marginTop: 2 },
   coins: { color: '#FFC107', fontWeight: '900', fontSize: 15 },

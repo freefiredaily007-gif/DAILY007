@@ -129,7 +129,7 @@ export default function AdminPayments() {
       <Text style={st.h}>COIN DEPOSITS &amp; WITHDRAWALS</Text>
       <Text style={st.notice}>Payment approval is manual. Withdrawal approval does not send money automatically; arrange the payout separately.</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-        {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
+        {TABS.map((t) => <Chip key={t} testID={`admin-payment-filter-${t}`} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
       <Msg kind="err" text={err} accessibilityLabel={err || undefined} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} accessibilityLiveRegion="polite" />

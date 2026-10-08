@@ -977,7 +977,7 @@ const st = StyleSheet.create({
   },
   tabs: { flexDirection: 'row', gap: 7, marginBottom: 12, width: '100%', minWidth: 0 },
   tab: {
-    flex: 1, minWidth: 0, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
+    flex: 1, minWidth: 48, minHeight: 48, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card,
   },
   tabOn: { borderColor: C.neon, backgroundColor: C.neon + '20' },

@@ -84,6 +84,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
             <Text style={st.title}>DAILY<Text style={{ color: A.orange }}>007</Text></Text>
           </View>
           <Pressable
+            testID="admin-refresh-control"
             accessibilityRole="button"
             accessibilityLabel="Refresh admin access and screen"
             onPress={() => {
@@ -94,7 +95,13 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
           >
             <Feather name="refresh-cw" size={16} color={A.gold} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={onLogout} style={st.hBtn}>
+          <Pressable
+            testID="admin-header-logout-control"
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+            onPress={onLogout}
+            style={st.hBtn}
+          >
             <Feather name="log-out" size={16} color={A.sub} />
           </Pressable>
         </View>
@@ -105,7 +112,13 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
             <Text style={st.adminMail}>{tournamentOnly ? 'TOURNAMENT ADMIN · ' : ''}{user.email}</Text>
           </View>
           <View style={st.liveBadge}><View style={st.liveDot} /><Text style={st.liveTxt}>LIVE</Text></View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={onLogout} style={st.logoutBtn}>
+          <Pressable
+            testID="admin-account-logout-control"
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+            onPress={onLogout}
+            style={st.logoutBtn}
+          >
             <Feather name="log-out" size={12} color={A.red} />
             <Text style={st.logoutTxt}>LOGOUT</Text>
           </Pressable>
@@ -159,7 +172,7 @@ const st = StyleSheet.create({
   logo: { width: '100%', height: '100%', borderRadius: 11 },
   kicker: { color: A.sub, fontFamily: 'Inter_600SemiBold', fontSize: 7.5, letterSpacing: 1.35, marginBottom: 2 },
   title: { color: A.text, fontFamily: 'Inter_700Bold', fontSize: 18, letterSpacing: 0.8 },
-  hBtn: { width: 32, height: 36, alignItems: 'center', justifyContent: 'center' },
+  hBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   adminRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: 'rgba(255,122,26,0.035)', borderBottomWidth: 1, borderBottomColor: A.border },
   badge: { width: 30, height: 30, borderRadius: 10, backgroundColor: 'rgba(255,122,26,0.1)', borderWidth: 1, borderColor: 'rgba(255,122,26,0.32)', alignItems: 'center', justifyContent: 'center' },
   adminName: { color: A.text, fontWeight: '700', fontSize: 11.5, fontFamily: 'Inter_600SemiBold' },
@@ -167,7 +180,7 @@ const st = StyleSheet.create({
   liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(46,204,113,0.08)', borderColor: 'rgba(46,204,113,0.25)', borderWidth: 1, borderRadius: 7, paddingHorizontal: 7, paddingVertical: 4 },
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: A.green },
   liveTxt: { color: A.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.9, fontFamily: 'Inter_700Bold' },
-  logoutBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,75,54,0.08)', borderWidth: 1, borderColor: 'rgba(255,75,54,0.23)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
+  logoutBtn: { minWidth: 48, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: 'rgba(255,75,54,0.08)', borderWidth: 1, borderColor: 'rgba(255,75,54,0.23)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
   logoutTxt: { color: A.red, fontSize: 8, fontWeight: '900', letterSpacing: 0.6, fontFamily: 'Inter_700Bold' },
   navWrap: { borderTopWidth: 1, borderTopColor: '#2a3558', backgroundColor: '#0d1220ee', shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   nav: { paddingHorizontal: 8, paddingVertical: 6, gap: 4 },

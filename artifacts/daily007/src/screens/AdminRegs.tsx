@@ -170,16 +170,17 @@ export default function AdminRegs() {
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>REGISTRATIONS</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-        {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
+        {TABS.map((t) => <Chip key={t} testID={`admin-registration-filter-${t}`} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
       {exportTournaments.length > 0 && (
         <Card style={{ marginBottom: 12 }}>
           <Text style={st.exportTitle}>TOURNAMENT REGISTRATION LIST</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 10 }}>
-            <Chip label="ALL TOURNAMENTS" color={!tournamentFilter ? C.neon : C.sub} onPress={() => setTournamentFilter('')} />
+            <Chip testID="admin-registration-tournament-filter-all" label="ALL TOURNAMENTS" color={!tournamentFilter ? C.neon : C.sub} onPress={() => setTournamentFilter('')} />
             {tournaments.map((t) => (
               <Chip
                 key={t.id}
+                testID={`admin-registration-tournament-filter-${t.id}`}
                 label={t.name}
                 color={tournamentFilter === t.id ? C.neon : C.sub}
                 onPress={() => setTournamentFilter(t.id)}
@@ -196,6 +197,7 @@ export default function AdminRegs() {
             {exportTournaments.map((t) => (
               <Chip
                 key={t.id}
+                testID={`admin-registration-export-tournament-${t.id}`}
                 label={t.name}
                 color={(selectedTournament?.id === t.id) ? C.neon : C.sub}
                 onPress={() => setExportTournamentId(t.id)}
