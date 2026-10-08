@@ -4631,6 +4631,20 @@ async function checkHomeCarousel(width) {
     await assertHomeCarouselCardOpens(id, `Auto-advanced tournament ${id}`);
   }
 
+  await swipeHomeCarousel("left", "the first Upcoming tournament before the scheduled start");
+  await waitForHomeCarouselCard(
+    "later-one",
+    1,
+    width,
+    "The second Upcoming tournament selected before the scheduled start",
+  );
+  await swipeHomeCarousel("left", "the second Upcoming tournament before the scheduled start");
+  await waitForHomeCarouselCard(
+    "later-two",
+    2,
+    width,
+    "The last Upcoming tournament selected before the scheduled start",
+  );
   assert(
     await evaluate("window.__daily007HomeCarouselTest.hasScheduledStartTimer()"),
     `Home did not schedule the tournament's start-time transition at ${width}px.`,
@@ -4650,9 +4664,12 @@ async function checkHomeCarousel(width) {
   assert(
     JSON.stringify(remainingState.cards.map((card) => card.id)) === JSON.stringify(["later-one", "later-two"]) &&
       remainingState.indicatorCount === 2 &&
-      remainingState.activePage === 0,
-    `Home did not preserve and re-index the two later tournaments after the scheduled start at ${width}px: ${JSON.stringify(remainingState)}.`,
+      remainingState.activePage === 1,
+    `Home did not preserve the selected later-two tournament at its new position and update the two-card indicator after the scheduled start at ${width}px: ${JSON.stringify(remainingState)}.`,
   );
+  await waitForHomeCarouselCard("later-two", 1, width, "The selected tournament after the earlier start");
+  await assertHomeCarouselCardOpens("later-two", "The selected tournament after the earlier start");
+  await swipeHomeCarousel("right", "the selected tournament after the earlier start");
   await waitForHomeCarouselCard("later-one", 0, width, "The first remaining tournament");
   await checkHomeCarouselTalkBackNavigation(
     [
