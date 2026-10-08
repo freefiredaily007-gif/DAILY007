@@ -2765,6 +2765,7 @@ async function checkAdminRetryConcurrency() {
       disabledProperty: retry.disabled,
       disabledAttribute: retry.getAttribute('disabled'),
       ariaDisabled: retry.getAttribute('aria-disabled'),
+      accessibilityLabel: retry.getAttribute('aria-label'),
       hasProgressIndicator: Boolean(retry.querySelector('[role="progressbar"]')),
       role: retry.getAttribute('role'),
       html: retry.outerHTML,
@@ -2773,8 +2774,9 @@ async function checkAdminRetryConcurrency() {
   assert(
     pendingRetryState?.disabledProperty === true
       && pendingRetryState?.ariaDisabled === "true"
+      && pendingRetryState?.accessibilityLabel === "Retry tournament refresh"
       && pendingRetryState?.hasProgressIndicator === true,
-    `The held Admin retry should report disabled state and show a busy indicator: ${JSON.stringify(pendingRetryState)}`,
+    `The held Admin retry should expose its clear label and disabled state and show a progress indicator: ${JSON.stringify(pendingRetryState)}`,
   );
   assert(
     await evaluate("document.body.innerText.split('Could not load tournaments: Initial Admin tournament request failed').length - 1") === 1,
@@ -2804,6 +2806,20 @@ async function checkAdminRetryConcurrency() {
   await waitForCondition(
     `document.body.innerText.includes('Could not load tournaments: Held retry request failed') && !document.body.innerText.includes('Could not load tournaments: Initial Admin tournament request failed') && document.querySelector('${retrySelector}')?.disabled === false && !document.querySelector('${retrySelector}')?.querySelector('[role="progressbar"]')`,
     "the failed Admin request to show one new error and re-enable Retry",
+  );
+  const recoveredRetryState = await evaluate(`(() => {
+    const retry = document.querySelector('${retrySelector}');
+    return retry ? {
+      disabledProperty: retry.disabled,
+      ariaDisabled: retry.getAttribute('aria-disabled'),
+      hasProgressIndicator: Boolean(retry.querySelector('[role="progressbar"]')),
+    } : null;
+  })()`);
+  assert(
+    recoveredRetryState?.disabledProperty === false
+      && recoveredRetryState?.ariaDisabled !== "true"
+      && recoveredRetryState?.hasProgressIndicator === false,
+    `After a failed retry, the control must be available and no longer busy: ${JSON.stringify(recoveredRetryState)}`,
   );
   assert(
     await evaluate("document.body.innerText.split('Could not load tournaments:').length - 1") === 1,
