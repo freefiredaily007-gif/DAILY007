@@ -2,7 +2,8 @@ export type TournamentLifecycleState = 'upcoming' | 'ongoing' | 'completed' | 'c
 
 export const MAX_TIMEOUT_MS = 2_147_000_000;
 export const MAX_COMPLETED_TOURNAMENTS = 10;
-export const HOME_TOURNAMENT_REFRESH_INTERVAL_MS = 30_000;
+export const TOURNAMENT_LIST_REFRESH_INTERVAL_MS = 30_000;
+export const HOME_TOURNAMENT_REFRESH_INTERVAL_MS = TOURNAMENT_LIST_REFRESH_INTERVAL_MS;
 
 export function createHomeRefreshRequestGuard() {
   let latestRequestId = 0;
@@ -16,6 +17,20 @@ export function shouldRefreshHomeTournaments(appState: string): boolean {
   return appState === 'active';
 }
 
+type TournamentRefreshTimers = Pick<typeof globalThis, 'setInterval' | 'clearInterval'>;
+
+export function startTournamentListRefreshPolling(
+  refresh: () => void,
+  canRefresh: () => boolean,
+  intervalMs = TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+  timers: TournamentRefreshTimers = globalThis,
+): () => void {
+  const interval = timers.setInterval(() => {
+    if (canRefresh()) refresh();
+  }, intervalMs);
+  return () => timers.clearInterval(interval);
+}
+
 export function didAppReturnToForeground(previousState: string | null, nextState: string): boolean {
   return previousState !== 'active' && nextState === 'active';
 }
@@ -25,10 +40,7 @@ export function startHomeTournamentRefreshPolling(
   canRefresh: () => boolean,
   intervalMs = HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
 ): () => void {
-  const interval = setInterval(() => {
-    if (canRefresh()) refresh();
-  }, intervalMs);
-  return () => clearInterval(interval);
+  return startTournamentListRefreshPolling(refresh, canRefresh, intervalMs);
 }
 
 type TournamentDates = {

@@ -25,6 +25,8 @@ import {
   MAX_COMPLETED_TOURNAMENTS,
   MAX_TIMEOUT_MS,
   mostRecentCompletedTournaments,
+  startTournamentListRefreshPolling,
+  TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
   TournamentLifecycleState,
 } from '../lib/tournamentLifecycle';
 import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncement';
@@ -111,15 +113,26 @@ export default function Tournaments() {
   }, []);
   useFocusEffect(useCallback(() => {
     listFocused.current = true;
-    void load();
-    return () => { listFocused.current = false; };
+    const stopCompletionPolling = startTournamentListRefreshPolling(
+      () => {
+        setClockNow(Date.now());
+        void load();
+      },
+      () => listFocused.current && AppState.currentState === 'active',
+      TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+    );
+    if (AppState.currentState === 'active') void load();
+    return () => {
+      listFocused.current = false;
+      stopCompletionPolling();
+    };
   }, [load]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = appState.current !== 'active' && nextState === 'active';
       appState.current = nextState;
-      if (returnedToApp) {
+      if (returnedToApp && listFocused.current) {
         setClockNow(Date.now());
         void load();
       }
@@ -166,9 +179,9 @@ export default function Tournaments() {
             setStartAnnouncement(announcements.join(' '));
           }
         }
+        setClockNow(now);
+        void load();
       }
-      setClockNow(now);
-      void load();
     }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextTransition - now + 20)));
     return () => clearTimeout(timer);
   }, [items, clockNow, load]);

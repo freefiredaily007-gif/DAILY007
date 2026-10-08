@@ -27,6 +27,8 @@ import {
   MAX_COMPLETED_TOURNAMENTS,
   MAX_TIMEOUT_MS,
   mostRecentCompletedTournaments,
+  startTournamentListRefreshPolling,
+  TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
 } from '../src/lib/tournamentLifecycle.ts';
 import { takeTournamentStartAnnouncement } from '../src/lib/tournamentStartAnnouncement.ts';
 
@@ -357,11 +359,15 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*void load\(\);\s*return \(\) => \{ listFocused\.current = false; \};\s*\}, \[load\]\)\)/,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);\s*if \(AppState\.currentState === 'active'\) void load\(\);\s*return \(\) => \{\s*listFocused\.current = false;\s*stopCompletionPolling\(\);\s*\};\s*\}, \[load\]\)\)/,
   );
   assert.match(
     tournamentsSource,
-    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\(\);\s*\}/,
+    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp && listFocused\.current\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\(\);\s*\}/,
+  );
+  assert.match(
+    tournamentsSource,
+    /if \(nextTransition <= now && listFocused\.current && AppState\.currentState === 'active'\) \{[\s\S]*?setClockNow\(now\);\s*void load\(\);\s*\}/,
   );
   assert.match(
     tournamentsSource,
@@ -662,6 +668,144 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
 
   cleanup();
   assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test('focused tournament polling moves server-completed matches and their tab counts', async () => {
+  assert.equal(TOURNAMENT_LIST_REFRESH_INTERVAL_MS, 30_000);
+  let serverStatus = 'ongoing';
+  const startsAt = '2026-10-08T12:00:00.000Z';
+  const completedAt = '2026-10-08T12:12:00.000Z';
+  const api = {
+    tournaments: async () => [
+      {
+        id: 'server-completes',
+        gameMode: 'clash_squad',
+        teamType: 'Duo',
+        status: serverStatus,
+        startsAt,
+        completedAt: serverStatus === 'completed' ? completedAt : null,
+      },
+      {
+        id: 'still-ongoing',
+        gameMode: 'clash_squad',
+        teamType: 'Duo',
+        status: 'ongoing',
+        startsAt,
+      },
+    ],
+    myRegistrations: async () => [],
+  };
+  const harness = createTournamentLoadHarness(api, () => Date.parse('2026-10-08T12:20:00.000Z'));
+  await harness.load();
+  const getCounts = () => Object.fromEntries(
+    Object.entries(tournamentTabsForRoute(
+      harness.state.items,
+      { gameMode: 'clash_squad' },
+      (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+    )).map(([name, tournaments]) => [name, tournaments.length]),
+  );
+  assert.deepEqual(getCounts(), { upcoming: 0, ongoing: 2, completed: 0 });
+
+  let focused = true;
+  let appState = 'active';
+  let intervalCallback;
+  let intervalDelay;
+  const clearedIntervals = [];
+  let refreshCalls = 0;
+  let scheduledRefresh = Promise.resolve();
+  const stopPolling = startTournamentListRefreshPolling(
+    () => {
+      refreshCalls += 1;
+      scheduledRefresh = harness.load();
+    },
+    () => focused && appState === 'active',
+    TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+    {
+      setInterval: (callback, delayMs) => {
+        intervalCallback = callback;
+        intervalDelay = delayMs;
+        return 'completion-poll';
+      },
+      clearInterval: (interval) => clearedIntervals.push(interval),
+    },
+  );
+
+  assert.equal(intervalDelay, TOURNAMENT_LIST_REFRESH_INTERVAL_MS);
+  assert.equal(refreshCalls, 0);
+  serverStatus = 'completed';
+  intervalCallback();
+  await scheduledRefresh;
+
+  assert.equal(refreshCalls, 1);
+  assert.deepEqual(getCounts(), { upcoming: 0, ongoing: 1, completed: 1 });
+  assert.equal(
+    harness.state.items.find((tournament) => tournament.id === 'server-completes').status,
+    'completed',
+    'completion must come from the refreshed server snapshot, not an estimated match duration',
+  );
+  assert.equal(
+    harness.state.items.find((tournament) => tournament.id === 'server-completes').startsAt,
+    startsAt,
+    'the start instant stays unchanged when server completion arrives',
+  );
+
+  focused = false;
+  intervalCallback();
+  focused = true;
+  appState = 'background';
+  intervalCallback();
+  assert.equal(refreshCalls, 1, 'blurred or backgrounded lists must not request another server snapshot');
+
+  stopPolling();
+  assert.deepEqual(clearedIntervals, ['completion-poll']);
+});
+
+test('scheduled lifecycle boundaries do not refresh the list while blurred or backgrounded', () => {
+  const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
+  for (const scenario of [
+    { focused: false, appState: 'active' },
+    { focused: true, appState: 'background' },
+  ]) {
+    let fakeNow = startAtMs - 1_000;
+    let clockNow = fakeNow;
+    let loadCalls = 0;
+    const timers = [];
+    const clearedTimers = [];
+    const lifecycleEffect = loadLifecycleRefreshEffect({
+      items: [{
+        id: 'boundary-match',
+        startsAt: new Date(startAtMs).toISOString(),
+      }],
+      listFocused: { current: scenario.focused },
+      AppState: { currentState: scenario.appState },
+      lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, clockNow),
+      getRoomCredentialSchedule,
+      MAX_TIMEOUT_MS,
+      Platform: { OS: 'web' },
+      takeTournamentStartAnnouncement,
+      announcedTournamentStarts: { current: new Set() },
+      Date: { now: () => fakeNow },
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: (timer) => clearedTimers.push(timer),
+      setClockNow: (value) => { clockNow = value; },
+      setStartAnnouncement() {},
+      load: () => { loadCalls += 1; },
+    });
+
+    const cleanup = lifecycleEffect();
+    assert.equal(timers[0].delayMs, 1_020);
+    fakeNow = startAtMs + 20;
+    timers[0].callback();
+
+    assert.equal(loadCalls, 0);
+    assert.equal(clockNow, startAtMs - 1_000, 'inactive screens do not advance from a background timer');
+    cleanup();
+    assert.deepEqual(clearedTimers, [timers[0]]);
+  }
 });
 
 test('an approved room refresh reveals credentials at T-5 without changing the selected game mode', async () => {
