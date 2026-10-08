@@ -18,6 +18,13 @@ const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const uiSourceFile = ts.createSourceFile(
+  "ui.tsx",
+  uiSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
 const apiSource = await readFile(
   new URL("../src/lib/api.ts", import.meta.url),
   "utf8",
@@ -36,6 +43,48 @@ const apiSourceFile = ts.createSourceFile(
   true,
   ts.ScriptKind.TS,
 );
+
+function getBtnDisabledExpression() {
+  const btnDeclaration = uiSourceFile.statements.find(
+    (statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "Btn",
+  );
+  assert.ok(btnDeclaration, "Expected the shared Btn implementation.");
+  let disabledExpression;
+  function visit(node) {
+    if (ts.isJsxOpeningElement(node) && node.tagName.getText(uiSourceFile) === "Pressable") {
+      const attribute = node.attributes.properties.find(
+        (property) => ts.isJsxAttribute(property) && property.name.getText(uiSourceFile) === "disabled",
+      );
+      if (attribute && ts.isJsxAttribute(attribute) && ts.isJsxExpression(attribute.initializer)) {
+        disabledExpression = attribute.initializer.expression;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(btnDeclaration);
+  assert.ok(disabledExpression, "The shared Btn should pass a disabled state to Pressable.");
+  return disabledExpression.getText(uiSourceFile);
+}
+
+const btnDisabledExpression = getBtnDisabledExpression();
+
+function evaluateBtnDisabled({ disabled, loading, preserveAccessibilityFocusWhileLoading }) {
+  const javascript = ts.transpileModule(
+    `const __disabled = (${btnDisabledExpression});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  return new Function(
+    "disabled",
+    "loading",
+    "preserveAccessibilityFocusWhileLoading",
+    `${javascript}\nreturn __disabled;`,
+  )(disabled, loading, preserveAccessibilityFocusWhileLoading);
+}
 
 function loadProfileCallback(callbackName, scope) {
   let declaration;
@@ -288,6 +337,78 @@ test("canceling Profile password change closes and clears every field without ca
     /<Btn testID="profile-password-submit"[^>]*onPress=\{submitPasswordChange\}/,
     "Only the explicit Update Password action should submit the mutation.",
   );
+});
+
+test("Profile update control blocks a second submit while the mocked request is pending", async () => {
+  const currentPassword = "synthetic-current-entry";
+  const newPassword = "synthetic-new-entry";
+  let passwordBusy = false;
+  let mutationCalls = 0;
+  let resolveMutation;
+  const pendingMutation = new Promise((resolve) => { resolveMutation = resolve; });
+  const changePassword = async () => {
+    mutationCalls += 1;
+    passwordBusy = true;
+    try {
+      await pendingMutation;
+    } finally {
+      passwordBusy = false;
+    }
+  };
+  const setters = {
+    setPasswordError: () => {},
+    setPasswordMessage: () => {},
+    setPasswordModalVisible: () => {},
+    setCurrentPassword: () => {},
+    setNewPassword: () => {},
+    setConfirmNewPassword: () => {},
+  };
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    currentPassword,
+    newPassword,
+    confirmNewPassword: newPassword,
+    changePassword,
+    submitProfilePasswordChange,
+    apiError: () => "synthetic mutation error",
+    ...setters,
+  });
+  const updateButton = profileSource.match(
+    /<Btn testID="profile-password-submit"[^>]*\/>/,
+  )?.[0];
+  assert.ok(updateButton, "Profile should render its password update control.");
+  assert.match(updateButton, /loading=\{passwordBusy\}/);
+  assert.match(updateButton, /onPress=\{submitPasswordChange\}/);
+
+  const pressUpdateButton = () => {
+    const disabled = evaluateBtnDisabled({
+      disabled: false,
+      loading: passwordBusy,
+      preserveAccessibilityFocusWhileLoading: false,
+    });
+    return disabled ? undefined : submitPasswordChange();
+  };
+
+  const firstSubmission = pressUpdateButton();
+  assert.ok(firstSubmission instanceof Promise, "The first press should start the password request.");
+  assert.equal(mutationCalls, 1);
+  assert.equal(passwordBusy, true, "The mocked mutation should remain pending.");
+  assert.equal(
+    evaluateBtnDisabled({
+      disabled: false,
+      loading: passwordBusy,
+      preserveAccessibilityFocusWhileLoading: false,
+    }),
+    true,
+    "The shared button should become disabled while its loading state is true.",
+  );
+
+  assert.equal(pressUpdateButton(), undefined, "A disabled update control must ignore another press.");
+  assert.equal(mutationCalls, 1, "Only one password request should be sent while the first is pending.");
+
+  resolveMutation();
+  await firstSubmission;
+  assert.equal(passwordBusy, false);
+  assert.equal(mutationCalls, 1);
 });
 
 test("successful Profile password change closes and clears the form and shows success feedback", async () => {
