@@ -10,6 +10,7 @@ import {
   refreshUserAccountAccessSafely,
   rootNavigationForRole,
 } from "../src/lib/roleNavigation.ts";
+import { logoutDaily007 } from "../src/lib/logout.ts";
 
 const ADMIN_NAV_KEYS = [
   "dashboard",
@@ -34,6 +35,56 @@ const SENSITIVE_ADMIN_SCREEN_KEYS = [
 const TOURNAMENT_ADMIN_NAV_KEYS = ["tournaments", "registrations"];
 const PLAYER_TAB_NAMES = ["Home", "Video", "Earn", "Wallet", "Profile"];
 const ADMIN_NAV_ITEMS = ADMIN_NAV_KEYS.map((key) => ({ key }));
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function startDeferredAccountRefresh(initialUser) {
+  const response = deferred();
+  const identity = {
+    revision: 0,
+    accountId: initialUser.id ?? initialUser.$id,
+    token: initialUser.token,
+  };
+  const state = {
+    revision: 0,
+    currentUser: initialUser,
+    savedSession: initialUser,
+    commitCalls: 0,
+    rejectCalls: 0,
+  };
+  const isCurrent = () => state.revision === identity.revision
+    && state.currentUser?.token === identity.token
+    && (state.currentUser?.id ?? state.currentUser?.$id) === identity.accountId;
+  const refresh = refreshUserAccountAccessSafely(
+    initialUser,
+    () => response.promise,
+    (updatedUser) => {
+      if (!isCurrent()) return false;
+      state.revision += 1;
+      state.currentUser = updatedUser;
+      state.savedSession = updatedUser;
+      state.commitCalls += 1;
+      return true;
+    },
+    () => {
+      if (!isCurrent()) return;
+      state.revision += 1;
+      state.currentUser = null;
+      state.savedSession = null;
+      state.rejectCalls += 1;
+    },
+    isCurrent,
+  );
+  return { response, refresh, state };
+}
 
 async function applyMockRoleRefresh(previousRole, refreshedRole) {
   const previousUser = {
@@ -252,6 +303,76 @@ for (const status of [401, 403]) {
   });
 }
 
+test("a delayed account refresh cannot restore the saved session after logout", async () => {
+  const initialUser = {
+    id: "signed-out-account",
+    role: "user",
+    token: "signed-out-session",
+  };
+  const pending = startDeferredAccountRefresh(initialUser);
+  let completeClerkSignOut;
+  let signOutStarted = false;
+  const logout = logoutDaily007(
+    () => {
+      signOutStarted = true;
+      return new Promise((resolve) => {
+        completeClerkSignOut = resolve;
+      });
+    },
+    () => {
+      pending.state.revision += 1;
+      pending.state.currentUser = null;
+      pending.state.savedSession = null;
+    },
+  );
+
+  assert.equal(pending.state.currentUser, null);
+  assert.equal(pending.state.savedSession, null);
+  pending.response.resolve({ role: "admin", name: "Late old-account response" });
+  assert.equal(await pending.refresh, null);
+  assert.equal(pending.state.commitCalls, 0);
+  assert.equal(pending.state.currentUser, null);
+  assert.equal(pending.state.savedSession, null);
+
+  await Promise.resolve();
+  assert.equal(signOutStarted, true);
+  completeClerkSignOut();
+  assert.equal(await logout, false);
+});
+
+test("delayed old-account responses cannot overwrite or sign out a newly signed-in account", async () => {
+  const initialUser = {
+    id: "old-account",
+    role: "user",
+    token: "old-account-session",
+  };
+  const newUser = {
+    id: "new-account",
+    role: "admin",
+    token: "new-account-session",
+  };
+  const lateSuccess = startDeferredAccountRefresh(initialUser);
+  const lateUnauthorized = startDeferredAccountRefresh(initialUser);
+
+  for (const pending of [lateSuccess, lateUnauthorized]) {
+    pending.state.revision += 1;
+    pending.state.currentUser = newUser;
+    pending.state.savedSession = newUser;
+  }
+  lateSuccess.response.resolve({ role: "tournament_admin", name: "Late old-account response" });
+  lateUnauthorized.response.reject({ response: { status: 401 } });
+
+  assert.equal(await lateSuccess.refresh, null);
+  assert.equal(await lateUnauthorized.refresh, null);
+  for (const pending of [lateSuccess, lateUnauthorized]) {
+    assert.equal(pending.state.commitCalls, 0);
+    assert.equal(pending.state.rejectCalls, 0);
+    assert.equal(pending.state.currentUser, newUser);
+    assert.equal(pending.state.savedSession, newUser);
+    assert.equal(pending.state.savedSession.token, "new-account-session");
+  }
+});
+
 test("a role change made in the background applies immediately when the app resumes", async () => {
   const state = await applyMockRoleChangeOnResume("user", "tournament_admin");
 
@@ -389,6 +510,7 @@ test("Tournament Admin cannot see or directly open payment, wallet, or reward ma
 test("App and AdminApp use the tested refresh and role-navigation decisions", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const apiSource = await readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8");
+  const logoutSource = await readFile(new URL("../src/lib/logout.ts", import.meta.url), "utf8");
   const authSource = await readFile(new URL("../src/screens/Auth.tsx", import.meta.url), "utf8");
   const adminSource = await readFile(new URL("../src/screens/AdminApp.tsx", import.meta.url), "utf8");
   const expiredHandlerStart = appSource.indexOf("const handleExpiredSession = () => {");
@@ -423,6 +545,21 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     handlerCallIndex >= 0 && fallbackClearIndex > handlerCallIndex,
     "When mounted, the session notice handler must run before the interceptor fallback clears storage.",
   );
+  assert.match(
+    responseInterceptorSource,
+    /requestToken === current\.token/,
+    "A late 401 from an older token must not expire the newly signed-in session.",
+  );
+  assert.match(apiSource, /let sessionRevision = 0/);
+  assert.match(apiSource, /let sessionPersistenceQueue: Promise<void> = Promise\.resolve\(\)/);
+  assert.match(apiSource, /export function captureSessionIdentity\(\)/);
+  assert.match(apiSource, /export function isSessionIdentityCurrent\(identity: SessionIdentity\)/);
+  assert.match(
+    apiSource,
+    /export async function setSessionForIdentity\([\s\S]*?isSessionIdentityCurrent\(identity\)/,
+    "Refresh results must persist only against the session identity they captured.",
+  );
+  assert.match(apiSource, /const operation = sessionPersistenceQueue\.catch/);
 
   const refreshStart = appSource.indexOf("const refreshAccess = useCallback(");
   const refreshEnd = appSource.indexOf("\n  }, []);", refreshStart);
@@ -431,7 +568,9 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
 
   assert.match(refreshSource, /Api\.meAccount\(\)/);
   assert.match(refreshSource, /refreshUserAccountAccessSafely\(\s*previous,\s*\(\) => Api\.meAccount\(\)/);
-  assert.match(refreshSource, /setSession\(refreshedUser\)/);
+  assert.match(refreshSource, /captureSessionIdentity\(\)/);
+  assert.match(refreshSource, /setSessionForIdentity\(refreshedUser,\s*identity\)/);
+  assert.match(refreshSource, /isSessionIdentityCurrent\(identity\)/);
   assert.match(refreshSource, /setUser\(refreshedUser\)/);
   const noticeIndex = refreshSource.indexOf(
     "setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.')",
@@ -445,6 +584,12 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     "A rejected refresh must set the sign-in notice before clearing session and user state.",
   );
   assert.doesNotMatch(refreshSource, /logoutDaily007|signOutClerk|Api\.me\(/);
+  const localLogoutClearIndex = logoutSource.indexOf("await clearLocalSession();");
+  const remoteLogoutIndex = logoutSource.indexOf("await signOutClerk?.()");
+  assert.ok(
+    localLogoutClearIndex >= 0 && remoteLogoutIndex > localLogoutClearIndex,
+    "Logout must invalidate the local session before waiting for Clerk sign-out.",
+  );
   assert.match(appSource, /rootNavigationForRole\(user\.role\)/);
   assert.match(appSource, /rootNavigation === 'Admin'/);
   assert.match(appSource, /if \(!user\) return <Auth\s+notice=\{authNotice\}/);

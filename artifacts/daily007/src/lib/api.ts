@@ -47,6 +47,14 @@ export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Ty
 const KEY = 'daily007_v2_session';
 let current: User | null = null;
 let sessionExpiredHandler: (() => void) | null = null;
+let sessionRevision = 0;
+let sessionPersistenceQueue: Promise<void> = Promise.resolve();
+
+export type SessionIdentity = {
+  revision: number;
+  accountId: string | undefined;
+  token: string;
+};
 
 export class SessionPersistenceError extends Error {
   constructor() {
@@ -59,6 +67,39 @@ function activateSession(u: User | null): void {
   current = u;
   if (u?.token) http.defaults.headers.common['Authorization'] = 'Bearer ' + u.token;
   else delete http.defaults.headers.common['Authorization'];
+}
+
+function accountIdOf(user: User | null): string | undefined {
+  return user?.id ?? user?.$id;
+}
+
+export function captureSessionIdentity(): SessionIdentity | null {
+  if (!current?.token) return null;
+  return {
+    revision: sessionRevision,
+    accountId: accountIdOf(current),
+    token: current.token,
+  };
+}
+
+export function isSessionIdentityCurrent(identity: SessionIdentity): boolean {
+  return Boolean(current?.token) &&
+    sessionRevision === identity.revision &&
+    current?.token === identity.token &&
+    accountIdOf(current) === identity.accountId;
+}
+
+function persistSessionMutation(user: User | null, revision: number): Promise<boolean> {
+  const operation = sessionPersistenceQueue.catch(() => {}).then(async () => {
+    if (revision !== sessionRevision) return false;
+    if (user?.token) await AsyncStorage.setItem(KEY, JSON.stringify(user));
+    else await AsyncStorage.removeItem(KEY);
+    if (revision !== sessionRevision) return false;
+    activateSession(user?.token ? user : null);
+    return true;
+  });
+  sessionPersistenceQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 const AUTH_ENTRY_PATHS = [
@@ -85,8 +126,17 @@ http.interceptors.response.use(
     const googleLinkRejectedOldSession = url.endsWith('/auth/google') &&
       typeof responseMessage === 'string' &&
       responseMessage.includes('Daily007 session was replaced');
+    const requestHeaders = error?.config?.headers;
+    const requestAuthorization = typeof requestHeaders?.get === 'function'
+      ? requestHeaders.get('Authorization')
+      : requestHeaders?.Authorization ?? requestHeaders?.authorization;
+    const requestToken = typeof requestAuthorization === 'string' &&
+      requestAuthorization.startsWith('Bearer ')
+      ? requestAuthorization.slice('Bearer '.length)
+      : null;
     if (error?.response?.status === 401 && current?.token &&
-        (!isAuthEntry || googleLinkRejectedOldSession)) {
+        (!isAuthEntry || googleLinkRejectedOldSession) &&
+        (!requestToken || requestToken === current.token)) {
       if (sessionExpiredHandler) sessionExpiredHandler();
       else setSession(null);
     }
@@ -95,37 +145,55 @@ http.interceptors.response.use(
 );
 
 export function setSession(u: User | null): void | Promise<void> {
+  const revision = ++sessionRevision;
   if (!u?.token) {
     activateSession(null);
-    void Promise.resolve().then(() => AsyncStorage.removeItem(KEY)).catch(() => {});
-    return;
+    return persistSessionMutation(null, revision).then(() => undefined).catch(() => {});
   }
 
-  return Promise.resolve()
-    .then(() => AsyncStorage.setItem(KEY, JSON.stringify(u)))
-    .then(() => {
-      activateSession(u);
-    })
+  return persistSessionMutation(u, revision)
+    .then(() => undefined)
     .catch(() => {
       throw new SessionPersistenceError();
     });
 }
 
+export async function setSessionForIdentity(
+  user: User,
+  identity: SessionIdentity,
+): Promise<boolean> {
+  if (!user.token || !isSessionIdentityCurrent(identity)) return false;
+  const revision = ++sessionRevision;
+  try {
+    const persisted = await persistSessionMutation(user, revision);
+    return persisted &&
+      revision === sessionRevision &&
+      current?.token === user.token &&
+      accountIdOf(current) === accountIdOf(user);
+  } catch {
+    throw new SessionPersistenceError();
+  }
+}
+
 export async function getSession(): Promise<User | null> {
   if (current) return current;
+  const readRevision = sessionRevision;
   try {
     const raw = await AsyncStorage.getItem(KEY);
+    if (readRevision !== sessionRevision) return current;
     if (raw) {
       const u = JSON.parse(raw) as User;
       if (typeof u?.token !== 'string' || !u.token) {
-        await AsyncStorage.removeItem(KEY);
-        return null;
+        await persistSessionMutation(null, readRevision);
+        return readRevision === sessionRevision ? null : current;
       }
+      if (readRevision !== sessionRevision) return current;
+      sessionRevision += 1;
       activateSession(u);
       return u;
     }
   } catch {}
-  return null;
+  return readRevision === sessionRevision ? null : current;
 }
 
 export function currentUser(): User | null {

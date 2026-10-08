@@ -20,6 +20,7 @@
     "test:android-join-recovery": "maestro test maestro/join-recovery",
     "test:android-wallet-cancellation-refund": "maestro test maestro/wallet-cancellation-refund",
     "test:join-form": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/join-form.test.mjs",
+    "test:session-refresh-persistence": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/session-refresh-persistence.test.mjs",
     "test:admin-tournament-results-accessibility": "node --test scripts/admin-tournament-results-accessibility.test.mjs",
     "test:admin-role-rejection-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-role-rejection-accessibility.test.mjs",
     "test:admin-user-deletion-accessibility": "node --test scripts/admin-user-deletion-accessibility.test.mjs",

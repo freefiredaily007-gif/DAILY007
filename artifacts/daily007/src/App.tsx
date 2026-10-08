@@ -7,7 +7,17 @@ import { ReadableText as Text } from './components/typography';
 import { NavigationContainer, DarkTheme, useNavigation, useRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Api, currentUser, getSession, setSession, setSessionExpiredHandler, User } from './lib/api';
+import {
+  Api,
+  captureSessionIdentity,
+  currentUser,
+  getSession,
+  isSessionIdentityCurrent,
+  setSession,
+  setSessionExpiredHandler,
+  setSessionForIdentity,
+  User,
+} from './lib/api';
 import Auth from './screens/Auth';
 import Home from './screens/Home';
 import ModeSubmodes from './screens/ModeSubmodes';
@@ -248,19 +258,23 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     if (accessRefreshRequest.current) return accessRefreshRequest.current;
     const request = (async () => {
       const previous = currentUser();
-      if (!previous) return null;
+      const identity = captureSessionIdentity();
+      if (!previous || !identity) return null;
       return refreshUserAccountAccessSafely(
         previous,
         () => Api.meAccount(),
         async (refreshedUser) => {
-          await setSession(refreshedUser);
+          const saved = await setSessionForIdentity(refreshedUser, identity);
+          if (!saved) return false;
           setUser(refreshedUser);
+          return true;
         },
         () => {
           setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
           setSession(null);
           setUser(null);
         },
+        () => isSessionIdentityCurrent(identity),
       );
     })();
     accessRefreshRequest.current = request;
@@ -295,7 +309,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   const logout = useCallback(async () => {
     try {
-      const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => { setSession(null); });
+      const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => setSession(null));
       if (clerkSignOutFailed) {
         Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
       }

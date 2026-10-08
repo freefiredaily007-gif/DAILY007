@@ -10,25 +10,28 @@ function mergeAccessRefreshResponse<T extends { token?: string }>(
 export async function refreshUserAccountAccess<T extends { token?: string }>(
   previous: T,
   fetchAccount: () => Promise<Partial<T>>,
-  commit: (updated: T) => void | Promise<void>,
-): Promise<T> {
+  commit: (updated: T) => void | boolean | Promise<void | boolean>,
+  isCurrent: () => boolean = () => true,
+): Promise<T | null> {
   const account = await fetchAccount();
+  if (!isCurrent()) return null;
   const updated = mergeAccessRefreshResponse(previous, account);
-  await commit(updated);
+  if (await commit(updated) === false) return null;
   return updated;
 }
 
 export async function refreshUserAccountAccessSafely<T extends { token?: string }>(
   previous: T,
   fetchAccount: () => Promise<Partial<T>>,
-  commit: (updated: T) => void | Promise<void>,
+  commit: (updated: T) => void | boolean | Promise<void | boolean>,
   rejectSession: () => void,
+  isCurrent: () => boolean = () => true,
 ): Promise<T | null> {
   try {
-    return await refreshUserAccountAccess(previous, fetchAccount, commit);
+    return await refreshUserAccountAccess(previous, fetchAccount, commit, isCurrent);
   } catch (error) {
     const status = (error as { response?: { status?: number } } | null)?.response?.status;
-    if (status === 401 || status === 403) rejectSession();
+    if ((status === 401 || status === 403) && isCurrent()) rejectSession();
     return null;
   }
 }

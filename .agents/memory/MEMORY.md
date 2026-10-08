@@ -3,7 +3,7 @@
 - [Daily007 Google auth concurrency tests](daily007-google-auth-concurrency.md) — synchronize same-identity requests at the transaction lock; Promise.all alone may produce sequential DB entry.
 - [Daily007 withdrawable purchases](daily007-withdrawable-purchases.md) — purchased coins must remain withdrawable; do not substitute ordinary store consumables for an approved gateway.
 - [Daily007 Google auth bridge](google-auth-bridge.md) — Never auto-link by email; recovery requires an active account and the approved Full Admin or owner-code path.
-- [Daily007 single-session policy](daily007-single-session.md) — a new sign-in replaces prior sessions; Google linking preserves the current one.
+- [Daily007 single-session policy](daily007-single-session.md) — new sign-ins replace old sessions, Google linking preserves one, and stale refreshes cannot revive or overwrite it.
 - [Daily007 offline session recovery](daily007-offline-session-recovery.md) — Android 16 confirms auto-retry on reconnect and resume; transient failures retain the saved session.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
 - [Daily007 login throttling](daily007-login-throttling.md) — keep abuse limits short-lived, shared across login aliases, and independent of account/email existence.

@@ -1,6 +1,6 @@
 ---
 name: Daily007 single-session policy
-description: Cross-device session replacement and rollout compatibility decision.
+description: Cross-device replacement, rollout compatibility, and stale client refresh behavior.
 ---
 
 A successful new Daily007 sign-in replaces all previously issued Daily007 sessions for that account, across browsers and devices. Google linking from an already authenticated Daily007 session preserves that session. Tokens issued before rollout remain valid only until that account's next sign-in.
@@ -16,3 +16,9 @@ On cold-start session verification, clear a saved Daily007 token only after a 40
 **Why:** A temporary API outage must not sign out an account whose token may still be valid, while rejected tokens still need to return to authentication.
 
 **How to apply:** Keep transport and 5xx failures separate from authorization rejection in session restore and retry flows.
+
+Client account-access refreshes must remain tied to the session identity active when the request began. Serialize persistent session changes and discard delayed reads or writes after logout or another sign-in changes that identity.
+
+**Why:** Async local storage can finish an operation after the player's intent changes. Checking only before starting a write still allows a delayed write to leave an old account as the final saved session.
+
+**How to apply:** Scope refresh success and authorization failures to the captured account and token. Keep session storage mutations ordered and guarded so sign-out or a newer sign-in wins over pending work.
