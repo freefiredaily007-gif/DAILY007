@@ -25,6 +25,7 @@
     "test:wallet-profile-keyboard": "node scripts/test-admin-narrow.mjs --keyboard-forms-only",
     "test:admin-tournament-keyboard": "node scripts/test-admin-narrow.mjs --admin-keyboard-forms-only",
     "test:admin-tournament-create-save": "node scripts/test-admin-narrow.mjs --admin-tournament-create-save-only",
+    "test:admin-tournament-edit-save": "node scripts/test-admin-narrow.mjs --admin-tournament-edit-save-only",
     "test:player-largest-text": "node scripts/test-player-largest-text.mjs",
     "test:join-form-largest-text": "node scripts/test-join-form-largest-text.mjs",
     "test:preview-entrypoints": "node scripts/test-preview-entrypoints.mjs"

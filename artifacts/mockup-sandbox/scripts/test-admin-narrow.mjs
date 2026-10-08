@@ -35,6 +35,7 @@ const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
+const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-edit-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
 const adminLandscapeOnly = process.argv.includes("--admin-landscape-only");
@@ -4669,6 +4670,97 @@ async function checkAdminTournamentCreationSaveAtLargeText() {
   assert(successState.width === 320, "The tournament creation flow left the 320px viewport.");
 }
 
+async function checkAdminTournamentEditSaveAtLargeText() {
+  await setViewport(320, 1.5);
+  assert(
+    await evaluate("window.__daily007LargeTextScale === 1.5"),
+    "The tournament edit preview did not apply 1.5× Android text scale.",
+  );
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tab-tournaments"]'))`,
+    "Admin navigation",
+  );
+  await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments Admin tab");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]'))`,
+    "Admin tournament screen",
+  );
+  const editButton = '[data-testid="edit-tournament-preview-upcoming"]';
+  await waitForCondition(`Boolean(document.querySelector(${JSON.stringify(editButton)}))`, "existing upcoming tournament");
+  await clickSelector(editButton, "Edit existing tournament");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]'))`,
+    "tournament edit form",
+  );
+  await assertText("EDIT TOURNAMENT", "edit tournament form heading");
+
+  await clickTournamentFormControl("Clash Squad", "edited Clash Squad mode");
+  await clickTournamentFormControl("Duo", "edited Duo format");
+  await clickTournamentFormControl("9", "edited tournament start hour");
+  await clickTournamentFormControl("35", "edited tournament start minute");
+  await clickTournamentFormControl("PM", "edited tournament start period");
+  await clickTournamentFormControl("CS banner", "edited Clash Squad banner");
+
+  const name = "Clash Night 8";
+  await setTournamentFormValue('input[placeholder="Tournament name *"]', name);
+  await assertVisibleAdminControlsFit(320, "selected tournament edit form");
+  const date = "2031-06-17";
+  const imageUrl = "https://example.invalid/clash-night-8.png";
+  const rules = "Bring your own device.\nNo scripts or exploits.";
+  const prizeDist = "1st: 700 coins\n2nd: 300 coins";
+  await setTournamentFormValue('input[placeholder="Date (YYYY-MM-DD, IST) *"]', date);
+  await setTournamentFormValue('input[placeholder="Entry coins *"]', "35");
+  await setTournamentFormValue('input[placeholder="Prize pool"]', "1000");
+  await setTournamentFormValue('input[placeholder="Optional custom banner image URL (HTTPS)"]', imageUrl);
+  await setTournamentFormValue('textarea[placeholder="Rules (one per line)"]', rules);
+  await setTournamentFormValue('textarea[placeholder="Prize distribution (e.g. 1st: 500 coins)"]', prizeDist);
+
+  await assertText("2 team slots · 4 players", "selected Clash Squad Duo capacity");
+  await assertText("Selected: 9:35 PM", "selected edited tournament start time");
+  await assertAdminFormControlBounds(320, "populated tournament edit form");
+  await assertPageHasNoHorizontalOverflow(320, "populated tournament edit form");
+  await assertVisibleTextFits(
+    '[data-testid="admin-tournament-create-form"]',
+    320,
+    "populated tournament edit form",
+  );
+
+  await resetAdminMutationCalls();
+  await clickTournamentFormControl("SAVE CHANGES", "Save tournament changes action");
+  await waitForCondition(
+    `document.body.innerText.includes("Tournament updated successfully") &&
+      !document.querySelector('[data-testid="admin-tournament-create-form"]')`,
+    "successful tournament update and form closure",
+  );
+  await assertAdminMutation({
+    method: "updateTournament",
+    id: "preview-upcoming",
+    payload: {
+      name,
+      mode: "Clash Squad",
+      teamType: "Duo",
+      date,
+      time: "9:35 PM",
+      entryCoins: 35,
+      prizePool: 1000,
+      totalSlots: 2,
+      rules,
+      banner: "cs",
+      imageUrl,
+      prizeDist,
+    },
+  }, "Tournament edit");
+
+  const successState = await evaluate(`({
+    successVisible: document.body.innerText.includes("Tournament updated successfully"),
+    formClosed: !document.querySelector('[data-testid="admin-tournament-create-form"]'),
+    width: window.innerWidth,
+  })`);
+  assert(successState?.successVisible, "The successful tournament update message was not visible.");
+  assert(successState.formClosed, "The tournament edit form remained open after success.");
+  assert(successState.width === 320, "The tournament edit flow left the 320px viewport.");
+}
+
 let vitePort;
 
 async function checkIstDateSurfaces(port) {
@@ -4874,6 +4966,7 @@ try {
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminTournamentCreateSaveOnly ||
+    adminTournamentEditSaveOnly ||
     adminActionsOnly ||
     adminLandscapeOnly
   ) {
@@ -4918,6 +5011,8 @@ try {
           ? "Wallet and Edit Profile"
         : adminKeyboardFormsOnly
           ? "Admin tournament keyboard forms"
+        : adminTournamentEditSaveOnly
+          ? "Admin tournament editing at 320px with 1.5× text"
         : adminTournamentCreateSaveOnly
           ? "Admin tournament creation at 320px with 1.5× text"
         : adminActionsOnly
@@ -4994,6 +5089,13 @@ try {
         `Browser errors during large-text tournament creation checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Tournament creation at 320px/1.5× submits every entered setting and shows success.");
+    } else if (adminTournamentEditSaveOnly) {
+      await checkAdminTournamentEditSaveAtLargeText();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during large-text tournament edit checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Editing an existing tournament at 320px/1.5× submits every changed setting and closes on success.");
     } else if (adminActionsOnly) {
       await setViewport(390);
       await checkAdminSelectedRecordMutations();

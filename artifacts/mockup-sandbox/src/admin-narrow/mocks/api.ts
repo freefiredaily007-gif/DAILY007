@@ -615,7 +615,15 @@ export const Api = {
   adminSaveRoom: async () => ({}),
   adminClearRoom: async () => ({}),
   adminPublishResult: async () => ({}),
-  updateTournament: async () => ({}),
+  updateTournament: async (id: string, payload: Record<string, unknown>) => {
+    throwIfAdminPreviewMutationFails("updateTournament");
+    adminPreviewMutationCalls.push({
+      method: "updateTournament",
+      id,
+      payload: { ...payload },
+    });
+    return {};
+  },
   createTournament: async (payload: Record<string, unknown>) => {
     adminPreviewMutationCalls.push({ method: "createTournament", payload: { ...payload } });
     return {};
