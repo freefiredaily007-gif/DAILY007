@@ -14,6 +14,28 @@ export type User = {
   statsError?: string;
 };
 
+export type WithdrawalPayoutStatus = 'not_paid' | 'manual_payout_required' | 'paid';
+
+export type AdminWithdrawal = {
+  id: string;
+  userId: string;
+  userName: string;
+  coins: number;
+  method: string;
+  account: string;
+  status: 'pending' | 'approved' | 'rejected';
+  payoutStatus: WithdrawalPayoutStatus;
+  reviewReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+};
+
+export type AdminWithdrawalPayoutResult = {
+  id: string;
+  payoutStatus: 'paid';
+  alreadyRecorded?: boolean;
+};
+
 export type Tournament = {
   id: string; name: string; mode: string; teamType: string; date: string; time: string;
   startsAt?: string;
@@ -419,8 +441,9 @@ export const Api = {
   adminPublishRoom: (id: string) => unwrap(http.post('/admin/tournaments/' + id + '/publish-room', {})),
   adminPayments: () => unwrap(http.get('/admin/payments')),
   adminPaymentProofUrl: (id: string) => unwrap(http.get('/admin/payments/' + encodeURIComponent(id) + '/proof-url')),
-  adminWithdrawals: () => unwrap(http.get('/admin/withdrawals')),
-  adminMarkWithdrawalPaid: (id: string) => unwrap(http.post('/admin/withdrawals/' + encodeURIComponent(id) + '/payout', {})),
+  adminWithdrawals: (): Promise<AdminWithdrawal[]> => unwrap(http.get('/admin/withdrawals')),
+  adminMarkWithdrawalPaid: (id: string): Promise<AdminWithdrawalPayoutResult> =>
+    unwrap(http.post('/admin/withdrawals/' + encodeURIComponent(id) + '/payout', {})),
   adminWithdrawalAction: (id: string, action: 'approve' | 'reject', reason?: string) =>
     unwrap(http.post('/admin/withdrawals/' + encodeURIComponent(id) + '/' + action, { reason })),
   adminPaymentAction: (id: string, action: 'approve' | 'reject', reason?: string) =>

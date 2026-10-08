@@ -2843,6 +2843,11 @@ async function checkAdminSelectedRecordMutations() {
     `document.body.innerText.includes(${JSON.stringify(approvedPayoutMarker)}) && document.body.innerText.includes(${JSON.stringify(withdrawalToApproveMarker)}) && document.body.innerText.includes(${JSON.stringify(paymentMarker)})`,
     "the approved deposit and withdrawals to load",
   );
+  await assertAdminRecordState(
+    approvedPayoutMarker,
+    { includes: ["MANUAL PAYOUT REQUIRED", "RECORD MANUAL PAYOUT SENT"] },
+    "the approved withdrawal awaiting its manual payout",
+  );
   await assertText(approvedPayoutControlMarker, "the unrelated approved withdrawal");
   await resetAdminMutationCalls();
   await clickRowButton(approvedPayoutMarker, "RECORD MANUAL PAYOUT SENT", "approved withdrawal");
@@ -2854,17 +2859,35 @@ async function checkAdminSelectedRecordMutations() {
   }, "Manual withdrawal payout");
   await waitForAdminRecordState(
     approvedPayoutMarker,
-    { excludes: ["RECORD MANUAL PAYOUT SENT"] },
+    { includes: ["PAID"], excludes: ["RECORD MANUAL PAYOUT SENT"] },
     "the withdrawal with its manual payout recorded",
+  );
+  const paidStatusAccessibleLabel = await evaluate(
+    `document.querySelector('[data-testid="withdrawal-payout-status-preview-withdrawal-approved-manual-payout-2026"]')?.getAttribute('aria-label')`,
+  );
+  assert(
+    paidStatusAccessibleLabel === "Payout status: Paid",
+    `The paid payout status should have a clear accessibility label. Received: ${JSON.stringify(paidStatusAccessibleLabel)}`,
+  );
+  const paidStatusLiveRegion = await evaluate(
+    `document.querySelector('[data-testid="withdrawal-payout-status-preview-withdrawal-approved-manual-payout-2026"]')?.getAttribute('aria-live')`,
+  );
+  assert(
+    paidStatusLiveRegion === "polite",
+    `The paid payout status should be a polite live region. Received: ${JSON.stringify(paidStatusLiveRegion)}`,
+  );
+  await waitForCondition(
+    "!document.body.innerText.includes('Record manual payout')",
+    "the completed payout confirmation to close",
   );
   await assertAdminRecordState(
     approvedPayoutControlMarker,
-    { includes: ["RECORD MANUAL PAYOUT SENT"] },
+    { includes: ["MANUAL PAYOUT REQUIRED", "RECORD MANUAL PAYOUT SENT"] },
     "the unrelated approved withdrawal",
   );
   await assertAdminRecordState(
     withdrawalToApproveMarker,
-    { includes: ["RECORD MANUAL PAYOUT SENT"] },
+    { includes: ["MANUAL PAYOUT REQUIRED", "RECORD MANUAL PAYOUT SENT"] },
     "the separately approved withdrawal",
   );
 
@@ -3334,12 +3357,12 @@ async function checkAdminMutationFailureRecovery() {
     assertUnchanged: async () => {
       await assertAdminRecordState(
         approvedPayoutMarker,
-        { includes: ["RECORD MANUAL PAYOUT SENT"] },
+        { includes: ["MANUAL PAYOUT REQUIRED", "RECORD MANUAL PAYOUT SENT"] },
         "the payout still awaiting payment",
       );
       await assertAdminRecordState(
         approvedPayoutControlMarker,
-        { includes: ["RECORD MANUAL PAYOUT SENT"] },
+        { includes: ["MANUAL PAYOUT REQUIRED", "RECORD MANUAL PAYOUT SENT"] },
         "the unrelated approved payout",
       );
     },
@@ -3352,12 +3375,12 @@ async function checkAdminMutationFailureRecovery() {
       }, "Manual payout retry");
       await waitForAdminRecordState(
         approvedPayoutMarker,
-        { excludes: ["RECORD MANUAL PAYOUT SENT"] },
+        { includes: ["PAID"], excludes: ["RECORD MANUAL PAYOUT SENT"] },
         "the payout after its retry",
       );
       await assertAdminRecordState(
         approvedPayoutControlMarker,
-        { includes: ["RECORD MANUAL PAYOUT SENT"] },
+        { includes: ["MANUAL PAYOUT REQUIRED", "RECORD MANUAL PAYOUT SENT"] },
         "the unrelated payout after retry",
       );
     },

@@ -37,6 +37,17 @@ test('deposit and withdrawal errors identify the request and named retry action'
   assert.match(paymentsSource, /Check its payout status before activating RECORD MANUAL PAYOUT SENT again/);
 });
 
+test('approved withdrawals expose their payout state and announce when it becomes paid', () => {
+  assert.match(paymentsSource, /accessibilityLabel=\{`Payout status: \$\{withdrawalPayoutStatusLabel\(p\.payoutStatus\)\}`\}/);
+  assert.match(paymentsSource, /accessibilityLiveRegion=\{p\.payoutStatus === 'paid' \? 'polite' : 'none'\}/);
+  assert.match(paymentsSource, /testID=\{`withdrawal-payout-status-\$\{p\.id\}`\}/);
+  assert.match(paymentsSource, /Manual payout recorded\. Payout status: \$\{withdrawalPayoutStatusLabel\(payoutResult\.payoutStatus\)\}/);
+  assert.match(paymentsSource, /for \$\{request\?\.userName \|\| 'this player'\}\./);
+  assert.match(paymentsSource, /accessibilityLabel=\{okMsg \|\| undefined\}/);
+  assert.match(paymentsSource, /accessibilityLiveRegion="polite"/);
+  assert.match(paymentsSource, /testID="admin-payment-action-success"/);
+});
+
 test('coin adjustment failures offer a safe retry for the same request in both Admin screens', () => {
   for (const source of [walletSource, usersSource]) {
     assert.match(source, /Use the retry prompt to safely repeat this same request/);

@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Image, ScrollView, StyleSheet } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import * as Clipboard from 'expo-clipboard';
-import { Api, apiError } from '../lib/api';
+import { Api, apiError, type AdminWithdrawal, type AdminWithdrawalPayoutResult } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
 import { ConfirmDialog, PromptDialog } from '../components/adminKit';
@@ -10,11 +10,18 @@ import { copyWithdrawalUpi, getWithdrawalUpiCopyLabel } from '../lib/withdrawal-
 
 const TABS = ['pending', 'approved', 'rejected'] as const;
 
+function withdrawalPayoutStatusLabel(status: AdminWithdrawal['payoutStatus'] | undefined): string {
+  if (status === 'paid') return 'Paid';
+  if (status === 'manual_payout_required') return 'Manual payout required';
+  return 'Status unavailable';
+}
+
 export default function AdminPayments() {
   const [tab, setTab] = useState<(typeof TABS)[number]>('pending');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const okMsgTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: string; kind: string; userName: string } | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
   const [proofUrls, setProofUrls] = useState<Record<string, string>>({});
@@ -25,6 +32,21 @@ export default function AdminPayments() {
   const [copiedUpiId, setCopiedUpiId] = useState<string | null>(null);
 
   const [all, setAll] = useState<any[] | null>(null);
+
+  const clearOkMsgTimeout = () => {
+    if (okMsgTimeout.current !== null) clearTimeout(okMsgTimeout.current);
+    okMsgTimeout.current = null;
+  };
+  const showOkMsg = (message: string, clearAfterMs?: number) => {
+    clearOkMsgTimeout();
+    setOkMsg(message);
+    if (clearAfterMs !== undefined) {
+      okMsgTimeout.current = setTimeout(() => {
+        okMsgTimeout.current = null;
+        setOkMsg('');
+      }, clearAfterMs);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -37,9 +59,15 @@ export default function AdminPayments() {
         ...(Array.isArray(pays) ? pays : []).map((p: any) => ({ ...p, kind: 'payment' })),
         ...(Array.isArray(ws) ? ws : []).map((w: any) => ({ ...w, kind: 'withdrawal' })),
       ]);
-    } catch (e: any) { setErr(apiError(e)); setAll([]); }
+    } catch (e: any) {
+      setErr(apiError(e));
+      setAll((current) => current ?? []);
+    }
   }, []);
   useEffect(() => { setAll(null); load(); }, [load]);
+  useEffect(() => () => {
+    if (okMsgTimeout.current !== null) clearTimeout(okMsgTimeout.current);
+  }, []);
 
   const list = (all ?? []).filter((x) => x.status === tab);
 
@@ -48,15 +76,14 @@ export default function AdminPayments() {
       setRejectTarget({ id, kind, userName });
       return;
     }
-    setErr(''); setOkMsg(''); setBusyId(id);
+    setErr(''); clearOkMsgTimeout(); setOkMsg(''); setBusyId(id);
     try {
       if (kind === 'withdrawal') await Api.adminWithdrawalAction(id, action);
       else await Api.adminPaymentAction(id, action);
-      setOkMsg(action === 'approve'
+      showOkMsg(action === 'approve'
         ? (kind === 'withdrawal' ? 'Withdrawal approved' : 'Payment approved — coins credited')
-        : (kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected'));
+        : (kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected'), 2500);
       await load();
-      setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) {
       const requestType = kind === 'withdrawal' ? 'withdrawal' : 'deposit';
       const actionLabel = action === 'approve' ? 'APPROVE' : 'REJECT';
@@ -72,12 +99,12 @@ export default function AdminPayments() {
     const target = rejectTarget;
     if (!target) return;
     if (!reason.trim()) { setErr('A rejection reason is required.'); return; }
-    setRejectBusy(true); setErr(''); setOkMsg('');
+    setRejectBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
     try {
       if (target.kind === 'withdrawal') await Api.adminWithdrawalAction(target.id, 'reject', reason.trim());
       else await Api.adminPaymentAction(target.id, 'reject', reason.trim());
       setRejectTarget(null);
-      setOkMsg(target.kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected');
+      showOkMsg(target.kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected');
       await load();
     } catch (e: any) {
       setRejectTarget(null);
@@ -106,15 +133,24 @@ export default function AdminPayments() {
   };
 
   const markPaid = async () => {
-    if (!payoutTarget) return;
-    setPayoutBusy(true); setErr(''); setOkMsg('');
+    const targetId = payoutTarget;
+    if (!targetId) return;
+    const request = all?.find((item) => item.kind === 'withdrawal' && item.id === targetId);
+    setPayoutBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
     try {
-      await Api.adminMarkWithdrawalPaid(payoutTarget);
+      const payoutResult: AdminWithdrawalPayoutResult = await Api.adminMarkWithdrawalPaid(targetId);
+      setAll((current) => current?.map((item) =>
+        item.kind === 'withdrawal' && item.id === targetId
+          ? { ...item, payoutStatus: payoutResult.payoutStatus }
+          : item,
+      ) ?? current);
       setPayoutTarget(null);
-      setOkMsg('Manual payout recorded');
+      showOkMsg(
+        `Manual payout recorded. Payout status: ${withdrawalPayoutStatusLabel(payoutResult.payoutStatus)} ` +
+        `for ${request?.userName || 'this player'}.`,
+      );
       await load();
     } catch (e: any) {
-      const request = all?.find((item) => item.kind === 'withdrawal' && item.id === payoutTarget);
       setPayoutTarget(null);
       setErr(
         `Could not record the manual payout for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
@@ -132,7 +168,13 @@ export default function AdminPayments() {
         {TABS.map((t) => <Chip key={t} testID={`admin-payment-filter-${t}`} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
       <Msg kind="err" text={err} accessibilityLabel={err || undefined} accessibilityLiveRegion="assertive" />
-      <Msg kind="ok" text={okMsg} accessibilityLiveRegion="polite" />
+      <Msg
+        kind="ok"
+        text={okMsg}
+        accessibilityLabel={okMsg || undefined}
+        accessibilityLiveRegion="polite"
+        testID="admin-payment-action-success"
+      />
       <Msg
         kind="ok"
         text={copiedUpiId ? 'Withdrawal UPI ID copied' : ''}
@@ -184,6 +226,24 @@ export default function AdminPayments() {
                 : <Btn title="VIEW PAYMENT SCREENSHOT" small kind="ghost" loading={proofLoading === p.id} accessibilityLabel={`View payment screenshot for ${p.userName || 'player'}`} onPress={() => showProof(p.id)} />}
             </View>
           )}
+          {p.kind === 'withdrawal' && p.status === 'approved' && (
+            <Text
+              accessible
+              accessibilityLabel={`Payout status: ${withdrawalPayoutStatusLabel(p.payoutStatus)}`}
+              accessibilityLiveRegion={p.payoutStatus === 'paid' ? 'polite' : 'none'}
+              testID={`withdrawal-payout-status-${p.id}`}
+              style={[
+                st.payoutStatus,
+                p.payoutStatus === 'paid'
+                  ? st.payoutStatusPaid
+                  : p.payoutStatus === 'manual_payout_required'
+                    ? st.payoutStatusManual
+                    : st.payoutStatusUnknown,
+              ]}
+            >
+              {withdrawalPayoutStatusLabel(p.payoutStatus).toUpperCase()}
+            </Text>
+          )}
           {p.kind === 'withdrawal' && p.status === 'approved' && p.payoutStatus === 'manual_payout_required' && (
             <Btn title="RECORD MANUAL PAYOUT SENT" small kind="gold" loading={payoutBusy && payoutTarget === p.id} accessibilityLabel={`Record manual payout sent for ${p.userName || 'player'}`} accessibilityHint="Check payout status before retrying if an error is announced." onPress={() => setPayoutTarget(p.id)} style={{ marginTop: 10 }} />
           )}
@@ -221,6 +281,35 @@ const st = StyleSheet.create({
   notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  payoutStatus: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    flexShrink: 1,
+    marginTop: 8,
+    marginBottom: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 9,
+    borderWidth: 1,
+    overflow: 'hidden',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  payoutStatusManual: {
+    color: C.gold,
+    backgroundColor: C.gold + '14',
+    borderColor: C.gold + '66',
+  },
+  payoutStatusPaid: {
+    color: C.green,
+    backgroundColor: C.green + '14',
+    borderColor: C.green + '66',
+  },
+  payoutStatusUnknown: {
+    color: C.sub,
+    backgroundColor: C.sub + '14',
+    borderColor: C.sub + '66',
+  },
   reason: { color: C.red, fontSize: 11, marginTop: 5, lineHeight: 15 },
   proof: { width: '100%', height: 240, borderRadius: 10, backgroundColor: '#70B8FF' },
 });
