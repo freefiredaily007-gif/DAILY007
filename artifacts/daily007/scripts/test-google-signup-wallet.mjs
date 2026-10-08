@@ -791,6 +791,20 @@ try {
   assert.ok(appInfo.text?.includes(expectedAppVersion), "Profile should show the native app version.");
   assert.ok(appInfo.text?.includes("Android build"), "Android should be identified as the build value.");
   assert.ok(appInfo.text?.includes(expectedAndroidBuild), "Profile should show the native Android build number.");
+  const metadataText = appInfo.text ?? "";
+  const versionLabelPosition = metadataText.indexOf("App version");
+  const versionValuePosition = metadataText.indexOf(expectedAppVersion, versionLabelPosition);
+  const buildLabelPosition = metadataText.indexOf("Android build", versionValuePosition);
+  const buildValuePosition = metadataText.indexOf(expectedAndroidBuild, buildLabelPosition);
+  assert.ok(
+    versionLabelPosition >= 0 &&
+      versionValuePosition > versionLabelPosition &&
+      buildLabelPosition > versionValuePosition &&
+      buildValuePosition > buildLabelPosition,
+    "Profile should expose each metadata value after its label in traversal order.",
+  );
+  assert.equal(metadataText.split("App version").length - 1, 1, "Profile should show one app-version label.");
+  assert.equal(metadataText.split("Android build").length - 1, 1, "Profile should show one Android-build label.");
   const largeTextMetadata = await evaluate(`(() => {
     const card = document.querySelector('[data-testid="profile-app-metadata"]');
     if (!card) return null;
