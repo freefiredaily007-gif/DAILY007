@@ -310,6 +310,103 @@ test("an in-flight admin mutation commits before demotion, and later mutations a
   }
 });
 
+test("a retry after a lost admin coin-adjustment response does not repeat the credit", async () => {
+  const actorId = randomUUID();
+  const targetId = randomUUID();
+  const requestId = randomUUID();
+  const separateRequestId = randomUUID();
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Adjustment Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Adjustment Target', $4, 'test-salt', 'test-hash', 'user', 100)`,
+      [actorId, `adjust-admin-${actorId}@example.test`, targetId, `adjust-target-${targetId}@example.test`],
+    );
+    await withServer(async (origin) => {
+      const firstRequest = {
+        coinsDelta: 25,
+        note: "Admin added coins",
+        requestId,
+      };
+
+      // The server commits successfully, but the simulated client discards the response.
+      await patchJson(origin, `/admin/users/${targetId}`, actorId, firstRequest);
+      const afterUnobservedCommit = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [targetId],
+      );
+      const ledgerAfterUnobservedCommit = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+        [targetId],
+      );
+      assert.equal(afterUnobservedCommit.rows[0]?.wallet_coins, 125);
+      assert.equal(ledgerAfterUnobservedCommit.rows[0]?.count, "1");
+
+      const retry = await patchJson(origin, `/admin/users/${targetId}`, actorId, firstRequest);
+      assert.equal(retry.status, 200, JSON.stringify(retry.body));
+      assert.equal(retry.body.coins, 125);
+
+      const separateAdjustment = await patchJson(origin, `/admin/users/${targetId}`, actorId, {
+        ...firstRequest,
+        requestId: separateRequestId,
+      });
+      assert.equal(separateAdjustment.status, 200, JSON.stringify(separateAdjustment.body));
+      assert.equal(separateAdjustment.body.coins, 150);
+    });
+
+    const target = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [targetId],
+    );
+    const firstLedgerEntry = await pool.query<{
+      amount: number;
+      balance_after: number;
+      reason: string;
+      idempotency_key: string;
+    }>(
+      `SELECT amount, balance_after, reason, idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND idempotency_key = $2`,
+      [targetId, `daily007-admin-adjustment:${actorId}:${requestId}`],
+    );
+    const separateLedgerEntry = await pool.query<{
+      amount: number;
+      balance_after: number;
+      reason: string;
+      idempotency_key: string;
+    }>(
+      `SELECT amount, balance_after, reason, idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND idempotency_key = $2`,
+      [targetId, `daily007-admin-adjustment:${actorId}:${separateRequestId}`],
+    );
+    const ledgerCount = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [targetId],
+    );
+
+    assert.equal(target.rows[0]?.wallet_coins, 150);
+    assert.equal(ledgerCount.rows[0]?.count, "2");
+    assert.deepEqual(firstLedgerEntry.rows[0], {
+      amount: 25,
+      balance_after: 125,
+      reason: "admin_adjustment:Admin added coins",
+      idempotency_key: `daily007-admin-adjustment:${actorId}:${requestId}`,
+    });
+    assert.deepEqual(separateLedgerEntry.rows[0], {
+      amount: 25,
+      balance_after: 150,
+      reason: "admin_adjustment:Admin added coins",
+      idempotency_key: `daily007-admin-adjustment:${actorId}:${separateRequestId}`,
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [targetId]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [[actorId, targetId]]);
+  }
+});
+
 test("an in-flight leaderboard payout commits before demotion, and later approvals are rejected", async () => {
   const actorId = randomUUID();
   const demoterId = randomUUID();

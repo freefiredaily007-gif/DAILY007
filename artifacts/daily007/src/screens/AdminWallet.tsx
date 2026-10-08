@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
-import { Api, errMessage } from '../lib/api';
-import { AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, PromptDialog } from '../components/adminKit';
+import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
+import { AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { inr } from '../lib/coins';
+
+type CoinAdjustment = {
+  user: any;
+  delta: number;
+  amount: number;
+  note: string;
+  requestId: string;
+  error?: string;
+};
 
 export default function AdminWallet() {
   const toast = useToast();
@@ -14,6 +23,7 @@ export default function AdminWallet() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<{ u: any; sign: 1 | -1 } | null>(null);
+  const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
 
   const load = async () => {
@@ -36,27 +46,47 @@ export default function AdminWallet() {
     setPrompt({ u, sign });
   };
 
+  const submitAdjustment = async (adjustment: CoinAdjustment) => {
+    if (busy === adjustment.user.$id) return;
+    setBusy(adjustment.user.$id);
+    try {
+      await Api.adminAdjustCoins(
+        adjustment.user.$id,
+        adjustment.delta,
+        adjustment.note,
+        adjustment.requestId,
+      );
+      setRetryAdjustment(null);
+      toast(`${adjustment.delta > 0 ? '+' : ''}${adjustment.delta} coins for ${adjustment.user.name}`, 'success');
+      load();
+    } catch (e) {
+      const action = adjustment.delta > 0 ? 'add' : 'deduct';
+      const error = errMessage(e);
+      setRetryAdjustment({ ...adjustment, error });
+      toast(
+        `Could not ${action} ${adjustment.amount} coins for ${adjustment.user.name}: ${error}. ` +
+        'Use the retry prompt to safely repeat this same request.',
+        'error',
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const confirmAdjust = async (v: string) => {
     const { u, sign } = prompt || { u: null, sign: 1 };
     if (!u) return;
     const n = parseInt(v || '0', 10);
     setPrompt(null);
     if (!n || n <= 0) return;
-    setBusy(u.$id);
-    try {
-      await Api.adminAdjustCoins(u.$id, sign * n, sign > 0 ? 'Admin added coins' : 'Admin deducted coins');
-      toast(`${sign > 0 ? '+' : '-'}${n} coins for ${u.name}`, 'success');
-      load();
-    } catch (e) {
-      const action = sign > 0 ? 'add' : 'deduct';
-      const buttonLabel = sign > 0 ? '+ ADD' : '− DEDUCT';
-      toast(
-        `Could not ${action} ${n} coins to ${u.name}: ${errMessage(e)}. ` +
-        `${u.name}'s row remains available. Check the balance, then use ${buttonLabel} for ${u.name} to retry.`,
-        'error',
-      );
-    }
-    setBusy(null);
+    const delta = sign * n;
+    await submitAdjustment({
+      user: u,
+      delta,
+      amount: n,
+      note: sign > 0 ? 'Admin added coins' : 'Admin deducted coins',
+      requestId: newAdminAdjustmentRequestId(),
+    });
   };
 
   const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
@@ -99,8 +129,8 @@ export default function AdminWallet() {
             <Text style={[st.coins, stackUserBalance && { alignSelf: 'flex-start' }]}>{u.coins ?? 0} COINS</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <View style={{ flex: 1 }}><Btn title="+ ADD" accessibilityLabel={`Add coins to ${u.name}`} accessibilityHint="If an error is announced, check the balance before trying again." onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
-            <View style={{ flex: 1 }}><Btn title="− DEDUCT" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="If an error is announced, check the balance before trying again." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
+            <View style={{ flex: 1 }}><Btn title="+ ADD" accessibilityLabel={`Add coins to ${u.name}`} accessibilityHint="If an error is announced, use the retry prompt to safely repeat the same adjustment." onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
+            <View style={{ flex: 1 }}><Btn title="− DEDUCT" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="If an error is announced, use the retry prompt to safely repeat the same adjustment." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
           </View>
         </Card>
       ))}
@@ -132,6 +162,22 @@ export default function AdminWallet() {
         confirmTitle={prompt?.sign === 1 ? 'ADD' : 'DEDUCT'}
         onCancel={() => setPrompt(null)}
         onSubmit={confirmAdjust}
+      />
+      <ConfirmDialog
+        visible={retryAdjustment !== null}
+        title="Adjustment not confirmed"
+        message={retryAdjustment
+          ? `The server may already have applied this adjustment. Retry the same request safely, or dismiss it before starting a separate adjustment.${retryAdjustment.error ? ` Last response: ${retryAdjustment.error}` : ''}`
+          : ''}
+        confirmTitle="RETRY SAME REQUEST"
+        onCancel={() => setRetryAdjustment(null)}
+        onConfirm={() => { if (retryAdjustment) void submitAdjustment(retryAdjustment); }}
+        cancelTestID="dismiss-wallet-coin-adjustment-retry"
+        confirmTestID="retry-wallet-coin-adjustment"
+        confirmAccessibilityLabel={retryAdjustment
+          ? `Retry the same ${retryAdjustment.amount}-coin adjustment for ${retryAdjustment.user.name}`
+          : undefined}
+        confirmAccessibilityHint="This uses the same request ID so the balance and transaction are not changed twice."
       />
     </View>
   );

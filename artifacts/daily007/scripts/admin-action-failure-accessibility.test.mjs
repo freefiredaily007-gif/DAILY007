@@ -37,12 +37,20 @@ test('deposit and withdrawal errors identify the request and named retry action'
   assert.match(paymentsSource, /Check its payout status before activating RECORD MANUAL PAYOUT SENT again/);
 });
 
-test('wallet failures explain how to retry without losing the selected user row', () => {
-  assert.match(walletSource, /Could not \$\{action\} \$\{n\} coins to \$\{u\.name\}/);
-  assert.match(walletSource, /\$\{u\.name\}'s row remains available/);
-  assert.match(walletSource, /use \$\{buttonLabel\} for \$\{u\.name\} to retry/);
+test('coin adjustment failures offer a safe retry for the same request in both Admin screens', () => {
+  for (const source of [walletSource, usersSource]) {
+    assert.match(source, /Use the retry prompt to safely repeat this same request/);
+    assert.match(source, /requestId: newAdminAdjustmentRequestId\(\)/);
+    assert.match(source, /adjustment\.requestId/);
+    assert.match(source, /onConfirm=\{\(\) => \{ if \(retryAdjustment\) void submitAdjustment\(retryAdjustment\); \}\}/);
+    assert.match(source, /RETRY SAME REQUEST/);
+  }
+  assert.match(walletSource, /Could not \$\{action\} \$\{adjustment\.amount\} coins for \$\{adjustment\.user\.name\}/);
+  assert.match(usersSource, /Could not \$\{action\} \$\{adjustment\.amount\} coins \$\{adjustment\.delta > 0 \? 'to' : 'from'\} \$\{adjustment\.user\.name\}/);
   assert.match(walletSource, /accessibilityLabel=\{`Add coins to \$\{u\.name\}`\}/);
   assert.match(walletSource, /accessibilityLabel=\{`Deduct coins from \$\{u\.name\}`\}/);
+  assert.match(usersSource, /accessibilityLabel=\{`Add coins to \$\{u\.name\}`\}/);
+  assert.match(usersSource, /accessibilityLabel=\{`Deduct coins from \$\{u\.name\}`\}/);
 });
 
 test('user block and role errors identify the affected account and its retry control', () => {

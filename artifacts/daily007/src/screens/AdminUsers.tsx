@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
-import { Api, errMessage } from '../lib/api';
+import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
 import { AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { useDaily007AdminDeleteUser } from '@workspace/api-client-react';
+
+type CoinAdjustment = {
+  user: any;
+  delta: number;
+  amount: number;
+  note: string;
+  requestId: string;
+  error?: string;
+};
 
 export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
   const toast = useToast();
@@ -17,6 +26,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [roleChangeTarget, setRoleChangeTarget] = useState<any | null>(null);
   const [deleteWarningTarget, setDeleteWarningTarget] = useState<any | null>(null);
   const [deleteEmailTarget, setDeleteEmailTarget] = useState<any | null>(null);
+  const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
 
   const load = async () => {
     try {
@@ -35,6 +45,33 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     : u.role === 'admin'
       ? `Restrict Full Admin access for ${u.name}`
       : `Make ${u.name} a Tournament Admin`;
+
+  const submitAdjustment = async (adjustment: CoinAdjustment) => {
+    if (busy === adjustment.user.$id) return;
+    setBusy(adjustment.user.$id);
+    try {
+      await Api.adminAdjustCoins(
+        adjustment.user.$id,
+        adjustment.delta,
+        adjustment.note,
+        adjustment.requestId,
+      );
+      setRetryAdjustment(null);
+      toast('Coins updated', 'success');
+      load();
+    } catch (e) {
+      const action = adjustment.delta > 0 ? 'add' : 'deduct';
+      const error = errMessage(e);
+      setRetryAdjustment({ ...adjustment, error });
+      toast(
+        `Could not ${action} ${adjustment.amount} coins ${adjustment.delta > 0 ? 'to' : 'from'} ${adjustment.user.name}: ${error}. ` +
+        'Use the retry prompt to safely repeat this same request.',
+        'error',
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const toggleBlock = (u: any) => {
     const block = u.status !== 'blocked';
@@ -61,18 +98,13 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     Alert.prompt(sign > 0 ? 'Add coins' : 'Deduct coins', `Enter amount for ${u.name}`, async (v: string) => {
       const n = parseInt(v || '0', 10);
       if (!n || n <= 0) return;
-      setBusy(u.$id);
-      try { await Api.adminAdjustCoins(u.$id, sign * n, sign > 0 ? 'Admin added coins' : 'Admin deducted coins'); toast('Coins updated', 'success'); load(); }
-      catch (e) {
-        const action = sign > 0 ? 'add' : 'deduct';
-        const buttonLabel = sign > 0 ? '+ COINS' : '− COINS';
-        toast(
-          `Could not ${action} ${n} coins ${sign > 0 ? 'to' : 'from'} ${u.name}: ${errMessage(e)}. ` +
-          `${u.name}'s row remains available. Check the balance, then use ${buttonLabel} for ${u.name} to retry.`,
-          'error',
-        );
-      }
-      setBusy(null);
+      void submitAdjustment({
+        user: u,
+        delta: sign * n,
+        amount: n,
+        note: sign > 0 ? 'Admin added coins' : 'Admin deducted coins',
+        requestId: newAdminAdjustmentRequestId(),
+      });
     });
   };
 
@@ -203,8 +235,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
               <Text style={st.stat}>✓ {approved} approved</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={{ flex: 1 }}><Btn title="+ COINS" accessibilityLabel={`Add coins to ${u.name}`} onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
-              <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title="+ COINS" accessibilityLabel={`Add coins to ${u.name}`} accessibilityHint="If an error is announced, use the retry prompt to safely repeat the same adjustment." onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="If an error is announced, use the retry prompt to safely repeat the same adjustment." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
               <View style={{ flex: 1 }}><Btn title={blocked ? 'UNBLOCK' : 'BLOCK'} kind="danger" accessibilityLabel={`${blocked ? 'Unblock' : 'Block'} ${u.name}`} accessibilityHint="If an error is announced, check the displayed status before trying again." onPress={() => toggleBlock(u)} loading={busy === u.$id} /></View>
             </View>
             {u.$id !== currentUserId && (
@@ -316,6 +348,22 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
           : undefined}
         onCancel={() => setDeleteEmailTarget(null)}
         onSubmit={confirmDeleteUser}
+      />
+      <ConfirmDialog
+        visible={retryAdjustment !== null}
+        title="Adjustment not confirmed"
+        message={retryAdjustment
+          ? `The server may already have applied this adjustment. Retry the same request safely, or dismiss it before starting a separate adjustment.${retryAdjustment.error ? ` Last response: ${retryAdjustment.error}` : ''}`
+          : ''}
+        confirmTitle="RETRY SAME REQUEST"
+        onCancel={() => setRetryAdjustment(null)}
+        onConfirm={() => { if (retryAdjustment) void submitAdjustment(retryAdjustment); }}
+        cancelTestID="dismiss-users-coin-adjustment-retry"
+        confirmTestID="retry-users-coin-adjustment"
+        confirmAccessibilityLabel={retryAdjustment
+          ? `Retry the same ${retryAdjustment.amount}-coin adjustment for ${retryAdjustment.user.name}`
+          : undefined}
+        confirmAccessibilityHint="This uses the same request ID so the balance and transaction are not changed twice."
       />
     </ScreenWrap>
   );

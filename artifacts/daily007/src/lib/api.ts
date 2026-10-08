@@ -43,6 +43,14 @@ export type AccountRecoveryRequest = {
 
 export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Type': 'application/json' } });
 
+export function newAdminAdjustmentRequestId(): string {
+  const timestamp = Date.now().toString(16).padStart(12, '0').slice(-12);
+  const randomHex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+  const randomPart = `${randomHex()}${randomHex()}${randomHex()}${randomHex()}${randomHex()}`;
+  const variant = (8 + Math.floor(Math.random() * 4)).toString(16);
+  return `${timestamp.slice(0, 8)}-${timestamp.slice(8)}-4${randomPart.slice(0, 3)}-${variant}${randomPart.slice(3, 6)}-${randomPart.slice(6, 18)}`;
+}
+
 // Deliberately distinct from the legacy hosted app's AsyncStorage keys.
 const KEY = 'daily007_v2_session';
 let current: User | null = null;
@@ -424,7 +432,8 @@ export const Api = {
       r != null && r.tournamentId === tid && r.status === 'approved');
   },
   adminPublishResult: (b: object) => unwrap(http.post('/admin/results', b)),
-  adminAdjustCoins: (id: string, coinsDelta: number, note: string) => unwrap(http.patch('/admin/users/' + id, { coinsDelta, note })),
+  adminAdjustCoins: (id: string, coinsDelta: number, note: string, requestId: string) =>
+    unwrap(http.patch('/admin/users/' + id, { coinsDelta, note, requestId })),
   adminSetUser: (id: string, b: object) => unwrap(http.patch('/admin/users/' + id, b)),
   adminSetUserRole: (id: string, role: 'user' | 'tournament_admin') =>
     unwrap(http.patch('/admin/users/' + id + '/role', { role })),

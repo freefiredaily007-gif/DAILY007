@@ -844,15 +844,47 @@ router.patch("/admin/users/:id", authenticate, async (req, res): Promise<void> =
   if (!validId(id) || !isObject(body)) { error(res, 400, "A valid user UUID and JSON object are required."); return; }
   const setStatus = Object.hasOwn(body, "status");
   const setCoins = Object.hasOwn(body, "coinsDelta");
+  const hasRequestId = Object.hasOwn(body, "requestId");
   if ((!setStatus && !setCoins) ||
       (setStatus && body.status !== "active" && body.status !== "blocked") ||
-      (setCoins && (!integer(body.coinsDelta, -MAX_INT, MAX_INT) || body.coinsDelta === 0))) {
-    error(res, 400, "Provide status active/blocked and/or a nonzero signed integer coinsDelta within 32-bit range."); return;
+      (setCoins && (!integer(body.coinsDelta, -MAX_INT, MAX_INT) || body.coinsDelta === 0)) ||
+      (hasRequestId && (!setCoins || setStatus || !validId(body.requestId)))) {
+    error(res, 400, "Provide status active/blocked and/or a nonzero signed integer coinsDelta within 32-bit range; coin adjustment requestId must be a UUID."); return;
   }
   const reason = setCoins ? text(body.note ?? body.reason, 1, 100) : null;
   if (setCoins && !reason) { error(res, 400, "A 1–100 character reason is required for coin adjustments."); return; }
+  const actorId = userId(req);
+  const idempotencyKey = hasRequestId
+    ? `daily007-admin-adjustment:${actorId}:${body.requestId as string}`
+    : null;
   try {
     const user = await roleTransaction(req, "admin", async (client) => {
+      if (idempotencyKey) {
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+          [idempotencyKey],
+        );
+        const existing = await client.query<{ user_id: string; amount: number; reason: string }>(
+          `SELECT user_id, amount, reason
+             FROM daily007_v2_wallet_ledger
+            WHERE idempotency_key = $1`,
+          [idempotencyKey],
+        );
+        const previous = existing.rows[0];
+        if (previous) {
+          if (previous.user_id !== id || previous.amount !== body.coinsDelta ||
+              previous.reason !== `admin_adjustment:${reason}`) {
+            throw Object.assign(new Error("This adjustment request ID was already used for a different request."), { status: 409 });
+          }
+          const current = await client.query(
+            `SELECT id, name, email, status, wallet_coins AS "coins"
+               FROM daily007_v2_users
+              WHERE id = $1`,
+            [id],
+          );
+          return current.rows[0] ?? null;
+        }
+      }
       const locked = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [id],
       );
@@ -868,8 +900,9 @@ router.patch("/admin/users/:id", authenticate, async (req, res): Promise<void> =
         [id, setStatus ? body.status : null, next],
       );
       if (setCoins) await client.query(
-        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
-         VALUES ($1, $2, $3, $4)`, [id, body.coinsDelta, next, `admin_adjustment:${reason}`],
+        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, body.coinsDelta, next, `admin_adjustment:${reason}`, idempotencyKey],
       );
       return update.rows[0];
     }, setStatus ? "exclusive" : "shared");
