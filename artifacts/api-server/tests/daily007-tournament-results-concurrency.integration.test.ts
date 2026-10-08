@@ -1287,6 +1287,81 @@ test("concurrent first-, second-, and third-place results preserve configured pr
         },
       ]);
 
+      const adminHistoryResponse = await fetch(`${origin}/admin/results`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(adminHistoryResponse.status, 200);
+      const adminHistoryBody = await adminHistoryResponse.json() as {
+        success: boolean;
+        data: Array<{
+          tournamentId: string;
+          tournamentName: string;
+          registrationId: string;
+          playerName: string;
+          gameName: string | null;
+          teamName: string | null;
+          rank: number;
+          kills: number;
+          prizeCoins: number;
+        }>;
+      };
+      assert.equal(adminHistoryBody.success, true);
+      assert.equal(adminHistoryBody.data.length, 3);
+      assert.ok(
+        adminHistoryBody.data.every((award) => award.tournamentId === fixture.matchId),
+        `Admin results must not include unrelated fixture awards: ${JSON.stringify(adminHistoryBody.data)}.`,
+      );
+      assert.deepEqual(adminHistoryBody.data.map((award) => ({
+        tournamentId: award.tournamentId,
+        tournamentName: award.tournamentName,
+        registrationId: award.registrationId,
+        playerName: award.playerName,
+        gameName: award.gameName,
+        teamName: award.teamName,
+        rank: award.rank,
+        kills: award.kills,
+        prizeCoins: award.prizeCoins,
+      })), [
+        {
+          tournamentId: fixture.matchId,
+          tournamentName: "Isolated result race",
+          registrationId: winner.registrationId,
+          playerName: "Test Player 1",
+          gameName: "TestGame1",
+          teamName: "",
+          rank: 1,
+          kills: 7,
+          prizeCoins: 500,
+        },
+        {
+          tournamentId: fixture.matchId,
+          tournamentName: "Isolated result race",
+          registrationId: runnerUp.registrationId,
+          playerName: "Test Player 2",
+          gameName: "TestGame2",
+          teamName: "",
+          rank: 2,
+          kills: 3,
+          prizeCoins: 250,
+        },
+        {
+          tournamentId: fixture.matchId,
+          tournamentName: "Isolated result race",
+          registrationId: thirdPlace.registrationId,
+          playerName: "Test Player 3",
+          gameName: "TestGame3",
+          teamName: "",
+          rank: 3,
+          kills: 5,
+          prizeCoins: 125,
+        },
+      ]);
+      assert.deepEqual(
+        adminHistoryBody.data.map((award) => award.rank),
+        [1, 2, 3],
+        "Admin results history must include each configured placement exactly once.",
+      );
+
       const awards = await pool.query<{
         registration_id: string;
         user_id: string;
