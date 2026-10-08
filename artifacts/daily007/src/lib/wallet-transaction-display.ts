@@ -13,6 +13,9 @@ export function walletTransactionDescription(item: WalletTransactionDisplayItem)
   if (item.reason === "tournament_cancel_refund") {
     return "Entry fee refunded (tournament cancelled)";
   }
+  if (item.reason === "video_watch_reward") {
+    return "Video watch reward";
+  }
   return Number(item.amount) > 0 ? "Coins added" : "Tournament entry";
 }
 

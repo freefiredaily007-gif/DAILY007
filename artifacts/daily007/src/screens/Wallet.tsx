@@ -235,7 +235,7 @@ export default function Wallet() {
           </>
         }
         ListEmptyComponent={loading ? <Loading /> : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />}
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const pos = item.amount > 0;
           const isCancellationRefund = item.reason === 'tournament_cancel_refund';
           const isRejectedDeposit = item.isRequest &&
@@ -260,6 +260,7 @@ export default function Wallet() {
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
             <Card
+              testID={`wallet-transaction-${String(item.id ?? index)}`}
               style={[
                 { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
               ]}

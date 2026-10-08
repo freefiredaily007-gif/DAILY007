@@ -14,12 +14,18 @@ CREATE TABLE daily007_v2_users (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE daily007_v2_matches (
+  id uuid PRIMARY KEY,
+  title text NOT NULL
+);
+
 CREATE TABLE daily007_v2_wallet_ledger (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
   amount integer NOT NULL,
   balance_after integer NOT NULL CHECK (balance_after >= 0),
   reason text NOT NULL,
+  match_id uuid REFERENCES daily007_v2_matches(id),
   idempotency_key text UNIQUE,
   details jsonb,
   created_at timestamptz NOT NULL DEFAULT now()

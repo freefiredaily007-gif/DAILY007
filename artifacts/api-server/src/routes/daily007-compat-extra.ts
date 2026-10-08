@@ -255,7 +255,9 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
         : tournamentId
           ? `Entry fee refunded — tournament ${tournamentId} (tournament cancelled)`
           : existingDescription ?? "Entry fee refunded (tournament cancelled)"
-      : existingDescription ?? String(row.reason).replaceAll("_", " ");
+        : existingDescription ?? (row.reason === "video_watch_reward"
+          ? "Video watch reward"
+          : String(row.reason).replaceAll("_", " "));
     return {
       ...transactionRow,
       description,

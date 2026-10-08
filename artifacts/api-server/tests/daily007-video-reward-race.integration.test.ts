@@ -802,6 +802,47 @@ test("two concurrent sessions for one player retain separate video rewards", asy
         );
         assert.equal(session.ledgerId, transactionIdBySession.get(session.sessionId));
       }
+
+      const historyResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: authHeaders(fixture.playerId),
+      });
+      assert.equal(historyResponse.status, 200);
+      const history = await historyResponse.json() as Array<{
+        id: string;
+        amount: number;
+        balanceAfter: number;
+        reason: string;
+        description: string;
+        details: Record<string, unknown> | null;
+      }>;
+      const videoRewards = history.filter((transaction) =>
+        transaction.reason === "video_watch_reward"
+      );
+      assert.equal(videoRewards.length, 2, "Wallet history should include both video rewards");
+      assert.equal(new Set(videoRewards.map((transaction) => transaction.id)).size, 2);
+      assert.deepEqual(
+        videoRewards.map((transaction) => transaction.balanceAfter).sort((left, right) => left - right),
+        [13, 14],
+      );
+
+      const responseBySession = new Map([
+        [firstSessionId, firstResponse],
+        [secondSessionId, secondResponse],
+      ]);
+      const historySessionIds: string[] = [];
+      for (const transaction of videoRewards) {
+        assert.equal(transaction.amount, 1);
+        assert.equal(transaction.description, "Video watch reward");
+        const sessionId = transaction.details?.sessionId;
+        assert.equal(typeof sessionId, "string");
+        assert.ok(sessionId);
+        historySessionIds.push(sessionId);
+        const completionResponse = responseBySession.get(sessionId);
+        assert.ok(completionResponse, "history should point to one of the completed sessions");
+        assert.equal(transaction.id, completionResponse.body.transactionId);
+        assert.equal(transaction.balanceAfter, completionResponse.body.walletCoins);
+      }
+      assert.deepEqual(historySessionIds.sort(), [...sessionIds].sort());
     }, async () => {
       if (walletBlocker) {
         await walletBlocker.query("ROLLBACK").catch(() => undefined);
