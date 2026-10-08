@@ -37,6 +37,7 @@ const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-onl
 const adminSearchKeyboardOnly = process.argv.includes("--admin-search-keyboard-only");
 const adminSearchAccessibilityOnly = process.argv.includes("--admin-search-accessibility-only");
 const adminLandscapeKeyboardOnly = process.argv.includes("--admin-landscape-keyboard-only");
+const adminLandscapeLargeTextOnly = process.argv.includes("--admin-landscape-large-text-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
 const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament-empty-filter-only");
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
@@ -5912,6 +5913,7 @@ try {
     adminSearchKeyboardOnly ||
     adminSearchAccessibilityOnly ||
     adminLandscapeKeyboardOnly ||
+    adminLandscapeLargeTextOnly ||
     adminTournamentCreateSaveOnly ||
     adminTournamentEmptyFilterOnly ||
     adminTournamentHomeRefreshOnly ||
@@ -5920,13 +5922,13 @@ try {
     adminLandscapeOnly
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: adminLandscapeOnly || adminLandscapeKeyboardOnly
+      width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
-      height: adminLandscapeOnly || adminLandscapeKeyboardOnly
+      height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
@@ -5938,6 +5940,8 @@ try {
     await waitForPage(
       adminLandscapeOnly
         ? "Admin landscape screens"
+        : adminLandscapeLargeTextOnly
+          ? "Admin landscape large-text screens"
         : adminLandscapeKeyboardOnly
           ? "Admin tournament landscape keyboard screens"
         : istDateSurfacesOnly
@@ -5998,6 +6002,37 @@ try {
       );
       console.log(
         "PASS 800×360 Android landscape — all 11 Admin tabs, populated list actions, and tournament create, room, results, and completed-result controls remain reachable without horizontal clipping.",
+      );
+    } else if (adminLandscapeLargeTextOnly) {
+      await setViewport(800, 1.5);
+      await cdp("Emulation.setDeviceMetricsOverride", {
+        width: 800,
+        height: 360,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(150);
+      const viewport = await evaluate(`({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        landscape: matchMedia("(orientation: landscape)").matches,
+        fontScale: window.__daily007LargeTextScale,
+      })`);
+      assert(
+        viewport.width === 800 && viewport.height === 360 && viewport.landscape &&
+          viewport.fontScale === 1.5,
+        `The large-text Admin landscape preview expected 800×360 at 1.5×, received ` +
+          `${viewport.width}×${viewport.height}, landscape=${viewport.landscape}, scale=${viewport.fontScale}.`,
+      );
+      await checkAdminTabs(800, { requireReachability: true });
+      await checkPopulatedAdminLists(800, { requireReachability: true });
+      await checkTournamentStates(800, { largeText: true, landscape: true });
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during large-text Admin landscape checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS 800×360 Android landscape at 1.5× text — all 11 Admin tabs, populated row actions, tournament creation, room setup, result entry, and completed-result details remain reachable and readable without horizontal overflow.",
       );
     } else if (adminLandscapeKeyboardOnly) {
       await checkAdminTournamentLandscapeKeyboard();
