@@ -433,6 +433,64 @@ test("withdrawal limits reject invalid requests and rejection refunds a valid re
   });
 });
 
+test("players see only their own pending withdrawal and payout details", async () => {
+  walletTestDb.reset();
+
+  await withServer(async (origin) => {
+    const firstCreated = await call(origin, TEST_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "first-player@upi",
+    });
+    const secondCreated = await call(origin, TEST_SECOND_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 250,
+      method: "bank",
+      account: "second-player-account-9876",
+    });
+
+    assert.equal(firstCreated.status, 201);
+    assert.equal(secondCreated.status, 201);
+    const firstWithdrawalId = firstCreated.body.id as string;
+    const secondWithdrawalId = secondCreated.body.id as string;
+    assert.notEqual(firstWithdrawalId, secondWithdrawalId);
+
+    const firstHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
+    const secondHistory = await call(origin, TEST_SECOND_PLAYER_ID, "/my/withdrawals", "GET");
+
+    assert.equal(firstHistory.status, 200);
+    assert.equal(secondHistory.status, 200);
+    assert.deepEqual(firstHistory.body, [{
+      id: firstWithdrawalId,
+      coins: 150,
+      method: "upi",
+      account: "first-player@upi",
+      status: "pending",
+      payoutStatus: "not_paid",
+      reviewReason: null,
+      createdAt: walletTestDb.withdrawals.get(firstWithdrawalId)?.created_at.toISOString(),
+      reviewedAt: null,
+    }]);
+    assert.deepEqual(secondHistory.body, [{
+      id: secondWithdrawalId,
+      coins: 250,
+      method: "bank",
+      account: "second-player-account-9876",
+      status: "pending",
+      payoutStatus: "not_paid",
+      reviewReason: null,
+      createdAt: walletTestDb.withdrawals.get(secondWithdrawalId)?.created_at.toISOString(),
+      reviewedAt: null,
+    }]);
+
+    const firstHistoryJson = JSON.stringify(firstHistory.body);
+    const secondHistoryJson = JSON.stringify(secondHistory.body);
+    assert.equal(firstHistoryJson.includes(secondWithdrawalId), false);
+    assert.equal(firstHistoryJson.includes("second-player-account-9876"), false);
+    assert.equal(secondHistoryJson.includes(firstWithdrawalId), false);
+    assert.equal(secondHistoryJson.includes("first-player@upi"), false);
+  });
+});
+
 test("approved withdrawals stay manual and recording a payout is idempotent", async () => {
   walletTestDb.reset();
 

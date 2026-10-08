@@ -117,6 +117,17 @@ class MemoryWalletDatabase {
         status: "active",
         auth_version: 0,
       }],
+      [TEST_SECOND_PLAYER_ID, {
+        id: TEST_SECOND_PLAYER_ID,
+        name: "Second Test Player",
+        email: "second-player@example.test",
+        role: "user",
+        wallet_coins: playerBalance,
+        phone: null,
+        game_uid: null,
+        status: "active",
+        auth_version: 0,
+      }],
       [TEST_ADMIN_ID, {
         id: TEST_ADMIN_ID,
         name: "Test Admin",
