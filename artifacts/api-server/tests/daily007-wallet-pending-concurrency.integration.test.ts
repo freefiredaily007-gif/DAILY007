@@ -26,7 +26,7 @@ if (
 const playerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
 const initialBalance = 700;
 
-type DepositResponse = {
+type ApiResponse = {
   status: number;
   body: Record<string, unknown>;
 };
@@ -81,11 +81,28 @@ async function submitDeposit(
   userId: string,
   reference: string,
   coins: number,
-): Promise<DepositResponse> {
+): Promise<ApiResponse> {
   const response = await fetch(`${origin}/payments`, {
     method: "POST",
     headers: authHeaders(userId),
     body: JSON.stringify({ coins, txnId: reference }),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function submitWithdrawal(
+  origin: string,
+  userId: string,
+  coins: number,
+): Promise<ApiResponse> {
+  const response = await fetch(`${origin}/withdrawals`, {
+    method: "POST",
+    headers: authHeaders(userId),
+    body: JSON.stringify({
+      coins,
+      method: "upi",
+      account: `withdrawal-${userId}@upi`,
+    }),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
@@ -114,11 +131,18 @@ async function createFixture(): Promise<void> {
       minPurchase: "1",
       maxPurchase: "5000",
       coinToMoneyRate: "2.5",
+      withdrawalEnabled: "true",
+      minWithdrawal: "100",
+      maxWithdrawal: "5000",
     })],
   );
 }
 
 async function cleanupFixture(): Promise<void> {
+  await pool.query(
+    "DELETE FROM daily007_v2_withdrawals WHERE user_id = ANY($1::uuid[])",
+    [playerIds],
+  );
   await pool.query(
     "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
     [playerIds],
@@ -136,6 +160,47 @@ async function backendPid(client: Awaited<ReturnType<typeof pool.connect>>): Pro
   const pid = result.rows[0]?.pid;
   assert.ok(pid, "PostgreSQL must provide a backend id for the pending-payment blocker.");
   return Number(pid);
+}
+
+async function waitForBlockedWithdrawalRequests(
+  blockerPid: number,
+  expectedCount: number,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blockers: number[] }>(
+      `SELECT activity.pid, pg_blocking_pids(activity.pid) AS blockers
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.datname = current_database()
+          AND activity.wait_event_type = 'Lock'
+          AND activity.query ILIKE $1
+        ORDER BY activity.query_start`,
+      ["%SELECT wallet_coins FROM daily007_v2_users%"],
+    );
+    if (result.rows.length >= expectedCount) {
+      assert.equal(
+        result.rows.length,
+        expectedCount,
+        "Only the two same-player withdrawal requests should be waiting on the wallet row.",
+      );
+      const requestPids = new Set(result.rows.map((row) => Number(row.pid)));
+      assert.ok(
+        result.rows.some((row) => row.blockers.map(Number).includes(blockerPid)),
+        "At least one withdrawal request must be waiting directly on the wallet-row blocker.",
+      );
+      assert.ok(
+        result.rows.every((row) =>
+          row.blockers.some((pid) => Number(pid) === blockerPid || requestPids.has(Number(pid))),
+        ),
+        "Each withdrawal request must be queued behind the blocker or the earlier waiting request.",
+      );
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} withdrawal requests to block on the wallet row.`);
 }
 
 async function waitForBlockedPaymentRequests(
@@ -202,7 +267,7 @@ async function assertWalletsAndLedgerUnchanged(): Promise<void> {
 test("concurrent deposits enforce the PostgreSQL pending limit per player", async () => {
   let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
   let blockerTransactionOpen = false;
-  let samePlayerSubmissions: Promise<DepositResponse>[] = [];
+  let samePlayerSubmissions: Promise<ApiResponse>[] = [];
 
   try {
     await createFixture();
@@ -330,6 +395,115 @@ test("concurrent deposits enforce the PostgreSQL pending limit per player", asyn
       blockerTransactionOpen = false;
     }
     if (samePlayerSubmissions.length) await Promise.allSettled(samePlayerSubmissions);
+    blocker?.release();
+    await cleanupFixture();
+  }
+});
+
+test("concurrent withdrawals reserve a player's wallet only once", async () => {
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let withdrawalSubmissions: Promise<ApiResponse>[] = [];
+
+  try {
+    await createFixture();
+    const playerId = playerIds[0];
+    const requestedCoins = [150, 250] as const;
+
+    await withServer(async (origin) => {
+      blocker = await pool.connect();
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [playerId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      withdrawalSubmissions = requestedCoins.map((coins) =>
+        submitWithdrawal(origin, playerId, coins),
+      );
+
+      try {
+        await waitForBlockedWithdrawalRequests(blockerPid, 2);
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const responses = await Promise.all(withdrawalSubmissions);
+      assert.deepEqual(
+        responses.map((response) => response.status).sort((left, right) => left - right),
+        [201, 409],
+      );
+
+      const acceptedIndex = responses.findIndex((response) => response.status === 201);
+      const accepted = responses[acceptedIndex];
+      const conflict = responses[1 - acceptedIndex];
+      assert.ok(accepted);
+      assert.ok(conflict);
+      assert.equal(accepted.body.status, "pending");
+      assert.equal(
+        accepted.body.walletCoins,
+        initialBalance - requestedCoins[acceptedIndex],
+      );
+      assert.equal(
+        conflict.body.error,
+        "You already have a pending withdrawal request.",
+      );
+      assert.ok(typeof accepted.body.id === "string");
+
+      const withdrawals = await pool.query<{
+        id: string;
+        user_id: string;
+        coins: number;
+        status: string;
+      }>(
+        `SELECT id, user_id, coins, status
+           FROM daily007_v2_withdrawals
+          WHERE user_id = $1`,
+        [playerId],
+      );
+      assert.deepEqual(withdrawals.rows, [{
+        id: accepted.body.id,
+        user_id: playerId,
+        coins: requestedCoins[acceptedIndex],
+        status: "pending",
+      }]);
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [playerId],
+      );
+      const expectedBalance = initialBalance - requestedCoins[acceptedIndex];
+      assert.equal(wallet.rows[0]?.wallet_coins, expectedBalance);
+
+      const ledger = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])`,
+        [playerIds],
+      );
+      assert.deepEqual(ledger.rows, [{
+        user_id: playerId,
+        amount: -requestedCoins[acceptedIndex],
+        balance_after: expectedBalance,
+        reason: "withdrawal_reserved",
+      }]);
+    });
+  } finally {
+    if (blockerTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      blockerTransactionOpen = false;
+    }
+    if (withdrawalSubmissions.length) await Promise.allSettled(withdrawalSubmissions);
     blocker?.release();
     await cleanupFixture();
   }
