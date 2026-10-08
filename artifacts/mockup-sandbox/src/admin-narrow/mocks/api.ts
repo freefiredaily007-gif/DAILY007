@@ -348,10 +348,31 @@ export function newAdminAdjustmentRequestId(): string {
 }
 
 type AdminPreviewMutationCall = { method: string; [key: string]: unknown };
+type AdminPreviewRejectedMutationResult = {
+  category: string;
+  error: string;
+  rejected: boolean;
+  fixturesUnchanged: boolean;
+  reportedAsSuccess: boolean;
+};
 const adminPreviewMutationCalls: AdminPreviewMutationCall[] = [];
 const adminPreviewMutationFailures = new Map<string, string>();
+function snapshotAdminPreviewFixtures() {
+  return JSON.parse(JSON.stringify({
+    registrations: previewAdminRegistrations,
+    payments: previewAdminPayments,
+    withdrawals: previewAdminWithdrawals,
+    users: previewAdminUsers,
+    notificationRecipients: previewNotificationRecipients,
+    transactions: previewAdminTransactions,
+  }));
+}
+let runAdminPreviewRejectedMutationProbes = async (): Promise<AdminPreviewRejectedMutationResult[]> => [];
+
 const adminPreviewMutations = {
   calls: adminPreviewMutationCalls,
+  snapshot: snapshotAdminPreviewFixtures,
+  probeRejectedMutations: () => runAdminPreviewRejectedMutationProbes(),
   reset: () => {
     adminPreviewMutationCalls.length = 0;
     adminPreviewMutationFailures.clear();
@@ -822,6 +843,54 @@ export const Api = {
     });
     return withdrawal;
   },
+};
+
+runAdminPreviewRejectedMutationProbes = async () => {
+  const knownUserId = "preview-user-ananya-championship-2026";
+  const probes: { category: string; run: () => Promise<unknown> }[] = [
+    {
+      category: "registration",
+      run: () => Api.adminRegAction("unknown-preview-registration", "approve"),
+    },
+    {
+      category: "payment",
+      run: () => Api.adminPaymentAction("unknown-preview-payment", "approve"),
+    },
+    {
+      category: "wallet",
+      run: () => Api.adminAdjustCoins(knownUserId, Number.MAX_SAFE_INTEGER, "Rejected preview probe"),
+    },
+    {
+      category: "user status",
+      run: () => Api.adminSetUser(knownUserId, { status: "suspended" }),
+    },
+    {
+      category: "user role",
+      run: () => Api.adminSetUserRole(knownUserId, "admin"),
+    },
+  ];
+  const outcomes: AdminPreviewRejectedMutationResult[] = [];
+  for (const probe of probes) {
+    adminPreviewMutationCalls.length = 0;
+    adminPreviewMutationFailures.clear();
+    const fixturesBefore = JSON.stringify(snapshotAdminPreviewFixtures());
+    let error = "";
+    try {
+      await probe.run();
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : String(failure);
+    }
+    const fixturesAfter = JSON.stringify(snapshotAdminPreviewFixtures());
+    outcomes.push({
+      category: probe.category,
+      error,
+      rejected: error.length > 0,
+      fixturesUnchanged: fixturesBefore === fixturesAfter,
+      reportedAsSuccess: adminPreviewMutationCalls.length > 0,
+    });
+  }
+  adminPreviewMutationCalls.length = 0;
+  return outcomes;
 };
 
 export function getTournamentReadCount() {

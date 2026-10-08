@@ -437,6 +437,38 @@ async function failNextAdminMutation(method, message) {
   assert(configured, `Could not configure the isolated ${method} failure.`);
 }
 
+async function assertAdminRejectedMutationProbes() {
+  await resetAdminMutationCalls();
+  const outcomes = await evaluate(
+    "window.__daily007AdminMutations?.probeRejectedMutations?.() ?? null",
+  );
+  const expectedCategories = ["registration", "payment", "wallet", "user status", "user role"];
+  assert(
+    Array.isArray(outcomes) && outcomes.length === expectedCategories.length,
+    `Expected one rejected mutation probe for each category: ${JSON.stringify(outcomes)}.`,
+  );
+  for (const [index, category] of expectedCategories.entries()) {
+    const outcome = outcomes[index];
+    assert(
+      outcome.category === category && outcome.rejected && outcome.error,
+      `The ${category} invalid-input probe should be rejected: ${JSON.stringify(outcome)}.`,
+    );
+    assert(
+      outcome.fixturesUnchanged,
+      `The ${category} rejection changed a fake Admin fixture: ${JSON.stringify(outcome)}.`,
+    );
+    assert(
+      !outcome.reportedAsSuccess,
+      `The ${category} rejection was recorded as a successful mutation: ${JSON.stringify(outcome)}.`,
+    );
+  }
+  const calls = await evaluate("window.__daily007AdminMutations?.calls ?? null");
+  assert(
+    Array.isArray(calls) && calls.length === 0,
+    `Rejected mutation probes should leave the success log empty: ${JSON.stringify(calls)}.`,
+  );
+}
+
 async function assertAdminMutationFailure(message, successMessage, description) {
   await waitForCondition(
     `document.body.innerText.includes(${JSON.stringify(message)})`,
@@ -3097,13 +3129,29 @@ async function checkAdminMutationFailureRecovery() {
     retryAction,
   }) => {
     await resetAdminMutationCalls();
+    const fixturesBeforeFailure = await evaluate(
+      "window.__daily007AdminMutations?.snapshot?.() ?? null",
+    );
+    assert(
+      fixturesBeforeFailure !== null,
+      `${description} should have access to the isolated Admin fixture snapshot.`,
+    );
     await failNextAdminMutation(method, error);
     await failAction();
     await assertAdminMutationFailure(error, success, description);
+    const fixturesAfterFailure = await evaluate(
+      "window.__daily007AdminMutations?.snapshot?.() ?? null",
+    );
+    assert(
+      JSON.stringify(fixturesAfterFailure) === JSON.stringify(fixturesBeforeFailure),
+      `${description} should leave every fake Admin fixture unchanged after rejection.`,
+    );
     await assertUnchanged();
     await resetAdminMutationCalls();
     await retryAction();
   };
+
+  await assertAdminRejectedMutationProbes();
 
   const registrationMarker =
     "Ananya Daily007 Championship Champion With A Long Name — International Free Fire Finals Squad";
