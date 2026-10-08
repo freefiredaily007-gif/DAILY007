@@ -283,6 +283,36 @@ test('format cards announce one mode, format, and capacity action without decora
   }
 });
 
+test('format cards stack their details and remain scrollable at 1.5x Android text', () => {
+  const formatSection = modeSubmodesSource.slice(
+    modeSubmodesSource.indexOf('<View style={styles.formats}>'),
+    modeSubmodesSource.indexOf('<Text style={styles.note}'),
+  );
+  const formatCardStyle = /formatCard:\s*\{([^}]*)\}/.exec(modeSubmodesSource)?.[1] ?? '';
+
+  assert.match(modeSubmodesSource, /const largeText = fontScale >= 1\.5/);
+  assert.match(modeSubmodesSource, /<ScrollView style=\{styles\.root\} contentContainerStyle=\{styles\.content\}>/);
+  assert.match(formatSection, /style=\{\[styles\.formatCard,\s*largeText && styles\.formatCardLarge\]\}/);
+  assert.match(formatSection, /formatContent,\s*largeText && styles\.formatContentLarge/);
+  assert.match(formatSection, /formatTopRow,\s*largeText && styles\.formatTopRowLarge/);
+  assert.match(formatSection, /formatInfo,\s*largeText && styles\.formatInfoLarge/);
+  assert.match(modeSubmodesSource, /formatContentLarge:\s*\{\s*flexDirection:\s*'column'/);
+  assert.match(modeSubmodesSource, /formatTopRowLarge:\s*\{\s*width:\s*'100%'/);
+  assert.match(modeSubmodesSource, /formatInfoLarge:\s*\{\s*flex:\s*0,\s*width:\s*'100%'/);
+  assert.doesNotMatch(formatCardStyle, /(?:^|,)\s*height\s*:/);
+  assert.doesNotMatch(formatSection, /numberOfLines=|ellipsizeMode=/);
+
+  for (const [type, title] of [['solo', 'SOLO'], ['duo', 'DUO'], ['squad', 'SQUAD']]) {
+    assert.match(modeSubmodesSource, new RegExp(`\\{ type: '${type}', title: '${title}'`));
+  }
+  assert.match(formatSection, /testID=\{`format-\$\{gameMode\}-\$\{format\.type\}`\}/);
+  assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.label\}`\}/);
+  assert.match(formatSection, /onPress=\{\(\) => navigation\.navigate\([\s\S]*?submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\)/);
+  assert.match(formatSection, /style=\{styles\.formatName\}>\{format\.title\}<\/Text>/);
+  assert.match(formatSection, /per team<\/Text>/);
+  assert.match(formatSection, />\{capacity\.label\}<\/Text>/);
+});
+
 test('Home mode cards keep every lifecycle tab mode-scoped and the format picker format-scoped', () => {
   const lifecycleTabs = ['upcoming', 'ongoing', 'completed'];
   const formats = ['Solo', 'Duo', 'Squad'];

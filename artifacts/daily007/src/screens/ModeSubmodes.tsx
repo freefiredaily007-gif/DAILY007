@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -35,6 +35,8 @@ function capacityFor(gameMode: ModeKey, type: TeamType, playersPerTeam: number) 
 export default function ModeSubmodes() {
   const navigation: any = useNavigation();
   const route: any = useRoute();
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.5;
   const gameMode = String(route.params?.gameMode || '') as ModeKey;
   const mode = MODES[gameMode];
 
@@ -77,17 +79,22 @@ export default function ModeSubmodes() {
                 submodeRouteParams(gameMode, format.type, mode.title),
               )}
               glowColor={displayAccent}
-              style={styles.formatCard}
+              style={[styles.formatCard, largeText && styles.formatCardLarge]}
             >
-              <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
-                <Text style={[styles.sizeText, { color: format.accent }]}>{format.size}P</Text>
+              <View style={[styles.formatContent, largeText && styles.formatContentLarge]}>
+                <View style={[styles.formatTopRow, largeText && styles.formatTopRowLarge]}>
+                  <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
+                    <Text style={[styles.sizeText, { color: format.accent }]}>{format.size}P</Text>
+                  </View>
+                  {largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}
+                </View>
+                <View style={[styles.formatInfo, largeText && styles.formatInfoLarge]}>
+                  <Text style={styles.formatName}>{format.title}</Text>
+                  <Text style={styles.formatPlayers}>{format.size} {format.size === 1 ? 'player' : 'players'} per team</Text>
+                  <Text style={styles.capacity}>{capacity.label}</Text>
+                </View>
+                {!largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}
               </View>
-              <View style={styles.formatInfo}>
-                <Text style={styles.formatName}>{format.title}</Text>
-                <Text style={styles.formatPlayers}>{format.size} {format.size === 1 ? 'player' : 'players'} per team</Text>
-                <Text style={styles.capacity}>{capacity.label}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={C.sub} />
             </GCard>
           );
         })}
@@ -109,10 +116,16 @@ const styles = StyleSheet.create({
   title: { color: C.text, fontSize: 19, fontWeight: '900', marginTop: 3 },
   subtitle: { color: C.sub, fontSize: 12, marginTop: 3 },
   formats: { gap: 11 },
-  formatCard: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 14, marginBottom: 0 },
+  formatCard: { padding: 14, marginBottom: 0 },
+  formatCardLarge: { padding: 16 },
+  formatContent: { flexDirection: 'row', alignItems: 'center', gap: 13, minWidth: 0 },
+  formatContentLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 12 },
+  formatTopRow: { flexDirection: 'row', alignItems: 'center' },
+  formatTopRowLarge: { width: '100%', justifyContent: 'space-between' },
   sizeBadge: { width: 46, height: 46, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sizeText: { fontSize: 12, fontWeight: '900' },
-  formatInfo: { flex: 1 },
+  formatInfo: { flex: 1, minWidth: 0 },
+  formatInfoLarge: { flex: 0, width: '100%' },
   formatName: { color: C.text, fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
   formatPlayers: { color: C.sub, fontSize: 12, marginTop: 3 },
   capacity: { color: C.neon, fontSize: 11, fontWeight: '800', marginTop: 5 },
