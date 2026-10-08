@@ -69,7 +69,8 @@ export default function ModeSubmodes() {
             <GCard
               key={format.type}
               testID={`format-${gameMode}-${format.type}`}
-              accessibilityLabel={`${mode.title} ${format.title}, ${capacity.label}`}
+              accessibilityGroup
+              accessibilityLabel={`${mode.title}, ${format.title}, ${capacity.label}`}
               accessibilityHint="Opens available tournaments for this format"
               onPress={() => navigation.navigate(
                 'Tournaments',

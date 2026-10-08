@@ -41,6 +41,10 @@ const modeSubmodesSource = await readFile(
   new URL('../src/screens/ModeSubmodes.tsx', import.meta.url),
   'utf8',
 );
+const uiSource = await readFile(
+  new URL('../src/components/ui.tsx', import.meta.url),
+  'utf8',
+);
 const detailSource = await readFile(
   new URL('../src/screens/TDetail.tsx', import.meta.url),
   'utf8',
@@ -226,6 +230,44 @@ test('Solo, Duo, and Squad selections keep the selected game mode in their route
   );
 });
 
+test('format cards announce one mode, format, and capacity action without decorative focus stops', () => {
+  assert.match(
+    modeSubmodesSource,
+    /accessibilityGroup\s+accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.label\}`\}/,
+  );
+  assert.match(
+    modeSubmodesSource,
+    /accessibilityHint="Opens available tournaments for this format"/,
+  );
+  assert.match(uiSource, /accessible=\{accessibilityGroup \? true : undefined\}/);
+  assert.match(uiSource, /accessible=\{accessibilityGroup \? false : undefined\}/);
+  assert.match(uiSource, /accessibilityElementsHidden=\{accessibilityGroup\}/);
+  assert.match(uiSource, /importantForAccessibility=\{accessibilityGroup \? 'no-hide-descendants' : undefined\}/);
+
+  const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
+    ['Solo', 'Duo', 'Squad'].map((teamType) => ({
+      id: `${gameMode}-${teamType.toLowerCase()}`,
+      gameMode,
+      teamType,
+    })),
+  );
+  for (const mode of HOME_GAME_MODE_CARDS) {
+    for (const teamType of ['solo', 'duo', 'squad']) {
+      const routeParams = submodeRouteParams(mode.gameMode, teamType, mode.mode);
+      assert.deepEqual(routeParams, {
+        gameMode: mode.gameMode,
+        teamType,
+        gameModeLabel: mode.mode,
+      });
+      assert.deepEqual(
+        tournamentTabsForRoute(tournaments, routeParams, () => 'upcoming').upcoming
+          .map((tournament) => tournament.id),
+        [`${mode.gameMode}-${teamType}`],
+      );
+    }
+  }
+});
+
 test('Home mode cards show every team type while the format picker stays restricted', () => {
   const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
     ['Solo', 'Duo', 'Squad'].map((teamType) => ({
@@ -314,7 +356,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /const onRefresh = async \(\) => \{ setRefreshing\(true\); await load\(\); setRefreshing\(false\); \};/,
+    /const onRefresh = async \(\) => \{\s*if \(refreshingRequest\.current\) return;\s*refreshingRequest\.current = true;\s*setRefreshing\(true\);\s*try \{\s*await load\(\);\s*\} finally \{\s*refreshingRequest\.current = false;\s*setRefreshing\(false\);\s*\}\s*\};/,
   );
   assert.match(
     tournamentsSource,
@@ -690,8 +732,8 @@ test('Home tournament shortcuts push the selected detail above Home', () => {
   );
   assert.equal(
     [...homeSource.matchAll(/onPress=\{\(\) => openTournamentDetail\(t\.id\)\}/g)].length,
-    2,
-    'both the upcoming card and its action should open the selected tournament',
+    1,
+    'the upcoming match card should open the selected tournament',
   );
   assert.match(detailSource, /const id = route\?\.params\?\.id;/);
   assert.match(

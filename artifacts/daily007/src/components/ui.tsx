@@ -150,23 +150,31 @@ export function GCard({
   accessibilityLabel,
   accessibilityHint,
   accessibilityState,
+  accessibilityGroup = false,
   testID,
 }: {
   children: React.ReactNode; onPress?: () => void; style?: any; glowColor?: string;
   accessibilityLabel?: string; accessibilityHint?: string; testID?: string;
   accessibilityState?: React.ComponentProps<typeof Pressable>['accessibilityState'];
+  accessibilityGroup?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const press = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   const release = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 8 }).start();
   const Body = (
-    <Animated.View style={[st.card, glowColor ? [glow(glowColor, 10), { borderColor: glowColor + '55' }] : null, style, { transform: [{ scale }] }]}>
+    <Animated.View
+      accessible={accessibilityGroup ? false : undefined}
+      accessibilityElementsHidden={accessibilityGroup}
+      importantForAccessibility={accessibilityGroup ? 'no-hide-descendants' : undefined}
+      style={[st.card, glowColor ? [glow(glowColor, 10), { borderColor: glowColor + '55' }] : null, style, { transform: [{ scale }] }]}
+    >
       {children}
     </Animated.View>
   );
   if (!onPress) return Body;
   return (
     <Pressable
+      accessible={accessibilityGroup ? true : undefined}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
