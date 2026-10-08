@@ -5,6 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import ts from "typescript";
 import { getCreditedVideoWatchSeconds } from "../src/lib/video-watch-progress.ts";
+import {
+  getVideoCatalogRefreshInterval,
+  VIDEO_CATALOG_REFRESH_INTERVAL_MS,
+} from "../src/lib/videoCatalogRefresh.ts";
 
 const videoSource = readFileSync(
   new URL("../src/screens/Video.tsx", import.meta.url),
@@ -460,50 +464,104 @@ test("a failed start can retry the same attempt without counting the failed wait
   assert.notEqual(startRequests[2].attemptId, startRequests[1].attemptId);
 });
 
-test("returning from a stale player refreshes the active catalog", async () => {
-  const activeVideos = [{ id: "still-active-video", title: "Current catalog video" }];
-  const query = {
-    data: { videos: [{ id: "disabled-video", title: "Stale catalog card" }] },
-    refetch: async () => {
-      query.data = { videos: activeVideos };
-      return { data: query.data };
-    },
-  };
-  const state = {
-    showPlayer: true,
-    selectedVideoId: "disabled-video",
-    retrySession: { sessionId: "stale-session", percent: 80 },
-  };
-  let refreshCount = 0;
-  const videosQuery = {
-    get data() {
-      return query.data;
-    },
-    refetch: () => {
-      refreshCount += 1;
-      return query.refetch();
-    },
-  };
-  const closePlayer = loadScreenCallback("closePlayer", {
-    playbackCycleRef: { current: 0 },
-    setShowPlayer: (value) => { state.showPlayer = value; },
-    setSelectedVideoId: (value) => { state.selectedVideoId = value; },
-    setRetrySession: (value) => { state.retrySession = value; },
-    videosQuery,
-  });
-
-  closePlayer();
-  await waitFor(
-    () => query.data.videos[0]?.id === "still-active-video",
-    "Returning to the catalog should replace the stale video list with the active list.",
+test("the visible catalog removes a video disabled while it stays open", async () => {
+  assert.equal(VIDEO_CATALOG_REFRESH_INTERVAL_MS, 60_000);
+  assert.equal(
+    getVideoCatalogRefreshInterval({
+      isFocused: true,
+      isAppActive: true,
+      isPlayerOpen: false,
+    }),
+    VIDEO_CATALOG_REFRESH_INTERVAL_MS,
   );
-
-  assert.equal(refreshCount, 1);
-  assert.equal(state.showPlayer, false);
-  assert.equal(state.selectedVideoId, null);
-  assert.equal(state.retrySession, null);
-  assert.deepEqual(videosQuery.data.videos, activeVideos);
-  assert.match(videoSource, /testID="video-catalog-back"[^>]*onPress=\{closePlayer\}/);
+  assert.equal(
+    getVideoCatalogRefreshInterval({
+      isFocused: false,
+      isAppActive: true,
+      isPlayerOpen: false,
+    }),
+    false,
+  );
+  assert.equal(
+    getVideoCatalogRefreshInterval({
+      isFocused: true,
+      isAppActive: false,
+      isPlayerOpen: false,
+    }),
+    false,
+  );
+  assert.equal(
+    getVideoCatalogRefreshInterval({
+      isFocused: true,
+      isAppActive: true,
+      isPlayerOpen: true,
+    }),
+    false,
+  );
+  assert.match(
+    videoSource,
+    /enabled: isFocused && isAppActive && !showPlayer,[\s\S]*?refetchInterval: getVideoCatalogRefreshInterval\(\{[\s\S]*?isPlayerOpen: showPlayer/,
+  );
+  assert.match(videoSource, /refetchIntervalInBackground: false/);
+  assert.match(videoSource, /void videosQuery\.refetch\(\)/);
   assert.match(videoSource, /const videos: VideoItem\[\] = \(videosQuery\.data\?\.videos \?\? \[\]\)/);
   assert.match(videoSource, /filteredVideos\.map\(\(video\) =>/);
+  assert.match(videoSource, /testID="video-catalog-back"[^>]*onPress=\{closePlayer\}/);
+
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const { QueryClient, QueryObserver } = await import("@tanstack/react-query");
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  let activeVideos = [{ id: "disabled-video", title: "Video before admin disables it" }];
+  let requestCount = 0;
+  const queryOptions = {
+    queryKey: ["video-catalog-refresh-regression"],
+    queryFn: async () => {
+      requestCount += 1;
+      return activeVideos;
+    },
+    refetchInterval: getVideoCatalogRefreshInterval({
+      isFocused: true,
+      isAppActive: true,
+      isPlayerOpen: false,
+    }, 5),
+    refetchIntervalInBackground: false,
+  };
+  const observer = new QueryObserver(queryClient, queryOptions);
+  const unsubscribe = observer.subscribe(() => {});
+
+  await waitFor(
+    () => observer.getCurrentResult().data?.[0]?.id === "disabled-video",
+    "The catalog query should load the initially active video.",
+  );
+  activeVideos = [];
+  await waitFor(
+    () => observer.getCurrentResult().data?.length === 0,
+    "A scheduled catalog refresh should remove the video disabled by the admin.",
+  );
+  assert.ok(requestCount >= 2);
+
+  observer.setOptions({
+    ...queryOptions,
+    refetchInterval: getVideoCatalogRefreshInterval({
+      isFocused: true,
+      isAppActive: true,
+      isPlayerOpen: true,
+    }, 5),
+  });
+  const requestsWhenPlayerOpened = requestCount;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(requestCount, requestsWhenPlayerOpened, "Opening the player should stop catalog polling.");
+
+  unsubscribe();
+  queryClient.clear();
 });

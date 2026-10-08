@@ -13,11 +13,12 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { useColors } from '@/hooks/useColors';
 import {
   useDaily007CompleteVideoWatch,
+  getDaily007ListVideosQueryKey,
   useDaily007ListVideos,
   useDaily007StartVideoWatch,
 } from '@workspace/api-client-react';
@@ -29,6 +30,7 @@ import {
   type VideoPlaybackSample,
 } from '../lib/video-watch-progress';
 import { openVideoInBrowser, openYouTubeVideo } from '../lib/video-links';
+import { getVideoCatalogRefreshInterval } from '../lib/videoCatalogRefresh';
 
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
@@ -118,6 +120,23 @@ function createYouTubeDocument(videoId: string, backgroundColor: string): string
 
 export default function Video() {
   const colors = useColors();
+  const isFocused = useIsFocused();
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
+  const videosQuery = useDaily007ListVideos({
+    query: {
+      queryKey: getDaily007ListVideosQueryKey(),
+      enabled: isFocused && isAppActive && !showPlayer,
+      refetchInterval: getVideoCatalogRefreshInterval({
+        isFocused,
+        isAppActive,
+        isPlayerOpen: showPlayer,
+      }),
+      refetchIntervalInBackground: false,
+    },
+  });
+  const videos: VideoItem[] = (videosQuery.data?.videos ?? []) as VideoItem[];
   const styles = useMemo(() => createStyles(colors), [
     colors.background,
     colors.foreground,
@@ -135,10 +154,6 @@ export default function Video() {
     colors.border,
     colors.radius,
   ]);
-  const videosQuery = useDaily007ListVideos();
-  const videos: VideoItem[] = (videosQuery.data?.videos ?? []) as VideoItem[];
-  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
-  const [showPlayer, setShowPlayer] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const playbackCycleRef = useRef(0);
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
@@ -147,17 +162,27 @@ export default function Video() {
     setShowPlayer(false);
     setSelectedVideoId(null);
     setRetrySession(null);
-    void videosQuery.refetch();
-  }, [videosQuery.refetch]);
+  }, []);
 
   useFocusEffect(useCallback(() => {
-    if (!showPlayer) return undefined;
+    if (!isAppActive) return undefined;
+    if (!showPlayer) {
+      void videosQuery.refetch();
+      return undefined;
+    }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       closePlayer();
       return true;
     });
     return () => subscription.remove();
-  }, [closePlayer, showPlayer]));
+  }, [closePlayer, isAppActive, showPlayer, videosQuery.refetch]));
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      setIsAppActive(nextState === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
 
   const filteredVideos = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
