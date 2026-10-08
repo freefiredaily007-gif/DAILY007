@@ -27,3 +27,6 @@ packages = ["android-tools"]
 
 [userenv.shared]
 DAILY007_PUBLIC_APP_URL = "https://daily-007-source-1-zip.replit.app"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-8aaa5ece-100b-43e2-bbae-84df2ac8231f"
