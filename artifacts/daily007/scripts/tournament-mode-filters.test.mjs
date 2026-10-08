@@ -279,14 +279,20 @@ test('format cards announce one mode, format, and capacity action without decora
   }
 });
 
-test('Home mode cards show every team type while the format picker stays restricted', () => {
+test('Home mode cards keep every lifecycle tab mode-scoped and the format picker format-scoped', () => {
+  const lifecycleTabs = ['upcoming', 'ongoing', 'completed'];
+  const formats = ['Solo', 'Duo', 'Squad'];
   const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
-    ['Solo', 'Duo', 'Squad'].map((teamType) => ({
-      id: `${gameMode}-${teamType.toLowerCase()}`,
-      gameMode,
-      teamType,
-    })),
+    formats.flatMap((teamType) =>
+      lifecycleTabs.map((lifecycle) => ({
+        id: `${gameMode}-${teamType.toLowerCase()}-${lifecycle}`,
+        gameMode,
+        teamType,
+        lifecycle,
+      })),
+    ),
   );
+  const lifecycleOf = (tournament) => tournament.lifecycle;
 
   assert.match(
     homeSource,
@@ -312,29 +318,37 @@ test('Home mode cards show every team type while the format picker stays restric
     const directTabs = tournamentTabsForRoute(
       tournaments,
       directParams,
-      () => 'upcoming',
+      lifecycleOf,
     );
-    assert.deepEqual(
-      directTabs.upcoming.map((tournament) => tournament.id),
-      ['solo', 'duo', 'squad'].map((teamType) => `${card.gameMode}-${teamType}`),
-    );
+    for (const lifecycle of lifecycleTabs) {
+      assert.deepEqual(
+        directTabs[lifecycle].map((tournament) => tournament.id),
+        formats.map((teamType) =>
+          `${card.gameMode}-${teamType.toLowerCase()}-${lifecycle}`
+        ),
+        `${card.mode} ${lifecycle} should include every format in that mode only`,
+      );
+    }
 
-    for (const teamType of ['solo', 'duo', 'squad']) {
-      const pickerParams = submodeRouteParams(card.gameMode, teamType, card.mode);
+    for (const teamType of formats) {
+      const pickerParams = submodeRouteParams(card.gameMode, teamType.toLowerCase(), card.mode);
       assert.deepEqual(pickerParams, {
         gameMode: card.gameMode,
-        teamType,
+        teamType: teamType.toLowerCase(),
         gameModeLabel: card.mode,
       });
       const pickerTabs = tournamentTabsForRoute(
         tournaments,
         pickerParams,
-        () => 'upcoming',
+        lifecycleOf,
       );
-      assert.deepEqual(
-        pickerTabs.upcoming.map((tournament) => tournament.id),
-        [`${card.gameMode}-${teamType}`],
-      );
+      for (const lifecycle of lifecycleTabs) {
+        assert.deepEqual(
+          pickerTabs[lifecycle].map((tournament) => tournament.id),
+          [`${card.gameMode}-${teamType.toLowerCase()}-${lifecycle}`],
+          `${card.mode} ${teamType} ${lifecycle} should remain format-scoped`,
+        );
+      }
     }
   }
 });
