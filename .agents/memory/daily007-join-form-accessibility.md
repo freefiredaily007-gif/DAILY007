@@ -15,3 +15,10 @@ On 2026-10-07, the user confirmed that TalkBack on an iQOO Neo 10 running Androi
 **Why:** Native announcement order cannot be proven by source assertions alone.
 
 **How to apply:** Treat this as a user-confirmed native smoke check when changing registration field labels or order; distinguish it from automated source-level tests.
+
+## Native registration error announcements
+On 2026-10-08, the user confirmed that TalkBack on the iQOO Neo 10 / Android 16 announced both the local missing-name error and insufficient-wallet server error once without moving focus. A full-capacity rejection included the refreshed 12/12 count.
+
+**Why:** Source-level live-region assertions cannot prove native speech timing, duplicate announcements, or focus behavior.
+
+**How to apply:** When changing JoinForm error announcements or capacity recovery, preserve the single polite live region and no-focus-move behavior, and verify the actual Android speech for local validation, server rejection, and refreshed capacity.

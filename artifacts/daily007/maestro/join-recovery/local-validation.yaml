@@ -1,0 +1,25 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/join-recovery-test
+- extendedWaitUntil:
+    visible:
+      id: join-recovery-fixture-banner
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: join-form-submit
+    direction: DOWN
+- tapOn:
+    id: join-form-submit
+- extendedWaitUntil:
+    visible:
+      id: join-form-error
+    timeout: 10000
+- assertVisible:
+    text: "Captain Free Fire in-game name is required."
+- assertVisible:
+    text: "Submit attempts: 0"
+- assertNotVisible:
+    id: join-recovery-confirmation
+- assertNotVisible: "Registration confirmed"

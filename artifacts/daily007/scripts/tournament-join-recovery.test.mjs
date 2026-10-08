@@ -14,6 +14,10 @@ const joinFormSource = await readFile(
   new URL("../src/screens/JoinForm.tsx", import.meta.url),
   "utf8",
 );
+const joinValidationSource = await readFile(
+  new URL("../src/lib/joinFormValidation.ts", import.meta.url),
+  "utf8",
+);
 const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
@@ -24,6 +28,10 @@ const nativeFixtureSource = await readFile(
 );
 const insufficientBalanceFlow = await readFile(
   new URL("../maestro/join-recovery/insufficient-balance.yaml", import.meta.url),
+  "utf8",
+);
+const localValidationFlow = await readFile(
+  new URL("../maestro/join-recovery/local-validation.yaml", import.meta.url),
   "utf8",
 );
 const lastSlotFlow = await readFile(
@@ -138,8 +146,13 @@ test("non-capacity registration errors announce once through their visible error
 
   assert.match(
     joinFormSource,
-    /if \(!captainGameName\.trim\(\)\) return setErr\('Captain Free Fire in-game name is required\.'\)/,
+    /if \(validation\) \{\s*setFieldErrors\(validation\.fieldErrors\);\s*return setErr\(validation\.message\);\s*\}/,
     "local validation failures should continue to populate the visible error",
+  );
+  assert.match(
+    joinValidationSource,
+    /const message = 'Captain Free Fire in-game name is required\.'/,
+    "the local fixture should exercise the missing captain game name validation",
   );
   assert.match(
     joinFormSource,
@@ -176,6 +189,10 @@ test("the Android regression route uses only local fixtures and is dev-only", ()
   assert.match(insufficientBalanceFlow, /join-form-error/);
   assert.match(insufficientBalanceFlow, /join-recovery-confirmation/);
   assert.match(insufficientBalanceFlow, /Submit attempts: 2/);
+  assert.match(localValidationFlow, /join-form-error/);
+  assert.match(localValidationFlow, /Captain Free Fire in-game name is required/);
+  assert.match(localValidationFlow, /Submit attempts: 0/);
+  assert.match(localValidationFlow, /join-recovery-confirmation/);
   assert.match(lastSlotFlow, /11\/12 players/);
   assert.match(lastSlotFlow, /12\/12 players/);
   assert.match(lastSlotFlow, /This match is already full and is not accepting registrations/);

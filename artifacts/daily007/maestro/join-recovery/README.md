@@ -1,6 +1,6 @@
 # Android tournament join rejection tests
 
-These Maestro flows open the development-only `/join-recovery-test` route. The route uses local fixture data and simulated API errors; it does not send requests, charge coins, or write registrations.
+These Maestro flows open the development-only `/join-recovery-test` route. They cover missing local registration details, insufficient wallet balance, and a last-slot race. The route uses local fixture data and simulated API errors; it does not send requests, charge coins, or write registrations.
 
 Run with an Android device or emulator that has Expo Go installed and can reach the Expo development server:
 
