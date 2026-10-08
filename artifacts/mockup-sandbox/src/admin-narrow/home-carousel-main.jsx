@@ -21,6 +21,7 @@ const screenReaderListeners = new Set();
 const accessibilityAnnouncements = [];
 let fakeScreenReaderEnabled = false;
 const previewParams = new URLSearchParams(window.location.search);
+const adminTournamentHomeRefreshPreview = previewParams.get("admin-tournament-home-refresh") === "1";
 const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const requestedScreen = previewParams.get("screen") ?? "Home";
@@ -132,11 +133,12 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     accessibilityAnnouncements.push(announcement);
   };
 
-  const [{ default: Home, mergeHomeTournamentItems }, { HOME_TOURNAMENT_REFRESH_INTERVAL_MS }] =
-    await Promise.all([
-      import("../../../daily007/src/screens/Home"),
-      import("../../../daily007/src/lib/tournamentLifecycle"),
-    ]);
+  const [homeModule, lifecycleModule] = await Promise.all([
+    import("../../../daily007/src/screens/Home"),
+    import("../../../daily007/src/lib/tournamentLifecycle"),
+  ]);
+  const { default: Home, mergeHomeTournamentItems } = homeModule;
+  const { HOME_TOURNAMENT_REFRESH_INTERVAL_MS } = lifecycleModule;
   globalThis.setInterval = (callback, intervalMs, ...args) => {
     if (intervalMs === HOME_TOURNAMENT_REFRESH_INTERVAL_MS) {
       homePollIntervals.push({ callback, intervalMs });
@@ -204,6 +206,19 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     setRegistrations: apiMocks.setHomeCarouselRegistrationPreview,
+    publishAdminCreatedTournament: () => {
+      if (!adminTournamentHomeRefreshPreview) return false;
+      const serialized = window.sessionStorage.getItem(
+        "daily007-admin-created-tournament-home-refresh",
+      );
+      if (!serialized) return false;
+      const tournament = JSON.parse(serialized);
+      const existing = apiMocks.previewTournaments.find(
+        (item) => String(item.id) === String(tournament.id),
+      );
+      if (!existing) apiMocks.previewTournaments.push(tournament);
+      return String(tournament.id);
+    },
     setNextRegistrationResponse: apiMocks.setNextMyRegistrationReadResponse,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,

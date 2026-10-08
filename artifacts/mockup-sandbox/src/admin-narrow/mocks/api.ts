@@ -463,6 +463,61 @@ export function configureWalletFormPreview() {
   walletPreviewCalls.length = 0;
 }
 
+function addPreviewTournamentFromAdminPayload(payload: Record<string, unknown>) {
+  const date = String(payload.date ?? "");
+  const time = String(payload.time ?? "");
+  const timeParts = /^(\d{1,2}):(\d{2})\s+(AM|PM)$/i.exec(time);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !timeParts) {
+    throw new Error("The Admin preview needs a valid tournament date and IST time.");
+  }
+
+  const hour = Number(timeParts[1]) % 12 + (timeParts[3].toUpperCase() === "PM" ? 12 : 0);
+  const startsAt = new Date(
+    `${date}T${String(hour).padStart(2, "0")}:${timeParts[2]}:00+05:30`,
+  );
+  if (!Number.isFinite(startsAt.getTime())) {
+    throw new Error("The Admin preview could not parse the tournament start time.");
+  }
+
+  const mode = String(payload.mode ?? "");
+  const teamType = String(payload.teamType ?? "");
+  const totalSlots = Number(payload.totalSlots ?? 0);
+  const teamSize = teamType.toLowerCase() === "duo"
+    ? 2
+    : teamType.toLowerCase() === "squad"
+      ? 4
+      : 1;
+  const createdTournament = {
+    id: `preview-created-admin-${previewTournaments.filter((tournament) =>
+      String(tournament.id).startsWith("preview-created-admin-")).length + 1}`,
+    name: String(payload.name ?? ""),
+    mode,
+    gameMode: mode.toLowerCase().replace(/\s+/g, "_"),
+    teamType,
+    date,
+    time,
+    startsAt: startsAt.toISOString(),
+    entryCoins: Number(payload.entryCoins ?? 0),
+    prizePool: Number(payload.prizePool ?? 0),
+    totalSlots,
+    filledSlots: 0,
+    filledPlayerSlots: 0,
+    totalPlayerSlots: totalSlots * teamSize,
+    status: "upcoming",
+    enabled: true,
+    rules: String(payload.rules ?? ""),
+    banner: String(payload.banner ?? ""),
+    imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : null,
+    prizeDist: String(payload.prizeDist ?? ""),
+  };
+  previewTournaments.push(createdTournament);
+  window.sessionStorage.setItem(
+    "daily007-admin-created-tournament-home-refresh",
+    JSON.stringify(createdTournament),
+  );
+  return createdTournament;
+}
+
 export const Api = {
   me: async () => ({ ...previewAdmin }),
   settings: async () => ({ settings: { ...settings } }),
@@ -521,11 +576,15 @@ export const Api = {
       deferredTournamentRead.claimed = true;
       return deferredTournamentRead.promise;
     }
+    const createdPreviewTournaments = previewTournaments.filter((tournament) =>
+      String(tournament.id).startsWith("preview-created-admin-"));
     const tournaments = istDateSurfacePreview
       ? [istDateSurfaceTournament]
-      : isAdminLargestTextPreview() || playerLargestTextPreview
-      ? largestTextTournaments
-      : previewTournaments;
+      : isAdminLargestTextPreview()
+        ? [...largestTextTournaments, ...createdPreviewTournaments]
+        : playerLargestTextPreview
+          ? largestTextTournaments
+          : previewTournaments;
     return tournaments.map((tournament) => ({ ...tournament }));
   },
   myRegistrations: async () => {
@@ -625,8 +684,9 @@ export const Api = {
     return {};
   },
   createTournament: async (payload: Record<string, unknown>) => {
+    const createdTournament = addPreviewTournamentFromAdminPayload(payload);
     adminPreviewMutationCalls.push({ method: "createTournament", payload: { ...payload } });
-    return {};
+    return { ...createdTournament };
   },
   deleteTournament: async () => ({}),
   adminAdjustCoins: async (userId: string, amount: number, reason: string) => {

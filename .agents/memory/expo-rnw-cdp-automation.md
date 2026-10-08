@@ -50,3 +50,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** At 1.5× text, long wallet and user identity cards exceeded the phone viewport, so moving the card as a whole did not make its actions reachable.
 
 **How to apply:** Find the nearest ancestor with vertical `auto`/`scroll` overflow and excess content height, position the action itself within that viewport, then verify its center hit-test and rendered label.
+
+**Rule:** When the isolated Home preview emits repeated identical React Native Web text-node errors on initial render, baseline error signatures before testing a later refresh.
+
+**Why:** Requiring zero console errors can fail a refresh test on warnings already emitted by the Home preview; signature comparison still catches new error types.
+
+**How to apply:** After Home's initial cards and polling callback are ready, capture the current browser-error strings in a `Set`. After the refresh, fail only for error signatures not present in that baseline.

@@ -35,6 +35,7 @@ const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
+const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
 const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-edit-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
@@ -4670,6 +4671,94 @@ async function checkAdminTournamentCreationSaveAtLargeText() {
   assert(successState.width === 320, "The tournament creation flow left the 320px viewport.");
 }
 
+async function checkAdminTournamentCreationAppearsOnHomeRefresh() {
+  const createdTournamentId = "preview-created-admin-1";
+  await checkAdminTournamentCreationSaveAtLargeText();
+  await waitForCondition(
+    `document.body.innerText.includes("Clash Night 7")`,
+    "the Admin tournament list to include the newly created record",
+  );
+
+  await waitForCondition(
+    `window.sessionStorage.getItem("daily007-admin-created-tournament-home-refresh") !== null`,
+    "the created tournament to persist across the Admin-to-Home transition",
+  );
+  await cdp("Page.navigate", {
+    url: `http://127.0.0.1:${vitePort}/home-carousel-preview.html?admin-tournament-home-refresh=1`,
+  });
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest?.ready === true &&
+      document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length === 3 &&
+      window.__daily007HomeCarouselTest.getHomePollCount() === 1`,
+    "Home to load its current schedule and install its normal polling refresh",
+  );
+  const homeBrowserErrorBaseline = new Set(browserErrors);
+  const publishedTournamentId = await evaluate(
+    "window.__daily007HomeCarouselTest.publishAdminCreatedTournament()",
+  );
+  assert(
+    publishedTournamentId === createdTournamentId,
+    `The Home API preview should retrieve the saved Admin tournament, received ${publishedTournamentId}.`,
+  );
+
+  const beforeScheduledRefresh = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+    createdCard: Boolean(document.querySelector('[data-testid="home-upcoming-card-${createdTournamentId}"]')),
+  })`);
+  assert(
+    !beforeScheduledRefresh.createdCard,
+    "Home should keep its previous schedule until its normal refresh runs.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "Home's scheduled polling callback should be active after the Admin flow.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${beforeScheduledRefresh.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${beforeScheduledRefresh.registrations + 1} &&
+      Boolean(document.querySelector('[data-testid="home-upcoming-card-${createdTournamentId}"]'))`,
+    "Home to refresh both endpoints and add the tournament to its schedule",
+  );
+
+  const homeState = await readHomeCarouselState();
+  assert(homeState, "The refreshed Home carousel should be available.");
+  const createdPage = homeState.cards.findIndex((card) => card.id === createdTournamentId);
+  assert(createdPage >= 0, `The refreshed Home schedule omitted ${createdTournamentId}.`);
+  for (let page = 0; page < createdPage; page += 1) {
+    const nextCardId = homeState.cards[page + 1]?.id;
+    assert(nextCardId, `Home did not expose carousel page ${page + 2}.`);
+    assert(
+      await evaluate("window.__daily007HomeCarouselTest.advanceCarousel()"),
+      "Home should keep its normal carousel navigation after the refresh.",
+    );
+    await waitForHomeCarouselCard(
+      nextCardId,
+      page + 1,
+      320,
+      `Home carousel navigation to ${nextCardId}`,
+    );
+  }
+  await waitForHomeCarouselCard(
+    createdTournamentId,
+    createdPage,
+    320,
+    "The Admin-created tournament after Home's scheduled refresh",
+  );
+  const createdCardText = await evaluate(
+    `document.querySelector('[data-testid="home-upcoming-card-${createdTournamentId}"]')?.innerText ?? ""`,
+  );
+  assert(
+    createdCardText.includes("Clash Night 7"),
+    `Home should show the created tournament's name after refresh: ${createdCardText}`,
+  );
+  const newHomeBrowserErrors = browserErrors.filter((error) => !homeBrowserErrorBaseline.has(error));
+  assert(
+    newHomeBrowserErrors.length === 0,
+    `New browser errors during the Home refresh: ${newHomeBrowserErrors.join(" | ")}`,
+  );
+}
+
 async function checkAdminTournamentEditSaveAtLargeText() {
   await setViewport(320, 1.5);
   assert(
@@ -4890,6 +4979,8 @@ try {
       ? "tournament-resume-preview.html"
     : scheduledStartOnly
       ? "tournament-resume-preview.html?scheduled-start-only=1&boundary=month-end"
+      : adminTournamentHomeRefreshOnly
+        ? "admin-narrow-preview.html"
       : homeCarouselOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
@@ -4966,6 +5057,7 @@ try {
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminTournamentCreateSaveOnly ||
+    adminTournamentHomeRefreshOnly ||
     adminTournamentEditSaveOnly ||
     adminActionsOnly ||
     adminLandscapeOnly
@@ -4973,13 +5065,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly
         ? 800
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
@@ -4993,6 +5085,8 @@ try {
           ? "Home, My Matches, and tournament details IST date surfaces"
         : homeCarouselOnly
         ? "Home carousel"
+        : adminTournamentHomeRefreshOnly
+          ? "Admin tournament creation and Home scheduled refresh"
         : initialLoadFailureOnly
           ? "Player first-load failure"
         : registrationInitialLoadFailureOnly
@@ -5082,6 +5176,9 @@ try {
         `Browser errors during Player first-load checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — The first-load error and recovery each produce one polite Player announcement, repeated errors do not repeat, cards appear, and focus stays on the Upcoming tab.");
+    } else if (adminTournamentHomeRefreshOnly) {
+      await checkAdminTournamentCreationAppearsOnHomeRefresh();
+      console.log("PASS — Admin creation is visible in the refreshed tournament list, and Home shows it after the scheduled polling path.");
     } else if (adminTournamentCreateSaveOnly) {
       await checkAdminTournamentCreationSaveAtLargeText();
       assert(

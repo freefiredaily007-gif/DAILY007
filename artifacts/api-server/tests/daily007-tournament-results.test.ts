@@ -121,6 +121,54 @@ async function createResultsTournament(origin: string): Promise<void> {
   tournamentResultsTestDb.approveTestRegistrations();
 }
 
+test("an Admin-created tournament appears in the enabled public list with its saved settings", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await call(origin, TEST_ADMIN_ID, "/tournaments", "POST", {
+      name: "Public Clash Duo",
+      mode: "Clash Squad",
+      teamType: "Duo",
+      entryCoins: 35,
+      prizePool: 700,
+      totalSlots: 2,
+      rules: "Bring your own device.",
+      banner: "cs",
+      imageUrl: "https://example.invalid/public-clash-duo.png",
+      date: "2031-06-17",
+      time: "9:35 PM",
+      prizeDist: "1st: 500 coins\n2nd: 200 coins",
+    });
+    assert.equal(created.status, 201);
+
+    const publicList = await callPublic(origin, "/tournaments?enabled=true");
+    assert.equal(publicList.status, 200);
+    assert.ok(Array.isArray(publicList.body));
+    const listed = publicList.body.find((tournament: any) => tournament.id === created.body.id);
+    assert.ok(listed, "The public enabled tournament list should include the newly created tournament.");
+
+    for (const field of [
+      "name",
+      "mode",
+      "gameMode",
+      "teamType",
+      "date",
+      "time",
+      "startsAt",
+      "entryCoins",
+      "prizePool",
+      "totalSlots",
+      "rules",
+      "banner",
+      "imageUrl",
+      "prizeDist",
+      "enabled",
+    ]) {
+      assert.equal(listed[field], created.body[field], `The public list should preserve ${field}.`);
+    }
+  });
+});
+
 function captureSettlementState() {
   return {
     wallets: Array.from(
