@@ -108,7 +108,7 @@ test('Result Entry announces distinct successful empty states separately from lo
   const resultEntryState = screenSource.slice(resultEntryStart, playerChoicesStart);
   assert.match(
     resultEntryState,
-    /resultRegs === null \?[\s\S]*?Loading approved registrations…[\s\S]*?Retrying approved registrations…[\s\S]*?Approved registrations could not be loaded\. Retry here\.[\s\S]*?RETRY APPROVED PLAYERS[\s\S]*?:\s*eligibleResultRegs\.length === 0 \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
+    /resultRegs === null \?[\s\S]*?Retrying approved registrations…[\s\S]*?Loading approved registrations…[\s\S]*?Approved registrations could not be loaded\. Retry here\.[\s\S]*?RETRY APPROVED PLAYERS[\s\S]*?:\s*eligibleResultRegs\.length === 0 \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
     'Only a failed or pending request should use the load-failure guidance.',
   );
 
@@ -162,6 +162,7 @@ test('inline approved-player retry is scoped to the active tournament and dedupl
   assert.match(retry, /if \(resultBusy \|\| approvedRegistrationsRequestId\.current === requestId\) return/);
   assert.match(retry, /expandedAction\?\.kind !== 'results' \|\| expandedAction\.tournamentId !== tournamentId/);
   assert.match(retry, /loadApprovedRegistrations\(tournamentId, requestId, true\)/);
+  assert.doesNotMatch(retry, /setExpandedAction|Api\.tournaments\(|load\(\)/);
 });
 
 test('inline approved-player retry recovers on success and can be retried after another failure', () => {
