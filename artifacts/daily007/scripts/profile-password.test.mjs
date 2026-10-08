@@ -217,6 +217,79 @@ test("Profile wires its password inputs to the shared 200-character limit", () =
   assert.equal(PROFILE_PASSWORD_MAX_LENGTH, 200);
 });
 
+test("canceling Profile password change closes and clears every field without calling the mutation", () => {
+  const state = {
+    modalVisible: false,
+    currentPassword: "",
+    newPassword: "",
+    confirmNewPassword: "",
+    passwordError: "",
+    passwordMessage: "",
+  };
+  let mutationCalls = 0;
+  const mockedMutation = async () => { mutationCalls += 1; };
+  const setters = {
+    setPasswordModalVisible: (value) => { state.modalVisible = value; },
+    setCurrentPassword: (value) => { state.currentPassword = value; },
+    setNewPassword: (value) => { state.newPassword = value; },
+    setConfirmNewPassword: (value) => { state.confirmNewPassword = value; },
+    setPasswordError: (value) => { state.passwordError = value; },
+    setPasswordMessage: (value) => { state.passwordMessage = value; },
+  };
+
+  const openPasswordModal = loadProfileCallback("openPasswordModal", setters);
+  openPasswordModal();
+  assert.equal(state.modalVisible, true);
+
+  state.currentPassword = "synthetic-current-value";
+  state.newPassword = "synthetic-new-value";
+  state.confirmNewPassword = "synthetic-confirmation-value";
+  state.passwordError = "synthetic-validation-error";
+
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    currentPassword: state.currentPassword,
+    newPassword: state.newPassword,
+    confirmNewPassword: state.confirmNewPassword,
+    changePassword: mockedMutation,
+    submitProfilePasswordChange,
+    apiError: () => "synthetic mutation error",
+    ...setters,
+  });
+  const closePasswordModal = loadProfileCallback("closePasswordModal", {
+    passwordBusy: false,
+    changePassword: mockedMutation,
+    ...setters,
+  });
+  closePasswordModal();
+
+  assert.equal(typeof submitPasswordChange, "function");
+  assert.equal(state.modalVisible, false, "Cancel should close the password form.");
+  assert.equal(state.currentPassword, "", "Cancel should clear the current-password field.");
+  assert.equal(state.newPassword, "", "Cancel should clear the new-password field.");
+  assert.equal(state.confirmNewPassword, "", "Cancel should clear the confirmation field.");
+  assert.equal(state.passwordError, "", "Cancel should clear any password-form error.");
+  assert.equal(mutationCalls, 0, "Cancel must not submit the mocked password mutation.");
+
+  openPasswordModal();
+  assert.equal(state.modalVisible, true, "The form should be available to reopen.");
+  assert.equal(state.currentPassword, "");
+  assert.equal(state.newPassword, "");
+  assert.equal(state.confirmNewPassword, "");
+  assert.equal(mutationCalls, 0);
+
+  assert.match(
+    profileSource,
+    /<Btn title="CANCEL" kind="ghost" disabled=\{passwordBusy\} onPress=\{closePasswordModal\} \/>/,
+    "The visible Cancel action should use the exercised close handler.",
+  );
+  assert.match(profileSource, /onRequestClose=\{closePasswordModal\}/);
+  assert.match(
+    profileSource,
+    /<Btn testID="profile-password-submit"[^>]*onPress=\{submitPasswordChange\}/,
+    "Only the explicit Update Password action should submit the mutation.",
+  );
+});
+
 test("successful Profile password change closes and clears the form and shows success feedback", async () => {
   const currentPassword = "mock-current-password";
   const newPassword = "mock-new-password";
