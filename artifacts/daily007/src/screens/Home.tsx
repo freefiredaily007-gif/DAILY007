@@ -143,9 +143,12 @@ export default function Home() {
       if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
       const r = tournamentsResult.value;
       const registrations = registrationsResult.value;
+      if (!Array.isArray(registrations)) {
+        throw new Error('Registration data could not be read. Please try again.');
+      }
       const list = Array.isArray(r) ? r : r?.tournaments || [];
       const joinedIds = new Set(
-        (Array.isArray(registrations) ? registrations : [])
+        registrations
           .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
           .map((registration: any) => String(registration.tournamentId)),
       );

@@ -325,7 +325,7 @@ export const Api = {
   tournaments: (qs: string | boolean = '') => unwrap(http.get('/tournaments' + (qs === true ? '?enabled=true' : qs || ''))),
   tournament: (id: string) => unwrap(http.get('/tournaments/' + id)),
   // registrations / join
-  myRegistrations: () => unwrap(http.get('/my/registrations')),
+  myRegistrations: (): Promise<unknown> => unwrap(http.get('/my/registrations')),
   join: (id: string, b: object) => {
     const payload = b as { playerName?: string; captainGameName?: string; gameUid?: string; teamName?: string; teamMembers?: string };
     let members: { name?: string; uid?: string }[] = [];

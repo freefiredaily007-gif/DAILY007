@@ -4017,6 +4017,91 @@ async function checkHomeCarousel(width) {
       after: readsAfterReturningHome,
     })}.`,
   );
+
+  const readsBeforeMalformedRegistrationCheck = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+  ])`);
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "The Home polling callback should be available before the malformed-registration check.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeMalformedRegistrationCheck.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeMalformedRegistrationCheck.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "Home to show the valid joined state before testing a malformed registration response",
+  );
+  const readsBeforeMalformedResponse = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  const cardsBeforeMalformedResponse = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    window.__daily007HomeCarouselTest.malformedRegistrationCardNodes = cards;
+    return {
+      ids: cards.map((card) => card.getAttribute('data-testid')),
+      texts: cards.map((card) => card.innerText),
+    };
+  })()`);
+  assert(
+    cardsBeforeMalformedResponse.ids.length === 2 &&
+      cardsBeforeMalformedResponse.texts[0].includes('JOINED'),
+    `The malformed-response test must begin with two cards and a joined tournament: ${JSON.stringify(cardsBeforeMalformedResponse)}.`,
+  );
+  await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', {
+    name: 'Tournament Updated After Valid Registrations'
+  })`);
+  await evaluate(`window.__daily007HomeCarouselTest.setNextRegistrationResponse({
+    unexpected: "registration data is not an array"
+  })`);
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "The Home polling callback should be available for the malformed registration response.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeMalformedResponse.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeMalformedResponse.registrations + 1} && Boolean(document.querySelector('[data-testid="home-upcoming-refresh-error"]')) && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "Home to reject malformed registration data while showing its prior joined cards",
+  );
+  const cardsAfterMalformedResponse = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    const test = window.__daily007HomeCarouselTest;
+    return {
+      ids: cards.map((card) => card.getAttribute('data-testid')),
+      texts: cards.map((card) => card.innerText),
+      sameNodes: test.malformedRegistrationCardNodes?.length === cards.length &&
+        test.malformedRegistrationCardNodes.every((card, index) => card === cards[index]),
+      errorVisible: Boolean(document.querySelector('[data-testid="home-upcoming-refresh-error"]')),
+    };
+  })()`);
+  assert(
+    JSON.stringify(cardsAfterMalformedResponse.ids) === JSON.stringify(cardsBeforeMalformedResponse.ids) &&
+      JSON.stringify(cardsAfterMalformedResponse.texts) === JSON.stringify(cardsBeforeMalformedResponse.texts) &&
+      cardsAfterMalformedResponse.sameNodes &&
+      cardsAfterMalformedResponse.errorVisible,
+    `Malformed registration data must preserve the existing Home cards and joined labels: ${JSON.stringify(cardsAfterMalformedResponse)}.`,
+  );
+
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "rejected" }
+  ])`);
+  const readsBeforeValidRegistrationRecovery = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "Home should allow a valid registration refresh after malformed data.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeValidRegistrationRecovery.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeValidRegistrationRecovery.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Tournament Updated After Valid Registrations') && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW') && !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
+    "a later valid response to update tournament data, apply the current registration state, and clear the error",
+  );
+  assert(
+    await evaluate("!document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText.includes('JOINED')"),
+    "The valid rejected-registration response should remove the stale JOINED label.",
+  );
 }
 
 async function setKeyboardViewport(height) {

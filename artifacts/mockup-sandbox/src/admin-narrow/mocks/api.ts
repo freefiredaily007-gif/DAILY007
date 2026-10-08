@@ -324,6 +324,7 @@ const empty = async () => [];
 let tournamentReadCount = 0;
 let nextTournamentReadError: string | null = null;
 let nextMyRegistrationReadError: string | null = null;
+let nextMyRegistrationReadResponse: { value: unknown } | null = null;
 let deferredTournamentRead: {
   promise: Promise<any[]>;
   reject: (error: Error) => void;
@@ -532,6 +533,11 @@ export const Api = {
       const error = nextMyRegistrationReadError;
       nextMyRegistrationReadError = null;
       throw new Error(error);
+    }
+    if (nextMyRegistrationReadResponse !== null) {
+      const { value } = nextMyRegistrationReadResponse;
+      nextMyRegistrationReadResponse = null;
+      return value;
     }
     if (istDateSurfacePreview) {
       return [{ ...istDateSurfaceRegistration, tournament: { ...istDateSurfaceTournament } }];
@@ -742,6 +748,7 @@ export function configureHomeCarouselRegistrationPreview(registrations: any[] = 
 export function configureMyRegistrationPreview(registrations: any[] = []) {
   myRegistrationPreview = registrations.map((registration) => ({ ...registration }));
   myRegistrationReadCount = 0;
+  nextMyRegistrationReadResponse = null;
 }
 
 export function setHomeCarouselRegistrationPreview(registrations: any[]) {
@@ -750,6 +757,10 @@ export function setHomeCarouselRegistrationPreview(registrations: any[]) {
 
 export function setMyRegistrationPreview(registrations: any[]) {
   myRegistrationPreview = registrations.map((registration) => ({ ...registration }));
+}
+
+export function setNextMyRegistrationReadResponse(value: unknown) {
+  nextMyRegistrationReadResponse = { value };
 }
 
 export function deferNextHomeCarouselRegistrationRead() {

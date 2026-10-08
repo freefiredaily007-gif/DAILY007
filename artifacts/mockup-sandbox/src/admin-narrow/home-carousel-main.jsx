@@ -196,7 +196,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       return true;
     },
     fireHomePoll: () => {
-      const homePoll = homePollIntervals[0];
+      const homePoll = homePollIntervals[homePollIntervals.length - 1];
       if (!homePoll) return false;
       homePoll.callback();
       return true;
@@ -204,6 +204,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     setRegistrations: apiMocks.setHomeCarouselRegistrationPreview,
+    setNextRegistrationResponse: apiMocks.setNextMyRegistrationReadResponse,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
