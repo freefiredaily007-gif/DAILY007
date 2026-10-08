@@ -63,7 +63,7 @@ export default function AdminNotifications() {
     `${u.name ?? ''} ${u.email ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
-    <ScreenWrap>
+    <ScreenWrap keyboardShouldPersistTaps="handled">
       <SectionTitle title="SEND NOTIFICATION" sub="broadcast or target specific users" />
       <Card>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>

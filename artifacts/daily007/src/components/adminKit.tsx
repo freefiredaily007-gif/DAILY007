@@ -461,12 +461,21 @@ export const Card = GlassCard;
 export const Btn = ActionBtn;
 export const useToast = useAdminToast;
 export { Chip } from './ui';
-export function ScreenWrap({ children, onRefresh }: { children: React.ReactNode; onRefresh?: () => void }) {
+export function ScreenWrap({
+  children,
+  onRefresh,
+  keyboardShouldPersistTaps,
+}: {
+  children: React.ReactNode;
+  onRefresh?: () => void;
+  keyboardShouldPersistTaps?: React.ComponentProps<typeof ScrollView>['keyboardShouldPersistTaps'];
+}) {
   const [refreshing, setRefreshing] = useState(false);
   return (
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{ padding: 14, paddingBottom: 110 }}
+      keyboardShouldPersistTaps={keyboardShouldPersistTaps}
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await onRefresh(); setRefreshing(false); }} tintColor={A.red} /> : undefined}
     >
       {children}

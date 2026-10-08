@@ -34,6 +34,7 @@ const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
+const adminNotificationKeyboardOnly = process.argv.includes("--admin-notifications-keyboard-only");
 const adminSearchKeyboardOnly = process.argv.includes("--admin-search-keyboard-only");
 const adminSearchAccessibilityOnly = process.argv.includes("--admin-search-accessibility-only");
 const adminLandscapeKeyboardOnly = process.argv.includes("--admin-landscape-keyboard-only");
@@ -1657,6 +1658,272 @@ async function checkRemainingAdminListsAtLargeText(width) {
     },
   }, "Selected-recipient notification");
   await assertPageHasNoHorizontalOverflow(width, "Selected-recipient notification");
+}
+
+function assertNotificationKeyboardTapPolicyIsPassedThrough() {
+  const notificationScreen = readFileSync(
+    path.join(workspaceRoot, "artifacts/daily007/src/screens/AdminNotifications.tsx"),
+    "utf8",
+  );
+  const adminKit = readFileSync(
+    path.join(workspaceRoot, "artifacts/daily007/src/components/adminKit.tsx"),
+    "utf8",
+  );
+  assert(
+    /<ScreenWrap keyboardShouldPersistTaps="handled">/.test(notificationScreen),
+    "The Notifications screen must let its Send button handle the first tap while the Android keyboard is open.",
+  );
+  assert(
+    /keyboardShouldPersistTaps=\{keyboardShouldPersistTaps\}/.test(adminKit),
+    "ScreenWrap must pass the notification keyboard tap policy to its native ScrollView.",
+  );
+}
+
+async function assertNotificationInputFocusedAndVisible(
+  selector,
+  expectedValue,
+  width,
+  keyboardHeight,
+  description,
+) {
+  const state = await evaluate(`(() => {
+    const field = document.querySelector(${JSON.stringify(selector)});
+    if (!field) return null;
+    const rect = field.getBoundingClientRect();
+    return {
+      active: document.activeElement === field,
+      value: field.value,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+    };
+  })()`);
+  assert(state, `${description}: the focused field is missing.`);
+  assert(
+    state.active && state.value === expectedValue,
+    `${description}: the field lost focus or its entered value: ${JSON.stringify(state)}.`,
+  );
+  assert(
+    state.width === width && state.height === keyboardHeight,
+    `${description}: the Android keyboard viewport changed unexpectedly: ${JSON.stringify(state)}.`,
+  );
+  assert(
+    state.left >= -1 &&
+      state.right <= width + 1 &&
+      state.top >= -1 &&
+      state.bottom <= keyboardHeight + 1,
+    `${description}: the focused field is not fully visible above the keyboard: ${JSON.stringify(state)}.`,
+  );
+}
+
+async function bringNotificationSendActionIntoView(width, keyboardHeight, description) {
+  await evaluate(`(() => {
+    const action = document.querySelector('[data-testid="admin-notification-send"]');
+    if (!action) return null;
+    let scrollable = null;
+    for (let parent = action.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (
+        /(auto|scroll)/.test(style.overflowY + " " + style.overflow) &&
+        parent.scrollHeight > parent.clientHeight + 2
+      ) {
+        scrollable = parent;
+        break;
+      }
+    }
+    const actionRect = action.getBoundingClientRect();
+    if (scrollable) {
+      const scrollRect = scrollable.getBoundingClientRect();
+      const visibleTop = Math.max(0, scrollRect.top);
+      const visibleBottom = Math.min(window.innerHeight, scrollRect.bottom);
+      if (actionRect.bottom > visibleBottom) {
+        scrollable.scrollTop += actionRect.bottom - visibleBottom + 4;
+      } else if (actionRect.top < visibleTop) {
+        scrollable.scrollTop -= visibleTop - actionRect.top + 4;
+      }
+    } else if (actionRect.bottom > window.innerHeight) {
+      window.scrollBy(0, actionRect.bottom - window.innerHeight + 4);
+    } else if (actionRect.top < 0) {
+      window.scrollBy(0, actionRect.top - 4);
+    }
+    return true;
+  })()`);
+  await delay(90);
+  const state = await evaluate(`(() => {
+    const action = document.querySelector('[data-testid="admin-notification-send"]');
+    if (!action) return null;
+    let scrollable = null;
+    for (let parent = action.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (
+        /(auto|scroll)/.test(style.overflowY + " " + style.overflow) &&
+        parent.scrollHeight > parent.clientHeight + 2
+      ) {
+        scrollable = parent;
+        break;
+      }
+    }
+    const rect = action.getBoundingClientRect();
+    const scrollRect = scrollable?.getBoundingClientRect();
+    const visibleTop = Math.max(0, scrollRect?.top ?? 0);
+    const visibleBottom = Math.min(window.innerHeight, scrollRect?.bottom ?? window.innerHeight);
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      visibleTop,
+      visibleBottom,
+      disabled:
+        action.disabled === true ||
+        action.getAttribute("aria-disabled") === "true" ||
+        getComputedStyle(action).pointerEvents === "none",
+      hitTestable: Boolean(hit && (action === hit || action.contains(hit))),
+      scrollable: Boolean(scrollable),
+      scrollTop: scrollable?.scrollTop ?? window.scrollY,
+      scrollHeight: scrollable?.scrollHeight ?? document.documentElement.scrollHeight,
+      clientHeight: scrollable?.clientHeight ?? window.innerHeight,
+    };
+  })()`);
+  assert(state, `${description}: the Send Notification action is missing.`);
+  assert(
+    state.width === width && state.height === keyboardHeight,
+    `${description}: the reduced Android viewport was not retained: ${JSON.stringify(state)}.`,
+  );
+  assert(
+    state.left >= -1 &&
+      state.right <= width + 1 &&
+      state.top >= state.visibleTop - 1 &&
+      state.bottom <= state.visibleBottom + 1 &&
+      state.top >= -1 &&
+      state.bottom <= keyboardHeight + 1,
+    `${description}: Send Notification could not be brought fully above the keyboard: ${JSON.stringify(state)}.`,
+  );
+  assert(!state.disabled, `${description}: Send Notification is disabled.`);
+  assert(state.hitTestable, `${description}: Send Notification is covered and cannot be tapped.`);
+  assert(
+    state.scrollable && state.scrollTop > 0 && state.scrollHeight > state.clientHeight,
+    `${description}: the notification form did not scroll within its available keyboard viewport: ${JSON.stringify(state)}.`,
+  );
+  return {
+    x: (state.left + state.right) / 2,
+    y: (state.top + state.bottom) / 2,
+  };
+}
+
+async function checkAdminNotificationsKeyboardAcrossWidths() {
+  const widths = [320, 360, 375, 390, 412, 430];
+  const keyboardHeight = 420;
+  const recipientId = "preview-user-ananya-championship-2026";
+  const recipientSelector = `[data-testid="notification-recipient-${recipientId}"]`;
+  const titleSelector = '[data-testid="admin-notification-title"]';
+  const bodySelector = '[data-testid="admin-notification-body"]';
+
+  assertNotificationKeyboardTapPolicyIsPassedThrough();
+  for (const width of widths) {
+    await setViewport(width, 1.5);
+    assert(
+      await evaluate(
+        `window.innerWidth === ${width} && window.__daily007LargeTextScale === 1.5`,
+      ),
+      `The Admin notification preview did not apply ${width}px and 1.5× Android text.`,
+    );
+    await openAdminTab("notifications", "Notifications");
+    await assertNotificationTypesFit(width);
+    await clickSelector(
+      '[data-testid="notification-type-selected"]',
+      `Select Users notification audience at ${width}px`,
+    );
+    await waitForCondition(
+      `document.querySelector(${JSON.stringify(recipientSelector)}) !== null`,
+      `fake notification recipients at ${width}px`,
+    );
+    await clickSelector(recipientSelector, `Select the isolated fake recipient at ${width}px`);
+    await waitForCondition(
+      `document.body.innerText.includes("RECIPIENTS · 1 selected")`,
+      `one selected fake recipient at ${width}px`,
+    );
+
+    await openAdminKeyboardViewport(keyboardHeight, width);
+    assert(
+      await evaluate(
+        `window.innerWidth === ${width} && window.innerHeight === ${keyboardHeight}`,
+      ),
+      `The ${width}px preview did not resize for the simulated Android keyboard.`,
+    );
+    await assertPageHasNoHorizontalOverflow(width, `Notification form with keyboard open at ${width}px`);
+
+    const title = `Preview update ${width}`;
+    const message = `Isolated notification message for ${width}px; no real users are contacted.`;
+    await setTournamentFormValue(titleSelector, title);
+    await assertNotificationInputFocusedAndVisible(
+      titleSelector,
+      title,
+      width,
+      keyboardHeight,
+      `Notification title at ${width}px`,
+    );
+    await setTournamentFormValue(bodySelector, message);
+    await assertNotificationInputFocusedAndVisible(
+      bodySelector,
+      message,
+      width,
+      keyboardHeight,
+      `Notification message at ${width}px`,
+    );
+    assert(
+      await evaluate(`document.body.innerText.includes("RECIPIENTS · 1 selected")`),
+      `The selected notification recipient was lost while entering text at ${width}px.`,
+    );
+
+    const tapPoint = await bringNotificationSendActionIntoView(
+      width,
+      keyboardHeight,
+      `Notification Send action at ${width}px`,
+    );
+    await assertPageHasNoHorizontalOverflow(width, `Notification send action at ${width}px`);
+    await resetAdminMutationCalls();
+    await cdp("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: tapPoint.x,
+      y: tapPoint.y,
+      button: "left",
+      clickCount: 1,
+    });
+    await cdp("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: tapPoint.x,
+      y: tapPoint.y,
+      button: "left",
+      clickCount: 1,
+    });
+    await assertAdminMutation(
+      {
+        method: "adminSendNotification",
+        payload: {
+          title,
+          body: message,
+          type: "selected",
+          userIds: [recipientId],
+        },
+      },
+      `Fake selected-recipient notification at ${width}px`,
+    );
+    assert(
+      await evaluate(`window.innerHeight === ${keyboardHeight}`),
+      `Sending at ${width}px unexpectedly restored the full viewport before the keyboard was dismissed.`,
+    );
+    await assertPageHasNoHorizontalOverflow(width, `Sent notification at ${width}px`);
+    console.log(
+      `PASS ${width}px at 1.5× text with a simulated Android keyboard — both fields remain focused and visible, the fake recipient stays selected, and Send Notification can be scrolled fully into view and tapped.`,
+    );
+  }
 }
 
 async function assertAdminSearchField(
@@ -6464,6 +6731,7 @@ try {
     homeCarouselOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
+    adminNotificationKeyboardOnly ||
     adminSearchKeyboardOnly ||
     adminSearchAccessibilityOnly ||
     adminLandscapeKeyboardOnly ||
@@ -6481,13 +6749,13 @@ try {
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
-          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
-          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
@@ -6524,6 +6792,8 @@ try {
           ? "Wallet and Edit Profile"
         : adminKeyboardFormsOnly
           ? "Admin tournament keyboard forms"
+        : adminNotificationKeyboardOnly
+          ? "Admin notification keyboard preview"
         : adminSearchKeyboardOnly
           ? "Admin Wallet and Users search fields"
         : adminSearchAccessibilityOnly
@@ -6727,6 +6997,13 @@ try {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);
       console.log("PASS — Wallet recharge/withdrawal and Edit Profile actions remain reachable at 375px with a simulated keyboard-open viewport.");
+    } else if (adminNotificationKeyboardOnly) {
+      await checkAdminNotificationsKeyboardAcrossWidths();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin notification keyboard checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Targeted notifications remain sendable at all six requested phone widths with 1.5× text and a simulated Android keyboard.");
     } else if (homeCarouselOnly) {
       let homePreviewErrorBaseline;
       for (const width of [320, 430]) {
