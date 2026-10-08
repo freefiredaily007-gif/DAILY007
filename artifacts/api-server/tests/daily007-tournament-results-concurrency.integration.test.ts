@@ -978,6 +978,26 @@ test("concurrent first- and second-place results cannot pay one registration twi
       assert.equal(successful.body.prizeCoins, successfulPrize);
       assert.equal(successful.body.walletCoins, successfulBalance);
 
+      const standingsAfterRace = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsAfterRace.status, 200);
+      if (successfulRank === 1) {
+        assert.equal(standingsAfterRace.body.status, "finalized");
+        assert.deepEqual(standingsAfterRace.body.entries, [{
+          rank: 1,
+          kills: successfulKills,
+          prizeCoins: successfulPrize,
+          gameName: "TestGame1",
+          teamName: null,
+        }]);
+      } else {
+        assert.equal(standingsAfterRace.body.status, "draft");
+        assert.deepEqual(
+          standingsAfterRace.body.entries,
+          [],
+          "a runner-up result must stay hidden until a winner finalizes standings",
+        );
+      }
+
       const playerState = await captureSettlementState(fixture, player);
       assert.deepEqual(playerState, {
         walletCoins: successfulBalance,
@@ -1015,6 +1035,154 @@ test("concurrent first- and second-place results cannot pay one registration twi
     if (blockerTransactionOpen) await blocker.query("ROLLBACK");
     blocker.release();
     await Promise.allSettled(submissions);
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a rank-2-first result remains the only public result for its registration after finalization", async () => {
+  const fixture = await createFixture();
+  const runnerUp = fixture.players[0];
+  const winner = fixture.players[1];
+
+  try {
+    await withServer(async (origin) => {
+      const runnerUpResult = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        runnerUp,
+        2,
+        3,
+      );
+      assert.equal(runnerUpResult.status, 201);
+      assert.equal(runnerUpResult.body.registrationId, runnerUp.registrationId);
+      assert.equal(runnerUpResult.body.prizeCoins, 250);
+      assert.equal(runnerUpResult.body.walletCoins, 350);
+
+      const conflictingWinner = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        runnerUp,
+        1,
+        8,
+      );
+      assert.equal(conflictingWinner.status, 409);
+      assert.equal(
+        conflictingWinner.body.error,
+        "A result has already been published for this registration.",
+      );
+
+      const standingsBeforeFinalization = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsBeforeFinalization.status, 200);
+      assert.equal(standingsBeforeFinalization.body.status, "draft");
+      assert.deepEqual(
+        standingsBeforeFinalization.body.entries,
+        [],
+        "unfinished runner-up standings must not expose either submitted rank",
+      );
+
+      const winnerResult = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        winner,
+        1,
+        6,
+      );
+      assert.equal(winnerResult.status, 201);
+      assert.equal(winnerResult.body.registrationId, winner.registrationId);
+      assert.equal(winnerResult.body.prizeCoins, 500);
+      assert.equal(winnerResult.body.walletCoins, 600);
+
+      const standingsAfterFinalization = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsAfterFinalization.status, 200);
+      assert.equal(standingsAfterFinalization.body.status, "finalized");
+      assert.deepEqual(standingsAfterFinalization.body.entries, [
+        {
+          rank: 1,
+          kills: 6,
+          prizeCoins: 500,
+          gameName: "TestGame2",
+          teamName: null,
+        },
+        {
+          rank: 2,
+          kills: 3,
+          prizeCoins: 250,
+          gameName: "TestGame1",
+          teamName: null,
+        },
+      ]);
+      const publicEntries = standingsAfterFinalization.body.entries as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        publicEntries.filter((entry) => entry.gameName === "TestGame1"),
+        [{
+          rank: 2,
+          kills: 3,
+          prizeCoins: 250,
+          gameName: "TestGame1",
+          teamName: null,
+        }],
+        "the registration must expose only its accepted rank, never the rejected rank",
+      );
+
+      const expectedAwards = [
+        {
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 6,
+          prize_coins: 500,
+        },
+        {
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          rank: 2,
+          kills: 3,
+          prize_coins: 250,
+        },
+      ];
+      assert.deepEqual(await captureSettlementState(fixture, runnerUp), {
+        walletCoins: 350,
+        awards: expectedAwards,
+        stats: {
+          matches: 1,
+          wins: 0,
+          kills: 3,
+          prize_coins: 250,
+        },
+        ledger: [{
+          amount: 250,
+          balance_after: 350,
+          reason: "match_prize",
+        }],
+        match: {
+          enabled: false,
+          status: "open",
+        },
+      });
+      assert.deepEqual(await captureSettlementState(fixture, winner), {
+        walletCoins: 600,
+        awards: expectedAwards,
+        stats: {
+          matches: 1,
+          wins: 1,
+          kills: 6,
+          prize_coins: 500,
+        },
+        ledger: [{
+          amount: 500,
+          balance_after: 600,
+          reason: "match_prize",
+        }],
+        match: {
+          enabled: false,
+          status: "open",
+        },
+      });
+    });
+  } finally {
     await cleanupFixture(fixture);
   }
 });
