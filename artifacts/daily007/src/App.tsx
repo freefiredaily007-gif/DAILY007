@@ -153,10 +153,10 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   useEffect(() => {
     const handleExpiredSession = () => {
+      setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
       setSession(null);
       setUser(null);
       queryClient.clear();
-      setAuthNotice('This account signed in elsewhere. Sign in again to continue.');
     };
     setSessionExpiredHandler(handleExpiredSession);
     return () => setSessionExpiredHandler(null);
@@ -257,6 +257,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
           setUser(refreshedUser);
         },
         () => {
+          setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
           setSession(null);
           setUser(null);
         },

@@ -82,6 +82,7 @@ async function applyMockAccessRefreshFailure(error) {
   };
   let currentUser = initialUser;
   let savedSession = initialUser;
+  let authNotice = "";
   let commitCalls = 0;
   let rejectCalls = 0;
 
@@ -94,6 +95,7 @@ async function applyMockAccessRefreshFailure(error) {
       savedSession = updatedUser;
     },
     () => {
+      authNotice = "Your Daily007 session is no longer valid. Sign in again to continue.";
       rejectCalls += 1;
       currentUser = null;
       savedSession = null;
@@ -103,6 +105,7 @@ async function applyMockAccessRefreshFailure(error) {
   return {
     result,
     initialUser,
+    authNotice,
     currentUser,
     savedSession,
     commitCalls,
@@ -221,6 +224,7 @@ for (const [failureName, error] of [
     assert.equal(state.savedSession.token, "same-saved-daily007-session");
     assert.equal(state.commitCalls, 0);
     assert.equal(state.rejectCalls, 0);
+    assert.equal(state.authNotice, "");
     assert.equal(state.navigation, "Admin");
     assert.deepEqual(
       adminNavigationForRole(state.currentUser.role, "tournaments", ADMIN_NAV_ITEMS),
@@ -240,6 +244,10 @@ for (const status of [401, 403]) {
     assert.equal(state.currentUser, null);
     assert.equal(state.savedSession, null);
     assert.equal(state.rejectCalls, 1);
+    assert.equal(
+      state.authNotice,
+      "Your Daily007 session is no longer valid. Sign in again to continue.",
+    );
     assert.equal(state.navigation, "Auth");
   });
 }
@@ -380,7 +388,42 @@ test("Tournament Admin cannot see or directly open payment, wallet, or reward ma
 
 test("App and AdminApp use the tested refresh and role-navigation decisions", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const apiSource = await readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8");
+  const authSource = await readFile(new URL("../src/screens/Auth.tsx", import.meta.url), "utf8");
   const adminSource = await readFile(new URL("../src/screens/AdminApp.tsx", import.meta.url), "utf8");
+  const expiredHandlerStart = appSource.indexOf("const handleExpiredSession = () => {");
+  const expiredHandlerEnd = appSource.indexOf("\n    };", expiredHandlerStart);
+  assert.ok(
+    expiredHandlerStart >= 0 && expiredHandlerEnd > expiredHandlerStart,
+    "The global expired-session handler must remain.",
+  );
+  const expiredHandlerSource = appSource.slice(expiredHandlerStart, expiredHandlerEnd);
+  const globalNoticeIndex = expiredHandlerSource.indexOf(
+    "setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.')",
+  );
+  const globalClearSessionIndex = expiredHandlerSource.indexOf("setSession(null)", globalNoticeIndex);
+  const globalClearUserIndex = expiredHandlerSource.indexOf("setUser(null)", globalClearSessionIndex);
+  assert.ok(
+    globalNoticeIndex >= 0
+      && globalClearSessionIndex > globalNoticeIndex
+      && globalClearUserIndex > globalClearSessionIndex,
+    "A 401 handler must set the sign-in notice before clearing session and user state.",
+  );
+
+  const responseInterceptorStart = apiSource.indexOf("http.interceptors.response.use(");
+  const responseInterceptorEnd = apiSource.indexOf("\n);", responseInterceptorStart);
+  assert.ok(
+    responseInterceptorStart >= 0 && responseInterceptorEnd > responseInterceptorStart,
+    "The API response interceptor must remain.",
+  );
+  const responseInterceptorSource = apiSource.slice(responseInterceptorStart, responseInterceptorEnd);
+  const handlerCallIndex = responseInterceptorSource.indexOf("sessionExpiredHandler()");
+  const fallbackClearIndex = responseInterceptorSource.indexOf("setSession(null)", handlerCallIndex);
+  assert.ok(
+    handlerCallIndex >= 0 && fallbackClearIndex > handlerCallIndex,
+    "When mounted, the session notice handler must run before the interceptor fallback clears storage.",
+  );
+
   const refreshStart = appSource.indexOf("const refreshAccess = useCallback(");
   const refreshEnd = appSource.indexOf("\n  }, []);", refreshStart);
   assert.ok(refreshStart >= 0 && refreshEnd > refreshStart, "The account-access refresh callback must remain.");
@@ -390,12 +433,26 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   assert.match(refreshSource, /refreshUserAccountAccessSafely\(\s*previous,\s*\(\) => Api\.meAccount\(\)/);
   assert.match(refreshSource, /setSession\(refreshedUser\)/);
   assert.match(refreshSource, /setUser\(refreshedUser\)/);
-  assert.match(refreshSource, /setSession\(null\)/);
-  assert.match(refreshSource, /setUser\(null\)/);
+  const noticeIndex = refreshSource.indexOf(
+    "setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.')",
+  );
+  const clearSavedSessionIndex = refreshSource.indexOf("setSession(null)", noticeIndex);
+  const clearUserIndex = refreshSource.indexOf("setUser(null)", clearSavedSessionIndex);
+  assert.ok(
+    noticeIndex >= 0
+      && clearSavedSessionIndex > noticeIndex
+      && clearUserIndex > clearSavedSessionIndex,
+    "A rejected refresh must set the sign-in notice before clearing session and user state.",
+  );
   assert.doesNotMatch(refreshSource, /logoutDaily007|signOutClerk|Api\.me\(/);
   assert.match(appSource, /rootNavigationForRole\(user\.role\)/);
   assert.match(appSource, /rootNavigation === 'Admin'/);
-  assert.match(appSource, /if \(!user\) return <Auth/);
+  assert.match(appSource, /if \(!user\) return <Auth\s+notice=\{authNotice\}/);
+  assert.match(
+    authSource,
+    /!isSignup && notice \? <Text style=\{s\.sessionNotice\}>\{notice\}<\/Text>/,
+    "The Auth login screen must display the rejection notice.",
+  );
   assert.match(
     appSource,
     /refreshAccessAfterPending\(\s*accessRefreshRequest\.current,\s*resumeAccessRefreshRequest,\s*refreshAccess/,

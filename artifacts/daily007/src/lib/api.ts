@@ -87,8 +87,8 @@ http.interceptors.response.use(
       responseMessage.includes('Daily007 session was replaced');
     if (error?.response?.status === 401 && current?.token &&
         (!isAuthEntry || googleLinkRejectedOldSession)) {
-      setSession(null);
-      sessionExpiredHandler?.();
+      if (sessionExpiredHandler) sessionExpiredHandler();
+      else setSession(null);
     }
     return Promise.reject(error);
   },
