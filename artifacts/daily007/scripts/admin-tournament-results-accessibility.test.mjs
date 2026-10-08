@@ -92,6 +92,56 @@ test('approved-player load failures use one polite retry announcement without mo
   assert.doesNotMatch(failureMessage, /setAccessibilityFocus|\.focus\(/);
 });
 
+test('Result Entry announces distinct successful empty states separately from load failures', () => {
+  assert.match(
+    screenSource,
+    /const resultEmptyMessage = resultRegs === null\s*\?\s*''\s*:\s*resultRegs\.length === 0\s*\?\s*'No approved registrations for this tournament\.'\s*:\s*'Every approved player already has a published result\.';/,
+    'A successful empty response and an all-published response must have different messages.',
+  );
+
+  const resultEntryStart = screenSource.indexOf('{resultRegs === null ?');
+  const playerChoicesStart = screenSource.indexOf('<Text style={st.lbl}>SELECT PLAYER', resultEntryStart);
+  assert.ok(resultEntryStart >= 0 && playerChoicesStart > resultEntryStart);
+  const resultEntryState = screenSource.slice(resultEntryStart, playerChoicesStart);
+  assert.match(
+    resultEntryState,
+    /resultRegs === null \?\s*\(\s*resultBusy \? <Loading \/> : <Text accessibilityLiveRegion="polite"[^>]*>Approved registrations could not be loaded\. Close and reopen this panel to retry\.<\/Text>\s*\)\s*:\s*eligibleResultRegs\.length === 0 \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
+    'Only a failed or pending request should use the load-failure guidance.',
+  );
+
+  const emptyState = resultEntryState.match(/<Empty[\s\S]*?\/>/)?.[0];
+  assert.ok(emptyState, 'A successful empty response must render the shared empty state.');
+  assert.match(emptyState, /text=\{resultEmptyMessage\}/);
+  assert.match(emptyState, /accessibilityLabel=\{resultEmptyMessage\}/);
+  assert.equal(
+    (emptyState.match(/accessibilityLiveRegion="polite"/g) ?? []).length,
+    1,
+    'The selected successful empty-state message must have one polite announcement.',
+  );
+  assert.doesNotMatch(
+    resultEntryState,
+    /Approved registrations could not be loaded[\s\S]*No approved registrations|No approved registrations[\s\S]*Approved registrations could not be loaded/,
+    'Load-failure guidance must not be combined with a successful empty-state message.',
+  );
+
+  const loadStart = screenSource.indexOf('const registrations = await Api.adminApprovedRegs');
+  const loadEnd = screenSource.indexOf('\n  const saveRoom', loadStart);
+  const loadApprovedPlayers = screenSource.slice(loadStart, loadEnd);
+  assert.match(loadApprovedPlayers, /catch \(e: any\)[\s\S]*setResultRegs\(null\)/);
+  const actionStart = screenSource.indexOf('const toggleTournamentAction');
+  const resultEntryOpen = screenSource.slice(actionStart, loadStart);
+  assert.match(
+    resultEntryOpen,
+    /setResultError\(''\); setResultSuccess\(''\);[\s\S]*setResultRegs\(null\);[\s\S]*setResultBusy\(true\)/,
+    'Opening Result Entry must clear stale messages before loading the current response.',
+  );
+  assert.match(
+    uiSource,
+    /accessibilityLiveRegion=\{accessibilityLiveRegion\}/,
+    'The shared empty-state text must forward the polite live-region semantics.',
+  );
+});
+
 test('room save and removal outcomes announce once without moving focus', () => {
   const roomStatusMessages = screenSource.match(
     /<Msg kind="(?:err|ok)" text=\{room(?:Error|Success)\} accessibilityLiveRegion="polite" \/>/g,
@@ -123,7 +173,7 @@ test('tournament and room-management errors use polite live regions', () => {
   );
   assert.match(
     screenSource,
-    /<Msg kind="err" text=\{loadError\} accessibilityLiveRegion="polite" \/>/,
+    /<Msg\s+kind="err"\s+text=\{loadError\}\s+accessibilityLiveRegion="polite"\s+testID="admin-tournament-load-error"\s*\/>/,
     'Tournament list refresh errors must remain announced.',
   );
   assert.match(

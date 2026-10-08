@@ -197,7 +197,7 @@ export default function AdminTournaments() {
     } catch (e: any) {
       if (actionRequestId.current === requestId) {
         setResultError(apiError(e));
-        setResultRegs([]);
+        setResultRegs(null);
       }
     } finally {
       if (actionRequestId.current === requestId) setResultBusy(false);
@@ -664,6 +664,11 @@ export default function AdminTournaments() {
         const winner = tournamentResults.find((entry) => Number(entry.rank) === 1);
         const winnerName = String(winner?.gameName || winner?.playerName || winner?.teamName || 'Winner');
         const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : 'UPCOMING';
+        const resultEmptyMessage = resultRegs === null
+          ? ''
+          : resultRegs.length === 0
+            ? 'No approved registrations for this tournament.'
+            : 'Every approved player already has a published result.';
         const eligibleResultRegs = (resultRegs ?? []).filter(
           (registration) => !(publishedRegistrationIds[t.id] ?? []).includes(registration.id),
         );
@@ -820,11 +825,11 @@ export default function AdminTournaments() {
                 {resultRegs === null ? (
                   resultBusy ? <Loading /> : <Text accessibilityLiveRegion="polite" style={st.actionHint}>Approved registrations could not be loaded. Close and reopen this panel to retry.</Text>
                 ) : eligibleResultRegs.length === 0 ? (
-                  <Empty text={resultError
-                    ? 'Approved registrations could not be loaded. Close and reopen this panel to retry.'
-                    : resultRegs.length === 0
-                      ? 'No approved registrations for this tournament.'
-                      : 'Every approved player already has a published result.'} />
+                  <Empty
+                    text={resultEmptyMessage}
+                    accessibilityLabel={resultEmptyMessage}
+                    accessibilityLiveRegion="polite"
+                  />
                 ) : (
                   <>
                     <Text style={st.lbl}>SELECT PLAYER</Text>

@@ -237,9 +237,17 @@ export function Msg({
 }
 
 // ---------- premium gaming empty state ----------
-export function Empty({ icon, text, actionLabel, onAction, accessibilityLabel }: {
+export function Empty({
+  icon,
+  text,
+  actionLabel,
+  onAction,
+  accessibilityLabel,
+  accessibilityLiveRegion,
+}: {
   icon?: string; text: string; actionLabel?: string; onAction?: () => void;
   accessibilityLabel?: string;
+  accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
   const adminSurface = useAdminSurface();
   return (
@@ -252,6 +260,7 @@ export function Empty({ icon, text, actionLabel, onAction, accessibilityLabel }:
         accessible={accessibilityLabel ? true : undefined}
         accessibilityRole={accessibilityLabel ? 'text' : undefined}
         accessibilityLabel={accessibilityLabel}
+        accessibilityLiveRegion={accessibilityLiveRegion}
         style={[st.emptyText, adminSurface && adminSt.bodyText]}
       >
         {text}
