@@ -996,12 +996,13 @@ test("a locked wallet row for one player does not block another player's video r
   }
 });
 
-test("a failed wallet-ledger insert rolls back a video reward", async () => {
+test("a failed wallet-ledger insert rolls back and allows the same session to retry once", async () => {
   const fixture = await createFixture();
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
   const failureConstraint = `reject_video_reward_${randomUUID().replace(/-/g, "")}`;
   const failedLedgerKey = `daily007-video-watch:${fixture.sessionId}`;
   let constraintInstalled = false;
+  let retryTransactionId: string | null = null;
 
   try {
     await pool.query(
@@ -1015,23 +1016,68 @@ test("a failed wallet-ledger insert rolls back a video reward", async () => {
     constraintInstalled = true;
 
     await withServer(async (origin) => {
-      const response = await sendJson(
+      const failedResponse = await sendJson(
         origin,
         "/videos/watch/complete",
         fixture.playerId,
         "POST",
         { sessionId: fixture.sessionId, percentWatched: 100 },
       );
-      assert.equal(response.status, 500);
-      assert.equal(response.body.error, "Internal server error.");
+      assert.equal(failedResponse.status, 500);
+      assert.equal(failedResponse.body.error, "Internal server error.");
+
+      const failedState = await inspectFixture(fixture);
+      assert.equal(failedState.active, true, "the video must remain available after a failed reward");
+      assert.equal(failedState.walletCoins, 12, "a failed ledger write must not change the wallet");
+      assert.equal(failedState.ledgerCount, 0, "the failed reward must not leave a ledger row");
+      assert.equal(failedState.ledgerId, null);
+      assert.equal(failedState.completedAt, null, "the failed reward must leave the session incomplete");
+      assert.equal(failedState.rewardLedgerId, null);
+
+      await pool.query(
+        `ALTER TABLE daily007_v2_wallet_ledger
+         DROP CONSTRAINT ${failureConstraint}`,
+      );
+      constraintInstalled = false;
+
+      const retryResponse = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(retryResponse.status, 200);
+      assert.equal(retryResponse.body.rewarded, true);
+      assert.equal(retryResponse.body.coins, 1);
+      assert.equal(retryResponse.body.walletCoins, 13);
+      assert.equal(typeof retryResponse.body.transactionId, "string");
+      retryTransactionId = retryResponse.body.transactionId as string;
+
+      const repeatedResponse = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(repeatedResponse.status, 200);
+      assert.equal(repeatedResponse.body.rewarded, false);
+      assert.equal(repeatedResponse.body.coins, 0);
+      assert.equal(repeatedResponse.body.walletCoins, 13);
+      assert.equal(repeatedResponse.body.transactionId, retryTransactionId);
     });
 
-    const state = await inspectFixture(fixture);
-    assert.equal(state.walletCoins, 12, "a failed ledger write must not change the wallet");
-    assert.equal(state.ledgerCount, 0, "the failed reward must not leave a ledger row");
-    assert.equal(state.ledgerId, null);
-    assert.equal(state.completedAt, null, "the failed reward must leave the session incomplete");
-    assert.equal(state.rewardLedgerId, null);
+    const recoveredState = await inspectFixture(fixture);
+    assert.equal(recoveredState.active, true);
+    assert.equal(recoveredState.walletCoins, 13, "the successful retry should credit exactly one coin");
+    assert.equal(recoveredState.ledgerCount, 1, "the session should have exactly one reward ledger row");
+    assert.ok(recoveredState.ledgerId);
+    assert.equal(recoveredState.ledgerAmount, 1);
+    assert.equal(recoveredState.ledgerBalanceAfter, 13);
+    assert.ok(recoveredState.completedAt);
+    assert.equal(recoveredState.rewardLedgerId, recoveredState.ledgerId);
+    assert.equal(recoveredState.ledgerId, retryTransactionId);
   } finally {
     try {
       if (constraintInstalled) {
