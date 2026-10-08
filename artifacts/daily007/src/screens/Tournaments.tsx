@@ -185,6 +185,7 @@ export default function Tournaments() {
     ongoing: 'Ongoing',
     completed: 'Completed',
   };
+  const emptyMessage = tournamentListEmptyMessage(false, tabLabel[tab], heading, teamType);
 
   const onRefresh = async () => {
     if (refreshingRequest.current) return;
@@ -270,7 +271,9 @@ export default function Tournaments() {
             )}
           </View>
         }
-        ListEmptyComponent={<Empty text={tournamentListEmptyMessage(Boolean(error), tabLabel[tab], heading, teamType)} />}
+        ListEmptyComponent={error ? null : (
+          <Empty text={emptyMessage} accessibilityLabel={emptyMessage} />
+        )}
         renderItem={({ item }) => {
           const state = lifecycleOf(item);
           const cardItem = state === 'ongoing' && item.status !== 'ongoing'

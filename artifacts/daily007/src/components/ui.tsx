@@ -237,8 +237,9 @@ export function Msg({
 }
 
 // ---------- premium gaming empty state ----------
-export function Empty({ icon, text, actionLabel, onAction }: {
+export function Empty({ icon, text, actionLabel, onAction, accessibilityLabel }: {
   icon?: string; text: string; actionLabel?: string; onAction?: () => void;
+  accessibilityLabel?: string;
 }) {
   const adminSurface = useAdminSurface();
   return (
@@ -247,7 +248,14 @@ export function Empty({ icon, text, actionLabel, onAction }: {
         {adminSurface ? <Feather name="target" size={28} color={C.orange} /> : <Text style={{ fontSize: 40 }}>{icon || '🎮'}</Text>}
       </View>
       <Text style={[st.emptyTitle, adminSurface && adminSt.emptyTitle]}>NO MATCHES LIVE</Text>
-      <Text style={[st.emptyText, adminSurface && adminSt.bodyText]}>{text}</Text>
+      <Text
+        accessible={accessibilityLabel ? true : undefined}
+        accessibilityRole={accessibilityLabel ? 'text' : undefined}
+        accessibilityLabel={accessibilityLabel}
+        style={[st.emptyText, adminSurface && adminSt.bodyText]}
+      >
+        {text}
+      </Text>
       {!!actionLabel && <Btn title={actionLabel} kind="purple" onPress={onAction} style={{ marginTop: 16, alignSelf: 'center', paddingHorizontal: 24 }} />}
     </View>
   );

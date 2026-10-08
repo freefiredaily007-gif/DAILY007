@@ -378,7 +378,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   assert.match(tournamentsSource, /data=\{orderedVisible\}/);
   assert.match(
     tournamentsSource,
-    /ListEmptyComponent=\{<Empty text=\{tournamentListEmptyMessage\(/,
+    /ListEmptyComponent=\{error \? null : \(\s*<Empty text=\{emptyMessage\} accessibilityLabel=\{emptyMessage\} \/>\s*\)\}/,
   );
 });
 
@@ -960,7 +960,7 @@ test('Solo, Duo, and Squad lists exclude other sizes without losing the selected
   }
 });
 
-test('empty format-filtered lifecycle tabs name the selected mode and team size without leaking other tournaments', () => {
+test('empty format-filtered lifecycle tabs announce the selected mode and team size without leaking other tournaments', () => {
   const selectedTournaments = [
     { id: 'clash-duo-upcoming', gameMode: 'clash_squad', teamType: 'Duo', lifecycle: 'upcoming' },
     { id: 'clash-duo-ongoing', gameMode: 'clash_squad', teamType: 'Duo', lifecycle: 'ongoing' },
@@ -1017,10 +1017,25 @@ test('empty format-filtered lifecycle tabs name the selected mode and team size 
 
   assert.match(
     tournamentsSource,
-    /tournamentListEmptyMessage\(Boolean\(error\),\s*tabLabel\[tab\],\s*heading,\s*teamType\)/,
+    /const emptyMessage = tournamentListEmptyMessage\(false,\s*tabLabel\[tab\],\s*heading,\s*teamType\)/,
+  );
+  assert.match(
+    tournamentsSource,
+    /ListEmptyComponent=\{error \? null : \(\s*<Empty text=\{emptyMessage\} accessibilityLabel=\{emptyMessage\} \/>\s*\)\}/,
+    'the one visible no-results message should also be its explicit screen-reader label',
+  );
+  assert.match(
+    uiSource,
+    /accessible=\{accessibilityLabel \? true : undefined\}\s+accessibilityRole=\{accessibilityLabel \? 'text' : undefined\}\s+accessibilityLabel=\{accessibilityLabel\}/,
+    'an explicitly labeled empty-state caption should be a single accessible text item',
   );
   assert.equal(
     tournamentListEmptyMessage(true, 'Completed', 'CLASH SQUAD', 'duo'),
     'Tournament data is unavailable right now. Pull to refresh and try again.',
+  );
+  assert.match(
+    tournamentsSource,
+    /testID=\{hasLoadedList\.current \? 'player-tournament-refresh-error' : 'player-tournament-load-error'\}/,
+    'a list error should remain represented by the distinct load or refresh error message',
   );
 });
