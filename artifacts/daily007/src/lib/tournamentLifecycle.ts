@@ -13,6 +13,29 @@ export function createHomeRefreshRequestGuard() {
   };
 }
 
+export function createHomeRefreshSingleFlight<T>() {
+  let inFlight: Promise<T> | null = null;
+  return {
+    run(task: () => Promise<T>): Promise<T> {
+      if (inFlight) return inFlight;
+
+      let taskPromise: Promise<T>;
+      try {
+        taskPromise = Promise.resolve(task());
+      } catch (error) {
+        taskPromise = Promise.reject(error);
+      }
+
+      let trackedPromise: Promise<T>;
+      trackedPromise = taskPromise.finally(() => {
+        if (inFlight === trackedPromise) inFlight = null;
+      });
+      inFlight = trackedPromise;
+      return trackedPromise;
+    },
+  };
+}
+
 export function shouldRefreshHomeTournaments(appState: string): boolean {
   return appState === 'active';
 }

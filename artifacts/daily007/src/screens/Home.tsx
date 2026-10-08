@@ -14,6 +14,7 @@ import { C, Card, SectionTitle, Loading, Empty, GCard, Badge, CoinCapsule, Msg, 
 import { inr } from '../lib/coins';
 import {
   createHomeRefreshRequestGuard,
+  createHomeRefreshSingleFlight,
   didAppReturnToForeground,
   getUpcomingHomeTournaments,
   getTournamentLifecycleState,
@@ -110,6 +111,7 @@ export default function Home() {
   const selectedTournamentIdRef = useRef<string | null>(null);
   const screenReaderEventReceivedRef = useRef(false);
   const loadRequestGuardRef = useRef(createHomeRefreshRequestGuard());
+  const loadSingleFlightRef = useRef(createHomeRefreshSingleFlight<void>());
   const activeRequestsRef = useRef(0);
   const homePollInFlightRef = useRef(false);
   const resumeRefreshPendingRef = useRef(false);
@@ -132,42 +134,46 @@ export default function Home() {
       subscription.remove();
     };
   }, []);
-  const load = useCallback(async () => {
-    const requestId = loadRequestGuardRef.current.start();
-    activeRequestsRef.current += 1;
-    try {
-      const [tournamentsResult, registrationsResult] = await Promise.allSettled([
-        api.tournaments('?enabled=true'),
-        api.myRegistrations(),
-      ]);
-      if (!loadRequestGuardRef.current.isCurrent(requestId)) return;
-      if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;
-      if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
-      const r = tournamentsResult.value;
-      const registrations = registrationsResult.value;
-      if (!Array.isArray(registrations)) {
-        throw new Error('Registration data could not be read. Please try again.');
+  const load = useCallback(() => {
+    const loadPromise = loadSingleFlightRef.current.run(async () => {
+      const requestId = loadRequestGuardRef.current.start();
+      activeRequestsRef.current += 1;
+      try {
+        const [tournamentsResult, registrationsResult] = await Promise.allSettled([
+          api.tournaments('?enabled=true'),
+          api.myRegistrations(),
+        ]);
+        if (!loadRequestGuardRef.current.isCurrent(requestId)) return;
+        if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;
+        if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
+        const r = tournamentsResult.value;
+        const registrations = registrationsResult.value;
+        if (!Array.isArray(registrations)) {
+          throw new Error('Registration data could not be read. Please try again.');
+        }
+        const list = Array.isArray(r) ? r : r?.tournaments || [];
+        const joinedIds = new Set(
+          registrations
+            .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
+            .map((registration: any) => String(registration.tournamentId)),
+        );
+        setItems((currentItems) => mergeHomeTournamentItems(
+          currentItems,
+          Array.isArray(list) ? list : [],
+          joinedIds,
+        ));
+        setClockNow(Date.now());
+        setLoadError('');
+      } catch (e: any) {
+        if (loadRequestGuardRef.current.isCurrent(requestId)) {
+          setLoadError(e?.message || 'Could not load tournaments.');
+        }
+      } finally {
+        activeRequestsRef.current -= 1;
+        if (loadRequestGuardRef.current.isCurrent(requestId)) setLoading(false);
       }
-      const list = Array.isArray(r) ? r : r?.tournaments || [];
-      const joinedIds = new Set(
-        registrations
-          .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
-          .map((registration: any) => String(registration.tournamentId)),
-      );
-      setItems((currentItems) => mergeHomeTournamentItems(
-        currentItems,
-        Array.isArray(list) ? list : [],
-        joinedIds,
-      ));
-      setClockNow(Date.now());
-      setLoadError('');
-    } catch (e: any) {
-      if (loadRequestGuardRef.current.isCurrent(requestId)) {
-        setLoadError(e?.message || 'Could not load tournaments.');
-      }
-    } finally {
-      activeRequestsRef.current -= 1;
-      if (loadRequestGuardRef.current.isCurrent(requestId)) setLoading(false);
+    });
+    return loadPromise.finally(() => {
       if (
         activeRequestsRef.current === 0 &&
         resumeRefreshPendingRef.current &&
@@ -176,11 +182,12 @@ export default function Home() {
         resumeRefreshPendingRef.current = false;
         refreshHomeIfIdleRef.current();
       }
-    }
+    });
   }, []);
 
   const refreshHomeIfIdle = useCallback(() => {
-    if (activeRequestsRef.current > 0 || homePollInFlightRef.current) {
+    if (homePollInFlightRef.current) return;
+    if (activeRequestsRef.current > 0) {
       resumeRefreshPendingRef.current = true;
       return;
     }

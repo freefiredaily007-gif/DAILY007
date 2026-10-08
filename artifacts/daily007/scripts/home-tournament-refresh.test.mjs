@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createHomeRefreshRequestGuard,
+  createHomeRefreshSingleFlight,
   didAppReturnToForeground,
   getUpcomingHomeTournaments,
   getTournamentLifecycleState,
@@ -65,12 +66,64 @@ test("Home advances its lifecycle clock and refreshes tournament data on foregro
 });
 
 test("Home queues a foreground refresh when an older request is still running", () => {
+  const refreshStart = homeSource.indexOf("const refreshHomeIfIdle = useCallback");
+  const refreshEnd = homeSource.indexOf("\n  }, [load]);", refreshStart);
+  assert.ok(refreshStart >= 0 && refreshEnd > refreshStart);
+  const refreshHandler = homeSource.slice(refreshStart, refreshEnd);
+  assert.match(refreshHandler, /if \(homePollInFlightRef\.current\) return/);
+  assert.match(
+    refreshHandler,
+    /if \(activeRequestsRef\.current > 0\) \{\s*resumeRefreshPendingRef\.current = true;\s*return;\s*\}/,
+  );
   assert.match(
     homeSource,
-    /if \(activeRequestsRef\.current > 0 \|\| homePollInFlightRef\.current\) \{\s*resumeRefreshPendingRef\.current = true;\s*return;\s*\}/,
+    /activeRequestsRef\.current === 0 &&\s*resumeRefreshPendingRef\.current &&\s*!homePollInFlightRef\.current/,
   );
-  assert.match(homeSource, /activeRequestsRef\.current === 0 &&\s*resumeRefreshPendingRef\.current/);
   assert.match(homeSource, /refreshHomeIfIdleRef\.current\(\)/);
+});
+
+test("Home coalesces paired requests and releases the shared request after success or failure", async () => {
+  const singleFlight = createHomeRefreshSingleFlight();
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+  };
+  let requestCount = 0;
+
+  const firstRequest = deferred();
+  const first = singleFlight.run(() => {
+    requestCount += 1;
+    return firstRequest.promise;
+  });
+  const simultaneous = singleFlight.run(async () => {
+    requestCount += 1;
+    return "unexpected duplicate";
+  });
+  assert.equal(first, simultaneous, "Concurrent callers must share the same promise.");
+  assert.equal(requestCount, 1, "Only one paired request may be started for concurrent callers.");
+  firstRequest.resolve("latest snapshot");
+  assert.equal(await first, "latest snapshot");
+
+  const failed = singleFlight.run(async () => {
+    requestCount += 1;
+    throw new Error("paired request failed");
+  });
+  const simultaneousFailure = singleFlight.run(async () => {
+    requestCount += 1;
+    return "unexpected recovery";
+  });
+  assert.equal(failed, simultaneousFailure, "Concurrent callers must share a failing request too.");
+  await assert.rejects(failed, /paired request failed/);
+  assert.equal(
+    await singleFlight.run(async () => {
+      requestCount += 1;
+      return "recovered snapshot";
+    }),
+    "recovered snapshot",
+    "A settled failure must release the gate for the next refresh.",
+  );
+  assert.equal(requestCount, 3, "Success, shared failure, and recovery each start one paired request.");
 });
 
 test("out-of-order Home refreshes keep the newest paired tournament and registration snapshot", async () => {
@@ -147,10 +200,11 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
   });
   assert.equal(visibleError, "Could not load tournaments.");
 
-  const loadMethod = homeSource.match(
-    /const load = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/,
-  )?.[1];
+  const loadStart = homeSource.indexOf("const load = useCallback(() =>");
+  const loadEnd = homeSource.indexOf("\n  }, []);", loadStart);
+  const loadMethod = homeSource.slice(loadStart, loadEnd);
   assert.ok(loadMethod, "Home must define its paired refresh loader.");
+  assert.match(loadMethod, /loadSingleFlightRef\.current\.run\(async \(\) => \{/);
   assert.match(loadMethod, /const requestId = loadRequestGuardRef\.current\.start\(\)/);
   assert.match(loadMethod, /Promise\.allSettled/);
   const staleResponseGuard = loadMethod.indexOf(
@@ -160,6 +214,11 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
   assert.ok(staleResponseGuard >= 0 && staleResponseGuard < applyItems);
   assert.match(loadMethod, /if \(loadRequestGuardRef\.current\.isCurrent\(requestId\)\) \{\s*setLoadError/);
   assert.match(loadMethod, /if \(loadRequestGuardRef\.current\.isCurrent\(requestId\)\) setLoading\(false\)/);
+  assert.match(
+    loadMethod,
+    /return loadPromise\.finally\(\(\) => \{[\s\S]*?resumeRefreshPendingRef\.current = false;[\s\S]*?refreshHomeIfIdleRef\.current\(\)/,
+    "A refresh queued behind a direct request must start after the shared request settles.",
+  );
 });
 
 test("a tournament that starts while Home is backgrounded leaves the upcoming carousel", () => {
@@ -231,9 +290,9 @@ test("Home announces failed upcoming refreshes and exposes a named, busy-aware T
     "The refresh notice must render without replacing the carousel.",
   );
 
-  const loadMethod = homeSource.match(
-    /const load = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/,
-  )?.[1];
+  const loadStart = homeSource.indexOf("const load = useCallback(() =>");
+  const loadEnd = homeSource.indexOf("\n  }, []);", loadStart);
+  const loadMethod = homeSource.slice(loadStart, loadEnd);
   const loadFailure = loadMethod?.match(/catch \(e: any\) \{([\s\S]*?)\n\s*\} finally/)?.[1];
   assert.ok(loadFailure, "Home must retain an explicit refresh-failure handler.");
   assert.match(loadFailure, /setLoadError/);
