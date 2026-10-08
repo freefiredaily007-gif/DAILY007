@@ -181,18 +181,45 @@ test("remaining upcoming cards stay swipeable and open their tournament details"
   assert.match(homeSource, /onPress=\{\(\) => openTournamentDetail\(t\.id\)\}/);
 });
 
-test("a failed refresh keeps upcoming cards visible and offers a retry", () => {
+test("Home announces failed upcoming refreshes and exposes a named, busy-aware TalkBack retry", () => {
   const refreshFailureNotice = homeSource.match(
     /\{!loading && upcomingItems\.length > 0 && loadError && \([\s\S]*?testID="home-upcoming-refresh-error"[\s\S]*?\n\s*\)\}/,
   )?.[0];
 
   assert.ok(refreshFailureNotice, "A failed refresh with visible cards must show an inline notice.");
-  assert.match(refreshFailureNotice, /The cards shown may be out of date/);
+  const failureMessage =
+    "Could not refresh tournaments. The cards shown may be out of date. ${loadError}";
+  assert.ok(
+    refreshFailureNotice.includes(`text={\`${failureMessage}\`}`),
+    "The visible warning must explain that refresh failed and the existing cards may be stale.",
+  );
+  assert.ok(
+    refreshFailureNotice.includes(`accessibilityLabel={\`${failureMessage}\`}`),
+    "TalkBack must receive the complete warning without decorative text.",
+  );
   assert.match(refreshFailureNotice, /accessibilityLiveRegion="polite"/);
+  assert.equal(
+    (refreshFailureNotice.match(/accessibilityLiveRegion=/g) ?? []).length,
+    1,
+    "The warning must use a single polite live region.",
+  );
   assert.match(refreshFailureNotice, /testID="home-upcoming-retry"/);
   assert.match(refreshFailureNotice, /accessibilityRole="button"/);
   assert.match(refreshFailureNotice, /onPress=\{onRefresh\}/);
   assert.match(refreshFailureNotice, /disabled=\{refreshing\}/);
+  assert.match(
+    refreshFailureNotice,
+    /accessibilityLabel=\{refreshing \? 'Retrying tournament refresh' : 'Retry tournament refresh'\}/,
+  );
+  assert.match(
+    refreshFailureNotice,
+    /accessibilityHint="Loads the latest tournament cards and registration status\."/,
+  );
+  assert.match(
+    refreshFailureNotice,
+    /accessibilityState=\{\{ disabled: refreshing, busy: refreshing \}\}/,
+    "TalkBack must get both the unavailable and in-progress states during retry.",
+  );
   assert.match(refreshFailureNotice, /RETRYING…/);
   assert.ok(
     homeSource.indexOf('testID="home-upcoming-refresh-error"') <

@@ -42,6 +42,7 @@
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
 - [Daily007 tournament detail returns](daily007-tournament-detail-back.md) — push detail routes from filtered lists so Android Back returns to the exact list entry.
 - [Daily007 Home carousel paging](daily007-carousel-paging.md) — use viewport-width page wrappers with pagingEnabled; React Native Web ignores snapToInterval.
+- [Daily007 Home refresh TalkBack](daily007-home-refresh-talkback.md) — the stale-card warning and retry progress were confirmed clear on Android TalkBack.
 - [Daily007 tournament calendar consistency](daily007-tournament-calendar.md) — display start dates in IST and derive lifecycle from the canonical start instant, not browser dates or stale status alone.
 - [Daily007 Full Admin role changes](daily007-full-admin-role-changes.md) — protect sensitive reads and writes with the shared role gate; serialize demotions and enforce the last-admin rule in-transaction.
 - [Daily007 Full Admin rejection TalkBack](daily007-admin-role-rejection-talkback.md) — physical Android verification confirmed the safeguard is announced and the refreshed row remains FULL ADMIN.

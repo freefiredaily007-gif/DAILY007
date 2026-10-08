@@ -340,6 +340,7 @@ export default function Home() {
           <Msg
             kind="err"
             text={`Could not refresh tournaments. The cards shown may be out of date. ${loadError}`}
+            accessibilityLabel={`Could not refresh tournaments. The cards shown may be out of date. ${loadError}`}
             accessibilityLiveRegion="polite"
           />
           <Pressable
@@ -349,7 +350,7 @@ export default function Home() {
             accessibilityRole="button"
             accessibilityLabel={refreshing ? 'Retrying tournament refresh' : 'Retry tournament refresh'}
             accessibilityHint="Loads the latest tournament cards and registration status."
-            accessibilityState={{ disabled: refreshing }}
+            accessibilityState={{ disabled: refreshing, busy: refreshing }}
             style={({ pressed }) => [
               s.upcomingRetryButton,
               refreshing && s.upcomingRetryDisabled,
