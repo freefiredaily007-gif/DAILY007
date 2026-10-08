@@ -819,6 +819,142 @@ test("two concurrent sessions for one player retain separate video rewards", asy
   }
 });
 
+test("a locked wallet row for one player does not block another player's video reward", async () => {
+  const lockedPlayerFixture = await createFixture();
+  let independentPlayerFixture: TestFixture | null = null;
+  let walletBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+
+  try {
+    independentPlayerFixture = await createFixture();
+    assert.ok(
+      lockedPlayerFixture.adminId &&
+        lockedPlayerFixture.playerId &&
+        lockedPlayerFixture.videoId &&
+        lockedPlayerFixture.sessionId,
+    );
+    assert.ok(
+      independentPlayerFixture.adminId &&
+        independentPlayerFixture.playerId &&
+        independentPlayerFixture.videoId &&
+        independentPlayerFixture.sessionId,
+    );
+    assert.notEqual(lockedPlayerFixture.playerId, independentPlayerFixture.playerId);
+    assert.notEqual(lockedPlayerFixture.videoId, independentPlayerFixture.videoId);
+
+    await withServer(async (origin) => {
+      walletBlocker = await pool.connect();
+      await walletBlocker.query("BEGIN");
+      await walletBlocker.query(
+        "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [lockedPlayerFixture.playerId],
+      );
+      const walletBlockerPid = await backendPid(walletBlocker);
+
+      const lockedPlayerCompletion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        lockedPlayerFixture.playerId,
+        "POST",
+        { sessionId: lockedPlayerFixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(lockedPlayerCompletion);
+      const lockedPlayerCompletionPid = await waitForBlockedBackend(
+        "SELECT wallet_coins FROM daily007_v2_users",
+        [walletBlockerPid],
+      );
+
+      const independentPlayerCompletion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        independentPlayerFixture.playerId,
+        "POST",
+        { sessionId: independentPlayerFixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(independentPlayerCompletion);
+
+      let completionTimeout: ReturnType<typeof setTimeout> | undefined;
+      const independentResponse = await Promise.race([
+        independentPlayerCompletion,
+        new Promise<never>((_resolve, reject) => {
+          completionTimeout = setTimeout(() => {
+            reject(new Error(
+              "A wallet lock for one player blocked the other player's reward completion.",
+            ));
+          }, 5_000);
+        }),
+      ]).finally(() => {
+        if (completionTimeout) clearTimeout(completionTimeout);
+      });
+      assert.equal(independentResponse.status, 200);
+      assert.equal(independentResponse.body.rewarded, true);
+      assert.equal(independentResponse.body.coins, 1);
+      assert.equal(independentResponse.body.walletCoins, 13);
+      assert.equal(typeof independentResponse.body.transactionId, "string");
+
+      const stillBlockedPid = await waitForBlockedBackend(
+        "SELECT wallet_coins FROM daily007_v2_users",
+        [walletBlockerPid],
+      );
+      assert.equal(
+        stillBlockedPid,
+        lockedPlayerCompletionPid,
+        "the first player's completion should still be waiting on only that player's wallet",
+      );
+
+      await walletBlocker.query("COMMIT");
+      walletBlocker.release();
+      walletBlocker = null;
+
+      const lockedPlayerResponse = await lockedPlayerCompletion;
+      assert.equal(lockedPlayerResponse.status, 200);
+      assert.equal(lockedPlayerResponse.body.rewarded, true);
+      assert.equal(lockedPlayerResponse.body.coins, 1);
+      assert.equal(lockedPlayerResponse.body.walletCoins, 13);
+      assert.equal(typeof lockedPlayerResponse.body.transactionId, "string");
+      assert.notEqual(
+        lockedPlayerResponse.body.transactionId,
+        independentResponse.body.transactionId,
+        "each player's session should receive a distinct ledger row",
+      );
+
+      const [lockedPlayerState, independentPlayerState] = await Promise.all([
+        inspectFixture(lockedPlayerFixture),
+        inspectFixture(independentPlayerFixture),
+      ]);
+      for (const [state, response] of [
+        [lockedPlayerState, lockedPlayerResponse],
+        [independentPlayerState, independentResponse],
+      ] as const) {
+        assert.equal(state.active, true);
+        assert.equal(state.walletCoins, 13);
+        assert.ok(state.completedAt);
+        assert.equal(state.ledgerCount, 1, "each player should have exactly one reward ledger row");
+        assert.equal(state.ledgerAmount, 1);
+        assert.equal(state.ledgerBalanceAfter, 13);
+        assert.ok(state.ledgerId);
+        assert.equal(state.rewardLedgerId, state.ledgerId);
+        assert.equal(state.rewardLedgerId, response.body.transactionId);
+      }
+      assert.notEqual(lockedPlayerState.ledgerId, independentPlayerState.ledgerId);
+    }, async () => {
+      if (walletBlocker) {
+        await walletBlocker.query("ROLLBACK").catch(() => undefined);
+        walletBlocker.release();
+        walletBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+  } finally {
+    if (walletBlocker) {
+      await walletBlocker.query("ROLLBACK").catch(() => undefined);
+      walletBlocker.release();
+    }
+    await cleanupFixture(lockedPlayerFixture);
+    if (independentPlayerFixture) await cleanupFixture(independentPlayerFixture);
+  }
+});
+
 test("a failed wallet-ledger insert rolls back a video reward", async () => {
   const fixture = await createFixture();
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
