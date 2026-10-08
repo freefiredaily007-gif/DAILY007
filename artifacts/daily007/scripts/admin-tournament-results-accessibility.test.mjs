@@ -79,8 +79,8 @@ test('result validation and API errors are politely announced', () => {
 
 test('approved-player load failures use one polite retry announcement without moving focus', () => {
   const failureMessage = screenSource.match(
-    /resultRegs === null \?\s*\(\s*resultBusy \? <Loading \/> : (<Text\b[^>]*>Approved registrations could not be loaded\. Close and reopen this panel to retry\.<\/Text>)\s*\)\s*:\s*eligibleResultRegs\.length === 0 \?/,
-  )?.[1];
+    /<Text accessibilityLiveRegion="polite" style=\{st\.actionHint\}>[\s\S]*?\{resultBusy[\s\S]*?'Approved registrations could not be loaded\. Retry here\. If the problem continues, close and reopen this panel\.'[\s\S]*?<\/Text>/,
+  )?.[0];
 
   assert.ok(failureMessage, 'The visible approved-player failure and retry guidance must remain present.');
   assert.match(failureMessage, /accessibilityLiveRegion="polite"/);
@@ -90,6 +90,9 @@ test('approved-player load failures use one polite retry announcement without mo
     'The failure guidance must have only one live-region announcement.',
   );
   assert.doesNotMatch(failureMessage, /setAccessibilityFocus|\.focus\(/);
+  assert.match(screenSource, /accessibilityLabel="Retry approved registrations"/);
+  assert.match(screenSource, /accessibilityHint=\{`Loads approved registrations for \$\{t\.name\} without closing Result Entry\.`\}/);
+  assert.match(screenSource, /testID=\{`retry-approved-registrations-\$\{t\.id\}`\}/);
 });
 
 test('Result Entry announces distinct successful empty states separately from load failures', () => {
@@ -105,7 +108,7 @@ test('Result Entry announces distinct successful empty states separately from lo
   const resultEntryState = screenSource.slice(resultEntryStart, playerChoicesStart);
   assert.match(
     resultEntryState,
-    /resultRegs === null \?\s*\(\s*resultBusy \? <Loading \/> : <Text accessibilityLiveRegion="polite"[^>]*>Approved registrations could not be loaded\. Close and reopen this panel to retry\.<\/Text>\s*\)\s*:\s*eligibleResultRegs\.length === 0 \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
+    /resultRegs === null \?[\s\S]*?Loading approved registrations…[\s\S]*?Retrying approved registrations…[\s\S]*?Approved registrations could not be loaded\. Retry here\.[\s\S]*?RETRY APPROVED PLAYERS[\s\S]*?:\s*eligibleResultRegs\.length === 0 \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
     'Only a failed or pending request should use the load-failure guidance.',
   );
 
@@ -124,15 +127,19 @@ test('Result Entry announces distinct successful empty states separately from lo
     'Load-failure guidance must not be combined with a successful empty-state message.',
   );
 
-  const loadStart = screenSource.indexOf('const registrations = await Api.adminApprovedRegs');
-  const loadEnd = screenSource.indexOf('\n  const saveRoom', loadStart);
+  const loadStart = screenSource.indexOf('const loadApprovedRegistrations = async');
+  const loadEnd = screenSource.indexOf('\n  const retryApprovedRegistrations', loadStart);
   const loadApprovedPlayers = screenSource.slice(loadStart, loadEnd);
+  assert.match(loadApprovedPlayers, /await Api\.adminApprovedRegs\(tournamentId\)/);
+  assert.match(loadApprovedPlayers, /setResultBusy\(true\)/);
+  assert.match(loadApprovedPlayers, /setResultRegs\(registrations\)/);
   assert.match(loadApprovedPlayers, /catch \(e: any\)[\s\S]*setResultRegs\(null\)/);
+  const actionEnd = screenSource.indexOf('\n  const saveRoom', screenSource.indexOf('const toggleTournamentAction'));
   const actionStart = screenSource.indexOf('const toggleTournamentAction');
-  const resultEntryOpen = screenSource.slice(actionStart, loadStart);
+  const resultEntryOpen = screenSource.slice(actionStart, actionEnd);
   assert.match(
     resultEntryOpen,
-    /setResultError\(''\); setResultSuccess\(''\);[\s\S]*setResultRegs\(null\);[\s\S]*setResultBusy\(true\)/,
+    /setResultError\(''\); setResultSuccess\(''\);[\s\S]*setResultRegs\(null\);[\s\S]*await loadApprovedRegistrations\(tournament\.id, requestId\)/,
     'Opening Result Entry must clear stale messages before loading the current response.',
   );
   assert.match(
@@ -140,6 +147,43 @@ test('Result Entry announces distinct successful empty states separately from lo
     /accessibilityLiveRegion=\{accessibilityLiveRegion\}/,
     'The shared empty-state text must forward the polite live-region semantics.',
   );
+});
+
+test('inline approved-player retry is scoped to the active tournament and deduplicates requests', () => {
+  const loaderStart = screenSource.indexOf('const loadApprovedRegistrations = async');
+  const retryStart = screenSource.indexOf('const retryApprovedRegistrations', loaderStart);
+  const toggleStart = screenSource.indexOf('const toggleTournamentAction', retryStart);
+  const loader = screenSource.slice(loaderStart, retryStart);
+  const retry = screenSource.slice(retryStart, toggleStart);
+
+  assert.match(loader, /approvedRegistrationsRequestId\.current === requestId/);
+  assert.match(loader, /if \(actionRequestId\.current !== requestId\) return/);
+  assert.match(loader, /await Api\.adminApprovedRegs\(tournamentId\)/);
+  assert.match(retry, /if \(resultBusy \|\| approvedRegistrationsRequestId\.current === requestId\) return/);
+  assert.match(retry, /expandedAction\?\.kind !== 'results' \|\| expandedAction\.tournamentId !== tournamentId/);
+  assert.match(retry, /loadApprovedRegistrations\(tournamentId, requestId, true\)/);
+});
+
+test('inline approved-player retry recovers on success and can be retried after another failure', () => {
+  const loaderStart = screenSource.indexOf('const loadApprovedRegistrations = async');
+  const loaderEnd = screenSource.indexOf('\n  const retryApprovedRegistrations', loaderStart);
+  const loader = screenSource.slice(loaderStart, loaderEnd);
+  const resultEntryStart = screenSource.indexOf('{resultRegs === null ?');
+  const playerChoicesStart = screenSource.indexOf('<Text style={st.lbl}>SELECT PLAYER', resultEntryStart);
+  const resultEntryState = screenSource.slice(resultEntryStart, playerChoicesStart);
+
+  assert.match(loader, /setResultRegs\(registrations\)/, 'A successful retry must use the returned approved players.');
+  assert.match(
+    loader,
+    /catch \(e: any\) \{\s*if \(actionRequestId\.current === requestId\) \{\s*setResultError\(apiError\(e\)\);\s*setResultRegs\(null\);/,
+    'A repeated failure must retain the error and failed-load state.',
+  );
+  assert.match(loader, /setResultBusy\(false\);[\s\S]*setRetryingApprovedRegistrations\(false\)/);
+  assert.match(resultEntryState, /!resultBusy \|\| retryingApprovedRegistrations/);
+  assert.match(resultEntryState, /title=\{retryingApprovedRegistrations \? 'RETRYING…' : 'RETRY APPROVED PLAYERS'\}/);
+  assert.match(resultEntryState, /loading=\{retryingApprovedRegistrations\}/);
+  assert.match(resultEntryState, /accessibilityState=\{\{ disabled: resultBusy, busy: retryingApprovedRegistrations \}\}/);
+  assert.match(resultEntryState, /onPress=\{\(\) => \{ retryApprovedRegistrations\(t\.id\); \}\}/);
 });
 
 test('room save and removal outcomes announce once without moving focus', () => {

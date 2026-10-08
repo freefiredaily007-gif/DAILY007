@@ -114,10 +114,12 @@ export default function AdminTournaments() {
   const [resultRank, setResultRank] = useState('1');
   const [resultKills, setResultKills] = useState('');
   const [resultBusy, setResultBusy] = useState(false);
+  const [retryingApprovedRegistrations, setRetryingApprovedRegistrations] = useState(false);
   const [resultError, setResultError] = useState('');
   const [resultSuccess, setResultSuccess] = useState('');
   const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
+  const approvedRegistrationsRequestId = useRef<number | null>(null);
   const resultLogsParams = { includeUnfinalized: true };
   const resultLogsQuery = useDaily007ListAdminResultLogs(resultLogsParams, {
     query: {
@@ -155,12 +157,53 @@ export default function AdminTournaments() {
     }
   };
 
+  const loadApprovedRegistrations = async (
+    tournamentId: string,
+    requestId: number,
+    isRetry = false,
+  ) => {
+    if (approvedRegistrationsRequestId.current === requestId) return;
+    if (actionRequestId.current !== requestId) return;
+    approvedRegistrationsRequestId.current = requestId;
+    setResultBusy(true);
+    setRetryingApprovedRegistrations(isRetry);
+    if (isRetry) {
+      setResultError('');
+      setResultSuccess('');
+    }
+    try {
+      const registrations = await Api.adminApprovedRegs(tournamentId);
+      if (actionRequestId.current === requestId) setResultRegs(registrations);
+    } catch (e: any) {
+      if (actionRequestId.current === requestId) {
+        setResultError(apiError(e));
+        setResultRegs(null);
+      }
+    } finally {
+      if (approvedRegistrationsRequestId.current === requestId) {
+        approvedRegistrationsRequestId.current = null;
+      }
+      if (actionRequestId.current === requestId) {
+        setResultBusy(false);
+        setRetryingApprovedRegistrations(false);
+      }
+    }
+  };
+
+  const retryApprovedRegistrations = (tournamentId: string) => {
+    const requestId = actionRequestId.current;
+    if (resultBusy || approvedRegistrationsRequestId.current === requestId) return;
+    if (expandedAction?.kind !== 'results' || expandedAction.tournamentId !== tournamentId) return;
+    void loadApprovedRegistrations(tournamentId, requestId, true);
+  };
+
   const toggleTournamentAction = async (tournament: Tournament, kind: TournamentAction['kind']) => {
     const requestId = ++actionRequestId.current;
     if (expandedAction?.tournamentId === tournament.id && expandedAction.kind === kind) {
       setExpandedAction(null);
       setRoomBusy(false);
       setResultBusy(false);
+      setRetryingApprovedRegistrations(false);
       return;
     }
     setExpandedAction({ tournamentId: tournament.id, kind });
@@ -190,18 +233,7 @@ export default function AdminTournaments() {
     setSelectedRegistrationId('');
     setResultRank('1');
     setResultKills('');
-    setResultBusy(true);
-    try {
-      const registrations = await Api.adminApprovedRegs(tournament.id);
-      if (actionRequestId.current === requestId) setResultRegs(registrations);
-    } catch (e: any) {
-      if (actionRequestId.current === requestId) {
-        setResultError(apiError(e));
-        setResultRegs(null);
-      }
-    } finally {
-      if (actionRequestId.current === requestId) setResultBusy(false);
-    }
+    await loadApprovedRegistrations(tournament.id, requestId);
   };
 
   const saveRoom = async () => {
@@ -512,6 +544,7 @@ export default function AdminTournaments() {
               setExpandedAction(null);
               setRoomBusy(false);
               setResultBusy(false);
+              setRetryingApprovedRegistrations(false);
               setShowForm(!showForm);
               setEditId(null);
               setForm(newTournamentForm());
@@ -568,6 +601,7 @@ export default function AdminTournaments() {
               onPress={() => {
                 setRoomBusy(false);
                 setResultBusy(false);
+                setRetryingApprovedRegistrations(false);
                 actionRequestId.current++;
                 setExpandedAction(null);
                 setTab(id);
@@ -704,6 +738,7 @@ export default function AdminTournaments() {
                         setEditId(t.id);
                         setRoomBusy(false);
                         setResultBusy(false);
+                        setRetryingApprovedRegistrations(false);
                         actionRequestId.current++;
                         setExpandedAction(null);
                         setShowForm(true);
@@ -823,7 +858,31 @@ export default function AdminTournaments() {
                 <Msg kind="err" text={resultError} accessibilityLiveRegion="polite" />
                 <Msg kind="ok" text={resultSuccess} accessibilityLiveRegion="polite" />
                 {resultRegs === null ? (
-                  resultBusy ? <Loading /> : <Text accessibilityLiveRegion="polite" style={st.actionHint}>Approved registrations could not be loaded. Close and reopen this panel to retry.</Text>
+                  <>
+                    <Text accessibilityLiveRegion="polite" style={st.actionHint}>
+                      {resultBusy
+                        ? retryingApprovedRegistrations
+                          ? 'Retrying approved registrations…'
+                          : 'Loading approved registrations…'
+                        : 'Approved registrations could not be loaded. Retry here. If the problem continues, close and reopen this panel.'}
+                    </Text>
+                    {(!resultBusy || retryingApprovedRegistrations) && (
+                      <View style={{ marginTop: 8 }}>
+                        <Btn
+                          title={retryingApprovedRegistrations ? 'RETRYING…' : 'RETRY APPROVED PLAYERS'}
+                          small
+                          kind="gold"
+                          loading={retryingApprovedRegistrations}
+                          disabled={resultBusy}
+                          accessibilityLabel="Retry approved registrations"
+                          accessibilityHint={`Loads approved registrations for ${t.name} without closing Result Entry.`}
+                          accessibilityState={{ disabled: resultBusy, busy: retryingApprovedRegistrations }}
+                          testID={`retry-approved-registrations-${t.id}`}
+                          onPress={() => { retryApprovedRegistrations(t.id); }}
+                        />
+                      </View>
+                    )}
+                  </>
                 ) : eligibleResultRegs.length === 0 ? (
                   <Empty
                     text={resultEmptyMessage}
