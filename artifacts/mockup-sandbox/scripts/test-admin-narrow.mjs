@@ -36,6 +36,7 @@ const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminSearchKeyboardOnly = process.argv.includes("--admin-search-keyboard-only");
 const adminSearchAccessibilityOnly = process.argv.includes("--admin-search-accessibility-only");
+const adminLandscapeKeyboardOnly = process.argv.includes("--admin-landscape-keyboard-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
 const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament-empty-filter-only");
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
@@ -4814,9 +4815,9 @@ async function checkHomeCarousel(width) {
   );
 }
 
-async function setKeyboardViewport(height) {
+async function setKeyboardViewport(height, width = 375) {
   await cdp("Emulation.setDeviceMetricsOverride", {
-    width: 375,
+    width,
     height,
     deviceScaleFactor: 1,
     mobile: true,
@@ -4824,9 +4825,9 @@ async function setKeyboardViewport(height) {
   await delay(120);
 }
 
-async function openAdminKeyboardViewport(height = 450) {
+async function openAdminKeyboardViewport(height = 450, width = 375) {
   await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
-  await setKeyboardViewport(height);
+  await setKeyboardViewport(height, width);
   await evaluate("window.scrollTo(0, 0)");
 }
 
@@ -5160,6 +5161,201 @@ async function assertAdminFormLayoutRecovered(scrollKey, keyboardClientHeight, d
     recovered.clientHeight > keyboardClientHeight + 40,
     `${description}: the form did not regain its height after keyboard dismissal ` +
       `(open=${keyboardClientHeight}px, restored=${recovered.clientHeight}px).`,
+  );
+}
+
+async function setAdminLandscapeKeyboardViewport(height) {
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(height, 800);
+  await evaluate("window.scrollTo(0, 0)");
+  const viewport = await evaluate(`({
+    width: window.innerWidth,
+    height: window.innerHeight,
+    landscape: matchMedia("(orientation: landscape)").matches,
+  })`);
+  assert(
+    viewport.width === 800 && viewport.height === height && viewport.landscape,
+    `Admin landscape keyboard viewport should be 800×${height}, received ` +
+      `${viewport.width}×${viewport.height} (landscape=${viewport.landscape}).`,
+  );
+}
+
+async function setAndCheckLandscapeTournamentField(selector, value, description) {
+  await setTournamentFormValue(selector, value);
+  await assertReachableControl(selector, description);
+  const state = await evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    return {
+      value: input?.value ?? null,
+      focused: document.activeElement === input,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  })()`);
+  assert(
+    state.value === value && state.focused,
+    `${description} should retain its entered value and focus while the keyboard is open: ${JSON.stringify(state)}.`,
+  );
+  assert(
+    state.width === 800 && state.height < 360,
+    `${description} was not checked in the reduced landscape viewport.`,
+  );
+  await assertPageHasNoHorizontalOverflow(800, description);
+}
+
+async function checkAdminTournamentLandscapeKeyboard() {
+  const closedHeight = 360;
+  const keyboardHeight = 210;
+  const createValues = [
+    ['input[placeholder="Tournament name *"]', "Landscape preview tournament"],
+    ['input[placeholder="Date (YYYY-MM-DD, IST) *"]', "2030-09-18"],
+    ['input[placeholder="Entry coins *"]', "15"],
+    ['input[placeholder="Prize pool"]', "120"],
+    ['textarea[placeholder="Rules (one per line)"]', "Use the test room only."],
+    ['textarea[placeholder="Prize distribution (e.g. 1st: 500 coins)"]', "1st: 120 coins"],
+  ];
+
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tab-tournaments"]'))`,
+    "Admin navigation in landscape",
+  );
+  await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments Admin tab");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]'))`,
+    "Admin tournament screen in landscape",
+  );
+
+  await clickButton("NEW");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]'))`,
+    "tournament creation form in landscape",
+  );
+  await setAdminLandscapeKeyboardViewport(keyboardHeight);
+  for (const [selector, value] of createValues) {
+    await setAndCheckLandscapeTournamentField(
+      selector,
+      value,
+      `Tournament creation field ${selector}`,
+    );
+  }
+  await assertReachableControl(
+    '[data-testid="admin-tournament-create-submit"]',
+    "Tournament creation action",
+  );
+  await assertPageHasNoHorizontalOverflow(800, "Tournament creation action");
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(closedHeight, 800);
+  const createState = await evaluate(`(() => {
+    const form = document.querySelector('[data-testid="admin-tournament-create-form"]');
+    return {
+      landscape: matchMedia("(orientation: landscape)").matches,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      formVisible: Boolean(form),
+      values: ${JSON.stringify(createValues)}.map(([selector]) => document.querySelector(selector)?.value ?? null),
+      screenVisible: Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]')),
+    };
+  })()`);
+  assert(
+    createState.landscape && createState.width === 800 && createState.height === closedHeight &&
+      createState.formVisible && createState.screenVisible &&
+      createState.values.every((value, index) => value === createValues[index][1]),
+    `Tournament creation state was not preserved after dismissing the landscape keyboard: ${JSON.stringify(createState)}.`,
+  );
+  await clickButton("CLOSE");
+  await waitForCondition(
+    `!document.querySelector('[data-testid="admin-tournament-create-form"]')`,
+    "tournament creation form to close",
+  );
+
+  const roomPanel = '[data-testid="inline-room-management-preview-upcoming"]';
+  await clickSelector('[data-testid="manage-room-preview-upcoming"]', "upcoming tournament room setup");
+  await waitForCondition(
+    `Boolean(document.querySelector(${JSON.stringify(roomPanel)}) &&
+      document.querySelector('input[placeholder="Room ID"]') &&
+      document.querySelector('input[placeholder="Room Password"]'))`,
+    "room setup form in landscape",
+  );
+  await setAdminLandscapeKeyboardViewport(keyboardHeight);
+  const roomValues = [
+    ['input[placeholder="Room ID"]', "LANDSCAPE-ROOM-801"],
+    ['input[placeholder="Room Password"]', "PASS-801"],
+  ];
+  for (const [selector, value] of roomValues) {
+    await setAndCheckLandscapeTournamentField(selector, value, `Room setup field ${selector}`);
+  }
+  const roomAction = '[data-testid="save-room-preview-upcoming"]';
+  await assertReachableControl(roomAction, "Room setup save action");
+  await assertPageHasNoHorizontalOverflow(800, "Room setup save action");
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(closedHeight, 800);
+  const roomState = await evaluate(`(() => ({
+    landscape: matchMedia("(orientation: landscape)").matches,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    panelVisible: Boolean(document.querySelector(${JSON.stringify(roomPanel)})),
+    values: ${JSON.stringify(roomValues)}.map(([selector]) => document.querySelector(selector)?.value ?? null),
+    saveEnabled: (() => {
+      const action = document.querySelector(${JSON.stringify(roomAction)});
+      return Boolean(action && !action.disabled && action.getAttribute("aria-disabled") !== "true");
+    })(),
+    screenVisible: Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]')),
+  }))()`);
+  assert(
+    roomState.landscape && roomState.width === 800 && roomState.height === closedHeight &&
+      roomState.panelVisible && roomState.values.every((value, index) => value === roomValues[index][1]) &&
+      roomState.saveEnabled && roomState.screenVisible,
+    `Room setup state was not preserved after dismissing the landscape keyboard: ${JSON.stringify(roomState)}.`,
+  );
+  await clickSelector('[data-testid="manage-room-preview-upcoming"]', "close room setup");
+  await waitForCondition(`!document.querySelector(${JSON.stringify(roomPanel)})`, "room setup form to close");
+
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "ongoing tournament tab");
+  const openResultsSelector = '[data-testid="finish-tournament-preview-ongoing"]';
+  await waitForCondition(
+    `Boolean(document.querySelector(${JSON.stringify(openResultsSelector)}))`,
+    "ongoing tournament in landscape",
+  );
+  await clickSelector(openResultsSelector, "tournament result-entry form");
+  const resultPanel = '[data-testid="inline-results-entry-preview-ongoing"]';
+  const selectedPlayer = '[data-testid="result-registration-preview-registration-1"]';
+  await waitForCondition(
+    `Boolean(document.querySelector(${JSON.stringify(resultPanel)}) && document.querySelector(${JSON.stringify(selectedPlayer)}))`,
+    "result-entry form in landscape",
+  );
+  await clickSelector(selectedPlayer, "approved player for result entry");
+  await setAdminLandscapeKeyboardViewport(keyboardHeight);
+  const resultValues = [
+    ['input[data-testid="result-rank-preview-ongoing"]', "2"],
+    ['input[data-testid="result-kills-preview-ongoing"]', "5"],
+  ];
+  for (const [selector, value] of resultValues) {
+    await setAndCheckLandscapeTournamentField(selector, value, `Result-entry field ${selector}`);
+  }
+  const resultAction = '[data-testid="publish-result-preview-ongoing"]';
+  await assertReachableControl(resultAction, "Tournament result publication action");
+  await assertPageHasNoHorizontalOverflow(800, "Tournament result publication action");
+  await evaluate("document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+  await setKeyboardViewport(closedHeight, 800);
+  const resultState = await evaluate(`(() => {
+    const player = document.querySelector(${JSON.stringify(selectedPlayer)});
+    const action = document.querySelector(${JSON.stringify(resultAction)});
+    return {
+      landscape: matchMedia("(orientation: landscape)").matches,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      panelVisible: Boolean(document.querySelector(${JSON.stringify(resultPanel)})),
+      values: ${JSON.stringify(resultValues)}.map(([selector]) => document.querySelector(selector)?.value ?? null),
+      selectedPlayer: player?.textContent.includes("✓") ?? false,
+      publishEnabled: Boolean(action && !action.disabled && action.getAttribute("aria-disabled") !== "true"),
+      screenVisible: Boolean(document.querySelector('[data-testid="admin-tournament-tab-ongoing"]')),
+    };
+  })()`);
+  assert(
+    resultState.landscape && resultState.width === 800 && resultState.height === closedHeight &&
+      resultState.panelVisible && resultState.values.every((value, index) => value === resultValues[index][1]) &&
+      resultState.selectedPlayer && resultState.publishEnabled && resultState.screenVisible,
+    `Result-entry state was not preserved after dismissing the landscape keyboard: ${JSON.stringify(resultState)}.`,
   );
 }
 
@@ -5715,6 +5911,7 @@ try {
     adminKeyboardFormsOnly ||
     adminSearchKeyboardOnly ||
     adminSearchAccessibilityOnly ||
+    adminLandscapeKeyboardOnly ||
     adminTournamentCreateSaveOnly ||
     adminTournamentEmptyFilterOnly ||
     adminTournamentHomeRefreshOnly ||
@@ -5723,13 +5920,13 @@ try {
     adminLandscapeOnly
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
-      width: adminLandscapeOnly
+      width: adminLandscapeOnly || adminLandscapeKeyboardOnly
         ? 800
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
-      height: adminLandscapeOnly
+      height: adminLandscapeOnly || adminLandscapeKeyboardOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
@@ -5741,6 +5938,8 @@ try {
     await waitForPage(
       adminLandscapeOnly
         ? "Admin landscape screens"
+        : adminLandscapeKeyboardOnly
+          ? "Admin tournament landscape keyboard screens"
         : istDateSurfacesOnly
           ? "Home, My Matches, and tournament details IST date surfaces"
         : homeCarouselOnly
@@ -5799,6 +5998,15 @@ try {
       );
       console.log(
         "PASS 800×360 Android landscape — all 11 Admin tabs, populated list actions, and tournament create, room, results, and completed-result controls remain reachable without horizontal clipping.",
+      );
+    } else if (adminLandscapeKeyboardOnly) {
+      await checkAdminTournamentLandscapeKeyboard();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin landscape keyboard checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — Tournament creation, room setup, and result entry remain usable at 800×210 with a simulated landscape Android keyboard; values and the Tournaments screen persist after returning to 800×360.",
       );
     } else if (adminRetryConcurrencyOnly) {
       await checkAdminRetryConcurrency();
