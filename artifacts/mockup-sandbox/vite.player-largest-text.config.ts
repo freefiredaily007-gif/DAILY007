@@ -15,10 +15,48 @@ export default defineConfig({
   root: sandboxRoot,
   base: "/",
   plugins: [react()],
+  define: {
+    __DEV__: JSON.stringify(true),
+    global: "globalThis",
+    "process.env.EXPO_OS": JSON.stringify("web"),
+  },
   optimizeDeps: {
     entries: ["player-largest-text-preview.html"],
+    esbuildOptions: {
+      resolveExtensions: [
+        ".web.mjs",
+        ".mjs",
+        ".web.js",
+        ".js",
+        ".web.mts",
+        ".mts",
+        ".web.ts",
+        ".ts",
+        ".web.jsx",
+        ".jsx",
+        ".web.tsx",
+        ".tsx",
+        ".json",
+      ],
+    },
   },
   resolve: {
+    // Match Metro's platform suffix selection before generic TypeScript files.
+    extensions: [
+      ".web.mjs",
+      ".mjs",
+      ".web.js",
+      ".js",
+      ".web.mts",
+      ".mts",
+      ".web.ts",
+      ".ts",
+      ".web.jsx",
+      ".jsx",
+      ".web.tsx",
+      ".tsx",
+      ".json",
+    ],
     alias: [
       { find: /^react-native$/, replacement: mock("react-native-large-text.tsx") },
       { find: /^react-native-web$/, replacement: path.join(daily007Root, "node_modules/react-native-web") },

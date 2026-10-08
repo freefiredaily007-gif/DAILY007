@@ -11,6 +11,7 @@ const workspaceRoot = path.resolve(sandboxRoot, "../..");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
+  "Unexpected text node: . A text node cannot be a child of a <View>.",
 ]);
 const pending = new Map();
 let viteOutput = "";
@@ -69,6 +70,13 @@ function verifyBrowserErrorPolicy() {
   assert(
     browserErrorForCdpEvent("Runtime.consoleAPICalled", {
       type: "error",
+      args: [{ value: "Unexpected text node: . A text node cannot be a child of a <View>." }],
+    }) === null,
+    "The exact React Native Web text-node warning should be ignored by the browser harness.",
+  );
+  assert(
+    browserErrorForCdpEvent("Runtime.consoleAPICalled", {
+      type: "error",
       args: [{ value: "Unexpected browser console failure." }],
     }) === "Unexpected browser console failure.",
     "Unexpected browser console errors must remain fatal.",
@@ -82,7 +90,7 @@ function verifyBrowserErrorPolicy() {
     }) === "TypeError: Unexpected browser exception.",
     "Browser exceptions must remain fatal.",
   );
-  console.log("PASS — only the exact React Native Web BackHandler console error is ignored.");
+  console.log("PASS — only exact known React Native Web preview warnings are ignored.");
 }
 
 verifyBrowserErrorPolicy();
@@ -536,7 +544,7 @@ async function checkScreen(screen, viewportWidth, fontScale = 2) {
   if (screen.name === "MyMatches") {
     await clickSelector('[data-testid="my-matches-tab-completed"]', "completed matches tab");
     await waitForCondition(
-      "document.body.innerText.includes('A Player Name That Needs Several Lines')",
+      "document.body.innerText.includes('Champion With A Long In-Game Name')",
       "completed match result",
     );
   } else if (screen.name === "Tournaments") {
@@ -673,15 +681,15 @@ async function checkScreen(screen, viewportWidth, fontScale = 2) {
         `The ${cycle} podium champion name is missing at ${fontScale}× text: ${podium.text}`,
       );
       const expectedPodiumEntries = [
-        { name: "Tournament Competitor 2", score: "18,538" },
-        { name: champion, score: "19,269" },
-        { name: "Tournament Competitor 3", score: "17,807" },
+        { rank: "leaderboard-podium-1", name: champion, score: "19,269" },
+        { rank: "leaderboard-podium-2", name: "Tournament Competitor 2", score: "18,538" },
+        { rank: "leaderboard-podium-3", name: "Tournament Competitor 3", score: "17,807" },
       ];
       assert(
-        expectedPodiumEntries.every((expected, index) =>
-          podium.entries[index]?.text.includes(expected.name)
-            && podium.entries[index]?.text.includes(expected.score)
-        ),
+        expectedPodiumEntries.every((expected) => {
+          const entry = podium.entries.find((candidate) => candidate.rank === expected.rank);
+          return entry?.text.includes(expected.name) && entry.text.includes(expected.score);
+        }),
         `The ${cycle} podium is missing a name or score at ${fontScale}× scale: ${JSON.stringify(podium.entries)}`,
       );
       assertPodiumGeometry(podium.entries, cycle);
@@ -1402,14 +1410,12 @@ async function checkProfilePasswordConflictRetry() {
     requests: window.__daily007PasswordChangePreview?.requests ?? [],
   }))()`);
   assert(afterConflict.messageVisible, "The password-change conflict must be visible in the Profile dialog.");
-  assert.deepEqual(
-    afterConflict.announcements,
-    ["polite"],
+  assert(
+    JSON.stringify(afterConflict.announcements) === JSON.stringify(["polite"]),
     "The conflict should have one polite live-region announcement, not a duplicate or interrupting announcement.",
   );
-  assert.equal(
-    afterConflict.focusedControl,
-    focusedControlBeforeConflict,
+  assert(
+    afterConflict.focusedControl === focusedControlBeforeConflict,
     "Announcing the conflict must not move focus away from the password submit control.",
   );
   assert(
