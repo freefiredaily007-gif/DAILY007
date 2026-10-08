@@ -509,6 +509,200 @@ test("concurrent first-place submissions serialize on the real tournament row lo
   }
 });
 
+test("an independent tournament result completes while another match row is locked", async () => {
+  const lockedFixture = await createFixture();
+  let independentFixture: TournamentFixture | undefined;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  const submissions: Promise<ResultResponse>[] = [];
+
+  try {
+    independentFixture = await createFixture();
+    const independentPrizeUpdate = await pool.query(
+      `UPDATE daily007_v2_matches
+          SET prize_pool = 960,
+              prize_distribution = '1st: 600 coins\n2nd: 240 coins\n3rd: 120 coins'
+        WHERE id = $1`,
+      [independentFixture.matchId],
+    );
+    assert.equal(independentPrizeUpdate.rowCount, 1);
+    blocker = await pool.connect();
+
+    const [lockedWinner, lockedOtherPlayer] = lockedFixture.players;
+    const [independentWinner, independentOtherPlayer] = independentFixture.players;
+    assert.ok(lockedWinner && lockedOtherPlayer && independentWinner && independentOtherPlayer);
+
+    await withServer(async (origin) => {
+      await blocker!.query("BEGIN");
+      blockerTransactionOpen = true;
+
+      try {
+        await blocker!.query(
+          "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+          [lockedFixture.matchId],
+        );
+        const blockerPid = await backendPid(blocker!);
+        const lockedSubmission = submitResult(
+          origin,
+          lockedFixture.adminId,
+          lockedFixture.matchId,
+          lockedWinner,
+          1,
+          8,
+        );
+        submissions.push(lockedSubmission);
+        await waitForBlockedResultRequests(blockerPid, 1);
+
+        const independentSubmission = submitResult(
+          origin,
+          independentFixture!.adminId,
+          independentFixture!.matchId,
+          independentWinner,
+          1,
+          4,
+        );
+        submissions.push(independentSubmission);
+
+        let completionTimeout: ReturnType<typeof setTimeout> | undefined;
+        const independentResult = await Promise.race([
+          independentSubmission,
+          new Promise<null>((resolve) => {
+            completionTimeout = setTimeout(() => resolve(null), 5_000);
+          }),
+        ]).finally(() => {
+          if (completionTimeout) clearTimeout(completionTimeout);
+        });
+        assert.ok(
+          independentResult,
+          "the independent tournament result must complete while the first match remains locked",
+        );
+        assert.equal(
+          blockerTransactionOpen,
+          true,
+          "the independent result must finish before the blocked match lock is released",
+        );
+        assert.equal(independentResult.status, 201);
+        assert.equal(independentResult.body.registrationId, independentWinner.registrationId);
+        assert.equal(independentResult.body.userId, independentWinner.userId);
+        assert.equal(independentResult.body.prizeCoins, 600);
+        assert.equal(independentResult.body.walletCoins, 700);
+
+        assert.deepEqual(await captureSettlementState(independentFixture!, independentWinner), {
+          walletCoins: 700,
+          awards: [{
+            registration_id: independentWinner.registrationId,
+            user_id: independentWinner.userId,
+            rank: 1,
+            kills: 4,
+            prize_coins: 600,
+          }],
+          stats: { matches: 1, wins: 1, kills: 4, prize_coins: 600 },
+          ledger: [{ amount: 600, balance_after: 700, reason: "match_prize" }],
+          match: { enabled: false, status: "open" },
+        });
+
+        await blocker!.query("COMMIT");
+        blockerTransactionOpen = false;
+        const lockedResult = await lockedSubmission;
+        assert.equal(lockedResult.status, 201);
+        assert.equal(lockedResult.body.registrationId, lockedWinner.registrationId);
+        assert.equal(lockedResult.body.userId, lockedWinner.userId);
+        assert.equal(lockedResult.body.prizeCoins, 500);
+        assert.equal(lockedResult.body.walletCoins, 600);
+
+        const [lockedStandings, independentStandings] = await Promise.all([
+          publicStandings(origin, lockedFixture.matchId),
+          publicStandings(origin, independentFixture!.matchId),
+        ]);
+        assert.equal(lockedStandings.status, 200);
+        assert.deepEqual(lockedStandings.body.entries, [{
+          rank: 1,
+          kills: 8,
+          prizeCoins: 500,
+          gameName: "TestGame1",
+          teamName: null,
+        }]);
+        assert.equal(lockedStandings.body.status, "finalized");
+        assert.equal(independentStandings.status, 200);
+        assert.deepEqual(independentStandings.body.entries, [{
+          rank: 1,
+          kills: 4,
+          prizeCoins: 600,
+          gameName: "TestGame1",
+          teamName: null,
+        }]);
+        assert.equal(independentStandings.body.status, "finalized");
+
+        assert.deepEqual(await captureSettlementState(lockedFixture, lockedWinner), {
+          walletCoins: 600,
+          awards: [{
+            registration_id: lockedWinner.registrationId,
+            user_id: lockedWinner.userId,
+            rank: 1,
+            kills: 8,
+            prize_coins: 500,
+          }],
+          stats: { matches: 1, wins: 1, kills: 8, prize_coins: 500 },
+          ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
+          match: { enabled: false, status: "open" },
+        });
+        assert.deepEqual(await captureSettlementState(lockedFixture, lockedOtherPlayer), {
+          walletCoins: 100,
+          awards: [{
+            registration_id: lockedWinner.registrationId,
+            user_id: lockedWinner.userId,
+            rank: 1,
+            kills: 8,
+            prize_coins: 500,
+          }],
+          stats: null,
+          ledger: [],
+          match: { enabled: false, status: "open" },
+        });
+        assert.deepEqual(await captureSettlementState(independentFixture!, independentWinner), {
+          walletCoins: 700,
+          awards: [{
+            registration_id: independentWinner.registrationId,
+            user_id: independentWinner.userId,
+            rank: 1,
+            kills: 4,
+            prize_coins: 600,
+          }],
+          stats: { matches: 1, wins: 1, kills: 4, prize_coins: 600 },
+          ledger: [{ amount: 600, balance_after: 700, reason: "match_prize" }],
+          match: { enabled: false, status: "open" },
+        });
+        assert.deepEqual(await captureSettlementState(independentFixture!, independentOtherPlayer), {
+          walletCoins: 100,
+          awards: [{
+            registration_id: independentWinner.registrationId,
+            user_id: independentWinner.userId,
+            rank: 1,
+            kills: 4,
+            prize_coins: 600,
+          }],
+          stats: null,
+          ledger: [],
+          match: { enabled: false, status: "open" },
+        });
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker!.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+    });
+  } finally {
+    if (blocker) {
+      if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+      blocker.release();
+    }
+    await Promise.allSettled(submissions);
+    await cleanupFixture(lockedFixture);
+    if (independentFixture) await cleanupFixture(independentFixture);
+  }
+});
+
 test("concurrent retries for the same registration publish and pay exactly once", async () => {
   const fixture = await createFixture();
   const player = fixture.players[0];
