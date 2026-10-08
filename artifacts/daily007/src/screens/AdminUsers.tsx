@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage } from '../lib/api';
-import { Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
+import { AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { useDaily007AdminDeleteUser } from '@workspace/api-client-react';
 
 export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
@@ -136,6 +136,12 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
           style={st.search}
         />
       </Card>
+      <AdminSearchAnnouncement
+        query={q}
+        count={filtered.length}
+        resultIds={filtered.map((u) => String(u.$id)).sort().join('|')}
+        ready={users !== null}
+      />
       {users === null ? (
         <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />
       ) : filtered.map((u) => {

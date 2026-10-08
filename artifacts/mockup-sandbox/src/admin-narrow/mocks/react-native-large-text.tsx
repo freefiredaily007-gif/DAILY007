@@ -4,6 +4,21 @@ import * as Native from "react-native-web";
 export * from "react-native-web";
 
 const NativeComponents = Native as any;
+const previewPlatform =
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).get("platform") === "ios"
+    ? "ios"
+    : "android";
+
+type PreviewAnnouncement = { message: string; options?: unknown };
+type PreviewAccessibilityGlobal = typeof globalThis & {
+  __daily007AccessibilityAnnouncements?: PreviewAnnouncement[];
+};
+
+function captureAccessibilityAnnouncement(message: string, options?: unknown) {
+  const preview = globalThis as PreviewAccessibilityGlobal;
+  preview.__daily007AccessibilityAnnouncements ??= [];
+  preview.__daily007AccessibilityAnnouncements.push({ message, options });
+}
 
 function getPreviewFontScale() {
   const scale = Number(
@@ -61,7 +76,13 @@ export const BackHandler = {
   exitApp: () => {},
 };
 
-export const Platform = { ...Native.Platform, OS: "android", Version: 35 } as typeof Native.Platform;
+export const AccessibilityInfo = {
+  ...(NativeComponents.AccessibilityInfo ?? {}),
+  announceForAccessibility: captureAccessibilityAnnouncement,
+  announceForAccessibilityWithOptions: captureAccessibilityAnnouncement,
+} as typeof NativeComponents.AccessibilityInfo;
+
+export const Platform = { ...Native.Platform, OS: previewPlatform, Version: 35 } as typeof Native.Platform;
 
 export const PixelRatio = {
   ...Native.PixelRatio,

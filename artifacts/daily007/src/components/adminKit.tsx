@@ -1,6 +1,6 @@
 // Premium admin theme kit — shared styles + primitives for the admin panel
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import { View, StyleSheet, Pressable, ActivityIndicator, Modal, ScrollView, RefreshControl } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Platform, View, StyleSheet, Pressable, ActivityIndicator, Modal, ScrollView, RefreshControl } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
 
@@ -23,6 +23,70 @@ export const A = {
 type ToastKind = 'ok' | 'err' | 'success' | 'error';
 export const AdminToastCtx = createContext<(msg: string, kind?: ToastKind) => void>(() => {});
 export const useAdminToast = () => useContext(AdminToastCtx);
+
+export function AdminSearchAnnouncement({
+  query,
+  count,
+  resultIds,
+  ready,
+}: {
+  query: string;
+  count: number;
+  resultIds: string;
+  ready: boolean;
+}) {
+  const [announcement, setAnnouncement] = useState<{ sequence: number; text: string } | null>(null);
+  const sequence = useRef(0);
+  const lastAnnouncementKey = useRef<string | null>(null);
+  const searchWasActive = useRef(false);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    const isSearching = query.trim().length > 0;
+    if (!isSearching && !searchWasActive.current) return;
+    searchWasActive.current = isSearching;
+
+    const announcementKey = `${isSearching ? 'search' : 'cleared'}:${resultIds}`;
+    if (lastAnnouncementKey.current === announcementKey) return;
+
+    const text = isSearching
+      ? count === 0
+        ? 'No matching users found.'
+        : `${count} matching ${count === 1 ? 'user' : 'users'} found.`
+      : `Search cleared. Showing ${count} ${count === 1 ? 'user' : 'users'}.`;
+
+    const timer = setTimeout(() => {
+      if (lastAnnouncementKey.current === announcementKey) return;
+      lastAnnouncementKey.current = announcementKey;
+
+      if (Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibilityWithOptions(text, {
+          queue: true,
+          priority: 'low',
+        });
+      } else {
+        setAnnouncement({ sequence: ++sequence.current, text });
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [count, query, ready, resultIds]);
+
+  if (Platform.OS === 'ios' || !announcement) return null;
+
+  return (
+    <Text
+      key={announcement.sequence}
+      accessible={false}
+      accessibilityLiveRegion="polite"
+      testID="admin-search-results-announcement"
+      style={s.screenReaderAnnouncement}
+    >
+      {announcement.text}
+    </Text>
+  );
+}
 
 export function AdminToastHost({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null);
@@ -430,4 +494,11 @@ const s = StyleSheet.create({
   sectionTitle: { color: A.text, fontSize: 12, fontWeight: '900', letterSpacing: 1.05, fontFamily: 'Inter_700Bold' },
   empty: { padding: 22, alignItems: 'center', borderWidth: 1, borderColor: A.border, borderRadius: 12, borderStyle: 'dashed', gap: 8 },
   emptyIcon: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,122,26,0.25)', backgroundColor: 'rgba(255,122,26,0.08)', alignItems: 'center', justifyContent: 'center' },
+  screenReaderAnnouncement: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
+  },
 });

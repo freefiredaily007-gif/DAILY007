@@ -56,3 +56,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** Requiring zero console errors can fail a refresh test on warnings already emitted by the Home preview; signature comparison still catches new error types.
 
 **How to apply:** After Home's initial cards and polling callback are ready, capture the current browser-error strings in a `Set`. After the refresh, fail only for error signatures not present in that baseline.
+
+**Rule:** Do not return DOM elements through a CDP evaluation configured to return by value; keep node references in the page and return a primitive.
+
+**Why:** Returning a live-region node exceeded CDP's serializable-object chain limit and stopped the browser test before its assertions.
+
+**How to apply:** Wrap page-side node assignment in a function that returns `true`, then compare the stored node in later boolean evaluations.

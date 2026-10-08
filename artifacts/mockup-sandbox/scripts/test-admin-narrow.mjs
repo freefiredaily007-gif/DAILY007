@@ -35,6 +35,7 @@ const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminSearchKeyboardOnly = process.argv.includes("--admin-search-keyboard-only");
+const adminSearchAccessibilityOnly = process.argv.includes("--admin-search-accessibility-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
 const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament-empty-filter-only");
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
@@ -158,7 +159,12 @@ async function waitForPage(label = "real Admin screen") {
   throw new Error(`The ${label} did not render in the isolated preview: ${JSON.stringify(state)}`);
 }
 
-async function setViewport(width, fontScale = 1, previewFile = "admin-narrow-preview.html") {
+async function setViewport(
+  width,
+  fontScale = 1,
+  previewFile = "admin-narrow-preview.html",
+  platform = "android",
+) {
   if (!largeTextScaleScriptRegistered) {
     await cdp("Page.addScriptToEvaluateOnNewDocument", {
       source: `(() => {
@@ -177,6 +183,7 @@ async function setViewport(width, fontScale = 1, previewFile = "admin-narrow-pre
   const previewUrl = new URL(previewFile, `http://127.0.0.1:${vitePort}/`);
   previewUrl.searchParams.set("run", String(width));
   previewUrl.searchParams.set("fontScale", String(fontScale));
+  previewUrl.searchParams.set("platform", platform);
   await cdp("Page.navigate", { url: previewUrl.href });
   await waitForPage();
   await delay(150);
@@ -1564,6 +1571,234 @@ async function assertAdminSearchTextReachable(marker, width, description) {
     `${description}: the matching fake account text cannot be reached in the ` +
       `${width}×${state.height}px keyboard-open viewport.`,
   );
+}
+
+async function checkAdminSearchAccessibility() {
+  const width = 375;
+  const longName = "Ananya Daily007 Championship Champion With A Long Name";
+  const longEmail = "ananya.champion.with.a.long.fake.address@example.invalid";
+  const otherName = "Rohan Free Fire Strategist";
+  const otherEmail = "rohan.preview.player@example.invalid";
+  const searchCases = [
+    {
+      screen: "Wallet",
+      tab: "wallet",
+      input: "admin-wallet-user-search",
+      actions: ["+ ADD", "− DEDUCT"],
+    },
+    {
+      screen: "Users",
+      tab: "users",
+      input: "admin-users-search",
+      actions: ["+ COINS", "− COINS", "BLOCK", "MAKE TOURNAMENT ADMIN"],
+    },
+  ];
+
+  async function announcementCount() {
+    return evaluate("window.__daily007AccessibilityAnnouncements?.length ?? 0");
+  }
+
+  async function snapshotLiveRegion() {
+    await evaluate(`(() => {
+      window.__daily007PreviousAdminSearchLiveRegion =
+        document.querySelector('[data-testid="admin-search-results-announcement"]');
+      return true;
+    })()`);
+  }
+
+  async function waitForAnnouncement(platform, text, previousCount, description) {
+    if (platform === "ios") {
+      await waitForCondition(
+        `(() => {
+          const announcements = window.__daily007AccessibilityAnnouncements ?? [];
+          return announcements.length > ${previousCount} &&
+            announcements.at(-1)?.message === ${JSON.stringify(text)};
+        })()`,
+        description,
+      );
+      const latest = await evaluate("window.__daily007AccessibilityAnnouncements?.at(-1) ?? null");
+      assert(
+        latest.options?.queue === true && latest.options?.priority === "low",
+        `${description}: the iOS announcement should be queued at low priority.`,
+      );
+      return;
+    }
+
+    await waitForCondition(
+      `(() => {
+        const region = document.querySelector('[data-testid="admin-search-results-announcement"]');
+        return region &&
+          region !== window.__daily007PreviousAdminSearchLiveRegion &&
+          region.textContent.trim() === ${JSON.stringify(text)};
+      })()`,
+      description,
+    );
+    const region = await evaluate(`(() => {
+      const element = document.querySelector('[data-testid="admin-search-results-announcement"]');
+      return {
+        text: element?.textContent.trim() ?? null,
+        live: element?.getAttribute("aria-live") ?? null,
+      };
+    })()`);
+    assert(
+      region.text === text && region.live === "polite",
+      `${description}: Android should expose one polite live region, received ${JSON.stringify(region)}.`,
+    );
+  }
+
+  async function enterQuery(platform, input, query, expectedText, description) {
+    const previousCount = platform === "ios" ? await announcementCount() : null;
+    if (platform !== "ios") await snapshotLiveRegion();
+    await setInputValue(`[data-testid="${input}"]`, query);
+    await waitForAnnouncement(platform, expectedText, previousCount, description);
+    assert(
+      await evaluate(`document.activeElement === document.querySelector('[data-testid="${input}"]')`),
+      `${description}: focus moved away from the search field.`,
+    );
+  }
+
+  for (const platform of ["android", "ios"]) {
+    await setViewport(width, 1.5, "admin-narrow-preview.html", platform);
+    assert(
+      await evaluate("window.__daily007LargeTextScale === 1.5"),
+      `${platform} search announcement preview did not apply 1.5× text.`,
+    );
+
+    for (const screen of searchCases) {
+      await clickSelector(`[data-testid="admin-tab-${screen.tab}"]`, `${screen.screen} tab`);
+      await waitForCondition(
+        `Boolean(document.querySelector('[data-testid="${screen.input}"]'))`,
+        `${screen.screen} search field`,
+      );
+      if (platform === "ios") {
+        await evaluate("window.__daily007AccessibilityAnnouncements = []");
+      }
+
+      const firstAnnouncementCount = platform === "ios" ? await announcementCount() : null;
+      if (platform !== "ios") await snapshotLiveRegion();
+      await setInputValue(`[data-testid="${screen.input}"]`, longName);
+      await waitForAnnouncement(
+        platform,
+        "1 matching user found.",
+        firstAnnouncementCount,
+        `${platform} ${screen.screen} matching-user announcement`,
+      );
+      assert(
+        await evaluate(`document.activeElement === document.querySelector('[data-testid="${screen.input}"]')`),
+        `${platform} ${screen.screen}: the matching-user announcement moved focus from search.`,
+      );
+
+      const matchingAccount = await evaluate(`(() => {
+        const text = document.body.innerText;
+        return {
+          nameVisible: text.includes(${JSON.stringify(longName)}),
+          emailVisible: text.includes(${JSON.stringify(longEmail)}),
+          otherNameVisible: text.includes(${JSON.stringify(otherName)}),
+          otherEmailVisible: text.includes(${JSON.stringify(otherEmail)}),
+        };
+      })()`);
+      assert(
+        matchingAccount.nameVisible && matchingAccount.emailVisible &&
+          !matchingAccount.otherNameVisible && !matchingAccount.otherEmailVisible,
+        `${screen.screen} should leave only the matching account details accessible: ${JSON.stringify(matchingAccount)}.`,
+      );
+      await assertAdminRowActionsFit(
+        longName,
+        screen.actions,
+        width,
+        `${screen.screen} filtered account actions after announcing the result`,
+        { requireReachability: true },
+      );
+      assert(
+        await evaluate(`document.activeElement === document.querySelector('[data-testid="${screen.input}"]')`),
+        `${platform} ${screen.screen}: scrolling to the matching account actions moved focus from search.`,
+      );
+
+      const sameResultsCount = platform === "ios" ? await announcementCount() : null;
+      if (platform !== "ios") await snapshotLiveRegion();
+      await setInputValue(
+        `[data-testid="${screen.input}"]`,
+        "Ananya Daily007 Championship",
+      );
+      await delay(650);
+      if (platform === "ios") {
+        assert(
+          await announcementCount() === sameResultsCount,
+          `${platform} ${screen.screen}: changing the query without changing matching accounts repeated the announcement.`,
+        );
+      } else {
+        assert(
+          await evaluate(`document.querySelector('[data-testid="admin-search-results-announcement"]') ===
+            window.__daily007PreviousAdminSearchLiveRegion`),
+          `${platform} ${screen.screen}: changing the query without changing matching accounts repeated the announcement.`,
+        );
+      }
+      assert(
+        await evaluate(`document.activeElement === document.querySelector('[data-testid="${screen.input}"]')`),
+        `${platform} ${screen.screen}: focus moved after the debounced duplicate check.`,
+      );
+
+      await enterQuery(
+        platform,
+        screen.input,
+        otherName,
+        "1 matching user found.",
+        `${platform} ${screen.screen} changed matching user with the same result count`,
+      );
+      const changedResult = await evaluate(`(() => {
+        const text = document.body.innerText;
+        return {
+          otherNameVisible: text.includes(${JSON.stringify(otherName)}),
+          otherEmailVisible: text.includes(${JSON.stringify(otherEmail)}),
+          originalNameVisible: text.includes(${JSON.stringify(longName)}),
+        };
+      })()`);
+      assert(
+        changedResult.otherNameVisible && changedResult.otherEmailVisible && !changedResult.originalNameVisible,
+        `${screen.screen} did not keep the newly matched account details accessible: ${JSON.stringify(changedResult)}.`,
+      );
+
+      const beforeRapidQueries = platform === "ios" ? await announcementCount() : null;
+      if (platform !== "ios") await snapshotLiveRegion();
+      for (const query of ["not-a-preview-account", "still-no-account", "daily007-no-match"]) {
+        await setInputValue(`[data-testid="${screen.input}"]`, query);
+        if (platform === "ios") {
+          assert(
+            await announcementCount() === beforeRapidQueries,
+            `${platform} ${screen.screen}: rapid typing announced an intermediate search result.`,
+          );
+        } else {
+          assert(
+            await evaluate(`document.querySelector('[data-testid="admin-search-results-announcement"]') ===
+              window.__daily007PreviousAdminSearchLiveRegion`),
+            `${platform} ${screen.screen}: rapid typing announced an intermediate search result.`,
+          );
+        }
+      }
+      await waitForAnnouncement(
+        platform,
+        "No matching users found.",
+        beforeRapidQueries,
+        `${platform} ${screen.screen} no-matches announcement after rapid typing`,
+      );
+      assert(
+        await evaluate(`document.activeElement === document.querySelector('[data-testid="${screen.input}"]')`),
+        `${platform} ${screen.screen}: focus moved after announcing no matches.`,
+      );
+
+      await enterQuery(
+        platform,
+        screen.input,
+        "",
+        "Search cleared. Showing 4 users.",
+        `${platform} ${screen.screen} cleared-search announcement`,
+      );
+      assert(
+        await evaluate(`document.activeElement === document.querySelector('[data-testid="${screen.input}"]')`),
+        `${platform} ${screen.screen}: focus moved after clearing the search.`,
+      );
+    }
+  }
 }
 
 async function checkAdminSearchResultsWithKeyboard() {
@@ -5479,6 +5714,7 @@ try {
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminSearchKeyboardOnly ||
+    adminSearchAccessibilityOnly ||
     adminTournamentCreateSaveOnly ||
     adminTournamentEmptyFilterOnly ||
     adminTournamentHomeRefreshOnly ||
@@ -5492,13 +5728,13 @@ try {
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
-          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly ? 375 : 800,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
-          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly ? 720 : 1000,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
@@ -5533,6 +5769,8 @@ try {
           ? "Admin tournament keyboard forms"
         : adminSearchKeyboardOnly
           ? "Admin Wallet and Users search fields"
+        : adminSearchAccessibilityOnly
+          ? "Admin Wallet and Users search announcements"
         : adminTournamentEditSaveOnly
           ? "Admin tournament editing at 320px with 1.5× text"
         : adminTournamentCreateSaveOnly
@@ -5655,6 +5893,15 @@ try {
       );
       console.log(
         "PASS — At 375×450 with 1.5× text and a simulated Android keyboard, long fake-name and email searches on Wallet and Users retain the query and keep the matching account and every action reachable by scrolling.",
+      );
+    } else if (adminSearchAccessibilityOnly) {
+      await checkAdminSearchAccessibility();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin search announcement checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — Wallet and Users announce changed result sets politely on simulated Android and iOS paths, suppress duplicate/rapid-query speech, retain search focus, and keep filtered details/actions available.",
       );
     } else if (scheduledStartOnly) {
       await checkTournamentScheduledStart(0);

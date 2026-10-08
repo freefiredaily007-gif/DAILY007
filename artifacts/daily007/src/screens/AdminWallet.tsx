@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage } from '../lib/api';
-import { Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, PromptDialog } from '../components/adminKit';
+import { AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, PromptDialog } from '../components/adminKit';
 import { inr } from '../lib/coins';
 
 export default function AdminWallet() {
@@ -64,6 +64,12 @@ export default function AdminWallet() {
           style={st.search}
         />
       </Card>
+      <AdminSearchAnnouncement
+        query={q}
+        count={filtered.length}
+        resultIds={filtered.map((u) => String(u.$id)).sort().join('|')}
+        ready={users !== null}
+      />
       {users === null ? (
         <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />
       ) : filtered.length === 0 ? (
