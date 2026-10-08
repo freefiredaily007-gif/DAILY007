@@ -63,6 +63,12 @@ For a one-shot PostgreSQL failure that must be followed by a successful retry, u
 
 **How to apply:** Increment a fixture-owned sequence for the targeted ledger row, pause and raise only when `nextval` returns its first value, then remove the trigger, function, and sequence after all requests settle.
 
+To prove concurrent requests contend on a globally unique key, hold an uncommitted row with that key, start both requests, verify both inserts are lock-waiting in PostgreSQL, then roll back the blocker.
+
+**Why:** Promise-based request fan-out alone does not establish that both requests reached the database before either finished.
+
+**How to apply:** Confirm both inserts are visible as lock waiters and linked to the blocker or each other before releasing it; then assert one insert succeeds, the other maps the unique violation to a conflict, and only one row persists.
+
 **Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
 
 **Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.

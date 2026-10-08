@@ -26,12 +26,13 @@ if (
 const fixture = {
   playerId: randomUUID(),
   retryPlayerId: randomUUID(),
+  racePlayerIds: [randomUUID(), randomUUID()] as const,
   adminId: randomUUID(),
 };
 
 after(async () => {
   try {
-    const playerIds = [fixture.playerId, fixture.retryPlayerId];
+    const playerIds = [fixture.playerId, fixture.retryPlayerId, ...fixture.racePlayerIds];
     await pool.query("DELETE FROM daily007_v2_notifications WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_payments WHERE user_id = ANY($1::uuid[])", [playerIds]);
@@ -52,7 +53,9 @@ before(async () => {
      VALUES
        ($1, 'UPI Reference Test Player', $4, 'test-salt', 'test-hash', 'user', 700),
        ($2, 'UPI Reference Retry Player', $5, 'test-salt', 'test-hash', 'user', 350),
-       ($3, 'UPI Reference Test Admin', $6, 'test-salt', 'test-hash', 'admin', 0)`,
+       ($3, 'UPI Reference Test Admin', $6, 'test-salt', 'test-hash', 'admin', 0),
+       ($7, 'UPI Reference Race Player One', $8, 'test-salt', 'test-hash', 'user', 900),
+       ($9, 'UPI Reference Race Player Two', $10, 'test-salt', 'test-hash', 'user', 450)`,
     [
       fixture.playerId,
       fixture.retryPlayerId,
@@ -60,6 +63,10 @@ before(async () => {
       `wallet-reference-player-${fixture.playerId}@example.test`,
       `wallet-reference-retry-${fixture.retryPlayerId}@example.test`,
       `wallet-reference-admin-${fixture.adminId}@example.test`,
+      fixture.racePlayerIds[0],
+      `wallet-reference-race-${fixture.racePlayerIds[0]}@example.test`,
+      fixture.racePlayerIds[1],
+      `wallet-reference-race-${fixture.racePlayerIds[1]}@example.test`,
     ],
   );
   await pool.query(
@@ -124,6 +131,46 @@ async function call(
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return { status: response.status, body: await response.json() };
+}
+
+async function backendPid(client: Awaited<ReturnType<typeof pool.connect>>): Promise<number> {
+  const result = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+  const pid = result.rows[0]?.pid;
+  assert.ok(pid, "PostgreSQL must provide a backend id for the reference blocker.");
+  return Number(pid);
+}
+
+async function waitForBlockedPaymentRequests(blockerPid: number, expectedCount: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blockers: number[] }>(
+      `SELECT activity.pid, pg_blocking_pids(activity.pid) AS blockers
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.datname = current_database()
+          AND activity.wait_event_type = 'Lock'
+          AND activity.query ILIKE $1
+        ORDER BY activity.query_start`,
+      ["%INSERT INTO daily007_v2_payments%"],
+    );
+    if (result.rows.length >= expectedCount) {
+      assert.equal(result.rows.length, expectedCount, "Only the two duplicate-reference requests should be waiting.");
+      const requestPids = new Set(result.rows.map((row) => Number(row.pid)));
+      assert.ok(
+        result.rows.some((row) => row.blockers.map(Number).includes(blockerPid)),
+        "At least one deposit request must be waiting directly on the reference blocker.",
+      );
+      assert.ok(
+        result.rows.every((row) =>
+          row.blockers.some((pid) => Number(pid) === blockerPid || requestPids.has(Number(pid))),
+        ),
+        "Each deposit request must be queued behind the blocker or the earlier waiting request.",
+      );
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} duplicate-reference requests to block in PostgreSQL.`);
 }
 
 test("a rejected deposit keeps its normalized UPI reference unique in PostgreSQL", async () => {
@@ -199,4 +246,119 @@ test("a rejected deposit keeps its normalized UPI reference unique in PostgreSQL
     assert.deepEqual(finalAccount.rows, initialAccount.rows);
     assert.deepEqual(finalLedger.rows, initialLedger.rows);
   });
+});
+
+test("concurrent deposits from different accounts reject the same normalized UPI reference", async () => {
+  const referenceSuffix = randomUUID().toUpperCase();
+  const normalizedReference = `RACE-UPI-REF-${referenceSuffix}`;
+  const submittedReferences = [
+    `  ＲＡＣＥ-ＵＰＩ-ＲＥＦ-${referenceSuffix}  `,
+    `race-upi-ref-${referenceSuffix.toLowerCase()}`,
+  ];
+  const initialAccounts = await pool.query<{ id: string; wallet_coins: number }>(
+    `SELECT id, wallet_coins FROM daily007_v2_users
+      WHERE id = ANY($1::uuid[]) ORDER BY id`,
+    [fixture.racePlayerIds],
+  );
+  const initialLedger = await pool.query(
+    `SELECT id, user_id, amount, balance_after, reason
+       FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])`,
+    [fixture.racePlayerIds],
+  );
+  assert.deepEqual(
+    initialAccounts.rows.map((row) => row.wallet_coins).sort((a, b) => a - b),
+    [450, 900],
+  );
+  assert.deepEqual(initialLedger.rows, []);
+
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let submissions: Promise<{ status: number; body: any }>[] = [];
+  try {
+    await withServer(async (origin) => {
+      blocker = await pool.connect();
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        `INSERT INTO daily007_v2_payments
+           (user_id, coins, amount, reference, reference_normalized)
+         VALUES ($1, 50, 125, $2, $3)`,
+        [fixture.adminId, normalizedReference, normalizedReference],
+      );
+      const blockerBackendPid = await backendPid(blocker);
+
+      submissions = fixture.racePlayerIds.map((playerId, index) =>
+        call(origin, playerId, "/payments", "POST", {
+          coins: index === 0 ? 120 : 180,
+          payerUpiId: `race-player-${index + 1}@upi`,
+          txnId: submittedReferences[index],
+        }),
+      );
+      try {
+        await waitForBlockedPaymentRequests(blockerBackendPid, 2);
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const responses = await Promise.all(submissions);
+      assert.deepEqual(
+        responses.map((response) => response.status).sort((a, b) => a - b),
+        [201, 409],
+      );
+      const winnerIndex = responses.findIndex((response) => response.status === 201);
+      const winner = responses[winnerIndex];
+      const duplicate = responses[1 - winnerIndex];
+      assert.ok(winner);
+      assert.ok(duplicate);
+      assert.ok(winnerIndex === 0 || winnerIndex === 1);
+      assert.equal(winner.body.status, "pending");
+      assert.equal(winner.body.txnId, submittedReferences[winnerIndex].trim());
+      assert.equal(duplicate.body.error, "This payment reference has already been submitted.");
+
+      const payments = await pool.query<{
+        id: string;
+        user_id: string;
+        coins: number;
+        status: string;
+        reference: string;
+        reference_normalized: string;
+      }>(
+        `SELECT id, user_id, coins, status, reference, reference_normalized
+           FROM daily007_v2_payments
+          WHERE reference_normalized = $1`,
+        [normalizedReference],
+      );
+      assert.deepEqual(payments.rows, [{
+        id: winner.body.id,
+        user_id: fixture.racePlayerIds[winnerIndex],
+        coins: winnerIndex === 0 ? 120 : 180,
+        status: "pending",
+        reference: submittedReferences[winnerIndex].trim(),
+        reference_normalized: normalizedReference,
+      }]);
+
+      const finalAccounts = await pool.query<{ id: string; wallet_coins: number }>(
+        `SELECT id, wallet_coins FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[]) ORDER BY id`,
+        [fixture.racePlayerIds],
+      );
+      const finalLedger = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])`,
+        [fixture.racePlayerIds],
+      );
+      assert.deepEqual(finalAccounts.rows, initialAccounts.rows);
+      assert.deepEqual(finalLedger.rows, initialLedger.rows);
+    });
+  } finally {
+    if (blockerTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      blockerTransactionOpen = false;
+    }
+    await Promise.allSettled(submissions);
+    blocker?.release();
+  }
 });
