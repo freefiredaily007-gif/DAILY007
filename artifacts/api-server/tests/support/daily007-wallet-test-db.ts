@@ -154,6 +154,30 @@ class MemoryWalletDatabase {
     this.demoteBeforeNextTransaction = userId;
   }
 
+  seedPaymentHistory(payments: Array<{
+    id: string;
+    userId: string;
+    createdAt: Date;
+  }>): void {
+    for (const { id, userId, createdAt } of payments) {
+      this.payments.set(id, {
+        id,
+        user_id: userId,
+        coins: 1,
+        amount: 1,
+        payer_upi_id: null,
+        reference: id,
+        reference_normalized: id.toUpperCase(),
+        proof_object_path: null,
+        status: "approved",
+        review_reason: null,
+        reviewed_by: null,
+        created_at: new Date(createdAt),
+        reviewed_at: null,
+      });
+    }
+  }
+
   private snapshot(): DatabaseSnapshot {
     return {
       users: copyMap(this.users),
@@ -380,18 +404,25 @@ class MemoryWalletDatabase {
         type: String(values[3] ?? literalValues?.[3] ?? ""),
       });
     } else if (normalized.includes("FROM daily007_v2_payments WHERE user_id = $1")) {
-      rows = [...this.payments.values()]
-        .filter((item) => item.user_id === userId && item.status !== "deleted")
-        .map((item) => ({
-          id: item.id,
-          coins: item.coins,
-          amount: item.amount,
-          txnId: item.reference,
-          status: item.status,
-          reviewReason: item.review_reason,
-          createdAt: item.created_at,
-          reviewedAt: item.reviewed_at,
-        }));
+      let history = [...this.payments.values()]
+        .filter((item) => item.user_id === userId && item.status !== "deleted");
+      if (/\bORDER BY created_at DESC\b/i.test(normalized)) {
+        history = history.sort((left, right) =>
+          right.created_at.getTime() - left.created_at.getTime(),
+        );
+      }
+      const limit = normalized.match(/\bLIMIT\s+(\d+)\b/i);
+      if (limit) history = history.slice(0, Number(limit[1]));
+      rows = history.map((item) => ({
+        id: item.id,
+        coins: item.coins,
+        amount: item.amount,
+        txnId: item.reference,
+        status: item.status,
+        reviewReason: item.review_reason,
+        createdAt: item.created_at,
+        reviewedAt: item.reviewed_at,
+      }));
     } else if (normalized.includes("FROM daily007_v2_withdrawals WHERE user_id = $1")) {
       rows = [...this.withdrawals.values()]
         .filter((item) => item.user_id === userId && item.status !== "deleted")

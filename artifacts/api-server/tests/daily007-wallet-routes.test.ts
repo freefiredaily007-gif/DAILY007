@@ -270,6 +270,41 @@ test("each player can hold one pending deposit without blocking the other", asyn
   });
 });
 
+test("payment history returns only the authenticated player's newest 200 requests", async () => {
+  walletTestDb.reset();
+  const playerPayments = Array.from({ length: 205 }, (_, index) => ({
+    id: `history-player-${String(index).padStart(3, "0")}`,
+    userId: TEST_PLAYER_ID,
+    createdAt: new Date(Date.UTC(2026, 0, 1) + index * 1000),
+  }));
+  const otherPlayerPayments = Array.from({ length: 3 }, (_, index) => ({
+    id: `history-other-player-${index}`,
+    userId: TEST_SECOND_PLAYER_ID,
+    createdAt: new Date(Date.UTC(2027, 0, 1) + index * 1000),
+  }));
+  walletTestDb.seedPaymentHistory([...playerPayments, ...otherPlayerPayments]);
+
+  await withServer(async (origin) => {
+    const history = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
+
+    assert.equal(history.status, 200);
+    assert.equal(history.body.length, 200);
+    assert.deepEqual(
+      history.body.map((payment: { id: string }) => payment.id),
+      playerPayments.slice(-200).reverse().map(({ id }) => id),
+    );
+    assert.ok(history.body.every((payment: { id: string }) =>
+      walletTestDb.payments.get(payment.id)?.user_id === TEST_PLAYER_ID,
+    ));
+    for (let index = 1; index < history.body.length; index++) {
+      assert.ok(
+        Date.parse(history.body[index - 1].createdAt) >= Date.parse(history.body[index].createdAt),
+        `payment at index ${index - 1} should be at least as new as the following payment`,
+      );
+    }
+  });
+});
+
 test("deposit display prefers the stored rupee amount over a changed conversion rate", () => {
   assert.equal(depositAmountInr(120, 300, 1), "₹300");
   assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");
