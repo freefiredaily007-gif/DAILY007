@@ -5,6 +5,7 @@ import {
   createHomeRefreshRequestGuard,
   createHomeRefreshSingleFlight,
   didAppReturnToForeground,
+  formatHomeRefreshTimestamp,
   getUpcomingHomeTournaments,
   getTournamentLifecycleState,
   HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
@@ -126,7 +127,14 @@ test("Home coalesces paired requests and releases the shared request after succe
   assert.equal(requestCount, 3, "Success, shared failure, and recovery each start one paired request.");
 });
 
-test("out-of-order Home refreshes keep the newest paired tournament and registration snapshot", async () => {
+test("Home shows successful refresh times in IST", () => {
+  assert.equal(
+    formatHomeRefreshTimestamp(Date.parse("2026-10-09T10:00:00.000Z")),
+    "09 Oct 2026, 03:30 pm IST",
+  );
+});
+
+test("out-of-order Home refreshes keep the newest paired snapshot and successful update time", async () => {
   const guard = createHomeRefreshRequestGuard();
   const deferred = () => {
     let resolve;
@@ -138,6 +146,8 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
     registrations: ["cached registration"],
   };
   let visibleError = "";
+  let currentTime = 100;
+  let lastSuccessfulRefreshAt = 50;
   const applyPairedRefresh = async (requestId, tournamentsPromise, registrationsPromise) => {
     const [tournamentsResult, registrationsResult] = await Promise.allSettled([
       tournamentsPromise,
@@ -153,6 +163,7 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
       registrations: registrationsResult.value,
     };
     visibleError = "";
+    lastSuccessfulRefreshAt = currentTime;
   };
 
   const olderRegistration = deferred();
@@ -164,11 +175,13 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
   );
 
   const newerRequestId = guard.start();
+  currentTime = 200;
   await applyPairedRefresh(
     newerRequestId,
     Promise.resolve(["newer tournament"]),
     Promise.resolve(["newer registration"]),
   );
+  currentTime = 300;
   olderRegistration.resolve(["older registration"]);
   await olderRefresh;
 
@@ -177,6 +190,7 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
     registrations: ["newer registration"],
   });
   assert.equal(visibleError, "");
+  assert.equal(lastSuccessfulRefreshAt, 200);
 
   const olderRegistrationAfterFailure = deferred();
   const olderRequestAfterFailureId = guard.start();
@@ -186,12 +200,15 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
     olderRegistrationAfterFailure.promise,
   );
   const newerFailureRequestId = guard.start();
+  currentTime = 400;
   await applyPairedRefresh(
     newerFailureRequestId,
     Promise.reject(new Error("newest request failed")),
     Promise.resolve(["newer registration"]),
   );
   assert.equal(visibleError, "Could not load tournaments.");
+  assert.equal(lastSuccessfulRefreshAt, 200, "A failed pair must not advance the last-successful time.");
+  currentTime = 500;
   olderRegistrationAfterFailure.resolve(["stale registration"]);
   await olderRefreshAfterFailure;
   assert.deepEqual(visibleSnapshot, {
@@ -199,6 +216,17 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
     registrations: ["newer registration"],
   });
   assert.equal(visibleError, "Could not load tournaments.");
+  assert.equal(lastSuccessfulRefreshAt, 200, "A stale success must not advance the last-successful time.");
+
+  const registrationFailureRequestId = guard.start();
+  currentTime = 600;
+  await applyPairedRefresh(
+    registrationFailureRequestId,
+    Promise.resolve(["latest tournament"]),
+    Promise.reject(new Error("registration request failed")),
+  );
+  assert.equal(visibleError, "Could not load tournaments.");
+  assert.equal(lastSuccessfulRefreshAt, 200, "A registration failure must not advance the last-successful time.");
 
   const loadStart = homeSource.indexOf("const load = useCallback(() =>");
   const loadEnd = homeSource.indexOf("\n  }, []);", loadStart);
@@ -210,8 +238,26 @@ test("out-of-order Home refreshes keep the newest paired tournament and registra
   const staleResponseGuard = loadMethod.indexOf(
     "if (!loadRequestGuardRef.current.isCurrent(requestId)) return;",
   );
+  const tournamentFailure = loadMethod.indexOf(
+    "if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;",
+  );
+  const registrationsFailure = loadMethod.indexOf(
+    "if (registrationsResult.status === 'rejected') throw registrationsResult.reason;",
+  );
+  const registrationsValidation = loadMethod.indexOf("if (!Array.isArray(registrations))");
   const applyItems = loadMethod.indexOf("setItems(");
-  assert.ok(staleResponseGuard >= 0 && staleResponseGuard < applyItems);
+  const applyTimestamp = loadMethod.indexOf("setLastSuccessfulRefreshAt(successfulRefreshAt)");
+  assert.ok(
+    staleResponseGuard >= 0 &&
+      staleResponseGuard < tournamentFailure &&
+      tournamentFailure < registrationsFailure &&
+      registrationsFailure < registrationsValidation &&
+      registrationsValidation < applyItems &&
+      applyItems < applyTimestamp,
+    "Only the current fully successful paired response may update the visible-card timestamp.",
+  );
+  assert.match(loadMethod, /const successfulRefreshAt = Date\.now\(\)/);
+  assert.match(loadMethod, /setClockNow\(successfulRefreshAt\)/);
   assert.match(loadMethod, /if \(loadRequestGuardRef\.current\.isCurrent\(requestId\)\) \{\s*setLoadError/);
   assert.match(loadMethod, /if \(loadRequestGuardRef\.current\.isCurrent\(requestId\)\) setLoading\(false\)/);
   assert.match(
@@ -250,16 +296,21 @@ test("Home announces failed upcoming refreshes and exposes a named, busy-aware T
   )?.[0];
 
   assert.ok(refreshFailureNotice, "A failed refresh with visible cards must show an inline notice.");
-  const failureMessage =
-    "Could not refresh tournaments. The cards shown may be out of date. ${loadError}";
   assert.ok(
-    refreshFailureNotice.includes(`text={\`${failureMessage}\`}`),
-    "The visible warning must explain that refresh failed and the existing cards may be stale.",
+    refreshFailureNotice.includes("text={staleCardWarning}"),
+    "The visible warning must explain that refresh failed and include when its cards last updated.",
   );
   assert.ok(
-    refreshFailureNotice.includes(`accessibilityLabel={\`${failureMessage}\`}`),
-    "TalkBack must receive the complete warning without decorative text.",
+    refreshFailureNotice.includes("accessibilityLabel={staleCardWarning}"),
+    "TalkBack must receive the complete warning, including the last update time.",
   );
+  assert.match(
+    homeSource,
+    /const staleCardWarning =\s*`Could not refresh tournaments\. The cards shown may be out of date\. \$\{loadError\} \$\{lastSuccessfulUpdateText\}`/,
+    "The stale-card warning must include the last successful update text.",
+  );
+  assert.match(homeSource, /Last successful update: \$\{formatHomeRefreshTimestamp\(lastSuccessfulRefreshAt\)\}\./);
+  assert.match(homeSource, /The last successful update time is unavailable\./);
   assert.match(refreshFailureNotice, /accessibilityLiveRegion="polite"/);
   assert.equal(
     (refreshFailureNotice.match(/accessibilityLiveRegion=/g) ?? []).length,

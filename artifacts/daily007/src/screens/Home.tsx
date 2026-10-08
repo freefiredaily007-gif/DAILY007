@@ -16,6 +16,7 @@ import {
   createHomeRefreshRequestGuard,
   createHomeRefreshSingleFlight,
   didAppReturnToForeground,
+  formatHomeRefreshTimestamp,
   getUpcomingHomeTournaments,
   getTournamentLifecycleState,
   HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
@@ -101,6 +102,7 @@ export default function Home() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [lastSuccessfulRefreshAt, setLastSuccessfulRefreshAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [links, setLinks] = useState<any>({});
@@ -157,12 +159,14 @@ export default function Home() {
             .filter((registration: any) => ['approved', 'pending'].includes(String(registration.status ?? '').toLowerCase()))
             .map((registration: any) => String(registration.tournamentId)),
         );
+        const successfulRefreshAt = Date.now();
         setItems((currentItems) => mergeHomeTournamentItems(
           currentItems,
           Array.isArray(list) ? list : [],
           joinedIds,
         ));
-        setClockNow(Date.now());
+        setLastSuccessfulRefreshAt(successfulRefreshAt);
+        setClockNow(successfulRefreshAt);
         setLoadError('');
       } catch (e: any) {
         if (loadRequestGuardRef.current.isCurrent(requestId)) {
@@ -299,6 +303,11 @@ export default function Home() {
   };
 
   const social = (url?: string) => { if (url) Linking.openURL(url).catch(() => {}); };
+  const lastSuccessfulUpdateText = lastSuccessfulRefreshAt === null
+    ? 'The last successful update time is unavailable.'
+    : `Last successful update: ${formatHomeRefreshTimestamp(lastSuccessfulRefreshAt)}.`;
+  const staleCardWarning =
+    `Could not refresh tournaments. The cards shown may be out of date. ${loadError} ${lastSuccessfulUpdateText}`;
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 30 }}
@@ -364,8 +373,8 @@ export default function Home() {
         <View testID="home-upcoming-refresh-error" style={s.upcomingRefreshNotice}>
           <Msg
             kind="err"
-            text={`Could not refresh tournaments. The cards shown may be out of date. ${loadError}`}
-            accessibilityLabel={`Could not refresh tournaments. The cards shown may be out of date. ${loadError}`}
+            text={staleCardWarning}
+            accessibilityLabel={staleCardWarning}
             accessibilityLiveRegion="polite"
           />
           <Pressable

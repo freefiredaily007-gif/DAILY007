@@ -36,6 +36,20 @@ export function createHomeRefreshSingleFlight<T>() {
   };
 }
 
+export function formatHomeRefreshTimestamp(value: number): string {
+  if (!Number.isFinite(value)) return 'unknown time';
+  const formatted = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(value));
+  return `${formatted} IST`;
+}
+
 export function shouldRefreshHomeTournaments(appState: string): boolean {
   return appState === 'active';
 }
