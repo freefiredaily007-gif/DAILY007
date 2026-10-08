@@ -340,6 +340,12 @@ let deferredHomeRegistrationRead: {
   claimed: boolean;
 } | null = null;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
+let previewAdminAdjustmentRequestSequence = 0;
+export function newAdminAdjustmentRequestId(): string {
+  previewAdminAdjustmentRequestSequence += 1;
+  return `00000000-0000-4000-8000-${String(previewAdminAdjustmentRequestSequence).padStart(12, "0")}`;
+}
+
 type AdminPreviewMutationCall = { method: string; [key: string]: unknown };
 const adminPreviewMutationCalls: AdminPreviewMutationCall[] = [];
 const adminPreviewMutationFailures = new Map<string, string>();

@@ -680,6 +680,17 @@ async function assertAdminTouchTargetGroup(
     const reachability = await evaluate(`(() => {
       const element = document.querySelector('[data-testid="${target.testID}"]');
       if (!element) return null;
+      const scrollPositions = [];
+      let scrollNode = element;
+      while (scrollNode) {
+        scrollPositions.push({
+          node: scrollNode,
+          left: scrollNode.scrollLeft,
+          top: scrollNode.scrollTop,
+        });
+        scrollNode = scrollNode.parentElement;
+      }
+      const windowScroll = { left: window.scrollX, top: window.scrollY };
       element.scrollIntoView({ block: "nearest", inline: "center" });
       const rect = element.getBoundingClientRect();
       const centerX = rect.left + rect.width / 2;
@@ -694,7 +705,7 @@ async function assertAdminTouchTargetGroup(
         ) break;
         scrollport = scrollport.parentElement;
       }
-      return {
+      const result = {
         centerVisible:
           centerX >= -1 && centerX <= window.innerWidth + 1 &&
           centerY >= -1 && centerY <= window.innerHeight + 1,
@@ -705,6 +716,12 @@ async function assertAdminTouchTargetGroup(
         scrollable: Boolean(scrollport && scrollport !== document.body),
         pageWidth: document.documentElement.scrollWidth,
       };
+      for (const position of scrollPositions) {
+        position.node.scrollLeft = position.left;
+        position.node.scrollTop = position.top;
+      }
+      window.scrollTo(windowScroll.left, windowScroll.top);
+      return result;
     })()`);
     assert(reachability, `${description} "${target.label}" could not be inspected at ${width}px.`);
     assert(
@@ -1218,6 +1235,7 @@ async function assertAdminRowActionsFit(
         height: rowRect.height,
         clientWidth: row.clientWidth,
         scrollWidth: row.scrollWidth,
+        pageWidth: document.documentElement.scrollWidth,
       },
       overflowing: [row, ...row.querySelectorAll('*')]
         .filter((element) => element.scrollWidth > element.clientWidth + 2)
@@ -1237,7 +1255,9 @@ async function assertAdminRowActionsFit(
   assert(result.rowFound, `${description}: the main row actions are missing at ${width}px.`);
   assert(
     result.row.left >= -1 && result.row.right <= width + 1,
-    `${description}: the populated row extends beyond the ${width}px viewport.`,
+    `${description}: the populated row extends beyond the ${width}px viewport ` +
+      `(bounds=${result.row.left.toFixed(1)}–${result.row.right.toFixed(1)}, ` +
+      `page=${result.row.pageWidth}px, box=${result.row.clientWidth}px, content=${result.row.scrollWidth}px).`,
   );
   assert(
     result.row.scrollWidth <= result.row.clientWidth + 2,

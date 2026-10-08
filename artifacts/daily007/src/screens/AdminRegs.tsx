@@ -169,7 +169,7 @@ export default function AdminRegs() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>REGISTRATIONS</Text>
-      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} testID={`admin-registration-filter-${t}`} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
       {exportTournaments.length > 0 && (
