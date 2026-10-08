@@ -6,9 +6,17 @@ type VideoCatalogRefreshState = {
   isPlayerOpen: boolean;
 };
 
+export function shouldRefreshVideoCatalogOnFocus({
+  isFocused,
+  isAppActive,
+  isPlayerOpen,
+}: VideoCatalogRefreshState): boolean {
+  return isFocused && isAppActive && !isPlayerOpen;
+}
+
 export function getVideoCatalogRefreshInterval(
-  { isFocused, isAppActive, isPlayerOpen }: VideoCatalogRefreshState,
+  state: VideoCatalogRefreshState,
   intervalMs = VIDEO_CATALOG_REFRESH_INTERVAL_MS,
 ): number | false {
-  return isFocused && isAppActive && !isPlayerOpen ? intervalMs : false;
+  return shouldRefreshVideoCatalogOnFocus(state) ? intervalMs : false;
 }

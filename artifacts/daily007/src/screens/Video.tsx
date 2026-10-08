@@ -15,6 +15,10 @@ import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
+import {
+  VideoCatalogBackButton,
+  VideoUnavailableErrorAnnouncement,
+} from '../components/VideoAccessibilityControls';
 import { useColors } from '@/hooks/useColors';
 import {
   useDaily007CompleteVideoWatch,
@@ -30,7 +34,10 @@ import {
   type VideoPlaybackSample,
 } from '../lib/video-watch-progress';
 import { openVideoInBrowser, openYouTubeVideo } from '../lib/video-links';
-import { getVideoCatalogRefreshInterval } from '../lib/videoCatalogRefresh';
+import {
+  getVideoCatalogRefreshInterval,
+  shouldRefreshVideoCatalogOnFocus,
+} from '../lib/videoCatalogRefresh';
 
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
@@ -167,7 +174,13 @@ export default function Video() {
   useFocusEffect(useCallback(() => {
     if (!isAppActive) return undefined;
     if (!showPlayer) {
-      void videosQuery.refetch();
+      if (shouldRefreshVideoCatalogOnFocus({
+        isFocused,
+        isAppActive,
+        isPlayerOpen: showPlayer,
+      })) {
+        void videosQuery.refetch();
+      }
       return undefined;
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -175,7 +188,7 @@ export default function Video() {
       return true;
     });
     return () => subscription.remove();
-  }, [closePlayer, isAppActive, showPlayer, videosQuery.refetch]));
+  }, [closePlayer, isAppActive, isFocused, showPlayer, videosQuery.refetch]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -558,16 +571,15 @@ export default function Video() {
     >
       {showPlayer && selectedVideo ? (
         <>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to videos"
-            testID="video-catalog-back"
+          <VideoCatalogBackButton
             onPress={closePlayer}
-            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
-          >
-            <Feather name="arrow-left" size={17} color={colors.primary} />
-            <Text style={styles.backText}>BACK TO VIDEOS</Text>
-          </Pressable>
+            buttonStyle={({ pressed }) => [
+              styles.backButton,
+              pressed && { opacity: 0.7 },
+            ]}
+            textStyle={styles.backText}
+            primaryColor={colors.primary}
+          />
           <View style={styles.playerVideoHeader}>
             <Text style={styles.playerTitle}>{selectedVideo.title}</Text>
             <Text style={styles.playerTopic}>TOPIC · {selectedVideo.topic}</Text>
@@ -658,7 +670,9 @@ export default function Video() {
 
           <View style={styles.progressHeader}>
             <Text style={styles.progressLabel}>ESTIMATED WATCH PROGRESS</Text>
-            <Text style={styles.progressValue}>{progressPercent}%</Text>
+            <Text testID="video-progress-value" style={styles.progressValue}>
+              {progressPercent}%
+            </Text>
           </View>
           <View
             accessibilityLabel={`${progressPercent}% estimated watched, ${WATCH_MARK_PERCENT}% reward marker`}
@@ -692,14 +706,13 @@ export default function Video() {
             </View>
           ) : null}
           {!!rewardError ? (
-            <View
-              testID="video-watch-error"
-              accessibilityLiveRegion={sessionStartFailedRef.current ? 'polite' : undefined}
-              style={styles.errorCard}
-            >
-              <Feather name="alert-circle" size={16} color={colors.destructive} />
-              <Text style={styles.errorText}>{rewardError}</Text>
-            </View>
+            <VideoUnavailableErrorAnnouncement
+              message={rewardError}
+              announce={sessionStartFailedRef.current}
+              containerStyle={styles.errorCard}
+              textStyle={styles.errorText}
+              iconColor={colors.destructive}
+            />
           ) : null}
           {sessionStartRetryAvailable || sessionStartRetryPending ? (
             <Pressable

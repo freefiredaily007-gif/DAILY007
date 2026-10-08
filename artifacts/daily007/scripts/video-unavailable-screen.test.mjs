@@ -7,6 +7,7 @@ import ts from "typescript";
 import { getCreditedVideoWatchSeconds } from "../src/lib/video-watch-progress.ts";
 import {
   getVideoCatalogRefreshInterval,
+  shouldRefreshVideoCatalogOnFocus,
   VIDEO_CATALOG_REFRESH_INTERVAL_MS,
 } from "../src/lib/videoCatalogRefresh.ts";
 
@@ -20,6 +21,25 @@ const videoSourceFile = ts.createSourceFile(
   ts.ScriptTarget.Latest,
   true,
   ts.ScriptKind.TSX,
+);
+const videoAccessibilityControlsSource = readFileSync(
+  new URL("../src/components/VideoAccessibilityControls.tsx", import.meta.url),
+  "utf8",
+);
+const videoAccessibilityControlsSourceFile = ts.createSourceFile(
+  "VideoAccessibilityControls.tsx",
+  videoAccessibilityControlsSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+const nativeTestSource = readFileSync(
+  new URL("../src/screens/VideoUnavailableNativeTest.tsx", import.meta.url),
+  "utf8",
+);
+const maestroFlow = readFileSync(
+  new URL("../maestro/video-unavailable/unavailable-start.yaml", import.meta.url),
+  "utf8",
 );
 const apiSource = readFileSync(
   new URL("../src/lib/api.ts", import.meta.url),
@@ -112,6 +132,34 @@ function loadApiErrorHelper() {
   return new Function(`${javascript}\nreturn __helper;`)();
 }
 
+function loadVideoUnavailableErrorAnnouncement() {
+  const declaration = findFunctionDeclaration(
+    videoAccessibilityControlsSourceFile,
+    "VideoUnavailableErrorAnnouncement",
+  );
+  const source = declaration
+    .getText(videoAccessibilityControlsSourceFile)
+    .replace(/^export\s+/, "");
+  const javascript = ts.transpileModule(
+    `const __component = (${source});`,
+    {
+      compilerOptions: {
+        jsx: ts.JsxEmit.React,
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  return new Function(
+    "React",
+    "View",
+    "Text",
+    "Feather",
+    `${javascript}\nreturn __component;`,
+  )(React, createTestView, createTestText, () => null);
+}
+
 function findJsxConditional(conditionText) {
   let conditional = null;
 
@@ -158,18 +206,29 @@ function createTestView({ children, testID }) {
   );
 }
 
-function createTestText({ children }) {
-  return React.createElement("span", null, children);
+function createTestText({
+  children,
+  accessibilityLiveRegion,
+  accessibilityRole,
+  testID,
+}) {
+  return React.createElement(
+    "span",
+    {
+      ...(accessibilityLiveRegion ? { "aria-live": accessibilityLiveRegion } : {}),
+      ...(accessibilityRole ? { role: accessibilityRole } : {}),
+      ...(testID ? { "data-testid": testID } : {}),
+    },
+    children,
+  );
 }
 
-function renderError(rewardError) {
+function renderError(rewardError, announce = true) {
   const element = evaluateJsxConditional(findJsxConditional("!!rewardError"), {
     React,
     rewardError,
-    sessionStartFailedRef: { current: false },
-    View: createTestView,
-    Text: createTestText,
-    Feather: () => null,
+    sessionStartFailedRef: { current: announce },
+    VideoUnavailableErrorAnnouncement: loadVideoUnavailableErrorAnnouncement(),
     styles: { errorCard: {}, errorText: {} },
     colors: { destructive: "#ff0000" },
   });
@@ -208,6 +267,26 @@ function renderSessionStartRetry(sessionStartRetryAvailable, sessionStartRetryPe
     styles: { retryButton: {}, externalButtonText: {} },
     colors: { primary: "#0000ff" },
     retryFailedSessionStart() {},
+  });
+
+  return renderToStaticMarkup(element);
+}
+
+function renderCoinClaimRetry(retrySession) {
+  const element = evaluateJsxConditional(findJsxConditional("retrySession"), {
+    React,
+    retrySession,
+    Pressable: ({ accessibilityLabel, children, testID }) => React.createElement(
+      "button",
+      { "aria-label": accessibilityLabel, "data-testid": testID },
+      children,
+    ),
+    Text: createTestText,
+    Feather: () => null,
+    styles: { retryButton: {}, externalButtonText: {} },
+    colors: { primary: "#0000ff" },
+    rewardPending: false,
+    claimViewReward() {},
   });
 
   return renderToStaticMarkup(element);
@@ -378,7 +457,20 @@ test("a failed start can retry the same attempt without counting the failed wait
 
   const errorMarkup = renderError(rewardErrors.at(-1));
   assert.match(errorMarkup, /data-testid="video-watch-error"/);
+  assert.match(errorMarkup, /data-testid="video-watch-error-message"/);
   assert.match(errorMarkup, /This video is unavailable\./);
+  assert.match(errorMarkup, /role="text"/);
+  assert.match(errorMarkup, /aria-live="polite"/);
+  assert.equal(
+    errorMarkup.match(/aria-live="polite"/g)?.length ?? 0,
+    1,
+    "The unavailable error should have exactly one polite announcement target.",
+  );
+  assert.doesNotMatch(
+    renderError(rewardErrors.at(-1), false),
+    /aria-live="polite"/,
+    "Other reward errors should not reuse the start-failure announcement.",
+  );
 
   const retryMarkup = renderSessionStartRetry(
     sessionStartRetryAvailable.current,
@@ -401,9 +493,23 @@ test("a failed start can retry the same attempt without counting the failed wait
   assert.equal(creditedSecondsCalls, 0, "Rejected playback samples must not be credited.");
   assert.equal(startRequests.length, 1, "The failed playback should not automatically start again.");
   assert.deepEqual(retrySessionWrites, [], "A start failure must not create a reward-claim retry.");
+  const coinClaimRetryMarkup = renderCoinClaimRetry(null);
+  assert.equal(coinClaimRetryMarkup, "");
+  assert.doesNotMatch(coinClaimRetryMarkup, /video-retry-claim/);
+  assert.match(
+    renderCoinClaimRetry({ sessionId: "retryable-session", percent: 80 }),
+    /data-testid="video-retry-claim"/,
+    "The normal reward-claim retry should remain available when a claim can be retried.",
+  );
   assert.ok(videoSource.includes(
     "const [retrySession, setRetrySession] = useState<{ sessionId: string; percent: number } | null>(null);",
   ));
+  assert.match(videoSource, /VideoUnavailableErrorAnnouncement/);
+  assert.match(
+    videoSource,
+    /accessibilityValue=\{\{ min: 0, max: 100, now: progressPercent \}\}/,
+  );
+  assert.match(videoSource, /testID="video-progress-value"/);
 
   const retryFailedSessionStart = loadScreenCallback("retryFailedSessionStart", {
     showPlayer: true,
@@ -483,6 +589,22 @@ test("the visible catalog removes a video disabled while it stays open", async (
     false,
   );
   assert.equal(
+    shouldRefreshVideoCatalogOnFocus({
+      isFocused: true,
+      isAppActive: true,
+      isPlayerOpen: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRefreshVideoCatalogOnFocus({
+      isFocused: true,
+      isAppActive: true,
+      isPlayerOpen: true,
+    }),
+    false,
+  );
+  assert.equal(
     getVideoCatalogRefreshInterval({
       isFocused: true,
       isAppActive: false,
@@ -503,10 +625,32 @@ test("the visible catalog removes a video disabled while it stays open", async (
     /enabled: isFocused && isAppActive && !showPlayer,[\s\S]*?refetchInterval: getVideoCatalogRefreshInterval\(\{[\s\S]*?isPlayerOpen: showPlayer/,
   );
   assert.match(videoSource, /refetchIntervalInBackground: false/);
-  assert.match(videoSource, /void videosQuery\.refetch\(\)/);
+  assert.match(
+    videoSource,
+    /shouldRefreshVideoCatalogOnFocus\(\{[\s\S]*?isPlayerOpen: showPlayer,[\s\S]*?\}\)\)\s*\{\s*void videosQuery\.refetch\(\)/,
+  );
   assert.match(videoSource, /const videos: VideoItem\[\] = \(videosQuery\.data\?\.videos \?\? \[\]\)/);
   assert.match(videoSource, /filteredVideos\.map\(\(video\) =>/);
-  assert.match(videoSource, /testID="video-catalog-back"[^>]*onPress=\{closePlayer\}/);
+  assert.match(videoSource, /<VideoCatalogBackButton[\s\S]*?onPress=\{closePlayer\}/);
+  assert.match(
+    videoAccessibilityControlsSource,
+    /accessibilityLabel="Back to videos"[\s\S]*?testID="video-catalog-back"/,
+  );
+  assert.match(
+    videoAccessibilityControlsSource,
+    /accessibilityRole="text"\s+accessibilityLiveRegion=\{announce \? 'polite' : undefined\}/,
+  );
+  assert.equal(
+    videoAccessibilityControlsSource.match(/accessibilityLiveRegion/g)?.length ?? 0,
+    1,
+  );
+  assert.match(nativeTestSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  assert.match(nativeTestSource, /VideoUnavailableErrorAnnouncement/);
+  assert.match(nativeTestSource, /shouldRefreshVideoCatalogOnFocus/);
+  assert.match(maestroFlow, /video-watch-error-message/);
+  assert.match(maestroFlow, /assertNotVisible:[\s\S]*?video-retry-claim/);
+  assert.match(maestroFlow, /tapOn:[\s\S]*?video-catalog-back/);
+  assert.match(maestroFlow, /video-catalog-refresh-state/);
 
   globalThis.window = {
     addEventListener() {},

@@ -1,0 +1,32 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/video-unavailable-test
+- extendedWaitUntil:
+    visible:
+      id: video-unavailable-fixture-banner
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: video-watch-error-message
+    timeout: 5000
+- assertVisible:
+    id: video-watch-error
+- assertVisible:
+    text: "This video is unavailable."
+- assertVisible:
+    id: video-progress-value
+- assertVisible:
+    text: "0%"
+- assertVisible:
+    text: "0% estimated watched, 75% reward marker"
+- assertNotVisible:
+    id: video-retry-claim
+- tapOn:
+    id: video-catalog-back
+- extendedWaitUntil:
+    visible:
+      id: video-catalog-refresh-state
+    timeout: 5000
+- assertVisible:
+    text: "Video catalog refreshed after returning."
