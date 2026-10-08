@@ -36,6 +36,10 @@ const homeSource = await readFile(
   new URL('../src/screens/Home.tsx', import.meta.url),
   'utf8',
 );
+const typographySource = await readFile(
+  new URL('../src/components/typography.tsx', import.meta.url),
+  'utf8',
+);
 const homeSourceFile = ts.createSourceFile(
   'Home.tsx',
   homeSource,
@@ -351,6 +355,36 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
       }
     }
   }
+});
+
+test('Home mode cards reflow and stay tappable with Android text scaled to 1.5x', () => {
+  const gameModeSection = homeSource.slice(
+    homeSource.indexOf('{/* ===== GAME MODES ===== */}'),
+    homeSource.indexOf('<HomeLeaderboards'),
+  );
+  const baseModeCardStyle = /modeCard:\s*\{([^}]*)\}/.exec(homeSource)?.[1] ?? '';
+
+  assert.match(homeSource, /const largeModeCard = fontScale >= 1\.5/);
+  assert.match(gameModeSection, /style=\{\[s\.modeCard,\s*largeModeCard && s\.modeCardLarge/);
+  assert.match(gameModeSection, /modeArtWrap,\s*largeModeCard && s\.modeArtWrapLarge/);
+  assert.match(gameModeSection, /modeBody,\s*largeModeCard && s\.modeBodyLarge/);
+  assert.match(gameModeSection, /modeBtn,\s*largeModeCard && s\.modeBtnLarge/);
+  assert.match(homeSource, /modeCardLarge:\s*\{\s*flexDirection:\s*'column'/);
+  assert.match(homeSource, /modeArtWrapLarge:\s*\{\s*width:\s*'100%'/);
+  assert.match(homeSource, /modeBodyLarge:\s*\{\s*flex:\s*0/);
+  assert.match(homeSource, /modeBtnLarge:\s*\{\s*marginTop:\s*12,\s*minHeight:\s*52/);
+  assert.match(homeSource, /modeBtnTLarge:\s*\{\s*fontSize:\s*12/);
+  assert.doesNotMatch(baseModeCardStyle, /(?:^|,)\s*height\s*:/);
+  assert.doesNotMatch(gameModeSection, /numberOfLines=|ellipsizeMode=/);
+
+  assert.match(homeSource, /<ScrollView style=\{\{\s*flex:\s*1,/);
+  assert.match(gameModeSection, /onPress=\{\(\) => nav\.navigate\('Tournaments', homeModeRouteParams\(m\)\)\}/);
+  assert.match(gameModeSection, /accessibilityLabel=\{`Open \$\{m\.mode\} tournaments\./);
+  assert.match(gameModeSection, /testID=\{`home-mode-\$\{m\.mode/);
+  assert.match(gameModeSection, />BROWSE TOURNAMENTS<\/Text>/);
+
+  assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
+  assert.doesNotMatch(typographySource, /allowFontScaling\s*=\s*\{false\}/);
 });
 
 test('the tournament screen applies both route mode and team type filters', () => {
