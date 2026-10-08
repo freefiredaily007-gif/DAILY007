@@ -231,7 +231,7 @@ export default function Tournaments() {
                     testID={`tournament-tab-${value}`}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={`${tabLabel[value]} tournaments, ${count}`}
+                    accessibilityLabel={`${tabLabel[value]} tournaments, ${displayedCount}`}
                     onPress={() => setTab(value)}
                     style={[s.tab, selected && s.tabOn]}
                   >

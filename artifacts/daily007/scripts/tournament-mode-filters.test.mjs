@@ -20,7 +20,9 @@ import { getRoomCredentialSchedule } from '../src/lib/roomCredentialTiming.ts';
 import { fetchTournamentDetailSnapshot } from '../src/lib/tournament-detail-refresh.ts';
 import {
   getTournamentLifecycleState,
+  MAX_COMPLETED_TOURNAMENTS,
   MAX_TIMEOUT_MS,
+  mostRecentCompletedTournaments,
 } from '../src/lib/tournamentLifecycle.ts';
 import { takeTournamentStartAnnouncement } from '../src/lib/tournamentStartAnnouncement.ts';
 
@@ -329,7 +331,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   assert.match(tournamentsSource, /const count = modeScopedTabs\[value\]\.length/);
   assert.match(
     tournamentsSource,
-    /accessibilityLabel=\{`\$\{tabLabel\[value\]\} tournaments, \$\{count\}`\}/,
+    /accessibilityLabel=\{`\$\{tabLabel\[value\]\} tournaments, \$\{displayedCount\}`\}/,
   );
   assert.match(tournamentsSource, /data=\{orderedVisible\}/);
   assert.match(
@@ -425,6 +427,116 @@ test('failed tournament refreshes preserve the last complete rows and successful
   assert.match(
     tournamentsSource,
     /testID=\{hasLoadedList\.current \? 'player-tournament-refresh-error' : 'player-tournament-load-error'\}/,
+  );
+});
+
+test('a mode-filtered refresh updates tab accessibility labels and retains selection', async () => {
+  const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const pastStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const route = { gameMode: 'clash_squad', teamType: 'duo' };
+  const api = {
+    tournaments: async () => [
+      { id: 'old-upcoming', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+      { id: 'old-ongoing', gameMode: 'clash_squad', teamType: 'Duo', status: 'ongoing', startsAt: pastStart },
+      { id: 'old-completed', gameMode: 'clash_squad', teamType: 'Duo', status: 'completed', startsAt: pastStart },
+    ],
+    myRegistrations: async () => [],
+  };
+  const harness = createTournamentLoadHarness(api);
+  harness.screen.selectedTab = 'ongoing';
+  await harness.load();
+
+  const completedFixtures = Array.from(
+    { length: MAX_COMPLETED_TOURNAMENTS + 2 },
+    (_, index) => ({
+      id: `fresh-completed-${index + 1}`,
+      gameMode: 'clash_squad',
+      teamType: 'Duo',
+      status: 'completed',
+      startsAt: pastStart,
+      completedAt: new Date(Date.now() - (index + 1) * 60_000).toISOString(),
+    }),
+  );
+  api.tournaments = async () => [
+    { id: 'fresh-upcoming-one', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+    { id: 'fresh-upcoming-two', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+    { id: 'fresh-ongoing-one', gameMode: 'clash_squad', teamType: 'Duo', status: 'ongoing', startsAt: pastStart },
+    { id: 'fresh-ongoing-two', gameMode: 'clash_squad', teamType: 'Duo', status: 'ongoing', startsAt: pastStart },
+    ...completedFixtures,
+  ];
+  await harness.load();
+
+  const tabs = tournamentTabsForRoute(
+    harness.state.items,
+    route,
+    (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+  );
+  const counts = Object.fromEntries(
+    Object.entries(tabs).map(([tab, tournaments]) => [tab, tournaments.length]),
+  );
+  const tabLabels = { upcoming: 'Upcoming', ongoing: 'Ongoing', completed: 'Completed' };
+  const displayedCounts = Object.fromEntries(
+    Object.entries(counts).map(([tab, count]) => [
+      tab,
+      tab === 'completed' ? Math.min(count, MAX_COMPLETED_TOURNAMENTS) : count,
+    ]),
+  );
+  const visibleCounts = Object.fromEntries(
+    Object.entries(tabs).map(([tab, tournaments]) => [
+      tab,
+      (tab === 'completed' ? mostRecentCompletedTournaments(tournaments) : tournaments).length,
+    ]),
+  );
+  const accessibleLabels = Object.fromEntries(
+    Object.entries(displayedCounts).map(([tab, count]) => [tab, `${tabLabels[tab]} tournaments, ${count}`]),
+  );
+  const accessibleStates = Object.fromEntries(
+    Object.keys(counts).map((tab) => [tab, { selected: tab === harness.screen.selectedTab }]),
+  );
+
+  assert.deepEqual(counts, { upcoming: 2, ongoing: 2, completed: MAX_COMPLETED_TOURNAMENTS + 2 });
+  assert.deepEqual(displayedCounts, { upcoming: 2, ongoing: 2, completed: MAX_COMPLETED_TOURNAMENTS });
+  assert.deepEqual(visibleCounts, displayedCounts);
+  assert.deepEqual(accessibleLabels, {
+    upcoming: 'Upcoming tournaments, 2',
+    ongoing: 'Ongoing tournaments, 2',
+    completed: `Completed tournaments, ${MAX_COMPLETED_TOURNAMENTS}`,
+  });
+  assert.deepEqual(accessibleStates, {
+    upcoming: { selected: false },
+    ongoing: { selected: true },
+    completed: { selected: false },
+  });
+  assert.equal(harness.screen.selectedTab, 'ongoing');
+  assert.equal(tabs[harness.screen.selectedTab].length, counts[harness.screen.selectedTab]);
+  assert.deepEqual(
+    tabs[harness.screen.selectedTab].map((tournament) => tournament.id),
+    ['fresh-ongoing-one', 'fresh-ongoing-two'],
+  );
+  assert.equal(route.gameMode, 'clash_squad');
+
+  assert.match(tournamentsSource, /key=\{value\}\s+testID=\{`tournament-tab-\$\{value\}`\}/);
+  assert.match(tournamentsSource, /accessibilityRole="button"/);
+  assert.match(tournamentsSource, /accessibilityState=\{\{ selected \}\}/);
+  assert.match(
+    tournamentsSource,
+    /accessibilityLabel=\{`\$\{tabLabel\[value\]\} tournaments, \$\{displayedCount\}`\}/,
+  );
+  const tabControl = tournamentsSource.match(/<Pressable\s+key=\{value\}[\s\S]*?<\/Pressable>/)?.[0];
+  assert.ok(tabControl, 'the lifecycle tab button should be present');
+  assert.doesNotMatch(tabControl, /accessibilityLiveRegion/);
+  const loadStart = tournamentsSource.indexOf('const load = useCallback(async () => {');
+  const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
+  const loadSource = tournamentsSource.slice(loadStart, loadEnd);
+  assert.doesNotMatch(
+    loadSource,
+    /AccessibilityInfo\.announceForAccessibility/,
+    'a refresh must not emit a second announcement in addition to the focused tab label',
+  );
+  assert.match(
+    loadSource,
+    /if \(recoveredInitialLoad\) setPlayerLoadAnnouncement\('Tournaments loaded\.'\)/,
+    'the separate load announcement must remain limited to recovery from the initial load',
   );
 });
 
