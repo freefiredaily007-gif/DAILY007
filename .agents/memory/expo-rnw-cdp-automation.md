@@ -39,6 +39,12 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 
 **How to apply:** Assert that the native prop reaches the Pressable in source-level checks, use the web preview for labels and focusability, and confirm selected-state speech on Android.
 
+**Rule:** React Native Web may omit native `accessibilityState.busy` from the rendered `aria-busy` attribute; its absence does not mean the native busy state was not passed.
+
+**Why:** The Admin Retry preview rendered the disabled state and progress indicator but no `aria-busy`, despite the native component receiving a busy state.
+
+**How to apply:** Keep native busy state on the Pressable, use web checks for disabled state and visible progress, and verify busy or unavailable speech with TalkBack instead of adding web-only state props without need.
+
 **Rule:** For a tall list card, scroll each action into the nearest overflowing scroll container before hit-testing; centering the whole card may still leave its bottom actions off-screen.
 
 **Why:** At 1.5× text, long wallet and user identity cards exceeded the phone viewport, so moving the card as a whole did not make its actions reachable.
