@@ -71,11 +71,11 @@ function listInstalledPackages(nodeModulesPath) {
   return packages;
 }
 
-function findNestedReactTypeMismatches(mobileRoot, mobileVersions) {
+function findNestedReactTypeMismatches(projectRoot, expectedVersions, expectedProjectName) {
   const mismatches = [];
   const visitedNodeModules = new Set();
   const visitedPackages = new Set();
-  const directNodeModulesPath = path.resolve(mobileRoot, "node_modules");
+  const directNodeModulesPath = path.resolve(projectRoot, "node_modules");
 
   function inspectNodeModules(nodeModulesPath, owner) {
     let realNodeModulesPath;
@@ -101,20 +101,23 @@ function findNestedReactTypeMismatches(mobileRoot, mobileVersions) {
           continue;
         }
 
-        const expectedVersion = mobileVersions.get(packageName);
+        const expectedVersion = expectedVersions.get(packageName);
         const expectedLine = expectedVersion ? versionLine(expectedVersion) : null;
         const actualVersion =
           typeof packageJson.version === "string" ? packageJson.version : null;
         const actualLine = actualVersion ? versionLine(actualVersion) : null;
+        const expectedDescription = expectedLine
+          ? `expected ${expectedProjectName} line ${expectedLine}`
+          : `expected the ${expectedProjectName} declaration line to be parseable`;
         if (!actualLine || !expectedLine) {
           mismatches.push(
             `${packageName}: ${owner} resolves ${actualVersion ?? "an unparseable version"} ` +
-              `at ${packageJsonPath}; expected the Daily007 declaration line ${expectedLine ?? "to be parseable"}`,
+              `at ${packageJsonPath}; ${expectedDescription}`,
           );
         } else if (actualLine !== expectedLine) {
           mismatches.push(
             `${packageName}: ${owner} resolves ${actualVersion} at ${packageJsonPath}; ` +
-              `expected Daily007 line ${expectedLine}`,
+              expectedDescription,
           );
         }
       }
@@ -147,19 +150,25 @@ function findNestedReactTypeMismatches(mobileRoot, mobileVersions) {
 
       // pnpm stores peer dependencies beside a package in its virtual store.
       // Those sibling declarations are what TypeScript resolves from the linked package.
-      const packageContainer = path.dirname(realPackagePath);
-      if (path.basename(packageContainer) === "node_modules") {
-        inspectNodeModules(packageContainer, packageLabel);
+      const packageParent = path.dirname(realPackagePath);
+      // Scoped packages add an @scope directory between the package and node_modules.
+      const peerNodeModulesPath =
+        path.basename(packageParent).startsWith("@")
+          ? path.dirname(packageParent)
+          : packageParent;
+      if (path.basename(peerNodeModulesPath) === "node_modules") {
+        inspectNodeModules(peerNodeModulesPath, packageLabel);
       }
     }
   }
 
-  inspectNodeModules(directNodeModulesPath, "Daily007");
+  inspectNodeModules(directNodeModulesPath, expectedProjectName);
   return mismatches;
 }
 
 export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
   const mismatches = [];
+  const sandboxVersions = new Map();
   const mobileVersions = new Map();
 
   for (const packageName of declarationPackages) {
@@ -174,6 +183,7 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
       continue;
     }
 
+    sandboxVersions.set(packageName, sandboxPackage.version);
     mobileVersions.set(packageName, mobilePackage.version);
     const sandboxLine = versionLine(sandboxPackage.version);
     const mobileLine = versionLine(mobilePackage.version);
@@ -190,11 +200,18 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
     }
   }
 
-  if (
-    mobileVersions.size === declarationPackages.length &&
-    [...mobileVersions.values()].every((version) => versionLine(version) !== null)
-  ) {
-    mismatches.push(...findNestedReactTypeMismatches(mobileRoot, mobileVersions));
+  for (const [projectRoot, expectedVersions, projectName] of [
+    [sandboxRoot, sandboxVersions, "mockup sandbox"],
+    [mobileRoot, mobileVersions, "Daily007"],
+  ]) {
+    if (
+      expectedVersions.size === declarationPackages.length &&
+      [...expectedVersions.values()].every((version) => versionLine(version) !== null)
+    ) {
+      mismatches.push(
+        ...findNestedReactTypeMismatches(projectRoot, expectedVersions, projectName),
+      );
+    }
   }
   return mismatches;
 }

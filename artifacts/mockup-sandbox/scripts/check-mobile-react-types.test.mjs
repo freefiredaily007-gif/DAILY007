@@ -138,6 +138,59 @@ test("reports conflicting React type copies in a reachable Daily007 workspace de
   );
 });
 
+test("reports conflicting React declaration copies in a nested sandbox UI dependency", async () => {
+  const sandboxRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const mobileRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const uiPackage = await addInstalledPackage(
+    sandboxRoot,
+    "@radix-ui/react-dialog",
+    "1.1.23",
+  );
+  const conflictingTypes = [
+    ["@types/react", "19.3.0"],
+    ["@types/react-dom", "19.3.1"],
+  ].map(([packageName, version]) => ({
+    packageName,
+    packageJsonPath: path.join(
+      uiPackage,
+      "node_modules",
+      packageName,
+      "package.json",
+    ),
+    version,
+  }));
+
+  for (const { packageName, packageJsonPath, version } of conflictingTypes) {
+    await mkdir(path.dirname(packageJsonPath), { recursive: true });
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({ name: packageName, version }),
+    );
+  }
+
+  assert.throws(
+    () => checkMobileReactTypes(sandboxRoot, mobileRoot),
+    (error) => {
+      for (const { packageName, packageJsonPath, version } of conflictingTypes) {
+        assert.ok(
+          error.message.includes(
+            `${packageName}: @radix-ui/react-dialog@1.1.23 resolves ${version} at ` +
+              `${packageJsonPath}; expected mockup sandbox line 19.2`,
+          ),
+          `diagnostic should include the owning UI dependency and exact path for ${packageName}`,
+        );
+      }
+      return true;
+    },
+  );
+});
+
 test("reports a conflicting declaration from a pnpm package peer context", async () => {
   const sandboxRoot = await createProject({
     "@types/react": "19.2.18",
@@ -184,6 +237,60 @@ test("reports a conflicting declaration from a pnpm package peer context", async
         error.message.includes(path.join(peerReactTypes, "package.json")),
         "diagnostic should include the nested declaration package path",
       );
+      return true;
+    },
+  );
+});
+
+test("reports a conflicting declaration from a sandbox UI package peer context", async () => {
+  const sandboxRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const mobileRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const packageRoot = path.join(
+    sandboxRoot,
+    "node_modules",
+    ".pnpm",
+    "@radix-ui+react-dialog@1.1.23",
+    "node_modules",
+    "@radix-ui",
+    "react-dialog",
+  );
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "@radix-ui/react-dialog", version: "1.1.23" }),
+  );
+  const peerTypes = path.join(
+    path.dirname(path.dirname(packageRoot)),
+    "@types",
+  );
+  const peerReactTypes = path.join(peerTypes, "react");
+  await mkdir(peerReactTypes, { recursive: true });
+  const peerReactPackageJson = path.join(peerReactTypes, "package.json");
+  await writeFile(
+    peerReactPackageJson,
+    JSON.stringify({ name: "@types/react", version: "19.3.0" }),
+  );
+  const radixScope = path.join(sandboxRoot, "node_modules", "@radix-ui");
+  await mkdir(radixScope, { recursive: true });
+  await symlink(
+    packageRoot,
+    path.join(radixScope, "react-dialog"),
+    "dir",
+  );
+
+  assert.throws(
+    () => checkMobileReactTypes(sandboxRoot, mobileRoot),
+    (error) => {
+      assert.ok(error.message.includes(
+        "@types/react: @radix-ui/react-dialog@1.1.23 resolves 19.3.0 at " +
+          `${peerReactPackageJson}; expected mockup sandbox line 19.2`,
+      ));
       return true;
     },
   );

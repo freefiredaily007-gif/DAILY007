@@ -20,3 +20,9 @@ With pnpm, a linked dependency can resolve React declarations from a package-spe
 **Why:** Checking only the direct `node_modules/@types` packages misses peer-context copies that imported preview code can resolve.
 
 **How to apply:** When extending the mobile preview compatibility guard, inspect reachable package peer contexts and include both the owning dependency and declaration path in mismatch diagnostics.
+
+In pnpm's virtual store, scoped packages add an `@scope` directory between the package and its peer-context `node_modules` directory.
+
+**Why:** A scoped UI dependency can hide a conflicting peer declaration one directory above its package's immediate parent.
+
+**How to apply:** Normalize the scoped package path before inspecting peer declarations, and keep a scoped-package fixture in the guard tests.
