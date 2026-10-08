@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { walletRejectedDepositAccessibilityLabel } from '../src/lib/wallet-transaction-display.ts';
+import {
+  walletRejectedDepositAccessibilityLabel,
+  walletRejectedDepositReasonText,
+} from '../src/lib/wallet-transaction-display.ts';
 
 const walletScreenSource = await readFile(
   new URL('../src/screens/Wallet.tsx', import.meta.url),
@@ -54,6 +57,26 @@ test('a rejected deposit row announces its decision and payment details together
     rejectedDepositRowSource,
     /walletRejectedDepositAccessibilityLabel\(\{\s*rupeeAmount: depositAmountLabel,\s*coins: item\.coins,\s*createdAt: item\.createdAt,\s*reference: item\.reference,\s*reviewReason: item\.reviewReason,/,
   );
+  assert.match(
+    rejectedDepositRowSource,
+    /const reason = walletRejectedDepositReasonText\(item\.reviewReason\)/,
+  );
+  assert.match(
+    rejectedDepositRowSource,
+    /testID="wallet-rejected-deposit-reason"[\s\S]*?Reason: \{reason\}/,
+  );
+  assert.doesNotMatch(rejectedDepositRowSource, /\{reason \? \(/);
+  for (const reviewReason of [undefined, null, '', ' \t\n ']) {
+    const visibleReason = walletRejectedDepositReasonText(reviewReason);
+    assert.equal(visibleReason, 'No rejection reason was provided.');
+    assert.ok(
+      walletRejectedDepositAccessibilityLabel({
+        rupeeAmount: '₹50',
+        coins: 10,
+        reviewReason,
+      }).includes(`Rejection reason: ${visibleReason}`),
+    );
+  }
 });
 
 test('Android renders the grouped label and verifies the rejected reason wraps without clipping', () => {

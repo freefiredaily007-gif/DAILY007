@@ -8,7 +8,10 @@ import {
 } from 'react-native';
 import { ReadableText as Text } from './typography';
 import { C, Card } from './ui';
-import { walletRejectedDepositAccessibilityLabel } from '../lib/wallet-transaction-display';
+import {
+  walletRejectedDepositAccessibilityLabel,
+  walletRejectedDepositReasonText,
+} from '../lib/wallet-transaction-display';
 
 type RejectedDepositItem = {
   description?: string;
@@ -36,7 +39,7 @@ export function WalletRejectedDepositRow({
 }) {
   const { fontScale } = useWindowDimensions();
   const largeText = fontScale >= 1.5;
-  const reason = typeof item.reviewReason === 'string' ? item.reviewReason : '';
+  const reason = walletRejectedDepositReasonText(item.reviewReason);
   const accessibilityLabel = walletRejectedDepositAccessibilityLabel({
     rupeeAmount: depositAmountLabel,
     coins: item.coins,
@@ -77,23 +80,21 @@ export function WalletRejectedDepositRow({
         </Text>
         <Text style={styles.date}>{String(item.coins ?? 0)} coins</Text>
         {item.reference ? <Text style={styles.date}>UTR: {String(item.reference)}</Text> : null}
-        {reason ? (
-          <Text
-            testID="wallet-rejected-deposit-reason"
-            style={[styles.reason, largeText && styles.reasonLarge]}
-            onLayout={(event: LayoutChangeEvent) => {
-              const { y, height } = event.nativeEvent.layout;
-              onReasonLayout?.({ y, height });
-            }}
-            onTextLayout={(event) => {
-              onReasonTextLayout?.(
-                event.nativeEvent.lines.map(({ text, y, height }) => ({ text, y, height })),
-              );
-            }}
-          >
-            Reason: {reason}
-          </Text>
-        ) : null}
+        <Text
+          testID="wallet-rejected-deposit-reason"
+          style={[styles.reason, largeText && styles.reasonLarge]}
+          onLayout={(event: LayoutChangeEvent) => {
+            const { y, height } = event.nativeEvent.layout;
+            onReasonLayout?.({ y, height });
+          }}
+          onTextLayout={(event) => {
+            onReasonTextLayout?.(
+              event.nativeEvent.lines.map(({ text, y, height }) => ({ text, y, height })),
+            );
+          }}
+        >
+          Reason: {reason}
+        </Text>
       </View>
       <Text
         style={[

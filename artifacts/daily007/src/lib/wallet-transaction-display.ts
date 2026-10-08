@@ -36,6 +36,13 @@ export function walletTransactionAccessibilityLabel(item: WalletTransactionDispl
   return `${parts.join(". ")}.`;
 }
 
+export function walletRejectedDepositReasonText(reviewReason: unknown): string {
+  const reason = typeof reviewReason === "string"
+    ? reviewReason.trim().replace(/\s+/g, " ")
+    : "";
+  return reason || "No rejection reason was provided.";
+}
+
 export function walletRejectedDepositAccessibilityLabel(item: {
   rupeeAmount: string;
   coins: unknown;
@@ -57,10 +64,7 @@ export function walletRejectedDepositAccessibilityLabel(item: {
   if (createdAt) parts.push(`Date: ${createdAt}`);
   const reference = String(item.reference ?? "").trim();
   if (reference) parts.push(`UTR: ${reference}`);
-  const reason = typeof item.reviewReason === "string"
-    ? item.reviewReason.trim().replace(/\s+/g, " ")
-    : "";
-  parts.push(`Rejection reason: ${reason || "No rejection reason was provided"}`);
+  parts.push(`Rejection reason: ${walletRejectedDepositReasonText(item.reviewReason)}`);
   const label = parts.join(". ");
   return `${label}${/[.!?]$/.test(label) ? "" : "."}`;
 }
