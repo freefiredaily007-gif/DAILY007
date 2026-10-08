@@ -5,7 +5,7 @@ import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
-import { Api, apiError, setSession, User } from '../lib/api';
+import { Api, apiError, SessionPersistenceError, setSession, User } from '../lib/api';
 import {
   MAX_SIGNUP_PASSWORD_LENGTH,
   signupPasswordError,
@@ -24,11 +24,14 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [refCode, setRefCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [pendingSignupSession, setPendingSignupSession] = useState<User | null>(null);
   const nameInputRef = React.useRef<NativeTextInput>(null);
   const referralInputRef = React.useRef<NativeTextInput>(null);
   const emailInputRef = React.useRef<NativeTextInput>(null);
   const passwordInputRef = React.useRef<NativeTextInput>(null);
   const isSignup = mode === 'signup';
+  const retrySignupSession = isSignup ? pendingSignupSession : null;
+  const authInputsDisabled = busy || retrySignupSession !== null;
 
   React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
@@ -53,24 +56,39 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
 
   const submit = async () => {
     setErr('');
-    if (!email.trim() || !password) { setErr('Email and password are required.'); return; }
-    if (mode === 'signup' && !name.trim()) { setErr('Name is required.'); return; }
-    if (mode === 'signup') {
-      const passwordError = signupPasswordError(password);
-      if (passwordError) { setErr(passwordError); return; }
+    if (!retrySignupSession) {
+      if (!email.trim() || !password) { setErr('Email and password are required.'); return; }
+      if (mode === 'signup' && !name.trim()) { setErr('Name is required.'); return; }
+      if (mode === 'signup') {
+        const passwordError = signupPasswordError(password);
+        if (passwordError) { setErr(passwordError); return; }
+      }
     }
     setBusy(true);
     try {
-      const r: any = mode === 'login'
-        ? await Api.login({ email: email.trim(), password })
-        : await Api.register({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          ...(refCode.trim() ? { referralCode: refCode.trim() } : {}),
-        });
-      const u: User = { ...r.user, token: r.token };
-      await setSession(u);
+      let u: User;
+      if (retrySignupSession) {
+        u = retrySignupSession;
+      } else {
+        const r: any = mode === 'login'
+          ? await Api.login({ email: email.trim(), password })
+          : await Api.register({
+            name: name.trim(),
+            email: email.trim(),
+            password,
+            ...(refCode.trim() ? { referralCode: refCode.trim() } : {}),
+          });
+        u = { ...r.user, token: r.token };
+      }
+      try {
+        await setSession(u);
+      } catch (e) {
+        if (mode === 'signup' && !retrySignupSession && e instanceof SessionPersistenceError) {
+          setPendingSignupSession(u);
+        }
+        throw e;
+      }
+      if (retrySignupSession) setPendingSignupSession(null);
       onDone(u);
     } catch (e) {
       setErr(apiError(e));
@@ -113,10 +131,20 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
         </View>
 
         <View style={[s.tabs, isSignup && s.signupTabs]}>
-          <Pressable onPress={() => setMode('login')} style={[s.tab, mode === 'login' && s.tabOn]}>
+          <Pressable
+            testID="auth-login-tab"
+            disabled={busy || pendingSignupSession !== null}
+            onPress={() => setMode('login')}
+            style={[s.tab, mode === 'login' && s.tabOn]}
+          >
             <Text style={[s.tabText, mode === 'login' && s.tabTextOn]}>LOGIN</Text>
           </Pressable>
-          <Pressable onPress={() => setMode('signup')} style={[s.tab, mode === 'signup' && s.tabOn]}>
+          <Pressable
+            testID="auth-signup-tab"
+            disabled={busy || pendingSignupSession !== null}
+            onPress={() => setMode('signup')}
+            style={[s.tab, mode === 'signup' && s.tabOn]}
+          >
             <Text style={[s.tabText, mode === 'signup' && s.tabTextOn]}>SIGN UP</Text>
           </Pressable>
         </View>
@@ -131,7 +159,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           <Text style={s.googleHint}>{isSignup ? 'Create an account quickly with Google' : 'Sign in quickly with Google'}</Text>
           <GoogleSSOButton
             label={mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
-            disabled={busy}
+            disabled={busy || retrySignupSession !== null}
             referralCode={isSignup ? refCode : undefined}
             onError={setErr}
             onSuccess={onDone}
@@ -154,10 +182,12 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             </View>
             <Input
               ref={nameInputRef}
+              testID="auth-name"
               accessibilityLabel="Name"
               placeholder="Enter Name"
               value={name}
               onChangeText={setName}
+              editable={!authInputsDisabled}
               autoCapitalize="words"
               enterKeyHint="next"
               blurOnSubmit={false}
@@ -171,10 +201,12 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               ? <Text style={s.referralApplied}>Referral code {refCode.trim().toUpperCase()} applied</Text>
               : <Input
                 ref={referralInputRef}
+                testID="auth-referral-code"
                 accessibilityLabel="Referral Code, optional"
                 placeholder="Referral Code (Optional)"
                 value={refCode}
                 onChangeText={setRefCode}
+                editable={!authInputsDisabled}
                 autoCapitalize="characters"
                 enterKeyHint="next"
                 blurOnSubmit={false}
@@ -183,10 +215,12 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               />}
             <Input
               ref={emailInputRef}
+              testID="auth-email"
               accessibilityLabel="Email"
               placeholder="Enter Email"
               value={email}
               onChangeText={setEmail}
+              editable={!authInputsDisabled}
               autoCapitalize="none"
               keyboardType="email-address"
               enterKeyHint="next"
@@ -196,10 +230,12 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             />
             <Input
               ref={passwordInputRef}
+              testID="auth-password"
               accessibilityLabel="Password"
               placeholder="Password (8–200 characters)"
               value={password}
               onChangeText={setPassword}
+              editable={!authInputsDisabled}
               secureTextEntry
               maxLength={MAX_SIGNUP_PASSWORD_LENGTH}
               enterKeyHint="done"
@@ -209,14 +245,30 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           </View>
         ) : (
           <>
-            <Input placeholder="Enter Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-            <Input placeholder="Enter Password" value={password} onChangeText={setPassword} secureTextEntry />
+            <Input
+              testID="auth-email"
+              placeholder="Enter Email"
+              value={email}
+              onChangeText={setEmail}
+              editable={!authInputsDisabled}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <Input
+              testID="auth-password"
+              placeholder="Enter Password"
+              value={password}
+              onChangeText={setPassword}
+              editable={!authInputsDisabled}
+              secureTextEntry
+            />
           </>
         )}
 
         <Btn
-          title={isSignup ? 'CREATE ACCOUNT' : 'LOGIN'}
-          accessibilityLabel={isSignup ? 'Create Account' : 'Login'}
+          testID="auth-submit"
+          title={retrySignupSession ? 'RETRY SAVING SESSION' : isSignup ? 'CREATE ACCOUNT' : 'LOGIN'}
+          accessibilityLabel={retrySignupSession ? 'Retry saving session' : isSignup ? 'Create Account' : 'Login'}
           onPress={submit}
           loading={busy}
           style={isSignup && s.signupSubmit}

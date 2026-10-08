@@ -27,8 +27,19 @@ const PASSWORD_ACCOUNT = {
   prizeCoins: 85,
 };
 const PASSWORD_TOKEN = "mock-password-account-token";
+const PASSWORD_SIGNUP_ACCOUNT = {
+  id: "mock-password-signup-player",
+  name: "Mock Password Signup Player",
+  email: "password-signup@example.test",
+  phone: "5550102",
+  gameUid: "FF-525252",
+  role: "user",
+  coins: 10,
+};
+const PASSWORD_SIGNUP_TOKEN = "mock-password-signup-session-token";
 const scenario = new URLSearchParams(window.location.search).get("scenario");
 const storageFailureScenario = scenario === "storage-write-failure";
+const passwordSignupStorageFailureScenario = scenario === "password-signup-storage-failure";
 const doubleTapScenario = scenario === "double-tap";
 const profileLinkScenario = scenario?.startsWith("profile-link-") ?? false;
 const calls = [];
@@ -37,6 +48,7 @@ const pendingGoogleExchangeResolvers = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
+let passwordSignupAttempts = 0;
 
 function authorizationHeader(config) {
   const headers = config.headers;
@@ -77,6 +89,11 @@ http.defaults.adapter = async (config) => {
   };
   calls.push(call);
 
+  if (passwordSignupStorageFailureScenario && method === "POST" && path === "/auth/register") {
+    passwordSignupAttempts += 1;
+    call.status = 200;
+    return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
+  }
   if (method === "POST" && path === "/auth/google") {
     googleExchangeAttempts += 1;
     if (doubleTapScenario) {
@@ -121,7 +138,11 @@ http.defaults.adapter = async (config) => {
       : { ...ACCOUNT, token: DAILY007_TOKEN });
   }
   if (method === "GET" && path === "/auth/me") {
-    return respond(config, profileLinkScenario ? PASSWORD_ACCOUNT : ACCOUNT);
+    return respond(config, passwordSignupStorageFailureScenario
+      ? PASSWORD_SIGNUP_ACCOUNT
+      : profileLinkScenario
+        ? PASSWORD_ACCOUNT
+        : ACCOUNT);
   }
   if (method === "GET" && path === "/me/stats") {
     return respond(config, { stats: { matches: 0, wins: 0, kills: 0, prizeCoins: 0 } });
@@ -170,7 +191,7 @@ http.defaults.adapter = async (config) => {
 };
 
 storage.clear();
-if (storageFailureScenario) storage.failNextSessionWrite();
+if (storageFailureScenario || passwordSignupStorageFailureScenario) storage.failNextSessionWrite();
 if (profileLinkScenario) storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
 resetClerkMock({
   startResultType: scenario === "profile-link-cancel" ? "dismiss" : null,
@@ -189,6 +210,7 @@ window.__daily007GoogleSignupWalletTest = {
       googleExchangeAttempts,
       inFlightGoogleExchanges,
       maxConcurrentGoogleExchanges,
+      passwordSignupAttempts,
       unexpectedRequests: [...unexpectedRequests],
     };
   },

@@ -138,6 +138,20 @@ async function clickSelector(selector, label) {
   assert.equal(clicked, true, `Could not click ${label} (${selector}).`);
 }
 
+async function setInputValue(selector, value, label) {
+  const updated = await evaluate(`(() => {
+    const target = document.querySelector(${JSON.stringify(selector)});
+    if (!(target instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setter) return false;
+    setter.call(target, ${JSON.stringify(value)});
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    return target.value === ${JSON.stringify(value)};
+  })()`);
+  assert.equal(updated, true, `Could not enter ${label} in ${selector}.`);
+}
+
 async function clickSignupTab() {
   const clicked = await evaluate(`(() => {
     const text = [...document.querySelectorAll("*")]
@@ -547,6 +561,146 @@ try {
   );
   assert.deepEqual(browserErrors, [], `Browser errors during signup and storage-recovery flows: ${browserErrors.join(" | ")}`);
 
+  await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=password-signup-storage-failure`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-submit"]'))`,
+    "the authentication form for password signup storage recovery",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-name"]'))
+      && Boolean(document.querySelector('[data-testid="auth-email"]'))
+      && Boolean(document.querySelector('[data-testid="auth-password"]'))`,
+    "the email/password signup fields",
+  );
+  await setInputValue('[data-testid="auth-name"]', "Mock Password Signup Player", "signup name");
+  await setInputValue('[data-testid="auth-email"]', "password-signup@example.test", "signup email");
+  await setInputValue('[data-testid="auth-password"]', "testpass123", "signup password");
+  await clickSelector('[data-testid="auth-submit"]', "create a password account with rejected session storage");
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the recoverable session-storage error after password registration",
+  );
+
+  const passwordSignupFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const passwordSignupFailureView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    const retryButton = document.querySelector('[data-testid="auth-submit"]');
+    const nameInput = document.querySelector('[data-testid="auth-name"]');
+    const emailInput = document.querySelector('[data-testid="auth-email"]');
+    const passwordInput = document.querySelector('[data-testid="auth-password"]');
+    return {
+      signupFormVisible: bodyText.includes("PLAYER PROFILE")
+        && Boolean(nameInput)
+        && Boolean(emailInput)
+        && Boolean(passwordInput),
+      sessionNotSavedMessageVisible: bodyText.includes(
+        "Daily007 could not save your session on this device. Check available storage and try again.",
+      ),
+      retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
+      retryButtonDisabled: retryButton?.getAttribute("aria-disabled") === "true"
+        || retryButton?.hasAttribute("disabled") === true
+        || retryButton?.disabled === true,
+      signupFieldsReadOnly: [nameInput, emailInput, passwordInput]
+        .every((input) => input?.disabled === true || input?.readOnly === true),
+      formValues: {
+        name: nameInput?.value ?? "",
+        email: emailInput?.value ?? "",
+        password: passwordInput?.value ?? "",
+      },
+      signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+      walletBonusVisible: bodyText.includes("Welcome Signup Bonus"),
+    };
+  })()`);
+  assert.equal(passwordSignupFailure.passwordSignupAttempts, 1, "The password account should be created once before session persistence fails.");
+  assert.equal(
+    passwordSignupFailure.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+  );
+  assert.equal(passwordSignupFailure.calls.at(-1)?.status, 200);
+  assert.deepEqual(passwordSignupFailure.storageWriteMetrics, {
+    sessionWriteAttempts: 1,
+    rejectedSessionWrites: 1,
+  });
+  assert.deepEqual(passwordSignupFailure.sessionStorage, {}, "A failed write must not leave a saved Daily007 session.");
+  assert.equal(passwordSignupFailure.storedSession, null);
+  assert.equal(passwordSignupFailure.currentSession, null);
+  assert.equal(passwordSignupFailure.activeAuthorization, null);
+  assert.equal(
+    passwordSignupFailure.calls.some((call) => call.authorization || call.daily007Token),
+    false,
+    "No Daily007 authorization token may be active before the session is saved.",
+  );
+  assert.equal(
+    passwordSignupFailure.calls.some((call) =>
+      ["/auth/me", "/me/stats", "/wallet/transactions", "/my/payments", "/my/withdrawals"].includes(call.path)),
+    false,
+    "No protected account or Wallet data may be requested before the session is saved.",
+  );
+  assert.equal(passwordSignupFailureView.signupFormVisible, true, "The password signup form must remain visible.");
+  assert.equal(passwordSignupFailureView.sessionNotSavedMessageVisible, true);
+  assert.equal(passwordSignupFailureView.retryButtonLabel, "Retry saving session");
+  assert.equal(passwordSignupFailureView.retryButtonDisabled, false, "Session persistence must remain retryable.");
+  assert.equal(passwordSignupFailureView.signupFieldsReadOnly, true, "The signup details must not change while session persistence is retried.");
+  assert.deepEqual(passwordSignupFailureView.formValues, {
+    name: "Mock Password Signup Player",
+    email: "password-signup@example.test",
+    password: "testpass123",
+  });
+  assert.equal(passwordSignupFailureView.signedInTabCount, 0, "A fresh account must not expose protected tabs before its session is saved.");
+  assert.equal(passwordSignupFailureView.walletBonusVisible, false);
+  assert.equal(passwordSignupFailure.unexpectedRequests.length, 0, passwordSignupFailure.unexpectedRequests.join("; "));
+
+  await clickSelector('[data-testid="auth-submit"]', "retry saving the password signup session");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "signed-in tabs after password signup session storage recovers",
+  );
+  const passwordSignupWalletOpened = await evaluate(`(() => {
+    const tab = document.querySelector('[data-testid="mock-tab-wallet"]');
+    if (!tab) return false;
+    tab.click();
+    return true;
+  })()`);
+  assert.equal(passwordSignupWalletOpened, true, "Wallet should be accessible after password signup recovery.");
+  await waitForExpression(
+    `Boolean(document.querySelector('[aria-label="Available coins: 10"]'))
+      && document.body.innerText.includes("Welcome Signup Bonus")`,
+    "Wallet content after the password signup session is saved",
+  );
+  const passwordSignupRecovery = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const passwordSignupWalletView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    const walletTab = document.querySelector('[data-testid="mock-tab-wallet"]');
+    return {
+      walletTabCount: document.querySelectorAll('[data-testid="mock-tab-wallet"]').length,
+      walletTabSelected: walletTab?.getAttribute("aria-current") === "page",
+      welcomeBonusRowCount: bodyText.split("Welcome Signup Bonus").length - 1,
+    };
+  })()`);
+  const passwordSignupCalls = passwordSignupRecovery.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/register",
+  );
+  assert.equal(passwordSignupRecovery.passwordSignupAttempts, 1, "Retrying storage must not submit registration again.");
+  assert.equal(passwordSignupCalls.length, 1, "The server-side account should not be created twice.");
+  assert.equal(passwordSignupRecovery.currentSession?.id, "mock-password-signup-player");
+  assert.equal(passwordSignupRecovery.currentSession?.token, "mock-password-signup-session-token");
+  assert.equal(passwordSignupRecovery.storedSession?.id, "mock-password-signup-player");
+  assert.equal(passwordSignupRecovery.storedSession?.token, "mock-password-signup-session-token");
+  assert.equal(passwordSignupRecovery.activeAuthorization, "Bearer mock-password-signup-session-token");
+  assert.deepEqual(passwordSignupRecovery.sessionStorage, {
+    daily007_v2_session: JSON.stringify(passwordSignupRecovery.storedSession),
+  });
+  assert.equal(passwordSignupRecovery.storageWriteMetrics.rejectedSessionWrites, 1);
+  assert.ok(passwordSignupRecovery.storageWriteMetrics.sessionWriteAttempts >= 2);
+  assert.equal(passwordSignupWalletView.walletTabCount, 1);
+  assert.equal(passwordSignupWalletView.walletTabSelected, true);
+  assert.equal(passwordSignupWalletView.welcomeBonusRowCount, 1);
+  assert.equal(passwordSignupRecovery.unexpectedRequests.length, 0, passwordSignupRecovery.unexpectedRequests.join("; "));
+  assert.deepEqual(browserErrors, [], `Browser errors during password signup recovery: ${browserErrors.join(" | ")}`);
+
   const assertPasswordSession = (state, label) => {
     assert.equal(state.currentSession?.id, "mock-password-player", `${label}: active account ID changed.`);
     assert.equal(state.currentSession?.coins, 42, `${label}: active wallet balance changed.`);
@@ -717,11 +871,18 @@ try {
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — mocked Google signup recovers from API and storage failures; real Profile Google linking preserves the password account, wallet, and token on success, cancellation, and exchange error.",
+    "PASS — Google signup API/storage retries, password signup session-storage recovery, and Profile Google linking success/cancel/error scenarios.",
   );
 } finally {
   socket?.close();
   await stopProcess(chromium);
   await stopProcess(vite);
-  if (temporaryProfile) await rm(temporaryProfile, { recursive: true, force: true });
+  if (temporaryProfile) {
+    await rm(temporaryProfile, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  }
 }

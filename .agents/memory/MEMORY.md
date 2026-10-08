@@ -6,6 +6,7 @@
 - [Daily007 single-session policy](daily007-single-session.md) — new sign-ins replace old sessions, Google linking preserves one, and stale refreshes cannot revive or overwrite it.
 - [Daily007 offline session recovery](daily007-offline-session-recovery.md) — session verification and role refresh retry on reconnect/resume; transient failures retain the session.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
+- [Daily007 password signup recovery](daily007-password-signup-recovery.md) — after account creation, retry session storage with the returned identity; never repeat registration or unlock protected tabs before persistence.
 - [Daily007 login throttling](daily007-login-throttling.md) — keep abuse limits short-lived, shared across login aliases, and independent of account/email existence.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
