@@ -173,20 +173,37 @@ function renderError(rewardError) {
   return renderToStaticMarkup(element);
 }
 
-function renderClaimRetry(retrySession) {
-  const element = evaluateJsxConditional(findJsxConditional("retrySession"), {
+function renderSessionStartRetry(sessionStartRetryAvailable, sessionStartRetryPending) {
+  const condition = findJsxConditional(
+    "sessionStartRetryAvailable || sessionStartRetryPending",
+  );
+  const element = evaluateJsxConditional(condition, {
     React,
-    retrySession,
-    Pressable: ({ children, testID }) => React.createElement(
+    sessionStartRetryAvailable,
+    sessionStartRetryPending,
+    Pressable: ({
+      accessibilityLabel,
+      accessibilityHint,
+      accessibilityState,
+      children,
+      disabled,
+      testID,
+    }) => React.createElement(
       "button",
-      testID ? { "data-testid": testID } : undefined,
+      {
+        "aria-label": accessibilityLabel,
+        "aria-description": accessibilityHint,
+        "aria-busy": accessibilityState.busy,
+        "data-testid": testID,
+        disabled,
+      },
       children,
     ),
     Text: createTestText,
     Feather: () => null,
     styles: { retryButton: {}, externalButtonText: {} },
-    rewardPending: false,
-    claimViewReward() {},
+    colors: { primary: "#0000ff" },
+    retryFailedSessionStart() {},
   });
 
   return renderToStaticMarkup(element);
@@ -208,7 +225,7 @@ function waitFor(predicate, message) {
   });
 }
 
-test("an unavailable start error is shown and permanently stops that playback attempt", async () => {
+test("a failed start can retry the same attempt without counting the failed wait or changing replay identity", async () => {
   const unavailableMessage = "This video is unavailable.";
   const apiError = loadApiErrorHelper();
   const unavailableResponse = {
@@ -226,23 +243,75 @@ test("an unavailable start error is shown and permanently stops that playback at
   const progressPercentRef = { current: 0 };
   const watchedSecondBucketsRef = { current: new Set() };
   const startAttemptIdRef = { current: null };
+  const startRequestRef = { current: null };
+  const latestPlaybackTimeRef = { current: null };
   const lastSampleRef = { current: null };
   const progressWrites = [];
   const rewardErrors = [];
   const retrySessionWrites = [];
   const startRequests = [];
+  const sessionStartRetryAvailable = { current: false };
+  const sessionStartRetryPending = { current: false };
+  let generatedAttempt = 0;
   let creditedSecondsCalls = 0;
+  let rejectInitialStart;
+  const setSessionStartRetryAvailable = (value) => {
+    sessionStartRetryAvailable.current = value;
+  };
+  const setSessionStartRetryPending = (value) => {
+    sessionStartRetryPending.current = value;
+  };
+  const startVideoWatchSession = loadScreenCallback("startVideoWatchSession", {
+    startingSessionRef,
+    sessionStartFailedRef,
+    setRewardError: (value) => rewardErrors.push(value),
+    appLifecycleCycleRef,
+    startVideoWatch: ({ data }) => {
+      startRequests.push(data);
+      if (startRequests.length === 1) {
+        return new Promise((_, reject) => {
+          rejectInitialStart = reject;
+        });
+      }
+      return Promise.resolve({ sessionId: "session-after-retry" });
+    },
+    playbackCycleRef,
+    currentSessionRef,
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
+    appIsActiveRef,
+    latestPlaybackTimeRef,
+    lastSampleRef,
+    apiError,
+  });
+  const finishCurrentPlayback = loadScreenCallback("finishCurrentPlayback", {
+    currentSessionRef,
+    startAttemptIdRef,
+    startRequestRef,
+    latestPlaybackTimeRef,
+    playbackCycleRef,
+    startingSessionRef,
+    sessionStartFailedRef,
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
+    lastSampleRef,
+    progressPercentRef,
+    setRewardError: (value) => rewardErrors.push(value),
+    WATCH_MARK_PERCENT: 75,
+    claimViewReward() {},
+  });
   const handlePlayerMessage = loadScreenCallback("handlePlayerMessage", {
     showPlayer: true,
-    selectedVideo: { id: "disabled-video" },
+    selectedVideo: { id: "test-video" },
     ENDED_STATE: 0,
     PLAYING_STATE: 1,
-    finishCurrentPlayback() {},
+    finishCurrentPlayback,
     setPlayerReady() {},
     setPlayerFailed() {},
     appIsActiveRef,
     currentSessionRef,
     lastSampleRef,
+    latestPlaybackTimeRef,
     startingSessionRef,
     sessionStartFailedRef,
     playbackCycleRef,
@@ -253,17 +322,16 @@ test("an unavailable start error is shown and permanently stops that playback at
     setRewardError: (value) => rewardErrors.push(value),
     appLifecycleCycleRef,
     startAttemptIdRef,
-    createVideoWatchAttemptId: () => "attempt-identity-for-disabled-video",
-    startVideoWatch: ({ data }) => {
-      startRequests.push(data);
-      return Promise.reject(unavailableResponse);
-    },
-    apiError,
+    startRequestRef,
+    createVideoWatchAttemptId: () => `attempt-${++generatedAttempt}`,
+    startVideoWatchSession,
     getCreditedVideoWatchSeconds: (...args) => {
       creditedSecondsCalls += 1;
       return getCreditedVideoWatchSeconds(...args);
     },
     setRetrySession: (value) => retrySessionWrites.push(value),
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
   });
 
   handlePlayerMessage({
@@ -272,6 +340,21 @@ test("an unavailable start error is shown and permanently stops that playback at
     duration: 60,
     playing: true,
   });
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 13,
+    duration: 60,
+    playing: true,
+  });
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 14,
+    duration: 60,
+    playing: true,
+  });
+  assert.equal(startingSessionRef.current, true);
+  assert.deepEqual(progressWrites, [0], "Playback while the start request is pending must not be credited.");
+  rejectInitialStart(unavailableResponse);
   await waitFor(
     () => rewardErrors.at(-1) === unavailableMessage,
     "The API start failure should reach the screen error state.",
@@ -283,18 +366,27 @@ test("an unavailable start error is shown and permanently stops that playback at
   assert.equal(currentSessionRef.current, null);
   assert.equal(progressPercentRef.current, 0);
   assert.deepEqual(startRequests, [{
-    videoId: "disabled-video",
+    videoId: "test-video",
     durationSeconds: 60,
-    attemptId: "attempt-identity-for-disabled-video",
+    attemptId: "attempt-1",
   }]);
+  assert.equal(sessionStartRetryAvailable.current, true);
 
   const errorMarkup = renderError(rewardErrors.at(-1));
   assert.match(errorMarkup, /data-testid="video-watch-error"/);
   assert.match(errorMarkup, /This video is unavailable\./);
 
+  const retryMarkup = renderSessionStartRetry(
+    sessionStartRetryAvailable.current,
+    sessionStartRetryPending.current,
+  );
+  assert.match(retryMarkup, /data-testid="video-retry-session-start"/);
+  assert.match(retryMarkup, /aria-label="Retry starting this video reward session"/);
+  assert.match(retryMarkup, /aria-description="Retries the session for this playback without restarting the video\."/);
+
   handlePlayerMessage({
     type: "progress",
-    currentTime: 13,
+    currentTime: 15,
     duration: 60,
     playing: true,
   });
@@ -303,14 +395,69 @@ test("an unavailable start error is shown and permanently stops that playback at
   assert.equal(progressPercentRef.current, 0);
   assert.equal(watchedSecondBucketsRef.current.size, 0);
   assert.equal(creditedSecondsCalls, 0, "Rejected playback samples must not be credited.");
-  assert.equal(startRequests.length, 1, "The same failed playback should not automatically start again.");
+  assert.equal(startRequests.length, 1, "The failed playback should not automatically start again.");
   assert.deepEqual(retrySessionWrites, [], "A start failure must not create a reward-claim retry.");
   assert.ok(videoSource.includes(
     "const [retrySession, setRetrySession] = useState<{ sessionId: string; percent: number } | null>(null);",
   ));
 
-  const retryMarkup = renderClaimRetry(null);
-  assert.doesNotMatch(retryMarkup, /video-retry-claim|RETRY COIN CLAIM/);
+  const retryFailedSessionStart = loadScreenCallback("retryFailedSessionStart", {
+    showPlayer: true,
+    selectedVideo: { id: "test-video" },
+    sessionStartRetryAvailable: true,
+    startingSessionRef,
+    currentSessionRef,
+    startRequestRef,
+    setSessionStartRetryPending,
+    startVideoWatchSession,
+    playbackCycleRef,
+  });
+  retryFailedSessionStart();
+  assert.equal(sessionStartRetryPending.current, true);
+  await waitFor(
+    () => currentSessionRef.current === "session-after-retry",
+    "The explicit retry should establish a session.",
+  );
+  assert.deepEqual(startRequests, [
+    {
+      videoId: "test-video",
+      durationSeconds: 60,
+      attemptId: "attempt-1",
+    },
+    {
+      videoId: "test-video",
+      durationSeconds: 60,
+      attemptId: "attempt-1",
+    },
+  ], "Retry must preserve the original attempt identity and video details.");
+  assert.equal(sessionStartRetryAvailable.current, false);
+  assert.equal(sessionStartRetryPending.current, false);
+  assert.deepEqual(
+    getCreditedVideoWatchSeconds(
+      lastSampleRef.current,
+      lastSampleRef.current.currentTime + 1,
+      lastSampleRef.current.receivedAt + 1_000,
+      60,
+    ),
+    [15],
+    "The successful retry baseline must exclude playback time spent waiting for the failed request.",
+  );
+
+  handlePlayerMessage({ type: "state", state: 0 });
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 14,
+    duration: 60,
+    playing: true,
+  });
+  await waitFor(
+    () => currentSessionRef.current === "session-after-retry",
+    "The deliberate replay should start a fresh session.",
+  );
+  assert.equal(startRequests.length, 3);
+  assert.equal(startRequests[2].videoId, "test-video");
+  assert.equal(startRequests[2].attemptId, "attempt-2");
+  assert.notEqual(startRequests[2].attemptId, startRequests[1].attemptId);
 });
 
 test("returning from a stale player refreshes the active catalog", async () => {

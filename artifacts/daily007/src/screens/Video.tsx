@@ -53,6 +53,12 @@ type PlayerMessage = {
   state?: number;
 };
 
+type VideoWatchStartRequest = {
+  videoId: string;
+  durationSeconds: number;
+  attemptId: string;
+};
+
 function createYouTubeDocument(videoId: string, backgroundColor: string): string {
   const safeVideoId = videoId.replace(/[^a-zA-Z0-9_-]/g, '');
   return `<!DOCTYPE html>
@@ -165,9 +171,11 @@ export default function Video() {
   const { mutateAsync: completeVideoWatch } = useDaily007CompleteVideoWatch();
   const webFrameRef = useRef<any>(null);
   const lastSampleRef = useRef<VideoPlaybackSample | null>(null);
+  const latestPlaybackTimeRef = useRef<number | null>(null);
   const watchedSecondBucketsRef = useRef<Set<number>>(new Set());
   const currentSessionRef = useRef<string | null>(null);
   const startAttemptIdRef = useRef<string | null>(null);
+  const startRequestRef = useRef<VideoWatchStartRequest | null>(null);
   const startingSessionRef = useRef(false);
   const sessionStartFailedRef = useRef(false);
   const appLifecycleCycleRef = useRef(0);
@@ -186,6 +194,8 @@ export default function Video() {
   const [rewardError, setRewardError] = useState('');
   const [rewardPending, setRewardPending] = useState(false);
   const [retrySession, setRetrySession] = useState<{ sessionId: string; percent: number } | null>(null);
+  const [sessionStartRetryAvailable, setSessionStartRetryAvailable] = useState(false);
+  const [sessionStartRetryPending, setSessionStartRetryPending] = useState(false);
 
   const claimViewReward = useCallback(async (sessionId: string, percentWatched: number) => {
     setRewardPending(true);
@@ -216,9 +226,13 @@ export default function Video() {
     const sessionId = currentSessionRef.current;
     currentSessionRef.current = null;
     startAttemptIdRef.current = null;
+    startRequestRef.current = null;
+    latestPlaybackTimeRef.current = null;
     playbackCycleRef.current += 1;
     startingSessionRef.current = false;
     sessionStartFailedRef.current = false;
+    setSessionStartRetryAvailable(false);
+    setSessionStartRetryPending(false);
     lastSampleRef.current = null;
     if (!sessionId) return;
 
@@ -229,6 +243,53 @@ export default function Video() {
     }
     void claimViewReward(sessionId, percentWatched);
   }, [claimViewReward]);
+
+  const startVideoWatchSession = useCallback((
+    request: VideoWatchStartRequest,
+    cycle: number,
+  ) => {
+    if (startingSessionRef.current) return;
+    startingSessionRef.current = true;
+    sessionStartFailedRef.current = false;
+    setRewardError('');
+    const appLifecycleCycle = appLifecycleCycleRef.current;
+    void startVideoWatch({ data: request }).then((session) => {
+      if (cycle !== playbackCycleRef.current) return;
+      currentSessionRef.current = session.sessionId;
+      setSessionStartRetryAvailable(false);
+      setSessionStartRetryPending(false);
+      if (appIsActiveRef.current && appLifecycleCycle === appLifecycleCycleRef.current) {
+        const currentTime = latestPlaybackTimeRef.current;
+        lastSampleRef.current = currentTime === null
+          ? null
+          : { currentTime, receivedAt: Date.now() };
+      }
+    }).catch((error) => {
+      if (cycle === playbackCycleRef.current) {
+        sessionStartFailedRef.current = true;
+        setSessionStartRetryAvailable(true);
+        setSessionStartRetryPending(false);
+        setRewardError(apiError(error));
+      }
+    }).finally(() => {
+      if (cycle === playbackCycleRef.current) startingSessionRef.current = false;
+    });
+  }, [startVideoWatch]);
+
+  const retryFailedSessionStart = useCallback(() => {
+    const request = startRequestRef.current;
+    if (
+      !showPlayer ||
+      !selectedVideo ||
+      !sessionStartRetryAvailable ||
+      startingSessionRef.current ||
+      currentSessionRef.current ||
+      !request ||
+      request.videoId !== selectedVideo.id
+    ) return;
+    setSessionStartRetryPending(true);
+    startVideoWatchSession(request, playbackCycleRef.current);
+  }, [selectedVideo?.id, sessionStartRetryAvailable, showPlayer, startVideoWatchSession]);
 
   const handlePlayerMessage = useCallback((rawMessage: unknown) => {
     if (!showPlayer) return;
@@ -252,6 +313,7 @@ export default function Video() {
     if (payload.type === 'error') {
       setPlayerFailed(true);
       lastSampleRef.current = null;
+      latestPlaybackTimeRef.current = null;
       return;
     }
     if (payload.type === 'state') {
@@ -259,7 +321,10 @@ export default function Video() {
         finishCurrentPlayback();
         return;
       }
-      if (payload.state !== PLAYING_STATE) lastSampleRef.current = null;
+      if (payload.state !== PLAYING_STATE) {
+        lastSampleRef.current = null;
+        latestPlaybackTimeRef.current = null;
+      }
       return;
     }
     if (payload.type !== 'progress') return;
@@ -278,6 +343,7 @@ export default function Video() {
     }
 
     if (!selectedVideo) return;
+    latestPlaybackTimeRef.current = currentTime;
     const now = Date.now();
     if (!currentSessionRef.current) {
       if (startingSessionRef.current || sessionStartFailedRef.current) return;
@@ -287,7 +353,6 @@ export default function Video() {
         setRewardError('This video duration is outside the reward range.');
         return;
       }
-      startingSessionRef.current = true;
       const cycle = playbackCycleRef.current;
       watchedSecondBucketsRef.current.clear();
       progressPercentRef.current = 0;
@@ -295,25 +360,11 @@ export default function Video() {
       setRewardMessage('');
       setRewardError('');
       lastSampleRef.current = null;
-      const appLifecycleCycle = appLifecycleCycleRef.current;
       const attemptId = startAttemptIdRef.current ?? createVideoWatchAttemptId();
       startAttemptIdRef.current = attemptId;
-      void startVideoWatch({
-        data: { videoId: selectedVideo.id, durationSeconds, attemptId },
-      }).then((session) => {
-        if (cycle !== playbackCycleRef.current) return;
-        currentSessionRef.current = session.sessionId;
-        if (appIsActiveRef.current && appLifecycleCycle === appLifecycleCycleRef.current) {
-          lastSampleRef.current = { currentTime, receivedAt: Date.now() };
-        }
-      }).catch((error) => {
-        if (cycle === playbackCycleRef.current) {
-          sessionStartFailedRef.current = true;
-          setRewardError(apiError(error));
-        }
-      }).finally(() => {
-        if (cycle === playbackCycleRef.current) startingSessionRef.current = false;
-      });
+      const request = { videoId: selectedVideo.id, durationSeconds, attemptId };
+      startRequestRef.current = request;
+      startVideoWatchSession(request, cycle);
       return;
     }
     if (startingSessionRef.current) return;
@@ -330,7 +381,7 @@ export default function Video() {
     const nextPercent = Math.max(progressPercentRef.current, estimated);
     progressPercentRef.current = nextPercent;
     setProgressPercent(nextPercent);
-  }, [finishCurrentPlayback, selectedVideo?.id, showPlayer, startVideoWatch]);
+  }, [finishCurrentPlayback, selectedVideo?.id, showPlayer, startVideoWatchSession]);
 
   const playerDocument = useMemo(
     () => createYouTubeDocument(selectedVideo?.youtubeId ?? '', colors.background),
@@ -341,8 +392,12 @@ export default function Video() {
     playbackCycleRef.current += 1;
     currentSessionRef.current = null;
     startAttemptIdRef.current = null;
+    startRequestRef.current = null;
+    latestPlaybackTimeRef.current = null;
     startingSessionRef.current = false;
     sessionStartFailedRef.current = false;
+    setSessionStartRetryAvailable(false);
+    setSessionStartRetryPending(false);
     lastSampleRef.current = null;
     watchedSecondBucketsRef.current.clear();
     progressPercentRef.current = 0;
@@ -620,6 +675,26 @@ export default function Video() {
               <Feather name="alert-circle" size={16} color={colors.destructive} />
               <Text style={styles.errorText}>{rewardError}</Text>
             </View>
+          ) : null}
+          {sessionStartRetryAvailable || sessionStartRetryPending ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Retry starting this video reward session"
+              accessibilityHint="Retries the session for this playback without restarting the video."
+              accessibilityState={{
+                busy: sessionStartRetryPending,
+                disabled: sessionStartRetryPending,
+              }}
+              testID="video-retry-session-start"
+              disabled={sessionStartRetryPending}
+              onPress={() => { retryFailedSessionStart(); }}
+              style={styles.retryButton}
+            >
+              <Feather name="refresh-cw" size={15} color={colors.primary} />
+              <Text style={styles.externalButtonText}>
+                {sessionStartRetryPending ? 'RETRYING SESSION…' : 'RETRY SESSION START'}
+              </Text>
+            </Pressable>
           ) : null}
           {retrySession ? (
             <Pressable
