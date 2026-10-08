@@ -51,6 +51,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const [teamName, setTeamName] = useState(String(registration?.teamName ?? ''));
   const [members, setMembers] = useState<Member[]>(initialRoster.slice(1));
   const [err, setErr] = useState('');
+  const [errorAnnouncementId, setErrorAnnouncementId] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<JoinFormField, string>>>({});
   const [fullCapacityFailure, setFullCapacityFailure] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,16 +90,21 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     setFullCapacityFailure(false);
   };
 
+  const announceError = (message: string) => {
+    setErrorAnnouncementId((id) => id + 1);
+    setErr(message);
+  };
+
   const submit = async () => {
     setErr('');
     setFieldErrors({});
     setFullCapacityFailure(false);
     if (editing && !canEditRegistrationTeam(t, registration?.status, Date.now())) {
       setClockNow(Date.now());
-      return setErr('Team editing is locked 30 minutes before the tournament starts.');
+      return announceError('Team editing is locked 30 minutes before the tournament starts.');
     }
-    if (!editing && closed) return setErr('This tournament is no longer open for registration.');
-    if (!editing && full) return setErr('This tournament is full. Please choose another match.');
+    if (!editing && closed) return announceError('This tournament is no longer open for registration.');
+    if (!editing && full) return announceError('This tournament is full. Please choose another match.');
     const validation = validateJoinForm({
       captainProfileName,
       captainGameName,
@@ -109,7 +115,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     });
     if (validation) {
       setFieldErrors(validation.fieldErrors);
-      return setErr(validation.message);
+      return announceError(validation.message);
     }
     setBusy(true);
     try {
@@ -121,7 +127,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         members,
       }));
     } catch (e: any) {
-      setErr(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Registration could not be confirmed. Please try again.');
+      announceError(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Registration could not be confirmed. Please try again.');
       setFullCapacityFailure(isFullMatchRejection(e));
     } finally { setBusy(false); }
   };
@@ -279,6 +285,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
       </Card>
 
       <Msg
+        key={errorAnnouncementId}
         kind="err"
         text={err || disabledMessage}
         testID="join-form-error"

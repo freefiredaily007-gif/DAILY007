@@ -9,6 +9,12 @@ For registration validation, show the message next to the affected input and set
 
 **How to apply:** Preserve this split when changing captain, team, or teammate validation; do not add another live region or a separate programmatic announcement.
 
+When retrying an error with identical text, change the live-region node identity for each raised error while keeping it a single polite region. React may batch clearing and resetting the same message into no text change.
+
+**Why:** An unchanged message can be suppressed by the native accessibility update; forcing a fresh live-region node preserves one update for each failed attempt without changing the spoken text.
+
+**How to apply:** Increment a key for the existing visible error message on each error; do not add a second announcement path, temporarily alter the text, or move focus.
+
 ## Native field announcements
 On 2026-10-07, the user confirmed that TalkBack on an iQOO Neo 10 running Android 16 announced the registration fields correctly; no mismatch with the expected Squad field order was reported.
 

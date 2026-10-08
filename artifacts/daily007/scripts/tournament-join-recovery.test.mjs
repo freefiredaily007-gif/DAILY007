@@ -146,7 +146,7 @@ test("non-capacity registration errors announce once through their visible error
 
   assert.match(
     joinFormSource,
-    /if \(validation\) \{\s*setFieldErrors\(validation\.fieldErrors\);\s*return setErr\(validation\.message\);\s*\}/,
+    /if \(validation\) \{\s*setFieldErrors\(validation\.fieldErrors\);\s*return announceError\(validation\.message\);\s*\}/,
     "local validation failures should continue to populate the visible error",
   );
   assert.match(
@@ -156,7 +156,7 @@ test("non-capacity registration errors announce once through their visible error
   );
   assert.match(
     joinFormSource,
-    /setErr\(e\?\.response\?\.data\?\.error \|\| e\?\.response\?\.data\?\.message \|\| e\?\.message \|\| 'Registration could not be confirmed\. Please try again\.'\)/,
+    /announceError\(e\?\.response\?\.data\?\.error \|\| e\?\.response\?\.data\?\.message \|\| e\?\.message \|\| 'Registration could not be confirmed\. Please try again\.'\)/,
     "server failures such as insufficient balance should continue to populate the visible error",
   );
   assert.equal(
@@ -168,6 +168,42 @@ test("non-capacity registration errors announce once through their visible error
     joinFormSource,
     /announceForAccessibility|setAccessibilityFocus|\.focus\(/,
     "registration errors must not use a second announcement or move focus",
+  );
+});
+
+test("repeated identical local validation failures refresh one live-region announcement", () => {
+  const submit = joinFormSource.match(
+    /const submit = async \(\) => \{[\s\S]*?\n  \};/,
+  )?.[0];
+  assert.ok(submit, "the form must keep its submit handler");
+  assert.match(
+    joinFormSource,
+    /const \[errorAnnouncementId, setErrorAnnouncementId\] = useState\(0\)/,
+    "each displayed error needs a distinct live-region identity",
+  );
+  assert.match(
+    joinFormSource,
+    /const announceError = \(message: string\) => \{\s*setErrorAnnouncementId\(\(id\) => id \+ 1\);\s*setErr\(message\);\s*\}/,
+    "raising the same error again must advance the live-region identity",
+  );
+  assert.match(
+    submit,
+    /if \(validation\) \{\s*setFieldErrors\(validation\.fieldErrors\);\s*return announceError\(validation\.message\);\s*\}/,
+    "every repeated local validation failure must request a fresh announcement",
+  );
+  const message = joinFormSource.match(/<Msg\b[\s\S]*?\/>/)?.[0];
+  assert.ok(message, "the visible error message must remain in the join form");
+  assert.match(message, /key=\{errorAnnouncementId\}/);
+  assert.match(message, /accessibilityLiveRegion=\{err \? 'polite' : undefined\}/);
+  assert.equal(
+    (joinFormSource.match(/<Msg\b/g) ?? []).length,
+    1,
+    "retrying must not add another live region",
+  );
+  assert.doesNotMatch(
+    submit,
+    /announceForAccessibility|setAccessibilityFocus|\.focus\(/,
+    "retrying a validation failure must not announce separately or move focus",
   );
 });
 
