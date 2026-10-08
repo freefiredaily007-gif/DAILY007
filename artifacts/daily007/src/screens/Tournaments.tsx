@@ -38,11 +38,13 @@ export default function Tournaments() {
   const [error, setError] = useState('');
   const [registrationError, setRegistrationError] = useState('');
   const [startAnnouncement, setStartAnnouncement] = useState('');
+  const [playerLoadAnnouncement, setPlayerLoadAnnouncement] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
   const listFocused = useRef(false);
   const announcedTournamentStarts = useRef(new Set<string>());
   const hasLoadedList = useRef(false);
+  const initialLoadFailed = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
@@ -58,9 +60,11 @@ export default function Tournaments() {
       ]);
       if (!loadRequests.current.isCurrent(request)) return;
       if (listResult.status === 'rejected') {
+        if (!hasLoadedList.current) initialLoadFailed.current = true;
         setError(apiError(listResult.reason));
         return;
       }
+      const recoveredInitialLoad = !hasLoadedList.current && initialLoadFailed.current;
       const registrationStatusKnown = registrationsResult.status === 'fulfilled';
       const registrations = registrationStatusKnown ? registrationsResult.value : [];
       setRegistrationError(
@@ -84,10 +88,15 @@ export default function Tournaments() {
         };
       }));
       hasLoadedList.current = true;
+      initialLoadFailed.current = false;
+      if (recoveredInitialLoad) setPlayerLoadAnnouncement('Tournaments loaded.');
       setClockNow(Date.now());
       setError('');
     } catch (e) {
-      if (loadRequests.current.isCurrent(request)) setError(apiError(e));
+      if (loadRequests.current.isCurrent(request)) {
+        if (!hasLoadedList.current) initialLoadFailed.current = true;
+        setError(apiError(e));
+      }
     } finally {
       if (loadRequests.current.isCurrent(request)) setLoading(false);
     }
@@ -188,6 +197,16 @@ export default function Tournaments() {
           {startAnnouncement}
         </Text>
       ) : null}
+      {playerLoadAnnouncement ? (
+        <Text
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="player-tournament-load-announcement"
+          style={s.screenReaderAnnouncement}
+        >
+          {playerLoadAnnouncement}
+        </Text>
+      ) : null}
       <FlatList
         testID="player-tournament-list"
         data={orderedVisible}
@@ -223,6 +242,9 @@ export default function Tournaments() {
               <Msg
                 kind="err"
                 text={`${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${error}`}
+                testID={!hasLoadedList.current ? 'player-tournament-load-error' : undefined}
+                accessibilityLabel={!hasLoadedList.current ? `Could not load tournaments: ${error}` : undefined}
+                accessibilityLiveRegion={!hasLoadedList.current ? 'polite' : undefined}
               />
             )}
             {!!registrationError && (

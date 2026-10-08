@@ -2517,16 +2517,102 @@ async function checkTournamentInitialLoadFailure() {
     "The failed first Player load must not show a tournament card.",
   );
 
+  const firstLoadErrorAccessibility = await evaluate(`(() => {
+    const container = document.querySelector('[data-testid="player-tournament-load-error"]');
+    const liveRegion = container?.querySelector('[aria-live]');
+    return {
+      liveRegion: liveRegion?.getAttribute('aria-live') ?? null,
+      label: liveRegion?.getAttribute('aria-label') ?? null,
+      announcements: window.__daily007TournamentResume.getLoadAnnouncementEvents(),
+    };
+  })()`);
+  assert(
+    firstLoadErrorAccessibility.liveRegion === 'polite',
+    `The initial-load error must use a polite TalkBack live region: ${JSON.stringify(firstLoadErrorAccessibility)}.`,
+  );
+  assert(
+    firstLoadErrorAccessibility.label === 'Could not load tournaments: Initial tournament request failed',
+    `The initial-load error must have a clear accessible label: ${JSON.stringify(firstLoadErrorAccessibility)}.`,
+  );
+  assert(
+    JSON.stringify(firstLoadErrorAccessibility.announcements) === JSON.stringify([{
+      testID: 'player-tournament-load-error',
+      text: 'Could not load tournaments: Initial tournament request failed',
+    }]),
+    `The initial error should produce one announcement: ${JSON.stringify(firstLoadErrorAccessibility.announcements)}.`,
+  );
+  assert(
+    await evaluate('window.__daily007TournamentResume.focusUpcomingTabAndRemember()'),
+    'The Upcoming tab must be focusable before testing recovery focus stability.',
+  );
+
   const readsAfterFailure = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate(`window.__daily007TournamentResume.failNextTournamentRead("Initial tournament request failed")`);
   await evaluate("window.__daily007TournamentResume.retryAfterInitialLoadFailure()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsAfterFailure} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments: Initial tournament request failed')`,
-    "a later successful Player load to show the tournament and clear the initial error",
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsAfterFailure} && document.body.innerText.includes('Could not load tournaments: Initial tournament request failed')`,
+    "a repeated failed first-load retry",
+  );
+  const repeatedFailureAnnouncements = await evaluate(
+    'window.__daily007TournamentResume.getLoadAnnouncementEvents()',
+  );
+  assert(
+    repeatedFailureAnnouncements.filter((event) => event.testID === 'player-tournament-load-error').length === 1,
+    `The unchanged initial-load error must not be announced repeatedly: ${JSON.stringify(repeatedFailureAnnouncements)}.`,
+  );
+  assert(
+    await evaluate('window.__daily007TournamentResume.focusUnchanged()'),
+    'A repeated Player load failure must not move focus away from the Upcoming tab.',
+  );
+
+  const readsAfterRepeatedFailure = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.retryAfterInitialLoadFailure()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsAfterRepeatedFailure} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments: Initial tournament request failed') && document.querySelector('[data-testid="player-tournament-load-announcement"]')?.getAttribute('aria-live') === 'polite'`,
+    "a successful Player retry to show the tournament and announce recovery",
   );
   await assertText("IST Start Boundary", "the Player tournament after the successful retry");
   assert(
     !await evaluate("document.body.innerText.includes('Could not load tournaments')"),
     "A successful Player load must clear the initial-load error.",
+  );
+  const recoveryAnnouncements = await evaluate(
+    'window.__daily007TournamentResume.getLoadAnnouncementEvents()',
+  );
+  assert(
+    JSON.stringify(recoveryAnnouncements) === JSON.stringify([
+      {
+        testID: 'player-tournament-load-error',
+        text: 'Could not load tournaments: Initial tournament request failed',
+      },
+      {
+        testID: 'player-tournament-load-announcement',
+        text: 'Tournaments loaded.',
+      },
+    ]),
+    `Recovery should be announced once after cards appear: ${JSON.stringify(recoveryAnnouncements)}.`,
+  );
+  assert(
+    await evaluate('window.__daily007TournamentResume.focusUnchanged()'),
+    'Successful recovery must not move focus away from the Upcoming tab.',
+  );
+
+  const readsAfterRecovery = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.retryAfterInitialLoadFailure()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsAfterRecovery} && document.body.innerText.includes('IST Start Boundary')`,
+    "a later successful Player refresh",
+  );
+  const repeatedRecoveryAnnouncements = await evaluate(
+    'window.__daily007TournamentResume.getLoadAnnouncementEvents()',
+  );
+  assert(
+    JSON.stringify(repeatedRecoveryAnnouncements) === JSON.stringify(recoveryAnnouncements),
+    `A later successful refresh must not repeat the recovery announcement: ${JSON.stringify(repeatedRecoveryAnnouncements)}.`,
+  );
+  assert(
+    await evaluate('window.__daily007TournamentResume.focusUnchanged()'),
+    'A later successful Player refresh must not move focus away from the Upcoming tab.',
   );
 }
 
@@ -4716,7 +4802,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during Player first-load checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — A failed first Player tournament load shows the correct error with no cards; a later successful load shows the card and clears the error.");
+      console.log("PASS — The first-load error and recovery each produce one polite Player announcement, repeated errors do not repeat, cards appear, and focus stays on the Upcoming tab.");
     } else if (adminTournamentCreateSaveOnly) {
       await checkAdminTournamentCreationSaveAtLargeText();
       assert(

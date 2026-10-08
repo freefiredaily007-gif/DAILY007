@@ -10,6 +10,37 @@ if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 
 const root = createRoot(rootElement);
 let rememberedFocus = null;
+const loadAnnouncementEvents = [];
+const captureLoadAnnouncement = (region) => {
+  const testID = region.getAttribute("data-testid")
+    ?? region.closest("[data-testid]")?.getAttribute("data-testid");
+  if (!["player-tournament-load-error", "player-tournament-load-announcement"].includes(testID)) {
+    return;
+  }
+  const text = region.getAttribute("aria-label") ?? region.textContent?.trim() ?? "";
+  const previous = loadAnnouncementEvents.at(-1);
+  if (previous?.testID === testID && previous.text === text) return;
+  loadAnnouncementEvents.push({ testID, text });
+};
+const inspectLoadAnnouncementNode = (node) => {
+  if (!(node instanceof Element)) return;
+  if (node.matches('[aria-live="polite"]')) captureLoadAnnouncement(node);
+  node.querySelectorAll('[aria-live="polite"]').forEach(captureLoadAnnouncement);
+};
+const loadAnnouncementObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    const target = mutation.target instanceof Element
+      ? mutation.target
+      : mutation.target.parentElement;
+    if (target) inspectLoadAnnouncementNode(target);
+    mutation.addedNodes.forEach(inspectLoadAnnouncementNode);
+  }
+});
+loadAnnouncementObserver.observe(rootElement, {
+  subtree: true,
+  childList: true,
+  characterData: true,
+});
 const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
 const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
 const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
@@ -150,6 +181,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     ready: true,
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
+    getLoadAnnouncementEvents: () => loadAnnouncementEvents.map((event) => ({ ...event })),
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
     getVisibleText: () => {
       const text = document.body.innerText || '';
@@ -200,6 +232,13 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       setVisibility("visible");
     },
     rememberFocus: () => { rememberedFocus = document.activeElement; },
+    focusUpcomingTabAndRemember: () => {
+      const tab = document.querySelector('[data-testid="tournament-tab-upcoming"]');
+      if (!(tab instanceof HTMLElement)) return false;
+      tab.focus();
+      rememberedFocus = document.activeElement;
+      return rememberedFocus === tab;
+    },
     focusUnchanged: () => document.activeElement === rememberedFocus,
     prepareAdminForScheduledStart: () => {
       fakeNow = scheduledStartMs - 2_000;
