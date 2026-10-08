@@ -1,5 +1,12 @@
 const signupCalls: unknown[] = [];
 
+export class SessionPersistenceError extends Error {
+  constructor() {
+    super("Daily007 could not save your session on this device. Check available storage and try again.");
+    this.name = "SessionPersistenceError";
+  }
+}
+
 export const Api = {
   login: async () => {
     throw new Error("Login is disabled in the isolated signup keyboard test.");
@@ -15,7 +22,7 @@ export function apiError(error: unknown): string {
 }
 
 export function setSession(): never {
-  throw new Error("Session writes are disabled in the isolated signup keyboard test.");
+  throw new SessionPersistenceError();
 }
 
 export function getSignupCallCount(): number {

@@ -13,9 +13,6 @@ export default defineConfig({
   root: sandboxRoot,
   base: "/",
   plugins: [react()],
-  define: {
-    "process.env.EXPO_PUBLIC_DOMAIN": "undefined",
-  },
   optimizeDeps: {
     entries: ["signup-keyboard-preview.html"],
   },

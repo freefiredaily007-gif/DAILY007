@@ -222,6 +222,8 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
   preview.__resolvePendingVideoWatchStart = undefined;
 }
 
+export const getDaily007ListVideosQueryKey = () => ["isolated-preview", "videos"];
+
 export function useDaily007ListVideos() {
   const [refreshCount, setRefreshCount] = useState(0);
   const [refreshFailed, setRefreshFailed] = useState(false);
