@@ -869,6 +869,91 @@ test("a failed wallet-ledger insert rolls back a video reward", async () => {
   }
 });
 
+test("a failed watch-session completion update rolls back a video reward", async () => {
+  const fixture = await createFixture();
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
+  const failureSuffix = randomUUID().replace(/-/g, "");
+  const failureTrigger = `fail_video_completion_${failureSuffix}`;
+  const failureFunction = `fail_video_completion_function_${failureSuffix}`;
+  const failureSequence = `fail_video_completion_sequence_${failureSuffix}`;
+  const failedLedgerKey = `daily007-video-watch:${fixture.sessionId}`;
+
+  try {
+    await pool.query(`CREATE SEQUENCE ${failureSequence}`);
+    await pool.query(`
+      CREATE FUNCTION ${failureFunction}() RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        IF OLD.completed_at IS NULL
+           AND NEW.completed_at IS NOT NULL
+           AND OLD.reward_ledger_id IS NULL
+           AND NEW.reward_ledger_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1
+               FROM daily007_v2_wallet_ledger
+              WHERE id = NEW.reward_ledger_id
+                AND idempotency_key = '${failedLedgerKey}'
+                AND reason = 'video_watch_reward'
+           ) THEN
+          PERFORM nextval('${failureSequence}');
+          RAISE EXCEPTION 'injected video watch completion update failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $function$
+    `);
+    await pool.query(`
+      CREATE TRIGGER ${failureTrigger}
+      BEFORE UPDATE OF completed_at, reward_ledger_id
+      ON daily007_v2_video_watch_sessions
+      FOR EACH ROW
+      WHEN (OLD.id = '${fixture.sessionId}'::uuid)
+      EXECUTE FUNCTION ${failureFunction}()
+    `);
+
+    await withServer(async (origin) => {
+      const response = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.body.error, "Internal server error.");
+    });
+
+    const failureEvidence = await pool.query<{ lastValue: string; isCalled: boolean }>(
+      `SELECT last_value::text AS "lastValue", is_called AS "isCalled"
+         FROM ${failureSequence}`,
+    );
+    assert.equal(failureEvidence.rows[0]?.lastValue, "1");
+    assert.equal(
+      failureEvidence.rows[0]?.isCalled,
+      true,
+      "the completion failure should run only after its matching ledger insert",
+    );
+
+    const state = await inspectFixture(fixture);
+    assert.equal(state.walletCoins, 12, "a failed completion update must not change the wallet");
+    assert.equal(state.ledgerCount, 0, "the failed reward must not leave a ledger row");
+    assert.equal(state.ledgerId, null);
+    assert.equal(state.completedAt, null, "the failed reward must leave the session incomplete");
+    assert.equal(state.rewardLedgerId, null);
+  } finally {
+    try {
+      await pool.query(
+        `DROP TRIGGER IF EXISTS ${failureTrigger} ON daily007_v2_video_watch_sessions`,
+      );
+      await pool.query(`DROP FUNCTION IF EXISTS ${failureFunction}()`);
+      await pool.query(`DROP SEQUENCE IF EXISTS ${failureSequence}`);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
+});
+
 test("repeating a watch start reuses its session while a new playback attempt earns a separate reward", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
