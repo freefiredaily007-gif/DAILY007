@@ -34,6 +34,7 @@ const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
+const adminSearchKeyboardOnly = process.argv.includes("--admin-search-keyboard-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
 const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament-empty-filter-only");
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
@@ -1425,7 +1426,13 @@ async function checkRemainingAdminListsAtLargeText(width) {
   await assertPageHasNoHorizontalOverflow(width, "Selected-recipient notification");
 }
 
-async function assertAdminSearchField(testId, value, width, description) {
+async function assertAdminSearchField(
+  testId,
+  value,
+  width,
+  description,
+  { requireViewportVisibility = false } = {},
+) {
   const field = await evaluate(`(() => {
     const input = document.querySelector('[data-testid="${testId}"]');
     if (!(input instanceof HTMLInputElement)) return null;
@@ -1442,6 +1449,9 @@ async function assertAdminSearchField(testId, value, width, description) {
       selectionEnd: input.selectionEnd,
       scrollLeft: input.scrollLeft,
       clientWidth: input.clientWidth,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportHeight: window.innerHeight,
     };
   })()`);
   assert(field, `${description}: the search field is missing at ${width}px.`);
@@ -1469,6 +1479,13 @@ async function assertAdminSearchField(testId, value, width, description) {
       `scrollLeft=${field.scrollLeft}, width=${field.clientWidth}px).`,
   );
   await assertPageHasNoHorizontalOverflow(width, description);
+  if (requireViewportVisibility) {
+    assert(
+      field.top >= -1 && field.bottom <= field.viewportHeight + 1,
+      `${description}: the search field is not reachable above the simulated keyboard ` +
+        `(bounds=${field.top.toFixed(1)}–${field.bottom.toFixed(1)}px, viewport=${field.viewportHeight}px).`,
+    );
+  }
 }
 
 async function checkAdminSearchResultsAtLargeText(width) {
@@ -1519,6 +1536,149 @@ async function checkAdminSearchResultsAtLargeText(width) {
         `document.body.innerText.includes(${JSON.stringify(otherEmail)})`,
       );
       assert(!otherAccountVisible, `${description}: a non-matching account remained in the filtered results.`);
+    }
+  }
+}
+
+async function assertAdminSearchTextReachable(marker, width, description) {
+  const state = await evaluate(`(() => {
+    const element = [...document.querySelectorAll('*')]
+      .find((item) => item.children.length === 0 && item.textContent.trim() === ${JSON.stringify(marker)});
+    if (!element) return null;
+    element.scrollIntoView({ block: "center", inline: "nearest" });
+    const rect = element.getBoundingClientRect();
+    return {
+      text: element.textContent.trim(),
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  })()`);
+  assert(state, `${description}: the matching fake account text is missing.`);
+  assert(
+    state.left >= -1 && state.right <= width + 1 &&
+      state.top >= -1 && state.bottom <= state.height + 1,
+    `${description}: the matching fake account text cannot be reached in the ` +
+      `${width}×${state.height}px keyboard-open viewport.`,
+  );
+}
+
+async function checkAdminSearchResultsWithKeyboard() {
+  const width = 375;
+  const keyboardHeight = 450;
+  const longName = "Ananya Daily007 Championship Champion With A Long Name";
+  const longEmail = "ananya.champion.with.a.long.fake.address@example.invalid";
+  const otherEmail = "rohan.preview.player@example.invalid";
+  const searchCases = [
+    {
+      screen: "Wallet",
+      tab: "wallet",
+      input: "admin-wallet-user-search",
+      actions: ["+ ADD", "− DEDUCT"],
+    },
+    {
+      screen: "Users",
+      tab: "users",
+      input: "admin-users-search",
+      actions: ["+ COINS", "− COINS", "BLOCK", "MAKE TOURNAMENT ADMIN"],
+    },
+  ];
+
+  await setViewport(width, 1.5);
+  assert(
+    await evaluate("window.__daily007LargeTextScale === 1.5"),
+    "The Admin keyboard search preview did not apply 1.5× Android text.",
+  );
+  await openAdminKeyboardViewport(keyboardHeight);
+  await waitForCondition(
+    `window.innerWidth === ${width} && window.innerHeight === ${keyboardHeight}`,
+    "the 375×450 viewport with the simulated Android keyboard open",
+  );
+
+  for (const screen of searchCases) {
+    await clickSelector(`[data-testid="admin-tab-${screen.tab}"]`, `${screen.screen} tab`);
+    await waitForCondition(
+      `Boolean(document.querySelector('[data-testid="${screen.input}"]'))`,
+      `${screen.screen} search field`,
+    );
+
+    for (const query of [longName, longEmail]) {
+      const description =
+        `${screen.screen} search for ${query === longName ? "the long fake name" : "the long fake email"} with keyboard open`;
+      const selector = `[data-testid="${screen.input}"]`;
+      await setInputValue(selector, query);
+      await evaluate(`(() => {
+        const input = document.querySelector(${JSON.stringify(selector)});
+        if (input instanceof HTMLInputElement) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+      })()`);
+      await assertAdminSearchField(
+        screen.input,
+        query,
+        width,
+        description,
+        { requireViewportVisibility: true },
+      );
+
+      const matchingAccount = await evaluate(`(() => {
+        const text = document.body.innerText;
+        return {
+          nameVisible: text.includes(${JSON.stringify(longName)}),
+          emailVisible: text.includes(${JSON.stringify(longEmail)}),
+          otherAccountVisible: text.includes(${JSON.stringify(otherEmail)}),
+        };
+      })()`);
+      assert(
+        matchingAccount.nameVisible && matchingAccount.emailVisible,
+        `${description}: the matching fake account is missing its name or email.`,
+      );
+      assert(
+        !matchingAccount.otherAccountVisible,
+        `${description}: a non-matching fake account remained in the filtered results.`,
+      );
+
+      await assertAdminSearchTextReachable(
+        longName,
+        width,
+        `${screen.screen} matching fake account name`,
+      );
+      await assertAdminSearchTextReachable(
+        longEmail,
+        width,
+        `${screen.screen} matching fake account email`,
+      );
+      await assertAdminRowActionsFit(
+        query,
+        screen.actions,
+        width,
+        `${screen.screen} keyboard-open filtered result`,
+        { requireReachability: true },
+      );
+
+      const retainedQuery = await evaluate(
+        `document.querySelector(${JSON.stringify(selector)})?.value ?? null`,
+      );
+      assert(
+        retainedQuery === query,
+        `${description}: the entered query was lost while scrolling to the matching account actions.`,
+      );
+      await evaluate(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({ block: "center" })`);
+      await assertAdminSearchField(
+        screen.input,
+        query,
+        width,
+        description,
+        { requireViewportVisibility: true },
+      );
+      assert(
+        await evaluate(`window.innerHeight === ${keyboardHeight}`),
+        `${description}: the simulated keyboard viewport changed during scrolling.`,
+      );
     }
   }
 }
@@ -5318,6 +5478,7 @@ try {
     homeCarouselOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
+    adminSearchKeyboardOnly ||
     adminTournamentCreateSaveOnly ||
     adminTournamentEmptyFilterOnly ||
     adminTournamentHomeRefreshOnly ||
@@ -5331,13 +5492,13 @@ try {
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
-          : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
-          : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminSearchKeyboardOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
@@ -5370,6 +5531,8 @@ try {
           ? "Wallet and Edit Profile"
         : adminKeyboardFormsOnly
           ? "Admin tournament keyboard forms"
+        : adminSearchKeyboardOnly
+          ? "Admin Wallet and Users search fields"
         : adminTournamentEditSaveOnly
           ? "Admin tournament editing at 320px with 1.5× text"
         : adminTournamentCreateSaveOnly
@@ -5484,6 +5647,15 @@ try {
         `Browser errors during Admin tournament keyboard checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Admin tournament creation, room setup, and result-entry actions remain visible and enabled at 375×450 with a simulated Android keyboard, and each layout recovers after dismissal.");
+    } else if (adminSearchKeyboardOnly) {
+      await checkAdminSearchResultsWithKeyboard();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin search keyboard checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — At 375×450 with 1.5× text and a simulated Android keyboard, long fake-name and email searches on Wallet and Users retain the query and keep the matching account and every action reachable by scrolling.",
+      );
     } else if (scheduledStartOnly) {
       await checkTournamentScheduledStart(0);
       await cdp("Page.navigate", {
