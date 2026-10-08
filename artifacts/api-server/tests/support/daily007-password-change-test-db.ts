@@ -13,6 +13,12 @@ type PasswordChangeTestUser = {
 };
 
 type Credentials = Pick<PasswordChangeTestUser, "password_salt" | "password_hash">;
+type PasswordChangeAttemptWindow = {
+  windowId: string;
+  failures: number;
+  inFlight: number;
+  expiresAt: number;
+};
 
 export const PASSWORD_CHANGE_TEST_USER_ID = "50000000-0000-4000-8000-000000000001";
 
@@ -39,6 +45,7 @@ class MemoryPasswordChangeDatabase {
   private credentialReadGate: Promise<void> | null = null;
   private releaseCredentialReadGate: (() => void) | null = null;
   private credentialReadWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private passwordChangeAttemptWindow: PasswordChangeAttemptWindow | null = null;
 
   reset(): void {
     Object.assign(this.user, {
@@ -62,6 +69,7 @@ class MemoryPasswordChangeDatabase {
     this.releaseCredentialReadGate = null;
     if (this.credentialReadWatchdog) clearTimeout(this.credentialReadWatchdog);
     this.credentialReadWatchdog = null;
+    this.passwordChangeAttemptWindow = null;
   }
 
   setCredentials(credentials: Credentials): void {
@@ -92,6 +100,48 @@ class MemoryPasswordChangeDatabase {
   async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
     const normalized = sql.replace(/\s+/g, " ").trim();
     const userId = String(values[0] ?? "");
+
+    if (normalized.startsWith("INSERT INTO daily007_password_change_attempts")) {
+      const windowId = String(values[1]);
+      const windowMs = Number(values[2]);
+      const attemptLimit = Number(values[3]);
+      const now = Date.now();
+      let window = this.passwordChangeAttemptWindow;
+      if (!window || window.expiresAt <= now) {
+        window = { windowId, failures: 0, inFlight: 1, expiresAt: now + windowMs };
+        this.passwordChangeAttemptWindow = window;
+        return { rows: [{ window_id: window.windowId }] as T[] };
+      }
+      if (window.failures + window.inFlight >= attemptLimit) return { rows: [] };
+      window.inFlight += 1;
+      return { rows: [{ window_id: window.windowId }] as T[] };
+    }
+
+    if (normalized.startsWith("SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - now())))")) {
+      const window = this.passwordChangeAttemptWindow;
+      if (!window || window.expiresAt <= Date.now()) return { rows: [] };
+      return {
+        rows: [{
+          retry_after_seconds: Math.max(1, Math.ceil((window.expiresAt - Date.now()) / 1000)),
+        }] as T[],
+      };
+    }
+
+    if (normalized.startsWith("UPDATE daily007_password_change_attempts")) {
+      const windowId = String(values[1]);
+      const outcome = String(values[2]);
+      const windowMs = Number(values[3]);
+      const window = this.passwordChangeAttemptWindow;
+      if (window && window.windowId === windowId && window.expiresAt > Date.now()) {
+        window.inFlight = Math.max(0, window.inFlight - 1);
+        if (outcome === "incorrect") window.failures += 1;
+        if (outcome === "correct") {
+          window.failures = 0;
+          window.expiresAt = Date.now() + windowMs;
+        }
+      }
+      return { rows: [] };
+    }
 
     if (normalized ===
       "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users WHERE id = $1") {

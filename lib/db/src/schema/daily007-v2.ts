@@ -36,6 +36,18 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   check("daily007_v2_users_status_valid", sql`${table.status} IN ('active', 'blocked')`),
 ]);
 
+export const daily007PasswordChangeAttemptsTable = pgTable("daily007_password_change_attempts", {
+  userId: uuid("user_id").primaryKey().references(() => daily007UsersTable.id, { onDelete: "cascade" }),
+  windowId: uuid("window_id").notNull().defaultRandom(),
+  failures: integer("failures").notNull().default(0),
+  inFlight: integer("in_flight").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  check("daily007_password_change_failures_nonnegative", sql`${table.failures} >= 0`),
+  check("daily007_password_change_in_flight_nonnegative", sql`${table.inFlight} >= 0`),
+  check("daily007_password_change_attempts_within_limit", sql`${table.failures} + ${table.inFlight} <= 5`),
+]);
+
 export const daily007AdminAccessRequestsTable = pgTable("daily007_v2_admin_access_requests", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => daily007UsersTable.id, { onDelete: "cascade" }),

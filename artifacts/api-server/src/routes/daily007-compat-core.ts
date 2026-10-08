@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
@@ -27,71 +28,81 @@ const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Allow at most five incorrect current-password checks per account in a
-// 15-minute window. In-flight checks reserve slots so parallel requests cannot
-// bypass the cap; verifying the correct password clears the failure count.
+// 15-minute window. Reservations are persisted atomically so every API process
+// shares the same budget; verifying the correct password clears failed checks.
 const PASSWORD_CHANGE_ATTEMPT_LIMIT = 5;
 const PASSWORD_CHANGE_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
-type PasswordChangeAttemptWindow = {
-  failures: number;
-  inFlight: number;
-  expiresAt: number;
-};
-const passwordChangeAttempts = new Map<string, PasswordChangeAttemptWindow>();
+type PasswordChangeAttemptReservation =
+  | { allowed: true; windowId: string }
+  | { allowed: false; retryAfterSeconds: number };
 
-function reservePasswordChangeAttempt(userId: string):
-  | { allowed: true; window: PasswordChangeAttemptWindow }
-  | { allowed: false; retryAfterSeconds: number } {
-  const now = Date.now();
-  let window = passwordChangeAttempts.get(userId);
-  if (window && window.expiresAt <= now) {
-    passwordChangeAttempts.delete(userId);
-    window = undefined;
-  }
-
-  if (window && window.failures + window.inFlight >= PASSWORD_CHANGE_ATTEMPT_LIMIT) {
-    return {
-      allowed: false,
-      retryAfterSeconds: Math.max(1, Math.ceil((window.expiresAt - now) / 1000)),
-    };
-  }
-
-  if (!window) {
-    window = { failures: 0, inFlight: 0, expiresAt: now + PASSWORD_CHANGE_ATTEMPT_WINDOW_MS };
-    passwordChangeAttempts.set(userId, window);
-  }
-  window.inFlight += 1;
-
-  if (passwordChangeAttempts.size > 1000) {
-    for (const [id, entry] of passwordChangeAttempts) {
-      if (entry.expiresAt <= now) passwordChangeAttempts.delete(id);
+async function reservePasswordChangeAttempt(userId: string): Promise<PasswordChangeAttemptReservation> {
+  for (;;) {
+    const reservation = await pool.query<{ window_id: string }>(
+      `INSERT INTO daily007_password_change_attempts
+         (user_id, window_id, failures, in_flight, expires_at)
+       VALUES ($1, $2, 0, 1, now() + ($3::integer * interval '1 millisecond'))
+       ON CONFLICT (user_id) DO UPDATE
+         SET window_id = CASE
+               WHEN daily007_password_change_attempts.expires_at <= now() THEN EXCLUDED.window_id
+               ELSE daily007_password_change_attempts.window_id
+             END,
+             failures = CASE
+               WHEN daily007_password_change_attempts.expires_at <= now() THEN 0
+               ELSE daily007_password_change_attempts.failures
+             END,
+             in_flight = CASE
+               WHEN daily007_password_change_attempts.expires_at <= now() THEN 1
+               ELSE daily007_password_change_attempts.in_flight + 1
+             END,
+             expires_at = CASE
+               WHEN daily007_password_change_attempts.expires_at <= now() THEN EXCLUDED.expires_at
+               ELSE daily007_password_change_attempts.expires_at
+             END
+       WHERE daily007_password_change_attempts.expires_at <= now()
+          OR daily007_password_change_attempts.failures
+             + daily007_password_change_attempts.in_flight < $4
+       RETURNING window_id`,
+      [userId, randomUUID(), PASSWORD_CHANGE_ATTEMPT_WINDOW_MS, PASSWORD_CHANGE_ATTEMPT_LIMIT],
+    );
+    if (reservation.rows[0]) {
+      return { allowed: true, windowId: reservation.rows[0].window_id };
     }
-  }
 
-  return { allowed: true, window };
+    const currentWindow = await pool.query<{ retry_after_seconds: number }>(
+      `SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - now()))))::integer AS retry_after_seconds
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1 AND expires_at > now()`,
+      [userId],
+    );
+    if (currentWindow.rows[0]) {
+      return { allowed: false, retryAfterSeconds: currentWindow.rows[0].retry_after_seconds };
+    }
+    // The account/window may have been removed or expired between the upsert
+    // and lookup; retry the atomic reservation instead of denying stale state.
+  }
 }
 
-function finishPasswordChangeAttempt(
+async function finishPasswordChangeAttempt(
   userId: string,
-  window: PasswordChangeAttemptWindow,
+  windowId: string,
   outcome: "incorrect" | "correct" | "abandoned",
-): void {
-  if (passwordChangeAttempts.get(userId) !== window) return;
-  const now = Date.now();
-  if (window.expiresAt <= now) {
-    passwordChangeAttempts.delete(userId);
-    return;
-  }
-
-  window.inFlight = Math.max(0, window.inFlight - 1);
-  if (outcome === "incorrect") window.failures += 1;
-  if (outcome === "correct") {
-    window.failures = 0;
-    window.expiresAt = now + PASSWORD_CHANGE_ATTEMPT_WINDOW_MS;
-  }
-
-  if (window.failures === 0 && window.inFlight === 0) {
-    passwordChangeAttempts.delete(userId);
-  }
+): Promise<void> {
+  await pool.query(
+    `UPDATE daily007_password_change_attempts
+        SET failures = CASE
+              WHEN $3 = 'incorrect' THEN failures + 1
+              WHEN $3 = 'correct' THEN 0
+              ELSE failures
+            END,
+            in_flight = GREATEST(0, in_flight - 1),
+            expires_at = CASE
+              WHEN $3 = 'correct' THEN now() + ($4::integer * interval '1 millisecond')
+              ELSE expires_at
+            END
+      WHERE user_id = $1 AND window_id = $2 AND expires_at > now()`,
+    [userId, windowId, outcome, PASSWORD_CHANGE_ATTEMPT_WINDOW_MS],
+  );
 }
 
 type MatchRow = {
@@ -410,7 +421,7 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     return;
   }
 
-  const attempt = reservePasswordChangeAttempt(account.id);
+  const attempt = await reservePasswordChangeAttempt(account.id);
   if (!attempt.allowed) {
     res.setHeader("Retry-After", String(attempt.retryAfterSeconds));
     fail(
@@ -456,7 +467,7 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
 
     res.json({ message: "Password changed. Other signed-in sessions remain active." });
   } finally {
-    finishPasswordChangeAttempt(account.id, attempt.window, outcome);
+    await finishPasswordChangeAttempt(account.id, attempt.windowId, outcome);
   }
 });
 
