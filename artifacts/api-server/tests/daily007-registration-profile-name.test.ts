@@ -659,6 +659,78 @@ for (const request of registrationRequests) {
   });
 }
 
+test("only tournament admins can download registration CSV rows", async () => {
+  registrationProfileTestDb.reset();
+  const seeded = registrationProfileTestDb.addOtherRegistration(
+    "approved",
+    TEST_MATCH_ID,
+    "ExportPrivacy",
+  );
+  const path = `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`;
+  const rowSentinels = [
+    seeded.registration.captain_name,
+    seeded.registration.captain_game_name,
+    seeded.registration.captain_game_uid,
+    seeded.registration.team_name,
+    "exportprivacy-captain-profile-test@example.test",
+    ...seeded.roster.flatMap((member) =>
+      [member.member_name, member.member_uid].filter((value): value is string => Boolean(value))
+    ),
+  ];
+
+  try {
+    await withServer(async (origin) => {
+      const tournamentAdminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      const playerToken = makeToken(TEST_PLAYER_ID, 0);
+      assert.ok(tournamentAdminToken);
+      assert.ok(playerToken);
+
+      const adminResponse = await getWithToken(origin, path, tournamentAdminToken);
+      assert.equal(adminResponse.status, 200);
+      assert.match(adminResponse.headers.get("content-type") ?? "", /^text\/csv\b/);
+      assert.match(adminResponse.headers.get("content-disposition") ?? "", /registrations\.csv/);
+      const adminRows = parseCsvDocument(await adminResponse.text());
+      assert.equal(adminRows.length, 2, "The authorized CSV should contain its header and registration row.");
+      assert.equal(adminRows[1][2], seeded.registration.captain_game_uid);
+      assert.equal(adminRows[1][3], "exportprivacy-captain-profile-test@example.test");
+
+      const playerResponse = await getWithToken(origin, path, playerToken);
+      const unauthenticatedResponse = await fetch(`${origin}${path}`);
+      const deniedResponses = [
+        {
+          label: "ordinary player",
+          response: playerResponse,
+          status: 403,
+          error: "Tournament administrator access is required.",
+        },
+        {
+          label: "unauthenticated request",
+          response: unauthenticatedResponse,
+          status: 401,
+          error: "A valid Daily007 v2 bearer token is required.",
+        },
+      ];
+
+      for (const denied of deniedResponses) {
+        const body = await denied.response.text();
+        assert.equal(denied.response.status, denied.status, `${denied.label} must be denied.`);
+        assert.match(
+          denied.response.headers.get("content-type") ?? "",
+          /^application\/json\b/,
+          `${denied.label} must receive an authorization error, not a CSV response.`,
+        );
+        assert.deepEqual(JSON.parse(body), { error: denied.error });
+        assert.equal(body.includes("captain_profile_name"), false);
+        for (const sentinel of rowSentinels) {
+          assert.equal(body.includes(sentinel), false, `${denied.label} must not receive registration data.`);
+        }
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 const shortRosterFormats: {
   label: string;
   teamType: string;
