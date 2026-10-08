@@ -89,10 +89,11 @@ export function AdminSearchAnnouncement({
 }
 
 export function AdminToastHost({ children }: { children: React.ReactNode }) {
-  const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null);
+  const [toast, setToast] = useState<{ id: number; msg: string; kind: 'ok' | 'err' } | null>(null);
+  const toastSequence = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const show = useCallback((msg: string, kind: ToastKind = 'ok') => {
-    setToast({ msg, kind: kind === 'error' ? 'err' : 'ok' });
+    setToast({ id: ++toastSequence.current, msg, kind: kind === 'error' ? 'err' : 'ok' });
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(null), 2600);
   }, []);
@@ -102,6 +103,7 @@ export function AdminToastHost({ children }: { children: React.ReactNode }) {
       {toast && (
         <View style={[s.toast, toast.kind === 'err' && { borderColor: A.danger, backgroundColor: 'rgba(60,10,10,0.95)' }]} pointerEvents="none">
             <Text
+              key={toast.id}
               accessibilityLabel={toast.msg}
               accessibilityRole={toast.kind === 'err' ? 'alert' : undefined}
               accessibilityLiveRegion={toast.kind === 'err' ? 'assertive' : 'polite'}

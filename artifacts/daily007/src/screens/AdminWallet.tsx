@@ -25,7 +25,10 @@ export default function AdminWallet() {
       setCoinToMoneyRate(Number(config.coinToMoneyRate) > 0 ? Number(config.coinToMoneyRate) : 1);
       setUsers(u ?? []);
       setTxns(t ?? []);
-    } catch (e) { toast(errMessage(e), 'error'); setUsers([]); setTxns([]); }
+    } catch (e) {
+      toast(`Could not load wallet data: ${errMessage(e)}. Pull down to refresh and retry.`, 'error');
+      setUsers([]); setTxns([]);
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -44,7 +47,15 @@ export default function AdminWallet() {
       await Api.adminAdjustCoins(u.$id, sign * n, sign > 0 ? 'Admin added coins' : 'Admin deducted coins');
       toast(`${sign > 0 ? '+' : '-'}${n} coins for ${u.name}`, 'success');
       load();
-    } catch (e) { toast(errMessage(e), 'error'); }
+    } catch (e) {
+      const action = sign > 0 ? 'add' : 'deduct';
+      const buttonLabel = sign > 0 ? '+ ADD' : '− DEDUCT';
+      toast(
+        `Could not ${action} ${n} coins to ${u.name}: ${errMessage(e)}. ` +
+        `${u.name}'s row remains available. Check the balance, then use ${buttonLabel} for ${u.name} to retry.`,
+        'error',
+      );
+    }
     setBusy(null);
   };
 
@@ -88,8 +99,8 @@ export default function AdminWallet() {
             <Text style={[st.coins, stackUserBalance && { alignSelf: 'flex-start' }]}>{u.coins ?? 0} COINS</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <View style={{ flex: 1 }}><Btn title="+ ADD" onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
-            <View style={{ flex: 1 }}><Btn title="− DEDUCT" kind="ghost" onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
+            <View style={{ flex: 1 }}><Btn title="+ ADD" accessibilityLabel={`Add coins to ${u.name}`} accessibilityHint="If an error is announced, check the balance before trying again." onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
+            <View style={{ flex: 1 }}><Btn title="− DEDUCT" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="If an error is announced, check the balance before trying again." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
           </View>
         </Card>
       ))}

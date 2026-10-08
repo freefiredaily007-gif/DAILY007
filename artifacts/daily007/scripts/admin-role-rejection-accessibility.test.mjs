@@ -135,13 +135,17 @@ test('a failed refresh after last Full Admin rejection keeps the role unchanged'
   );
   const refreshIndex = rejectedRoleBranch.indexOf('setUsers((await Api.adminUsers()) ?? []);');
   const toastIndex = rejectedRoleBranch.indexOf(
-    "toast('At least one Full Admin must remain. This account was not changed.', 'error');",
+    '`Could not restrict Full Admin access for ${u.name}. At least one Full Admin must remain, so no change was made. `',
   );
   assert.ok(refreshIndex >= 0, 'The user list must refresh after the rejected role change.');
   assert.ok(toastIndex > refreshIndex, 'The rejection announcement follows the user-list refresh.');
   assert.match(
     rejectedRoleBranch,
-    /toast\(\s*`At least one Full Admin must remain\. This account was not changed\. User list refresh failed: \$\{errMessage\(refreshError\)\}`,\s*'error',\s*\)/,
+    /The user row remains available\. Refresh failed: \$\{errMessage\(refreshError\)\}\./,
+  );
+  assert.match(
+    rejectedRoleBranch,
+    /Could not restrict Full Admin access for \$\{u\.name\}\. At least one Full Admin must remain, so no change was made\./,
   );
   assert.match(loadBranch, /setUsers\(u \?\? \[\]\)/);
   assert.match(

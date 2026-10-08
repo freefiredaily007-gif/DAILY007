@@ -129,7 +129,7 @@ export default function AdminRegs() {
     finally { setExportBusy(false); }
   };
 
-  const act = async (id: string, action: 'approve' | 'reject') => {
+  const act = async (id: string, action: 'approve' | 'reject', playerName: string) => {
     if (busyId) return;
     setErr(''); setOkMsg(''); setBusyId(id);
     try {
@@ -138,11 +138,17 @@ export default function AdminRegs() {
       setTimeout(() => setOkMsg(''), 2500);
       try { await load(); }
       catch (e: any) { setErr(`Could not refresh registrations: ${apiError(e)}`); }
-    } catch (e: any) { setErr(apiError(e)); }
+    } catch (e: any) {
+      const actionLabel = action === 'approve' ? 'APPROVE' : 'REJECT';
+      setErr(
+        `Could not ${action} registration for ${playerName}: ${apiError(e)}. ` +
+        `The registration remains in this list. Check its current status, then activate ${actionLabel} for ${playerName} to retry.`,
+      );
+    }
     finally { setBusyId(null); }
   };
 
-  const del = async (id: string) => {
+  const del = async (id: string, playerName: string) => {
     if (busyId) return;
     setErr(''); setOkMsg(''); setBusyId(id);
     try {
@@ -151,7 +157,12 @@ export default function AdminRegs() {
       setTimeout(() => setOkMsg(''), 2500);
       try { await load(); }
       catch (e: any) { setErr(`Could not refresh registrations: ${apiError(e)}`); }
-    } catch (e: any) { setErr(apiError(e)); }
+    } catch (e: any) {
+      setErr(
+        `Could not delete registration for ${playerName}: ${apiError(e)}. ` +
+        `The registration remains in this list. Check its current status, then activate DELETE for ${playerName} to retry.`,
+      );
+    }
     finally { setBusyId(null); }
   };
 
@@ -195,7 +206,7 @@ export default function AdminRegs() {
           {Platform.OS !== 'web' && <Text style={st.sub}>Creates a CSV file in app cache, then opens the system share/save sheet.</Text>}
         </Card>
       )}
-      <Msg kind="err" text={err} />
+      <Msg kind="err" text={err} accessibilityLabel={err || undefined} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} />
       {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
         <Card key={r.id} style={{ marginBottom: 10 }}>
@@ -209,12 +220,12 @@ export default function AdminRegs() {
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             {tab === 'pending' && (
               <>
-                <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'approve')} /></View>
-                <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => act(r.id, 'reject')} /></View>
+                <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Approve registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'approve', r.playerName)} /></View>
+                <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Reject registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'reject', r.playerName)} /></View>
               </>
             )}
             {tab !== 'pending' && (
-              <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} onPress={() => del(r.id)} /></View>
+              <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Delete registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => del(r.id, r.playerName)} /></View>
             )}
           </View>
         </Card>

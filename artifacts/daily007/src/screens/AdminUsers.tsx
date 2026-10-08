@@ -23,9 +23,18 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       const [u, r] = await Promise.all([Api.adminUsers(), Api.adminRegistrations()]);
       setUsers(u ?? []);
       setRegs(r ?? []);
-    } catch (e) { toast(errMessage(e), 'error'); setUsers([]); setRegs([]); }
+    } catch (e) {
+      toast(`Could not load users and registrations: ${errMessage(e)}. Pull down to refresh and retry.`, 'error');
+      setUsers([]); setRegs([]);
+    }
   };
   useEffect(() => { load(); }, []);
+
+  const roleChangeAccessibilityLabel = (u: any) => u.role === 'tournament_admin'
+    ? `Remove Tournament Admin access from ${u.name}`
+    : u.role === 'admin'
+      ? `Restrict Full Admin access for ${u.name}`
+      : `Make ${u.name} a Tournament Admin`;
 
   const toggleBlock = (u: any) => {
     const block = u.status !== 'blocked';
@@ -34,7 +43,15 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       { text: block ? 'Block' : 'Unblock', style: 'destructive', onPress: async () => {
         setBusy(u.$id);
         try { await Api.adminSetUser(u.$id, { status: block ? 'blocked' : 'active' }); toast(`${u.name} ${block ? 'blocked' : 'unblocked'}`, 'success'); load(); }
-        catch (e) { toast(errMessage(e), 'error'); }
+        catch (e) {
+          const action = block ? 'block' : 'unblock';
+          const buttonLabel = block ? 'BLOCK' : 'UNBLOCK';
+          toast(
+            `Could not ${action} ${u.name}: ${errMessage(e)}. ` +
+            `${u.name}'s row remains available. Check the displayed status, then use ${buttonLabel} for ${u.name} to retry if needed.`,
+            'error',
+          );
+        }
         setBusy(null);
       } },
     ]);
@@ -46,7 +63,15 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       if (!n || n <= 0) return;
       setBusy(u.$id);
       try { await Api.adminAdjustCoins(u.$id, sign * n, sign > 0 ? 'Admin added coins' : 'Admin deducted coins'); toast('Coins updated', 'success'); load(); }
-      catch (e) { toast(errMessage(e), 'error'); }
+      catch (e) {
+        const action = sign > 0 ? 'add' : 'deduct';
+        const buttonLabel = sign > 0 ? '+ COINS' : '− COINS';
+        toast(
+          `Could not ${action} ${n} coins ${sign > 0 ? 'to' : 'from'} ${u.name}: ${errMessage(e)}. ` +
+          `${u.name}'s row remains available. Check the balance, then use ${buttonLabel} for ${u.name} to retry.`,
+          'error',
+        );
+      }
       setBusy(null);
     });
   };
@@ -60,6 +85,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     if (!u || busy === u.$id) return;
     const role = u.role === 'tournament_admin' ? 'user' : 'tournament_admin';
     const granting = role === 'tournament_admin';
+    const roleActionLabel = roleChangeAccessibilityLabel(u);
     setRoleChangeTarget(null);
     setBusy(u.$id);
     try {
@@ -73,14 +99,23 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
           setUsers((await Api.adminUsers()) ?? []);
         } catch (refreshError) {
           toast(
-            `At least one Full Admin must remain. This account was not changed. User list refresh failed: ${errMessage(refreshError)}`,
+            `Could not restrict Full Admin access for ${u.name}. At least one Full Admin must remain, so no change was made. ` +
+            `The user row remains available. Refresh failed: ${errMessage(refreshError)}.`,
             'error',
           );
           return;
         }
-        toast('At least one Full Admin must remain. This account was not changed.', 'error');
+        toast(
+          `Could not restrict Full Admin access for ${u.name}. At least one Full Admin must remain, so no change was made. ` +
+          `Try again only after another Full Admin is in place.`,
+          'error',
+        );
       } else {
-        toast(message, 'error');
+        toast(
+          `${roleActionLabel} failed: ${message}. The user row remains available. ` +
+          `Check the displayed role, then activate ${roleActionLabel} again if the change is still needed.`,
+          'error',
+        );
       }
     } finally {
       setBusy(null);
@@ -168,9 +203,9 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
               <Text style={st.stat}>✓ {approved} approved</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={{ flex: 1 }}><Btn title="+ COINS" onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
-              <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
-              <View style={{ flex: 1 }}><Btn title={blocked ? 'UNBLOCK' : 'BLOCK'} kind="danger" onPress={() => toggleBlock(u)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title="+ COINS" accessibilityLabel={`Add coins to ${u.name}`} onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title={blocked ? 'UNBLOCK' : 'BLOCK'} kind="danger" accessibilityLabel={`${blocked ? 'Unblock' : 'Block'} ${u.name}`} accessibilityHint="If an error is announced, check the displayed status before trying again." onPress={() => toggleBlock(u)} loading={busy === u.$id} /></View>
             </View>
             {u.$id !== currentUserId && (
               <View style={{ marginTop: 8 }}>
@@ -178,6 +213,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
                   title={u.role === 'tournament_admin' ? 'REMOVE TOURNAMENT ADMIN' : u.role === 'admin' ? 'RESTRICT TOURNAMENT ACCESS' : 'MAKE TOURNAMENT ADMIN'}
                   small
                   kind={u.role === 'tournament_admin' ? 'danger' : 'ghost'}
+                  accessibilityLabel={roleChangeAccessibilityLabel(u)}
+                  accessibilityHint="If an error is announced, check the displayed role before trying again."
                   onPress={() => setTournamentAdmin(u)}
                   loading={busy === u.$id}
                   testID={`change-user-role-${u.$id}`}

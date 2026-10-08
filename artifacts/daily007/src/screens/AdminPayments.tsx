@@ -15,7 +15,7 @@ export default function AdminPayments() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
-  const [rejectTarget, setRejectTarget] = useState<{ id: string; kind: string } | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; kind: string; userName: string } | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
   const [proofUrls, setProofUrls] = useState<Record<string, string>>({});
   const [proofLoading, setProofLoading] = useState<string | null>(null);
@@ -43,9 +43,9 @@ export default function AdminPayments() {
 
   const list = (all ?? []).filter((x) => x.status === tab);
 
-  const act = async (id: string, kind: string, action: 'approve' | 'reject') => {
+  const act = async (id: string, kind: string, action: 'approve' | 'reject', userName: string) => {
     if (action === 'reject') {
-      setRejectTarget({ id, kind });
+      setRejectTarget({ id, kind, userName });
       return;
     }
     setErr(''); setOkMsg(''); setBusyId(id);
@@ -57,7 +57,14 @@ export default function AdminPayments() {
         : (kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected'));
       await load();
       setTimeout(() => setOkMsg(''), 2500);
-    } catch (e: any) { setErr(apiError(e)); }
+    } catch (e: any) {
+      const requestType = kind === 'withdrawal' ? 'withdrawal' : 'deposit';
+      const actionLabel = action === 'approve' ? 'APPROVE' : 'REJECT';
+      setErr(
+        `Could not ${action} the ${requestType} request for ${userName || 'this player'}: ${apiError(e)}. ` +
+        `The request remains in this list. Check its status, then activate ${actionLabel} for ${userName || 'this player'} to retry.`,
+      );
+    }
     finally { setBusyId(null); }
   };
 
@@ -74,7 +81,11 @@ export default function AdminPayments() {
       await load();
     } catch (e: any) {
       setRejectTarget(null);
-      setErr(apiError(e));
+      const requestType = target.kind === 'withdrawal' ? 'withdrawal' : 'deposit';
+      setErr(
+        `Could not reject the ${requestType} request for ${target.userName || 'this player'}: ${apiError(e)}. ` +
+        `The request remains in this list. Check its status, then activate REJECT for ${target.userName || 'this player'} to retry.`,
+      );
     }
     finally { setRejectBusy(false); }
   };
@@ -84,7 +95,13 @@ export default function AdminPayments() {
     try {
       const result = await Api.adminPaymentProofUrl(id);
       setProofUrls((current) => ({ ...current, [id]: String(result?.url ?? '') }));
-    } catch (e: any) { setErr(apiError(e)); }
+    } catch (e: any) {
+      const request = all?.find((item) => item.kind === 'payment' && item.id === id);
+      setErr(
+        `Could not load the payment screenshot for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
+        `The request remains in this list; activate VIEW PAYMENT SCREENSHOT to retry.`,
+      );
+    }
     finally { setProofLoading(null); }
   };
 
@@ -97,8 +114,12 @@ export default function AdminPayments() {
       setOkMsg('Manual payout recorded');
       await load();
     } catch (e: any) {
+      const request = all?.find((item) => item.kind === 'withdrawal' && item.id === payoutTarget);
       setPayoutTarget(null);
-      setErr(apiError(e));
+      setErr(
+        `Could not record the manual payout for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
+        `The withdrawal remains in this list. Check its payout status before activating RECORD MANUAL PAYOUT SENT again.`,
+      );
     }
     finally { setPayoutBusy(false); }
   };
@@ -110,7 +131,7 @@ export default function AdminPayments() {
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {TABS.map((t) => <Chip key={t} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => setTab(t)} />)}
       </View>
-      <Msg kind="err" text={err} accessibilityLiveRegion="assertive" />
+      <Msg kind="err" text={err} accessibilityLabel={err || undefined} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} accessibilityLiveRegion="polite" />
       <Msg
         kind="ok"
@@ -160,16 +181,16 @@ export default function AdminPayments() {
             <View style={{ marginTop: 8 }}>
               {proofUrls[p.id]
                 ? <Image source={{ uri: proofUrls[p.id] }} resizeMode="contain" style={st.proof} />
-                : <Btn title="VIEW PAYMENT SCREENSHOT" small kind="ghost" loading={proofLoading === p.id} onPress={() => showProof(p.id)} />}
+                : <Btn title="VIEW PAYMENT SCREENSHOT" small kind="ghost" loading={proofLoading === p.id} accessibilityLabel={`View payment screenshot for ${p.userName || 'player'}`} onPress={() => showProof(p.id)} />}
             </View>
           )}
           {p.kind === 'withdrawal' && p.status === 'approved' && p.payoutStatus === 'manual_payout_required' && (
-            <Btn title="RECORD MANUAL PAYOUT SENT" small kind="gold" loading={payoutBusy && payoutTarget === p.id} onPress={() => setPayoutTarget(p.id)} style={{ marginTop: 10 }} />
+            <Btn title="RECORD MANUAL PAYOUT SENT" small kind="gold" loading={payoutBusy && payoutTarget === p.id} accessibilityLabel={`Record manual payout sent for ${p.userName || 'player'}`} accessibilityHint="Check payout status before retrying if an error is announced." onPress={() => setPayoutTarget(p.id)} style={{ marginTop: 10 }} />
           )}
           {tab === 'pending' && (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'approve')} /></View>
-              <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === p.id} onPress={() => act(p.id, p.kind, 'reject')} /></View>
+               <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === p.id} accessibilityLabel={`Approve ${p.kind === 'withdrawal' ? 'withdrawal' : 'deposit'} request for ${p.userName || 'player'}`} accessibilityHint="If an error is announced, check this request's status before trying again." onPress={() => act(p.id, p.kind, 'approve', p.userName)} /></View>
+               <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === p.id} accessibilityLabel={`Reject ${p.kind === 'withdrawal' ? 'withdrawal' : 'deposit'} request for ${p.userName || 'player'}`} accessibilityHint="If an error is announced, check this request's status before trying again." onPress={() => act(p.id, p.kind, 'reject', p.userName)} /></View>
             </View>
           )}
         </Card>
