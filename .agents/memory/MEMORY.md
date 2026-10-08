@@ -69,5 +69,6 @@
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — QueryObserver disables polling in Node server mode; client tests need a browser-like global before import.
 - [Daily007 paired Home refresh lock](daily007-home-poll-lock.md) — Keep tournament and registration reads in-flight until both settle, even if one fails early.
+- [Daily007 Player pull-to-refresh](daily007-player-pull-refresh.md) — native Android pull kept the last good card after failure and replaced it on success; browser test covers callback only.
 - [Scheduled-start boundary tests](daily007-scheduled-start-boundary-tests.md) — run month/year fixtures separately; mocked clock jumps do not wake long real timers.
 - [Task concurrency](task-concurrency.md) — work on one assigned task at a time; keep other queued tasks unstarted.
