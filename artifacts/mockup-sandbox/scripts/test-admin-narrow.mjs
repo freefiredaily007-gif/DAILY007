@@ -224,6 +224,7 @@ async function swipeHomeCarousel(direction, description) {
       top: rect.top,
       width: carousel.clientWidth,
       height: rect.height,
+      viewportHeight: window.innerHeight,
     };
   })()`);
   assert(bounds?.width > 0 && bounds.height > 0, `Could not locate the Home carousel for ${description}.`);
@@ -231,7 +232,12 @@ async function swipeHomeCarousel(direction, description) {
   const distance = Math.round(bounds.width * 0.64);
   const startX = Math.round(bounds.left + bounds.width * (direction === "left" ? 0.82 : 0.18));
   const endX = startX + (direction === "left" ? -distance : distance);
-  const y = Math.round(bounds.top + bounds.height / 2);
+  const y = Math.round(
+    Math.max(
+      bounds.top + 10,
+      Math.min(bounds.top + bounds.height / 2, bounds.viewportHeight - 10),
+    ),
+  );
   const touchPoint = (x) => ({ id: 1, x, y, radiusX: 4, radiusY: 4, force: 1 });
   await cdp("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -4380,6 +4386,183 @@ async function checkHomeCarouselTalkBackNavigation(cards, width, description) {
   await evaluate("window.__daily007HomeCarouselTest.clearAccessibilityAnnouncements()");
 }
 
+async function checkHomeCarouselLargeText(width, fontScale) {
+  const names = [
+    "Daily007 Grand Championship: Clash Squad Finals for the International Winter Festival",
+    "Daily007 International Champions Cup: Battle Royale Solo Qualifier Round",
+    "Daily007 Weekend Custom Showdown: Team Challenge for the Global Player Championship",
+  ];
+  const cards = [
+    { id: "starting-soon", name: names[0] },
+    { id: "later-one", name: names[1] },
+    { id: "later-two", name: names[2] },
+  ];
+  const description = `Long-name Home carousel at ${width}px and ${fontScale}× Android text scale`;
+
+  await setViewport(width, fontScale, "home-carousel-preview.html?long-names=1");
+  assert(
+    await evaluate(`window.__daily007LargeTextScale === ${fontScale}`),
+    `${description} did not apply its requested Android text scale.`,
+  );
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+    `${description} to load all three long-name cards`,
+  );
+  await assertHomeCarouselAccessibility(cards, 0, `${description} initial state`);
+
+  const layout = await evaluate(`(() => {
+    const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
+    if (!carousel) return null;
+    const viewport = carousel.getBoundingClientRect();
+    const cards = [...carousel.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    return {
+      viewport: { left: viewport.left, right: viewport.right, width: carousel.clientWidth },
+      scrollLeft: carousel.scrollLeft,
+      cards: cards.map((card) => {
+        const bounds = card.getBoundingClientRect();
+        const page = card.parentElement?.getBoundingClientRect();
+        const title = card.querySelector('[data-testid^="home-upcoming-title-"]');
+        const titleWordRects = [];
+        if (title) {
+          const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+          const wordRange = document.createRange();
+          let textNode;
+          while ((textNode = walker.nextNode())) {
+            for (const match of textNode.textContent.matchAll(/\\S+/g)) {
+              wordRange.setStart(textNode, match.index);
+              wordRange.setEnd(textNode, match.index + match[0].length);
+              titleWordRects.push(...[...wordRange.getClientRects()].map((word) => ({
+                left: word.left,
+                right: word.right,
+                top: word.top,
+                bottom: word.bottom,
+                width: word.width,
+                height: word.height,
+              })));
+            }
+          }
+        }
+        const titleBounds = title?.getBoundingClientRect();
+        const titleScrollableAncestor = (() => {
+          let ancestor = title?.parentElement;
+          while (ancestor && ancestor !== document.body) {
+            const overflowY = getComputedStyle(ancestor).overflowY;
+            if (
+              (overflowY === 'auto' || overflowY === 'scroll') &&
+              ancestor.scrollHeight > ancestor.clientHeight + 1
+            ) {
+              const ancestorBounds = ancestor.getBoundingClientRect();
+              return {
+                canScrollToTitle: titleBounds
+                  ? titleBounds.bottom - ancestorBounds.top <=
+                      ancestor.clientHeight + ancestor.scrollHeight - ancestor.clientHeight + 1
+                  : false,
+              };
+            }
+            ancestor = ancestor.parentElement;
+          }
+          return null;
+        })();
+        return {
+          id: card.getAttribute('data-testid')?.replace('home-upcoming-card-', ''),
+          label: card.getAttribute('aria-label'),
+          titleText: title?.textContent?.trim() ?? null,
+          titleBounds: titleBounds
+            ? { left: titleBounds.left, right: titleBounds.right, top: titleBounds.top, bottom: titleBounds.bottom }
+            : null,
+          titleWordRects,
+          titleTextBox: title
+            ? {
+                clientWidth: title.clientWidth,
+                scrollWidth: title.scrollWidth,
+                clientHeight: title.clientHeight,
+                scrollHeight: title.scrollHeight,
+              }
+            : null,
+          titleScrollableAncestor,
+          card: {
+            left: bounds.left,
+            right: bounds.right,
+            top: bounds.top,
+            bottom: bounds.bottom,
+            width: bounds.width,
+            height: bounds.height,
+            clientWidth: card.clientWidth,
+            scrollWidth: card.scrollWidth,
+            clientHeight: card.clientHeight,
+            scrollHeight: card.scrollHeight,
+          },
+          page: page
+            ? { left: page.left, right: page.right, width: page.width }
+            : null,
+        };
+      }),
+    };
+  })()`);
+
+  assert(layout, `${description}: the carousel layout is missing.`);
+  assert(
+    layout.viewport.width === width && layout.scrollLeft < 1,
+    `${description}: expected the first page at ${width}px, received ${JSON.stringify(layout.viewport)} with scrollLeft ${layout.scrollLeft}.`,
+  );
+  assert(
+    layout.cards.length === cards.length,
+    `${description}: expected ${cards.length} cards, received ${layout.cards.length}.`,
+  );
+  for (const [index, expected] of cards.entries()) {
+    const actual = layout.cards[index];
+    assert(
+      actual.id === expected.id && actual.titleText === expected.name,
+      `${description}: ${expected.id} lost its complete visible title: ${JSON.stringify(actual)}.`,
+    );
+    assert(
+      actual.page?.width === width &&
+        actual.card.left >= actual.page.left - 1 &&
+        actual.card.right <= actual.page.right + 1,
+      `${description}: ${expected.id} escapes its carousel page: ${JSON.stringify(actual)}.`,
+    );
+    assert(
+      actual.card.scrollWidth <= actual.card.clientWidth + 2 &&
+        actual.card.scrollHeight <= actual.card.clientHeight + 2,
+      `${description}: ${expected.id} clips or overflows content: ${JSON.stringify(actual.card)}.`,
+    );
+    assert(
+      actual.titleWordRects.length >= expected.name.split(/\\s+/).length &&
+        actual.titleBounds.left >= actual.card.left - 1 &&
+        actual.titleBounds.right <= actual.card.right + 1 &&
+        actual.titleBounds.top >= actual.card.top - 1 &&
+        actual.titleBounds.bottom <= actual.card.bottom + 1 &&
+        actual.titleTextBox.scrollWidth <= actual.titleTextBox.clientWidth + 2 &&
+        actual.titleTextBox.scrollHeight <= actual.titleTextBox.clientHeight + 2 &&
+        actual.titleWordRects.every((word) =>
+          word.width > 0 &&
+          word.height > 0 &&
+          word.left >= actual.card.left - 1 &&
+          word.right <= actual.card.right + 1 &&
+          word.top >= actual.card.top - 1 &&
+          word.bottom <= actual.card.bottom + 1
+        ),
+      `${description}: ${expected.id} title is hidden or escapes the card bounds: ${JSON.stringify(actual)}.`,
+    );
+    assert(
+      actual.titleScrollableAncestor?.canScrollToTitle,
+      `${description}: ${expected.id} title cannot be brought into the visible Home scroll area: ${JSON.stringify(actual.titleScrollableAncestor)}.`,
+    );
+    if (index > 0) {
+      const previous = layout.cards[index - 1];
+      assert(
+        previous.card.right <= actual.card.left + 1,
+        `${description}: ${previous.id} overlaps or hides ${actual.id}: ${JSON.stringify([previous.card, actual.card])}.`,
+      );
+    }
+  }
+
+  await checkHomeCarouselTalkBackNavigation(cards, width, description);
+  console.log(
+    `PASS — Home carousel long names, positions, single-stop TalkBack labels, and non-overlapping card bounds at ${width}px and ${fontScale}× text.`,
+  );
+}
+
 async function waitForHomeCarouselCard(id, pageIndex, width, description) {
   const selector = `[data-testid="home-upcoming-card-${id}"]`;
   try {
@@ -6506,6 +6689,14 @@ try {
         assert(
           newBrowserErrors.length === 0,
           `New browser errors during Home carousel checks at ${width}px: ${newBrowserErrors.join(" | ")}`,
+        );
+      }
+      for (const [width, fontScale] of [[320, 1.5], [320, 2], [390, 1.5], [390, 2]]) {
+        await checkHomeCarouselLargeText(width, fontScale);
+        const newBrowserErrors = browserErrors.filter((error) => !homePreviewErrorBaseline.has(error));
+        assert(
+          newBrowserErrors.length === 0,
+          `New browser errors during Home carousel large-text checks at ${width}px and ${fontScale}×: ${newBrowserErrors.join(" | ")}`,
         );
       }
       console.log("PASS — Home carousel manual swipes, auto-advance, matching detail taps, scheduled-start changes, and registration-aware refreshes at 320px and 430px.");

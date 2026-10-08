@@ -461,16 +461,16 @@ export default function Home() {
                       </Text>
                     </View>
                   </View>
-                  {showFormatArt ? (
+                  {showFormatArt && !largeModeCard ? (
                     <View style={s.mFormatBottomRow}>
-                      <Text style={s.mFormatTitle}>{t.name ?? 'Match'}</Text>
+                      <Text testID={`home-upcoming-title-${t.id}`} style={s.mFormatTitle}>{t.name ?? 'Match'}</Text>
                       <View style={s.mFormatBadge}>
                         <Text style={s.mFormatBadgeT}>{formatPresentation.label} · {formatPresentation.matchup}</Text>
                       </View>
                     </View>
-                  ) : (
-                    <Text style={s.mTitleOnImg}>{t.name ?? 'Match'}</Text>
-                  )}
+                  ) : !showFormatArt && !largeModeCard ? (
+                    <Text testID={`home-upcoming-title-${t.id}`} style={s.mTitleOnImg}>{t.name ?? 'Match'}</Text>
+                  ) : null}
                 </>
               )}
             </View>
@@ -479,9 +479,19 @@ export default function Home() {
                 <View style={s.mPosterHeader}>
                   <View style={{ flex: 1, marginRight: 8 }}>
                     <Text style={s.mMode}>BATTLE ROYALE • {String(t.teamType ?? 'SOLO').toUpperCase()}</Text>
-                    <Text style={s.mTitle}>{t.name ?? 'Match'}</Text>
+                    <Text testID={`home-upcoming-title-${t.id}`} style={s.mTitle}>{t.name ?? 'Match'}</Text>
                   </View>
                   {ongoing ? <Pulse><Badge text="● ONGOING" color={C.red} /></Pulse> : <Badge text={stt.key} color={stt.color} />}
+                </View>
+              )}
+              {largeModeCard && !showBattleRoyalePoster && (
+                <View style={s.mLargeTitleBlock}>
+                  <Text testID={`home-upcoming-title-${t.id}`} style={s.mTitle}>{t.name ?? 'Match'}</Text>
+                  {showFormatArt && (
+                    <View style={s.mFormatBadge}>
+                      <Text style={s.mFormatBadgeT}>{formatPresentation.label} · {formatPresentation.matchup}</Text>
+                    </View>
+                  )}
                 </View>
               )}
               <Text style={s.mSub}>{matchMetaDate} • <Text style={s.mTime}>{fmtTime12(t.time)} IST</Text></Text>
@@ -705,6 +715,7 @@ const s = StyleSheet.create({
   mTitleOnImg: { position: 'absolute', bottom: 8, left: 10, right: 10, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
   mFormatBottomRow: { position: 'absolute', bottom: 8, left: 10, right: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 8 },
   mFormatTitle: { flex: 1, minWidth: 0, color: '#fff', fontWeight: '900', fontSize: 15, textShadowColor: '#000', textShadowRadius: 6 },
+  mLargeTitleBlock: { alignItems: 'flex-start', gap: 8, marginBottom: 8 },
   mFormatBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, backgroundColor: C.gold },
   mFormatBadgeT: { color: C.bg, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
   joinBtn: { marginTop: 10, backgroundColor: C.neon, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },

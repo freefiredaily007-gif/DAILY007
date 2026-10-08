@@ -23,6 +23,7 @@ let fakeScreenReaderEnabled = false;
 const previewParams = new URLSearchParams(window.location.search);
 const adminTournamentHomeRefreshPreview = previewParams.get("admin-tournament-home-refresh") === "1";
 const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
+const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const requestedScreen = previewParams.get("screen") ?? "Home";
 const scheduledStartMs = dateSurfacePreview
@@ -97,9 +98,17 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   const tournament = (id, name, startsAt) => ({
     id,
     name,
-    mode: "Battle Royale",
+    mode: id === "starting-soon" && longHomeCardNamesPreview
+      ? "Clash Squad"
+      : id === "later-two" && longHomeCardNamesPreview
+        ? "Custom"
+        : "Battle Royale",
     teamType: "Solo",
-    gameMode: "battle_royale",
+    gameMode: id === "starting-soon" && longHomeCardNamesPreview
+      ? "clash_squad"
+      : id === "later-two" && longHomeCardNamesPreview
+        ? "custom"
+        : "battle_royale",
     date: asIstTimestamp(startsAt).slice(0, 10),
     time: istTime(startsAt),
     startsAt: asIstTimestamp(startsAt),
@@ -116,9 +125,27 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   apiMocks.previewTournaments.splice(
     0,
     apiMocks.previewTournaments.length,
-    tournament("starting-soon", "Starting at IST", scheduledStartMs),
-    tournament("later-one", "Later Tournament One", scheduledStartMs + 60 * 60 * 1000),
-    tournament("later-two", "Later Tournament Two", scheduledStartMs + 2 * 60 * 60 * 1000),
+    tournament(
+      "starting-soon",
+      longHomeCardNamesPreview
+        ? "Daily007 Grand Championship: Clash Squad Finals for the International Winter Festival"
+        : "Starting at IST",
+      scheduledStartMs,
+    ),
+    tournament(
+      "later-one",
+      longHomeCardNamesPreview
+        ? "Daily007 International Champions Cup: Battle Royale Solo Qualifier Round"
+        : "Later Tournament One",
+      scheduledStartMs + 60 * 60 * 1000,
+    ),
+    tournament(
+      "later-two",
+      longHomeCardNamesPreview
+        ? "Daily007 Weekend Custom Showdown: Team Challenge for the Global Player Championship"
+        : "Later Tournament Two",
+      scheduledStartMs + 2 * 60 * 60 * 1000,
+    ),
   );
   apiMocks.configureHomeCarouselRegistrationPreview();
 

@@ -334,6 +334,7 @@ let playerLargestTextPreview = false;
 let istDateSurfacePreview = false;
 let myRegistrationReadCount = 0;
 let myRegistrationPreview: any[] | null = null;
+let homeCarouselRegistrationPreview = false;
 let deferredHomeRegistrationRead: {
   promise: Promise<any[]>;
   resolve: (registrations: any[]) => void;
@@ -597,6 +598,7 @@ export const Api = {
     const tournaments = istDateSurfacePreview
       ? [istDateSurfaceTournament]
       : isAdminLargestTextPreview()
+        && !homeCarouselRegistrationPreview
         ? [...largestTextTournaments, ...createdPreviewTournaments]
         : playerLargestTextPreview
           ? largestTextTournaments
@@ -827,6 +829,7 @@ export function getTournamentReadCount() {
 }
 
 export function configureHomeCarouselRegistrationPreview(registrations: any[] = []) {
+  homeCarouselRegistrationPreview = true;
   configureMyRegistrationPreview(registrations);
 }
 
