@@ -869,9 +869,61 @@ try {
   assert.equal(failedView, false, "A failed link must not show a successful connection.");
   await assertWalletBalance("after the failed Google-link exchange");
 
+  await openProfileScenario("profile-link-storage-failure");
+  const beforeLinkStorageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(beforeLinkStorageFailure, "before the Google-link session-storage failure");
+  const storageMetricsBeforeLink = beforeLinkStorageFailure.storageWriteMetrics;
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.rejectNextSessionWrite()"),
+    true,
+    "The isolated storage mock should reject the next session write.",
+  );
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "Connect Google before rejecting the completed link's session write",
+  );
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the recoverable Profile message after Google linking succeeds but session storage rejects the write",
+  );
+  const linkStorageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(linkStorageFailure, "after the Google-link session-storage failure");
+  assert.equal(
+    linkStorageFailure.storageWriteMetrics.sessionWriteAttempts,
+    storageMetricsBeforeLink.sessionWriteAttempts + 1,
+    "The successful link should attempt exactly one refreshed-session write.",
+  );
+  assert.equal(
+    linkStorageFailure.storageWriteMetrics.rejectedSessionWrites,
+    storageMetricsBeforeLink.rejectedSessionWrites + 1,
+    "AsyncStorage should reject the refreshed-session write.",
+  );
+  const completedLink = linkStorageFailure.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(completedLink.length, 1, "Profile should make one Google-link exchange.");
+  assert.equal(completedLink[0].status, 200, "The server-side Google link should complete before storage rejects.");
+  assert.equal(completedLink[0].authorization, "Bearer mock-clerk-verified-token");
+  assert.equal(completedLink[0].daily007Token, "mock-password-account-token");
+  assert.ok(linkStorageFailure.clerk.events.includes("get-token"));
+
+  await assertWalletBalance("after Google linking succeeds but session storage rejects the write");
+  const walletAfterLinkStorageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletAfterLinkStorageFailure, "after opening Wallet following the failed session write");
+  const passwordWalletRequests = walletAfterLinkStorageFailure.calls.filter(
+    (call) => call.method === "GET" && call.path === "/wallet/transactions",
+  );
+  assert.ok(passwordWalletRequests.length > 0, "Wallet should remain accessible after the failed local write.");
+  assert.ok(
+    passwordWalletRequests.every(
+      (call) => call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Wallet requests must keep using the original password-account bearer token.",
+  );
+
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google signup API/storage retries, password signup session-storage recovery, and Profile Google linking success/cancel/error scenarios.",
+    "PASS — Google signup API/storage retries, password signup session-storage recovery, and Profile Google-link success/cancel/error/storage-failure scenarios.",
   );
 } finally {
   socket?.close();

@@ -220,6 +220,10 @@ window.__daily007GoogleSignupWalletTest = {
     resolve();
     return true;
   },
+  rejectNextSessionWrite() {
+    storage.failNextSessionWrite();
+    return true;
+  },
 };
 
 createRoot(document.getElementById("root")).render(<App />);

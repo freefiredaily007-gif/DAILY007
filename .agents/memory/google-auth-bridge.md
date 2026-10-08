@@ -66,3 +66,9 @@ On 2026-10-03, the user asked to remove the Full Admin Recovery UI and the login
 **Why:** The user asked for automated coverage that keeps logout enforced; a provider sign-out problem must not leave the Daily007 wallet session active.
 
 **How to apply:** Always clear the stored Daily007 token and app user state after attempting Clerk sign-out. Report a Clerk failure separately, and keep protected API access dependent on a valid Daily007 token.
+
+When the server accepts a Google link but the returned Daily007 session cannot be saved locally, retain the active password session and its stored token; report the device-storage failure without clearing or replacing that session.
+
+**Why:** The provider link can commit remotely before AsyncStorage rejects the client-side write, so treating the persistence error as an expired account session can strand an otherwise usable player.
+
+**How to apply:** Keep session-persistence failures distinct from API authorization failures and continue protected calls with the original password-account bearer token.
