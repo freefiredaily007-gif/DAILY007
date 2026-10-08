@@ -3264,6 +3264,69 @@ async function assertClockImmediatelyBeforeIstBoundary(screenName, scheduleInfo,
   );
 }
 
+async function assertAdminScheduledStartState({
+  selectedTab,
+  counts,
+  tournamentNames,
+  actions,
+  nameCandidates,
+}, description) {
+  const state = await evaluate(`(() => {
+    const statuses = ["upcoming", "ongoing", "completed"];
+    const tabs = Object.fromEntries(
+      statuses.map((status) => [
+        status,
+        document.querySelector('[data-testid="admin-tournament-tab-' + status + '"]'),
+      ])
+    );
+    const actionIds = [
+      "edit-tournament-resume-boundary",
+      "delete-tournament-resume-boundary",
+      "manage-room-resume-boundary",
+      "cancel-tournament-resume-boundary",
+      "finish-tournament-resume-boundary",
+      "edit-tournament-resume-boundary-later",
+      "delete-tournament-resume-boundary-later",
+      "manage-room-resume-boundary-later",
+      "cancel-tournament-resume-boundary-later",
+      "finish-tournament-resume-boundary-later",
+    ];
+    const pageText = window.__daily007TournamentResume.getVisibleText();
+    return {
+      adminScreenVisible: Boolean(document.querySelector('[data-testid="admin-tournament-status-tabs"]')),
+      selectedTab: statuses.find((status) =>
+        tabs[status] && getComputedStyle(tabs[status]).borderColor === "rgb(255, 61, 61)"
+      ) ?? null,
+      counts: Object.fromEntries(
+        statuses.map((status) => [status, tabs[status]?.getAttribute("aria-label") ?? null])
+      ),
+      tournamentNames: ${JSON.stringify(nameCandidates)}
+        .filter((name) => pageText.includes(name))
+        .sort(),
+      actions: actionIds.filter((id) =>
+        Boolean(document.querySelector('[data-testid="' + id + '"]'))
+      ).sort(),
+    };
+  })()`);
+  assert(state.adminScreenVisible, `${description}: AdminTournaments is no longer visible.`);
+  assert(
+    state.selectedTab === selectedTab,
+    `${description}: expected ${selectedTab} to remain selected, got ${state.selectedTab}.`,
+  );
+  assert(
+    JSON.stringify(state.counts) === JSON.stringify(counts),
+    `${description}: wrong lifecycle tab counts: ${JSON.stringify(state.counts)}.`,
+  );
+  assert(
+    JSON.stringify(state.tournamentNames) === JSON.stringify([...tournamentNames].sort()),
+    `${description}: wrong visible tournament rows: ${JSON.stringify(state.tournamentNames)}.`,
+  );
+  assert(
+    JSON.stringify(state.actions) === JSON.stringify([...actions].sort()),
+    `${description}: wrong available management actions: ${JSON.stringify(state.actions)}.`,
+  );
+}
+
 async function checkTournamentScheduledStart(boundaryIndex) {
   const expected = istRolloverExpectations[boundaryIndex];
   const firstName = expected.name;
@@ -3401,6 +3464,17 @@ async function checkTournamentScheduledStart(boundaryIndex) {
     "document.body.innerText.includes('No ongoing tournaments.')",
     "the Admin Ongoing list to be empty before its scheduled start",
   );
+  await assertAdminScheduledStartState({
+    selectedTab: "ongoing",
+    counts: {
+      upcoming: "Upcoming tournaments, 2",
+      ongoing: "Ongoing tournaments, 0",
+      completed: "Completed tournaments, 0",
+    },
+    tournamentNames: [],
+    actions: [],
+    nameCandidates: [firstName, laterName],
+  }, "before the first Admin scheduled start");
   const visibilityChangesBeforeAdminStarts = await evaluate(
     "window.__daily007TournamentResume.getVisibilityChangeCount()",
   );
@@ -3416,6 +3490,21 @@ async function checkTournamentScheduledStart(boundaryIndex) {
     `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && window.__daily007TournamentResume.getVisibleText().includes('Could not refresh tournaments: Temporary network error')`,
     "the Admin clock to move only the first tournament into Ongoing even when its scheduled refresh fails",
   );
+  await assertAdminScheduledStartState({
+    selectedTab: "ongoing",
+    counts: {
+      upcoming: "Upcoming tournaments, 1",
+      ongoing: "Ongoing tournaments, 1",
+      completed: "Completed tournaments, 0",
+    },
+    tournamentNames: [firstName],
+    actions: [
+      "cancel-tournament-resume-boundary",
+      "manage-room-resume-boundary",
+      "finish-tournament-resume-boundary",
+    ],
+    nameCandidates: [firstName, laterName],
+  }, "after the first Admin scheduled start without leaving the screen");
   const adminFirstAnnouncement = `Tournament ${firstName} is now ongoing.`;
   await waitForCondition(
     `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(adminFirstAnnouncement)}`,
@@ -3452,6 +3541,21 @@ async function checkTournamentScheduledStart(boundaryIndex) {
     `window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)})`,
     "the later Admin tournament to remain Upcoming after the first start",
   );
+  await assertAdminScheduledStartState({
+    selectedTab: "upcoming",
+    counts: {
+      upcoming: "Upcoming tournaments, 1",
+      ongoing: "Ongoing tournaments, 1",
+      completed: "Completed tournaments, 0",
+    },
+    tournamentNames: [laterName],
+    actions: [
+      "edit-tournament-resume-boundary-later",
+      "delete-tournament-resume-boundary-later",
+      "manage-room-resume-boundary-later",
+    ],
+    nameCandidates: [firstName, laterName],
+  }, "after the first-started tournament leaves Upcoming");
   await evaluate("window.__daily007TournamentResume.setClockBeforeSecondStart()");
   const adminBeforeNewYear = await evaluate("window.__daily007TournamentResume.getScheduledStartInfo()");
   await assertClockImmediatelyBeforeIstBoundary("Admin", adminBeforeNewYear, expected, 1);
@@ -3470,6 +3574,24 @@ async function checkTournamentScheduledStart(boundaryIndex) {
     `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && !window.__daily007TournamentResume.getVisibleText().includes('Could not refresh tournaments: Temporary network error')`,
     "the Admin list timer to move the later tournament into Ongoing at its own start",
   );
+  await assertAdminScheduledStartState({
+    selectedTab: "ongoing",
+    counts: {
+      upcoming: "Upcoming tournaments, 0",
+      ongoing: "Ongoing tournaments, 2",
+      completed: "Completed tournaments, 0",
+    },
+    tournamentNames: [firstName, laterName],
+    actions: [
+      "cancel-tournament-resume-boundary",
+      "manage-room-resume-boundary",
+      "finish-tournament-resume-boundary",
+      "cancel-tournament-resume-boundary-later",
+      "manage-room-resume-boundary-later",
+      "finish-tournament-resume-boundary-later",
+    ],
+    nameCandidates: [firstName, laterName],
+  }, "after both Admin scheduled starts");
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeSecondAdminStarts,
     "The second Admin start-time transition must not depend on an app background/resume event.",
