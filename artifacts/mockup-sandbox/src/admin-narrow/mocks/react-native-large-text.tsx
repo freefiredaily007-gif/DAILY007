@@ -47,6 +47,9 @@ export function RefreshControl(props: any) {
       >
         <Native.Text>Pull to refresh</Native.Text>
       </NativeComponents.Pressable>
+      <Native.Text testID="player-refresh-control-pending">
+        {props.refreshing ? "Refreshing" : "Ready"}
+      </Native.Text>
       {props.children}
     </NativeComponents.View>
   );

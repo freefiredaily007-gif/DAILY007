@@ -46,6 +46,7 @@ export default function Tournaments() {
   const hasLoadedList = useRef(false);
   const initialLoadFailed = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
+  const refreshingRequest = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
@@ -185,7 +186,17 @@ export default function Tournaments() {
     completed: 'Completed',
   };
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  const onRefresh = async () => {
+    if (refreshingRequest.current) return;
+    refreshingRequest.current = true;
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      refreshingRequest.current = false;
+      setRefreshing(false);
+    }
+  };
 
   if (loading) return <Loading />;
 

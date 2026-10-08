@@ -2857,11 +2857,30 @@ async function checkTournamentManualRefresh() {
     "window.__daily007TournamentResume.getVisibilityChangeCount()",
   );
   let readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
-  await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
+  await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
   await triggerPlayerManualRefresh();
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRefresh} && document.body.innerText.includes('Could not refresh tournaments: Temporary network error') && document.body.innerText.includes('IST Start Boundary')`,
-    "the failed manual refresh to show an error and preserve the loaded Player card",
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Refreshing'`,
+    "the Player pull-to-refresh request to remain pending",
+  );
+  await triggerPlayerManualRefresh();
+  await triggerPlayerManualRefresh();
+  assert(
+    await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBeforeRefresh + 1,
+    "Repeated Player pulls while refreshing must not send duplicate tournament requests.",
+  );
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"player-refresh-control-pending\"]')?.textContent === 'Refreshing'"),
+    "The Player refresh indicator must remain active while the held request is pending.",
+  );
+
+  const heldReadFailed = await evaluate(
+    "window.__daily007TournamentResume.failDeferredTournamentRead('Held Player refresh failed')",
+  );
+  assert(heldReadFailed, "The test must release the held Player request with a failure.");
+  await waitForCondition(
+    `document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed') && document.body.innerText.includes('IST Start Boundary') && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready'`,
+    "the failed Player refresh to show one error, preserve the loaded card, and stop refreshing",
   );
   await assertText("IST Start Boundary", "the Player tournament after a failed manual refresh");
   const refreshErrorAccessibility = await evaluate(`(() => {
@@ -2895,6 +2914,10 @@ async function checkTournamentManualRefresh() {
     `A single failed refresh should produce one clear announcement: ${JSON.stringify(refreshErrorAccessibility.announcements)}.`,
   );
   assert(
+    await evaluate("document.body.innerText.split('Could not refresh tournaments: Held Player refresh failed').length - 1") === 1,
+    "A failed Player refresh must leave exactly one clear error visible.",
+  );
+  assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRefresh,
     "A manual pull-to-refresh must not depend on an AppState resume event.",
   );
@@ -2905,7 +2928,7 @@ async function checkTournamentManualRefresh() {
   readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await triggerPlayerManualRefresh();
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRefresh} && document.body.innerText.includes('Player Manually Refreshed IST Start Boundary') && !document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.body.innerText.includes('Player Manually Refreshed IST Start Boundary') && !document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed')`,
     "a later successful manual refresh to update the Player card and clear its error",
   );
   await assertText(
@@ -4956,7 +4979,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during Player manual-refresh checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Failed Player pull-to-refresh keeps the loaded card visible; a later manual refresh updates it and clears the error.");
+      console.log("PASS — Repeated Player pulls during a pending request send no duplicates; failure preserves the card and one error, and a later refresh recovers.");
     } else if (initialLoadFailureOnly) {
       await checkTournamentInitialLoadFailure();
       assert(
