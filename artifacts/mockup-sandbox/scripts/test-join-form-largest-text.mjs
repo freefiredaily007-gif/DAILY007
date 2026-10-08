@@ -26,6 +26,17 @@ const inputValueSelectors = [
   'input[placeholder="Teammate 2 Free Fire in-game name"]',
   'input[placeholder="Teammate 3 Free Fire in-game name"]',
 ];
+const keyboardFieldSelectors = [
+  inputValueSelectors[0],
+  inputValueSelectors[1],
+  inputValueSelectors[2],
+  inputValueSelectors[3],
+  'input[placeholder="Teammate 1 Free Fire UID (optional)"]',
+  inputValueSelectors[4],
+  'input[placeholder="Teammate 2 Free Fire UID (optional)"]',
+  inputValueSelectors[5],
+  'input[placeholder="Teammate 3 Free Fire UID (optional)"]',
+];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -223,6 +234,39 @@ async function setViewport(width, height) {
   await delay(120);
 }
 
+async function focusKeyboardField(selector, description, width) {
+  const state = await evaluate(`(() => {
+    const root = document.querySelector('[data-testid="player-screen"]');
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!root || !input) return null;
+    input.focus();
+    input.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const rect = input.getBoundingClientRect();
+    const rootRect = root.getBoundingClientRect();
+    return {
+      focused: document.activeElement === input,
+      bounds: [rect.left, rect.right, rect.top, rect.bottom],
+      root: [rootRect.left, rootRect.right, rootRect.top, rootRect.bottom],
+      viewport: [window.innerWidth, window.innerHeight],
+    };
+  })()`);
+  assert(state?.focused, `${description} could not receive focus with the simulated keyboard open at ${width}px.`);
+  assert(
+    state.viewport[1] === 470,
+    `${description} was not tested with the simulated keyboard viewport open at ${width}px.`,
+  );
+  assert(
+    state.bounds[0] >= state.root[0] - 1
+      && state.bounds[1] <= state.root[1] + 1
+      && state.bounds[2] >= state.root[2] - 1
+      && state.bounds[3] <= Math.min(state.root[3], state.viewport[1]) + 1
+      && state.bounds[1] <= state.viewport[0] + 1
+      && state.bounds[3] - state.bounds[2] >= 44,
+    `${description} is not fully reachable above the simulated keyboard at ${width}px: ${JSON.stringify(state)}`,
+  );
+  return state;
+}
+
 async function checkReachable(selector, description, width) {
   const state = await evaluate(`(() => {
     const root = document.querySelector('[data-testid="player-screen"]');
@@ -320,14 +364,6 @@ async function runAtWidth(width) {
   }
 
   await assertFormValues(expectedValues, "before opening the keyboard");
-  const teammateSelector = inputValueSelectors[5];
-  const focused = await evaluate(`(() => {
-    const input = document.querySelector(${JSON.stringify(teammateSelector)});
-    input?.focus();
-    return Boolean(input && document.activeElement === input);
-  })()`);
-  assert(focused, `Could not focus a teammate field at ${width}px.`);
-
   const keyboardHeight = 470;
   await setViewport(width, keyboardHeight);
   const keyboardLayout = await checkLayout(width, keyboardHeight);
@@ -335,9 +371,13 @@ async function runAtWidth(width) {
     keyboardLayout.scroll.clientHeight < layout.scroll.clientHeight,
     `The form viewport did not shrink while the keyboard was simulated at ${width}px.`,
   );
+  for (const [index, selector] of keyboardFieldSelectors.entries()) {
+    await focusKeyboardField(selector, `Squad form field ${index + 1}`, width);
+  }
+  const teammateSelector = keyboardFieldSelectors.at(-1);
   const teammate = await checkReachable(
     teammateSelector,
-    "Focused teammate field with keyboard open",
+    "Focused final teammate UID field with keyboard open",
     width,
   );
   assert(teammate.scrollTop > 0, `The focused teammate field did not scroll into view at ${width}px.`);
@@ -394,7 +434,7 @@ async function runAtWidth(width) {
   await assertFormValues(expectedValues, "after keyboard dismissal and scrolling");
 
   console.log(
-    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, focused teammate and Join/Cancel reachable with keyboard open and dismissed (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}).`,
+    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, all editable fields focusable and visible with the simulated keyboard open, and Join/Cancel reachable with keyboard open and dismissed (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}).`,
   );
 }
 

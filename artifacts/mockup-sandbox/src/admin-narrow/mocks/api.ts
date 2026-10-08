@@ -439,6 +439,7 @@ const istDateSurfaceRegistration = {
 
 export function configurePlayerLargestTextPreview() {
   playerLargestTextPreview = true;
+  (globalThis as any).__daily007LargestTextApiCalls = walletPreviewCalls;
 }
 
 export function configureIstDateSurfacePreview() {

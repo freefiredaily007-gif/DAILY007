@@ -228,6 +228,27 @@ async function setInputValue(selector, value, description) {
   assert(updated, `Could not enter ${description}.`);
 }
 
+async function setPreviewViewport(width, height) {
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await delay(120);
+}
+
+async function assertInputValues(selectors, expectedValues, stage) {
+  const values = await evaluate(`(() => {
+    const selectors = ${JSON.stringify(selectors)};
+    return selectors.map((selector) => document.querySelector(selector)?.value ?? null);
+  })()`);
+  assert(
+    JSON.stringify(values) === JSON.stringify(expectedValues),
+    `Input values changed ${stage}: ${JSON.stringify(values)}`,
+  );
+}
+
 async function inspectLayout(screenName) {
   return evaluate(`(() => {
     const root = document.querySelector('[data-testid="player-screen"]');
@@ -375,6 +396,121 @@ async function checkReachable(selector, description, allowModalOverlay = false) 
     `${description} has no usable tappable area after scrolling: ${JSON.stringify(state)}.`,
   );
   return state;
+}
+
+async function assertInputReachableWithKeyboard(selector, description) {
+  const state = await evaluate(`(() => {
+    const root = document.querySelector('[data-testid="player-screen"]');
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!root || !input) return null;
+    input.focus();
+    input.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const rect = input.getBoundingClientRect();
+    const rootRect = root.getBoundingClientRect();
+    const inputRects = [...root.querySelectorAll('input, textarea')].map((field) => {
+      const bounds = field.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom };
+    });
+    const overlaps = [];
+    for (let first = 0; first < inputRects.length; first += 1) {
+      for (let second = first + 1; second < inputRects.length; second += 1) {
+        const a = inputRects[first];
+        const b = inputRects[second];
+        if (a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1) {
+          overlaps.push([first, second]);
+        }
+      }
+    }
+    return {
+      focused: document.activeElement === input,
+      bounds: [rect.left, rect.right, rect.top, rect.bottom],
+      root: [rootRect.left, rootRect.right, rootRect.top, rootRect.bottom],
+      viewport: [window.innerWidth, window.innerHeight],
+      overlaps,
+    };
+  })()`);
+  assert(state?.focused, `${description} could not receive focus with the simulated keyboard open.`);
+  assert(
+    state.viewport[1] === 470,
+    `${description} was not tested with the simulated keyboard viewport open: ${JSON.stringify(state.viewport)}`,
+  );
+  assert(
+    state.bounds[0] >= state.root[0] - 1
+      && state.bounds[1] <= state.root[1] + 1
+      && state.bounds[2] >= state.root[2] - 1
+      && state.bounds[3] <= Math.min(state.root[3], state.viewport[1]) + 1
+      && state.bounds[1] <= state.viewport[0] + 1
+      && state.bounds[3] - state.bounds[2] >= 44,
+    `${description} is not fully reachable above the simulated keyboard: ${JSON.stringify(state)}`,
+  );
+  assert(
+    state.overlaps.length === 0,
+    `${description} found overlapping form fields with the simulated keyboard open: ${JSON.stringify(state.overlaps)}`,
+  );
+  return state;
+}
+
+async function checkEditProfileKeyboard(viewportWidth) {
+  const selectors = [
+    '[data-testid="edit-profile-name"]',
+    '[data-testid="edit-profile-phone"]',
+    '[data-testid="edit-profile-game-uid"]',
+  ];
+  const expectedValues = ["Updated Preview Player", "9876543210", "1234567890"];
+  for (const [index, selector] of selectors.entries()) {
+    await setInputValue(selector, expectedValues[index], `Edit Profile field ${index + 1}`);
+  }
+  await assertInputValues(selectors, expectedValues, "before opening the simulated keyboard");
+
+  const fullHeight = await evaluate("window.innerHeight");
+  const fullScrollHeight = await evaluate(
+    `document.querySelector('[data-testid="edit-profile-scroll"]')?.clientHeight ?? 0`,
+  );
+  const keyboardHeight = 470;
+  await setPreviewViewport(viewportWidth, keyboardHeight);
+  const keyboardState = await evaluate(`(() => ({
+    viewportHeight: window.innerHeight,
+    scrollHeight: document.querySelector('[data-testid="edit-profile-scroll"]')?.clientHeight ?? 0,
+  }))()`);
+  assert(
+    keyboardState.viewportHeight === keyboardHeight && keyboardState.scrollHeight < fullScrollHeight,
+    `The Edit Profile viewport did not shrink for the simulated keyboard: ${JSON.stringify(keyboardState)}`,
+  );
+
+  for (const [index, selector] of selectors.entries()) {
+    await assertInputReachableWithKeyboard(selector, `Edit Profile field ${index + 1}`);
+  }
+  await assertInputValues(selectors, expectedValues, "while moving through fields with the keyboard open");
+
+  const save = await checkReachable('[data-testid="edit-profile-save"]', "Edit Profile Save with keyboard open");
+  assert(!save.disabled, "Edit Profile Save is disabled with the keyboard open.");
+  await evaluate(`(() => {
+    window.alert = () => {};
+    const calls = window.__daily007LargestTextApiCalls;
+    if (Array.isArray(calls)) calls.length = 0;
+  })()`);
+  await clickSelector('[data-testid="edit-profile-save"]', "Edit Profile Save with keyboard open");
+  await waitForCondition(
+    `window.__daily007LargestTextApiCalls?.some((call) => call.method === "updateProfile")`,
+    "the keyboard-open Edit Profile save request",
+  );
+  const saveCalls = await evaluate(
+    `window.__daily007LargestTextApiCalls?.filter((call) => call.method === "updateProfile") ?? []`,
+  );
+  const savedPayload = saveCalls.at(-1)?.payload;
+  assert(
+    savedPayload?.name === expectedValues[0]
+      && savedPayload?.phone === expectedValues[1]
+      && savedPayload?.gameUid === expectedValues[2],
+    `Edit Profile did not submit the values entered with the keyboard open: ${JSON.stringify(savedPayload)}`,
+  );
+
+  await evaluate("document.activeElement?.blur()");
+  await setPreviewViewport(viewportWidth, fullHeight);
+  await assertInputValues(selectors, expectedValues, "after dismissing the keyboard");
+  console.log(
+    `PASS — Edit Profile at ${viewportWidth}px and 2× text; all fields and Save were reachable with the simulated keyboard open, and values remained after dismissal.`,
+  );
 }
 
 async function checkScreen(screen, viewportWidth, fontScale = 2) {
@@ -753,6 +889,7 @@ async function checkScreen(screen, viewportWidth, fontScale = 2) {
     );
   } else if (screen.name === "EditProfile") {
     await checkReachable('[data-testid="edit-profile-save"]', "Edit Profile save action");
+    await checkEditProfileKeyboard(viewportWidth);
   } else if (screen.name === "JoinForm") {
     await setInputValue(
       'input[placeholder="Captain Free Fire in-game name"]',
@@ -764,16 +901,35 @@ async function checkScreen(screen, viewportWidth, fontScale = 2) {
       "FF-TEST-PLAYER",
       "captain game UID",
     );
+    const joinInputs = [
+      'input[placeholder="Captain Free Fire in-game name"]',
+      'input[placeholder="Captain Free Fire UID"]',
+    ];
+    const joinValues = ["Test Captain", "FF-TEST-PLAYER"];
+    const fullHeight = await evaluate("window.innerHeight");
+    const keyboardHeight = 470;
+    await setPreviewViewport(viewportWidth, keyboardHeight);
+    for (const [index, selector] of joinInputs.entries()) {
+      await assertInputReachableWithKeyboard(selector, `Join Form field ${index + 1}`);
+    }
+    await assertInputValues(joinInputs, joinValues, "while moving through Join Form fields with the keyboard open");
+    const submit = await checkReachable('[data-testid="join-form-submit"]', "Join Form Submit with keyboard open");
+    assert(!submit.disabled, "Join Form Submit is disabled with the keyboard open.");
+    await evaluate("window.alert = () => {}");
     await clickSelector('[data-testid="join-form-submit"]', "join form submit action");
     await waitForCondition(
       "document.body.innerText.includes('Insufficient wallet balance: this entry costs 7 coins.')",
       "server join error",
     );
+    await assertInputValues(joinInputs, joinValues, "after submitting with the keyboard open");
     const joinText = await evaluate("document.body.innerText");
     assert(
       !joinText.includes("Registration confirmed") && !joinText.includes("Your slot is confirmed"),
       "A rejected join displayed a success confirmation.",
     );
+    await evaluate("document.activeElement?.blur()");
+    await setPreviewViewport(viewportWidth, fullHeight);
+    await assertInputValues(joinInputs, joinValues, "after dismissing the keyboard");
   }
 
   console.log(`PASS — ${screen.name} at ${viewportWidth}px and ${fontScale}× Android text scale.`);

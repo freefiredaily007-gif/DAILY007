@@ -11,6 +11,7 @@
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
 - [Expo Metro during API codegen](expo-metro-codegen.md) — confirm generated files and a later bundle before treating transient missing-module logs as a persistent failure.
 - [Mockup sandbox typecheck conflicts](mockup-sandbox-typecheck.md) — unrelated React type-version conflicts in shared sandbox UI can fail typecheck while an isolated Vite browser test passes.
+- [Expo native-module preview shims](mockup-sandbox-expo-shims.md) — Expo dependency updates can break browser previews before render when native imports are missing from the React Native web stub.
 - [Admin large-text preview checks](daily007-admin-large-text-preview.md) — distinguish layout clipping from expected horizontal scrolling inside populated single-line inputs.
 - [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — separate native accessibility grouping from web roles; check control reachability, locale values, and card bounds.
 - [RN Web keyboard event typing](rnw-keyboard-event-types.md) — package-root types may omit runtime key handlers; guard web behavior and keep the handler narrowly typed.
