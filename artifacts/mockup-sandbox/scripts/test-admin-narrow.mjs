@@ -4250,9 +4250,11 @@ async function readHomeCarouselState() {
   return evaluate(`(() => {
     const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
     const indicatorContainer = document.querySelector('[data-testid="home-upcoming-page-indicators"]');
-    if (!carousel || !indicatorContainer) return null;
+    if (!carousel) return null;
     const viewport = carousel.getBoundingClientRect();
-    const dots = [...indicatorContainer.querySelectorAll('[data-testid^="home-upcoming-page-dot-"]')];
+    const dots = indicatorContainer
+      ? [...indicatorContainer.querySelectorAll('[data-testid^="home-upcoming-page-dot-"]')]
+      : [];
     return {
       viewport: { left: viewport.left, right: viewport.right, width: carousel.clientWidth },
       scrollLeft: carousel.scrollLeft,
@@ -4278,8 +4280,11 @@ async function readHomeCarouselState() {
           scrollWidth: card.scrollWidth,
         };
       }),
+      indicatorPresent: Boolean(indicatorContainer),
       indicatorCount: dots.length,
-      activePage: dots.findIndex((dot) => Number.parseFloat(getComputedStyle(dot).width) >= 15),
+      activePage: indicatorContainer
+        ? dots.findIndex((dot) => Number.parseFloat(getComputedStyle(dot).width) >= 15)
+        : -1,
     };
   })()`);
 }
@@ -4287,9 +4292,22 @@ async function readHomeCarouselState() {
 async function assertHomeCarouselAccessibility(cards, selectedPage, description) {
   const state = await readHomeCarouselState();
   assert(state, `${description}: the Home carousel is missing.`);
+  const expectedIndicatorCount = cards.length > 1 ? cards.length : 0;
+  const expectedActivePage = cards.length > 1 ? selectedPage : -1;
+  const expectedIndicatorPresent = cards.length > 1;
   assert(
-    state.activePage === selectedPage,
-    `${description}: expected selected page ${selectedPage + 1}, found ${state.activePage + 1}.`,
+    state.activePage === expectedActivePage,
+    expectedActivePage === -1
+      ? `${description}: there should be no active page indicator.`
+      : `${description}: expected active page ${expectedActivePage + 1}, found ${state.activePage + 1}.`,
+  );
+  assert(
+    state.indicatorPresent === expectedIndicatorPresent,
+    `${description}: expected page indicators to be ${expectedIndicatorPresent ? "present" : "absent"}.`,
+  );
+  assert(
+    state.indicatorCount === expectedIndicatorCount,
+    `${description}: expected ${expectedIndicatorCount} page indicators, found ${state.indicatorCount}.`,
   );
   assert(
     state.cards.length === cards.length,
@@ -4309,6 +4327,42 @@ async function assertHomeCarouselAccessibility(cards, selectedPage, description)
       `${description}: ${expected.id} exposes ${card.focusStops} focus stops instead of one.`,
     );
   }
+}
+
+async function checkSingleHomeCarouselCard(width) {
+  const description = `Single-card Home carousel at ${width}px`;
+  const cards = [{ id: "starting-soon", name: "Starting at IST" }];
+
+  await setViewport(width, 1, "home-carousel-preview.html?single-card=1");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 1 && window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === null",
+    `${description} to show one card without installing auto-advance`,
+  );
+  await assertHomeCarouselAccessibility(cards, 0, `${description} initial state`);
+
+  const before = await readHomeCarouselState();
+  await evaluate("window.__daily007HomeCarouselTest.clearAccessibilityAnnouncements()");
+  await evaluate("window.__daily007HomeCarouselTest.setScreenReaderEnabled(true)");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.getScreenReaderEnabled() && window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === null",
+    `${description} to remain stationary with TalkBack enabled`,
+  );
+  const didAdvance = await evaluate("window.__daily007HomeCarouselTest.advanceCarousel()");
+  const after = await readHomeCarouselState();
+
+  assert(!didAdvance, `${description} must not have an automatic page change.`);
+  assert(
+    before?.scrollLeft === after?.scrollLeft && after?.scrollLeft === 0,
+    `${description} changed its scroll position: ${JSON.stringify({ before, after })}.`,
+  );
+  assert(
+    (await evaluate("window.__daily007HomeCarouselTest.getAccessibilityAnnouncements().length")) === 0,
+    `${description} announced a page change despite having only one match.`,
+  );
+  await assertHomeCarouselAccessibility(cards, 0, `${description} with TalkBack enabled`);
+  console.log(
+    `PASS — ${description}: accessible name includes 1 of 1, one focus stop, no page indicator, and no auto-advance.`,
+  );
 }
 
 function assertHomeCarouselNativeSelectedStateIsPassedThrough() {
@@ -5312,6 +5366,8 @@ async function checkHomeCarousel(width) {
     await evaluate("!document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]')?.innerText.includes('JOINED')"),
     "The valid rejected-registration response should remove the stale JOINED label.",
   );
+
+  await checkSingleHomeCarouselCard(width);
 }
 
 async function setKeyboardViewport(height, width = 375) {

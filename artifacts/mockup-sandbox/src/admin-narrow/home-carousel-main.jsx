@@ -24,6 +24,7 @@ const previewParams = new URLSearchParams(window.location.search);
 const adminTournamentHomeRefreshPreview = previewParams.get("admin-tournament-home-refresh") === "1";
 const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
+const singleHomeCardPreview = previewParams.get("single-card") === "1";
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const requestedScreen = previewParams.get("screen") ?? "Home";
 const scheduledStartMs = dateSurfacePreview
@@ -122,9 +123,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     enabled: true,
     prizeDist: "1st: 500 coins",
   });
-  apiMocks.previewTournaments.splice(
-    0,
-    apiMocks.previewTournaments.length,
+  const homeTournaments = [
     tournament(
       "starting-soon",
       longHomeCardNamesPreview
@@ -146,6 +145,11 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
         : "Later Tournament Two",
       scheduledStartMs + 2 * 60 * 60 * 1000,
     ),
+  ];
+  apiMocks.previewTournaments.splice(
+    0,
+    apiMocks.previewTournaments.length,
+    ...(singleHomeCardPreview ? homeTournaments.slice(0, 1) : homeTournaments),
   );
   apiMocks.configureHomeCarouselRegistrationPreview();
 
