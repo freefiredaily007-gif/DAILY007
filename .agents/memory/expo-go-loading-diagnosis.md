@@ -7,6 +7,10 @@ Do not treat Expo Go's blue “Something went wrong” page as evidence that Goo
 
 Likewise, a React Native DevTools install warning about missing `libglib-2.0.so.0` is non-fatal when Metro still starts and prints the QR and Web URLs.
 
+An Expo workflow restart can fail with `EADDRINUSE` while an earlier Metro process still serves `/status`. Check the listening process and port response before attempting another restart.
+
 **Why:** Repeated screenshots of the outer failure screen gave no exception details and led to speculative callback changes. A valid callback route alone does not establish that the project loaded correctly on the phone.
 
-**How to apply:** Check Expo dependency alignment and Expo Doctor, then verify the Android manifest and launch bundle through the preview host. If the CLI reports the GLib warning but reaches Metro's QR/Web startup output, continue validating the app instead of treating the warning as a blocker. A successful bundle and web preview establish server/build health, not successful phone execution or native OAuth. Keep that distinction explicit and request the detailed device log if the phone still fails.
+**Why:** A duplicate Expo start reported the occupied port even though a Metro process still responded with `packager-status:running`; workflow state alone did not show whether the phone preview was available.
+
+**How to apply:** Check Expo dependency alignment and Expo Doctor, then verify the Android manifest and launch bundle through the preview host. If the CLI reports the GLib warning but reaches Metro's QR/Web startup output, continue validating the app instead of treating the warning as a blocker. A successful bundle and web preview establish server/build health, not successful phone execution or native OAuth. Keep that distinction explicit and request the detailed device log if the phone still fails. For `EADDRINUSE`, inspect the port owner and `/status` response before retrying; do not infer server availability from the workflow status alone.
