@@ -11,6 +11,8 @@ On 2026-10-07, the user confirmed the approved-player load-failure message and i
 
 On 2026-10-07, the user confirmed room save and removal successes and failures were each announced once without moving focus on TalkBack.
 
+On 2026-10-08, TalkBack identified the Admin tournament Retry control as busy or unavailable while a request was pending; after the request failed, Retry was usable again.
+
 **Why:** Native screen-reader output and state behavior cannot be established from source checks or a web preview alone.
 
-**How to apply:** Recheck tournament result entry, publishing, and Room Setup on Android after changing their controls, announcements, or busy states.
+**How to apply:** Recheck tournament result entry, publishing, Room Setup, and Admin tournament retry controls on Android after changing their controls, announcements, or busy states.
