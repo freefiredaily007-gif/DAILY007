@@ -31,6 +31,7 @@ const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-init
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
+const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
@@ -4400,11 +4401,122 @@ async function checkAdminTournamentCreationSaveAtLargeText() {
 
 let vitePort;
 
+async function checkIstDateSurfaces(port) {
+  const surfaces = ["Home", "MyMatches", "TDetail"];
+  const phases = ["before", "after"];
+  const timezoneStates = new Map();
+
+  for (const timezoneId of ["America/Los_Angeles", "Asia/Kolkata"]) {
+    await cdp("Emulation.setTimezoneOverride", { timezoneId });
+    const phaseStates = new Map();
+    timezoneStates.set(timezoneId, phaseStates);
+    const timezoneCondition = timezoneId === "Asia/Kolkata"
+      ? `["Asia/Kolkata", "Asia/Calcutta"].includes(Intl.DateTimeFormat().resolvedOptions().timeZone)`
+      : `Intl.DateTimeFormat().resolvedOptions().timeZone === ${JSON.stringify(timezoneId)}`;
+
+    for (const phase of phases) {
+      const states = new Map();
+      phaseStates.set(phase, states);
+
+      for (const screen of surfaces) {
+        const params = new URLSearchParams({
+          "ist-date-surfaces": "1",
+          "ist-date-phase": phase,
+          screen,
+        });
+        await cdp("Page.navigate", {
+          url: `http://127.0.0.1:${port}/home-carousel-preview.html?${params}`,
+        });
+        if (screen === "MyMatches") {
+          await waitForCondition(
+            `${timezoneCondition} && window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("MY MATCHES")`,
+            `My Matches to mount in ${timezoneId}`,
+          );
+          if (phase === "after") {
+            await evaluate(`document.querySelector('[data-testid="my-matches-tab-ongoing"]')?.click()`);
+          }
+        }
+        const readyCondition = screen === "Home"
+          ? phase === "before"
+            ? `window.__daily007HomeCarouselTest?.ready === true && document.querySelector('[data-testid="home-upcoming-card-starting-soon"]')?.innerText.includes("01 JAN")`
+            : `window.__daily007HomeCarouselTest?.ready === true && !document.querySelector('[data-testid="home-upcoming-card-starting-soon"]') && document.body.innerText.includes("Later Tournament One")`
+          : screen === "MyMatches"
+            ? phase === "before"
+              ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("CONFIRMED")`
+              : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("CONFIRMED")`
+            : phase === "before"
+              ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("UPCOMING")`
+              : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("UPCOMING")`;
+        await waitForCondition(
+          `${timezoneCondition} && (${readyCondition})`,
+          `${screen} to render the ${phase}-start IST state in ${timezoneId}`,
+        );
+
+        const state = await evaluate(`(() => {
+          const bodyText = document.body.innerText;
+          const homeCard = document.querySelector('[data-testid="home-upcoming-card-starting-soon"]');
+          const text = ${JSON.stringify(screen)} === "Home" ? (homeCard?.innerText ?? "") : bodyText;
+          const lifecycle = ${JSON.stringify(screen)} === "Home"
+            ? (homeCard
+              ? (text.includes("UPCOMING") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
+              : "ongoing")
+            : ${JSON.stringify(screen)} === "MyMatches"
+              ? (text.includes("SCHEDULED START: 01 JAN 2030")
+                ? (text.includes("CONFIRMED") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
+                : "unknown")
+              : (text.includes("SCHEDULED START: 01 JAN 2030")
+                ? (text.includes("UPCOMING") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
+                : "unknown");
+          return {
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            text,
+            laterCardVisible: bodyText.includes("Later Tournament One"),
+            lifecycle,
+          };
+        })()`);
+
+        assert(
+          state?.timezone === timezoneId ||
+            (timezoneId === "Asia/Kolkata" && ["Asia/Kolkata", "Asia/Calcutta"].includes(state?.timezone)),
+          `${screen} must be checked in the requested browser timezone.`,
+        );
+        const expectedLifecycle = phase === "before" ? "upcoming" : "ongoing";
+        assert(
+          state?.lifecycle === expectedLifecycle,
+          `${screen} must classify the tournament as ${expectedLifecycle} ${phase === "before" ? "before" : "after"} the same start instant in ${timezoneId}.`,
+        );
+        const dateIsCorrect = screen === "Home"
+          ? phase === "after"
+            ? state.text === "" && state.laterCardVisible
+            : state.text.includes("01 JAN • 12:15 AM IST")
+          : state.text.includes("01 JAN 2030") && state.text.includes("12:15 AM IST");
+        assert(
+          dateIsCorrect,
+          `${screen} must preserve the 01 JAN 2030 IST calendar date and 12:15 AM IST start in ${timezoneId}.`,
+        );
+        states.set(screen, state.lifecycle);
+      }
+    }
+  }
+
+  for (const phase of phases) {
+    for (const screen of surfaces) {
+      assert(
+        timezoneStates.get("America/Los_Angeles")?.get(phase)?.get(screen) ===
+          timezoneStates.get("Asia/Kolkata")?.get(phase)?.get(screen),
+        `${screen} lifecycle classification must not change with the browser timezone ${phase} its start.`,
+      );
+    }
+  }
+}
+
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
+  const previewPath = istDateSurfacesOnly
+    ? "home-carousel-preview.html?ist-date-surfaces=1"
+    : adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
     : manualRefreshOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
@@ -4474,7 +4586,7 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (scheduledStartOnly) {
+  if (scheduledStartOnly || istDateSurfacesOnly) {
     await cdp("Emulation.setTimezoneOverride", { timezoneId: "America/Los_Angeles" });
     await cdp("Page.reload", { ignoreCache: true });
   }
@@ -4487,6 +4599,7 @@ try {
     adminRetryConcurrencyOnly ||
     manualRefreshOnly ||
     scheduledStartOnly ||
+    istDateSurfacesOnly ||
     homeCarouselOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
@@ -4497,13 +4610,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly
         ? 800
-        : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
-        : homeCarouselOnly || scheduledStartOnly || adminActionsOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
@@ -4513,6 +4626,8 @@ try {
     await waitForPage(
       adminLandscapeOnly
         ? "Admin landscape screens"
+        : istDateSurfacesOnly
+          ? "Home, My Matches, and tournament details IST date surfaces"
         : homeCarouselOnly
         ? "Home carousel"
         : initialLoadFailureOnly
@@ -4639,6 +4754,18 @@ try {
         `Browser errors during scheduled-start checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Player and Admin cards preserve the fixed month-end and New Year IST dates in Los Angeles time, with Upcoming/Ongoing transitions at the exact start instants.");
+    } else if (istDateSurfacesOnly) {
+      const knownHomePreviewErrors = new Set(browserErrors);
+      await checkIstDateSurfaces(vitePort);
+      const newBrowserErrors = browserErrors.filter((error) =>
+        !knownHomePreviewErrors.has(error) &&
+        !error.includes("Unexpected text node: . A text node cannot be a child of a <View>."),
+      );
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during IST date surface checks: ${newBrowserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Home, My Matches, and tournament details retain 01 JAN 2030, 12:15 AM IST in Los Angeles and Kolkata, classify Upcoming before and Ongoing after the same start instant, and remove the started match from Home's Upcoming list.");
     } else if (keyboardFormsOnly) {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);

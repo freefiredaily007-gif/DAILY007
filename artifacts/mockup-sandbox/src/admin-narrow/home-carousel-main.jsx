@@ -20,8 +20,14 @@ const carouselAutoAdvanceIntervals = [];
 const screenReaderListeners = new Set();
 const accessibilityAnnouncements = [];
 let fakeScreenReaderEnabled = false;
-const scheduledStartMs = Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
-let fakeNow = scheduledStartMs - 60_000;
+const previewParams = new URLSearchParams(window.location.search);
+const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
+const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
+const requestedScreen = previewParams.get("screen") ?? "Home";
+const scheduledStartMs = dateSurfacePreview
+  ? Date.parse("2029-12-31T18:45:00.000Z")
+  : Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
+let fakeNow = scheduledStartMs + (dateSurfacePreview && dateSurfacePhase === "after" ? 60_000 : -60_000);
 let startTimerFired = false;
 let scheduledStartTimerCallback = null;
 let scheduledStartTimerHandle = null;
@@ -68,6 +74,25 @@ const istTime = (timestamp) => {
 };
 
 void import("./mocks/api.ts").then(async (apiMocks) => {
+  if (dateSurfacePreview && requestedScreen !== "Home") {
+    if (requestedScreen !== "MyMatches" && requestedScreen !== "TDetail") {
+      throw new Error(`Unsupported IST date preview screen: ${requestedScreen}`);
+    }
+    apiMocks.configureIstDateSurfacePreview();
+    globalThis.__previewRouteParams = { id: "ist-date-boundary" };
+    window.__daily007IstDateSurfacePreview = {
+      ready: false,
+      screen: requestedScreen,
+      tournamentId: "ist-date-boundary",
+    };
+    const screenModule = requestedScreen === "MyMatches"
+      ? await import("../../../daily007/src/screens/MyMatches")
+      : await import("../../../daily007/src/screens/TDetail");
+    window.__daily007IstDateSurfacePreview.ready = true;
+    root.render(React.createElement(screenModule.default));
+    return;
+  }
+
   const tournament = (id, name, startsAt) => ({
     id,
     name,

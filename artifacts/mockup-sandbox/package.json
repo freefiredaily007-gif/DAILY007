@@ -20,6 +20,7 @@
     "test:admin-tournament-retry-concurrency": "node scripts/test-admin-narrow.mjs --admin-retry-concurrency-only",
     "test:tournament-pull-refresh": "node scripts/test-admin-narrow.mjs --manual-refresh-only",
     "test:tournament-start-timer": "node scripts/test-admin-narrow.mjs --scheduled-start-only",
+    "test:ist-date-surfaces": "node scripts/test-admin-narrow.mjs --ist-date-surfaces-only",
     "test:home-carousel": "node scripts/test-admin-narrow.mjs --home-carousel-only",
     "test:wallet-profile-keyboard": "node scripts/test-admin-narrow.mjs --keyboard-forms-only",
     "test:admin-tournament-keyboard": "node scripts/test-admin-narrow.mjs --admin-keyboard-forms-only",

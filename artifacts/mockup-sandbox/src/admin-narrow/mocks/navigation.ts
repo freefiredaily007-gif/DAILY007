@@ -16,6 +16,13 @@ export function useNavigation() {
   };
 }
 
+export function useIsFocused() {
+  return true;
+}
+
 export function useRoute() {
-  return { params: {} };
+  const preview = globalThis as typeof globalThis & {
+    __previewRouteParams?: Record<string, unknown>;
+  };
+  return { params: preview.__previewRouteParams ?? {} };
 }

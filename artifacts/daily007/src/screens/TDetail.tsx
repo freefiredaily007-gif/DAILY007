@@ -14,7 +14,7 @@ import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { useApp } from '../App';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
-import { MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import {
   fetchTournamentDetailSnapshot,
   startTournamentDetailPolling,
@@ -133,7 +133,13 @@ export default function TDetail() {
   if (loading) return <View style={s.root} />;
   if (!t) return <View style={[s.root, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ color: C.sub }}>Tournament not found.</Text></View>;
 
-  const st = statusOf(isCompleted ? { ...t, status: 'completed' } : t);
+  const lifecycle = isCompleted ? 'completed' : getTournamentLifecycleState(t, clockNow);
+  const statusTournament = lifecycle === 'ongoing'
+    ? { ...t, status: 'ongoing' }
+    : isCompleted
+      ? { ...t, status: 'completed' }
+      : t;
+  const st = statusOf(statusTournament);
   const joined = !!t?.joined;
   const teamType = String(t.teamType || '').toLowerCase();
   const mode = String(t.mode || '').toLowerCase();

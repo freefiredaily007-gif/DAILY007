@@ -330,6 +330,7 @@ let deferredTournamentRead: {
   claimed: boolean;
 } | null = null;
 let playerLargestTextPreview = false;
+let istDateSurfacePreview = false;
 let myRegistrationReadCount = 0;
 let myRegistrationPreview: any[] | null = null;
 let deferredHomeRegistrationRead: {
@@ -408,9 +409,39 @@ const largestTextRegistrations = [
 ];
 const walletCancellationRefundDescription =
   "Entry fee refunded — Daily007 Clash Finals (tournament cancelled)";
+const istDateSurfaceTournament = {
+  id: "ist-date-boundary",
+  name: "New Year IST Match",
+  mode: "Battle Royale",
+  teamType: "Solo",
+  gameMode: "battle_royale",
+  date: "2030-01-01",
+  time: "12:15 AM",
+  startsAt: "2029-12-31T18:45:00.000Z",
+  entryCoins: 0,
+  prizePool: 500,
+  totalSlots: 48,
+  filledSlots: 2,
+  filledPlayerSlots: 2,
+  totalPlayerSlots: 48,
+  status: "upcoming",
+  enabled: true,
+  prizeDist: "1st: 500 coins",
+};
+const istDateSurfaceRegistration = {
+  id: "ist-date-boundary-registration",
+  tournamentId: istDateSurfaceTournament.id,
+  status: "approved",
+  teamName: "New Year Test Team",
+  tournament: { ...istDateSurfaceTournament },
+};
 
 export function configurePlayerLargestTextPreview() {
   playerLargestTextPreview = true;
+}
+
+export function configureIstDateSurfacePreview() {
+  istDateSurfacePreview = true;
 }
 
 export function configureWalletFormPreview() {
@@ -470,6 +501,13 @@ export const Api = {
     ...previewAdminUsers,
     ...(isAdminLargestTextPreview() ? previewNotificationRecipients : []),
   ].map((user) => ({ ...user })),
+  tournament: async (id: string) => {
+    const tournament = istDateSurfacePreview && String(id) === istDateSurfaceTournament.id
+      ? istDateSurfaceTournament
+      : [...largestTextTournaments, ...previewTournaments].find((item) => String(item.id) === String(id));
+    if (!tournament) throw new Error(`Preview tournament ${id} was not found.`);
+    return { ...tournament };
+  },
   tournaments: async () => {
     tournamentReadCount += 1;
     if (nextTournamentReadError !== null) {
@@ -481,7 +519,9 @@ export const Api = {
       deferredTournamentRead.claimed = true;
       return deferredTournamentRead.promise;
     }
-    const tournaments = isAdminLargestTextPreview() || playerLargestTextPreview
+    const tournaments = istDateSurfacePreview
+      ? [istDateSurfaceTournament]
+      : isAdminLargestTextPreview() || playerLargestTextPreview
       ? largestTextTournaments
       : previewTournaments;
     return tournaments.map((tournament) => ({ ...tournament }));
@@ -492,6 +532,9 @@ export const Api = {
       const error = nextMyRegistrationReadError;
       nextMyRegistrationReadError = null;
       throw new Error(error);
+    }
+    if (istDateSurfacePreview) {
+      return [{ ...istDateSurfaceRegistration, tournament: { ...istDateSurfaceTournament } }];
     }
     if (playerLargestTextPreview) {
       return largestTextRegistrations.map((registration) => ({ ...registration }));

@@ -20,6 +20,7 @@ export default defineConfig({
     alias: [
       { find: /^react-native-web$/, replacement: path.join(daily007Root, "node_modules/react-native-web") },
       { find: /^react-native$/, replacement: path.join(regressionRoot, "mocks/react-native-large-text.tsx") },
+      { find: /^expo-network$/, replacement: path.join(regressionRoot, "mocks/network.ts") },
       { find: /^@expo\/vector-icons$/, replacement: path.join(regressionRoot, "mocks/vector-icons.tsx") },
       { find: /^@workspace\/api-client-react$/, replacement: path.join(regressionRoot, "mocks/api-client-react.ts") },
       { find: /^@react-navigation\/native$/, replacement: path.join(regressionRoot, "mocks/navigation.ts") },

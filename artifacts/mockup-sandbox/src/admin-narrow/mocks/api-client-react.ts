@@ -492,3 +492,34 @@ export function useDaily007AdminUpdateVideo() {
 export function useDaily007AdminDeleteUser() {
   return noMutation();
 }
+
+export const getGetTournamentParticipantsQueryKey = (tournamentId: string) =>
+  ["preview-tournament-participants", tournamentId] as const;
+
+export const getGetTournamentResultsQueryKey = (tournamentId: string) =>
+  ["preview-tournament-results", tournamentId] as const;
+
+const previewTournamentParticipants = { entries: [], total: 0 };
+const previewTournamentResults = { status: "pending", entries: [] };
+const refetchPreviewTournamentParticipants = async () => ({
+  data: previewTournamentParticipants,
+  isSuccess: true,
+});
+const refetchPreviewTournamentResults = async () => ({
+  data: previewTournamentResults,
+  isSuccess: true,
+});
+
+export function useGetTournamentParticipants(_tournamentId: string, _options?: unknown) {
+  return {
+    ...noQuery(previewTournamentParticipants),
+    refetch: refetchPreviewTournamentParticipants,
+  };
+}
+
+export function useGetTournamentResults(_tournamentId: string, _options?: unknown) {
+  return {
+    ...noQuery(previewTournamentResults),
+    refetch: refetchPreviewTournamentResults,
+  };
+}
