@@ -21,6 +21,12 @@ For duplicate-delivery races, hold the target session row, wait until the first 
 
 **How to apply:** Use `pg_blocking_pids` to establish the first/second wait relationship, release the blocker only after both requests are queued, and verify the loser returns the existing ledger entry without adding another one.
 
+For idempotent create races, gate the first matching insert with a test-only trigger and transaction-scoped advisory lock; let a second request commit the unique-key row before releasing the first.
+
+**Why:** This deterministically exercises `INSERT ... ON CONFLICT DO NOTHING` for overlapping start requests and proves the blocked request reuses the committed row.
+
+**How to apply:** Use a sequence so only the first matching trigger invocation waits, observe its insert blocked in PostgreSQL, then assert the second returns created and the first returns reused with the same row ID.
+
 For a protected action queued behind an account block, pause the block only after it owns the actor's row lock; do not rely on seeing a compatible `FOR SHARE` role check blocked by a block request that is itself waiting.
 
 **Why:** In PostgreSQL, the attempted lock-queue probe did not report the second role check as blocked by the earlier `FOR UPDATE` waiter, so it could not prove the intended order.

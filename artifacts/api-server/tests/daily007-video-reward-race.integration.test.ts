@@ -954,6 +954,160 @@ test("a failed watch-session completion update rolls back a video reward", async
   }
 });
 
+test("overlapping retries create one watch session and reward", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.playerId && fixture.videoId);
+  const attemptId = randomUUID();
+  const gateSuffix = randomUUID().replace(/-/g, "");
+  const gateSequence = `video_start_gate_seq_${gateSuffix}`;
+  const gateFunction = `video_start_gate_fn_${gateSuffix}`;
+  const gateTrigger = `video_start_gate_trg_${gateSuffix}`;
+  let startGate: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let winningTransactionId: string | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+  try {
+    await pool.query(`CREATE SEQUENCE ${gateSequence}`);
+    await pool.query(
+      `CREATE FUNCTION ${gateFunction}() RETURNS trigger
+       LANGUAGE plpgsql
+       AS $$
+       BEGIN
+         IF NEW.start_attempt_id = '${attemptId}' THEN
+           IF nextval('${gateSequence}') = 1 THEN
+             PERFORM pg_advisory_xact_lock(hashtextextended(NEW.start_attempt_id, 0));
+           END IF;
+         END IF;
+         RETURN NEW;
+       END;
+       $$`,
+    );
+    await pool.query(
+      `CREATE TRIGGER ${gateTrigger}
+       BEFORE INSERT ON daily007_v2_video_watch_sessions
+       FOR EACH ROW EXECUTE FUNCTION ${gateFunction}()`,
+    );
+
+    startGate = await pool.connect();
+    await startGate.query("BEGIN");
+    await startGate.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [attemptId],
+    );
+    const gatePid = await backendPid(startGate);
+
+    await withServer(async (origin) => {
+      const firstStart = sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId },
+      );
+      inFlight.push(firstStart);
+      await waitForBlockedBackend(
+        "INSERT INTO daily007_v2_video_watch_sessions",
+        [gatePid],
+      );
+
+      const secondStart = sendJson(
+        origin,
+        "/videos/watch/start",
+        fixture.playerId!,
+        "POST",
+        { videoId: fixture.videoId, durationSeconds: 30, attemptId },
+      );
+      inFlight.push(secondStart);
+      const secondResponse = await secondStart;
+      assert.equal(secondResponse.status, 201, "one overlapping start should create the session");
+      assert.equal(typeof secondResponse.body.sessionId, "string");
+
+      await startGate!.query("COMMIT");
+      startGate!.release();
+      startGate = null;
+
+      const firstResponse = await firstStart;
+      assert.equal(firstResponse.status, 200, "the blocked retry should reuse the session");
+      assert.equal(firstResponse.body.sessionId, secondResponse.body.sessionId);
+      assert.equal(firstResponse.body.startedAt, secondResponse.body.startedAt);
+      fixture.sessionId = secondResponse.body.sessionId as string;
+
+      const sessions = await pool.query<{
+        id: string;
+        video_id: string;
+        duration_seconds: number;
+      }>(
+        `SELECT id, video_id, duration_seconds
+           FROM daily007_v2_video_watch_sessions
+          WHERE user_id = $1 AND start_attempt_id = $2`,
+        [fixture.playerId, attemptId],
+      );
+      assert.equal(sessions.rows.length, 1, "one session should exist for the player and attempt");
+      assert.equal(sessions.rows[0]?.id, fixture.sessionId);
+      assert.equal(sessions.rows[0]?.video_id, fixture.videoId);
+      assert.equal(sessions.rows[0]?.duration_seconds, 30);
+
+      await pool.query(
+        `UPDATE daily007_v2_video_watch_sessions
+            SET started_at = now() - interval '30 seconds'
+          WHERE id = $1`,
+        [fixture.sessionId],
+      );
+      const firstCompletion = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId!,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      const repeatedCompletion = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId!,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(firstCompletion.status, 200);
+      assert.equal(firstCompletion.body.rewarded, true);
+      assert.equal(firstCompletion.body.coins, 1);
+      assert.equal(typeof firstCompletion.body.transactionId, "string");
+      winningTransactionId = firstCompletion.body.transactionId as string;
+      assert.equal(repeatedCompletion.status, 200);
+      assert.equal(repeatedCompletion.body.rewarded, false);
+      assert.equal(repeatedCompletion.body.coins, 0);
+      assert.equal(repeatedCompletion.body.transactionId, winningTransactionId);
+    }, async () => {
+      if (startGate) {
+        await startGate.query("ROLLBACK").catch(() => undefined);
+        startGate.release();
+        startGate = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+
+    const state = await inspectFixture(fixture);
+    assert.equal(state.walletCoins, 13);
+    assert.equal(state.ledgerCount, 1, "repeated completion should leave one reward ledger entry");
+    assert.ok(state.completedAt);
+    assert.equal(state.rewardLedgerId, state.ledgerId);
+    assert.equal(state.rewardLedgerId, winningTransactionId);
+  } finally {
+    if (startGate) {
+      await startGate.query("ROLLBACK").catch(() => undefined);
+      startGate.release();
+    }
+    await Promise.allSettled(inFlight);
+    try {
+      await pool.query(
+        `DROP TRIGGER IF EXISTS ${gateTrigger} ON daily007_v2_video_watch_sessions`,
+      );
+      await pool.query(`DROP FUNCTION IF EXISTS ${gateFunction}()`);
+      await pool.query(`DROP SEQUENCE IF EXISTS ${gateSequence}`);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
+});
+
 test("repeating a watch start reuses its session while a new playback attempt earns a separate reward", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
