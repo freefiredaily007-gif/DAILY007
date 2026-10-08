@@ -3865,6 +3865,8 @@ async function checkHomeCarousel(width) {
       cardText: card?.innerText ?? null,
       cardCount: cards.length,
       cardNames: cards.map((item) => item.innerText),
+      refreshNoticeText: document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText ?? null,
+      retryButtonVisible: Boolean(document.querySelector('[data-testid="home-upcoming-retry"]')),
       tournamentReads: window.__daily007HomeCarouselTest.getTournamentReadCount(),
       registrationReads: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
     };
@@ -3873,11 +3875,16 @@ async function checkHomeCarousel(width) {
     stateAfterFailedRegistrationRead.cardText?.includes("JOINED") &&
       !stateAfterFailedRegistrationRead.cardText?.includes("Updated While Registration Refresh Fails") &&
       stateAfterFailedRegistrationRead.cardCount === 2 &&
-      stateAfterFailedRegistrationRead.cardNames[0].includes("Refreshed While Away"),
-    `A failed registration refresh must preserve the existing joined label and all displayed cards: ${JSON.stringify({
+      stateAfterFailedRegistrationRead.cardNames[0].includes("Refreshed While Away") &&
+      stateAfterFailedRegistrationRead.refreshNoticeText?.includes("cards shown may be out of date") &&
+      stateAfterFailedRegistrationRead.refreshNoticeText?.includes("Temporary registration refresh failure") &&
+      stateAfterFailedRegistrationRead.retryButtonVisible,
+    `A failed registration refresh must show a retryable stale-data notice without hiding existing joined cards: ${JSON.stringify({
       cardText: stateAfterFailedRegistrationRead.cardText,
       cardCount: stateAfterFailedRegistrationRead.cardCount,
       cardNames: stateAfterFailedRegistrationRead.cardNames,
+      refreshNoticeText: stateAfterFailedRegistrationRead.refreshNoticeText,
+      retryButtonVisible: stateAfterFailedRegistrationRead.retryButtonVisible,
     })}.`,
   );
   assert(
@@ -3894,8 +3901,8 @@ async function checkHomeCarousel(width) {
   })`);
   await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()");
   await waitForCondition(
-    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeRegistrationRecovery.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRegistrationRecovery.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW') && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Updated While Registration Refresh Fails')`,
-    "A later scheduled Home refresh to apply the latest tournament and registration state",
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeRegistrationRecovery.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRegistrationRecovery.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOIN NOW') && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Updated While Registration Refresh Fails') && !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
+    "A later scheduled Home refresh to apply the latest tournament and registration state and clear the stale-data notice",
   );
   const readsAfterRejection = await evaluate(`({
     tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
