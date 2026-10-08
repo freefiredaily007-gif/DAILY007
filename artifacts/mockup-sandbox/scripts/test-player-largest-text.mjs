@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const sandboxRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = path.resolve(sandboxRoot, "../..");
+const videoStartFailureOnly = process.argv.includes("--video-start-failure-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -1186,15 +1187,15 @@ async function checkVideoWatchStartFailure() {
     sessions: window.__videoRewardPreviewCalls?.sessions.length ?? 0,
     completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
     retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
-    liveRegion: document.querySelector('[data-testid="video-watch-error"]')?.getAttribute('aria-live') ?? null,
-    liveRegionCount: document.querySelectorAll('[data-testid="video-watch-error"][aria-live="polite"]').length,
+    liveRegion: document.querySelector('[data-testid="video-watch-error-message"]')?.getAttribute('aria-live') ?? null,
+    liveRegionCount: document.querySelectorAll('[data-testid="video-watch-error-message"][aria-live="polite"]').length,
     errorFocused: (() => {
       const error = document.querySelector('[data-testid="video-watch-error"]');
       return Boolean(error && (document.activeElement === error || error.contains(document.activeElement)));
     })(),
     focusStayedOnStart:
       document.activeElement === document.querySelector('[data-testid="video-preview-start-playback"]'),
-    focusableLiveRegions: [...document.querySelectorAll('[data-testid="video-watch-error"]')]
+    focusableLiveRegions: [...document.querySelectorAll('[data-testid="video-watch-error-message"]')]
       .filter((error) => error.matches('button, a[href], input, [tabindex="0"]')).length,
   }))()`);
   assert(
@@ -1462,6 +1463,7 @@ try {
       "@workspace/mockup-sandbox",
       "exec",
       "vite",
+      "--force",
       "--config",
       "vite.player-largest-text.config.ts",
       "--host",
@@ -1510,7 +1512,16 @@ try {
   await cdp("Runtime.enable");
   const leaderboardDetailsScreen = screens.find((screen) => screen.name === "LeaderboardDetails");
   assert(leaderboardDetailsScreen, "The leaderboard-details preview is not registered.");
-  for (const viewportWidth of [375, 320]) {
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width: 375,
+    height: 820,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await delay(120);
+  await checkVideoWatchStartFailure();
+  console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
+  for (const viewportWidth of (videoStartFailureOnly ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
       height: 820,
@@ -1528,7 +1539,6 @@ try {
       await checkUnavailableVideoRewardFlow();
       await checkUnavailableVideoCatalogRefreshFailure();
       await checkTransientVideoRewardRetry();
-      await checkVideoWatchStartFailure();
       await checkDelayedVideoWatchStart();
     }
 
@@ -1573,7 +1583,11 @@ try {
     }
   }
   assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
-  console.log("PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.");
+  console.log(
+    videoStartFailureOnly
+      ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
+      : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
+  );
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
   if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);
