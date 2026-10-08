@@ -29,6 +29,19 @@ test("password change accepts new passwords at 8 and 200 characters only", () =>
   }
 });
 
+test("password change accepts a 200-character current password and rejects 201 characters", () => {
+  const newPassword = "replacement-password";
+
+  assert.ok(parsePasswordChangeInput({
+    currentPassword: "x".repeat(200),
+    newPassword,
+  }));
+  assert.equal(parsePasswordChangeInput({
+    currentPassword: "x".repeat(201),
+    newPassword,
+  }), null);
+});
+
 test("stored password hashes are compared only when lengths match", () => {
   assert.equal(passwordHashesMatch(Buffer.from("same"), Buffer.from("same")), true);
   assert.equal(passwordHashesMatch(Buffer.from("same"), Buffer.from("nope")), false);

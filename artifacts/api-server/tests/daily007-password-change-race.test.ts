@@ -67,6 +67,33 @@ async function request(
   };
 }
 
+test("an overlong current password is rejected before password credential reads or writes", async () => {
+  passwordChangeTestDb.reset();
+  const before = passwordChangeTestDb.snapshot();
+  const token = makeToken(PASSWORD_CHANGE_TEST_USER_ID, before.auth_version);
+  assert.ok(token);
+
+  await withServer(async (origin) => {
+    const result = await request(origin, "/auth/me/password", "PATCH", {
+      currentPassword: "x".repeat(201),
+      newPassword: "replacement-password-for-length-test",
+    }, token);
+
+    assert.equal(result.status, 400);
+    assert.equal(
+      result.body.error,
+      "Enter your current password and a new password of 8–200 characters.",
+    );
+    assert.equal(
+      passwordChangeTestDb.credentialReadSnapshots.length,
+      0,
+      "an invalid current-password length must not read password credentials",
+    );
+    assert.equal(passwordChangeTestDb.passwordWriteAttempts, 0);
+    assert.deepEqual(passwordChangeTestDb.snapshot(), before);
+  });
+});
+
 test("an incorrect current password is rejected without changing credentials or the existing session", async () => {
   passwordChangeTestDb.reset();
   const originalPassword = "current-password-for-rejected-change";
