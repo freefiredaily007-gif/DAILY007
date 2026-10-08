@@ -89,16 +89,15 @@ http.defaults.adapter = async (config) => {
       });
     }
     if (!storageFailureScenario && !profileLinkScenario && googleExchangeAttempts === 1) {
-      call.status = 503;
-      throw Object.assign(new Error("Daily007 signup exchange is temporarily unavailable."), {
+      call.failure = {
+        type: "network",
+        message: "Network Error",
+        code: "ERR_NETWORK",
+      };
+      throw Object.assign(new Error("Network Error"), {
         config,
-        response: {
-          config,
-          data: { error: "Daily007 signup exchange is temporarily unavailable. Please try again." },
-          headers: {},
-          status: 503,
-          statusText: "Service Unavailable",
-        },
+        code: "ERR_NETWORK",
+        request: { url: config.url, method },
       });
     }
     call.status = 200;

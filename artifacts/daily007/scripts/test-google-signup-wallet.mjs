@@ -236,16 +236,19 @@ try {
   await clickSelector('[data-testid="continue-with-google"]', "Google signup action");
 
   await waitForExpression(
-    `document.body.innerText.includes("Daily007 signup exchange is temporarily unavailable. Please try again.")`,
-    "retryable Daily007 exchange error after the first Google signup attempt",
+    `document.body.innerText.includes("Could not reach Daily007. Check your connection and try again.")`,
+    "connection guidance after the first Google signup attempt loses its network",
   );
   const failedAttempt = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   const failureView = await evaluate(`(() => {
     const bodyText = document.body.innerText;
     const retryButton = document.querySelector('[data-testid="continue-with-google"]');
+    const nameInput = document.querySelector('input[placeholder="Enter Name"]');
     return {
       signupFieldsVisible: bodyText.includes("PLAYER PROFILE")
-        && Boolean(document.querySelector('input[placeholder="Enter Name"]')),
+        && Boolean(nameInput),
+      networkGuidanceVisible: bodyText.includes("Could not reach Daily007. Check your connection and try again."),
+      nameInputDisabled: nameInput?.disabled === true,
       retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
       retryButtonDisabled: retryButton?.getAttribute("aria-disabled") === "true"
         || retryButton?.hasAttribute("disabled") === true,
@@ -255,10 +258,20 @@ try {
   })()`);
 
   assert.equal(failedAttempt.googleExchangeAttempts, 1, "The first Daily007 exchange should fail exactly once.");
+  assert.deepEqual(failedAttempt.calls.at(-1)?.failure, {
+    type: "network",
+    message: "Network Error",
+    code: "ERR_NETWORK",
+  }, "The first Google exchange should fail without an HTTP response.");
+  assert.equal(failedAttempt.calls.at(-1)?.status, undefined, "A network failure must not be recorded as an HTTP status.");
   assert.deepEqual(failedAttempt.sessionStorage, {}, "A failed exchange must leave Daily007 session storage empty.");
   assert.equal(failedAttempt.storedSession, null, "A failed exchange must not persist a Daily007 session.");
-  assert.equal(failedAttempt.calls.at(-1)?.status, 503, "The first Google exchange should return the mocked failure.");
+  assert.equal(failedAttempt.currentSession, null, "A failed exchange must not create an in-memory Daily007 session.");
+  assert.equal(failedAttempt.activeAuthorization, null, "A failed exchange must not activate a Daily007 bearer token.");
+  assert.equal(failedAttempt.unexpectedRequests.length, 0, failedAttempt.unexpectedRequests.join("; "));
   assert.equal(failureView.signupFieldsVisible, true, "The signup form should remain usable after the exchange failure.");
+  assert.equal(failureView.networkGuidanceVisible, true, "The signup form should explain how to recover from the connection failure.");
+  assert.equal(failureView.nameInputDisabled, false, "The signup form should remain editable after the connection failure.");
   assert.equal(failureView.retryButtonLabel, "Sign up with Google", "The Google action should return to its retry label.");
   assert.equal(failureView.retryButtonDisabled, false, "The Google action should be enabled for retry.");
   assert.equal(failureView.signedInTabCount, 0, "A failed exchange must not render signed-in player tabs.");
@@ -318,7 +331,13 @@ try {
 
   const googleExchange = report.calls.filter((call) => call.method === "POST" && call.path === "/auth/google");
   assert.equal(googleExchange.length, 2, "Google signup should retry the Daily007 auth exchange once.");
-  assert.deepEqual(googleExchange.map((call) => call.status), [503, 200]);
+  assert.deepEqual(googleExchange[0].failure, {
+    type: "network",
+    message: "Network Error",
+    code: "ERR_NETWORK",
+  });
+  assert.equal(googleExchange[0].status, undefined);
+  assert.equal(googleExchange[1].status, 200);
   assert.equal(googleExchange[0].authorization, "Bearer mock-clerk-verified-token");
   assert.equal(googleExchange[1].authorization, "Bearer mock-clerk-verified-token");
   assert.ok(
