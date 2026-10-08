@@ -29,10 +29,14 @@ const PASSWORD_ACCOUNT = {
 const PASSWORD_TOKEN = "mock-password-account-token";
 const scenario = new URLSearchParams(window.location.search).get("scenario");
 const storageFailureScenario = scenario === "storage-write-failure";
+const doubleTapScenario = scenario === "double-tap";
 const profileLinkScenario = scenario?.startsWith("profile-link-") ?? false;
 const calls = [];
 const unexpectedRequests = [];
+const pendingGoogleExchangeResolvers = [];
 let googleExchangeAttempts = 0;
+let inFlightGoogleExchanges = 0;
+let maxConcurrentGoogleExchanges = 0;
 
 function authorizationHeader(config) {
   const headers = config.headers;
@@ -75,6 +79,17 @@ http.defaults.adapter = async (config) => {
 
   if (method === "POST" && path === "/auth/google") {
     googleExchangeAttempts += 1;
+    if (doubleTapScenario) {
+      inFlightGoogleExchanges += 1;
+      maxConcurrentGoogleExchanges = Math.max(maxConcurrentGoogleExchanges, inFlightGoogleExchanges);
+      return new Promise((resolve) => {
+        pendingGoogleExchangeResolvers.push(() => {
+          inFlightGoogleExchanges -= 1;
+          call.status = 200;
+          resolve(respond(config, { ...ACCOUNT, token: DAILY007_TOKEN }));
+        });
+      });
+    }
     if (scenario === "profile-link-error") {
       call.status = 503;
       throw Object.assign(new Error("Google linking is temporarily unavailable."), {
@@ -172,8 +187,16 @@ window.__daily007GoogleSignupWalletTest = {
       sessionStorage: storage.snapshot(),
       storageWriteMetrics: storage.writeMetrics(),
       googleExchangeAttempts,
+      inFlightGoogleExchanges,
+      maxConcurrentGoogleExchanges,
       unexpectedRequests: [...unexpectedRequests],
     };
+  },
+  resolveNextGoogleExchange() {
+    const resolve = pendingGoogleExchangeResolvers.shift();
+    if (!resolve) return false;
+    resolve();
+    return true;
   },
 };
 

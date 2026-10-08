@@ -350,6 +350,114 @@ try {
   assert.deepEqual(browserErrors, [], `Browser errors during signup-to-Wallet flow: ${browserErrors.join(" | ")}`);
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=double-tap`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the double-tap scenario",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `document.body.innerText.includes("Sign up with Google")`,
+    "the Google signup action for the double-tap scenario",
+  );
+  await clickSelector('[data-testid="continue-with-google"]', "first Google signup press");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.googleExchangeAttempts === 1 && state.inFlightGoogleExchanges === 1)`,
+    "the first Google exchange held pending",
+  );
+  const pendingBeforeSecondPress = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(pendingBeforeSecondPress.googleExchangeAttempts, 1);
+  assert.equal(pendingBeforeSecondPress.inFlightGoogleExchanges, 1);
+
+  await clickSelector('[data-testid="continue-with-google"]', "second Google signup press while the first exchange is pending");
+  const pendingAfterSecondPress = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const pendingView = await evaluate(`(() => {
+    const button = document.querySelector('[data-testid="continue-with-google"]');
+    return {
+      buttonDisabled: button?.getAttribute("aria-disabled") === "true"
+        || button?.hasAttribute("disabled") === true
+        || button?.disabled === true,
+      loadingLabelVisible: button?.innerText.includes("CONNECTING TO GOOGLE") === true,
+      signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+    };
+  })()`);
+  assert.equal(pendingAfterSecondPress.googleExchangeAttempts, 1, "A second press must not start another Google exchange.");
+  assert.equal(pendingAfterSecondPress.inFlightGoogleExchanges, 1, "Only one Google exchange may remain in flight.");
+  assert.equal(pendingAfterSecondPress.maxConcurrentGoogleExchanges, 1, "Google exchanges must not overlap.");
+  assert.equal(
+    pendingAfterSecondPress.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+  );
+  assert.equal(pendingAfterSecondPress.storedSession, null, "A pending exchange must not persist a Daily007 session.");
+  assert.equal(pendingAfterSecondPress.currentSession, null, "A pending exchange must not activate a Daily007 session.");
+  assert.equal(pendingAfterSecondPress.activeAuthorization, null, "A pending exchange must not activate a Daily007 token.");
+  assert.deepEqual(pendingAfterSecondPress.sessionStorage, {});
+  assert.equal(pendingAfterSecondPress.unexpectedRequests.length, 0, pendingAfterSecondPress.unexpectedRequests.join("; "));
+  assert.equal(pendingView.buttonDisabled, true, "The Google action must stay disabled while the exchange is pending.");
+  assert.equal(pendingView.loadingLabelVisible, true, "The Google action should show its connecting state while pending.");
+  assert.equal(pendingView.signedInTabCount, 0, "Signed-in tabs must stay hidden until the exchange succeeds.");
+
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.resolveNextGoogleExchange()"),
+    true,
+    "The held Google exchange should be available for release.",
+  );
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "signed-in tabs after the single pending exchange succeeds",
+  );
+  const doubleTapWalletOpened = await evaluate(`(() => {
+    const tab = document.querySelector('[data-testid="mock-tab-wallet"]');
+    if (!tab) return false;
+    tab.click();
+    return true;
+  })()`);
+  assert.equal(doubleTapWalletOpened, true, "The single successful signup should expose Wallet.");
+  await waitForExpression(
+    `Boolean(document.querySelector('[aria-label="Available coins: 10"]'))
+      && document.body.innerText.includes("Welcome Signup Bonus")`,
+    "the Wallet view after the single Google signup succeeds",
+  );
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.inFlightGoogleExchanges === 0
+      && state.storedSession?.token === "mock-daily007-session-token")`,
+    "the completed exchange and saved Daily007 session",
+  );
+  const doubleTapReport = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const doubleTapWalletView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    const walletTab = document.querySelector('[data-testid="mock-tab-wallet"]');
+    return {
+      walletTabCount: document.querySelectorAll('[data-testid="mock-tab-wallet"]').length,
+      walletTabSelected: walletTab?.getAttribute("aria-current") === "page",
+      welcomeBonusRowCount: bodyText.split("Welcome Signup Bonus").length - 1,
+    };
+  })()`);
+  const doubleTapExchanges = doubleTapReport.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(doubleTapExchanges.length, 1, "Two presses should produce exactly one Google exchange.");
+  assert.equal(doubleTapExchanges[0].status, 200);
+  assert.equal(doubleTapReport.googleExchangeAttempts, 1);
+  assert.equal(doubleTapReport.inFlightGoogleExchanges, 0);
+  assert.equal(doubleTapReport.maxConcurrentGoogleExchanges, 1);
+  assert.deepEqual(doubleTapReport.clerk.events, ["start-sso", "set-active", "get-token"]);
+  assert.equal(doubleTapReport.storedSession?.id, "mock-daily007-google-player");
+  assert.equal(doubleTapReport.storedSession?.token, "mock-daily007-session-token");
+  assert.equal(doubleTapReport.currentSession?.id, "mock-daily007-google-player");
+  assert.deepEqual(doubleTapReport.sessionStorage, {
+    daily007_v2_session: JSON.stringify(doubleTapReport.storedSession),
+  });
+  assert.equal(doubleTapWalletView.walletTabCount, 1);
+  assert.equal(doubleTapWalletView.walletTabSelected, true);
+  assert.equal(doubleTapWalletView.welcomeBonusRowCount, 1, "Wallet should show only one welcome bonus row.");
+  assert.equal(doubleTapReport.unexpectedRequests.length, 0, doubleTapReport.unexpectedRequests.join("; "));
+  assert.deepEqual(browserErrors, [], `Browser errors during the double-tap flow: ${browserErrors.join(" | ")}`);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=storage-write-failure`,
   });
   await waitForExpression(

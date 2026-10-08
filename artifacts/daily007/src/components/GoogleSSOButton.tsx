@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, View, Platform } from 'react-native';
 import { ReadableText as Text } from './typography';
 import * as AuthSession from 'expo-auth-session';
@@ -101,6 +101,7 @@ function ConfiguredGoogleButton({
 }: Props) {
   const { startSSOFlow } = useSSO();
   const [busy, setBusy] = useState(false);
+  const googleAttemptInFlight = useRef(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryAvailable, setRecoveryAvailable] = useState(false);
   const [recoverySubmitted, setRecoverySubmitted] = useState(false);
@@ -120,43 +121,49 @@ function ConfiguredGoogleButton({
   };
 
   const authenticateGoogle = async () => {
-    setError('');
-    onError?.('');
-    setRecoveryAvailable(false);
-    setRecoverySubmitted(false);
-    setOwnerRecoveryCode('');
-    await runGoogleSSOAttempt({
-      authenticate: () => runGoogleSSOFlow({
-        getActiveSession: () => getClerkInstance().session,
-        startSSOFlow: async () => {
-          const redirectUrl = Platform.OS === 'web'
-            ? AuthSession.makeRedirectUri()
-            : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
-          return startSSOFlow({
-            strategy: 'oauth_google',
-            redirectUrl,
-          });
-        },
-        exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, {
-          ...(dailyToken ? { dailyToken } : {}),
-          ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
+    if (googleAttemptInFlight.current) return;
+    googleAttemptInFlight.current = true;
+    try {
+      setError('');
+      onError?.('');
+      setRecoveryAvailable(false);
+      setRecoverySubmitted(false);
+      setOwnerRecoveryCode('');
+      await runGoogleSSOAttempt({
+        authenticate: () => runGoogleSSOFlow({
+          getActiveSession: () => getClerkInstance().session,
+          startSSOFlow: async () => {
+            const redirectUrl = Platform.OS === 'web'
+              ? AuthSession.makeRedirectUri()
+              : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
+            return startSSOFlow({
+              strategy: 'oauth_google',
+              redirectUrl,
+            });
+          },
+          exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, {
+            ...(dailyToken ? { dailyToken } : {}),
+            ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
+          }),
         }),
-      }),
-      setLoading: setBusy,
-      showError,
-      onSuccess: async (authenticated) => {
-        await setSession(authenticated.user);
-        return onSuccess(authenticated.user);
-      },
-      getErrorMessage: (e) => {
-        const message = apiError(e);
-        if (message === 'Network Error') {
-          return 'Could not reach Daily007. Check your connection and try again.';
-        }
-        if (message === RECOVERY_CONFLICT || /try again/i.test(message)) return message;
-        return `${message} Please try again.`;
-      },
-    });
+        setLoading: setBusy,
+        showError,
+        onSuccess: async (authenticated) => {
+          await setSession(authenticated.user);
+          return onSuccess(authenticated.user);
+        },
+        getErrorMessage: (e) => {
+          const message = apiError(e);
+          if (message === 'Network Error') {
+            return 'Could not reach Daily007. Check your connection and try again.';
+          }
+          if (message === RECOVERY_CONFLICT || /try again/i.test(message)) return message;
+          return `${message} Please try again.`;
+        },
+      });
+    } finally {
+      googleAttemptInFlight.current = false;
+    }
   };
 
   const requestRecovery = async () => {
