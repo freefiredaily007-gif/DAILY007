@@ -15,6 +15,10 @@ const homeSource = await readFile(
   new URL("../src/screens/Home.tsx", import.meta.url),
   "utf8",
 );
+const uiSource = await readFile(
+  new URL("../src/components/ui.tsx", import.meta.url),
+  "utf8",
+);
 
 test("Home polls only while active and stops polling when it loses focus", async () => {
   assert.equal(HOME_TOURNAMENT_REFRESH_INTERVAL_MS, 30_000);
@@ -239,6 +243,37 @@ test("Home announces failed upcoming refreshes and exposes a named, busy-aware T
     /const onRefresh = async \(\) => \{([\s\S]*?)\n  \};/,
   )?.[1];
   assert.match(refreshHandler ?? "", /await load\(\)/);
+});
+
+test("Home offers a direct retry and keeps tournament-list navigation when no cards load", () => {
+  const emptyStateStart = homeSource.indexOf("upcomingItems.length === 0 ? (");
+  const carouselStart = homeSource.indexOf('testID="home-upcoming-carousel"', emptyStateStart);
+  assert.ok(emptyStateStart >= 0 && carouselStart > emptyStateStart);
+  const emptyState = homeSource.slice(emptyStateStart, carouselStart);
+
+  assert.match(emptyState, /loadError \? \(\s*<View testID="home-empty-load-error"/);
+  assert.match(emptyState, /title="TOURNAMENTS UNAVAILABLE"/);
+  assert.match(
+    emptyState,
+    /Could not load tournament cards\.\s*\$\{loadError\}[\s\S]*?accessibilityLiveRegion="polite"/,
+  );
+  assert.match(
+    emptyState,
+    /testID="home-empty-retry"[\s\S]*?onPress=\{onRefresh\}[\s\S]*?disabled=\{refreshing\}[\s\S]*?accessibilityState=\{\{ disabled: refreshing, busy: refreshing \}\}/,
+  );
+  assert.match(emptyState, /refreshing \? 'Retrying tournament refresh' : 'Retry tournament refresh'/);
+  assert.match(emptyState, /refreshing \? 'RETRYING…' : 'RETRY HOME'/);
+  assert.match(
+    emptyState,
+    /testID="home-empty-check-matches"[\s\S]*?goTab\('tournaments'\)[\s\S]*?CHECK MATCHES/,
+  );
+  assert.match(
+    emptyState,
+    /\) : \(\s*<Empty[\s\S]*?actionLabel="CHECK MATCHES"[\s\S]*?goTab\('tournaments'\)/,
+    "A successful empty response must still link to the tournament list.",
+  );
+  assert.match(uiSource, /title = 'NO MATCHES LIVE'/);
+  assert.match(uiSource, /title\?: string; text: string/);
 });
 
 test("a cancelled or disabled tournament closes while unaffected upcoming matches remain visible", () => {

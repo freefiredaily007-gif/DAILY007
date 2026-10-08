@@ -380,7 +380,52 @@ export default function Home() {
         </View>
       )}
       {loading ? <Loading /> : upcomingItems.length === 0 ? (
-        <Empty icon="🎮" text={loadError ? `Tournament data is unavailable: ${loadError}` : 'No upcoming tournaments are available right now.'} actionLabel="CHECK MATCHES" onAction={() => goTab('tournaments')} />
+        loadError ? (
+          <View testID="home-empty-load-error" style={s.homeEmptyError}>
+            <Empty
+              icon="🎮"
+              title="TOURNAMENTS UNAVAILABLE"
+              text={`Could not load tournament cards. ${loadError}`}
+              accessibilityLabel={`Could not load tournament cards. ${loadError}`}
+              accessibilityLiveRegion="polite"
+            />
+            <View style={s.homeEmptyErrorActions}>
+              <Pressable
+                testID="home-empty-retry"
+                onPress={onRefresh}
+                disabled={refreshing}
+                accessibilityRole="button"
+                accessibilityLabel={refreshing ? 'Retrying tournament refresh' : 'Retry tournament refresh'}
+                accessibilityHint="Loads the latest tournament cards and registration status."
+                accessibilityState={{ disabled: refreshing, busy: refreshing }}
+                style={({ pressed }) => [
+                  s.homeEmptyRetryButton,
+                  refreshing && s.upcomingRetryDisabled,
+                  pressed && !refreshing && { opacity: 0.78 },
+                ]}
+              >
+                <Text style={s.upcomingRetryText}>{refreshing ? 'RETRYING…' : 'RETRY HOME'}</Text>
+              </Pressable>
+              <Pressable
+                testID="home-empty-check-matches"
+                onPress={() => goTab('tournaments')}
+                accessibilityRole="button"
+                accessibilityLabel="Check matches"
+                accessibilityHint="Opens the tournament list with upcoming, ongoing, and completed matches."
+                style={s.homeEmptyCheckMatchesButton}
+              >
+                <Text style={s.viewAll}>CHECK MATCHES →</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Empty
+            icon="🎮"
+            text="No upcoming tournaments are available right now."
+            actionLabel="CHECK MATCHES"
+            onAction={() => goTab('tournaments')}
+          />
+        )
       ) : (
         <>
           <ScrollView
@@ -701,6 +746,14 @@ const s = StyleSheet.create({
   },
   upcomingRetryDisabled: { opacity: 0.62 },
   upcomingRetryText: { color: C.orange, fontWeight: '900', fontSize: 12, letterSpacing: 1.2 },
+  homeEmptyError: { alignItems: 'center' },
+  homeEmptyErrorActions: { alignItems: 'center', gap: 6, width: '100%', paddingHorizontal: 24, marginTop: -18, marginBottom: 16 },
+  homeEmptyRetryButton: {
+    minHeight: 44, width: '100%', alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 24, borderRadius: 10, borderWidth: 1,
+    borderColor: C.orange + '77', backgroundColor: C.orange + '14',
+  },
+  homeEmptyCheckMatchesButton: { minHeight: 44, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center' },
   secTitle: { color: C.text, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
   viewAll: { color: C.neon, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
   mBanner: { height: 110, backgroundColor: '#0a0e1e' },

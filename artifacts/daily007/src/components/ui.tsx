@@ -239,13 +239,14 @@ export function Msg({
 // ---------- premium gaming empty state ----------
 export function Empty({
   icon,
+  title = 'NO MATCHES LIVE',
   text,
   actionLabel,
   onAction,
   accessibilityLabel,
   accessibilityLiveRegion,
 }: {
-  icon?: string; text: string; actionLabel?: string; onAction?: () => void;
+  icon?: string; title?: string; text: string; actionLabel?: string; onAction?: () => void;
   accessibilityLabel?: string;
   accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
@@ -255,7 +256,7 @@ export function Empty({
       <View style={[st.emptyIconWrap, adminSurface && adminSt.emptyIconWrap, glow(adminSurface ? C.orange : C.purple, 14)]}>
         {adminSurface ? <Feather name="target" size={28} color={C.orange} /> : <Text style={{ fontSize: 40 }}>{icon || '🎮'}</Text>}
       </View>
-      <Text style={[st.emptyTitle, adminSurface && adminSt.emptyTitle]}>NO MATCHES LIVE</Text>
+      <Text style={[st.emptyTitle, adminSurface && adminSt.emptyTitle]}>{title}</Text>
       <Text
         accessible={accessibilityLabel ? true : undefined}
         accessibilityRole={accessibilityLabel ? 'text' : undefined}
