@@ -177,7 +177,7 @@ test("a tournament that starts while Home is backgrounded leaves the upcoming ca
 
 test("remaining upcoming cards stay swipeable and open their tournament details", () => {
   assert.match(homeSource, /<ScrollView[\s\S]*?horizontal pagingEnabled/);
-  assert.match(homeSource, /upcomingItems\.slice\(0, 8\)\.map\(\(t\)/);
+  assert.match(homeSource, /upcomingItems\.slice\(0, 8\)\.map\(\(t(?:,\s*index)?\)\s*=>/);
   assert.match(homeSource, /onPress=\{\(\) => openTournamentDetail\(t\.id\)\}/);
 });
 

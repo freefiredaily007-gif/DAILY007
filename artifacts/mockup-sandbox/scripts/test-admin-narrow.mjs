@@ -3720,6 +3720,29 @@ async function checkHomeCarousel(width) {
     await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', { name: 'Refreshed While Away' })`),
     "The Home tournament fixture should accept updates made while the app is in the background.",
   );
+  await delay(80);
+  for (let pollTick = 0; pollTick < 2; pollTick += 1) {
+    assert(
+      await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+      `Home's scheduled poll callback should remain installed during hidden tick ${pollTick + 1}.`,
+    );
+    await delay(80);
+  }
+  const stateWhileBackgrounded = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+    cardText: document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText ?? null,
+  })`);
+  assert(
+    stateWhileBackgrounded.tournaments === readsBeforeResume.tournaments &&
+      stateWhileBackgrounded.registrations === readsBeforeResume.registrations &&
+      stateWhileBackgrounded.cardText?.includes('Later Tournament One') &&
+      !stateWhileBackgrounded.cardText?.includes('Refreshed While Away'),
+    `Home must not issue either endpoint request or update cards during two hidden 30-second polling ticks: ${JSON.stringify({
+      readsBefore: readsBeforeResume,
+      stateWhileBackgrounded,
+    })}.`,
+  );
   await evaluate("window.__daily007HomeCarouselTest.setAppVisibility('visible')");
   await waitForCondition(
     `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeResume.tournaments + 1} && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeResume.registrations + 1} && document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Refreshed While Away')`,
