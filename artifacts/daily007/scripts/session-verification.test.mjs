@@ -19,6 +19,7 @@ const savedSession = {
 };
 
 let storedSession = null;
+let rejectNextStoredSessionWrite = false;
 const mockedStorage = {
   async getItem(key) {
     assert.equal(key, SESSION_KEY);
@@ -26,11 +27,21 @@ const mockedStorage = {
   },
   async setItem(key, value) {
     assert.equal(key, SESSION_KEY);
+    if (rejectNextStoredSessionWrite) {
+      rejectNextStoredSessionWrite = false;
+      throw new Error("Mock AsyncStorage rejected the session refresh.");
+    }
     storedSession = value;
   },
   async removeItem(key) {
     assert.equal(key, SESSION_KEY);
     storedSession = null;
+  },
+  rejectNextSessionWrite() {
+    rejectNextStoredSessionWrite = true;
+  },
+  clearSessionWriteRejection() {
+    rejectNextStoredSessionWrite = false;
   },
 };
 
@@ -60,7 +71,7 @@ registerHooks({
   },
 });
 
-const { Api, http, setSession } = await import("../src/lib/api.ts");
+const { Api, getSession, http, setSession } = await import("../src/lib/api.ts");
 const profileSource = await readFile(
   new URL("../src/screens/Profile.tsx", import.meta.url),
   "utf8",
@@ -613,13 +624,58 @@ test("a successful verification refreshes account data while retaining the saved
   assert.equal(storage.readSession().name, "Updated Test Player");
 });
 
-test("App shows a retry button instead of the authentication screen for transient verification failures", async () => {
+test("a verified account stays retryable when saving refreshed session data fails", async (t) => {
+  t.after(async () => {
+    mockedStorage.clearSessionWriteRejection();
+    await setSession(null);
+  });
+  await setSession(savedSession);
+  mockedStorage.rejectNextSessionWrite();
+  const requests = mockApiRequests(t, {
+    statsResponse: { matches: 12, wins: 4, kills: 39, prizeCoins: 85 },
+  });
+
+  const failedSave = await restoreDaily007Session(
+    async () => savedSession,
+    Api.me,
+    setSession,
+  );
+  assert.deepEqual(failedSave, { status: "retry", session: savedSession });
+  assert.deepEqual(JSON.parse(storedSession), savedSession, "A failed refresh write must retain the full saved session.");
+  assert.equal((await getSession()).token, savedSession.token, "The in-memory session must retain its previous token.");
+  assert.deepEqual(requests, ["/auth/me", "/me/stats"], "Account verification itself should have succeeded.");
+
+  const recovered = await restoreDaily007Session(
+    async () => failedSave.session,
+    Api.me,
+    setSession,
+  );
+  assert.equal(recovered.status, "verified", "A later successful storage write should complete verification.");
+  assert.equal(recovered.session.id, "verified-player");
+  assert.equal(recovered.session.name, "Verified Player");
+  assert.equal(recovered.session.coins, 17);
+  assert.equal(recovered.session.matches, 12);
+  assert.equal(recovered.session.token, savedSession.token, "The refreshed account must keep the saved token.");
+  const persistedAfterRecovery = JSON.parse(storedSession);
+  assert.equal(persistedAfterRecovery.id, recovered.session.id);
+  assert.equal(persistedAfterRecovery.name, recovered.session.name);
+  assert.equal(persistedAfterRecovery.token, savedSession.token);
+  assert.equal((await getSession()).id, "verified-player");
+  assert.deepEqual(
+    requests,
+    ["/auth/me", "/me/stats", "/auth/me", "/me/stats"],
+    "The later retry should verify the account again using only mocked API requests.",
+  );
+});
+
+test("App keeps the verification retry screen until refreshed session data is saved", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const pausedScreen = await readFile(
     new URL("../src/components/SessionVerificationPaused.tsx", import.meta.url),
     "utf8",
   );
   assert.match(appSource, /result\.status === 'retry'\) setVerificationSession\(result\.session\)/);
+  assert.match(appSource, /if \(result\.status === 'verified'\) \{\s*setVerificationSession\(null\);\s*setUser\(result\.session\);\s*\}/);
   assert.match(appSource, /if \(!user && verificationSession\) return/);
   assert.match(pausedScreen, /Your session is still saved/);
   assert.match(pausedScreen, /testID="session-verification-retry"/);

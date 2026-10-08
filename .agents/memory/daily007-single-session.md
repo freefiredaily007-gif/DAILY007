@@ -22,3 +22,9 @@ Client account-access refreshes must remain tied to the session identity active 
 **Why:** Async local storage can finish an operation after the player's intent changes. Checking only before starting a write still allows a delayed write to leave an old account as the final saved session.
 
 **How to apply:** Scope refresh success and authorization failures to the captured account and token. Keep session storage mutations ordered and guarded so sign-out or a newer sign-in wins over pending work.
+
+If API verification succeeds but the refreshed account snapshot cannot be persisted locally, keep the previous saved session and remain in verification retry state; a successful API response alone must not unlock the app.
+
+**Why:** The app needs both a valid server response and a durable local session before it can safely consider restoration complete.
+
+**How to apply:** Await the refreshed-session write before marking the account verified. On a write failure, retry using the original saved session and token; only enter the app after a later write succeeds.
