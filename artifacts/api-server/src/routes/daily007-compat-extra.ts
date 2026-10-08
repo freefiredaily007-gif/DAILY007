@@ -1751,7 +1751,14 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
     });
     res.status(201).json(result);
   } catch (e) {
-    if ((e as { code?: string }).code === "23505") { error(res, 409, "A result has already been published for this registration."); return; }
+    const postgresError = e as { code?: unknown; constraint?: unknown } | null;
+    if (
+      postgresError?.code === "23505" &&
+      postgresError.constraint === "daily007_v2_result_awards_registration_id_unique"
+    ) {
+      error(res, 409, "A result has already been published for this registration.");
+      return;
+    }
     respondFailure(res, e);
   }
 });

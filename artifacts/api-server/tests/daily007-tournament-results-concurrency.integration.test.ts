@@ -642,6 +642,111 @@ test("concurrent retries for the same registration publish and pay exactly once"
   }
 });
 
+test("an unrelated unique conflict while writing the prize ledger is not reported as a duplicate result", async () => {
+  const fixture = await createFixture();
+  const conflictPlayer = fixture.players[1];
+  const seedPlayer = fixture.players[0];
+  const testConstraint = "daily007_test_wallet_ledger_amount_unique";
+
+  try {
+    await pool.query(
+      `CREATE UNIQUE INDEX ${testConstraint}
+         ON daily007_v2_wallet_ledger (amount)`,
+    );
+    await pool.query("CREATE SEQUENCE daily007_test_wallet_ledger_insert_attempts");
+    await pool.query(
+      `CREATE FUNCTION daily007_test_count_wallet_ledger_insert() RETURNS trigger
+       LANGUAGE plpgsql AS $$
+       BEGIN
+         PERFORM nextval('daily007_test_wallet_ledger_insert_attempts');
+         RETURN NEW;
+       END;
+       $$`,
+    );
+    await pool.query(
+      `CREATE TRIGGER daily007_test_wallet_ledger_insert_attempt
+       BEFORE INSERT ON daily007_v2_wallet_ledger
+       FOR EACH ROW EXECUTE FUNCTION daily007_test_count_wallet_ledger_insert()`,
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
+       VALUES ($1, 250, 350, 'test_unique_conflict_seed')`,
+      [seedPlayer.userId],
+    );
+
+    await withServer(async (origin) => {
+      const response = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        conflictPlayer,
+        2,
+        8,
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.body.error, "Test server encountered an unexpected error.");
+      assert.notEqual(
+        response.body.error,
+        "A result has already been published for this registration.",
+      );
+
+      const insertAttempts = await pool.query<{ last_value: string; is_called: boolean }>(
+        `SELECT last_value::text AS last_value, is_called
+           FROM daily007_test_wallet_ledger_insert_attempts`,
+      );
+      assert.deepEqual(
+        insertAttempts.rows,
+        [{ last_value: "2", is_called: true }],
+        "the failed transaction must have reached its prize-ledger insert",
+      );
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [conflictPlayer.userId],
+      );
+      assert.deepEqual(wallet.rows, [{ wallet_coins: 100 }], "the wallet update must roll back");
+
+      const awards = await pool.query(
+        "SELECT registration_id FROM daily007_v2_result_awards WHERE registration_id = $1",
+        [conflictPlayer.registrationId],
+      );
+      assert.deepEqual(awards.rows, [], "the result award must roll back");
+
+      const stats = await pool.query(
+        "SELECT user_id FROM daily007_v2_user_stats WHERE user_id = $1",
+        [conflictPlayer.userId],
+      );
+      assert.deepEqual(stats.rows, [], "the statistics update must roll back");
+
+      const ledger = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE amount = 250
+          ORDER BY user_id`,
+      );
+      assert.deepEqual(ledger.rows, [{
+        user_id: seedPlayer.userId,
+        amount: 250,
+        balance_after: 350,
+        reason: "test_unique_conflict_seed",
+      }], "the injected unique conflict must leave only the seed ledger row");
+    });
+  } finally {
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_wallet_ledger_insert_attempt ON daily007_v2_wallet_ledger",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_count_wallet_ledger_insert()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_wallet_ledger_insert_attempts");
+    await pool.query(`DROP INDEX IF EXISTS ${testConstraint}`);
+    await cleanupFixture(fixture);
+  }
+});
+
 test("concurrent runner-up retries for the same registration award and pay exactly once", async () => {
   const fixture = await createFixture();
   const runnerUp = fixture.players[1];
