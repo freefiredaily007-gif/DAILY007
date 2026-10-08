@@ -4542,6 +4542,80 @@ async function checkHomeCarousel(width) {
   await swipeHomeCarousel("left", "the first Upcoming tournament");
   await waitForHomeCarouselCard("later-one", 1, width, "The second Upcoming tournament after a manual swipe");
   await assertHomeCarouselSelectionSurvivesRotation("later-one", 1, 3, width, "three-card list");
+  const pageLoadTimeBeforeReorder = await evaluate("performance.timeOrigin");
+  const readsBeforeReorder = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    await evaluate(`window.__daily007HomeCarouselTest.setTournamentOrder([
+      "starting-soon",
+      "later-two",
+      "later-one",
+    ])`),
+    "The Home preview should reorder the same tournament fixtures without removing any.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "Home's scheduled poll should refresh the reordered tournament fixtures.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeReorder.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeReorder.registrations + 1} &&
+      [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')]
+        .map((card) => card.getAttribute("data-testid").replace("home-upcoming-card-", ""))
+        .join(",") === "starting-soon,later-two,later-one"`,
+    "Home to refresh the same three tournaments in a different order",
+  );
+  await waitForHomeCarouselCard(
+    "later-one",
+    2,
+    width,
+    "The previously selected tournament after its card moves to page 3",
+  );
+  const reorderedState = await readHomeCarouselState();
+  assert(
+    reorderedState?.cards[2]?.id === "later-one" && reorderedState.activePage === 2,
+    `Home should keep later-one selected and activate its new page after refresh: ${JSON.stringify(reorderedState)}.`,
+  );
+  assert(
+    await evaluate(`performance.timeOrigin === ${JSON.stringify(pageLoadTimeBeforeReorder)}`),
+    "The Home preview should preserve the selected tournament without reloading the screen.",
+  );
+  await assertHomeCarouselCardOpens(
+    "later-one",
+    "The previously selected tournament after the refreshed order changes",
+  );
+  const readsBeforeRestore = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    await evaluate(`window.__daily007HomeCarouselTest.setTournamentOrder([
+      "starting-soon",
+      "later-one",
+      "later-two",
+    ])`),
+    "The Home preview should restore its original tournament order after the reorder check.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "Home's scheduled poll should restore the original tournament order.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeRestore.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRestore.registrations + 1} &&
+      [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')]
+        .map((card) => card.getAttribute("data-testid").replace("home-upcoming-card-", ""))
+        .join(",") === "starting-soon,later-one,later-two"`,
+    "Home to restore the original tournament order",
+  );
+  await waitForHomeCarouselCard(
+    "later-one",
+    1,
+    width,
+    "The selected tournament after the original order is restored",
+  );
   await swipeHomeCarousel("left", "the second Upcoming tournament");
   await waitForHomeCarouselCard("later-two", 2, width, "The third Upcoming tournament after a manual swipe");
   await swipeHomeCarousel("right", "the third Upcoming tournament");
@@ -4609,7 +4683,7 @@ async function checkHomeCarousel(width) {
   console.log(`PASS Home carousel ${width}px — manual swipes, auto-advance, full card visibility, and matching detail taps.`);
 
   await waitForCondition(
-    "window.__daily007HomeCarouselTest.getHomePollCount() === 1 && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === 1",
+    "window.__daily007HomeCarouselTest.getHomePollCount() === 1 && window.__daily007HomeCarouselTest.getMyRegistrationReadCount() >= 1",
     "Home to install one bounded registration-aware refresh after the initial load",
   );
   assert(

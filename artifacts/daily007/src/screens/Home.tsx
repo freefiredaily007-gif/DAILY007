@@ -107,6 +107,7 @@ export default function Home() {
   const [screenReaderEnabled, setScreenReaderEnabled] = useState<boolean | null>(null);
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef(0);
+  const selectedTournamentIdRef = useRef<string | null>(null);
   const screenReaderEventReceivedRef = useRef(false);
   const loadRequestGuardRef = useRef(createHomeRefreshRequestGuard());
   const activeRequestsRef = useRef(0);
@@ -233,16 +234,30 @@ export default function Home() {
   }, [items, clockNow]);
 
   const upcomingItems = getUpcomingHomeTournaments(items, clockNow);
+  const carouselTournamentOrder = JSON.stringify(
+    upcomingItems.slice(0, 8).map((tournament) => String(tournament.id)),
+  );
 
   React.useEffect(() => {
-    const lastPage = Math.min(upcomingItems.length, 8) - 1;
-    const nextPage = Math.max(0, Math.min(pageRef.current, lastPage));
+    const visibleItems = upcomingItems.slice(0, 8);
+    const lastPage = visibleItems.length - 1;
+    const selectedPage = selectedTournamentIdRef.current === null
+      ? -1
+      : visibleItems.findIndex(
+          (tournament) => String(tournament.id) === selectedTournamentIdRef.current,
+        );
+    const nextPage = selectedPage >= 0
+      ? selectedPage
+      : Math.max(0, Math.min(pageRef.current, lastPage));
     if (nextPage !== pageRef.current) {
       pageRef.current = nextPage;
       setPage(nextPage);
     }
+    selectedTournamentIdRef.current = visibleItems[nextPage]
+      ? String(visibleItems[nextPage].id)
+      : null;
     carouselRef.current?.scrollTo({ x: nextPage * carouselPageSize, animated: false });
-  }, [upcomingItems.length, carouselPageSize]);
+  }, [carouselTournamentOrder, carouselPageSize]);
 
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
@@ -251,6 +266,9 @@ export default function Home() {
       pageRef.current = p;
       setPage(p);
       const selectedTournament = upcomingItems[p];
+      selectedTournamentIdRef.current = selectedTournament
+        ? String(selectedTournament.id)
+        : null;
       if (screenReaderEnabled && selectedTournament) {
         AccessibilityInfo.announceForAccessibility(
           `Selected Upcoming match: ${selectedTournament.name ?? 'Match'}. Match ${p + 1} of ${Math.min(upcomingItems.length, 8)}.`,

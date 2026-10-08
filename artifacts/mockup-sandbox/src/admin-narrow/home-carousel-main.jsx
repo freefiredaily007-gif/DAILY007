@@ -224,6 +224,25 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
     releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
+    setTournamentOrder: (ids) => {
+      if (!Array.isArray(ids) || ids.length !== apiMocks.previewTournaments.length) return false;
+      const tournamentsById = new Map(
+        apiMocks.previewTournaments.map((tournament) => [String(tournament.id), tournament]),
+      );
+      const orderedTournaments = ids.map((id) => tournamentsById.get(String(id)));
+      if (
+        orderedTournaments.some((tournament) => !tournament) ||
+        new Set(ids.map(String)).size !== apiMocks.previewTournaments.length
+      ) {
+        return false;
+      }
+      apiMocks.previewTournaments.splice(
+        0,
+        apiMocks.previewTournaments.length,
+        ...orderedTournaments,
+      );
+      return true;
+    },
     leaveHome: () => root.render(null),
     returnHome: () => root.render(React.createElement(Home)),
     mergeHomeTournamentItems,
