@@ -247,23 +247,31 @@ test("Profile wires its password inputs to the shared 200-character limit", () =
     /if \(validationError\) \{\s*setPasswordError\(validationError\);\s*return;\s*\}/,
     "Profile should show the validation message and stop before reporting success.",
   );
+  assert.equal(PROFILE_PASSWORD_MAX_LENGTH, 200);
+});
+
+test("Profile exposes password-change API errors through one polite TalkBack announcement", () => {
+  assert.match(
+    profileSource,
+    /catch \(e\) \{\s*setPasswordError\(apiError\(e\)\);\s*\}/,
+    "A rejected password-change request should reach the visible password error.",
+  );
   const passwordErrorMarkup = profileSource.match(
     /<Text style=\{s\.modalError\}[^>]*>\{passwordError\}<\/Text>/,
   )?.[0];
-  assert.ok(passwordErrorMarkup, "Profile should render validation errors in the password modal.");
+  assert.ok(passwordErrorMarkup, "Profile should render password errors in the password modal.");
   assert.match(
     passwordErrorMarkup,
     /accessibilityLiveRegion="polite"/,
-    "The password conflict should be announced without interrupting TalkBack.",
+    "TalkBack should politely announce the current-password rejection.",
   );
   assert.equal(
     (passwordErrorMarkup.match(/accessibilityLiveRegion=/g) ?? []).length,
     1,
-    "The password error should have exactly one live-region announcement.",
+    "The rejection should have exactly one live-region announcement.",
   );
   assert.doesNotMatch(passwordErrorMarkup, /accessibilityRole="alert"/);
   assert.doesNotMatch(profileSource, /setAccessibilityFocus/);
-  assert.equal(PROFILE_PASSWORD_MAX_LENGTH, 200);
 });
 
 test("canceling Profile password change closes and clears every field without calling the mutation", () => {
