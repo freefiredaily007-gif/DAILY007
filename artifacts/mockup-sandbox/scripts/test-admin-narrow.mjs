@@ -3003,19 +3003,46 @@ async function checkTournamentScheduledStart(boundaryIndex) {
     "The player list must stay visible while its scheduled starts pass.",
   );
   let tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.rememberFocus()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)})`,
     "the player list timer to move only the first tournament into Ongoing",
+  );
+  const playerFirstAnnouncement = `Tournament ${firstName} is now ongoing.`;
+  await waitForCondition(
+    `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(playerFirstAnnouncement)}`,
+    "the Player screen reader announcement for the first scheduled start",
+  );
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"tournament-start-announcement\"]')?.getAttribute('aria-live') === 'polite'"),
+    "The Player announcement must use a polite live region.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.focusUnchanged()"),
+    "The first Player start announcement must not move accessibility focus.",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStarts,
     "The first player start-time transition must not depend on an AppState visibility/resume event.",
   );
   await assertText(firstName, `${expected.name} after its scheduled start`);
+  const playerReadsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.resumeCurrentList()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${playerReadsBeforeResume}`,
+    "the Player list to refresh after the simulated app resume",
+  );
+  assert(
+    await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(playerFirstAnnouncement)}`),
+    "Refreshing the Player list after resume must not repeat the first start announcement.",
+  );
+  const visibilityChangesBeforeSecondPlayerStarts = await evaluate(
+    "window.__daily007TournamentResume.getVisibilityChangeCount()",
+  );
   await clickSelector('[data-testid="tournament-tab-upcoming"]', "player Upcoming filter");
   await waitForCondition(
-    `document.body.innerText.includes(${JSON.stringify(laterName)}) && !document.body.innerText.includes(${JSON.stringify(firstName)})`,
+    `window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)})`,
     "the later player tournament to remain Upcoming after the first start",
   );
   await evaluate("window.__daily007TournamentResume.setClockBeforeSecondStart()");
@@ -3023,24 +3050,40 @@ async function checkTournamentScheduledStart(boundaryIndex) {
   await assertClockImmediatelyBeforeIstBoundary("Player", playerBeforeNewYear, expected, 1);
   await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
   await waitForCondition(
-    `document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)})`,
     `the later ${expected.name} tournament to remain Upcoming immediately before its exact start`,
   );
   await clickSelector('[data-testid="tournament-tab-upcoming"]', "player Upcoming filter before New Year start");
   await assertText(laterName, `the later ${expected.name} tournament just before its scheduled start`);
   await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter before New Year start");
   tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.rememberFocus()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastSecondStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)})`,
     "the player list timer to move the later tournament into Ongoing at its own start",
   );
   assert(
-    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforePlayerStarts,
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeSecondPlayerStarts,
     "The second player start-time transition must not depend on an AppState visibility/resume event.",
   );
-  await assertText(firstName, `${expected.name} after both scheduled starts`);
-  await assertText(laterName, `the later ${expected.name} tournament after its scheduled start`);
+  const playerLaterAnnouncement = `Tournament ${laterName} is now ongoing.`;
+  assert(
+    await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(playerLaterAnnouncement)}`),
+    "The Player screen reader announcement must identify the later staggered start.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.focusUnchanged()"),
+    "The second Player start announcement must not move accessibility focus.",
+  );
+  assert(
+    await evaluate(`window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)})`),
+    `${expected.name} must remain visible in the Player Ongoing list after both starts.`,
+  );
+  assert(
+    await evaluate(`window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)})`),
+    `The later ${expected.name} tournament must appear in the Player Ongoing list after its start.`,
+  );
 
   await evaluate("window.__daily007TournamentResume.prepareAdminForScheduledStart()");
   await evaluate("window.__daily007TournamentResume.showAdmin()");
@@ -3071,19 +3114,46 @@ async function checkTournamentScheduledStart(boundaryIndex) {
   );
   tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await evaluate("window.__daily007TournamentResume.failNextTournamentRead()");
+  await evaluate("window.__daily007TournamentResume.rememberFocus()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)}) && document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && window.__daily007TournamentResume.getVisibleText().includes('Could not refresh tournaments: Temporary network error')`,
     "the Admin clock to move only the first tournament into Ongoing even when its scheduled refresh fails",
+  );
+  const adminFirstAnnouncement = `Tournament ${firstName} is now ongoing.`;
+  await waitForCondition(
+    `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(adminFirstAnnouncement)}`,
+    "the Admin screen reader announcement for the first scheduled start",
+  );
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"tournament-start-announcement\"]')?.getAttribute('aria-live') === 'polite'"),
+    "The Admin announcement must use a polite live region.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.focusUnchanged()"),
+    "The first Admin start announcement must not move accessibility focus.",
   );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStarts,
     "The first Admin start-time transition must not depend on an app background/resume event.",
   );
   await assertText(firstName, `${expected.name} after its scheduled start`);
+  const adminReadsBeforeResume = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.resumeCurrentList()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${adminReadsBeforeResume}`,
+    "the Admin list to refresh after the simulated app resume",
+  );
+  assert(
+    await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(adminFirstAnnouncement)}`),
+    "Refreshing the Admin list after resume must not repeat the first start announcement.",
+  );
+  const visibilityChangesBeforeSecondAdminStarts = await evaluate(
+    "window.__daily007TournamentResume.getVisibilityChangeCount()",
+  );
   await clickSelector('[data-testid="admin-tournament-tab-upcoming"]', "Admin Upcoming filter");
   await waitForCondition(
-    `document.body.innerText.includes(${JSON.stringify(laterName)}) && !document.body.innerText.includes(${JSON.stringify(firstName)})`,
+    `window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)})`,
     "the later Admin tournament to remain Upcoming after the first start",
   );
   await evaluate("window.__daily007TournamentResume.setClockBeforeSecondStart()");
@@ -3091,28 +3161,44 @@ async function checkTournamentScheduledStart(boundaryIndex) {
   await assertClockImmediatelyBeforeIstBoundary("Admin", adminBeforeNewYear, expected, 1);
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
   await waitForCondition(
-    `document.body.innerText.includes(${JSON.stringify(firstName)}) && !document.body.innerText.includes(${JSON.stringify(laterName)})`,
+    `window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && !window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)})`,
     `the later ${expected.name} tournament to remain Upcoming immediately before its exact start`,
   );
   await clickSelector('[data-testid="admin-tournament-tab-upcoming"]', "Admin Upcoming filter before New Year start");
   await assertText(laterName, `the later ${expected.name} tournament just before its scheduled start`);
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter before New Year start");
   tournamentReads = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await evaluate("window.__daily007TournamentResume.rememberFocus()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastSecondStart()");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && document.body.innerText.includes(${JSON.stringify(firstName)}) && document.body.innerText.includes(${JSON.stringify(laterName)}) && !document.body.innerText.includes('Could not refresh tournaments: Temporary network error')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) && window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)}) && !window.__daily007TournamentResume.getVisibleText().includes('Could not refresh tournaments: Temporary network error')`,
     "the Admin list timer to move the later tournament into Ongoing at its own start",
   );
   assert(
-    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeAdminStarts,
+    await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeSecondAdminStarts,
     "The second Admin start-time transition must not depend on an app background/resume event.",
+  );
+  const adminLaterAnnouncement = `Tournament ${laterName} is now ongoing.`;
+  assert(
+    await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(adminLaterAnnouncement)}`),
+    "The Admin screen reader announcement must identify the later staggered start.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.focusUnchanged()"),
+    "The second Admin start announcement must not move accessibility focus.",
   );
   assert(
     !await evaluate("document.body.innerText.includes('Could not refresh tournaments: Temporary network error')"),
     "A successful scheduled Admin refresh should clear the earlier request error.",
   );
-  await assertText(firstName, `${expected.name} after both scheduled starts`);
-  await assertText(laterName, `the later ${expected.name} tournament after its scheduled start`);
+  assert(
+    await evaluate(`window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)})`),
+    `${expected.name} must remain visible in the Admin Ongoing list after both starts.`,
+  );
+  assert(
+    await evaluate(`window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(laterName)})`),
+    `The later ${expected.name} tournament must appear in the Admin Ongoing list after its start.`,
+  );
 }
 
 async function readHomeCarouselState() {

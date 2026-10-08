@@ -9,6 +9,7 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 
 const root = createRoot(rootElement);
+let rememberedFocus = null;
 const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
 const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
 const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
@@ -150,6 +151,13 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
+    getVisibleText: () => {
+      const text = document.body.innerText || '';
+      const announcement = document
+        .querySelector('[data-testid="tournament-start-announcement"]')
+        ?.textContent?.trim();
+      return announcement ? text.replace(announcement, '') : text;
+    },
     failNextTournamentRead: apiMocks.failNextTournamentRead,
     deferNextTournamentRead: apiMocks.deferNextTournamentRead,
     failDeferredTournamentRead: apiMocks.failDeferredTournamentRead,
@@ -187,6 +195,12 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     advanceClockPastFirstStart: () => { fakeNow = scheduledStartMs + 100; },
     setClockBeforeSecondStart: () => { fakeNow = laterScheduledStartMs - 2_000; },
     advanceClockPastSecondStart: () => { fakeNow = laterScheduledStartMs + 100; },
+    resumeCurrentList: () => {
+      setVisibility("hidden");
+      setVisibility("visible");
+    },
+    rememberFocus: () => { rememberedFocus = document.activeElement; },
+    focusUnchanged: () => document.activeElement === rememberedFocus,
     prepareAdminForScheduledStart: () => {
       fakeNow = scheduledStartMs - 2_000;
       Object.assign(

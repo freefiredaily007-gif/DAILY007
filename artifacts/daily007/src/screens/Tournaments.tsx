@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, View, FlatList, StyleSheet, RefreshControl, Pressable } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  Platform,
+  View,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+  Pressable,
+} from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
@@ -17,6 +26,7 @@ import {
   mostRecentCompletedTournaments,
   TournamentLifecycleState,
 } from '../lib/tournamentLifecycle';
+import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncement';
 
 export default function Tournaments() {
   const nav: any = useNavigation();
@@ -27,8 +37,11 @@ export default function Tournaments() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [registrationError, setRegistrationError] = useState('');
+  const [startAnnouncement, setStartAnnouncement] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
+  const listFocused = useRef(false);
+  const announcedTournamentStarts = useRef(new Set<string>());
   const hasLoadedList = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
   const gameMode = route?.params?.gameMode as string | undefined;
@@ -79,7 +92,11 @@ export default function Tournaments() {
       if (loadRequests.current.isCurrent(request)) setLoading(false);
     }
   }, []);
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    listFocused.current = true;
+    void load();
+    return () => { listFocused.current = false; };
+  }, [load]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -108,7 +125,32 @@ export default function Tournaments() {
       .sort((a, b) => a - b)[0];
     if (nextTransition === undefined) return;
     const timer = setTimeout(() => {
-      setClockNow(Date.now());
+      const now = Date.now();
+      if (nextTransition <= now && listFocused.current && AppState.currentState === 'active') {
+        const announcements = items.flatMap((tournament) => {
+          if (lifecycleOf(tournament) !== 'upcoming') return [];
+          const schedule = getRoomCredentialSchedule(tournament.startsAt);
+          if (schedule?.startsAtMs !== nextTransition) return [];
+          const announcement = takeTournamentStartAnnouncement(
+            tournament,
+            announcedTournamentStarts.current,
+          );
+          return announcement ? [announcement] : [];
+        });
+        if (announcements.length > 0) {
+          if (Platform.OS === 'ios') {
+            announcements.forEach((announcement) => {
+              AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+                queue: true,
+                priority: 'low',
+              });
+            });
+          } else {
+            setStartAnnouncement(announcements.join(' '));
+          }
+        }
+      }
+      setClockNow(now);
       void load();
     }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextTransition - now + 20)));
     return () => clearTimeout(timer);
@@ -136,6 +178,16 @@ export default function Tournaments() {
 
   return (
     <View style={s.root}>
+      {startAnnouncement ? (
+        <Text
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="tournament-start-announcement"
+          style={s.screenReaderAnnouncement}
+        >
+          {startAnnouncement}
+        </Text>
+      ) : null}
       <FlatList
         testID="player-tournament-list"
         data={orderedVisible}
@@ -217,6 +269,13 @@ export default function Tournaments() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  screenReaderAnnouncement: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
+  },
   tabs: { flexDirection: 'row', gap: 7, marginBottom: 12 },
   tab: {
     flex: 1, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',

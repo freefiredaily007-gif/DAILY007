@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Platform, View, StyleSheet, Pressable } from 'react-native';
+import {
+  AccessibilityInfo,
+  Alert,
+  AppState,
+  Platform,
+  View,
+  StyleSheet,
+  Pressable,
+} from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
   getDaily007ListAdminResultLogsQueryKey,
@@ -12,6 +20,7 @@ import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedResultAccessibility';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncement';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 function todayInIST() {
@@ -89,7 +98,9 @@ export default function AdminTournaments() {
   const [loadError, setLoadError] = useState('');
   const [retryingList, setRetryingList] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
+  const [startAnnouncement, setStartAnnouncement] = useState('');
   const appState = useRef(AppState.currentState);
+  const announcedTournamentStarts = useRef(new Set<string>());
   const hasLoadedList = useRef(false);
   const [expandedAction, setExpandedAction] = useState<TournamentAction | null>(null);
   const actionRequestId = useRef(0);
@@ -351,14 +362,45 @@ export default function AdminTournaments() {
     const now = Date.now();
     const nextStart = list
       .filter((tournament) => getTournamentLifecycleState(tournament, clockNow) === 'upcoming')
-      .map((tournament) => Date.parse(String(tournament.startsAt ?? '')))
-      .filter((start) => Number.isFinite(start) && start > now)
-      .sort((a, b) => a - b)[0];
+      .map((tournament) => ({
+        tournament,
+        startMs: Date.parse(String(tournament.startsAt ?? '')),
+      }))
+      .filter(({ startMs }) => Number.isFinite(startMs) && startMs > now)
+      .sort((a, b) => a.startMs - b.startMs)[0];
     if (nextStart === undefined) return;
     const timer = setTimeout(() => {
-      setClockNow(Date.now());
+      const now = Date.now();
+      if (nextStart.startMs <= now && AppState.currentState === 'active') {
+        const announcements = list.flatMap((tournament) => {
+          if (
+            getTournamentLifecycleState(tournament, clockNow) !== 'upcoming' ||
+            Date.parse(String(tournament.startsAt ?? '')) !== nextStart.startMs
+          ) {
+            return [];
+          }
+          const announcement = takeTournamentStartAnnouncement(
+            tournament,
+            announcedTournamentStarts.current,
+          );
+          return announcement ? [announcement] : [];
+        });
+        if (announcements.length > 0) {
+          if (Platform.OS === 'ios') {
+            announcements.forEach((announcement) => {
+              AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+                queue: true,
+                priority: 'low',
+              });
+            });
+          } else {
+            setStartAnnouncement(announcements.join(' '));
+          }
+        }
+      }
+      setClockNow(now);
       void load();
-    }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart - now + 20)));
+    }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart.startMs - now + 20)));
     return () => clearTimeout(timer);
   }, [list, clockNow, load]);
 
@@ -448,6 +490,16 @@ export default function AdminTournaments() {
       bottomOffset={64}
       keyboardShouldPersistTaps="handled"
     >
+      {startAnnouncement ? (
+        <Text
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="tournament-start-announcement"
+          style={st.screenReaderAnnouncement}
+        >
+          {startAnnouncement}
+        </Text>
+      ) : null}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <Text style={[st.h, { flex: 1, minWidth: 0, flexShrink: 1 }]}>TOURNAMENTS</Text>
         {tab === 'upcoming' && (
@@ -911,6 +963,13 @@ export default function AdminTournaments() {
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
+  screenReaderAnnouncement: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
+  },
   tabs: { flexDirection: 'row', gap: 7, marginBottom: 12, width: '100%', minWidth: 0 },
   tab: {
     flex: 1, minWidth: 0, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',

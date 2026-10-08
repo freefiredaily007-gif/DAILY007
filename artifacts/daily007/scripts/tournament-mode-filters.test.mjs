@@ -22,6 +22,7 @@ import {
   getTournamentLifecycleState,
   MAX_TIMEOUT_MS,
 } from '../src/lib/tournamentLifecycle.ts';
+import { takeTournamentStartAnnouncement } from '../src/lib/tournamentStartAnnouncement.ts';
 
 const homeSource = await readFile(
   new URL('../src/screens/Home.tsx', import.meta.url),
@@ -264,7 +265,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /useFocusEffect\(useCallback\(\(\) => \{ void load\(\); \}, \[load\]\)\)/,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*void load\(\);\s*return \(\) => \{ listFocused\.current = false; \};\s*\}, \[load\]\)\)/,
   );
   assert.match(
     tournamentsSource,
@@ -276,7 +277,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /setItems\(\(Array\.isArray\(list\) \? list : \[\]\)\.map/,
+    /setItems\(\(Array\.isArray\(listResult\.value\) \? listResult\.value : \[\]\)\.map/,
   );
   assert.match(tournamentsSource, /const loadRequests = useRef\(createLatestRequestGuard\(\)\)/);
   assert.match(tournamentsSource, /const request = loadRequests\.current\.begin\(\)/);
@@ -309,12 +310,19 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
   let fakeNow = startAtMs - 1_000;
   let clockNow = fakeNow;
   let loadCalls = 0;
+  let startAnnouncement = '';
   const timers = [];
   const clearedTimers = [];
   const lifecycleEffect = loadLifecycleRefreshEffect({
     items,
+    listFocused: { current: true },
+    AppState: { currentState: 'active' },
+    lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, clockNow),
     getRoomCredentialSchedule,
     MAX_TIMEOUT_MS,
+    Platform: { OS: 'web' },
+    takeTournamentStartAnnouncement,
+    announcedTournamentStarts: { current: new Set() },
     Date: { now: () => fakeNow },
     setTimeout: (callback, delayMs) => {
       const timer = { callback, delayMs };
@@ -323,6 +331,7 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
     },
     clearTimeout: (timer) => clearedTimers.push(timer),
     setClockNow: (value) => { clockNow = value; },
+    setStartAnnouncement: (value) => { startAnnouncement = value; },
     load: () => { loadCalls += 1; },
   });
 
