@@ -90,5 +90,8 @@ export function tournamentListEmptyMessage(
     .map(displayFilterLabel)
     .filter(Boolean)
     .join(' ');
-  return `No ${tabLabel.trim().toLowerCase()}${scope ? ` ${scope}` : ''} tournaments are available right now.`;
+  const tab = tabLabel.trim().toLowerCase();
+  return scope
+    ? `No ${tab} tournaments are available.\nSelected format: ${scope}.`
+    : `No ${tab} tournaments are available right now.`;
 }

@@ -378,7 +378,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   assert.match(tournamentsSource, /data=\{orderedVisible\}/);
   assert.match(
     tournamentsSource,
-    /ListEmptyComponent=\{error \? null : \(\s*<Empty text=\{emptyMessage\} accessibilityLabel=\{emptyMessage\} \/>\s*\)\}/,
+    /ListEmptyComponent=\{error \? null : \(\s*<View style=\{s\.emptyState\}>\s*<Text[\s\S]*?accessibilityLabel=\{emptyMessage\.replace\('\\n', ' '\)\}[\s\S]*?style=\{s\.emptyMessage\}[\s\S]*?\{emptyMessage\}[\s\S]*?<\/Text>\s*<\/View>\s*\)\}/,
   );
 });
 
@@ -1011,18 +1011,38 @@ test('empty format-filtered lifecycle tabs announce the selected mode and team s
     assert.deepEqual(scenarioTabs[tab], [], `${label} should be empty when this mode and format have no matches`);
     assert.equal(
       tournamentListEmptyMessage(false, label, 'CLASH SQUAD', 'duo'),
-      `No ${tab} Duo Clash Squad tournaments are available right now.`,
+      `No ${tab} tournaments are available.\nSelected format: Duo Clash Squad.`,
     );
   }
 
+  assert.equal(
+    tournamentListEmptyMessage(false, 'Upcoming'),
+    'No upcoming tournaments are available right now.',
+    'unfiltered empty lists should retain a clear lifecycle message',
+  );
   assert.match(
     tournamentsSource,
     /const emptyMessage = tournamentListEmptyMessage\(false,\s*tabLabel\[tab\],\s*heading,\s*teamType\)/,
   );
   assert.match(
     tournamentsSource,
-    /ListEmptyComponent=\{error \? null : \(\s*<Empty text=\{emptyMessage\} accessibilityLabel=\{emptyMessage\} \/>\s*\)\}/,
-    'the one visible no-results message should also be its explicit screen-reader label',
+    /accessibilityLabel=\{emptyMessage\.replace\('\\n', ' '\)\}/,
+    'the one visible no-results message should also provide a continuous screen-reader label',
+  );
+  assert.match(tournamentsSource, /const \{ fontScale \} = useWindowDimensions\(\)/);
+  assert.match(tournamentsSource, /const largeText = fontScale >= 1\.5/);
+  assert.match(tournamentsSource, /<View style=\{\[s\.tabs, largeText && s\.tabsLarge\]\}>/);
+  assert.match(tournamentsSource, /tabsLarge:\s*\{\s*flexDirection: 'column', alignItems: 'stretch'\s*\}/);
+  assert.match(tournamentsSource, /tabLarge:\s*\{\s*flex: 0, minHeight: 52, paddingVertical: 10\s*\}/);
+  assert.match(
+    tournamentsSource,
+    /emptyMessage:\s*\{[\s\S]*?width: '100%'[\s\S]*?maxWidth: 520[\s\S]*?flexShrink: 1[\s\S]*?fontSize: 14[\s\S]*?textAlign: 'center'/,
+    'the empty-state message should wrap at full width without a fixed height or line limit',
+  );
+  assert.match(
+    tournamentsSource,
+    /data=\{orderedVisible\}[\s\S]*?ListEmptyComponent=/,
+    'the list should continue to own and scroll its empty state',
   );
   assert.match(
     uiSource,

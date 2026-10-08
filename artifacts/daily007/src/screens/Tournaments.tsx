@@ -8,11 +8,12 @@ import {
   StyleSheet,
   RefreshControl,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
-import { C, Loading, Empty, MatchCard, SectionTitle, Msg } from '../components/ui';
+import { C, Loading, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
@@ -31,6 +32,8 @@ import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncem
 export default function Tournaments() {
   const nav: any = useNavigation();
   const route: any = useRoute();
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.5;
   const [items, setItems] = useState<any[]>([]);
   const [tab, setTab] = useState<Exclude<TournamentLifecycleState, 'closed'>>('upcoming');
   const [loading, setLoading] = useState(true);
@@ -232,7 +235,7 @@ export default function Tournaments() {
         ListHeaderComponent={
           <View>
             <SectionTitle accent={C.neon}>{heading ? `${String(heading).toUpperCase()} TOURNAMENTS` : 'ALL TOURNAMENTS'}</SectionTitle>
-            <View style={s.tabs}>
+            <View style={[s.tabs, largeText && s.tabsLarge]}>
               {tabs.map((value) => {
                 const count = modeScopedTabs[value].length;
                 const displayedCount = value === 'completed' ? Math.min(count, MAX_COMPLETED_TOURNAMENTS) : count;
@@ -245,9 +248,9 @@ export default function Tournaments() {
                     accessibilityState={{ selected }}
                     accessibilityLabel={`${tabLabel[value]} tournaments, ${displayedCount}`}
                     onPress={() => setTab(value)}
-                    style={[s.tab, selected && s.tabOn]}
+                    style={[s.tab, largeText && s.tabLarge, selected && s.tabOn]}
                   >
-                    <Text style={[s.tabText, selected && s.tabTextOn]}>
+                    <Text style={[s.tabText, largeText && s.tabTextLarge, selected && s.tabTextOn]}>
                       {tabLabel[value]} <Text style={[s.tabCount, selected && s.tabTextOn]}>{displayedCount}</Text>
                     </Text>
                   </Pressable>
@@ -272,7 +275,17 @@ export default function Tournaments() {
           </View>
         }
         ListEmptyComponent={error ? null : (
-          <Empty text={emptyMessage} accessibilityLabel={emptyMessage} />
+          <View style={s.emptyState}>
+            <Text
+              testID="player-tournament-empty-state"
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={emptyMessage.replace('\n', ' ')}
+              style={s.emptyMessage}
+            >
+              {emptyMessage}
+            </Text>
+          </View>
         )}
         renderItem={({ item }) => {
           const state = lifecycleOf(item);
@@ -317,14 +330,31 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   tabs: { flexDirection: 'row', gap: 7, marginBottom: 12 },
+  tabsLarge: { flexDirection: 'column', alignItems: 'stretch' },
   tab: {
     flex: 1, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card,
   },
+  tabLarge: { flex: 0, minHeight: 52, paddingVertical: 10 },
   tabOn: { borderColor: C.neon, backgroundColor: C.neon + '20' },
   tabText: { color: C.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.2 },
+  tabTextLarge: { fontSize: 12, letterSpacing: 0, textAlign: 'center' },
   tabTextOn: { color: C.text },
   tabCount: { color: C.dim, fontSize: 9, fontWeight: '700' },
+  emptyState: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 24,
+  },
+  emptyMessage: {
+    width: '100%',
+    maxWidth: 520,
+    flexShrink: 1,
+    color: C.sub,
+    fontSize: 14,
+    textAlign: 'center',
+  },
   roomPending: {
     marginTop: 10,
     padding: 10,
