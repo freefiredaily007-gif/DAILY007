@@ -467,9 +467,17 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT r.id AS registration_id, r.captain_name, r.captain_game_name,")
     ) {
+      const exactStatus = normalized.match(/r\.status\s*=\s*'([^']+)'/i)?.[1];
+      const statusList = normalized.match(/r\.status\s+IN\s*\(([^)]*)\)/i)?.[1];
+      const allowedStatuses = exactStatus
+        ? [exactStatus]
+        : statusList === undefined
+          ? null
+          : [...statusList.matchAll(/'([^']+)'/g)].map(([, status]) => status);
       result = this.registrations
         .filter((registration) =>
-          registration.match_id === String(values[0]) && registration.status === "approved"
+          registration.match_id === String(values[0]) &&
+          (!allowedStatuses || allowedStatuses.includes(registration.status))
         )
         .flatMap((registration) => {
           const roster = this.roster

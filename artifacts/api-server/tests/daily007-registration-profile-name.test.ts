@@ -731,6 +731,66 @@ test("only tournament admins can download registration CSV rows", async () => {
   }
 });
 
+test("admin registration CSV exports every approved row and excludes pending signups", async () => {
+  registrationProfileTestDb.reset();
+  const approvedEntries = [
+    registrationProfileTestDb.addOtherRegistration("approved", TEST_MATCH_ID, "ApprovedExport"),
+    registrationProfileTestDb.addOtherRegistration("approved", TEST_MATCH_ID, "SecondApprovedExport"),
+  ];
+  const pendingEntry = registrationProfileTestDb.addOtherRegistration(
+    "pending",
+    TEST_MATCH_ID,
+    "PendingExport",
+  );
+  const path = `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`;
+  const expectedApprovedRows = approvedEntries.map(({ registration, roster }) => {
+    const emailPrefix = registration.captain_name.split(" ")[0].toLowerCase();
+    return [
+      registration.captain_name,
+      registration.captain_game_name,
+      registration.captain_game_uid,
+      `${emailPrefix}-captain-profile-test@example.test`,
+      registration.team_name,
+      ...roster.flatMap((member) => [member.member_name, member.member_uid ?? ""]),
+    ];
+  }).sort((left, right) => String(left[2]).localeCompare(String(right[2])));
+  const pendingSentinels = [
+    pendingEntry.registration.captain_name,
+    pendingEntry.registration.captain_game_name,
+    pendingEntry.registration.captain_game_uid,
+    pendingEntry.registration.team_name,
+    "pendingexport-captain-profile-test@example.test",
+    ...pendingEntry.roster.flatMap((member) =>
+      [member.member_name, member.member_uid].filter((value): value is string => Boolean(value))
+    ),
+  ];
+
+  try {
+    await withServer(async (origin) => {
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const response = await getWithToken(origin, path, adminToken);
+      assert.equal(response.status, 200);
+
+      const csv = await response.text();
+      const rows = parseCsvDocument(csv);
+      assert.equal(rows.length, approvedEntries.length + 1, "Only the header and approved rows should be exported.");
+      assert.equal(rows[0][0], "captain_profile_name");
+      assert.equal(rows[0][3], "captain_email");
+      const exportedRegistrationDetails = rows
+        .slice(1)
+        .map((row) => row.slice(0, -1))
+        .sort((left, right) => String(left[2]).localeCompare(String(right[2])));
+      assert.deepEqual(exportedRegistrationDetails, expectedApprovedRows);
+      for (const sentinel of pendingSentinels) {
+        assert.equal(csv.includes(sentinel), false, "Pending registration details must not appear in the CSV.");
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 const shortRosterFormats: {
   label: string;
   teamType: string;
