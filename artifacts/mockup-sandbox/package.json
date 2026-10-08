@@ -27,6 +27,7 @@
     "test:wallet-profile-keyboard": "node scripts/test-admin-narrow.mjs --keyboard-forms-only",
     "test:admin-tournament-keyboard": "node scripts/test-admin-narrow.mjs --admin-keyboard-forms-only",
     "test:admin-notifications-keyboard": "node scripts/test-admin-narrow.mjs --admin-notifications-keyboard-only",
+    "test:admin-notifications-accessibility": "node scripts/test-admin-narrow.mjs --admin-notifications-accessibility-only",
     "test:admin-search-keyboard": "node scripts/test-admin-narrow.mjs --admin-search-keyboard-only",
     "test:admin-search-accessibility": "node scripts/test-admin-narrow.mjs --admin-search-accessibility-only",
     "test:admin-tournament-create-save": "node scripts/test-admin-narrow.mjs --admin-tournament-create-save-only",

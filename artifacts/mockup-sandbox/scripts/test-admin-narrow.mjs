@@ -35,6 +35,7 @@ const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminNotificationKeyboardOnly = process.argv.includes("--admin-notifications-keyboard-only");
+const adminNotificationsAccessibilityOnly = process.argv.includes("--admin-notifications-accessibility-only");
 const adminSearchKeyboardOnly = process.argv.includes("--admin-search-keyboard-only");
 const adminSearchAccessibilityOnly = process.argv.includes("--admin-search-accessibility-only");
 const adminLandscapeKeyboardOnly = process.argv.includes("--admin-landscape-keyboard-only");
@@ -2292,6 +2293,274 @@ async function checkAdminSearchAccessibility() {
       );
     }
   }
+}
+
+function assertAdminNotificationAccessibilityProps() {
+  const source = readFileSync(
+    path.join(workspaceRoot, "artifacts/daily007/src/screens/AdminNotifications.tsx"),
+    "utf8",
+  );
+  const checkboxStart = source.lastIndexOf(
+    "<Pressable",
+    source.indexOf('accessibilityRole="checkbox"'),
+  );
+  const checkboxEnd = source.indexOf("</Pressable>", checkboxStart);
+  assert(
+    checkboxStart >= 0 && checkboxEnd > checkboxStart,
+    "The recipient checkbox source could not be isolated for its native accessibility checks.",
+  );
+  const checkboxSource = source.slice(checkboxStart, checkboxEnd);
+  for (const [prop, description] of [
+    ["accessible", "group each recipient into one accessible checkbox"],
+    ['accessibilityRole="checkbox"', "expose the recipient as a checkbox"],
+    ["accessibilityLabel={`Recipient:", "identify the recipient by name and email"],
+    ["accessibilityHint=", "explain how to toggle the recipient"],
+    ["accessibilityState={{ checked: on }}", "expose the checked or unchecked state"],
+    ["onPress={() => toggleRecipient(id)}", "announce selection changes from the recipient action"],
+  ]) {
+    assert(
+      checkboxSource.includes(prop),
+      `The recipient control must ${description}.`,
+    );
+  }
+  assert(
+    source.includes('accessibilityLiveRegion="polite"') &&
+      source.includes('testID="admin-notification-selection-announcement"'),
+    "Android must receive selection-count changes through one polite announcement region.",
+  );
+  assert(
+    source.includes("AccessibilityInfo.announceForAccessibilityWithOptions(message") &&
+      source.includes("const sendAccessibilityLabel = type === 'selected'") &&
+      source.includes("accessibilityLabel={sendAccessibilityLabel}"),
+    "The selection count and targeted send action need clear screen-reader announcements.",
+  );
+}
+
+async function checkAdminNotificationsAccessibility() {
+  const width = 375;
+  const recipients = [
+    {
+      id: "preview-user-ananya-championship-2026",
+      name: "Ananya Daily007 Championship Champion With A Long Name",
+      email: "ananya.champion.with.a.long.fake.address@example.invalid",
+    },
+    {
+      id: "preview-user-rohan-free-fire-2026",
+      name: "Rohan Free Fire Strategist",
+      email: "rohan.preview.player@example.invalid",
+    },
+    {
+      id: "preview-notification-recipient-meera-2026",
+      name: "Meera Daily007 International Free Fire Championship Player",
+      email: "meera.international.championship.preview@example.invalid",
+    },
+    {
+      id: "preview-notification-recipient-kabir-2026",
+      name: "Kabir Free Fire National Tournament Finalist and Squad Captain",
+      email: "kabir.national.tournament.finalist.preview@example.invalid",
+    },
+  ];
+  const firstRecipientId = recipients[0].id;
+  const secondRecipientId = recipients[1].id;
+
+  assertAdminNotificationAccessibilityProps();
+  await setViewport(width, 1.5, "admin-narrow-preview.html", "android");
+  assert(
+    await evaluate(
+      `window.innerWidth === ${width} && window.__daily007LargeTextScale === 1.5`,
+    ),
+    "The Admin notification accessibility preview did not apply its Android-sized viewport.",
+  );
+  await openAdminTab("notifications", "Notifications");
+  await clickSelector(
+    '[data-testid="notification-type-selected"]',
+    "Select Users notification audience",
+  );
+  await waitForCondition(
+    `document.querySelectorAll('[data-testid^="notification-recipient-"]').length === ${recipients.length}`,
+    "all isolated notification recipient checkboxes",
+  );
+  await evaluate("window.__daily007AccessibilityAnnouncements = []");
+
+  const renderedRecipients = await evaluate(`(() => [...document.querySelectorAll('[data-testid^="notification-recipient-"]')]
+    .map((element) => ({
+      id: element.getAttribute("data-testid")?.replace("notification-recipient-", ""),
+      role: element.getAttribute("role"),
+      label: element.getAttribute("aria-label"),
+      checked: element.getAttribute("aria-checked"),
+    })))()`);
+  assert(
+    renderedRecipients.length === recipients.length,
+    `Expected ${recipients.length} isolated notification recipients, got ${JSON.stringify(renderedRecipients)}.`,
+  );
+  for (const recipient of recipients) {
+    const row = renderedRecipients.find((item) => item.id === recipient.id);
+    assert(
+      row?.role === "checkbox" &&
+        row.label?.includes(recipient.name) &&
+        row.label?.includes(recipient.email),
+      `TalkBack needs one checkbox with a clear name and email for ${recipient.id}: ${JSON.stringify(row)}.`,
+    );
+    if (row.checked !== null) {
+      assert(
+        row.checked === "false",
+        `An unselected recipient must expose unchecked state: ${JSON.stringify(row)}.`,
+      );
+    }
+  }
+
+  async function toggleAndVerify(recipientId, expectedCount, expectedChecked, message, description) {
+    const selector = `[data-testid="notification-recipient-${recipientId}"]`;
+    const beforeAnnouncementCalls = await evaluate(
+      "window.__daily007AccessibilityAnnouncements?.length ?? 0",
+    );
+    await evaluate(`(() => {
+      window.__daily007PreviousNotificationSelectionAnnouncement =
+        document.querySelector('[data-testid="admin-notification-selection-announcement"]');
+      return true;
+    })()`);
+    const activatedWithoutMovingFocus = await evaluate(`(() => {
+      const recipient = document.querySelector(${JSON.stringify(selector)});
+      if (!recipient) return false;
+      recipient.focus();
+      if (document.activeElement !== recipient) return false;
+      recipient.click();
+      return document.activeElement === recipient;
+    })()`);
+    assert(
+      activatedWithoutMovingFocus,
+      `${description} unexpectedly moved accessibility focus from the activated recipient.`,
+    );
+    await waitForCondition(
+      `(() => {
+        const prior = window.__daily007PreviousNotificationSelectionAnnouncement;
+        const region = document.querySelector('[data-testid="admin-notification-selection-announcement"]');
+        return region && region !== prior && region.textContent.trim() === ${JSON.stringify(message)};
+      })()`,
+      `${description} selection-count announcement`,
+    );
+    const result = await evaluate(`(() => {
+      const region = document.querySelector('[data-testid="admin-notification-selection-announcement"]');
+      const recipient = document.querySelector(${JSON.stringify(selector)});
+      const count = document.querySelector('[data-testid="admin-notification-recipient-count"]');
+      return {
+        text: region?.textContent.trim() ?? null,
+        live: region?.getAttribute("aria-live") ?? null,
+        regionCount: document.querySelectorAll('[data-testid="admin-notification-selection-announcement"]').length,
+        checked: recipient?.getAttribute("aria-checked") ?? null,
+        focused: document.activeElement === recipient,
+        countText: count?.textContent.trim() ?? null,
+      };
+    })()`);
+    const expectedCountText = `RECIPIENTS · ${expectedCount} selected`;
+    assert(
+      result.text === message && result.live === "polite" && result.regionCount === 1,
+      `${description} must produce exactly one polite count announcement: ${JSON.stringify(result)}.`,
+    );
+    assert(
+      result.focused && result.countText === expectedCountText,
+      `${description} must keep focus on the recipient and update the visible count: ${JSON.stringify(result)}.`,
+    );
+    if (result.checked !== null) {
+      assert(
+        result.checked === (expectedChecked ? "true" : "false"),
+        `${description} exposed the wrong checkbox state: ${JSON.stringify(result)}.`,
+      );
+    }
+    assert(
+      await evaluate("window.__daily007AccessibilityAnnouncements?.length ?? 0") === beforeAnnouncementCalls,
+      `${description} must not duplicate the Android live-region update with an imperative announcement.`,
+    );
+  }
+
+  await toggleAndVerify(
+    firstRecipientId,
+    1,
+    true,
+    "1 recipient selected.",
+    "Selecting the first fake recipient",
+  );
+  await toggleAndVerify(
+    secondRecipientId,
+    2,
+    true,
+    "2 recipients selected.",
+    "Selecting the second fake recipient",
+  );
+  await toggleAndVerify(
+    firstRecipientId,
+    1,
+    false,
+    "1 recipient selected.",
+    "Unselecting the first fake recipient",
+  );
+  await toggleAndVerify(
+    secondRecipientId,
+    0,
+    false,
+    "No recipients selected.",
+    "Unselecting the last fake recipient",
+  );
+  await toggleAndVerify(
+    firstRecipientId,
+    1,
+    true,
+    "1 recipient selected.",
+    "Selecting one fake recipient for delivery",
+  );
+
+  const sendAction = await evaluate(`(() => {
+    const action = document.querySelector('[data-testid="admin-notification-send"]');
+    return {
+      role: action?.getAttribute("role") ?? null,
+      label: action?.getAttribute("aria-label") ?? null,
+    };
+  })()`);
+  assert(
+    sendAction.role === "button" &&
+      sendAction.label === "Send notification to 1 selected recipient",
+    `The send action must announce the selected audience: ${JSON.stringify(sendAction)}.`,
+  );
+  await setTournamentFormValue(
+    '[data-testid="admin-notification-title"]',
+    "Accessibility preview update",
+  );
+  await setTournamentFormValue(
+    '[data-testid="admin-notification-body"]',
+    "This notification is sent only to the isolated preview recipient.",
+  );
+  await resetAdminMutationCalls();
+  await clickSelector(
+    '[data-testid="admin-notification-send"]',
+    "Send notification to the selected fake recipient",
+  );
+  await assertAdminMutation({
+    method: "adminSendNotification",
+    payload: {
+      title: "Accessibility preview update",
+      body: "This notification is sent only to the isolated preview recipient.",
+      type: "selected",
+      userIds: [firstRecipientId],
+    },
+  }, "Accessible selected-recipient notification");
+  await waitForCondition(
+    `Boolean(document.querySelector('[aria-live="polite"][aria-label="Notification sent"]'))`,
+    "polite notification-sent completion feedback",
+  );
+  const completion = await evaluate(`(() => {
+    const toast = document.querySelector('[aria-live="polite"][aria-label="Notification sent"]');
+    return {
+      label: toast?.getAttribute("aria-label") ?? null,
+      live: toast?.getAttribute("aria-live") ?? null,
+      text: toast?.textContent.trim() ?? null,
+    };
+  })()`);
+  assert(
+    completion.label === "Notification sent" &&
+      completion.live === "polite" &&
+      completion.text?.includes("Notification sent"),
+    `The send completion must be announced politely and clearly: ${JSON.stringify(completion)}.`,
+  );
 }
 
 async function checkAdminSearchResultsWithKeyboard() {
@@ -6732,6 +7001,7 @@ try {
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminNotificationKeyboardOnly ||
+    adminNotificationsAccessibilityOnly ||
     adminSearchKeyboardOnly ||
     adminSearchAccessibilityOnly ||
     adminLandscapeKeyboardOnly ||
@@ -6749,13 +7019,13 @@ try {
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
-          : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
-          : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
+          : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
       mobile: true,
     });
@@ -6794,6 +7064,8 @@ try {
           ? "Admin tournament keyboard forms"
         : adminNotificationKeyboardOnly
           ? "Admin notification keyboard preview"
+        : adminNotificationsAccessibilityOnly
+          ? "Admin notification recipient accessibility preview"
         : adminSearchKeyboardOnly
           ? "Admin Wallet and Users search fields"
         : adminSearchAccessibilityOnly
@@ -6969,6 +7241,15 @@ try {
       );
       console.log(
         "PASS — Wallet and Users announce changed result sets politely on simulated Android and iOS paths, suppress duplicate/rapid-query speech, retain search focus, and keep filtered details/actions available.",
+      );
+    } else if (adminNotificationsAccessibilityOnly) {
+      await checkAdminNotificationsAccessibility();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin notification accessibility checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — Fake notification recipients expose checkbox names and states; each selection change produces one polite count announcement without moving focus, and the send action and completion are labeled.",
       );
     } else if (scheduledStartOnly) {
       await checkTournamentScheduledStart(0);

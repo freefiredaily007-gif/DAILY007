@@ -1,5 +1,12 @@
-import { useState } from 'react';
-import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, type User } from '../lib/api';
 import { A, Card, Btn, ScreenWrap, useToast, SectionTitle } from '../components/adminKit';
@@ -23,6 +30,9 @@ export default function AdminNotifications() {
   const [usersError, setUsersError] = useState('');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const selectedRecipientsRef = useRef<string[]>([]);
+  const [selectionAnnouncement, setSelectionAnnouncement] = useState<{ sequence: number; text: string } | null>(null);
+  const selectionAnnouncementSequence = useRef(0);
   const [busy, setBusy] = useState(false);
 
   const loadUsers = async () => {
@@ -54,13 +64,54 @@ export default function AdminNotifications() {
         ...(type === 'selected' ? { userIds: selected } : {}),
       });
       toast('Notification sent', 'success');
-      setTitle(''); setBody(''); setSelected([]);
+      setTitle(''); setBody('');
+      selectedRecipientsRef.current = [];
+      setSelected([]);
+      setSelectionAnnouncement(null);
     } catch (e) { toast(errMessage(e), 'error'); }
     finally { setBusy(false); }
   };
 
   const visibleUsers = (users ?? []).filter((u) =>
     `${u.name ?? ''} ${u.email ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const sendAccessibilityLabel = type === 'selected'
+    ? `Send notification to ${selected.length} selected ${selected.length === 1 ? 'recipient' : 'recipients'}`
+    : type === 'tournament'
+      ? 'Send notification to tournament participants'
+      : type === 'room'
+        ? 'Send room-published notification'
+        : type === 'winner'
+          ? 'Send winner announcement'
+          : type === 'payment'
+            ? 'Send payment notification'
+            : 'Send notification to all users';
+
+  const announceRecipientCount = (count: number) => {
+    const message = count === 0
+      ? 'No recipients selected.'
+      : `${count} ${count === 1 ? 'recipient' : 'recipients'} selected.`;
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+        queue: true,
+        priority: 'low',
+      });
+    } else {
+      setSelectionAnnouncement({
+        sequence: ++selectionAnnouncementSequence.current,
+        text: message,
+      });
+    }
+  };
+
+  const toggleRecipient = (id: string) => {
+    const currentSelected = selectedRecipientsRef.current;
+    const nextSelected = currentSelected.includes(id)
+      ? currentSelected.filter((currentId) => currentId !== id)
+      : [...currentSelected, id];
+    selectedRecipientsRef.current = nextSelected;
+    setSelected(nextSelected);
+    announceRecipientCount(nextSelected.length);
+  };
 
   return (
     <ScreenWrap keyboardShouldPersistTaps="handled">
@@ -80,7 +131,18 @@ export default function AdminNotifications() {
         <TextInput testID="admin-notification-body" placeholder="Message…" placeholderTextColor="#5b6478" value={body} onChangeText={setBody} multiline style={[st.input, { height: 90, textAlignVertical: 'top' }]} />
         {type === 'selected' && (
           <View style={st.recipients}>
-            <Text style={st.label}>RECIPIENTS · {selected.length} selected</Text>
+            <Text testID="admin-notification-recipient-count" style={st.label}>RECIPIENTS · {selected.length} selected</Text>
+            {selectionAnnouncement && Platform.OS !== 'ios' && (
+              <Text
+                key={selectionAnnouncement.sequence}
+                accessible={false}
+                accessibilityLiveRegion="polite"
+                testID="admin-notification-selection-announcement"
+                style={st.screenReaderAnnouncement}
+              >
+                {selectionAnnouncement.text}
+              </Text>
+            )}
             {usersLoading ? <ActivityIndicator color={A.red} /> : usersError ? (
               <View>
                 <Text style={st.error}>{usersError}</Text>
@@ -96,9 +158,17 @@ export default function AdminNotifications() {
                   if (!id) return null;
                   const on = selected.includes(id);
                   return (
-                    <Pressable key={id} onPress={() => setSelected((current) =>
-                      current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
-                    )} accessibilityRole="checkbox" accessibilityState={{ checked: on }} testID={`notification-recipient-${id}`} style={[st.user, on && st.userOn]}>
+                    <Pressable
+                      key={id}
+                      onPress={() => toggleRecipient(id)}
+                      accessible
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={`Recipient: ${u.name || 'Unnamed user'}. Email: ${u.email || 'email unavailable'}.`}
+                      accessibilityHint="Double-tap to select or remove this notification recipient."
+                      accessibilityState={{ checked: on }}
+                      testID={`notification-recipient-${id}`}
+                      style={[st.user, on && st.userOn]}
+                    >
                       <Text style={st.userMark}>{on ? '✓' : '○'}</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={st.userName}>{u.name}</Text>
@@ -112,7 +182,17 @@ export default function AdminNotifications() {
           </View>
         )}
         <View style={{ marginTop: 12 }}>
-          <Btn testID="admin-notification-send" title="SEND NOTIFICATION" onPress={send} loading={busy} disabled={type === 'selected' && (usersLoading || !!usersError || !users)} />
+          <Btn
+            testID="admin-notification-send"
+            title="SEND NOTIFICATION"
+            accessibilityLabel={sendAccessibilityLabel}
+            accessibilityHint={type === 'selected'
+              ? 'Sends the title and message to the checked recipients.'
+              : 'Sends the title and message using the chosen notification category.'}
+            onPress={send}
+            loading={busy}
+            disabled={type === 'selected' && (usersLoading || !!usersError || !users)}
+          />
         </View>
       </Card>
       <SectionTitle title="TEMPLATES" sub="tap to prefill" />
@@ -143,6 +223,7 @@ const st = StyleSheet.create({
   userMark: { color: A.red, fontSize: 18, width: 22 },
   userName: { color: A.text, fontSize: 13, fontWeight: '700' },
   userEmail: { color: A.sub, fontSize: 11, marginTop: 2 },
+  screenReaderAnnouncement: { position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' },
   tplT: { color: '#ff6b6b', fontWeight: '900', fontSize: 13 },
   tplB: { color: '#5b6478', fontSize: 11.5, marginTop: 3 },
 });
