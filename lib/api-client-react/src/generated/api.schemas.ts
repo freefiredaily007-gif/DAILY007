@@ -825,6 +825,23 @@ export interface Daily007ChangePasswordResult {
   message: string;
 }
 
+/**
+ * Stable identifier present when the current password is incorrect.
+ */
+export type Daily007PasswordChangeErrorCode = typeof Daily007PasswordChangeErrorCode[keyof typeof Daily007PasswordChangeErrorCode];
+
+
+export const Daily007PasswordChangeErrorCode = {
+  CURRENT_PASSWORD_INCORRECT: 'CURRENT_PASSWORD_INCORRECT',
+} as const;
+
+export interface Daily007PasswordChangeError {
+  /** Player-facing error message. */
+  error: string;
+  /** Stable identifier present when the current password is incorrect. */
+  code?: Daily007PasswordChangeErrorCode;
+}
+
 export interface Daily007GoogleRecoveryRequestAccepted {
   message: string;
 }

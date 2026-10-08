@@ -539,7 +539,10 @@ test("wrong-current-password 401 keeps the form and session available for retry"
       });
       requestCount += 1;
       if (requestCount === 1) {
-        return new Response(JSON.stringify({ error: "Current password is incorrect." }), {
+        return new Response(JSON.stringify({
+          error: "That current password does not match.",
+          code: "CURRENT_PASSWORD_INCORRECT",
+        }), {
           status: 401,
           statusText: "Unauthorized",
           headers: { "content-type": "application/json" },
@@ -554,7 +557,7 @@ test("wrong-current-password 401 keeps the form and session available for retry"
     await submitForCurrentPassword(incorrectCurrentPassword)();
 
     assert.equal(calls.apiStatus, 401, "Profile should receive the actual client error for the API's 401.");
-    assert.equal(calls.errors.at(-1), "Current password is incorrect.");
+    assert.equal(calls.errors.at(-1), "That current password does not match.");
     assert.deepEqual(calls.modalVisibility, [], "The rejected change should leave the form open.");
     assert.deepEqual(calls.currentPassword, [], "The current-password entry should not be cleared.");
     assert.deepEqual(calls.newPassword, [], "The new-password entry should remain for retry.");
@@ -593,7 +596,7 @@ test("wrong-current-password 401 keeps the form and session available for retry"
   }
 });
 
-test("an authenticated endpoint 401 still triggers the expired-session handler", async () => {
+test("an expired-token 401 without the wrong-password code still expires the session on password change", async () => {
   let expiredSessionCalls = 0;
   const originalFetch = globalThis.fetch;
 
@@ -608,7 +611,13 @@ test("an authenticated endpoint 401 still triggers the expired-session handler",
     });
 
     await assert.rejects(
-      customFetch("/api/auth/me", { method: "GET" }),
+      customFetch("/api/auth/me/password", {
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword: "current-password",
+          newPassword: "new-password-value",
+        }),
+      }),
       (error) => error?.status === 401,
     );
     assert.equal(expiredSessionCalls, 1);

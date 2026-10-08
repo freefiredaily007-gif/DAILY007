@@ -90,7 +90,14 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007ChangePasswordResult" }
         "400": { description: Invalid password-change request }
-        "401": { description: "Missing or invalid bearer token, or current password is incorrect" }
+        "401":
+          description: |
+            Missing or invalid bearer tokens return an error message without a code.
+            When the bearer token is valid but the current password is incorrect,
+            the response includes the stable code `CURRENT_PASSWORD_INCORRECT`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007PasswordChangeError" }
         "403": { description: Account is blocked }
         "404": { description: Account not found }
         "409": { description: Password changed concurrently; retry with the current password }
@@ -1635,6 +1642,16 @@ components:
       properties:
         message: { type: string }
       required: [message]
+    Daily007PasswordChangeError:
+      type: object
+      additionalProperties: false
+      properties:
+        error: { type: string, description: Player-facing error message. }
+        code:
+          type: string
+          enum: [CURRENT_PASSWORD_INCORRECT]
+          description: Stable identifier present when the current password is incorrect.
+      required: [error]
     Daily007GoogleRecoveryRequestAccepted:
       type: object
       properties:

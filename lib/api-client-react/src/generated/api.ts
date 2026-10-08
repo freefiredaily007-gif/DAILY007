@@ -64,6 +64,7 @@ import type {
   Daily007GoogleSignInResponse,
   Daily007LeaderboardsResponse,
   Daily007ListAdminResultLogsParams,
+  Daily007PasswordChangeError,
   Daily007PaymentRequest,
   Daily007PublicSettings,
   Daily007RechargeRequestBody,
@@ -474,7 +475,7 @@ return customFetch<Daily007ChangePasswordResult>(getDaily007ChangePasswordUrl(),
 
 export const getDaily007ChangePasswordMutationKey = () => ['daily007ChangePassword'] as const;
 
-export const getDaily007ChangePasswordMutationOptions = <TError = ErrorType<void>,
+export const getDaily007ChangePasswordMutationOptions = <TError = ErrorType<void | Daily007PasswordChangeError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007ChangePassword>>, TError,Daily007ChangePasswordMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof daily007ChangePassword>>, TError,Daily007ChangePasswordMutationVariables, TContext> => {
 
@@ -503,13 +504,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type Daily007ChangePasswordMutationResult = NonNullable<Awaited<ReturnType<typeof daily007ChangePassword>>>
     export type Daily007ChangePasswordMutationBody = BodyType<Daily007ChangePasswordBody>
-    export type Daily007ChangePasswordMutationError = ErrorType<void>
+    export type Daily007ChangePasswordMutationError = ErrorType<void | Daily007PasswordChangeError>
     export type Daily007ChangePasswordMutationVariables = {data: BodyType<Daily007ChangePasswordBody>}
 
     /**
  * @summary Change the signed-in Daily007 account password
  */
-export const useDaily007ChangePassword = <TError = ErrorType<void>,
+export const useDaily007ChangePassword = <TError = ErrorType<void | Daily007PasswordChangeError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007ChangePassword>>, TError,Daily007ChangePasswordMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof daily007ChangePassword>>,

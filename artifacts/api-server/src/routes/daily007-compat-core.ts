@@ -143,8 +143,8 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function fail(res: Response, status: number, error: string): void {
-  res.status(status).json({ error });
+function fail(res: Response, status: number, error: string, code?: string): void {
+  res.status(status).json(code ? { error, code } : { error });
 }
 
 function idFrom(req: Request): string | null {
@@ -447,7 +447,7 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     const candidate = await hashPassword(input.currentPassword, Buffer.from(stored.password_salt, "hex"));
     if (!passwordHashesMatch(Buffer.from(candidate.hash, "hex"), Buffer.from(stored.password_hash, "hex"))) {
       outcome = "incorrect";
-      fail(res, 401, "Current password is incorrect.");
+      fail(res, 401, "Current password is incorrect.", "CURRENT_PASSWORD_INCORRECT");
       return;
     }
 

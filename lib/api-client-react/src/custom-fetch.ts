@@ -156,7 +156,7 @@ function isIncorrectCurrentPasswordRejection(
 ): boolean {
   if (
     requestInfo.method !== "PATCH" ||
-    getStringField(errorData, "error") !== "Current password is incorrect."
+    getStringField(errorData, "code") !== "CURRENT_PASSWORD_INCORRECT"
   ) {
     return false;
   }

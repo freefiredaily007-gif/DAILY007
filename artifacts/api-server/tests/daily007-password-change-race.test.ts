@@ -75,11 +75,12 @@ test("an overlong current password is rejected before password credential reads 
 
   await withServer(async (origin) => {
     const result = await request(origin, "/auth/me/password", "PATCH", {
-      currentPassword: "definitely-the-wrong-current-password",
+      currentPassword: "x".repeat(201),
       newPassword: "replacement-password-for-rejected-attempt",
-    }, existingToken);
+    }, token);
 
     assert.equal(result.status, 400);
+    assert.equal(result.body.code, undefined);
     assert.equal(
       result.body.error,
       "Enter your current password and a new password of 8–200 characters.",
@@ -115,6 +116,7 @@ test("an incorrect current password is rejected without changing credentials or 
 
     assert.equal(result.status, 401);
     assert.equal(result.body.error, "Current password is incorrect.");
+    assert.equal(result.body.code, "CURRENT_PASSWORD_INCORRECT");
     assert.equal(result.body.token, undefined, "a rejected change must not issue a replacement token");
     assert.equal(passwordChangeTestDb.credentialReadBarrierTimedOut, false);
     assert.deepEqual(passwordChangeTestDb.credentialReadSnapshots, [
@@ -129,13 +131,13 @@ test("an incorrect current password is rejected without changing credentials or 
     assert.equal(after.auth_version, before.auth_version);
     assert.deepEqual(after, before, "the failed attempt must leave the complete account record unchanged");
 
-      const existingSession = await request(origin, "/auth/me", "GET", undefined, token);
+    const existingSession = await request(origin, "/auth/me", "GET", undefined, existingToken);
     assert.equal(existingSession.status, 200, "the pre-existing session must remain valid");
     assert.equal(existingSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
   });
 });
 
-test("incorrect password checks are capped per account and recover after the 15-minute window", async () => {
+test("simultaneous password changes based on the same credentials allow only one update", async () => {
   passwordChangeTestDb.reset();
   const originalPassword = "current-password-for-attempt-limit";
   const originalCredentials = await hashPassword(originalPassword);
@@ -199,7 +201,7 @@ test("incorrect password checks are capped per account and recover after the 15-
       "the stored hash must match exactly one of the two proposed replacement passwords",
     );
 
-      const existingSession = await request(origin, "/auth/me", "GET", undefined, token);
+    const existingSession = await request(origin, "/auth/me", "GET", undefined, token);
     assert.equal(existingSession.status, 200, "the pre-existing session must remain valid");
     assert.equal(existingSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
   });
@@ -221,14 +223,23 @@ test("incorrect password checks are capped per account and recover after the 15-
   let now = originalNow() + 60 * 60 * 1000;
   Date.now = () => now;
   try {
-    passwordChangeTestDb.holdCredentialReadsUntil(2);
-    const wrongPasswordChange = (origin: string) => request(origin, "/auth/me/password", "PATCH", {
-      currentPassword: "incorrect-current-password",
-      newPassword: "replacement-password-after-limit",
-    }, token);
+    passwordChangeTestDb.holdCredentialReadsUntil(5);
+    await withServer(async (origin) => {
+      const wrongPasswordChange = () => request(origin, "/auth/me/password", "PATCH", {
+        currentPassword: "incorrect-current-password",
+        newPassword: "replacement-password-after-limit",
+      }, token);
 
-    const firstInstanceFailures: JsonResult[] = [];
-      const limited = await wrongPasswordChange(origin);
+      const failures = await Promise.all(Array.from({ length: 5 }, wrongPasswordChange));
+      assert.deepEqual(failures.map((result) => result.status), [401, 401, 401, 401, 401]);
+      assert.deepEqual(
+        failures.map((result) => result.body.code),
+        Array(5).fill("CURRENT_PASSWORD_INCORRECT"),
+      );
+      assert.equal(passwordChangeTestDb.credentialReadBarrierTimedOut, false);
+      assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 5);
+
+      const limited = await wrongPasswordChange();
       assert.equal(limited.status, 429);
       assert.match(limited.body.error, /Wait \d+ seconds before trying again\./);
       assert.ok(Number(limited.retryAfter) > 0);
@@ -244,14 +255,13 @@ test("incorrect password checks are capped per account and recover after the 15-
       const existingSession = await request(origin, "/auth/me", "GET", undefined, token);
       assert.equal(existingSession.status, 200, "rate limiting must not invalidate the existing token");
       assert.equal(existingSession.body.id, PASSWORD_CHANGE_TEST_USER_ID);
-    });
 
-    now += 15 * 60 * 1000;
-    passwordChangeTestDb.holdCredentialReadsUntil(6);
-    await withServer(async (origin) => {
-      const recovered = await wrongPasswordChange(origin);
+      now += 15 * 60 * 1000;
+      passwordChangeTestDb.holdCredentialReadsUntil(6);
+      const recovered = await wrongPasswordChange();
       assert.equal(recovered.status, 401, "a new password check is allowed after the limit window");
       assert.equal(recovered.body.error, "Current password is incorrect.");
+      assert.equal(recovered.body.code, "CURRENT_PASSWORD_INCORRECT");
       assert.equal(passwordChangeTestDb.credentialReadBarrierTimedOut, false);
       assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 6);
       assert.equal(passwordChangeTestDb.passwordWriteAttempts, 0);
@@ -268,9 +278,3 @@ test("incorrect password checks are capped per account and recover after the 15-
     Date.now = originalNow;
   }
 });
-
-      const secondInstanceFailures = await Promise.all([
-        wrongPasswordChange(origin),
-        wrongPasswordChange(origin),
-        wrongPasswordChange(origin),
-      ]);
