@@ -1275,6 +1275,7 @@ test("a valid referral code does not change rewards when a password account link
 
       const linked = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
       assert.equal(linked.status, 200);
+      assert.equal(linked.body.googleLinked, true);
       assert.equal(linked.body.id, originalAccountId);
       assert.equal(linked.body.coins, 73);
       assert.equal(account.clerk_user_id, GOOGLE_CLERK_USER_ID);

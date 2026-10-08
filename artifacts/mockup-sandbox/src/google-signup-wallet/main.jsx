@@ -25,6 +25,7 @@ const PASSWORD_ACCOUNT = {
   wins: 4,
   kills: 39,
   prizeCoins: 85,
+  googleLinked: false,
 };
 const PASSWORD_TOKEN = "mock-password-account-token";
 const PASSWORD_SIGNUP_ACCOUNT = {
@@ -49,6 +50,7 @@ let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
 let passwordSignupAttempts = 0;
+let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked";
 
 function authorizationHeader(config) {
   const headers = config.headers;
@@ -133,15 +135,16 @@ http.defaults.adapter = async (config) => {
       });
     }
     call.status = 200;
+    if (profileLinkScenario) googleLinkedForPasswordAccount = true;
     return respond(config, profileLinkScenario
-      ? { ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN }
+      ? { ...PASSWORD_ACCOUNT, googleLinked: true, token: PASSWORD_TOKEN }
       : { ...ACCOUNT, token: DAILY007_TOKEN });
   }
   if (method === "GET" && path === "/auth/me") {
     return respond(config, passwordSignupStorageFailureScenario
       ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
-        ? PASSWORD_ACCOUNT
+        ? { ...PASSWORD_ACCOUNT, googleLinked: googleLinkedForPasswordAccount }
         : ACCOUNT);
   }
   if (method === "GET" && path === "/me/stats") {

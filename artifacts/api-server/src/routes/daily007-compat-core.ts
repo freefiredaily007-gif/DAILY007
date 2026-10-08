@@ -15,7 +15,13 @@ import {
   cancelUnderfilledTournamentAndRefund,
   tournamentCancellationError,
 } from "../lib/daily007-tournament-cancellation";
-import { authenticate, hashPassword, makeToken, requireTournamentAdmin } from "./daily007-v2";
+import {
+  authenticate,
+  getDaily007GoogleLinkStatus,
+  hashPassword,
+  makeToken,
+  requireTournamentAdmin,
+} from "./daily007-v2";
 
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -386,10 +392,14 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   res.json({ ...asLegacyUser(user), token });
 });
 
-router.get("/auth/me", authenticate, (req, res): void => {
+router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
   const account = req.daily007Account;
-  if (!account) return fail(res, 401, "Authentication is required.");
-  res.json(asLegacyUser(account));
+  if (!account) {
+    fail(res, 401, "Authentication is required.");
+    return;
+  }
+  const googleLinked = await getDaily007GoogleLinkStatus(account.id);
+  res.json({ ...asLegacyUser(account), googleLinked });
 });
 
 router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> => {

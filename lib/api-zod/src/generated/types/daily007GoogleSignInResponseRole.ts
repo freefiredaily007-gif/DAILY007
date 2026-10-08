@@ -28,5 +28,6 @@ export type Daily007GoogleSignInResponseRole = typeof Daily007GoogleSignInRespon
 
 export const Daily007GoogleSignInResponseRole = {
   user: 'user',
+  tournament_admin: 'tournament_admin',
   admin: 'admin',
 } as const;

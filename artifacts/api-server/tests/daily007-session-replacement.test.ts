@@ -484,6 +484,53 @@ test("a pre-rollout token stays valid until the account's next successful passwo
   });
 });
 
+test("authenticated current-account routes report Google linkage without changing account identity", async () => {
+  signupTestDb.reset();
+
+  await withServer(async (origin) => {
+    const registration = await request(origin, "/auth/register", "POST", {
+      name: "Google Link Status Test",
+      email: "google-link-status@example.test",
+      password: "google-link-status-password",
+    });
+    assert.equal(registration.status, 201);
+    const accountId = registration.body.id as string;
+    const token = registration.body.token as string;
+    const account = signupTestDb.users.get(accountId);
+    assert.ok(account);
+    const accountCoins = account.wallet_coins;
+    const sessionVersion = account.auth_version;
+    const currentAccountPaths = ["/auth/me", "/daily007/v2/auth/me"];
+
+    for (const path of currentAccountPaths) {
+      const response = await request(origin, path, "GET", undefined, token);
+      assert.equal(response.status, 200, `${path} should return the authenticated account`);
+      assert.equal(response.body.googleLinked, false, `${path} should report an unlinked password account`);
+      assert.equal(response.body.id, accountId, `${path} should preserve the Daily007 account`);
+      assert.equal(response.body.coins, accountCoins, `${path} should preserve the wallet balance`);
+      assert.equal(response.body.walletCoins, accountCoins, `${path} should preserve the wallet balance`);
+      assert.equal(response.body.clerk_user_id, undefined, `${path} must not expose the Google provider ID`);
+    }
+
+    account.clerk_user_id = "google-link-status-provider-id";
+
+    for (const path of currentAccountPaths) {
+      const response = await request(origin, path, "GET", undefined, token);
+      assert.equal(response.status, 200, `${path} should accept the original Daily007 token`);
+      assert.equal(response.body.googleLinked, true, `${path} should report the linked Google account`);
+      assert.equal(response.body.id, accountId, `${path} should preserve the Daily007 account`);
+      assert.equal(response.body.coins, accountCoins, `${path} should preserve the wallet balance`);
+      assert.equal(response.body.walletCoins, accountCoins, `${path} should preserve the wallet balance`);
+      assert.equal(response.body.clerk_user_id, undefined, `${path} must not expose the Google provider ID`);
+    }
+
+    assert.equal(account.id, accountId);
+    assert.equal(account.wallet_coins, accountCoins);
+    assert.equal(account.auth_version, sessionVersion, "reading Google linkage must not replace the Daily007 token");
+    assert.equal(token, registration.body.token, "the session token must remain unchanged");
+  });
+});
+
 test("wrong passwords preserve a valid session while successful logins replace it", async () => {
   signupTestDb.reset();
 

@@ -56,6 +56,7 @@ import type {
   Daily007AdminYoutubeSubscribeClaims,
   Daily007ChangePasswordBody,
   Daily007ChangePasswordResult,
+  Daily007CurrentAccount,
   Daily007GoogleOwnerRecoveryBody,
   Daily007GoogleOwnerRecoveryResult,
   Daily007GoogleRecoveryRequestAccepted,
@@ -350,6 +351,83 @@ export const useDaily007V2Login = <TError = ErrorType<void>,
       > => {
       return useMutation(getDaily007V2LoginMutationOptions(options));
     }
+
+export const getGetDaily007CurrentAccountUrl = () => {
+
+
+
+
+  return `/api/auth/me`
+}
+
+/**
+ * @summary Get the authenticated Daily007 account and Google-link status
+ */
+export const getDaily007CurrentAccount = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007CurrentAccount> => {
+
+  return customFetch<Daily007CurrentAccount>(getGetDaily007CurrentAccountUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDaily007CurrentAccountQueryKey = () => {
+    return [
+    `/api/auth/me`
+    ] as const;
+    }
+
+
+export const getGetDaily007CurrentAccountQueryOptions = <TData = Awaited<ReturnType<typeof getDaily007CurrentAccount>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDaily007CurrentAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDaily007CurrentAccountQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDaily007CurrentAccount>>> = ({ signal }) => getDaily007CurrentAccount({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDaily007CurrentAccount>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDaily007CurrentAccountQueryResult = NonNullable<Awaited<ReturnType<typeof getDaily007CurrentAccount>>>
+export type GetDaily007CurrentAccountQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the authenticated Daily007 account and Google-link status
+ */
+
+export function useGetDaily007CurrentAccount<TData = Awaited<ReturnType<typeof getDaily007CurrentAccount>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDaily007CurrentAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDaily007CurrentAccountQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getDaily007ChangePasswordUrl = () => {
 
@@ -720,11 +798,11 @@ export const getDaily007V2MeUrl = () => {
 }
 
 /**
- * @summary Get authenticated account and wallet balance
+ * @summary Get authenticated account, wallet balance, and Google-link status
  */
-export const daily007V2Me = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const daily007V2Me = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007CurrentAccount> => {
 
-  return customFetch<void>(getDaily007V2MeUrl(),
+  return customFetch<Daily007CurrentAccount>(getDaily007V2MeUrl(),
   {
     ...options,
     method: 'GET'
@@ -767,7 +845,7 @@ export type Daily007V2MeQueryError = ErrorType<void>
 
 
 /**
- * @summary Get authenticated account and wallet balance
+ * @summary Get authenticated account, wallet balance, and Google-link status
  */
 
 export function useDaily007V2Me<TData = Awaited<ReturnType<typeof daily007V2Me>>, TError = ErrorType<void>>(

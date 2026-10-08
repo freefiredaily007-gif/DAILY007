@@ -47,6 +47,17 @@ export type Account = {
   id: string; name: string; email: string; role: Daily007Role; wallet_coins: number;
   phone?: string | null; game_uid?: string | null; status?: "active" | "blocked"; auth_version?: number;
 };
+
+export async function getDaily007GoogleLinkStatus(accountId: string): Promise<boolean> {
+  const result = await pool.query<{ google_linked: boolean }>(
+    `SELECT clerk_user_id IS NOT NULL AS google_linked
+       FROM daily007_v2_users
+      WHERE id = $1`,
+    [accountId],
+  );
+  return result.rows[0]?.google_linked === true;
+}
+
 type SqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
   release(): void;
@@ -323,16 +334,17 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
   });
 });
 
-router.get("/daily007/v2/auth/me", authenticate, (req, res): void => {
+router.get("/daily007/v2/auth/me", authenticate, async (req, res): Promise<void> => {
   const account = req.daily007Account;
   if (!account) {
     fail(res, 401, "A valid Daily007 v2 bearer token is required.");
     return;
   }
+  const googleLinked = await getDaily007GoogleLinkStatus(account.id);
   res.json({
     id: account.id, name: account.name, email: account.email, phone: account.phone,
     gameUid: account.game_uid, role: account.role, status: account.status,
-    coins: account.wallet_coins, walletCoins: account.wallet_coins,
+    coins: account.wallet_coins, walletCoins: account.wallet_coins, googleLinked,
   });
 });
 

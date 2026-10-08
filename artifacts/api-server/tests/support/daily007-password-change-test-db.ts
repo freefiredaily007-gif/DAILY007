@@ -110,6 +110,13 @@ class MemoryPasswordChangeDatabase {
       };
     }
 
+    if (normalized ===
+      "SELECT clerk_user_id IS NOT NULL AS google_linked FROM daily007_v2_users WHERE id = $1") {
+      return {
+        rows: (userId === this.user.id ? [{ google_linked: false }] : []) as T[],
+      };
+    }
+
     if (normalized === "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1") {
       if (userId !== this.user.id) return { rows: [] };
       const credentials = {

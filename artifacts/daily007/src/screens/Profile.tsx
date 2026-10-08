@@ -4,7 +4,7 @@ import { View, ScrollView, StyleSheet, Modal, Platform, useWindowDimensions } fr
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { ReadableText as Text } from '../components/typography';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useApp } from '../App';
 import { Api, apiError } from '../lib/api';
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
@@ -41,7 +41,6 @@ export default function Profile() {
   const [setupError, setSetupError] = React.useState('');
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
   const [googleConnectError, setGoogleConnectError] = React.useState('');
-  const [googleConnected, setGoogleConnected] = React.useState(false);
   const [passwordModalVisible, setPasswordModalVisible] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
@@ -63,9 +62,9 @@ export default function Profile() {
     return () => { active = false; };
   }, [user.role]);
 
-  React.useEffect(() => {
-    if (user?.matches === undefined && !user?.statsError) void refresh();
-  }, [user?.matches, user?.statsError, refresh]);
+  useFocusEffect(React.useCallback(() => {
+    void refresh();
+  }, [refresh]));
   const statsUnavailable = !!user?.statsError || user?.matches === undefined;
 
   const closeSetup = () => {
@@ -175,20 +174,38 @@ export default function Profile() {
       </Card>
 
       <Card>
-        <Text style={s.connectTitle}>CONNECT GOOGLE</Text>
-        <Text style={s.connectDescription}>Link Google to this password account for quicker sign-in. Your Daily007 account and token stay the same.</Text>
-        <GoogleSSOButton
-          label="Connect Google"
-          dailyToken={user.token}
-          onError={setGoogleConnectError}
-          onSuccess={async () => {
-            setGoogleConnectError('');
-            setGoogleConnected(true);
-            await refresh();
-          }}
-        />
-        {!!googleConnectError && <Text style={s.statsError}>{googleConnectError}</Text>}
-        {googleConnected && <Text style={s.connected}>Google connection confirmed.</Text>}
+        <Text style={s.connectTitle}>
+          {user.googleLinked === true
+            ? 'GOOGLE CONNECTED'
+            : user.googleLinked === false
+              ? 'CONNECT GOOGLE'
+              : 'GOOGLE CONNECTION'}
+        </Text>
+        <Text style={s.connectDescription}>
+          {user.googleLinked === true
+            ? 'Google sign-in is linked to this Daily007 account.'
+            : user.googleLinked === false
+              ? 'Link Google to this password account for quicker sign-in. Your Daily007 account and token stay the same.'
+              : 'Checking whether Google is already linked to this Daily007 account.'}
+        </Text>
+        {user.googleLinked === true ? (
+          <Text testID="profile-google-connected" style={s.connected}>Google connection confirmed.</Text>
+        ) : user.googleLinked === false ? (
+          <>
+            <GoogleSSOButton
+              label="Connect Google"
+              dailyToken={user.token}
+              onError={setGoogleConnectError}
+              onSuccess={async () => {
+                setGoogleConnectError('');
+                await refresh();
+              }}
+            />
+            {!!googleConnectError && <Text style={s.statsError}>{googleConnectError}</Text>}
+          </>
+        ) : (
+          <Text testID="profile-google-status-loading" style={s.connected}>Checking Google connection…</Text>
+        )}
       </Card>
 
       <SectionTitle accent={C.gold}>SECURITY</SectionTitle>

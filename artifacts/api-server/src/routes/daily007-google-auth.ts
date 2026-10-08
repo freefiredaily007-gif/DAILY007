@@ -229,6 +229,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       email: result.account.email,
       coins: result.account.wallet_coins,
       role: result.account.role,
+      googleLinked: true,
       token: accountToken,
     });
   } catch (error) {

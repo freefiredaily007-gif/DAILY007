@@ -48,6 +48,29 @@ export const Daily007V2LoginResponse = zod.unknown()
 
 
 /**
+ * @summary Get the authenticated Daily007 account and Google-link status
+ */
+export const getDaily007CurrentAccountResponseCoinsMin = 0;
+
+export const getDaily007CurrentAccountResponseWalletCoinsMin = 0;
+
+
+
+export const GetDaily007CurrentAccountResponse = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "email": zod.string().email(),
+  "phone": zod.string().nullable(),
+  "gameUid": zod.string().nullable(),
+  "role": zod.enum(['user', 'tournament_admin', 'admin']),
+  "status": zod.enum(['active', 'blocked']),
+  "coins": zod.number().int().min(getDaily007CurrentAccountResponseCoinsMin),
+  "walletCoins": zod.number().int().min(getDaily007CurrentAccountResponseWalletCoinsMin),
+  "googleLinked": zod.boolean()
+})
+
+
+/**
  * Requires the current Daily007 password. Updates only the local Daily007
  * password; Google credentials are unchanged. Existing signed-in sessions
  * remain valid.
@@ -104,7 +127,8 @@ export const Daily007GoogleSignInResponse = zod.object({
   "name": zod.string(),
   "email": zod.string().email(),
   "coins": zod.number().int().min(daily007GoogleSignInResponseCoinsMin),
-  "role": zod.enum(['user', 'admin']),
+  "role": zod.enum(['user', 'tournament_admin', 'admin']),
+  "googleLinked": zod.boolean(),
   "token": zod.string()
 })
 
@@ -144,9 +168,26 @@ export const Daily007GoogleOwnerRecoveryResponse = zod.object({
 
 
 /**
- * @summary Get authenticated account and wallet balance
+ * @summary Get authenticated account, wallet balance, and Google-link status
  */
-export const Daily007V2MeResponse = zod.unknown()
+export const daily007V2MeResponseCoinsMin = 0;
+
+export const daily007V2MeResponseWalletCoinsMin = 0;
+
+
+
+export const Daily007V2MeResponse = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "email": zod.string().email(),
+  "phone": zod.string().nullable(),
+  "gameUid": zod.string().nullable(),
+  "role": zod.enum(['user', 'tournament_admin', 'admin']),
+  "status": zod.enum(['active', 'blocked']),
+  "coins": zod.number().int().min(daily007V2MeResponseCoinsMin),
+  "walletCoins": zod.number().int().min(daily007V2MeResponseWalletCoinsMin),
+  "googleLinked": zod.boolean()
+})
 
 
 /**

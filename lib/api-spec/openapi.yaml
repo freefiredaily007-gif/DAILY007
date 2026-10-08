@@ -57,6 +57,18 @@ paths:
       responses:
         "200": { description: Bearer token and account }
         "401": { description: Invalid credentials }
+  /auth/me:
+    get:
+      operationId: getDaily007CurrentAccount
+      summary: Get the authenticated Daily007 account and Google-link status
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Current account. Google linkage is exposed as a boolean; provider identifiers stay server-side.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007CurrentAccount" }
+        "401": { description: Missing or invalid bearer token }
   /auth/me/password:
     patch:
       operationId: daily007ChangePassword
@@ -174,10 +186,14 @@ paths:
   /daily007/v2/auth/me:
     get:
       operationId: daily007V2Me
-      summary: Get authenticated account and wallet balance
+      summary: Get authenticated account, wallet balance, and Google-link status
       security: [{ bearerAuth: [] }]
       responses:
-        "200": { description: Account }
+        "200":
+          description: Current account. Google linkage is exposed as a boolean; provider identifiers stay server-side.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007CurrentAccount" }
         "401": { description: Missing or invalid bearer token }
   /daily007/v2/admin/bootstrap:
     post:
@@ -1242,9 +1258,25 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         coins: { type: integer, minimum: 0 }
-        role: { type: string, enum: [user, admin] }
+        role: { type: string, enum: [user, tournament_admin, admin] }
+        googleLinked: { type: boolean }
         token: { type: string }
-      required: [id, name, email, coins, role, token]
+      required: [id, name, email, coins, role, googleLinked, token]
+    Daily007CurrentAccount:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: [string, "null"] }
+        gameUid: { type: [string, "null"] }
+        role: { type: string, enum: [user, tournament_admin, admin] }
+        status: { type: string, enum: [active, blocked] }
+        coins: { type: integer, minimum: 0 }
+        walletCoins: { type: integer, minimum: 0 }
+        googleLinked: { type: boolean }
+      required: [id, name, email, phone, gameUid, role, status, coins, walletCoins, googleLinked]
     HealthStatus:
       type: object
       properties:

@@ -724,6 +724,13 @@ try {
   };
 
   const openProfileScenario = async (scenarioName) => {
+    const linkedScenario = scenarioName === "profile-link-already-linked";
+    const expectedGoogleState = linkedScenario
+      ? `document.body.innerText.includes("GOOGLE CONNECTED")
+        && document.body.innerText.includes("Google connection confirmed.")
+        && !document.querySelector('[data-testid="continue-with-google"]')`
+      : `document.body.innerText.includes("CONNECT GOOGLE")
+        && Boolean(document.querySelector('[data-testid="continue-with-google"]'))`;
     await cdp("Page.navigate", {
       url: `${previewUrl(vitePort)}?scenario=${scenarioName}`,
     });
@@ -731,12 +738,14 @@ try {
       `Boolean(document.querySelector('[data-testid="mock-tab-profile"]'))
         && window.__daily007GoogleSignupWalletTest.snapshot()
           .then((state) => state.currentSession?.id === "mock-password-player"
-            && state.storedSession?.token === "mock-password-account-token")`,
+            && state.storedSession?.token === "mock-password-account-token"
+            && state.currentSession?.googleLinked === ${linkedScenario}
+            && state.calls.some((call) => call.method === "GET" && call.path === "/me/stats"))`,
       `the saved password-account session and Profile tab for ${scenarioName}`,
     );
     await clickSelector('[data-testid="mock-tab-profile"]', "Profile tab");
     await waitForExpression(
-      `document.body.innerText.includes("CONNECT GOOGLE")
+      `${expectedGoogleState}
         && document.body.innerText.includes("Mock Password Player")
         && document.body.innerText.includes("🪙 42")`,
       `the real Profile screen for ${scenarioName}`,
@@ -771,7 +780,7 @@ try {
   );
   await waitForExpression(
     `window.__daily007GoogleSignupWalletTest.snapshot()
-      .then((state) => state.calls.filter((call) => call.method === "GET" && call.path === "/auth/me").length >= 2)`,
+      .then((state) => state.calls.filter((call) => call.method === "GET" && call.path === "/auth/me").length >= 3)`,
     "Profile's authenticated refresh after linking Google",
   );
   const appInfo = await evaluate(`(() => {
@@ -920,6 +929,40 @@ try {
     ),
     "Wallet requests must keep using the original password-account bearer token.",
   );
+
+  await clickSelector('[data-testid="mock-tab-profile"]', "return to Profile after the successful server link");
+  await waitForExpression(
+    `document.body.innerText.includes("Google connection confirmed.")
+      && !document.querySelector('[data-testid="continue-with-google"]')`,
+    "server-confirmed linked state after navigating back to Profile",
+  );
+  const linkedAfterNavigation = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(linkedAfterNavigation, "after refreshing Google status on Profile focus");
+  assert.equal(linkedAfterNavigation.currentSession?.googleLinked, true);
+  assert.equal(linkedAfterNavigation.storedSession?.googleLinked, true);
+  assert.equal(linkedAfterNavigation.currentSession?.id, "mock-password-player");
+  assert.equal(linkedAfterNavigation.currentSession?.coins, 42);
+  assert.equal(linkedAfterNavigation.currentSession?.token, "mock-password-account-token");
+
+  await openProfileScenario("profile-link-already-linked");
+  const alreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(alreadyLinked, "after restoring an already-linked Google account");
+  assert.equal(alreadyLinked.currentSession?.googleLinked, true);
+  assert.equal(alreadyLinked.storedSession?.googleLinked, true);
+  assert.equal(
+    alreadyLinked.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    0,
+    "Profile must not ask an already-linked account to connect again.",
+  );
+  const alreadyLinkedView = await evaluate(`(() => ({
+    connectedMessage: document.querySelector('[data-testid="profile-google-connected"]')?.textContent?.trim() ?? null,
+    connectButtonVisible: Boolean(document.querySelector('[data-testid="continue-with-google"]')),
+  }))()`);
+  assert.equal(alreadyLinkedView.connectedMessage, "Google connection confirmed.");
+  assert.equal(alreadyLinkedView.connectButtonVisible, false);
+  await assertWalletBalance("after restoring an already-linked Google account");
+  const walletForAlreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletForAlreadyLinked, "after opening Wallet for an already-linked Google account");
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(

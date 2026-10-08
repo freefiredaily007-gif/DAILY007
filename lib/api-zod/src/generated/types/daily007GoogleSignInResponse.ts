@@ -31,5 +31,6 @@ export interface Daily007GoogleSignInResponse {
   /** @minimum 0 */
   coins: number;
   role: Daily007GoogleSignInResponseRole;
+  googleLinked: boolean;
   token: string;
 }

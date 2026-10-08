@@ -9,7 +9,7 @@ export type Daily007Role = 'user' | 'tournament_admin' | 'admin';
 export type User = {
   id?: string; $id?: string; name: string; email: string; phone?: string;
   gameUid?: string; coins?: number; role?: Daily007Role; status?: string;
-  createdAt?: string; $createdAt?: string;
+  createdAt?: string; $createdAt?: string; googleLinked?: boolean;
   matches?: number; wins?: number; kills?: number; prizeCoins?: number; token?: string;
   statsError?: string;
 };

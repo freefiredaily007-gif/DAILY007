@@ -237,6 +237,7 @@ export type Daily007GoogleSignInResponseRole = typeof Daily007GoogleSignInRespon
 
 export const Daily007GoogleSignInResponseRole = {
   user: 'user',
+  tournament_admin: 'tournament_admin',
   admin: 'admin',
 } as const;
 
@@ -247,7 +248,42 @@ export interface Daily007GoogleSignInResponse {
   /** @minimum 0 */
   coins: number;
   role: Daily007GoogleSignInResponseRole;
+  googleLinked: boolean;
   token: string;
+}
+
+export type Daily007CurrentAccountRole = typeof Daily007CurrentAccountRole[keyof typeof Daily007CurrentAccountRole];
+
+
+export const Daily007CurrentAccountRole = {
+  user: 'user',
+  tournament_admin: 'tournament_admin',
+  admin: 'admin',
+} as const;
+
+export type Daily007CurrentAccountStatus = typeof Daily007CurrentAccountStatus[keyof typeof Daily007CurrentAccountStatus];
+
+
+export const Daily007CurrentAccountStatus = {
+  active: 'active',
+  blocked: 'blocked',
+} as const;
+
+export interface Daily007CurrentAccount {
+  id: string;
+  name: string;
+  email: string;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  gameUid: string | null;
+  role: Daily007CurrentAccountRole;
+  status: Daily007CurrentAccountStatus;
+  /** @minimum 0 */
+  coins: number;
+  /** @minimum 0 */
+  walletCoins: number;
+  googleLinked: boolean;
 }
 
 export interface HealthStatus {

@@ -405,6 +405,11 @@ class MemorySignupDatabase {
         rows = [this.accountRow(user)];
       }
     } else if (normalized.startsWith(
+      "SELECT clerk_user_id IS NOT NULL AS google_linked FROM daily007_v2_users WHERE id = $1",
+    )) {
+      const user = this.users.get(first);
+      rows = user ? [{ google_linked: user.clerk_user_id !== null }] : [];
+    } else if (normalized.startsWith(
       "SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users",
     )) {
       const user = this.users.get(first);
