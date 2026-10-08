@@ -35,6 +35,7 @@ const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-create-save-only");
+const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament-empty-filter-only");
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
 const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-edit-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
@@ -761,6 +762,143 @@ async function assertTournamentStatusFilter(status) {
   assert(
     JSON.stringify(state.visibleActions) === JSON.stringify(expected.actions),
     `${status} filter showed the wrong management actions: ${JSON.stringify(state.visibleActions)}.`,
+  );
+}
+
+async function assertAdminTournamentEmptyFilter(status) {
+  const emptyMessage = `No ${status} tournaments.`;
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(emptyMessage)})`,
+    `${status} tournament empty state`,
+  );
+  const state = await evaluate(`(() => {
+    const pageText = document.body.innerText;
+    const statusLabels = ["upcoming", "ongoing", "completed"];
+    const fixtureNames = [
+      "Narrow Preview Upcoming",
+      "Narrow Preview Ongoing",
+      "Narrow Preview Completed",
+    ];
+    const actionIds = [
+      "edit-tournament-preview-upcoming",
+      "delete-tournament-preview-upcoming",
+      "manage-room-preview-upcoming",
+      "cancel-tournament-preview-ongoing",
+      "manage-room-preview-ongoing",
+      "finish-tournament-preview-ongoing",
+      "completed-result-log-preview-completed",
+    ];
+    const emptyMessages = statusLabels
+      .map((label) => "No " + label + " tournaments.")
+      .filter((message) => pageText.includes(message));
+    const filter = document.querySelector('[data-testid="admin-tournament-tab-${status}"]');
+    return {
+      emptyMessages,
+      visibleFixtureNames: fixtureNames.filter((name) => pageText.includes(name)),
+      visibleActions: actionIds.filter((id) =>
+        Boolean(document.querySelector('[data-testid="' + id + '"]'))
+      ),
+      selectedFilter: Boolean(
+        filter && getComputedStyle(filter).borderColor === "rgb(255, 61, 61)",
+      ),
+    };
+  })()`);
+  assert(
+    JSON.stringify(state.emptyMessages) === JSON.stringify([emptyMessage]),
+    `${status} filter should show only "${emptyMessage}": ${JSON.stringify(state.emptyMessages)}.`,
+  );
+  assert(
+    state.visibleFixtureNames.length === 0,
+    `${status} empty state retained tournament cards: ${JSON.stringify(state.visibleFixtureNames)}.`,
+  );
+  assert(
+    state.visibleActions.length === 0,
+    `${status} empty state retained management actions: ${JSON.stringify(state.visibleActions)}.`,
+  );
+  assert(state.selectedFilter, `The ${status} filter is not visibly selected.`);
+}
+
+async function checkAdminTournamentEmptyFilters() {
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tab-tournaments"]'))`,
+    "Admin navigation",
+  );
+  await clickSelector('[data-testid="admin-tab-tournaments"]', "Tournaments Admin tab");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="edit-tournament-preview-upcoming"]')) &&
+      document.body.innerText.includes("Narrow Preview Upcoming")`,
+    "the sole upcoming tournament fixture",
+  );
+  const populatedState = await evaluate(`(() => {
+    const pageText = document.body.innerText;
+    const actions = [
+      "edit-tournament-preview-upcoming",
+      "delete-tournament-preview-upcoming",
+      "manage-room-preview-upcoming",
+      "cancel-tournament-preview-ongoing",
+      "manage-room-preview-ongoing",
+      "finish-tournament-preview-ongoing",
+      "completed-result-log-preview-completed",
+    ];
+    return {
+      emptyMessages: ["upcoming", "ongoing", "completed"]
+        .map((status) => "No " + status + " tournaments.")
+        .filter((message) => pageText.includes(message)),
+      visibleActions: actions.filter((id) =>
+        Boolean(document.querySelector('[data-testid="' + id + '"]'))
+      ),
+      staleFixtureNames: [
+        "Narrow Preview Ongoing",
+        "Narrow Preview Completed",
+      ].filter((name) => pageText.includes(name)),
+    };
+  })()`);
+  assert(
+    populatedState.emptyMessages.length === 0 &&
+      populatedState.visibleActions.join(",") ===
+        "edit-tournament-preview-upcoming,delete-tournament-preview-upcoming,manage-room-preview-upcoming" &&
+      populatedState.staleFixtureNames.length === 0,
+    `The populated Upcoming filter did not show only its own tournament and actions: ${JSON.stringify(populatedState)}.`,
+  );
+
+  for (const status of ["ongoing", "completed"]) {
+    await clickSelector(
+      `[data-testid="admin-tournament-tab-${status}"]`,
+      `${status} tournament filter`,
+    );
+    await assertAdminTournamentEmptyFilter(status);
+  }
+
+  await clickSelector(
+    '[data-testid="admin-tournament-tab-upcoming"]',
+    "Upcoming tournament filter",
+  );
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="edit-tournament-preview-upcoming"]')) &&
+      document.body.innerText.includes("Narrow Preview Upcoming")`,
+    "the populated Upcoming tournament to return",
+  );
+  const returnedState = await evaluate(`(() => {
+    const pageText = document.body.innerText;
+    const actions = [
+      "edit-tournament-preview-upcoming",
+      "delete-tournament-preview-upcoming",
+      "manage-room-preview-upcoming",
+    ];
+    return {
+      emptyMessages: ["upcoming", "ongoing", "completed"]
+        .map((status) => "No " + status + " tournaments.")
+        .filter((message) => pageText.includes(message)),
+      visibleActions: actions.filter((id) =>
+        Boolean(document.querySelector('[data-testid="' + id + '"]'))
+      ),
+    };
+  })()`);
+  assert(
+    returnedState.emptyMessages.length === 0 &&
+      returnedState.visibleActions.join(",") ===
+        "edit-tournament-preview-upcoming,delete-tournament-preview-upcoming,manage-room-preview-upcoming",
+    `Returning to Upcoming did not restore its tournament and actions: ${JSON.stringify(returnedState)}.`,
   );
 }
 
@@ -4981,6 +5119,8 @@ try {
       ? "tournament-resume-preview.html?scheduled-start-only=1&boundary=month-end"
       : adminTournamentHomeRefreshOnly
         ? "admin-narrow-preview.html"
+      : adminTournamentEmptyFilterOnly
+        ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
       : homeCarouselOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
@@ -5057,6 +5197,7 @@ try {
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminTournamentCreateSaveOnly ||
+    adminTournamentEmptyFilterOnly ||
     adminTournamentHomeRefreshOnly ||
     adminTournamentEditSaveOnly ||
     adminActionsOnly ||
@@ -5065,13 +5206,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly
         ? 800
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 375 : 800,
       height: adminLandscapeOnly
         ? 360
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly ? 720 : 1000,
@@ -5087,6 +5228,8 @@ try {
         ? "Home carousel"
         : adminTournamentHomeRefreshOnly
           ? "Admin tournament creation and Home scheduled refresh"
+        : adminTournamentEmptyFilterOnly
+          ? "Admin tournament empty filters"
         : initialLoadFailureOnly
           ? "Player first-load failure"
         : registrationInitialLoadFailureOnly
@@ -5179,6 +5322,13 @@ try {
     } else if (adminTournamentHomeRefreshOnly) {
       await checkAdminTournamentCreationAppearsOnHomeRefresh();
       console.log("PASS — Admin creation is visible in the refreshed tournament list, and Home shows it after the scheduled polling path.");
+    } else if (adminTournamentEmptyFilterOnly) {
+      await checkAdminTournamentEmptyFilters();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin tournament empty-filter checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Empty Admin tournament filters show the correct message without stale cards or actions, and Upcoming restores its record.");
     } else if (adminTournamentCreateSaveOnly) {
       await checkAdminTournamentCreationSaveAtLargeText();
       assert(

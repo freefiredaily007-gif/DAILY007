@@ -446,6 +446,16 @@ export function configureIstDateSurfacePreview() {
   istDateSurfacePreview = true;
 }
 
+export function configureAdminTournamentEmptyFilterPreview() {
+  const upcomingTournament = previewTournaments.find(
+    (tournament) => String(tournament.id) === "preview-upcoming",
+  );
+  if (!upcomingTournament) {
+    throw new Error("The isolated Admin filter preview needs its upcoming tournament fixture.");
+  }
+  previewTournaments.splice(0, previewTournaments.length, { ...upcomingTournament });
+}
+
 export function configureWalletFormPreview() {
   Object.assign(settings, {
     coinToMoneyRate: 1,
