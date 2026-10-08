@@ -14,7 +14,11 @@ const loadAnnouncementEvents = [];
 const captureLoadAnnouncement = (region) => {
   const testID = region.getAttribute("data-testid")
     ?? region.closest("[data-testid]")?.getAttribute("data-testid");
-  if (!["player-tournament-load-error", "player-tournament-load-announcement"].includes(testID)) {
+  if (![
+    "player-tournament-load-error",
+    "player-tournament-refresh-error",
+    "player-tournament-load-announcement",
+  ].includes(testID)) {
     return;
   }
   const text = region.getAttribute("aria-label") ?? region.textContent?.trim() ?? "";

@@ -2848,6 +2848,36 @@ async function checkTournamentManualRefresh() {
     "the failed manual refresh to show an error and preserve the loaded Player card",
   );
   await assertText("IST Start Boundary", "the Player tournament after a failed manual refresh");
+  const refreshErrorAccessibility = await evaluate(`(() => {
+    const container = document.querySelector('[data-testid="player-tournament-refresh-error"]');
+    const liveRegion = container?.querySelector('[aria-live]');
+    return {
+      liveRegion: liveRegion?.getAttribute('aria-live') ?? null,
+      label: liveRegion?.getAttribute('aria-label') ?? null,
+      cardVisible: document.body.innerText.includes('IST Start Boundary'),
+      announcements: window.__daily007TournamentResume.getLoadAnnouncementEvents()
+        .filter((event) => event.testID === 'player-tournament-refresh-error'),
+    };
+  })()`);
+  assert(
+    refreshErrorAccessibility.liveRegion === 'polite',
+    `A failed refresh must expose its error as a polite TalkBack live region: ${JSON.stringify(refreshErrorAccessibility)}.`,
+  );
+  assert(
+    refreshErrorAccessibility.label === 'Could not refresh tournaments: Temporary network error',
+    `A failed refresh must have a clear accessible label: ${JSON.stringify(refreshErrorAccessibility)}.`,
+  );
+  assert(
+    refreshErrorAccessibility.cardVisible,
+    `The existing tournament must remain visible with the refresh announcement: ${JSON.stringify(refreshErrorAccessibility)}.`,
+  );
+  assert(
+    JSON.stringify(refreshErrorAccessibility.announcements) === JSON.stringify([{
+      testID: 'player-tournament-refresh-error',
+      text: 'Could not refresh tournaments: Temporary network error',
+    }]),
+    `A single failed refresh should produce one clear announcement: ${JSON.stringify(refreshErrorAccessibility.announcements)}.`,
+  );
   assert(
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRefresh,
     "A manual pull-to-refresh must not depend on an AppState resume event.",

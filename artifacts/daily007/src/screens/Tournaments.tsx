@@ -242,9 +242,9 @@ export default function Tournaments() {
               <Msg
                 kind="err"
                 text={`${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${error}`}
-                testID={!hasLoadedList.current ? 'player-tournament-load-error' : undefined}
-                accessibilityLabel={!hasLoadedList.current ? `Could not load tournaments: ${error}` : undefined}
-                accessibilityLiveRegion={!hasLoadedList.current ? 'polite' : undefined}
+                testID={hasLoadedList.current ? 'player-tournament-refresh-error' : 'player-tournament-load-error'}
+                accessibilityLabel={`${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${error}`}
+                accessibilityLiveRegion="polite"
               />
             )}
             {!!registrationError && (
