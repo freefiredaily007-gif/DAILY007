@@ -22,3 +22,9 @@ On 2026-10-05, the user confirmed on Android that watch progress did not increas
 **Why:** The user reported passing the screen-lock, resumed-progress, and one-coin reward checks on a real Android device.
 
 **How to apply:** Repeat this device check after changes to the Video screen's AppState handling, embedded YouTube playback, or reward completion flow.
+
+On 2026-10-09, the user confirmed on an iQOO Neo 10 running Android 16 that TalkBack announced a failed video-watch start once, kept focus usable on the player screen, and did not offer a coin-claim retry.
+
+**Why:** Native TalkBack speech and focus behavior cannot be established from source assertions or a browser preview alone.
+
+**How to apply:** Repeat this device check after changing the video-start error announcement, player focus behavior, or retry controls.
