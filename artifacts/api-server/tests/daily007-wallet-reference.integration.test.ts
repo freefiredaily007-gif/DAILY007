@@ -117,7 +117,7 @@ async function call(
   origin: string,
   actorId: string,
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   body?: Record<string, unknown>,
 ): Promise<{ status: number; body: any }> {
   const token = makeToken(actorId, 0);
@@ -244,6 +244,87 @@ test("a rejected deposit keeps its normalized UPI reference unique in PostgreSQL
       [[fixture.playerId, fixture.retryPlayerId]],
     );
     assert.deepEqual(finalAccount.rows, initialAccount.rows);
+    assert.deepEqual(finalLedger.rows, initialLedger.rows);
+  });
+});
+
+test("a deleted deposit keeps its normalized UPI reference reserved", async () => {
+  const referenceSuffix = randomUUID().replace(/-/g, "").toUpperCase();
+  const originalReference = `  ＵＰＩ-ＲＥＦ-ＤＥＬＥＴＥＤ-${referenceSuffix}  `;
+  const storedReference = originalReference.trim();
+  const normalizedReference = `UPI-REF-DELETED-${referenceSuffix}`;
+  const duplicateReference = `upi-ref-deleted-${referenceSuffix.toLowerCase()}`;
+  const affectedUserIds = [fixture.playerId, fixture.retryPlayerId];
+  const initialAccounts = await pool.query<{ id: string; wallet_coins: number }>(
+    `SELECT id, wallet_coins FROM daily007_v2_users
+      WHERE id = ANY($1::uuid[]) ORDER BY id`,
+    [affectedUserIds],
+  );
+  const initialLedger = await pool.query(
+    `SELECT id, user_id, amount, balance_after, reason
+       FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])`,
+    [affectedUserIds],
+  );
+
+  await withServer(async (origin) => {
+    const deposit = await call(origin, fixture.playerId, "/payments", "POST", {
+      coins: 80,
+      payerUpiId: "player@upi",
+      txnId: originalReference,
+    });
+    assert.equal(deposit.status, 201);
+    const paymentId = deposit.body.id as string;
+    assert.ok(paymentId);
+
+    const deletion = await call(
+      origin,
+      fixture.adminId,
+      `/admin/payments/${paymentId}`,
+      "DELETE",
+    );
+    assert.equal(deletion.status, 200);
+    assert.equal(deletion.body.id, paymentId);
+    assert.equal(deletion.body.deleted, true);
+
+    const duplicate = await call(origin, fixture.retryPlayerId, "/payments", "POST", {
+      coins: 80,
+      payerUpiId: "different-player@upi",
+      txnId: duplicateReference,
+    });
+    assert.equal(duplicate.status, 409);
+    assert.equal(duplicate.body.error, "This payment reference has already been submitted.");
+
+    const payments = await pool.query<{
+      id: string;
+      user_id: string;
+      status: string;
+      reference: string;
+      reference_normalized: string;
+    }>(
+      `SELECT id, user_id, status, reference, reference_normalized
+         FROM daily007_v2_payments
+        WHERE reference_normalized = $1`,
+      [normalizedReference],
+    );
+    assert.deepEqual(payments.rows, [{
+      id: paymentId,
+      user_id: fixture.playerId,
+      status: "deleted",
+      reference: storedReference,
+      reference_normalized: normalizedReference,
+    }]);
+
+    const finalAccounts = await pool.query<{ id: string; wallet_coins: number }>(
+      `SELECT id, wallet_coins FROM daily007_v2_users
+        WHERE id = ANY($1::uuid[]) ORDER BY id`,
+      [affectedUserIds],
+    );
+    const finalLedger = await pool.query(
+      `SELECT id, user_id, amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])`,
+      [affectedUserIds],
+    );
+    assert.deepEqual(finalAccounts.rows, initialAccounts.rows);
     assert.deepEqual(finalLedger.rows, initialLedger.rows);
   });
 });
