@@ -50,6 +50,7 @@ import { SessionVerificationPaused } from './components/SessionVerificationPause
 import {
   refreshAccessAfterPending,
   refreshAccessIfActive,
+  subscribeToAccountAccessReconnect,
   refreshUserAccountAccessSafely,
   rootNavigationForRole,
 } from './lib/roleNavigation';
@@ -298,11 +299,17 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     const subscription = AppState.addEventListener('change', (state) => {
       refreshAccessIfActive(state, refreshAccessOnResume);
     });
+    const unsubscribeNetwork = subscribeToAccountAccessReconnect(
+      () => AppState.currentState === 'active',
+      () => { void refreshAccessOnResume(); },
+      Network,
+    );
     const interval = setInterval(() => {
       if (AppState.currentState === 'active') void refreshAccess();
     }, 30_000);
     return () => {
       subscription.remove();
+      unsubscribeNetwork();
       clearInterval(interval);
     };
   }, [user?.id, refreshAccess, refreshAccessOnResume]);

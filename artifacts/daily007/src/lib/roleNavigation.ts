@@ -40,6 +40,46 @@ export function refreshAccessIfActive(state: string, refresh: () => unknown): vo
   if (state === "active") void refresh();
 }
 
+export interface AccountAccessNetworkState {
+  isConnected?: boolean | null;
+  isInternetReachable?: boolean | null;
+}
+
+export interface AccountAccessNetworkSource {
+  addNetworkStateListener(
+    listener: (state: AccountAccessNetworkState) => void,
+  ): { remove: () => void };
+  getNetworkStateAsync(): Promise<AccountAccessNetworkState>;
+}
+
+export function subscribeToAccountAccessReconnect(
+  isAppActive: () => boolean,
+  refreshOnReconnect: () => void,
+  network: AccountAccessNetworkSource,
+): () => void {
+  let active = true;
+  let previousConnected: boolean | null = null;
+  let networkEventCount = 0;
+  const onNetworkState = (state: AccountAccessNetworkState) => {
+    if (!active) return;
+    const connected = state.isConnected === true && state.isInternetReachable !== false;
+    if (connected && previousConnected !== true && isAppActive()) refreshOnReconnect();
+    previousConnected = connected;
+    networkEventCount += 1;
+  };
+  const subscription = network.addNetworkStateListener(onNetworkState);
+
+  void network.getNetworkStateAsync().then((state) => {
+    if (!active || networkEventCount > 0) return;
+    previousConnected = state.isConnected === true && state.isInternetReachable !== false;
+  }).catch(() => {});
+
+  return () => {
+    active = false;
+    subscription.remove();
+  };
+}
+
 export function refreshAccessAfterPending<T>(
   pendingRequest: Promise<T> | null,
   resumeRequest: { current: Promise<T> | null },

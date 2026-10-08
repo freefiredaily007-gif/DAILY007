@@ -9,6 +9,7 @@ import {
   refreshUserAccountAccess,
   refreshUserAccountAccessSafely,
   rootNavigationForRole,
+  subscribeToAccountAccessReconnect,
 } from "../src/lib/roleNavigation.ts";
 import { logoutDaily007 } from "../src/lib/logout.ts";
 
@@ -84,6 +85,22 @@ function startDeferredAccountRefresh(initialUser) {
     isCurrent,
   );
   return { response, refresh, state };
+}
+
+function createMockNetwork(initialState) {
+  let listener = null;
+  return {
+    addNetworkStateListener(nextListener) {
+      listener = nextListener;
+      return { remove() { listener = null; } };
+    },
+    getNetworkStateAsync() {
+      return Promise.resolve(initialState);
+    },
+    emit(state) {
+      listener?.(state);
+    },
+  };
 }
 
 async function applyMockRoleRefresh(previousRole, refreshedRole) {
@@ -262,6 +279,108 @@ async function applyMockRoleChangeOnResume(
   };
 }
 
+async function applyMockRoleChangeOnReconnect({ pendingBeforeReconnect = false } = {}) {
+  const initialUser = {
+    id: "reconnecting-account",
+    name: "Reconnect Player",
+    role: "user",
+    token: "reconnecting-session",
+  };
+  let currentUser = initialUser;
+  let savedSession = initialUser;
+  let accountRefreshCalls = 0;
+  let activeApiRequests = 0;
+  let peakActiveApiRequests = 0;
+  let sessionRejectionCalls = 0;
+  let accessRefreshRequest = null;
+  let reconnectRefreshPromise = null;
+  const reconnectRefreshRequest = { current: null };
+  const pendingResponse = deferred();
+
+  const fetchAccount = async () => {
+    accountRefreshCalls += 1;
+    activeApiRequests += 1;
+    peakActiveApiRequests = Math.max(peakActiveApiRequests, activeApiRequests);
+    try {
+      if (pendingBeforeReconnect && accountRefreshCalls === 1) {
+        return await pendingResponse.promise;
+      }
+      return { role: "tournament_admin", token: undefined };
+    } finally {
+      activeApiRequests -= 1;
+    }
+  };
+
+  const refreshAccess = () => {
+    if (accessRefreshRequest) return accessRefreshRequest;
+    const request = refreshUserAccountAccessSafely(
+      currentUser,
+      fetchAccount,
+      (updatedUser) => {
+        currentUser = updatedUser;
+        savedSession = updatedUser;
+      },
+      () => {
+        currentUser = null;
+        savedSession = null;
+        sessionRejectionCalls += 1;
+      },
+    );
+    accessRefreshRequest = request;
+    void request.then(
+      () => {
+        if (accessRefreshRequest === request) accessRefreshRequest = null;
+      },
+      () => {
+        if (accessRefreshRequest === request) accessRefreshRequest = null;
+      },
+    );
+    return request;
+  };
+
+  const network = createMockNetwork({
+    isConnected: false,
+    isInternetReachable: false,
+  });
+  const unsubscribe = subscribeToAccountAccessReconnect(
+    () => true,
+    () => {
+      reconnectRefreshPromise = refreshAccessAfterPending(
+        accessRefreshRequest,
+        reconnectRefreshRequest,
+        refreshAccess,
+      );
+    },
+    network,
+  );
+  await Promise.resolve();
+  const inFlightBeforeReconnect = pendingBeforeReconnect ? refreshAccess() : null;
+
+  network.emit({ isConnected: true, isInternetReachable: true });
+  const firstReconnectPromise = reconnectRefreshPromise;
+  network.emit({ isConnected: false, isInternetReachable: false });
+  network.emit({ isConnected: true, isInternetReachable: true });
+  const reconnectEventsCoalesced = reconnectRefreshPromise === firstReconnectPromise;
+  if (pendingBeforeReconnect) {
+    assert.equal(accountRefreshCalls, 1);
+    assert.equal(peakActiveApiRequests, 1);
+    pendingResponse.reject(new Error("Network unavailable before connectivity returned"));
+    await inFlightBeforeReconnect;
+  }
+  await reconnectRefreshPromise;
+  unsubscribe();
+
+  return {
+    currentUser,
+    savedSession,
+    accountRefreshCalls,
+    peakActiveApiRequests,
+    reconnectEventsCoalesced,
+    sessionRejectionCalls,
+    navigation: currentUser ? rootNavigationForRole(currentUser.role) : "Auth",
+  };
+}
+
 for (const [failureName, error] of [
   ["network", Object.assign(new Error("Network unavailable"), { code: "ERR_NETWORK" })],
   ["5xx", Object.assign(new Error("Server unavailable"), { response: { status: 503 } })],
@@ -415,6 +534,39 @@ test("a resume queues a fresh role refresh behind an older in-flight request", a
   assert.equal(state.savedSession.role, "tournament_admin");
   assert.equal(state.savedSession.token, "same-saved-daily007-session");
   assert.equal(state.navigationAfterResume, "Admin");
+  assert.equal(state.sessionRejectionCalls, 0);
+});
+
+test("restored connectivity refreshes account access and updates role while the app stays active", async () => {
+  const state = await applyMockRoleChangeOnReconnect();
+
+  assert.equal(state.accountRefreshCalls, 1);
+  assert.equal(state.reconnectEventsCoalesced, true);
+  assert.equal(state.currentUser.role, "tournament_admin");
+  assert.equal(state.savedSession.role, "tournament_admin");
+  assert.equal(state.currentUser.token, "reconnecting-session");
+  assert.equal(state.savedSession.token, "reconnecting-session");
+  assert.equal(state.navigation, "Admin");
+  assert.deepEqual(
+    adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
+    {
+      activeScreen: "tournaments",
+      visibleNavKeys: ["tournaments", "registrations"],
+    },
+  );
+  assert.equal(state.sessionRejectionCalls, 0);
+});
+
+test("connectivity restoration waits for an in-flight refresh before retrying", async () => {
+  const state = await applyMockRoleChangeOnReconnect({ pendingBeforeReconnect: true });
+
+  assert.equal(state.accountRefreshCalls, 2);
+  assert.equal(state.peakActiveApiRequests, 1);
+  assert.equal(state.reconnectEventsCoalesced, true);
+  assert.equal(state.currentUser.role, "tournament_admin");
+  assert.equal(state.savedSession.role, "tournament_admin");
+  assert.equal(state.currentUser.token, "reconnecting-session");
+  assert.equal(state.navigation, "Admin");
   assert.equal(state.sessionRejectionCalls, 0);
 });
 
@@ -606,6 +758,12 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     appSource,
     /AppState\.addEventListener\('change', \(state\) => \{\s*refreshAccessIfActive\(state, refreshAccessOnResume\);\s*\}\)/,
   );
+  assert.match(
+    appSource,
+    /subscribeToAccountAccessReconnect\(\s*\(\) => AppState\.currentState === 'active',\s*\(\) => \{\s*void refreshAccessOnResume\(\);\s*\},\s*Network,\s*\)/,
+    "Restored connectivity must share the active/resume account-access refresh path.",
+  );
+  assert.match(appSource, /unsubscribeNetwork\(\)/);
   assert.match(appSource, /if \(AppState\.currentState === 'active'\) void refreshAccess\(\)/);
   assert.match(appSource, /\}, 30_000\)/);
   for (const tabName of PLAYER_TAB_NAMES) {

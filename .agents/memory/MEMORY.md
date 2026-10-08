@@ -4,7 +4,7 @@
 - [Daily007 withdrawable purchases](daily007-withdrawable-purchases.md) — purchased coins must remain withdrawable; do not substitute ordinary store consumables for an approved gateway.
 - [Daily007 Google auth bridge](google-auth-bridge.md) — Never auto-link by email; recovery requires an active account and the approved Full Admin or owner-code path.
 - [Daily007 single-session policy](daily007-single-session.md) — new sign-ins replace old sessions, Google linking preserves one, and stale refreshes cannot revive or overwrite it.
-- [Daily007 offline session recovery](daily007-offline-session-recovery.md) — Android 16 confirms auto-retry on reconnect and resume; transient failures retain the saved session.
+- [Daily007 offline session recovery](daily007-offline-session-recovery.md) — session verification and role refresh retry on reconnect/resume; transient failures retain the session.
 - [Daily007 password management](daily007-password-management.md) — Profile changes only the Daily007 password and requires the current password; Google credentials are separate.
 - [Daily007 login throttling](daily007-login-throttling.md) — keep abuse limits short-lived, shared across login aliases, and independent of account/email existence.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
