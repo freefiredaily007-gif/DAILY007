@@ -64,8 +64,12 @@ export default function Tournaments() {
         setError(apiError(listResult.reason));
         return;
       }
-      const recoveredInitialLoad = !hasLoadedList.current && initialLoadFailed.current;
       const registrationStatusKnown = registrationsResult.status === 'fulfilled';
+      if (!registrationStatusKnown && hasLoadedList.current) {
+        setError(apiError(registrationsResult.reason));
+        return;
+      }
+      const recoveredInitialLoad = !hasLoadedList.current && initialLoadFailed.current;
       const registrations = registrationStatusKnown ? registrationsResult.value : [];
       setRegistrationError(
         registrationStatusKnown ? '' : apiError(registrationsResult.reason),

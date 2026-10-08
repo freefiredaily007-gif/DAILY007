@@ -136,6 +136,45 @@ function evaluateTypeScriptExpression(expression, sourceFile, scope = {}) {
   )(...Object.values(scope));
 }
 
+function createTournamentLoadHarness(api) {
+  const state = {
+    items: [],
+    error: '',
+    registrationError: '',
+    loading: true,
+    clockNow: 0,
+    playerLoadAnnouncement: '',
+  };
+  const screen = { selectedTab: 'upcoming' };
+  const refs = {
+    loadRequests: { current: createLatestRequestGuard() },
+    hasLoadedList: { current: false },
+    initialLoadFailed: { current: false },
+  };
+  const load = evaluateTypeScriptExpression(
+    findVariableInitializer(tournamentsSourceFile, 'load'),
+    tournamentsSourceFile,
+    {
+      useCallback: (callback) => callback,
+      api,
+      apiError: (error) => error instanceof Error ? error.message : String(error),
+      loadRequests: refs.loadRequests,
+      hasLoadedList: refs.hasLoadedList,
+      initialLoadFailed: refs.initialLoadFailed,
+      setItems: (nextItems) => {
+        state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
+      },
+      setError: (error) => { state.error = error; },
+      setRegistrationError: (error) => { state.registrationError = error; },
+      setLoading: (loading) => { state.loading = loading; },
+      setClockNow: (clockNow) => { state.clockNow = clockNow; },
+      setPlayerLoadAnnouncement: (announcement) => { state.playerLoadAnnouncement = announcement; },
+      setTab: (selectedTab) => { screen.selectedTab = selectedTab; },
+    },
+  );
+  return { load, refs, screen, state };
+}
+
 function findDetailTitleExpression() {
   let titleExpression;
 
@@ -296,6 +335,96 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   assert.match(
     tournamentsSource,
     /ListEmptyComponent=\{<Empty text=\{tournamentListEmptyMessage\(/,
+  );
+});
+
+test('failed tournament refreshes preserve the last complete rows and successful retry clears the error', async () => {
+  const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const pastStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const route = { gameMode: 'clash_squad', teamType: 'duo' };
+  const initialTournaments = [
+    { id: 'last-upcoming', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+    { id: 'last-ongoing', gameMode: 'clash_squad', teamType: 'Duo', status: 'ongoing', startsAt: pastStart },
+    { id: 'last-completed', gameMode: 'clash_squad', teamType: 'Duo', status: 'completed', startsAt: pastStart },
+  ];
+  const api = {
+    tournaments: async () => initialTournaments,
+    myRegistrations: async () => [{ tournamentId: 'last-upcoming', status: 'approved' }],
+  };
+  const harness = createTournamentLoadHarness(api);
+  harness.screen.selectedTab = 'ongoing';
+
+  const getTabs = () => tournamentTabsForRoute(
+    harness.state.items,
+    route,
+    (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+  );
+  const getTabCounts = () => Object.fromEntries(
+    Object.entries(getTabs()).map(([name, tournaments]) => [name, tournaments.length]),
+  );
+
+  await harness.load();
+  const lastGoodItems = harness.state.items;
+  const lastGoodCounts = getTabCounts();
+  assert.deepEqual(lastGoodCounts, { upcoming: 1, ongoing: 1, completed: 1 });
+  assert.deepEqual(getTabs()[harness.screen.selectedTab].map((tournament) => tournament.id), ['last-ongoing']);
+  assert.equal(lastGoodItems.find((tournament) => tournament.id === 'last-upcoming').joined, true);
+
+  api.tournaments = async () => [
+    { id: 'partial-list', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+  ];
+  api.myRegistrations = async () => { throw new Error('Registration service unavailable'); };
+  await harness.load();
+
+  assert.strictEqual(harness.state.items, lastGoodItems, 'a registration failure must not commit a new tournament list');
+  assert.deepEqual(getTabCounts(), lastGoodCounts, 'tab counts must remain based on the last complete snapshot');
+  assert.deepEqual(getTabs()[harness.screen.selectedTab].map((tournament) => tournament.id), ['last-ongoing']);
+  assert.equal(harness.state.error, 'Registration service unavailable');
+  assert.equal(harness.state.registrationError, '');
+  assert.equal(harness.screen.selectedTab, 'ongoing');
+  assert.equal(route.gameMode, 'clash_squad');
+
+  api.tournaments = async () => { throw new Error('Tournament service unavailable'); };
+  api.myRegistrations = async () => [{ tournamentId: 'last-completed', status: 'approved' }];
+  await harness.load();
+
+  assert.strictEqual(harness.state.items, lastGoodItems, 'a tournament-list failure must not clear previously loaded rows');
+  assert.deepEqual(getTabCounts(), lastGoodCounts);
+  assert.deepEqual(getTabs()[harness.screen.selectedTab].map((tournament) => tournament.id), ['last-ongoing']);
+  assert.equal(harness.state.error, 'Tournament service unavailable');
+  assert.equal(harness.screen.selectedTab, 'ongoing');
+
+  api.tournaments = async () => [
+    { id: 'fresh-upcoming-one', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+    { id: 'fresh-upcoming-two', gameMode: 'clash_squad', teamType: 'Duo', status: 'upcoming', startsAt: futureStart },
+    { id: 'fresh-ongoing', gameMode: 'clash_squad', teamType: 'Duo', status: 'ongoing', startsAt: pastStart },
+    { id: 'fresh-completed', gameMode: 'clash_squad', teamType: 'Duo', status: 'completed', startsAt: pastStart },
+  ];
+  api.myRegistrations = async () => [{ tournamentId: 'fresh-ongoing', status: 'pending' }];
+  await harness.load();
+
+  assert.notStrictEqual(harness.state.items, lastGoodItems);
+  assert.deepEqual(harness.state.items.map((tournament) => tournament.id), [
+    'fresh-upcoming-one',
+    'fresh-upcoming-two',
+    'fresh-ongoing',
+    'fresh-completed',
+  ]);
+  assert.deepEqual(getTabCounts(), { upcoming: 2, ongoing: 1, completed: 1 });
+  assert.deepEqual(getTabs()[harness.screen.selectedTab].map((tournament) => tournament.id), ['fresh-ongoing']);
+  assert.equal(harness.state.items.find((tournament) => tournament.id === 'fresh-ongoing').joined, true);
+  assert.equal(harness.state.error, '');
+  assert.equal(harness.state.registrationError, '');
+  assert.equal(harness.screen.selectedTab, 'ongoing');
+  assert.equal(route.gameMode, 'clash_squad');
+
+  assert.match(
+    tournamentsSource,
+    /text=\{`\$\{hasLoadedList\.current \? 'Could not refresh' : 'Could not load'\} tournaments:/,
+  );
+  assert.match(
+    tournamentsSource,
+    /testID=\{hasLoadedList\.current \? 'player-tournament-refresh-error' : 'player-tournament-load-error'\}/,
   );
 });
 
