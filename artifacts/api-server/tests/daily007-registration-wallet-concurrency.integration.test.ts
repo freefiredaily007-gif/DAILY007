@@ -789,6 +789,119 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
     }
   }
 }
+
+async function readEntryPaymentState(fixture: WalletRaceFixture, matchId: string) {
+  const [wallet, registrations, roster, ledger] = await Promise.all([
+    pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [fixture.userId],
+    ),
+    pool.query<{ id: string; entry_coins_paid: number; status: string }>(
+      `SELECT id, entry_coins_paid, status
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND captain_user_id = $2`,
+      [matchId, fixture.userId],
+    ),
+    pool.query<{
+      registration_id: string;
+      position: number;
+      member_uid: string | null;
+      member_name: string;
+    }>(
+      `SELECT roster.registration_id, roster.position, roster.member_uid, roster.member_name
+         FROM daily007_v2_roster AS roster
+         JOIN daily007_v2_registrations AS registration ON registration.id = roster.registration_id
+        WHERE registration.match_id = $1 AND registration.captain_user_id = $2
+        ORDER BY roster.position`,
+      [matchId, fixture.userId],
+    ),
+    pool.query<{
+      registration_id: string;
+      amount: number;
+      balance_after: number;
+      reason: string;
+    }>(
+      `SELECT registration_id, amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND match_id = $2`,
+      [fixture.userId, matchId],
+    ),
+  ]);
+  return {
+    wallet: wallet.rows,
+    registrations: registrations.rows,
+    roster: roster.rows,
+    ledger: ledger.rows,
+  };
+}
+
+test("a failed entry-fee ledger insert rolls back the wallet, registration, and roster", async () => {
+  let fixtureForCleanup: WalletRaceFixture | undefined;
+  let failureConstraint: string | undefined;
+  let failureConstraintInstalled = false;
+
+  try {
+    const fixture = await createFixture("duo", {
+      entryCoins: [13, 17],
+      startingWalletCoins: 50,
+    });
+    fixtureForCleanup = fixture;
+    const matchId = fixture.matchIds[0];
+    const before = await readEntryPaymentState(fixture, matchId);
+    assert.deepEqual(before, {
+      wallet: [{ wallet_coins: fixture.startingWalletCoins }],
+      registrations: [],
+      roster: [],
+      ledger: [],
+    });
+
+    const constraintName = `daily007_test_reject_entry_${matchId.replace(/-/g, "")}`;
+    failureConstraint = constraintName;
+    await pool.query(
+      `ALTER TABLE daily007_v2_wallet_ledger
+         ADD CONSTRAINT "${constraintName}"
+         CHECK (NOT (
+           user_id = '${fixture.userId}'::uuid
+           AND match_id = '${matchId}'::uuid
+           AND reason = 'match_entry'
+         ))`,
+    );
+    failureConstraintInstalled = true;
+
+    await withServer(async (origin) => {
+      const response = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        {
+          teamName: fixture.teamNames[0],
+          teammates: fixture.teammates[0],
+        },
+      );
+      assert.equal(response.status, 500, JSON.stringify(response.body));
+      assert.ok(
+        typeof response.body.detail === "string" &&
+          response.body.detail.includes(constraintName),
+        "the scoped ledger failure constraint must reject the entry-fee history insert",
+      );
+    });
+
+    const after = await readEntryPaymentState(fixture, matchId);
+    assert.deepEqual(after, before, "every entry side effect must be rolled back when ledger history fails");
+  } finally {
+    try {
+      if (failureConstraintInstalled && failureConstraint) {
+        await pool.query(
+          `ALTER TABLE daily007_v2_wallet_ledger DROP CONSTRAINT IF EXISTS "${failureConstraint}"`,
+        );
+      }
+    } finally {
+      if (fixtureForCleanup) await cleanupFixture(fixtureForCleanup);
+    }
+  }
+});
+
 test("concurrent solo joins charge each tournament's own fee", () => runConcurrentWalletRace("solo"));
 
 test("concurrent duo joins keep fees and teammate rosters matched to each tournament", () =>
