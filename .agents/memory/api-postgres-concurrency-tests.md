@@ -51,6 +51,12 @@ For concurrent tournament payouts to one player across different matches, hold t
 
 **How to apply:** Match `pg_stat_activity` against the wallet `FOR UPDATE` query, confirm both waiters are blocked by the test lock or each other, then release and assert each configured prize persisted once.
 
+For a password-login race with an account block, hold an uncommitted status update on the account row, start a valid login, and wait until its session-version update is blocked by that transaction before committing the block.
+
+**Why:** This proves the credential lookup already succeeded and exercises PostgreSQL's real recheck of the `status = 'active'` update predicate after the queued row lock is released.
+
+**How to apply:** Correlate the waiting auth-version update to the blocker PID through `pg_blocking_pids`, commit the blocked status, then assert a generic login failure, no token, and an unchanged auth version.
+
 **Rule:** When expanding a concurrency test to a new registration mode, retain prior mode coverage when it exercises a distinct write path.
 
 **Why:** Team signups add roster writes; replacing a solo race with a team race would lose regression coverage for wallet-only registrations.
