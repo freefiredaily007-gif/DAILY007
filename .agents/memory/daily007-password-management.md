@@ -11,6 +11,8 @@ Profile password changes apply to the Daily007 account, not the user's Google cr
 
 On iQOO Neo 10 / Android 16, TalkBack was physically confirmed to speak a password-change 409 conflict once while keeping focus in the form; the current password could be corrected and the request retried.
 
-**Why:** The user confirmed this recovery flow on their Android phone, so future accessibility changes should preserve the verified behavior.
+On the same device, TalkBack was confirmed to speak successful password-change feedback once, close the form without an unexpected focus jump, and leave all three password fields cleared.
 
-**How to apply:** Keep conflict feedback in one polite announcement and do not move focus away from the password form.
+**Why:** The user confirmed both the conflict-recovery and success paths on Android, so future accessibility changes should preserve the verified behavior.
+
+**How to apply:** Keep each outcome in one polite live region. Do not move focus programmatically; preserve the form on failure and close and clear it after success.
