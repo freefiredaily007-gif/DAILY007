@@ -6,6 +6,10 @@ import { autoCancellationTestDb } from "./support/daily007-auto-cancel-test-db";
 const scheduledStartUtc = Date.parse("2035-04-05T14:30:00.000Z");
 const scheduledStartWallTime = Date.parse("2035-04-05T20:00:00.000Z");
 
+function testMatchUuid(group: string, index: number): string {
+  return `${group}-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
 function match(
   id: string,
   gameMode: string,
@@ -363,7 +367,7 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
   const matchStart = scheduledStartWallTime - 1_000;
   const matches = Array.from({ length: failingMatchCount }, (_, index) => {
     const tournament = match(
-      `starvation-match-${String(index).padStart(3, "0")}`,
+      testMatchUuid("30000000", index + 1),
       "clash_squad",
       "clash",
       3,
@@ -371,7 +375,7 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
     tournament.startsAtWallMs = matchStart;
     return tournament;
   });
-  const validMatch = match("starvation-match-100", "lone_wolf", "clash", 2);
+  const validMatch = match(testMatchUuid("30000000", 101), "lone_wolf", "clash", 2);
   validMatch.startsAtWallMs = matchStart;
 
   const registrations = matches.flatMap((tournament, index) => [
@@ -444,9 +448,9 @@ test("a failing batch does not starve later tournament refunds across sweeps", a
 });
 
 test("a cursor wrap reaches a tournament that becomes underfilled behind it", async () => {
-  const earlierMatch = match("cursor-earlier-match", "clash_squad", "clash", 2);
+  const earlierMatch = match(testMatchUuid("40000000", 1), "clash_squad", "clash", 2);
   earlierMatch.startsAtWallMs = scheduledStartWallTime - 2_000;
-  const laterMatch = match("cursor-later-match", "lone_wolf", "clash", 3);
+  const laterMatch = match(testMatchUuid("40000000", 2), "lone_wolf", "clash", 3);
   laterMatch.startsAtWallMs = scheduledStartWallTime - 1_000;
 
   autoCancellationTestDb.reset({
@@ -517,4 +521,104 @@ test("a cursor wrap reaches a tournament that becomes underfilled behind it", as
     1,
   );
   assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, [1, 0, 2, 0, 1]);
+});
+
+test("malformed saved cursor metadata restarts refunds in capped batches", async (t) => {
+  const candidateCount = 101;
+  const matchStart = scheduledStartWallTime - 1_000;
+
+  const assertRecovery = async (
+    scenario: string,
+    uuidGroup: string,
+    malformedCursor: Record<string, unknown>,
+  ) => {
+    const matches = Array.from({ length: candidateCount }, (_, index) => {
+      const candidate = match(
+        testMatchUuid(uuidGroup, index + 1),
+        "clash_squad",
+        "clash",
+        2,
+      );
+      candidate.startsAtWallMs = matchStart;
+      return candidate;
+    });
+    const payerId = `${scenario}-payer`;
+
+    autoCancellationTestDb.reset({
+      nowMs: scheduledStartUtc,
+      matches,
+      registrations: [
+        registration(`${scenario}-refund`, matches[0]!.id, payerId, 13, "approved"),
+      ],
+      accounts: [{ id: payerId, wallet_coins: 50 }],
+      settings: { __daily007AutoCancelCursor: malformedCursor },
+    });
+
+    await runDaily007AutoCancellationSweep();
+
+    assert.deepEqual(
+      autoCancellationTestDb.candidateSelectionSizes,
+      [100],
+      `${scenario}: malformed progress must restart from the first candidate and process no more than 100`,
+    );
+    assert.deepEqual(
+      autoCancellationTestDb.settings.__daily007AutoCancelCursor,
+      {
+        id: matches[99]!.id,
+        startsAt: new Date(matchStart).toISOString(),
+      },
+      `${scenario}: processing must replace malformed progress with a valid cursor`,
+    );
+    assert.equal(autoCancellationTestDb.matches.get(matches[0]!.id)?.status, "cancelled");
+    assert.equal(autoCancellationTestDb.matches.get(matches[99]!.id)?.status, "cancelled");
+    assert.equal(autoCancellationTestDb.matches.get(matches[100]!.id)?.status, "open");
+    assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 63);
+    assert.equal(
+      [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === matches[0]!.id).length,
+      1,
+    );
+
+    await runDaily007AutoCancellationSweep();
+
+    assert.deepEqual(
+      autoCancellationTestDb.candidateSelectionSizes,
+      [100, 1],
+      `${scenario}: the repaired cursor must reach the candidate after the first capped batch`,
+    );
+    assert.deepEqual(
+      autoCancellationTestDb.settings.__daily007AutoCancelCursor,
+      {
+        id: matches[100]!.id,
+        startsAt: new Date(matchStart).toISOString(),
+      },
+    );
+    assert.equal(autoCancellationTestDb.matches.get(matches[100]!.id)?.status, "cancelled");
+    assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 63);
+    assert.equal(autoCancellationTestDb.ledger.size, 1);
+
+    await runDaily007AutoCancellationSweep();
+
+    assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, [100, 1, 0, 0]);
+    assert.ok(autoCancellationTestDb.candidateSelectionSizes.every((size) => size <= 100));
+    assert.equal(autoCancellationTestDb.settings.__daily007AutoCancelCursor, null);
+    assert.ok(
+      matches.every(({ id }) => autoCancellationTestDb.matches.get(id)?.status === "cancelled"),
+    );
+    assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 63);
+    assert.equal(autoCancellationTestDb.ledger.size, 1);
+  };
+
+  await t.test("invalid cursor ID", async () => {
+    await assertRecovery("invalid-id", "50000000", {
+      id: "not-a-uuid",
+      startsAt: new Date(matchStart).toISOString(),
+    });
+  });
+
+  await t.test("invalid cursor timestamp", async () => {
+    await assertRecovery("invalid-timestamp", "60000000", {
+      id: testMatchUuid("70000000", 1),
+      startsAt: "not-a-timestamp",
+    });
+  });
 });

@@ -5,6 +5,7 @@ import { cancelUnderfilledTournamentAndRefund } from "./daily007-tournament-canc
 const AUTO_CANCEL_INTERVAL_MS = 15_000;
 const AUTO_CANCEL_BATCH_SIZE = 100;
 const AUTO_CANCEL_CURSOR_SETTING = "__daily007AutoCancelCursor";
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 let schedulerTimer: NodeJS.Timeout | undefined;
 let sweepRunning = false;
@@ -20,7 +21,7 @@ async function loadCandidateCursor(): Promise<CandidateCursor | null> {
   const value = cursor as { id?: unknown; startsAt?: unknown };
   if (
     typeof value.id !== "string" ||
-    !value.id ||
+    !UUID_PATTERN.test(value.id) ||
     typeof value.startsAt !== "string" ||
     !Number.isFinite(Date.parse(value.startsAt))
   ) {

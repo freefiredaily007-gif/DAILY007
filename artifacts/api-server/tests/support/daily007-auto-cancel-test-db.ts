@@ -50,6 +50,7 @@ type TestDatabaseSeed = {
   matches: TestMatch[];
   registrations: TestRegistration[];
   accounts: TestAccount[];
+  settings?: Record<string, unknown>;
   ledger?: {
     idempotencyKey: string;
     entry: TestLedgerEntry;
@@ -133,7 +134,7 @@ class Daily007AutoCancelTestDatabase {
         structuredClone(entry),
       ]),
     );
-    this.settings = {};
+    this.settings = structuredClone(seed.settings ?? {});
     this.matchRowLocks.clear();
     this.failedMatchFinalizations.clear();
     this.failedRefundWrites.clear();
