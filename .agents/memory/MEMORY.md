@@ -77,4 +77,4 @@
 - [Daily007 paired Home refresh lock](daily007-home-poll-lock.md) — Keep tournament and registration reads in-flight until both settle, even if one fails early.
 - [Daily007 Player pull-to-refresh](daily007-player-pull-refresh.md) — native Android pull kept the last good card after failure and replaced it on success; browser test covers callback only.
 - [Scheduled-start boundary tests](daily007-scheduled-start-boundary-tests.md) — run month/year fixtures separately; mocked clock jumps do not wake long real timers.
-- [Task concurrency](task-concurrency.md) — work on one assigned task at a time; keep other queued tasks unstarted.
+- [Task concurrency](task-concurrency.md) — work one assigned task at a time; let an in-flight merge finish instead of forcing another task transition.

@@ -491,15 +491,19 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
       await blocker.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [matchId]);
       const blockerPid = await backendPid(blocker);
 
-      submissions = fixture.teammates.map((teammate, index) =>
+      const retryTeammates = [
+        fixture.teammates[0][0]!,
+        fixture.teammates[1][0]!,
+      ];
+      submissions = retryTeammates.map((teammate, index) =>
         registerForMatch(
           origin,
           fixture.userId,
           matchId,
           fixture.gameUids[0],
           {
-            ...teammate,
             teamName: fixture.teamNames[index],
+            teammates: [teammate],
           },
         ),
       );
@@ -533,7 +537,7 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
       assert.equal(responses[winnerIndex].status, 201);
       assert.equal(responses[retryIndex].status, 200);
       assert.notEqual(fixture.teamNames[0], fixture.teamNames[1]);
-      assert.notEqual(fixture.teammates[0].uid, fixture.teammates[1].uid);
+      assert.notEqual(retryTeammates[0].uid, retryTeammates[1].uid);
 
       const registrations = await pool.query<{
         id: string;
@@ -576,8 +580,8 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
         [{
           registration_id: registration.id,
           position: 1,
-          member_uid: fixture.teammates[winnerIndex].uid,
-          member_name: fixture.teammates[winnerIndex].name,
+          member_uid: retryTeammates[winnerIndex]!.uid,
+          member_name: retryTeammates[winnerIndex]!.name,
         }],
         "the registration must retain only the teammate payload from the winning request",
       );
@@ -634,6 +638,9 @@ test("concurrent solo joins charge each tournament's own fee", () => runConcurre
 
 test("concurrent duo joins keep fees and teammate rosters matched to each tournament", () =>
   runConcurrentWalletRace("duo"));
+
+test("concurrent squad joins keep every player on the correct tournament roster", () =>
+  runConcurrentWalletRace("squad"));
 
 test("concurrent duo retries keep one registration, fee debit, and winning teammate roster", () =>
   runConcurrentDuoRetryRace());
