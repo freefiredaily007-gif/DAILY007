@@ -920,7 +920,9 @@ test("both admin room save APIs accept and preserve 200-character credentials", 
   roomAccessTestDb.reset();
 
   const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  const playerToken = makeToken(TEST_PLAYER_ID, 0);
   assert.ok(adminToken);
+  assert.ok(playerToken);
   const matchBefore = structuredClone(roomAccessTestDb.match);
   const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
   const credentials = {
@@ -984,6 +986,31 @@ test("both admin room save APIs accept and preserve 200-character credentials", 
         roomTime: matchBefore.room_time,
         roomPublished: true,
       });
+
+      const v2PlayerRead = await request(
+        origin,
+        `/daily007/v2/matches/${TEST_MATCH_ID}/room`,
+        "GET",
+        playerToken,
+      );
+      assert.equal(v2PlayerRead.status, 200);
+      assert.deepEqual(v2PlayerRead.body, credentials);
+      assert.equal(v2PlayerRead.body.roomId.length, 200);
+      assert.equal(v2PlayerRead.body.roomPassword.length, 200);
+
+      const compatibilityPlayerRead = await request(
+        origin,
+        "/my/registrations",
+        "GET",
+        playerToken,
+      );
+      assert.equal(compatibilityPlayerRead.status, 200);
+      assert.equal(compatibilityPlayerRead.body[0].roomId, credentials.roomId);
+      assert.equal(compatibilityPlayerRead.body[0].roomPassword, credentials.roomPassword);
+      assert.equal(compatibilityPlayerRead.body[0].tournament.roomId, credentials.roomId);
+      assert.equal(compatibilityPlayerRead.body[0].tournament.roomPassword, credentials.roomPassword);
+      assert.equal(compatibilityPlayerRead.body[0].roomId.length, 200);
+      assert.equal(compatibilityPlayerRead.body[0].roomPassword.length, 200);
     }
   });
 });
