@@ -1399,6 +1399,79 @@ test("saved runner-up results are discoverable before a winner and retries do no
   }
 });
 
+test("Admin result recovery excludes a saved placement after its tournament is cancelled", async () => {
+  const fixture = await createFixture();
+  const runnerUp = fixture.players[1];
+
+  try {
+    await withServer(async (origin) => {
+      const published = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        runnerUp,
+        2,
+        3,
+      );
+      assert.equal(
+        published.status,
+        201,
+        `the placement must be saved before cancellation: ${JSON.stringify(published.body)}`,
+      );
+
+      const cancelled = await pool.query<{ id: string; status: string; enabled: boolean }>(
+        `UPDATE daily007_v2_matches
+            SET status = 'cancelled', enabled = false
+          WHERE id = $1
+          RETURNING id, status, enabled`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(cancelled.rows, [{
+        id: fixture.matchId,
+        status: "cancelled",
+        enabled: false,
+      }]);
+
+      const savedAward = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        rank: number;
+      }>(
+        `SELECT match_id, registration_id, rank
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(savedAward.rows, [{
+        match_id: fixture.matchId,
+        registration_id: runnerUp.registrationId,
+        rank: 2,
+      }], "cancellation must not erase the already-saved placement");
+
+      const recoveryResponse = await fetch(`${origin}/admin/results?includeUnfinalized=true`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(recoveryResponse.status, 200);
+      const recoveryBody = await recoveryResponse.json() as {
+        success: boolean;
+        data: Array<Record<string, unknown>>;
+      };
+      assert.equal(recoveryBody.success, true);
+      assert.equal(
+        recoveryBody.data.some(
+          (entry) =>
+            entry.tournamentId === fixture.matchId &&
+            entry.registrationId === runnerUp.registrationId,
+        ),
+        false,
+        "a cancelled tournament's saved award must not appear in Admin recovery results",
+      );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("concurrent first- and second-place results cannot pay one registration twice", async () => {
   const fixture = await createFixture();
   const player = fixture.players[0];
