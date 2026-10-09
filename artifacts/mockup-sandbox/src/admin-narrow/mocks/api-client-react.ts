@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 const resultLogs = [
   {
@@ -243,6 +243,7 @@ export const getDaily007ListVideosQueryKey = () => ["isolated-preview", "videos"
 export function useDaily007ListVideos() {
   const [refreshCount, setRefreshCount] = useState(0);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const refreshFailureCount = useRef(0);
   const mode = videoRewardPreviewMode;
   const removesUnavailable = mode === "unavailable" || mode === "unavailableRefreshFailure";
   const videos = mode
@@ -253,7 +254,11 @@ export function useDaily007ListVideos() {
   const refetch = useCallback(async () => {
     const calls = getVideoRewardPreviewCalls();
     calls.listRefetches += 1;
-    if (mode === "unavailableRefreshFailure" && calls.listRefetches <= 2) {
+    if (mode === "unavailableRefreshFailure" && calls.completions.length === 0) {
+      return { data: { videos: rewardPreviewVideos } };
+    }
+    if (mode === "unavailableRefreshFailure" && refreshFailureCount.current < 2) {
+      refreshFailureCount.current += 1;
       setRefreshFailed(true);
       return { error: new Error("Temporary video catalog refresh failure.") };
     }

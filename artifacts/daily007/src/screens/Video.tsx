@@ -162,8 +162,18 @@ export default function Video() {
     colors.radius,
   ]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [catalogErrorAnnouncementVersion, setCatalogErrorAnnouncementVersion] = useState(0);
+  const [catalogRecoveryAnnouncementVersion, setCatalogRecoveryAnnouncementVersion] = useState(0);
   const playbackCycleRef = useRef(0);
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
+  const reloadVideoCatalog = useCallback(async () => {
+    const result = await videosQuery.refetch();
+    if (result.error) {
+      setCatalogErrorAnnouncementVersion((version) => version + 1);
+      return;
+    }
+    setCatalogRecoveryAnnouncementVersion((version) => version + 1);
+  }, [videosQuery.refetch]);
   const closePlayer = useCallback(() => {
     playbackCycleRef.current += 1;
     setShowPlayer(false);
@@ -788,16 +798,33 @@ export default function Video() {
           {videosQuery.isError ? (
             <View style={styles.errorCard}>
               <Feather name="alert-circle" size={18} color={colors.destructive} />
-              <Text style={styles.errorText}>Could not load videos. Check your connection and try again.</Text>
+              <Text
+                key={`video-catalog-error-${catalogErrorAnnouncementVersion}`}
+                accessibilityLiveRegion="polite"
+                testID="video-catalog-error-message"
+                style={styles.errorText}
+              >
+                Could not load videos. Check your connection and try again.
+              </Text>
               <Pressable
                 testID="video-catalog-reload"
-                onPress={() => { void videosQuery.refetch(); }}
+                onPress={() => { void reloadVideoCatalog(); }}
                 accessibilityRole="button"
                 accessibilityLabel="Reload videos"
               >
                 <Feather name="refresh-cw" size={18} color={colors.primary} />
               </Pressable>
             </View>
+          ) : null}
+          {!videosQuery.isError && catalogRecoveryAnnouncementVersion > 0 ? (
+            <Text
+              key={`video-catalog-recovered-${catalogRecoveryAnnouncementVersion}`}
+              accessibilityLiveRegion="polite"
+              testID="video-catalog-recovered-announcement"
+              style={styles.catalogRecoveryText}
+            >
+              Video catalog reloaded successfully.
+            </Text>
           ) : null}
           {!videosQuery.isLoading && !videosQuery.isError && videos.length === 0 ? (
             <View style={styles.emptyCard}>
@@ -983,6 +1010,12 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       marginTop: 10,
     },
     errorText: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, flex: 1 },
+    catalogRecoveryText: {
+      color: colors.primary,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 10,
+    },
     externalRecoveryCard: {
       marginTop: 10,
       padding: 12,

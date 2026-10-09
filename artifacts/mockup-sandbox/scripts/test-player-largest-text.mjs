@@ -11,6 +11,7 @@ const workspaceRoot = path.resolve(sandboxRoot, "../..");
 const videoStartFailureOnly = process.argv.includes("--video-start-failure-only");
 const lateVideoRewardResponseOnly = process.argv.includes("--late-video-reward-response-only");
 const pendingVideoWatchStartOnly = process.argv.includes("--pending-video-watch-start-only");
+const videoCatalogRefreshAnnouncementOnly = process.argv.includes("--video-catalog-refresh-announcement-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -184,7 +185,8 @@ async function waitForCondition(expression, description) {
   const state = await evaluate(`(() => ({
     url: location.href,
     text: document.body.innerText.slice(0, 900),
-    root: document.querySelector('#root')?.innerHTML.slice(0, 500) ?? ''
+    root: document.querySelector('#root')?.innerHTML.slice(0, 500) ?? '',
+    videoRewardPreviewCalls: window.__videoRewardPreviewCalls ?? null,
   }))()`).catch((error) => ({ evaluationError: String(error) }));
   throw new Error(`${description} did not render: ${JSON.stringify(state)}`);
 }
@@ -1043,7 +1045,8 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
   );
   await clickSelector('[data-testid="video-preview-finish-playback"]', "complete the now-unavailable video");
   await waitForCondition(
-    `document.body.innerText.includes(${JSON.stringify(unavailableMessage)})`,
+    `document.body.innerText.includes(${JSON.stringify(unavailableMessage)})
+      && window.__videoRewardPreviewCalls?.completions.length === 1`,
     "unavailable-video completion response",
   );
   await clickSelector('[data-testid="video-catalog-back"]', "return to the catalog after unavailable completion");
@@ -1051,6 +1054,28 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
     `document.body.innerText.includes(${JSON.stringify(catalogError)})
       && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))`,
     "catalog refresh error and reload action",
+  );
+  const firstErrorAccessibility = await evaluate(`(() => {
+    const error = document.querySelector('[data-testid="video-catalog-error-message"]');
+    const reload = document.querySelector('[data-testid="video-catalog-reload"]');
+    window.__videoCatalogErrorAnnouncementBeforeRetry = error;
+    window.__videoCatalogReloadControlBeforeRetry = reload;
+    reload?.focus();
+    return {
+      errorText: error?.textContent?.trim() ?? null,
+      errorLiveRegion: error?.getAttribute("aria-live") ?? null,
+      reloadLabel: reload?.getAttribute("aria-label") ?? null,
+      reloadRole: reload?.getAttribute("role") ?? null,
+      reloadFocused: document.activeElement === reload,
+    };
+  })()`);
+  assert(
+    firstErrorAccessibility.errorText === catalogError
+      && firstErrorAccessibility.errorLiveRegion === "polite"
+      && firstErrorAccessibility.reloadLabel === "Reload videos"
+      && firstErrorAccessibility.reloadRole === "button"
+      && firstErrorAccessibility.reloadFocused,
+    `The first catalog failure must be announced and expose a focused, labeled reload action: ${JSON.stringify(firstErrorAccessibility)}`,
   );
 
   const failedRefresh = await evaluate(`(() => ({
@@ -1065,7 +1090,7 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
       && failedRefresh.reloadVisible
       && !failedRefresh.unavailableCard
       && !failedRefresh.activeCard
-      && failedRefresh.refreshes === 1,
+      && failedRefresh.refreshes >= 1,
     `A failed catalog refresh should show recovery instead of the stale list: ${JSON.stringify(failedRefresh)}`,
   );
 
@@ -1073,23 +1098,43 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
   await waitForCondition(
     `document.body.innerText.includes(${JSON.stringify(catalogError)})
       && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))
-      && window.__videoRewardPreviewCalls?.listRefetches === 2`,
+      && window.__videoRewardPreviewCalls?.listRefetches === ${failedRefresh.refreshes + 1}`,
     "catalog error and reload action after the second consecutive refresh failure",
   );
   const repeatedFailure = await evaluate(`(() => ({
+    errorText: document.querySelector('[data-testid="video-catalog-error-message"]')?.textContent?.trim() ?? null,
     errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
     reloadVisible: document.querySelector('[data-testid="video-catalog-reload"]') !== null,
     unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
     activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
     refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+    errorLiveRegion: document.querySelector('[data-testid="video-catalog-error-message"]')?.getAttribute("aria-live") ?? null,
+    freshAnnouncementNode: document.querySelector('[data-testid="video-catalog-error-message"]')
+      !== window.__videoCatalogErrorAnnouncementBeforeRetry,
+    reloadLabel: document.querySelector('[data-testid="video-catalog-reload"]')?.getAttribute("aria-label") ?? null,
+    reloadRole: document.querySelector('[data-testid="video-catalog-reload"]')?.getAttribute("role") ?? null,
+    reloadControlStable: document.querySelector('[data-testid="video-catalog-reload"]')
+      === window.__videoCatalogReloadControlBeforeRetry,
+    focusStayedOnReload: document.activeElement
+      === document.querySelector('[data-testid="video-catalog-reload"]'),
   }))()`);
   assert(
     repeatedFailure.errorVisible
       && repeatedFailure.reloadVisible
       && !repeatedFailure.unavailableCard
       && !repeatedFailure.activeCard
-      && repeatedFailure.refreshes === 2,
-    `A second failed refresh should keep recovery available and hide stale catalog entries: ${JSON.stringify(repeatedFailure)}`,
+      && repeatedFailure.refreshes === failedRefresh.refreshes + 1
+      && repeatedFailure.errorLiveRegion === "polite"
+      && repeatedFailure.freshAnnouncementNode
+      && repeatedFailure.reloadLabel === "Reload videos"
+      && repeatedFailure.reloadRole === "button"
+      && repeatedFailure.reloadControlStable
+      && repeatedFailure.focusStayedOnReload,
+    `A second failed refresh should be re-announced while keeping the labeled reload action focused: ${JSON.stringify({
+      ...repeatedFailure,
+      error: repeatedFailure.errorText,
+      reload: repeatedFailure.reloadLabel,
+    })}`,
   );
 
   await clickSelector('[data-testid="video-catalog-reload"]', "retry video catalog refresh after the second failure");
@@ -1097,11 +1142,13 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
     `document.body.innerText.includes('Preview video that remains available')
       && !document.body.innerText.includes('Preview video that becomes unavailable')
       && !document.body.innerText.includes(${JSON.stringify(catalogError)})
-      && window.__videoRewardPreviewCalls?.listRefetches === 3`,
+      && window.__videoRewardPreviewCalls?.listRefetches === ${failedRefresh.refreshes + 2}`,
     "refreshed catalog after the third attempt succeeds",
   );
   const recoveredCatalog = await evaluate(`(() => ({
     errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+    recoveryMessage: document.querySelector('[data-testid="video-catalog-recovered-announcement"]')?.textContent?.trim() ?? null,
+    recoveryLiveRegion: document.querySelector('[data-testid="video-catalog-recovered-announcement"]')?.getAttribute("aria-live") ?? null,
     unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
     activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
     searchValue: document.querySelector('[data-testid="video-catalog-search"]')?.value ?? null,
@@ -1114,10 +1161,12 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
       && recoveredCatalog.activeCard
       && recoveredCatalog.searchValue === searchQuery
       && recoveredCatalog.oneFilteredResult
-      && recoveredCatalog.refreshes === 3,
-    `Retrying the catalog should preserve the search and show its remaining active result: ${JSON.stringify(recoveredCatalog)}`,
+      && recoveredCatalog.recoveryMessage === "Video catalog reloaded successfully."
+      && recoveredCatalog.recoveryLiveRegion === "polite"
+      && recoveredCatalog.refreshes === repeatedFailure.refreshes + 1,
+    `Retrying the catalog should announce recovery, preserve the search, and show its remaining active result: ${JSON.stringify(recoveredCatalog)}`,
   );
-  console.log("PASS — catalog reload stays available across two failures, preserves search, and recovers on the third attempt.");
+  console.log("PASS — catalog failures are announced again without moving reload focus, and recovery is announced after success.");
 }
 
 async function checkTransientVideoRewardRetry() {
@@ -1733,10 +1782,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -1744,9 +1793,13 @@ try {
     await checkDelayedVideoWatchStart();
     await checkRepeatedProgressWhileVideoWatchStartPending();
   }
+  if (videoCatalogRefreshAnnouncementOnly) {
+    await checkUnavailableVideoCatalogRefreshFailure();
+  }
   const focusedVideoCheck = videoStartFailureOnly
     || lateVideoRewardResponseOnly
-    || pendingVideoWatchStartOnly;
+    || pendingVideoWatchStartOnly
+    || videoCatalogRefreshAnnouncementOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -1815,9 +1868,11 @@ try {
       ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
       : lateVideoRewardResponseOnly
         ? "PASS — late video completion responses cannot affect the next playback, and its own retry still works."
-          : pendingVideoWatchStartOnly
-            ? "PASS — repeated progress during a pending video start creates one session, and completion uses it."
-      : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
+        : pendingVideoWatchStartOnly
+          ? "PASS — repeated progress during a pending video start creates one session, and completion uses it."
+          : videoCatalogRefreshAnnouncementOnly
+            ? "PASS — repeated catalog failures are announced without moving focus, and successful recovery is announced."
+            : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
