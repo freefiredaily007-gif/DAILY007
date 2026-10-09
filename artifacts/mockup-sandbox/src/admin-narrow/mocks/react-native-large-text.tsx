@@ -4,10 +4,12 @@ import * as Native from "react-native-web";
 export * from "react-native-web";
 
 const NativeComponents = Native as any;
-const previewPlatform =
-  typeof window !== "undefined" && new URLSearchParams(window.location.search).get("platform") === "ios"
-    ? "ios"
-    : "android";
+const requestedPlatform = typeof window !== "undefined"
+  ? new URLSearchParams(window.location.search).get("platform")
+  : null;
+const previewPlatform = requestedPlatform === "ios" || requestedPlatform === "web"
+  ? requestedPlatform
+  : "android";
 
 type PreviewAnnouncement = { message: string; options?: unknown };
 type PreviewAccessibilityGlobal = typeof globalThis & {

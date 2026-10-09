@@ -33,11 +33,11 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 
 **How to apply:** Keep React Native's native accessibility props for TalkBack, test their label content in the isolated RNW preview, and confirm actual TalkBack behavior separately when an Android device is available.
 
-**Rule:** React Native Web may omit native `accessibilityState.selected` from a button's ARIA attributes; verify native state prop propagation separately instead of adding web-only state props.
+**Rule:** React Native Web may omit native `accessibilityState.selected` from rendered tab ARIA attributes. For web tablists that require browser-selected semantics, pass explicit `aria-selected` alongside the native state.
 
-**Why:** A Daily007 carousel preview exposed its accessible label and button role but no selected-state attribute, even while the native `selected` prop was passed through.
+**Why:** A Daily007 leaderboard browser check showed that a tab's native selected state alone did not produce `aria-selected`, so browser users could not inspect which tab was selected.
 
-**How to apply:** Assert that the native prop reaches the Pressable in source-level checks, use the web preview for labels and focusability, and confirm selected-state speech on Android.
+**How to apply:** Keep `accessibilityState.selected` for native platforms and add `aria-selected` when browser tab semantics need it. Confirm native screen-reader behavior separately.
 
 **Rule:** React Native Web may omit native `accessibilityState.busy` from the rendered `aria-busy` attribute; its absence does not mean the native busy state was not passed.
 

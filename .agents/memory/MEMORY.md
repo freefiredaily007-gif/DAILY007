@@ -15,7 +15,7 @@
 - [Daily007 browser preview mocks](daily007-browser-preview-mocks.md) — Vite scans off-route screen modules too; keep local API mock exports complete across the preview import graph.
 - [Expo native-module preview shims](mockup-sandbox-expo-shims.md) — prioritize `.web` resolution in both Vite and esbuild optimization; keep Metro browser globals scoped to the preview.
 - [Admin large-text preview checks](daily007-admin-large-text-preview.md) — distinguish input scrolling from layout clipping; wrap status chips so enlarged text cannot widen the Admin content.
-- [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — verify accessibility semantics and reachability; avoid returning DOM nodes through value-only CDP calls.
+- [Expo React Native Web browser checks](expo-rnw-cdp-automation.md) — check web tab selection with explicit ARIA state; avoid returning DOM nodes through value-only CDP calls.
 - [RN Web keyboard event typing](rnw-keyboard-event-types.md) — package-root types may omit runtime key handlers; guard web behavior and keep the handler narrowly typed.
 - [Daily007 Android Back behavior](daily007-android-back.md) — hardware Back first hides the keyboard in Wallet/Edit Profile; values and second-Back behavior were confirmed on Android.
 - [Daily007 signup keyboard](daily007-signup-keyboard.md) — iQOO Neo 10 / Android 16 confirmed Next navigation through signup fields and Done leaving Create Account reachable.

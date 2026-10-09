@@ -377,6 +377,7 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
                 key={key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
+                aria-selected={selected}
                 accessibilityLabel={key === "weekly" ? "Weekly leaderboard" : "Monthly leaderboard"}
                 testID={`leaderboard-details-tab-${key}`}
                 ref={key === "weekly" ? weeklyTabRef : monthlyTabRef}

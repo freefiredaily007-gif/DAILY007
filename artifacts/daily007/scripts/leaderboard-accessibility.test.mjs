@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import {
   leaderboardPlayerAccessibilityLabel,
@@ -29,6 +35,39 @@ const uiSource = await readFile(
 );
 const expectedTopTwentyRanks = Array.from({ length: 20 }, (_, index) => index + 1);
 const expectedExpandedRanks = Array.from({ length: 17 }, (_, index) => index + 4);
+const daily007Root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const workspaceRoot = path.resolve(daily007Root, "../..");
+
+async function getFreePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not allocate a local port.");
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  return address.port;
+}
+
+async function waitForUrl(url, label, processToWatch) {
+  const deadline = Date.now() + 30_000;
+  let lastError;
+  while (Date.now() < deadline) {
+    if (processToWatch?.exitCode !== null && processToWatch?.exitCode !== undefined) {
+      throw new Error(`${label} exited with code ${processToWatch.exitCode}.`);
+    }
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+      lastError = new Error(`${label} returned HTTP ${response.status}.`);
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(150);
+  }
+  throw new Error(`${label} did not become ready: ${lastError?.message ?? "timeout"}`);
+}
 
 function pressableForTestId(testId) {
   const marker = `testID="${testId}"`;
@@ -418,6 +457,252 @@ test("left and right arrows move focus, select the tab, and display its leaderbo
   );
   assert.equal(ignoredKeySideEffects, 0, "Enter must remain available to native tab activation.");
 });
+
+test("browser arrow keys keep leaderboard focus, selected state, and standings in sync", async () => {
+  const vitePort = await getFreePort();
+  let debugPort = await getFreePort();
+  while (debugPort === vitePort) debugPort = await getFreePort();
+  const temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-leaderboard-tabs-"));
+  const browserErrors = [];
+  const pending = new Map();
+  let viteOutput = "";
+  let vite;
+  let chromium;
+  let socket;
+  let messageId = 0;
+
+  function cdp(method, params = {}) {
+    const id = ++messageId;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  async function evaluate(expression) {
+    const response = await cdp("Runtime.evaluate", {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (response.exceptionDetails) {
+      throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
+    }
+    return response.result?.value;
+  }
+
+  async function waitForCondition(expression, label) {
+    const deadline = Date.now() + 30_000;
+    let lastValue;
+    while (Date.now() < deadline) {
+      lastValue = await evaluate(expression);
+      if (lastValue) return;
+      await delay(100);
+    }
+    throw new Error(`${label} did not become ready. Last value: ${String(lastValue)}`);
+  }
+
+  async function pressArrow(key) {
+    const virtualKeyCode = key === "ArrowLeft" ? 37 : 39;
+    const keyData = {
+      key,
+      code: key,
+      windowsVirtualKeyCode: virtualKeyCode,
+      nativeVirtualKeyCode: virtualKeyCode,
+    };
+    await cdp("Input.dispatchKeyEvent", { type: "keyDown", ...keyData });
+    await cdp("Input.dispatchKeyEvent", { type: "keyUp", ...keyData });
+  }
+
+  function checkBrowserMessage(message) {
+    if (message.method === "Runtime.exceptionThrown") {
+      const details = message.params.exceptionDetails;
+      browserErrors.push(details?.exception?.description ?? details?.text ?? "Browser exception.");
+    }
+    if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
+      browserErrors.push(
+        message.params.args?.map((arg) => arg.value ?? arg.description ?? "").join(" ")
+          || "Browser console error.",
+      );
+    }
+    if (!message.id) return;
+    const request = pending.get(message.id);
+    if (!request) return;
+    pending.delete(message.id);
+    if (message.error) request.reject(new Error(message.error.message));
+    else request.resolve(message.result);
+  }
+
+  try {
+    vite = spawn(
+      "pnpm",
+      [
+        "--filter",
+        "@workspace/mockup-sandbox",
+        "exec",
+        "vite",
+        "--config",
+        "vite.player-largest-text.config.ts",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(vitePort),
+        "--strictPort",
+      ],
+      {
+        cwd: workspaceRoot,
+        env: { ...process.env, PORT: String(vitePort) },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    vite.stdout.on("data", (chunk) => { viteOutput += chunk.toString(); });
+    vite.stderr.on("data", (chunk) => { viteOutput += chunk.toString(); });
+    await waitForUrl(
+      `http://127.0.0.1:${vitePort}/player-largest-text-preview.html`,
+      "Leaderboard React Native Web preview",
+      vite,
+    );
+
+    chromium = spawn(
+      "chromium",
+      [
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--remote-allow-origins=*",
+        `--remote-debugging-port=${debugPort}`,
+        `--user-data-dir=${temporaryProfile}`,
+        "about:blank",
+      ],
+      { stdio: "ignore" },
+    );
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, "Headless Chromium", chromium);
+    const targetResponse = await fetch(`http://127.0.0.1:${debugPort}/json/list`);
+    const targets = await targetResponse.json();
+    const pageTarget = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
+    assert.ok(pageTarget, "Chromium did not expose a page target.");
+    socket = new WebSocket(pageTarget.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out connecting to Chromium DevTools.")), 10_000);
+      socket.addEventListener("open", () => {
+        clearTimeout(timer);
+        socket.addEventListener("message", ({ data }) => {
+          checkBrowserMessage(JSON.parse(String(data)));
+        });
+        resolve();
+      });
+      socket.addEventListener("error", () => {
+        clearTimeout(timer);
+        reject(new Error("Chromium DevTools WebSocket failed."));
+      });
+    });
+    await cdp("Page.enable");
+    await cdp("Runtime.enable");
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width: 1024,
+      height: 900,
+      screenWidth: 1024,
+      screenHeight: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await cdp("Page.navigate", {
+      url: `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?screen=LeaderboardDetails&platform=web&fontScale=1`,
+    });
+    await waitForCondition(
+      `Boolean(document.querySelector('[data-testid="leaderboard-details-tab-weekly"]') &&
+        document.querySelector('[data-testid="leaderboard-details-tab-monthly"]') &&
+        document.querySelector('[data-testid="leaderboard-podium-1"]'))`,
+      "Rendered leaderboard tabs and standings",
+    );
+
+    const getTabState = () => evaluate(`(() => {
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      const champion = document.querySelector('[data-testid="leaderboard-podium-1"]');
+      return {
+        focused: document.activeElement?.getAttribute("data-testid") ?? null,
+        tabs: tabs.map((tab) => ({
+          id: tab.getAttribute("data-testid"),
+          selected: tab.getAttribute("aria-selected"),
+          tabIndex: tab.tabIndex,
+        })),
+        champion: champion?.textContent ?? "",
+      };
+    })()`);
+
+    const assertSelectedCycle = async (cycle, championName) => {
+      const tabId = `leaderboard-details-tab-${cycle}`;
+      const state = await getTabState();
+      assert.equal(state.focused, tabId, `${cycle} tab should own browser focus.`);
+      assert.deepEqual(
+        state.tabs.map(({ id, selected, tabIndex }) => ({ id, selected, tabIndex })),
+        [
+          {
+            id: "leaderboard-details-tab-weekly",
+            selected: cycle === "weekly" ? "true" : "false",
+            tabIndex: cycle === "weekly" ? 0 : -1,
+          },
+          {
+            id: "leaderboard-details-tab-monthly",
+            selected: cycle === "monthly" ? "true" : "false",
+            tabIndex: cycle === "monthly" ? 0 : -1,
+          },
+        ],
+        `${cycle} selection and roving tab focus index should match.`,
+      );
+      assert.match(state.champion, new RegExp(championName), `${cycle} standings should be displayed.`);
+      assert.doesNotMatch(
+        state.champion,
+        new RegExp(cycle === "weekly" ? "Monthly Champion" : "Weekly Champion"),
+        `Standings for the other cycle should not be displayed as the selected cycle.`,
+      );
+    };
+
+    const initiallyFocused = await evaluate(`(() => {
+      const weekly = document.querySelector('[data-testid="leaderboard-details-tab-weekly"]');
+      weekly?.focus();
+      return document.activeElement === weekly;
+    })()`);
+    assert.equal(initiallyFocused, true, "The selected Weekly tab should accept browser focus.");
+    await assertSelectedCycle("weekly", "Weekly Champion");
+
+    await pressArrow("ArrowLeft");
+    await waitForCondition(
+      `document.activeElement?.getAttribute("data-testid") === "leaderboard-details-tab-monthly" &&
+        document.querySelector('[data-testid="leaderboard-details-tab-monthly"]')?.getAttribute("aria-selected") === "true" &&
+        document.querySelector('[data-testid="leaderboard-podium-1"]')?.textContent.includes("Monthly Champion")`,
+      "ArrowLeft to move focus, selection, and standings to Monthly",
+    );
+    await assertSelectedCycle("monthly", "Monthly Champion");
+
+    await pressArrow("ArrowRight");
+    await waitForCondition(
+      `document.activeElement?.getAttribute("data-testid") === "leaderboard-details-tab-weekly" &&
+        document.querySelector('[data-testid="leaderboard-details-tab-weekly"]')?.getAttribute("aria-selected") === "true" &&
+        document.querySelector('[data-testid="leaderboard-podium-1"]')?.textContent.includes("Weekly Champion")`,
+      "ArrowRight to move focus, selection, and standings to Weekly",
+    );
+    await assertSelectedCycle("weekly", "Weekly Champion");
+    assert.deepEqual(browserErrors, [], `Browser reported errors: ${browserErrors.join(" | ")}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);
+    if (viteOutput.trim()) console.error(`Vite output:\n${viteOutput.trim()}`);
+    throw new Error(message, { cause: error });
+  } finally {
+    try { socket?.close(); } catch {}
+    for (const child of [chromium, vite]) {
+      if (!child || child.exitCode !== null) continue;
+      child.kill("SIGTERM");
+      await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(2_000)]);
+      if (child.exitCode === null) child.kill("SIGKILL");
+    }
+    await rm(temporaryProfile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}, { timeout: 120_000 });
 
 test("empty and unavailable leaderboard guidance is exposed as readable text", () => {
   const noAwards = textForTestId("leaderboard-no-awards-guidance");
