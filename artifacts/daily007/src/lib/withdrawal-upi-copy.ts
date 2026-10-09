@@ -15,6 +15,7 @@ export async function copyWithdrawalUpi(
   clipboard: ClipboardWriter,
   setCopiedUpiId: (id: string | null) => void,
   setErr: (message: string) => void,
+  setCopyAnnouncementSequence: (update: (current: number) => number) => void,
 ) {
   if (!upiId.trim()) return;
 
@@ -25,6 +26,7 @@ export async function copyWithdrawalUpi(
       throw new Error('Clipboard did not confirm the copy.');
     }
     setCopiedUpiId(requestId);
+    setCopyAnnouncementSequence((current) => current + 1);
   } catch {
     setErr('Could not copy this UPI ID.');
   }

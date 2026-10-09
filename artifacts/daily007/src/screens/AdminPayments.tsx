@@ -30,6 +30,7 @@ export default function AdminPayments() {
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
   const [copiedUpiId, setCopiedUpiId] = useState<string | null>(null);
+  const [copyAnnouncementSequence, setCopyAnnouncementSequence] = useState(0);
 
   const [all, setAll] = useState<any[] | null>(null);
 
@@ -176,6 +177,7 @@ export default function AdminPayments() {
         testID="admin-payment-action-success"
       />
       <Msg
+        key={`withdrawal-upi-copy-success-${copyAnnouncementSequence}`}
         kind="ok"
         text={copiedUpiId ? 'Withdrawal UPI ID copied' : ''}
         accessibilityLiveRegion="polite"
@@ -210,6 +212,7 @@ export default function AdminPayments() {
                       Clipboard,
                       setCopiedUpiId,
                       setErr,
+                      setCopyAnnouncementSequence,
                     );
                   }}
                 />

@@ -155,11 +155,80 @@ test('a failed manual payout announces the error and leaves the payout action av
 test('successful UPI copying announces politely without changing the focused button label', () => {
   assert.match(
     screenSource,
-    /<Msg\s+kind="ok"\s+text=\{copiedUpiId \? 'Withdrawal UPI ID copied' : ''\}\s+accessibilityLiveRegion="polite"\s+testID="withdrawal-upi-copy-success"\s*\/>/,
-    'A confirmed copy must announce a concise success message politely.',
+    /<Msg\s+key=\{`withdrawal-upi-copy-success-\$\{copyAnnouncementSequence\}`\}\s+kind="ok"\s+text=\{copiedUpiId \? 'Withdrawal UPI ID copied' : ''\}\s+accessibilityLiveRegion="polite"\s+testID="withdrawal-upi-copy-success"\s*\/>/,
+    'Each confirmed copy must mount a fresh polite status message.',
   );
   assert.match(screenSource, /accessibilityLabel="Copy withdrawal UPI ID"/);
   assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLabel=\{err \|\| undefined\} accessibilityLiveRegion="assertive" \/>/);
+});
+
+test('repeated successful copies replay the polite announcement and leave the button available', async () => {
+  const copyButtonTitle = screenSource.indexOf(
+    'title={getWithdrawalUpiCopyLabel',
+  );
+  const copyButtonStart = screenSource.lastIndexOf('<Btn', copyButtonTitle);
+  const copyButtonEnd = screenSource.indexOf('/>', copyButtonStart);
+  const copyButton = screenSource.slice(copyButtonStart, copyButtonEnd + 2);
+  assert.ok(copyButton, 'The withdrawal UPI copy button must remain rendered.');
+  assert.match(copyButton, /accessibilityLabel="Copy withdrawal UPI ID"/);
+  assert.match(copyButton, /testID=\{`copy-withdrawal-upi-\$\{p\.id\}`\}/);
+  assert.match(copyButton, /onPress=/);
+  assert.doesNotMatch(copyButton, /\bdisabled=/);
+  assert.doesNotMatch(copyButton, /\bkey=/, 'The button must not be replaced to replay the status.');
+  assert.doesNotMatch(copyButton, /setAccessibilityFocus/);
+  assert.match(
+    copyButton,
+    /setCopyAnnouncementSequence,/,
+    'Successful copies must advance the live-message key without moving focus.',
+  );
+
+  const requestId = 'withdrawal-repeat-success';
+  const account = 'player.name@bank';
+  const events = [];
+  let copiedRequestId = null;
+  let announcementSequence = 0;
+  const clipboard = {
+    async setStringAsync(value) {
+      events.push(['clipboard', value]);
+      return true;
+    },
+  };
+  const setCopiedUpiId = (id) => {
+    copiedRequestId = id;
+    events.push(['copied', id]);
+  };
+  const setCopyAnnouncementSequence = (update) => {
+    announcementSequence = update(announcementSequence);
+    events.push(['announcement-sequence', announcementSequence]);
+  };
+  const setErr = (message) => events.push(['error', message]);
+
+  for (const expectedSequence of [1, 2]) {
+    events.length = 0;
+    await copyWithdrawalUpi(
+      requestId,
+      account,
+      clipboard,
+      setCopiedUpiId,
+      setErr,
+      setCopyAnnouncementSequence,
+    );
+
+    assert.deepEqual(events, [
+      ['copied', null],
+      ['error', ''],
+      ['clipboard', account],
+      ['copied', requestId],
+      ['announcement-sequence', expectedSequence],
+    ]);
+    assert.equal(getWithdrawalUpiCopyLabel(requestId, copiedRequestId), 'COPIED');
+  }
+  assert.equal(announcementSequence, 2);
+  assert.equal(
+    events.filter(([type]) => type === 'announcement-sequence').length,
+    1,
+    'The second successful copy must create exactly one new announcement event.',
+  );
 });
 
 test('copy sends the exact account text and only shows COPIED after clipboard success', async () => {
@@ -190,6 +259,7 @@ test('copy sends the exact account text and only shows COPIED after clipboard su
         clipboard,
         setCopiedUpiId,
         setErr,
+        () => {},
       );
     },
   };
@@ -234,6 +304,7 @@ test('a rejected clipboard write reaches an assertive live region without markin
       events.push(['copied', id]);
     },
     (message) => events.push(['error', message]),
+    () => {},
   );
 
   assert.deepEqual(events, [
@@ -274,6 +345,7 @@ test('a rejected repeat copy clears earlier COPIED feedback and reports the fail
     clipboard,
     setCopiedUpiId,
     setErr,
+    () => {},
   );
   assert.equal(getWithdrawalUpiCopyLabel(requestId, copiedRequestId), 'COPIED');
 
@@ -285,6 +357,7 @@ test('a rejected repeat copy clears earlier COPIED feedback and reports the fail
     clipboard,
     setCopiedUpiId,
     setErr,
+    () => {},
   );
 
   assert.deepEqual(events, [
@@ -310,6 +383,7 @@ test('a clipboard write that resolves false never marks the request as copied', 
       events.push(['copied', id]);
     },
     (message) => events.push(['error', message]),
+    () => {},
   );
 
   assert.deepEqual(events, [
