@@ -101,7 +101,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
 async function request(
   origin: string,
   path: string,
-  method: "GET" | "DELETE" | "PUT",
+  method: "GET" | "DELETE" | "POST" | "PUT",
   token: string,
   body?: unknown,
 ): Promise<JsonResult> {
@@ -853,6 +853,63 @@ test("compatibility room saves reject cancelled tournaments without changing roo
     assert.equal(rejected.status, 409);
     assert.deepEqual(rejected.body, {
       error: "A cancelled tournament has no room to manage.",
+    });
+    assert.deepEqual(roomAccessTestDb.match, matchBefore);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+  });
+});
+
+test("legacy room publishing only marks saved credentials as published for manageable tournaments", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.room_published = false;
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+
+  await withServer(async (origin) => {
+    const published = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/publish-room`,
+      "POST",
+      adminToken,
+    );
+
+    assert.equal(published.status, 200);
+    assert.deepEqual(published.body, {
+      id: TEST_MATCH_ID,
+      roomPublished: true,
+    });
+    assert.equal(roomAccessTestDb.match.room_id, matchBefore.room_id);
+    assert.equal(roomAccessTestDb.match.room_password, matchBefore.room_password);
+    assert.equal(roomAccessTestDb.match.room_published, true);
+    assert.equal(roomAccessTestDb.match.status, matchBefore.status);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+  });
+});
+
+test("legacy room publishing rejects cancelled tournaments without changing retained room or registration state", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.status = "cancelled";
+  roomAccessTestDb.match.room_published = false;
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+
+  await withServer(async (origin) => {
+    const rejected = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/publish-room`,
+      "POST",
+      adminToken,
+    );
+
+    assert.equal(rejected.status, 409);
+    assert.deepEqual(rejected.body, {
+      error: "A cancelled tournament has no room to publish.",
     });
     assert.deepEqual(roomAccessTestDb.match, matchBefore);
     assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);

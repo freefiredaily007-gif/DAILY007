@@ -374,6 +374,19 @@ class RoomAccessTestDatabase {
           roomTime: this.match.room_time,
         }];
       }
+    } else if (
+      normalized ===
+      'UPDATE daily007_v2_matches SET room_published = true WHERE id = $1 AND status <> \'cancelled\' AND room_id IS NOT NULL AND room_password IS NOT NULL RETURNING id, room_published AS "roomPublished"'
+    ) {
+      if (
+        first === this.match.id &&
+        this.match.status !== "cancelled" &&
+        this.match.room_id !== null &&
+        this.match.room_password !== null
+      ) {
+        this.match.room_published = true;
+        rows = [{ id: this.match.id, roomPublished: true }];
+      }
     } else if (normalized.startsWith(
       "UPDATE daily007_v2_matches SET room_id = NULL, room_password = NULL, room_published = false",
     )) {
