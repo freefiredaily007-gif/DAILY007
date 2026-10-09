@@ -12,6 +12,7 @@ const videoStartFailureOnly = process.argv.includes("--video-start-failure-only"
 const lateVideoRewardResponseOnly = process.argv.includes("--late-video-reward-response-only");
 const pendingVideoWatchStartOnly = process.argv.includes("--pending-video-watch-start-only");
 const videoCatalogRefreshAnnouncementOnly = process.argv.includes("--video-catalog-refresh-announcement-only");
+const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty-search-only");
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
@@ -1003,10 +1004,10 @@ async function checkUnavailableVideoRewardFlow() {
   console.log("PASS — unavailable video completion shows no retry and refreshes the catalog.");
 }
 
-async function checkUnavailableVideoCatalogRefreshFailure() {
+async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview video") {
   const unavailableMessage = "This video is no longer available for rewards.";
   const catalogError = "Could not load videos. Check your connection and try again.";
-  const searchQuery = "Preview video";
+  const matchesOnlyRemovedVideo = searchQuery === "becomes unavailable";
   await navigateToScreen("VideoRefreshFailure", "Tutorial Videos");
   await waitForCondition(
     "Boolean(document.querySelector('[data-testid=\"video-catalog-search\"]'))",
@@ -1015,9 +1016,8 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
   await setInputValue('[data-testid="video-catalog-search"]', searchQuery, "the shared video title filter");
   await waitForCondition(
     `document.querySelector('[data-testid="video-catalog-search"]')?.value === ${JSON.stringify(searchQuery)}
-      && Boolean(document.querySelector('[data-testid="video-catalog-card-unavailable-video"]'))
-      && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))`,
-    "both preview videos matching the search filter",
+      && Boolean(document.querySelector('[data-testid="video-catalog-card-unavailable-video"]'))`,
+    "the unavailable video matching the search filter",
   );
   const filteredCatalog = await evaluate(`(() => ({
     searchValue: document.querySelector('[data-testid="video-catalog-search"]')?.value ?? null,
@@ -1027,8 +1027,8 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
   assert(
     filteredCatalog.searchValue === searchQuery
       && filteredCatalog.unavailableCard
-      && filteredCatalog.activeCard,
-    `The search should match both videos before opening the unavailable one: ${JSON.stringify(filteredCatalog)}`,
+      && filteredCatalog.activeCard === !matchesOnlyRemovedVideo,
+    `The search should match the unavailable video and only show an active video when the query matches it: ${JSON.stringify(filteredCatalog)}`,
   );
   await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "video that becomes unavailable");
   await waitForCondition(
@@ -1138,9 +1138,13 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
     })}`,
   );
 
+  const recoveredCatalogCondition = matchesOnlyRemovedVideo
+    ? `document.body.innerText.includes("Tutorial Videos (0)")
+      && Boolean(document.querySelector('[data-testid="video-catalog-no-search-results"]'))`
+    : `document.body.innerText.includes("Preview video that remains available")`;
   await clickSelector('[data-testid="video-catalog-reload"]', "retry video catalog refresh after the second failure");
   await waitForCondition(
-    `document.body.innerText.includes('Preview video that remains available')
+    `${recoveredCatalogCondition}
       && !document.body.innerText.includes('Preview video that becomes unavailable')
       && !document.body.innerText.includes(${JSON.stringify(catalogError)})
       && window.__videoRewardPreviewCalls?.listRefetches === ${failedRefresh.refreshes + 2}`,
@@ -1154,20 +1158,27 @@ async function checkUnavailableVideoCatalogRefreshFailure() {
     activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
     searchValue: document.querySelector('[data-testid="video-catalog-search"]')?.value ?? null,
     oneFilteredResult: document.body.innerText.includes("Tutorial Videos (1)"),
+    emptyResultsMessage: document.querySelector('[data-testid="video-catalog-no-search-results"]')?.textContent?.trim() ?? null,
+    zeroFilteredResults: document.body.innerText.includes("Tutorial Videos (0)"),
     refreshes: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
   }))()`);
   assert(
     !recoveredCatalog.errorVisible
       && !recoveredCatalog.unavailableCard
-      && recoveredCatalog.activeCard
       && recoveredCatalog.searchValue === searchQuery
-      && recoveredCatalog.oneFilteredResult
+      && (matchesOnlyRemovedVideo
+        ? !recoveredCatalog.activeCard
+          && recoveredCatalog.emptyResultsMessage === "No videos match your search."
+          && recoveredCatalog.zeroFilteredResults
+        : recoveredCatalog.activeCard && recoveredCatalog.oneFilteredResult)
       && recoveredCatalog.recoveryMessage === "Video catalog reloaded successfully."
       && recoveredCatalog.recoveryLiveRegion === "polite"
       && recoveredCatalog.refreshes === repeatedFailure.refreshes + 1,
-    `Retrying the catalog should announce recovery, preserve the search, and show its remaining active result: ${JSON.stringify(recoveredCatalog)}`,
+    `Retrying the catalog should announce recovery, preserve the search, and show the correct filtered state: ${JSON.stringify(recoveredCatalog)}`,
   );
-  console.log("PASS — catalog failures are announced again without moving reload focus, and recovery is announced after success.");
+  console.log(matchesOnlyRemovedVideo
+    ? "PASS — recovery preserves a search with no remaining matches and shows the empty-results message."
+    : "PASS — catalog failures are announced again without moving reload focus, and recovery is announced after success.");
 }
 
 async function checkLateVideoCatalogResponseCannotUndoRetry() {
@@ -1884,10 +1895,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !lateVideoCatalogResponseOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !lateVideoCatalogResponseOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -1898,6 +1909,9 @@ try {
   if (videoCatalogRefreshAnnouncementOnly) {
     await checkUnavailableVideoCatalogRefreshFailure();
   }
+  if (videoCatalogEmptySearchOnly) {
+    await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable");
+  }
   if (lateVideoCatalogResponseOnly) {
     await checkLateVideoCatalogResponseCannotUndoRetry();
   }
@@ -1905,6 +1919,7 @@ try {
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
     || videoCatalogRefreshAnnouncementOnly
+    || videoCatalogEmptySearchOnly
     || lateVideoCatalogResponseOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
@@ -1923,6 +1938,7 @@ try {
     if (viewportWidth === 375) {
       await checkUnavailableVideoRewardFlow();
       await checkUnavailableVideoCatalogRefreshFailure();
+      await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable");
       await checkTransientVideoRewardRetry();
       await checkDelayedVideoWatchStart();
       await checkRepeatedProgressWhileVideoWatchStartPending();
@@ -1978,9 +1994,11 @@ try {
           ? "PASS — repeated progress during a pending video start creates one session, and completion uses it."
           : videoCatalogRefreshAnnouncementOnly
             ? "PASS — repeated catalog failures are announced without moving focus, and successful recovery is announced."
-            : lateVideoCatalogResponseOnly
-              ? "PASS — a late catalog response cannot undo a newer successful retry."
-              : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
+            : videoCatalogEmptySearchOnly
+              ? "PASS — catalog recovery preserves a search with no remaining matches."
+              : lateVideoCatalogResponseOnly
+                ? "PASS — a late catalog response cannot undo a newer successful retry."
+                : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);

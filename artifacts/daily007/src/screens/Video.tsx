@@ -885,7 +885,12 @@ export default function Video() {
               {filteredVideos.length === 0 ? (
                 <View style={styles.emptyCard}>
                   <Feather name="search" size={18} color={colors.accent} />
-                  <Text style={styles.errorText}>No videos match your search.</Text>
+                  <Text
+                    testID="video-catalog-no-search-results"
+                    style={styles.errorText}
+                  >
+                    No videos match your search.
+                  </Text>
                 </View>
               ) : null}
             </>
