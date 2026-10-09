@@ -32,6 +32,10 @@ export function leaderboardPlayerAccessibilityLabel(standing: {
   return `Rank ${standing.rank}, ${standing.name}, ${standing.points.toLocaleString("en-IN")} coins`;
 }
 
+export function leaderboardRewardAccessibilityLabel(rank: number, coins: number): string {
+  return `Rank ${rank}, ${coins.toLocaleString("en-IN")} coins`;
+}
+
 export function leaderboardPodiumAccessibilityLabel(
   rank: number,
   standing?: {

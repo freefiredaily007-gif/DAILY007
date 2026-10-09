@@ -27,6 +27,7 @@ import {
 import {
   leaderboardPlayerAccessibilityLabel,
   leaderboardPodiumAccessibilityLabel,
+  leaderboardRewardAccessibilityLabel,
   selectLeaderboardPodiumRanks,
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
@@ -413,7 +414,6 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
           <View
             style={styles.rewardsPanel}
             testID={`leaderboard-rewards-${cycle}`}
-            accessibilityLabel={`${cycle} leaderboard rank rewards`}
           >
             <Text style={[styles.rewardsTitle, { color: accent }]}>
               {cycle === "weekly" ? "WEEKLY PRIZES" : "MONTHLY PRIZES"}
@@ -426,9 +426,12 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
                   key={rank}
                   style={styles.rewardRow}
                   testID={`leaderboard-reward-rank-${rank}`}
+                  accessible
+                  accessibilityRole="text"
+                  accessibilityLabel={leaderboardRewardAccessibilityLabel(rank, coins)}
                 >
-                  <Text style={[styles.rewardRank, { color: rankColor }]}>Rank #{rank}</Text>
-                  <Text style={styles.rewardAmount}>{coins.toLocaleString("en-IN")} Coins</Text>
+                  <Text accessible={false} style={[styles.rewardRank, { color: rankColor }]}>Rank #{rank}</Text>
+                  <Text accessible={false} style={styles.rewardAmount}>{coins.toLocaleString("en-IN")} Coins</Text>
                 </View>
               );
             })}

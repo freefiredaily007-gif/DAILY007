@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import {
   leaderboardPlayerAccessibilityLabel,
   leaderboardPodiumAccessibilityLabel,
+  leaderboardRewardAccessibilityLabel,
   selectLeaderboardPodiumRanks,
   selectLeaderboardExpandedRows,
   selectLeaderboardTopTwenty,
@@ -156,6 +157,53 @@ test("podium entries expose one ordered VoiceOver label without decorative stops
     assert.equal(
       leaderboardPodiumAccessibilityLabel(rank),
       `Rank ${rank}, player not available, coin score not available`,
+    );
+  }
+});
+
+test("weekly and monthly prize tiers announce each rank and amount once in rank order", () => {
+  const rewardsStart = screenSource.indexOf("{period?.rewards ? (");
+  const rewardsEnd = screenSource.indexOf("{query.isLoading ? (", rewardsStart);
+  assert.ok(rewardsStart >= 0 && rewardsEnd > rewardsStart, "The prize schedule must remain available for the selected cycle.");
+  const rewardsSource = screenSource.slice(rewardsStart, rewardsEnd);
+
+  assert.match(rewardsSource, /testID=\{`leaderboard-rewards-\$\{cycle\}`\}/);
+  assert.match(rewardsSource, /\[1, 2, 3\]\.map\(\(rank\) => \{/);
+  assert.match(rewardsSource, /period\.rewards\.find\(\(reward\) => reward\.rank === rank\)\?\.coins \?\? 0/);
+
+  const rowMarker = rewardsSource.indexOf("testID={`leaderboard-reward-rank-${rank}`}");
+  const rowStart = rewardsSource.lastIndexOf("<View", rowMarker);
+  const rowEnd = rewardsSource.indexOf(">", rowStart);
+  assert.ok(rowStart >= 0 && rowEnd > rowStart, "Each prize tier needs a grouped accessible row.");
+  const rowTag = rewardsSource.slice(rowStart, rowEnd + 1);
+  assert.match(rowTag, /accessible/);
+  assert.match(rowTag, /accessibilityRole="text"/);
+  assert.match(rowTag, /accessibilityLabel=\{leaderboardRewardAccessibilityLabel\(rank, coins\)\}/);
+  assert.match(rowTag, /testID=\{`leaderboard-reward-rank-\$\{rank\}`\}/);
+  assert.equal(
+    (rewardsSource.match(/<Text accessible=\{false\} style=/g) ?? []).length,
+    2,
+    "The visible rank and amount must not create extra stops inside the grouped row.",
+  );
+
+  for (const [cycle, prizes] of [
+    ["Weekly", [12_000, 8_000, 4_000]],
+    ["Monthly", [50_000, 30_000, 15_000]],
+  ]) {
+    const spokenLabels = prizes.map((coins, index) =>
+      leaderboardRewardAccessibilityLabel(index + 1, coins),
+    );
+    assert.deepEqual(
+      spokenLabels,
+      prizes.map((coins, index) =>
+        `Rank ${index + 1}, ${coins.toLocaleString("en-IN")} coins`,
+      ),
+      `${cycle} prize labels must associate each amount with its rank.`,
+    );
+    assert.deepEqual(
+      spokenLabels.map((label) => Number(label.match(/^Rank (\d+),/)?.[1])),
+      [1, 2, 3],
+      `${cycle} prize tiers must be reached once in rank order.`,
     );
   }
 });
