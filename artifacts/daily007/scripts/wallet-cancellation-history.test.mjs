@@ -23,6 +23,10 @@ const maestroFlow = await readFile(
   new URL('../maestro/wallet-cancellation-refund/accessibility-label.yaml', import.meta.url),
   'utf8',
 );
+const iosMaestroFlow = await readFile(
+  new URL('../maestro/wallet-cancellation-refund/voiceover-ios.yaml', import.meta.url),
+  'utf8',
+);
 const packageSource = JSON.parse(await readFile(
   new URL('../package.json', import.meta.url),
   'utf8',
@@ -78,7 +82,7 @@ test('Wallet displays the ID fallback and keeps a reason label when the API has 
   );
 });
 
-test('Android exposes the production cancellation-refund row as one complete accessibility item', () => {
+test('native fixture exposes the production cancellation-refund row as one complete accessibility item', () => {
   assert.match(nativeTestSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
   assert.match(nativeTestSource, /Legacy Clash Cup/);
   assert.match(nativeTestSource, /tournament cancelled/);
@@ -97,5 +101,20 @@ test('Android exposes the production cancellation-refund row as one complete acc
   assert.equal(
     packageSource.scripts['test:android-wallet-cancellation-refund'],
     'maestro test maestro/wallet-cancellation-refund',
+  );
+});
+
+test('iOS VoiceOver flow finds one refund item with every transaction detail exactly once', () => {
+  assert.match(iosMaestroFlow, /appId: host\.exp\.Exponent/);
+  assert.match(iosMaestroFlow, /wallet-cancellation-refund-test/);
+  assert.match(iosMaestroFlow, /id: wallet-cancellation-refund-row/);
+  assert.match(
+    iosMaestroFlow,
+    /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./,
+  );
+  assert.match(iosMaestroFlow, /Refund details appear once in the row label/);
+  assert.equal(
+    packageSource.scripts['test:ios-wallet-cancellation-refund'],
+    'maestro test maestro/wallet-cancellation-refund/voiceover-ios.yaml',
   );
 });

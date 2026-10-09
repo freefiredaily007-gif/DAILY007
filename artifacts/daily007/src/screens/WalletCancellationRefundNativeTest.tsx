@@ -35,7 +35,7 @@ export default function WalletCancellationRefundNativeTest() {
   return (
     <View style={styles.screen}>
       <Text testID="wallet-cancellation-refund-fixture-banner" style={styles.text}>
-        Cancellation refund Android accessibility fixture
+        Cancellation refund native accessibility fixture
       </Text>
       <WalletCancellationRefundRow item={FIXTURE} />
       <Text testID="wallet-cancellation-refund-fixture-result" style={styles.text}>
