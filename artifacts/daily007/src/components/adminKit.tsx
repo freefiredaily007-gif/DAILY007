@@ -104,6 +104,7 @@ export function AdminToastHost({ children }: { children: React.ReactNode }) {
         <View style={[s.toast, toast.kind === 'err' && { borderColor: A.danger, backgroundColor: 'rgba(60,10,10,0.95)' }]} pointerEvents="none">
             <Text
               key={toast.id}
+              testID="admin-toast"
               accessibilityLabel={toast.msg}
               accessibilityRole={toast.kind === 'err' ? 'alert' : undefined}
               accessibilityLiveRegion={toast.kind === 'err' ? 'assertive' : 'polite'}

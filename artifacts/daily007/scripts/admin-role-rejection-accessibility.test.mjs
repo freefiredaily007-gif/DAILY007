@@ -92,6 +92,7 @@ test('admin error toasts expose the exact message as an assertive TalkBack alert
 });
 
 test('successful toasts announce politely without including the decorative checkmark', () => {
+  assert.match(toastSource, /testID="admin-toast"/);
   assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
   assert.match(
     toastSource,
@@ -146,6 +147,11 @@ test('a failed refresh after last Full Admin rejection keeps the role unchanged'
     'The row should update only after a successful follow-up user-list request.',
   );
   assert.ok(refreshFailureBranch, 'The follow-up refresh failure must be handled explicitly.');
+  assert.match(
+    refreshFailureBranch,
+    /pendingFullAdminRecovery\.current = \{\s*userId: String\(u\.\$id\),\s*userName: String\(u\.name \|\| 'this user'\),\s*\}/,
+    'A failed follow-up refresh must retain which Full Admin needs confirmation after recovery.',
+  );
   assert.doesNotMatch(
     refreshFailureBranch,
     /setUsers\(/,
@@ -170,7 +176,7 @@ test('a failed refresh after last Full Admin rejection keeps the role unchanged'
     rejectedRoleBranch,
     /Could not restrict Full Admin access for \$\{u\.name\}\. At least one Full Admin must remain, so no change was made\./,
   );
-  assert.match(loadBranch, /setUsers\(u \?\? \[\]\)/);
+  assert.match(loadBranch, /const loadedUsers = u \?\? \[\];\s*setUsers\(loadedUsers\);/);
   assert.match(
     usersSource,
     /const roleLabel = u\.role === 'admin'[\s\S]*?<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/,
@@ -179,4 +185,37 @@ test('a failed refresh after last Full Admin rejection keeps the role unchanged'
   assert.match(usersSource, /const filtered = \(users \?\? \[\]\)\.filter/);
   assert.match(usersSource, /filtered\.map\(\(u\) => \{/);
   assert.match(usersSource, /<Card key=\{u\.\$id\}>/);
+});
+
+test('a later successful refresh politely confirms the unchanged Full Admin role', () => {
+  const loadBranch = usersSource.match(
+    /const load = async \(\) => \{([\s\S]*?)\n\s*\};/,
+  )?.[1] ?? '';
+  assert.match(
+    loadBranch,
+    /const pendingRecovery = pendingFullAdminRecovery\.current;\s*if \(pendingRecovery\) \{/,
+    'The recovery announcement should run only when a failed safeguard refresh left pending context.',
+  );
+  assert.match(
+    loadBranch,
+    /const refreshedUser = loadedUsers\.find\(\s*\(user\) => String\(user\.\$id\) === pendingRecovery\.userId,/,
+    'The refreshed list must identify the affected account using the returned server data.',
+  );
+  assert.match(loadBranch, /pendingFullAdminRecovery\.current = null;/);
+  assert.match(
+    loadBranch,
+    /refreshedUser\?\.role === 'admin'[\s\S]*?User list is current\. \$\{refreshedUser\.name \|\| pendingRecovery\.userName\} remains Full Admin\./,
+    'Only a server-confirmed Full Admin row may be described as remaining Full Admin.',
+  );
+  assert.match(loadBranch, /toast\(status, 'success'\)/);
+  assert.match(
+    toastSource,
+    /accessibilityLabel=\{toast\.msg\}[\s\S]*?accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+    'The current-list status must use the existing polite toast live region.',
+  );
+  assert.match(
+    usersSource,
+    /const roleLabel = u\.role === 'admin'\s*\? 'Full Admin'[\s\S]*?<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/,
+    'The visible row must continue to show FULL ADMIN from the refreshed server role.',
+  );
 });

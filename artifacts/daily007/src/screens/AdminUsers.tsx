@@ -29,12 +29,25 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
   const roleRowRefs = useRef(new Map<string, View>());
   const focusRoleAfterRefresh = useRef<string | null>(null);
+  const pendingFullAdminRecovery = useRef<{ userId: string; userName: string } | null>(null);
 
   const load = async () => {
     try {
       const [u, r] = await Promise.all([Api.adminUsers(), Api.adminRegistrations()]);
-      setUsers(u ?? []);
+      const loadedUsers: any[] = u ?? [];
+      setUsers(loadedUsers);
       setRegs(r ?? []);
+      const pendingRecovery = pendingFullAdminRecovery.current;
+      if (pendingRecovery) {
+        pendingFullAdminRecovery.current = null;
+        const refreshedUser = loadedUsers.find(
+          (user) => String(user.$id) === pendingRecovery.userId,
+        );
+        const status = refreshedUser?.role === 'admin'
+          ? `User list is current. ${refreshedUser.name || pendingRecovery.userName} remains Full Admin.`
+          : 'User list is current.';
+        toast(status, 'success');
+      }
     } catch (e) {
       toast(`Could not load users and registrations: ${errMessage(e)}. Pull down to refresh and retry.`, 'error');
       setUsers([]); setRegs([]);
@@ -151,6 +164,10 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         try {
           setUsers((await Api.adminUsers()) ?? []);
         } catch (refreshError) {
+          pendingFullAdminRecovery.current = {
+            userId: String(u.$id),
+            userName: String(u.name || 'this user'),
+          };
           toast(
             `Could not restrict Full Admin access for ${u.name}. At least one Full Admin must remain, so no change was made. ` +
             `The user row remains available. Refresh failed: ${errMessage(refreshError)}.`,

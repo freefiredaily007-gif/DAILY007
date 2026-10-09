@@ -111,6 +111,15 @@ const previewAdminUsers = [
     createdAt: "2026-08-02T14:15:00.000Z",
   },
 ];
+const previewFullAdminRecoveryUser = {
+  $id: "preview-full-admin-recovery",
+  name: "Full Admin Recovery Preview",
+  email: "full-admin-recovery@example.invalid",
+  coins: 0,
+  status: "active",
+  role: "admin",
+  createdAt: "2026-10-06T10:00:00.000Z",
+};
 
 const previewNotificationRecipients = [
   {
@@ -324,6 +333,7 @@ const empty = async () => [];
 let tournamentReadCount = 0;
 let nextTournamentReadError: string | null = null;
 let nextMyRegistrationReadError: string | null = null;
+let nextAdminUsersReadError: string | null = null;
 let nextMyRegistrationReadResponse: { value: unknown } | null = null;
 let deferredTournamentRead: {
   promise: Promise<any[]>;
@@ -376,12 +386,19 @@ const adminPreviewMutations = {
   reset: () => {
     adminPreviewMutationCalls.length = 0;
     adminPreviewMutationFailures.clear();
+    nextAdminUsersReadError = null;
   },
   failNext: (method: string, message: string) => {
     if (!method.trim() || !message.trim()) {
       throw new Error("An isolated Admin preview failure needs a method and an error message.");
     }
     adminPreviewMutationFailures.set(method, message);
+  },
+  failNextUserRead: (message: string) => {
+    if (!message.trim()) {
+      throw new Error("An isolated Admin preview user-list failure needs an error message.");
+    }
+    nextAdminUsersReadError = message;
   },
 };
 (globalThis as typeof globalThis & {
@@ -592,10 +609,20 @@ export const Api = {
   adminPayments: async () => previewAdminPayments.map((payment) => ({ ...payment })),
   adminWithdrawals: async () => previewAdminWithdrawals.map((withdrawal) => ({ ...withdrawal })),
   adminTransactions: async () => previewAdminTransactions.map((transaction) => ({ ...transaction })),
-  adminUsers: async () => [
-    ...previewAdminUsers,
-    ...(isAdminLargestTextPreview() ? previewNotificationRecipients : []),
-  ].map((user) => ({ ...user })),
+  adminUsers: async () => {
+    if (nextAdminUsersReadError !== null) {
+      const error = nextAdminUsersReadError;
+      nextAdminUsersReadError = null;
+      throw new Error(error);
+    }
+    const recoveryPreviewEnabled = typeof window !== "undefined"
+      && new URLSearchParams(window.location.search).has("admin-full-admin-recovery-only");
+    return [
+      ...previewAdminUsers,
+      ...(recoveryPreviewEnabled ? [previewFullAdminRecoveryUser] : []),
+      ...(isAdminLargestTextPreview() ? previewNotificationRecipients : []),
+    ].map((user) => ({ ...user }));
+  },
   tournament: async (id: string) => {
     const tournament = istDateSurfacePreview && String(id) === istDateSurfaceTournament.id
       ? istDateSurfaceTournament

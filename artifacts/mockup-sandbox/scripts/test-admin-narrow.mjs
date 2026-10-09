@@ -47,6 +47,7 @@ const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-ed
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
 const adminLandscapeOnly = process.argv.includes("--admin-landscape-only");
+const adminFullAdminRecoveryOnly = process.argv.includes("--admin-full-admin-recovery-only");
 const browserErrors = [];
 let viteOutput = "";
 let messageId = 0;
@@ -6974,11 +6975,119 @@ async function checkIstDateSurfaces(port) {
   }
 }
 
+async function checkAdminFullAdminRoleRefreshRecovery() {
+  const userId = "preview-full-admin-recovery";
+  const userEmail = "full-admin-recovery@example.invalid";
+  const userName = "Full Admin Recovery Preview";
+  const expectedStatus = "User list is current. Full Admin Recovery Preview remains Full Admin.";
+  const accessibleRoleName = `${userName}, Full Admin`;
+
+  await clickSelector('[data-testid="admin-tab-users"]', "Users tab");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(userEmail)})`,
+    "the isolated Full Admin recovery account to load",
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["FULL ADMIN"], excludes: ["TOURNAMENT ADMIN", "PLAYER"] },
+    "the Full Admin account before the safeguard rejection",
+  );
+
+  const initialRoleName = await evaluate(`(() => {
+    const expected = ${JSON.stringify(accessibleRoleName)};
+    return [...document.querySelectorAll("[aria-label]")]
+      .find((node) => node.getAttribute("aria-label") === expected)
+      ?.getAttribute("aria-label") ?? null;
+  })()`);
+  assert(
+    initialRoleName === accessibleRoleName,
+    `The initial Full Admin row should expose its name and role together: ${String(initialRoleName)}.`,
+  );
+
+  await resetAdminMutationCalls();
+  await failNextAdminMutation(
+    "adminSetUserRole",
+    "At least one full administrator must remain.",
+  );
+  const configuredReadFailure = await evaluate(`(() => {
+    const tracker = window.__daily007AdminMutations;
+    if (!tracker?.failNextUserRead) return false;
+    tracker.failNextUserRead("Preview user-list refresh failure");
+    return true;
+  })()`);
+  assert(configuredReadFailure, "Could not configure the isolated one-time user-list refresh failure.");
+
+  await clickSelector(`[data-testid="change-user-role-${userId}"]`, "Full Admin role action");
+  await clickSelector(
+    '[data-testid="confirm-tournament-admin-change"]',
+    "confirm the Full Admin role action",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify("Refresh failed: Preview user-list refresh failure.")})`,
+    "the safeguard rejection and failed immediate user-list refresh",
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["FULL ADMIN"], excludes: ["TOURNAMENT ADMIN", "PLAYER"] },
+    "the Full Admin account after the failed immediate refresh",
+  );
+  const rejectedMutationCalls = await evaluate("window.__daily007AdminMutations?.calls ?? null");
+  assert(
+    Array.isArray(rejectedMutationCalls) && rejectedMutationCalls.length === 0,
+    `The rejected role change must not be recorded as a successful mutation: ${JSON.stringify(rejectedMutationCalls)}.`,
+  );
+
+  await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  await tapSelector(
+    '[data-testid="player-refresh-control-test-action"]',
+    "successful user-list refresh",
+  );
+  await waitForCondition(
+    `(() => {
+      const toast = document.querySelector('[data-testid="admin-toast"]');
+      return toast?.getAttribute("aria-label") === ${JSON.stringify(expectedStatus)} &&
+        toast?.getAttribute("aria-live") === "polite";
+    })()`,
+    "the polite status confirming the recovered Full Admin list",
+  );
+  const toastState = await evaluate(`(() => {
+    const toast = document.querySelector('[data-testid="admin-toast"]');
+    return toast ? {
+      label: toast.getAttribute("aria-label"),
+      live: toast.getAttribute("aria-live"),
+      text: toast.textContent.trim(),
+    } : null;
+  })()`);
+  assert(
+    toastState?.label === expectedStatus &&
+      toastState.live === "polite" &&
+      toastState.text.includes(expectedStatus),
+    `The recovered status must be visible and politely announced without changing the confirmed role: ${JSON.stringify(toastState)}.`,
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["FULL ADMIN"], excludes: ["TOURNAMENT ADMIN", "PLAYER"] },
+    "the Full Admin account after the successful refresh",
+  );
+  const recoveredRoleName = await evaluate(`(() => {
+    const expected = ${JSON.stringify(accessibleRoleName)};
+    return [...document.querySelectorAll("[aria-label]")]
+      .find((node) => node.getAttribute("aria-label") === expected)
+      ?.getAttribute("aria-label") ?? null;
+  })()`);
+  assert(
+    recoveredRoleName === accessibleRoleName,
+    `The refreshed row should still announce Full Admin: ${String(recoveredRoleName)}.`,
+  );
+}
+
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = istDateSurfacesOnly
+  const previewPath = adminFullAdminRecoveryOnly
+    ? "admin-narrow-preview.html?admin-full-admin-recovery-only=1&manual-refresh-only=1"
+    : istDateSurfacesOnly
     ? "home-carousel-preview.html?ist-date-surfaces=1"
     : adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
@@ -7082,18 +7191,19 @@ try {
     adminTournamentHomeRefreshOnly ||
     adminTournamentEditSaveOnly ||
     adminActionsOnly ||
+    adminFullAdminRecoveryOnly ||
     adminLandscapeOnly
   ) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
+        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -7147,6 +7257,8 @@ try {
           ? "Admin tournament creation at 320px with 1.5× text"
         : adminActionsOnly
           ? "Admin selected-record actions"
+        : adminFullAdminRecoveryOnly
+          ? "Admin Full Admin role-refresh recovery"
           : "player and Admin tournament screens",
     );
     if (adminLandscapeOnly) {
@@ -7276,6 +7388,15 @@ try {
         `Browser errors during large-text tournament edit checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Editing an existing tournament at 320px/1.5× submits every changed setting and closes on success.");
+    } else if (adminFullAdminRecoveryOnly) {
+      await checkAdminFullAdminRoleRefreshRecovery();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Full Admin refresh-recovery checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — The isolated Full Admin safeguard rejection and one failed list refresh preserve the FULL ADMIN row; the later successful refresh announces the current list politely.",
+      );
     } else if (adminActionsOnly) {
       await setViewport(390);
       await checkAdminSelectedRecordMutations();

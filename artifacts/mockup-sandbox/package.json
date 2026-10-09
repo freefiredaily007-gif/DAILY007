@@ -15,6 +15,7 @@
     "test:admin-landscape-large-text": "node scripts/test-admin-narrow.mjs --admin-landscape-large-text-only",
     "test:admin-tournament-landscape-keyboard": "node scripts/test-admin-narrow.mjs --admin-landscape-keyboard-only",
     "test:admin-action-targets": "node scripts/test-admin-narrow.mjs --admin-actions-only",
+    "test:admin-full-admin-refresh-recovery": "node scripts/test-admin-narrow.mjs --admin-full-admin-recovery-only",
     "test:tournament-resume": "node scripts/test-admin-narrow.mjs --resume-only",
     "test:tournament-initial-load-failure": "node scripts/test-admin-narrow.mjs --initial-load-failure-only",
     "test:admin-tournament-initial-load-failure": "node scripts/test-admin-narrow.mjs --admin-initial-load-failure-only",
