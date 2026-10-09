@@ -1472,6 +1472,109 @@ test("Admin result recovery excludes a saved placement after its tournament is c
   }
 });
 
+test("Admin recovery returns reverse-inserted unfinalized placements in ascending rank order", async () => {
+  const fixture = await createFixture(3);
+  const rankTwo = fixture.players[1];
+  const rankThree = fixture.players[2];
+
+  try {
+    await withServer(async (origin) => {
+      const rankThreeResult = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        rankThree,
+        3,
+        11,
+      );
+      assert.equal(
+        rankThreeResult.status,
+        201,
+        `rank 3 must be saved first: ${JSON.stringify(rankThreeResult.body)}`,
+      );
+      assert.equal(rankThreeResult.body.prizeCoins, 125);
+
+      const rankTwoResult = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        rankTwo,
+        2,
+        7,
+      );
+      assert.equal(
+        rankTwoResult.status,
+        201,
+        `rank 2 must be saved second: ${JSON.stringify(rankTwoResult.body)}`,
+      );
+      assert.equal(rankTwoResult.body.prizeCoins, 250);
+
+      const recoveryResponse = await fetch(`${origin}/admin/results?includeUnfinalized=true`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(recoveryResponse.status, 200);
+      const recoveryBody = await recoveryResponse.json() as {
+        success: boolean;
+        data: Array<Record<string, unknown>>;
+      };
+      assert.equal(recoveryBody.success, true);
+      const placements = recoveryBody.data.filter(
+        (entry) => entry.tournamentId === fixture.matchId,
+      );
+      assert.deepEqual(
+        placements.map(({ registrationId, rank, prizeCoins }) => ({
+          registrationId,
+          rank,
+          prizeCoins,
+        })),
+        [
+          {
+            registrationId: rankTwo.registrationId,
+            rank: 2,
+            prizeCoins: 250,
+          },
+          {
+            registrationId: rankThree.registrationId,
+            rank: 3,
+            prizeCoins: 125,
+          },
+        ],
+        "recovery must return the saved registrations and prizes in ascending rank order",
+      );
+
+      const persistedRanks = await pool.query<{ rank: number }>(
+        `SELECT rank
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1
+          ORDER BY rank`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(persistedRanks.rows, [{ rank: 2 }, { rank: 3 }]);
+
+      const match = await pool.query<{ enabled: boolean; status: string }>(
+        "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
+        [fixture.matchId],
+      );
+      assert.deepEqual(match.rows, [{ enabled: true, status: "open" }]);
+
+      const completedResponse = await fetch(`${origin}/admin/results`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(completedResponse.status, 200);
+      const completedBody = await completedResponse.json() as {
+        data: Array<Record<string, unknown>>;
+      };
+      assert.equal(
+        completedBody.data.some((entry) => entry.tournamentId === fixture.matchId),
+        false,
+        "a tournament with no first-place result must remain out of the completed list",
+      );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("concurrent first- and second-place results cannot pay one registration twice", async () => {
   const fixture = await createFixture();
   const player = fixture.players[0];
