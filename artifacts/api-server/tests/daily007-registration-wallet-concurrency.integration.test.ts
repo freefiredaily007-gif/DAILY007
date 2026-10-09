@@ -242,7 +242,7 @@ async function waitForBlockedRequests(
   throw new Error(`Timed out waiting for ${expectedCount} requests to block on the ${lockDescription} row.`);
 }
 
-async function runConcurrentWalletRace(teamType: "solo" | "duo" | "squad"): Promise<void> {
+async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]): Promise<void> {
   let fixtureForCleanup: WalletRaceFixture | undefined;
   let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
   let blockerTransactionOpen = false;
@@ -269,12 +269,12 @@ async function runConcurrentWalletRace(teamType: "solo" | "duo" | "squad"): Prom
           fixture.userId,
           matchId,
           fixture.gameUids[index],
-          teamType === "solo"
-            ? null
-            : {
-                teammates: fixture.teammates[index]!,
-                teamName: fixture.teamNames[index]!,
-              },
+          teamType !== "solo"
+            ? {
+                teammates: fixture.teammates[index],
+                teamName: fixture.teamNames[index],
+              }
+            : null,
         ),
       );
 
@@ -356,18 +356,19 @@ async function runConcurrentWalletRace(teamType: "solo" | "duo" | "squad"): Prom
           ORDER BY registration.match_id, roster.position`,
         [fixture.matchIds, fixture.userId],
       );
-      const expectedRosterRows = fixture.teammates.reduce((total, teammates) => total + teammates.length, 0);
       assert.equal(
         roster.rows.length,
-        expectedRosterRows,
-        teamType !== "solo"
-          ? "each team registration must store every submitted teammate"
-          : "solo registrations must not create teammate rows",
+        teamType === "solo" ? 0 : teamType === "duo" ? 2 : 6,
+        teamType === "solo"
+          ? "solo registrations must not create teammate rows"
+          : teamType === "duo"
+            ? "each duo registration must have exactly one teammate row"
+            : "each squad registration must have exactly three teammate rows",
       );
       if (teamType !== "solo") {
         const allPlayerUids = [
           ...fixture.gameUids,
-          ...fixture.teammates.flatMap((teammates) => teammates.map((teammate) => teammate.uid)),
+          ...fixture.teammates.flatMap((team) => team.map((teammate) => teammate.uid)),
         ];
         assert.equal(
           new Set(allPlayerUids).size,
@@ -377,22 +378,30 @@ async function runConcurrentWalletRace(teamType: "solo" | "duo" | "squad"): Prom
         for (const [index, matchId] of fixture.matchIds.entries()) {
           const registration = registrations.rows.find((entry) => entry.match_id === matchId);
           assert.ok(registration, `registration for ${matchId} must exist`);
-          const expectedTeammates = fixture.teammates[index]!;
           const teammateRows = roster.rows.filter((row) => row.registration_id === registration.id);
+          const expectedTeammates = fixture.teammates[index];
           assert.equal(
             teammateRows.length,
-            expectedTeammates.length,
-            `registration for ${matchId} must own all and only its submitted teammates`,
+            teamType === "squad" ? 3 : 1,
+            `registration for ${matchId} must own only its submitted teammates`,
           );
-          for (const [teammateIndex, expectedTeammate] of expectedTeammates.entries()) {
-            const teammateRow = teammateRows[teammateIndex];
-            assert.ok(teammateRow, `teammate ${teammateIndex + 1} for ${matchId} must exist`);
-            assert.equal(teammateRow.match_id, matchId);
-            assert.equal(teammateRow.registration_id, registration.id);
-            assert.equal(teammateRow.position, teammateIndex + 1);
-            assert.equal(teammateRow.member_uid, expectedTeammate.uid);
-            assert.equal(teammateRow.member_name, expectedTeammate.name);
-          }
+          assert.deepEqual(
+            teammateRows.map(({ position, member_uid, member_name }) => ({
+              position,
+              member_uid,
+              member_name,
+            })),
+            expectedTeammates.map((teammate, teammateIndex) => ({
+              position: teammateIndex + 1,
+              member_uid: teammate.uid,
+              member_name: teammate.name,
+            })),
+            `registration for ${matchId} must retain its own teammates at their submitted positions`,
+          );
+          assert.ok(
+            teammateRows.every((row) => row.match_id === matchId && row.registration_id === registration.id),
+            `every teammate row for ${matchId} must remain attached to its own tournament registration`,
+          );
         }
       }
 
@@ -633,13 +642,12 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
     }
   }
 }
-
 test("concurrent solo joins charge each tournament's own fee", () => runConcurrentWalletRace("solo"));
 
 test("concurrent duo joins keep fees and teammate rosters matched to each tournament", () =>
   runConcurrentWalletRace("duo"));
 
-test("concurrent squad joins keep every player on the correct tournament roster", () =>
+test("concurrent squad joins keep every player, position, and fee matched to its tournament", () =>
   runConcurrentWalletRace("squad"));
 
 test("concurrent duo retries keep one registration, fee debit, and winning teammate roster", () =>
