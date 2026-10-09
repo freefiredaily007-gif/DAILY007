@@ -236,18 +236,24 @@ export default function Video() {
   const [sessionStartRetryPending, setSessionStartRetryPending] = useState(false);
 
   const claimViewReward = useCallback(async (sessionId: string, percentWatched: number) => {
+    const playbackCycle = playbackCycleRef.current;
     setRewardPending(true);
     setRewardError('');
     try {
       const result = await completeVideoWatch({
         data: { sessionId, percentWatched: Math.min(100, percentWatched) },
       });
-      setRewardMessage(result.message || (result.rewarded ? '1 coin added to your wallet.' : 'This view has already been rewarded.'));
-      setRetrySession(null);
+      if (playbackCycle === playbackCycleRef.current) {
+        setRewardMessage(result.message || (result.rewarded ? '1 coin added to your wallet.' : 'This view has already been rewarded.'));
+        setRetrySession(null);
+      }
       void refresh().catch(() => {
-        setRewardError('The coin was recorded, but the wallet display did not refresh. Reopen Wallet to update it.');
+        if (playbackCycle === playbackCycleRef.current) {
+          setRewardError('The coin was recorded, but the wallet display did not refresh. Reopen Wallet to update it.');
+        }
       });
     } catch (error) {
+      if (playbackCycle !== playbackCycleRef.current) return;
       const message = apiError(error);
       setRewardError(message);
       if (message === VIDEO_UNAVAILABLE_FOR_REWARDS) {
@@ -256,7 +262,7 @@ export default function Video() {
         setRetrySession({ sessionId, percent: percentWatched });
       }
     } finally {
-      setRewardPending(false);
+      if (playbackCycle === playbackCycleRef.current) setRewardPending(false);
     }
   }, [completeVideoWatch, refresh]);
 
@@ -448,6 +454,7 @@ export default function Video() {
     setExternalLinkAction(null);
     setRewardMessage('');
     setRewardError('');
+    setRewardPending(false);
     setRetrySession(null);
   }, [selectedVideo?.id, showPlayer]);
 

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const sandboxRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = path.resolve(sandboxRoot, "../..");
 const videoStartFailureOnly = process.argv.includes("--video-start-failure-only");
+const lateVideoRewardResponseOnly = process.argv.includes("--late-video-reward-response-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -1153,6 +1154,138 @@ async function checkTransientVideoRewardRetry() {
   console.log("PASS — transient completion failures still offer a working retry.");
 }
 
+async function checkLateVideoRewardCompletion() {
+  const oldVideoError = "Late completion failed for the previous video.";
+  const currentVideoError = "Temporary current-video completion failure.";
+  await navigateToScreen("VideoLateCompletion", "Tutorial Videos");
+  await clickSelector(
+    '[data-testid="video-catalog-card-still-active-video"]',
+    "first video for the delayed completion test",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "player for the first video",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "start the first video");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 1
+      && window.__videoRewardPreviewCalls?.sessions.length === 1`,
+    "first video watch session",
+  );
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "finish the first video");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.completions.length === 1
+      && typeof window.__rejectPendingVideoRewardCompletion === "function"`,
+    "held reward completion for the first video",
+  );
+  const pendingOldCompletion = await evaluate(`(() => ({
+    verifying: document.body.innerText.includes("Verifying the completed view…"),
+    errorVisible: document.querySelector('[data-testid="video-watch-error"]') !== null,
+    retryClaim: [...document.querySelectorAll('button')]
+      .some((button) => button.innerText.includes("RETRY COIN CLAIM")),
+  }))()`);
+  assert(
+    pendingOldCompletion.verifying && !pendingOldCompletion.errorVisible && !pendingOldCompletion.retryClaim,
+    `The first completion should remain pending without an error or claim retry: ${JSON.stringify(pendingOldCompletion)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-back"]', "leave the first video");
+  await clickSelector(
+    '[data-testid="video-catalog-card-unavailable-video"]',
+    "open a different video while the first completion is pending",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "player for the new video",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector('[data-testid="video-preview-start-playback"]', "start the new video");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 2
+      && window.__videoRewardPreviewCalls?.sessions.length === 2`,
+    "new video watch session",
+  );
+
+  await evaluate("window.__rejectPendingVideoRewardCompletion?.()");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.lateCompletionRejections === 1
+      && typeof window.__rejectPendingVideoRewardCompletion !== "function"`,
+    "late rejection from the first video",
+  );
+  await evaluate("new Promise((resolve) => setTimeout(resolve, 0))");
+  const newVideoAfterOldRejection = await evaluate(`(() => ({
+    titleVisible: document.body.innerText.includes("Preview video that becomes unavailable"),
+    oldErrorVisible: document.body.innerText.includes(${JSON.stringify(oldVideoError)}),
+    errorVisible: document.querySelector('[data-testid="video-watch-error"]') !== null,
+    retryClaim: [...document.querySelectorAll('button')]
+      .some((button) => button.innerText.includes("RETRY COIN CLAIM")),
+    verifying: document.body.innerText.includes("Verifying the completed view…"),
+    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
+  }))()`);
+  assert(
+    newVideoAfterOldRejection.titleVisible
+      && !newVideoAfterOldRejection.oldErrorVisible
+      && !newVideoAfterOldRejection.errorVisible
+      && !newVideoAfterOldRejection.retryClaim
+      && !newVideoAfterOldRejection.verifying
+      && newVideoAfterOldRejection.completions === 1,
+    `A late rejection must not affect the new video or expose a stale retry: ${JSON.stringify(newVideoAfterOldRejection)}`,
+  );
+
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "finish the new video");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(currentVideoError)})
+      && [...document.querySelectorAll('button')]
+        .some((button) => button.innerText.includes("RETRY COIN CLAIM"))`,
+    "retry after the new video's own completion failure",
+  );
+  const currentVideoFailure = await evaluate(`(() => ({
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+    currentErrorVisible: document.body.innerText.includes(${JSON.stringify(currentVideoError)}),
+    oldErrorVisible: document.body.innerText.includes(${JSON.stringify(oldVideoError)}),
+    retryClaim: [...document.querySelectorAll('button')]
+      .some((button) => button.innerText.includes("RETRY COIN CLAIM")),
+  }))()`);
+  assert(
+    currentVideoFailure.completions.length === 2
+      && currentVideoFailure.completions[1]?.data?.sessionId === "preview-video-watch-session-2"
+      && currentVideoFailure.currentErrorVisible
+      && !currentVideoFailure.oldErrorVisible
+      && currentVideoFailure.retryClaim,
+    `A failure from the new video's own session should still offer its retry: ${JSON.stringify(currentVideoFailure)}`,
+  );
+
+  await clickButtonWithText("RETRY COIN CLAIM", "retry completion for the new video");
+  await waitForCondition(
+    `document.body.innerText.includes("1 coin added to your wallet.")
+      && ![...document.querySelectorAll('button')]
+        .some((button) => button.innerText.includes("RETRY COIN CLAIM"))`,
+    "successful retry for the new video's own completion",
+  );
+  const completedRetry = await evaluate(`(() => ({
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+    retryClaim: [...document.querySelectorAll('button')]
+      .some((button) => button.innerText.includes("RETRY COIN CLAIM")),
+  }))()`);
+  assert(
+    completedRetry.sessions.length === 2
+      && completedRetry.completions.length === 3
+      && completedRetry.completions[1]?.data?.sessionId === "preview-video-watch-session-2"
+      && completedRetry.completions[2]?.data?.sessionId === "preview-video-watch-session-2"
+      && !completedRetry.retryClaim,
+    `Retry must use the new video's own session and clear on success: ${JSON.stringify(completedRetry)}`,
+  );
+  console.log("PASS — late completion rejection cannot create a retry on a new video, and the new video's own retry works.");
+}
+
 async function checkVideoWatchStartFailure() {
   const startFailureMessage = "The video watch session could not be created.";
   await navigateToScreen("VideoStartFailure", "Tutorial Videos");
@@ -1519,9 +1652,15 @@ try {
     mobile: true,
   });
   await delay(120);
-  await checkVideoWatchStartFailure();
-  console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
-  for (const viewportWidth of (videoStartFailureOnly ? [] : [375, 320])) {
+  if (!videoStartFailureOnly) {
+    await checkLateVideoRewardCompletion();
+  }
+  if (!lateVideoRewardResponseOnly) {
+    await checkVideoWatchStartFailure();
+    console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
+  }
+  const focusedVideoCheck = videoStartFailureOnly || lateVideoRewardResponseOnly;
+  for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
       height: 820,
@@ -1586,6 +1725,8 @@ try {
   console.log(
     videoStartFailureOnly
       ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
+      : lateVideoRewardResponseOnly
+        ? "PASS — late video completion responses cannot affect the next playback, and its own retry still works."
       : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {

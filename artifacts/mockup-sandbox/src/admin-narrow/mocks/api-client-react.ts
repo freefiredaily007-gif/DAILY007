@@ -188,6 +188,7 @@ type VideoRewardPreviewMode =
   | "unavailable"
   | "unavailableRefreshFailure"
   | "transient"
+  | "lateCompletion"
   | "startFailure"
   | "delayedStart"
   | null;
@@ -196,6 +197,7 @@ type VideoRewardPreviewCalls = {
   sessions: string[];
   completions: unknown[];
   listRefetches: number;
+  lateCompletionRejections: number;
 };
 
 let videoRewardPreviewMode: VideoRewardPreviewMode = null;
@@ -206,7 +208,13 @@ function getVideoRewardPreviewCalls(): VideoRewardPreviewCalls {
   const preview = globalThis as typeof globalThis & {
     __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
   };
-  preview.__videoRewardPreviewCalls ??= { starts: [], sessions: [], completions: [], listRefetches: 0 };
+  preview.__videoRewardPreviewCalls ??= {
+    starts: [],
+    sessions: [],
+    completions: [],
+    listRefetches: 0,
+    lateCompletionRejections: 0,
+  };
   return preview.__videoRewardPreviewCalls;
 }
 
@@ -217,9 +225,17 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
   const preview = globalThis as typeof globalThis & {
     __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
     __resolvePendingVideoWatchStart?: () => void;
+    __rejectPendingVideoRewardCompletion?: () => void;
   };
-  preview.__videoRewardPreviewCalls = { starts: [], sessions: [], completions: [], listRefetches: 0 };
+  preview.__videoRewardPreviewCalls = {
+    starts: [],
+    sessions: [],
+    completions: [],
+    listRefetches: 0,
+    lateCompletionRejections: 0,
+  };
   preview.__resolvePendingVideoWatchStart = undefined;
+  preview.__rejectPendingVideoRewardCompletion = undefined;
 }
 
 export const getDaily007ListVideosQueryKey = () => ["isolated-preview", "videos"];
@@ -312,6 +328,21 @@ export function useDaily007CompleteVideoWatch() {
             data: { error: "This video is no longer available for rewards." },
           };
           throw error;
+        }
+        if (mode === "lateCompletion" && calls.completions.length === 1) {
+          return await new Promise<never>((_resolve, reject) => {
+            const preview = globalThis as typeof globalThis & {
+              __rejectPendingVideoRewardCompletion?: () => void;
+            };
+            preview.__rejectPendingVideoRewardCompletion = () => {
+              preview.__rejectPendingVideoRewardCompletion = undefined;
+              calls.lateCompletionRejections += 1;
+              reject(new Error("Late completion failed for the previous video."));
+            };
+          });
+        }
+        if (mode === "lateCompletion" && calls.completions.length === 2) {
+          throw new Error("Temporary current-video completion failure.");
         }
         if (mode === "transient" && transientCompletionFailures === 0) {
           transientCompletionFailures += 1;
