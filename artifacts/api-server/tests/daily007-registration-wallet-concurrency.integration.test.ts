@@ -38,6 +38,7 @@ type WalletRaceFixture = {
   teamNames: [string, string];
   teammates: [Teammate[], Teammate[]];
   entryCoins: [number, number];
+  startingWalletCoins: number;
 };
 
 const STARTING_WALLET_COINS = 100;
@@ -109,7 +110,12 @@ async function registerForMatch(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
-async function createFixture(teamType: "solo" | "duo" | "squad"): Promise<WalletRaceFixture> {
+async function createFixture(
+  teamType: "solo" | "duo" | "squad",
+  options: { entryCoins?: [number, number]; startingWalletCoins?: number } = {},
+): Promise<WalletRaceFixture> {
+  const entryCoins: [number, number] = options.entryCoins ?? [7, 13];
+  const startingWalletCoins = options.startingWalletCoins ?? STARTING_WALLET_COINS;
   const teammateCount = teamType === "squad" ? 3 : teamType === "duo" ? 1 : 0;
   const createTeammates = (tournamentIndex: number): Teammate[] =>
     Array.from({ length: teammateCount }, (_, teammateIndex) => ({
@@ -123,7 +129,8 @@ async function createFixture(teamType: "solo" | "duo" | "squad"): Promise<Wallet
     teamType,
     teamNames: [`Wallet race ${teamType} ${randomUUID()}`, `Wallet race ${teamType} ${randomUUID()}`],
     teammates: [createTeammates(0), createTeammates(1)],
-    entryCoins: [7, 13],
+    entryCoins,
+    startingWalletCoins,
   };
   const client = await pool.connect();
   try {
@@ -131,7 +138,7 @@ async function createFixture(teamType: "solo" | "duo" | "squad"): Promise<Wallet
     await client.query(
       `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, wallet_coins)
        VALUES ($1, 'Wallet Race Player', $2, 'test-salt', 'test-hash', $3)`,
-      [fixture.userId, `player-${fixture.userId}@example.test`, STARTING_WALLET_COINS],
+      [fixture.userId, `player-${fixture.userId}@example.test`, fixture.startingWalletCoins],
     );
     for (const [index, matchId] of fixture.matchIds.entries()) {
       const storageMode = teamType === "solo" ? "solo" : "squad";
@@ -405,7 +412,7 @@ async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]):
         }
       }
 
-      const expectedFinalBalance = STARTING_WALLET_COINS -
+      const expectedFinalBalance = fixture.startingWalletCoins -
         fixture.entryCoins.reduce((total, entryCoins) => total + entryCoins, 0);
       const wallet = await pool.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
@@ -452,7 +459,7 @@ async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]):
       assert.ok(firstDebit && secondDebit, "both serialized wallet debits must have ledger entries");
       assert.equal(
         firstDebit.balance_after - firstDebit.amount,
-        STARTING_WALLET_COINS,
+        fixture.startingWalletCoins,
         "the first ledger balance must start from the original wallet balance",
       );
       assert.equal(
@@ -464,6 +471,146 @@ async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]):
         secondDebit.balance_after,
         expectedFinalBalance,
         "the last ledger balance must match the final wallet balance",
+      );
+    });
+  } finally {
+    try {
+      if (blockerForCleanup && blockerTransactionOpen) {
+        await blockerForCleanup.query("ROLLBACK");
+        blockerTransactionOpen = false;
+      }
+    } finally {
+      blockerForCleanup?.release();
+      await Promise.allSettled(submissions);
+      if (fixtureForCleanup) await cleanupFixture(fixtureForCleanup);
+    }
+  }
+}
+
+async function runConcurrentInsufficientBalanceRace(firstMatchIndex: 0 | 1): Promise<void> {
+  let fixtureForCleanup: WalletRaceFixture | undefined;
+  let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  const submissions: Promise<RegistrationResponse>[] = [];
+
+  try {
+    const fixture = await createFixture("solo", {
+      entryCoins: [13, 17],
+      startingWalletCoins: 20,
+    });
+    fixtureForCleanup = fixture;
+    const secondMatchIndex = (1 - firstMatchIndex) as 0 | 1;
+    const blocker = await pool.connect();
+    blockerForCleanup = blocker;
+
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [fixture.userId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      const submit = (matchIndex: 0 | 1) =>
+        registerForMatch(
+          origin,
+          fixture.userId,
+          fixture.matchIds[matchIndex],
+          fixture.gameUids[matchIndex],
+          null,
+        );
+      submissions.push(submit(firstMatchIndex));
+      await waitForBlockedRequests(
+        blockerPid,
+        1,
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        "wallet",
+      );
+      submissions.push(submit(secondMatchIndex));
+
+      try {
+        await waitForBlockedRequests(
+          blockerPid,
+          2,
+          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "wallet",
+        );
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const [firstResponse, secondResponse] = await Promise.all(submissions);
+      assert.equal(firstResponse.status, 201, JSON.stringify(firstResponse.body));
+      assert.equal(firstResponse.body.entryCoinsPaid, fixture.entryCoins[firstMatchIndex]);
+      assert.equal(
+        firstResponse.body.walletCoins,
+        fixture.startingWalletCoins - fixture.entryCoins[firstMatchIndex],
+      );
+      assert.equal(secondResponse.status, 409, JSON.stringify(secondResponse.body));
+      assert.equal(secondResponse.body.code, "INSUFFICIENT_BALANCE");
+      assert.equal(
+        secondResponse.body.error,
+        `Insufficient wallet balance: this entry costs ${fixture.entryCoins[secondMatchIndex]} coins.`,
+      );
+
+      const registrations = await pool.query<{
+        id: string;
+        match_id: string;
+        entry_coins_paid: number;
+        status: string;
+      }>(
+        `SELECT id, match_id, entry_coins_paid, status
+           FROM daily007_v2_registrations
+          WHERE match_id = ANY($1::uuid[]) AND captain_user_id = $2`,
+        [fixture.matchIds, fixture.userId],
+      );
+      assert.equal(registrations.rows.length, 1, "only the successful tournament may have a registration");
+      const registration = registrations.rows[0];
+      assert.ok(registration);
+      assert.equal(registration.match_id, fixture.matchIds[firstMatchIndex]);
+      assert.equal(registration.entry_coins_paid, fixture.entryCoins[firstMatchIndex]);
+      assert.equal(registration.status, "approved");
+      assert.equal(firstResponse.body.registrationId, registration.id);
+      assert.ok(
+        !registrations.rows.some((row) => row.match_id === fixture.matchIds[secondMatchIndex]),
+        "the rejected tournament must not retain a registration",
+      );
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [fixture.userId],
+      );
+      const finalBalance = fixture.startingWalletCoins - fixture.entryCoins[firstMatchIndex];
+      assert.deepEqual(wallet.rows, [{ wallet_coins: finalBalance }]);
+
+      const ledger = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT match_id, registration_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1 AND match_id = ANY($2::uuid[])`,
+        [fixture.userId, fixture.matchIds],
+      );
+      assert.deepEqual(ledger.rows, [{
+        match_id: fixture.matchIds[firstMatchIndex],
+        registration_id: registration.id,
+        amount: -fixture.entryCoins[firstMatchIndex],
+        balance_after: finalBalance,
+        reason: "match_entry",
+      }], "exactly one debit must match the successful registration and final wallet balance");
+      assert.ok(
+        ledger.rows.every((entry) => entry.match_id !== fixture.matchIds[secondMatchIndex]),
+        "the rejected tournament must not retain a debit",
       );
     });
   } finally {
@@ -569,7 +716,7 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
       assert.equal(responses[retryIndex].body.registrationId, registration.id);
       for (const response of responses) {
         assert.equal(response.body.entryCoinsPaid, entryCoins);
-        assert.equal(response.body.walletCoins, STARTING_WALLET_COINS - entryCoins);
+        assert.equal(response.body.walletCoins, fixture.startingWalletCoins - entryCoins);
       }
 
       const roster = await pool.query<{
@@ -601,7 +748,7 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
       );
       assert.deepEqual(
         wallet.rows,
-        [{ wallet_coins: STARTING_WALLET_COINS - entryCoins }],
+        [{ wallet_coins: fixture.startingWalletCoins - entryCoins }],
         "a retried signup must debit the entry fee only once",
       );
 
@@ -623,7 +770,7 @@ async function runConcurrentDuoRetryRace(): Promise<void> {
           match_id: matchId,
           registration_id: registration.id,
           amount: -entryCoins,
-          balance_after: STARTING_WALLET_COINS - entryCoins,
+          balance_after: fixture.startingWalletCoins - entryCoins,
           reason: "match_entry",
         }],
         "there must be exactly one fee debit linked to the winning registration",
@@ -649,6 +796,11 @@ test("concurrent duo joins keep fees and teammate rosters matched to each tourna
 
 test("concurrent squad joins keep every player, position, and fee matched to its tournament", () =>
   runConcurrentWalletRace("squad"));
+
+test("a 20-coin wallet accepts only the first 13- or 17-coin join in either lock order", async () => {
+  await runConcurrentInsufficientBalanceRace(0);
+  await runConcurrentInsufficientBalanceRace(1);
+});
 
 test("concurrent duo retries keep one registration, fee debit, and winning teammate roster", () =>
   runConcurrentDuoRetryRace());
