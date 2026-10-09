@@ -116,6 +116,7 @@ class Daily007AutoCancelTestDatabase {
   private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
   private readonly failedMatchFinalizations = new Set<string>();
   private readonly failedRefundWrites = new Map<string, string | null>();
+  private failedCursorSaves = 0;
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
@@ -136,6 +137,7 @@ class Daily007AutoCancelTestDatabase {
     this.matchRowLocks.clear();
     this.failedMatchFinalizations.clear();
     this.failedRefundWrites.clear();
+    this.failedCursorSaves = 0;
     this.mutationTrace.length = 0;
     this.candidateSelectionSizes.length = 0;
   }
@@ -149,6 +151,10 @@ class Daily007AutoCancelTestDatabase {
     registrationId?: string,
   ): void {
     this.failedRefundWrites.set(matchId, registrationId ?? null);
+  }
+
+  failNextCursorSave(): void {
+    this.failedCursorSaves += 1;
   }
 
   setNow(nowMs: number): void {
@@ -238,6 +244,10 @@ class Daily007AutoCancelTestDatabase {
       normalized.startsWith("INSERT INTO daily007_v2_settings (id, settings)") &&
       normalized.includes("__daily007AutoCancelCursor")
     ) {
+      if (this.failedCursorSaves > 0) {
+        this.failedCursorSaves -= 1;
+        throw new Error("Injected automatic-cancellation cursor persistence failure.");
+      }
       this.settings.__daily007AutoCancelCursor = JSON.parse(String(values[0])) as unknown;
     } else if (
       normalized.startsWith('SELECT m.id, m.starts_at AS "startsAt" FROM daily007_v2_matches m') &&

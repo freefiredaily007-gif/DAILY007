@@ -135,6 +135,69 @@ test("scheduled sweep refunds underfilled Clash Squad and Lone Wolf once at the 
   assert.equal(autoCancellationTestDb.ledger.size, ledgerCountAfterRefund);
 });
 
+test("a failed cursor save after a committed cancellation does not repeat its refund", async () => {
+  const firstMatch = match("cursor-save-first-match", "clash_squad", "clash", 2);
+  firstMatch.startsAtWallMs = scheduledStartWallTime - 2_000;
+  const nextMatch = match("cursor-save-next-match", "lone_wolf", "clash", 2);
+  nextMatch.startsAtWallMs = scheduledStartWallTime - 1_000;
+
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [firstMatch, nextMatch],
+    registrations: [
+      registration("cursor-save-first-reg", firstMatch.id, "cursor-save-first-payer", 35, "approved"),
+      registration("cursor-save-next-reg", nextMatch.id, "cursor-save-next-payer", 18, "pending"),
+    ],
+    accounts: [
+      { id: "cursor-save-first-payer", wallet_coins: 120 },
+      { id: "cursor-save-next-payer", wallet_coins: 70 },
+    ],
+  });
+  autoCancellationTestDb.failNextCursorSave();
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.matches.get(firstMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.matches.get(nextMatch.id)?.status, "open");
+  assert.equal(autoCancellationTestDb.accounts.get("cursor-save-first-payer")?.wallet_coins, 155);
+  assert.equal(autoCancellationTestDb.accounts.get("cursor-save-next-payer")?.wallet_coins, 70);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === firstMatch.id).length,
+    1,
+    "the first tournament's refund must commit before the injected progress-save failure",
+  );
+  assert.equal(autoCancellationTestDb.settings.__daily007AutoCancelCursor, undefined);
+  assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, [2]);
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.matches.get(firstMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get("cursor-save-first-payer")?.wallet_coins, 155);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === firstMatch.id).length,
+    1,
+    "retrying after the failed save must not credit the first payer or write its refund twice",
+  );
+  assert.equal(autoCancellationTestDb.matches.get(nextMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get("cursor-save-next-payer")?.wallet_coins, 88);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === nextMatch.id).length,
+    1,
+  );
+  assert.deepEqual(
+    autoCancellationTestDb.settings.__daily007AutoCancelCursor,
+    {
+      id: nextMatch.id,
+      startsAt: new Date(nextMatch.startsAtWallMs).toISOString(),
+    },
+  );
+  assert.deepEqual(
+    autoCancellationTestDb.candidateSelectionSizes,
+    [2, 1],
+    "the following sweep must skip the already-cancelled tournament and advance to the next eligible one",
+  );
+});
+
 test("a later payer failure rolls back one tournament without stopping the sweep", async () => {
   const failingMatch = match("refund-failure-match", "clash_squad", "clash", 3);
   failingMatch.startsAtWallMs = scheduledStartWallTime - 1_000;
