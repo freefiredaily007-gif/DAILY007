@@ -400,15 +400,29 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
         </View>
 
         {query.isRefetchError && period ? (
-          <Text
-            accessible
-            accessibilityRole="text"
-            accessibilityLiveRegion="polite"
-            testID="leaderboard-stale-data-warning"
-            style={styles.staleDataWarning}
-          >
-            Couldn't refresh the leaderboard. Showing saved results, which may be out of date.
-          </Text>
+          <View style={styles.staleDataWarning}>
+            <Text
+              accessible
+              accessibilityRole="text"
+              accessibilityLiveRegion="polite"
+              testID="leaderboard-stale-data-warning"
+              style={styles.staleDataWarningText}
+            >
+              Couldn't refresh the leaderboard. Showing saved results, which may be out of date.
+            </Text>
+            <Pressable
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Retry leaderboard refresh"
+              accessibilityState={{ disabled: query.isFetching, busy: query.isFetching }}
+              disabled={query.isFetching}
+              testID="leaderboard-stale-retry-button"
+              onPress={() => void query.refetch()}
+              style={styles.retryButton}
+            >
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </Pressable>
+          </View>
         ) : null}
 
         {period?.rewards ? (
@@ -580,16 +594,18 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 28 },
   tabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
   staleDataWarning: {
-    color: C.text,
-    fontSize: 13,
-    lineHeight: 18,
+    gap: 8,
     marginBottom: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    padding: 12,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: C.orange,
     backgroundColor: C.card2,
+  },
+  staleDataWarningText: {
+    color: C.text,
+    fontSize: 13,
+    lineHeight: 18,
   },
   rewardsPanel: {
     gap: 8,

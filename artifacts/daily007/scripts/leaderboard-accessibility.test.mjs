@@ -743,6 +743,7 @@ test("a no-data API error exposes an accessible retry action", () => {
 
 test("a failed refresh with a selected cached period announces that results may be stale", () => {
   const warning = textForTestId("leaderboard-stale-data-warning");
+  const retryButton = pressableForTestId("leaderboard-stale-retry-button");
   assert.match(warning, /\baccessible\b/);
   assert.match(warning, /accessibilityRole="text"/);
   assert.match(warning, /accessibilityLiveRegion="polite"/);
@@ -750,9 +751,16 @@ test("a failed refresh with a selected cached period announces that results may 
     warning,
     /Couldn't refresh the leaderboard\. Showing saved results, which may be out of date\./,
   );
+  assert.match(retryButton, /accessible/);
+  assert.match(retryButton, /accessibilityRole="button"/);
+  assert.match(retryButton, /accessibilityLabel="Retry leaderboard refresh"/);
+  assert.match(retryButton, /accessibilityState=\{\{ disabled: query\.isFetching, busy: query\.isFetching \}\}/);
+  assert.match(retryButton, /disabled=\{query\.isFetching\}/);
+  assert.match(retryButton, /onPress=\{\(\) => void query\.refetch\(\)\}/);
+  assert.match(retryButton, /<Text style=\{styles\.retryButtonText\}>Try again<\/Text>/);
   assert.match(
     screenSource,
-    /\{query\.isRefetchError && period \? \(\s*<Text[\s\S]*?testID="leaderboard-stale-data-warning"/,
+    /\{query\.isRefetchError && period \? \(\s*<View style=\{styles\.staleDataWarning\}>[\s\S]*?testID="leaderboard-stale-data-warning"[\s\S]*?leaderboard-stale-retry-button/,
     "Only a failed background refresh with the selected period still available should show the stale warning.",
   );
 });
@@ -855,6 +863,70 @@ test("a leaderboard retry that fails again restores the no-data error state", as
     assert.equal(repeatedFailure.data, undefined);
     assert.equal(repeatedFailure.error.message, "API is still unavailable");
     assert.equal(requestCount, 2);
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
+});
+
+test("retrying stale standings keeps them visible through success and repeated failure", async () => {
+  const savedData = {
+    weekly: {
+      standings: [{ rank: 1, userId: "saved-player", name: "Saved Player", points: 120 }],
+    },
+  };
+  const refreshedData = {
+    weekly: {
+      standings: [{ rank: 1, userId: "updated-player", name: "Updated Player", points: 150 }],
+    },
+  };
+  const pendingRetry = createDeferred();
+  const pendingRepeatedFailure = createDeferred();
+  let requestCount = 0;
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const observer = new QueryObserver(client, {
+    queryKey: ["leaderboard-stale-data-retry"],
+    queryFn: async () => {
+      requestCount += 1;
+      if (requestCount === 1) throw new Error("Temporary refresh failure");
+      if (requestCount === 2) return pendingRetry.promise;
+      return pendingRepeatedFailure.promise;
+    },
+    initialData: savedData,
+    retry: false,
+    enabled: false,
+  });
+  const unsubscribe = observer.subscribe(() => {});
+
+  try {
+    const initialFailure = await observer.refetch();
+    assert.equal(initialFailure.isRefetchError, true);
+    assert.equal(initialFailure.data.weekly.standings[0].name, "Saved Player");
+
+    const retryRequest = observer.refetch();
+    const retrying = observer.getCurrentResult();
+    assert.equal(retrying.isFetching, true);
+    assert.equal(retrying.isRefetchError, true);
+    assert.equal(retrying.data.weekly.standings[0].name, "Saved Player");
+
+    pendingRetry.resolve(refreshedData);
+    const recovered = await retryRequest;
+    assert.equal(recovered.isSuccess, true);
+    assert.equal(recovered.isRefetchError, false);
+    assert.equal(recovered.data.weekly.standings[0].name, "Updated Player");
+
+    const repeatedRetryRequest = observer.refetch();
+    const repeatedRetrying = observer.getCurrentResult();
+    assert.equal(repeatedRetrying.isFetching, true);
+    assert.equal(repeatedRetrying.data.weekly.standings[0].name, "Updated Player");
+
+    pendingRepeatedFailure.reject(new Error("API is still unavailable"));
+    const repeatedFailure = await repeatedRetryRequest;
+    assert.equal(repeatedFailure.isRefetchError, true);
+    assert.equal(repeatedFailure.data.weekly.standings[0].name, "Updated Player");
+    assert.equal(requestCount, 3);
   } finally {
     unsubscribe();
     client.clear();
