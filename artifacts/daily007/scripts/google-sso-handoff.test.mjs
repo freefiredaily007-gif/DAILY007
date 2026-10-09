@@ -503,6 +503,10 @@ test("the React Native button and callback route use the isolated handoff and me
     new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
     "utf8",
   );
+  const authSource = await readFile(
+    new URL("../src/screens/Auth.tsx", import.meta.url),
+    "utf8",
+  );
   const uiSource = await readFile(
     new URL("../src/components/ui.tsx", import.meta.url),
     "utf8",
@@ -519,7 +523,20 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
   assert.match(buttonSource, /return `\$\{message\} Please try again\.`/);
   assert.match(buttonSource, /onError && Platform\.OS === 'android'[\s\S]*?AccessibilityInfo\.announceForAccessibility\(message\)/);
+  assert.equal(
+    (buttonSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
+    1,
+    "Google errors should have one direct Android announcement",
+  );
   assert.match(buttonSource, /accessibilityLabel=\{error\}[\s\S]*?accessibilityLiveRegion="assertive"/);
+  const authGoogleError = authSource.match(/\{googleErr\s*\? <Msg[\s\S]*?text=\{googleErr\}[\s\S]*?\/>[\s\S]*?: null\}/);
+  assert.ok(authGoogleError, "login screen should display Google errors");
+  assert.match(
+    authGoogleError[0],
+    /accessibilityLiveRegion=\{Platform\.OS === 'android' \? undefined : 'assertive'\}/,
+  );
+  assert.match(authSource, /onError=\{\(message\) => \{\s*setErr\(''\);\s*setGoogleErr\(message\);\s*\}\}/);
+  assert.match(authSource, /accessibilityLiveRegion=\{err \? 'assertive' : undefined\}/);
   assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
   assert.match(buttonSource, /getActiveSession:\s*\(\)\s*=>\s*getClerkInstance\(\)\.session/);

@@ -72,3 +72,11 @@ When the server accepts a Google link but the returned Daily007 session cannot b
 **Why:** The provider link can commit remotely before AsyncStorage rejects the client-side write, so treating the persistence error as an expired account session can strand an otherwise usable player.
 
 **How to apply:** Keep session-persistence failures distinct from API authorization failures and continue protected calls with the original password-account bearer token.
+
+## Google sign-in error accessibility
+
+On Android, keep Google failure speech on one path: the Google button announces once after loading clears, and the login screen displays that error without a second assertive live-region announcement. Keep ordinary email/password failures on their existing live region.
+
+**Why:** Combining `AccessibilityInfo.announceForAccessibility` with an assertive parent error live region can speak the same Google failure twice. On 2026-10-09, the user confirmed on Android 16 with TalkBack that provider and Daily007 server failures were each spoken once and the Google button remained retryable after the duplicate path was removed.
+
+**How to apply:** When changing the Google sign-in error callback, preserve one Android announcement, visible error text, and a retry-enabled button after loading ends. Confirm platform-specific announcements on a real device; source tests alone do not establish TalkBack speech.

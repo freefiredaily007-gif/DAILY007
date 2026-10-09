@@ -24,6 +24,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [refCode, setRefCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [googleErr, setGoogleErr] = useState('');
   const [loginRetryDeadline, setLoginRetryDeadline] = useState<number | null>(null);
   const [loginRetryRemaining, setLoginRetryRemaining] = useState(0);
   const [loginThrottleMessageBase, setLoginThrottleMessageBase] = useState('');
@@ -85,6 +86,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
       setLoginRetryRemaining(0);
     }
     setErr('');
+    setGoogleErr('');
     if (mode === 'login') {
       setLoginThrottleMessageBase('');
       setLoginThrottleStatus('');
@@ -180,6 +182,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             disabled={busy || pendingSignupSession !== null}
             onPress={() => {
               setErr('');
+              setGoogleErr('');
               if (loginRetryDeadline !== null) {
                 const seconds = Math.max(0, Math.ceil((loginRetryDeadline - Date.now()) / 1000));
                 setLoginRetryRemaining(seconds);
@@ -197,7 +200,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           <Pressable
             testID="auth-signup-tab"
             disabled={busy || pendingSignupSession !== null}
-            onPress={() => { setErr(''); setMode('signup'); }}
+            onPress={() => { setErr(''); setGoogleErr(''); setMode('signup'); }}
             style={[s.tab, mode === 'signup' && s.tabOn]}
           >
             <Text style={[s.tabText, mode === 'signup' && s.tabTextOn]}>SIGN UP</Text>
@@ -205,6 +208,13 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
         </View>
 
         <Msg kind="err" text={err} accessibilityLiveRegion={err ? 'assertive' : undefined} />
+        {googleErr
+          ? <Msg
+            kind="err"
+            text={googleErr}
+            accessibilityLiveRegion={Platform.OS === 'android' ? undefined : 'assertive'}
+          />
+          : null}
         {!isSignup && loginThrottleStatus ? (
           <Msg
             kind={loginRetryRemaining > 0 ? 'err' : 'ok'}
@@ -225,7 +235,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             label={mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
             disabled={busy || retrySignupSession !== null}
             referralCode={isSignup ? refCode : undefined}
-            onError={setErr}
+            onError={(message) => {
+              setErr('');
+              setGoogleErr(message);
+            }}
             onSuccess={onDone}
           />
         </View>
