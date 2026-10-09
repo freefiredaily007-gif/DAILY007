@@ -116,6 +116,7 @@ class Daily007AutoCancelTestDatabase {
   settings: Record<string, unknown> = {};
   private readonly matchRowLocks = new Map<string, InMemoryRowLock>();
   private readonly failedMatchFinalizations = new Set<string>();
+  private readonly finalizationWaiterCounts = new Map<string, number>();
   private readonly failedRefundWrites = new Map<string, string | null>();
   private failedCursorSaves = 0;
   // Kept outside transaction snapshots so tests can verify that a later failure
@@ -137,6 +138,7 @@ class Daily007AutoCancelTestDatabase {
     this.settings = structuredClone(seed.settings ?? {});
     this.matchRowLocks.clear();
     this.failedMatchFinalizations.clear();
+    this.finalizationWaiterCounts.clear();
     this.failedRefundWrites.clear();
     this.failedCursorSaves = 0;
     this.mutationTrace.length = 0;
@@ -145,6 +147,14 @@ class Daily007AutoCancelTestDatabase {
 
   failNextMatchFinalization(matchId: string): void {
     this.failedMatchFinalizations.add(matchId);
+  }
+
+  failNextMatchFinalizationAfterWaitingCancellations(
+    matchId: string,
+    waiterCount = 1,
+  ): void {
+    this.failedMatchFinalizations.add(matchId);
+    this.finalizationWaiterCounts.set(matchId, waiterCount);
   }
 
   failNextRefundWriteAfterWalletMutation(
@@ -417,6 +427,11 @@ class Daily007AutoCancelTestDatabase {
     } else if (normalized.startsWith("UPDATE daily007_v2_matches")) {
       const matchId = String(values[0]);
       if (this.failedMatchFinalizations.delete(matchId)) {
+        const waiterCount = this.finalizationWaiterCounts.get(matchId) ?? 0;
+        this.finalizationWaiterCounts.delete(matchId);
+        if (waiterCount > 0) {
+          await this.waitForMatchRowLockWaitCount(matchId, waiterCount);
+        }
         this.mutationTrace.push(`finalize:${matchId}`);
         throw new Error(`Injected tournament finalization failure: ${matchId}`);
       }

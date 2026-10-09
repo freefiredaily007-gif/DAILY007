@@ -531,6 +531,71 @@ test("a waiting cancellation succeeds after a later refund write rolls back earl
   );
 });
 
+test("a waiting cancellation refunds once after the first finalization fails", async () => {
+  resetAtomicCancellationFixture();
+  autoCancellationTestDb.failNextMatchFinalizationAfterWaitingCancellations(
+    ATOMIC_MATCH_ID,
+  );
+
+  const firstAttempt = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID);
+  const waitingAttempt = cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID);
+  await autoCancellationTestDb.waitForMatchRowLockWaitCount(ATOMIC_MATCH_ID);
+
+  const [first, waiting] = await Promise.allSettled([
+    firstAttempt,
+    waitingAttempt,
+  ]);
+  assert.equal(
+    autoCancellationTestDb.matchRowLockWaitCount(ATOMIC_MATCH_ID),
+    1,
+    "the second manual cancellation must wait behind the first match-row lock",
+  );
+  assert.ok(first.status === "rejected", "the first cancellation should fail during finalization");
+  assert.match(String(first.reason), /Injected tournament finalization failure/);
+  assert.ok(
+    waiting.status === "fulfilled",
+    "the cancellation waiting on the match-row lock should succeed after rollback",
+  );
+  assert.deepEqual(waiting.value, {
+    id: ATOMIC_MATCH_ID,
+    status: "cancelled",
+    registrationsRefunded: 2,
+    accountsRefunded: 2,
+    coinsRefunded: 65,
+  });
+
+  assert.equal(autoCancellationTestDb.matches.get(ATOMIC_MATCH_ID)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get(FIRST_PAYER_ID)?.wallet_coins, 125);
+  assert.equal(autoCancellationTestDb.accounts.get(SECOND_PAYER_ID)?.wallet_coins, 240);
+  assert.deepEqual(autoCancellationTestDb.mutationTrace, [
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+    `wallet:${SECOND_PAYER_ID}`,
+    `ledger:${SECOND_REGISTRATION_ID}`,
+    `finalize:${ATOMIC_MATCH_ID}`,
+    `wallet:${FIRST_PAYER_ID}`,
+    `ledger:${FIRST_REGISTRATION_ID}`,
+    `wallet:${SECOND_PAYER_ID}`,
+    `ledger:${SECOND_REGISTRATION_ID}`,
+  ]);
+
+  const cancellationRefunds = [...autoCancellationTestDb.ledger.values()]
+    .filter(({ matchId, reason }) =>
+      matchId === ATOMIC_MATCH_ID && reason === "tournament_cancel_refund",
+    );
+  assert.equal(cancellationRefunds.length, 2);
+  assert.deepEqual(
+    new Map(cancellationRefunds.map(({ registrationId, userId, amount }) => [
+      registrationId,
+      { userId, amount },
+    ])),
+    new Map([
+      [FIRST_REGISTRATION_ID, { userId: FIRST_PAYER_ID, amount: 25 }],
+      [SECOND_REGISTRATION_ID, { userId: SECOND_PAYER_ID, amount: 40 }],
+    ]),
+  );
+});
+
 test("cancelling one tournament completes while a different tournament row is locked", async () => {
   resetAtomicCancellationFixture({ includeIndependentTournament: true });
 
