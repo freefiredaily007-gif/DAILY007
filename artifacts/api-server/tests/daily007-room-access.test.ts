@@ -238,6 +238,53 @@ test("compat registrations gate room credentials by release time and approval st
   });
 });
 
+test("compat registrations keep cancelled tournaments visible without retained room credentials", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.status = "cancelled";
+  roomAccessTestDb.match.room_time = "PRIVATE-ROOM-TIME-662";
+
+  const playerToken = makeToken(TEST_PLAYER_ID, 0);
+  assert.ok(playerToken);
+
+  await withServer(async (origin) => {
+    const response = await request(origin, "/my/registrations", "GET", playerToken);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.map((registration: any) => registration.id), [
+      TEST_REGISTRATION_ID,
+    ]);
+
+    const registration = response.body[0];
+    assert.equal(registration.status, "approved");
+    assert.equal(registration.playerName, "Approved Player");
+    assert.equal(registration.tournament.id, TEST_MATCH_ID);
+    assert.equal(registration.tournament.name, "Room Access Test");
+    assert.equal(registration.tournament.status, "cancelled");
+    assert.equal(registration.roomPublished, false);
+
+    const serialized = JSON.stringify(registration);
+    for (const field of ["roomId", "roomPassword", "roomTime"]) {
+      assert.equal(field in registration, false, `${field} must be omitted from the registration`);
+      assert.equal(
+        field in registration.tournament,
+        false,
+        `${field} must be omitted from the nested tournament`,
+      );
+    }
+    for (const storedValue of [
+      roomAccessTestDb.match.room_id,
+      roomAccessTestDb.match.room_password,
+      roomAccessTestDb.match.room_time,
+    ]) {
+      assert.ok(storedValue);
+      assert.equal(
+        serialized.includes(storedValue),
+        false,
+        "Cancelled registration data must not contain retained room values.",
+      );
+    }
+  });
+});
+
 test("public compatibility tournament listing omits room fields after credential release", async () => {
   resetPublicTournamentAtReleaseTime();
 
