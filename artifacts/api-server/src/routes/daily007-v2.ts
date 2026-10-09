@@ -288,7 +288,7 @@ router.post("/daily007/v2/auth/login", async (req, res): Promise<void> => {
     fail(res, 400, "Email and password are required.");
     return;
   }
-  if (!checkDaily007LoginThrottle(req, res)) return;
+  if (!(await checkDaily007LoginThrottle(req, res))) return;
   if (!daily007TokenConfigured()) {
     fail(res, 503, "Daily007 v2 authentication needs DAILY007_AUTH_SECRET or SESSION_SECRET (at least 32 characters).");
     return;

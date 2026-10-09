@@ -77,6 +77,7 @@ function duplicateError(message: string): Error & { code: string } {
 
 class MemorySignupDatabase {
   users = new Map<string, SignupUser>();
+  loginRateLimits = new Map<string, { attempts: number; expiresAt: number }>();
   shortCodesByUser = new Map<string, string>();
   shortCodeOwners = new Map<string, string>();
   legacyCodeOwners = new Map<string, string>();
@@ -134,6 +135,7 @@ class MemorySignupDatabase {
       clerk_user_id: null,
     };
     this.users = new Map([[referrer.id, referrer]]);
+    this.loginRateLimits.clear();
     this.shortCodesByUser = new Map([[referrer.id, SIGNUP_TEST_REFERRAL_CODE]]);
     this.shortCodeOwners = new Map([[SIGNUP_TEST_REFERRAL_CODE, referrer.id]]);
     this.legacyCodeOwners = new Map([[SIGNUP_TEST_LEGACY_REFERRAL_CODE, referrer.id]]);
@@ -342,7 +344,27 @@ class MemorySignupDatabase {
     const first = String(values[0] ?? "");
     let rows: unknown[] = [];
 
-    if (normalized.startsWith("INSERT INTO daily007_v2_users")) {
+    if (normalized.startsWith("INSERT INTO daily007_login_rate_limits")) {
+      const clientIpHash = first;
+      const windowMs = Number(values[1]);
+      const limit = Number(values[2]);
+      const timestamp = Date.now();
+      let entry = this.loginRateLimits.get(clientIpHash);
+      if (!entry || entry.expiresAt <= timestamp) {
+        entry = { attempts: 1, expiresAt: timestamp + windowMs };
+      } else {
+        entry.attempts = Math.min(entry.attempts + 1, limit + 1);
+      }
+      this.loginRateLimits.set(clientIpHash, entry);
+      rows = [{
+        attempts: entry.attempts,
+        retry_after_seconds: Math.max(1, Math.ceil((entry.expiresAt - timestamp) / 1000)),
+      }];
+    } else if (normalized.startsWith("DELETE FROM daily007_login_rate_limits")) {
+      for (const [clientIpHash, entry] of this.loginRateLimits) {
+        if (entry.expiresAt <= Date.now()) this.loginRateLimits.delete(clientIpHash);
+      }
+    } else if (normalized.startsWith("INSERT INTO daily007_v2_users")) {
       const googleSignup = normalized.includes(
         "(name, email, password_salt, password_hash, referral_code, clerk_user_id)",
       );

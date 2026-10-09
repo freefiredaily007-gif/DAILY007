@@ -1,14 +1,12 @@
+import { createHash } from "node:crypto";
 import type { Request, Response } from "express";
+import { pool } from "@workspace/db";
+import { logger } from "./logger";
 
 export const DAILY007_LOGIN_ATTEMPT_LIMIT = 10;
 export const DAILY007_LOGIN_ATTEMPT_WINDOW_MS = 60_000;
 export const DAILY007_LOGIN_RATE_LIMIT_MESSAGE =
   "Too many login attempts. Please try again shortly.";
-
-type AttemptWindow = {
-  attempts: number;
-  expiresAt: number;
-};
 
 export type LoginThrottleResult =
   | { allowed: true }
@@ -17,76 +15,68 @@ export type LoginThrottleResult =
 type LoginThrottleOptions = {
   limit?: number;
   windowMs?: number;
-  maxTrackedClients?: number;
-  now?: () => number;
 };
 
 export function createDaily007LoginThrottle({
   limit = DAILY007_LOGIN_ATTEMPT_LIMIT,
   windowMs = DAILY007_LOGIN_ATTEMPT_WINDOW_MS,
-  maxTrackedClients = 20_000,
-  now = Date.now,
 }: LoginThrottleOptions = {}) {
   if (!Number.isSafeInteger(limit) || limit < 1) {
     throw new Error("The Daily007 login attempt limit must be a positive integer.");
   }
+  if (limit >= 2_147_483_647) {
+    throw new Error("The Daily007 login attempt limit must fit a PostgreSQL integer.");
+  }
   if (!Number.isFinite(windowMs) || windowMs < 1) {
     throw new Error("The Daily007 login attempt window must be positive.");
   }
-  if (!Number.isSafeInteger(maxTrackedClients) || maxTrackedClients < 1) {
-    throw new Error("The Daily007 login throttle must track at least one client.");
-  }
-
-  const clients = new Map<string, AttemptWindow>();
   let operations = 0;
 
-  const pruneExpired = (timestamp: number) => {
-    for (const [clientId, entry] of clients) {
-      if (entry.expiresAt <= timestamp) clients.delete(clientId);
-    }
-  };
-
   return {
-    consume(clientId: string): LoginThrottleResult {
-      const timestamp = now();
+    async consume(clientId: string): Promise<LoginThrottleResult> {
       const key = clientId.trim() || "unknown";
-      if (++operations % 256 === 0) pruneExpired(timestamp);
+      const clientIpHash = createHash("sha256").update(key).digest("hex");
+      const result = await pool.query<{ attempts: number; retry_after_seconds: number }>(
+        `INSERT INTO daily007_login_rate_limits
+           (client_ip_hash, attempts, expires_at)
+         VALUES ($1, 1, now() + ($2::double precision * interval '1 millisecond'))
+         ON CONFLICT (client_ip_hash) DO UPDATE
+           SET attempts = CASE
+                 WHEN daily007_login_rate_limits.expires_at <= now() THEN 1
+                 ELSE LEAST(daily007_login_rate_limits.attempts + 1, $3::integer + 1)
+               END,
+               expires_at = CASE
+                 WHEN daily007_login_rate_limits.expires_at <= now() THEN EXCLUDED.expires_at
+                 ELSE daily007_login_rate_limits.expires_at
+               END
+         RETURNING attempts,
+           GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - now()))))::integer AS retry_after_seconds`,
+        [clientIpHash, windowMs, limit],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("Daily007 login throttle did not return its shared counter.");
 
-      let entry = clients.get(key);
-      if (entry && entry.expiresAt <= timestamp) {
-        clients.delete(key);
-        entry = undefined;
+      if (++operations % 256 === 0) {
+        void pool.query(
+          "DELETE FROM daily007_login_rate_limits WHERE expires_at <= now()",
+        ).catch((error: unknown) => {
+          logger.warn({ err: error }, "Could not prune expired Daily007 login throttle counters.");
+        });
       }
 
-      if (!entry) {
-        if (clients.size >= maxTrackedClients) {
-          pruneExpired(timestamp);
-          if (clients.size >= maxTrackedClients) {
-            const oldestClient = clients.keys().next().value;
-            if (oldestClient !== undefined) clients.delete(oldestClient);
-          }
-        }
-        clients.set(key, { attempts: 1, expiresAt: timestamp + windowMs });
-        return { allowed: true };
-      }
-
-      if (entry.attempts >= limit) {
-        return {
-          allowed: false,
-          retryAfterSeconds: Math.max(1, Math.ceil((entry.expiresAt - timestamp) / 1000)),
-        };
-      }
-
-      entry.attempts += 1;
-      return { allowed: true };
+      return row.attempts <= limit
+        ? { allowed: true }
+        : { allowed: false, retryAfterSeconds: row.retry_after_seconds };
     },
   };
 }
 
 const daily007LoginThrottle = createDaily007LoginThrottle();
 
-export function checkDaily007LoginThrottle(req: Request, res: Response): boolean {
-  const result = daily007LoginThrottle.consume(req.ip || req.socket.remoteAddress || "unknown");
+export async function checkDaily007LoginThrottle(req: Request, res: Response): Promise<boolean> {
+  const result = await daily007LoginThrottle.consume(
+    req.ip || req.socket.remoteAddress || "unknown",
+  );
   if (result.allowed) return true;
 
   res.setHeader("Retry-After", String(result.retryAfterSeconds));

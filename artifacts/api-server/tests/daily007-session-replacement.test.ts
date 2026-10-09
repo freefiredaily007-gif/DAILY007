@@ -130,39 +130,39 @@ test("unknown-email and wrong-password login checks each hash exactly once", asy
   assert.deepEqual(hashCalls[1].salt, Buffer.from(storedCredentials.password_salt, "hex"));
 });
 
-test("login throttling recovers after its short window and is isolated by client IP", () => {
-  let now = 10_000;
+test("login throttling recovers after its short window and is isolated by client IP", async () => {
+  signupTestDb.reset();
   const throttle = createDaily007LoginThrottle({
     limit: 2,
     windowMs: 1_000,
-    now: () => now,
   });
 
-  assert.deepEqual(throttle.consume("192.0.2.10"), { allowed: true });
-  assert.deepEqual(throttle.consume("192.0.2.10"), { allowed: true });
+  assert.deepEqual(await throttle.consume("192.0.2.10"), { allowed: true });
+  assert.deepEqual(await throttle.consume("192.0.2.10"), { allowed: true });
   assert.deepEqual(
-    throttle.consume("192.0.2.10"),
+    await throttle.consume("192.0.2.10"),
     { allowed: false, retryAfterSeconds: 1 },
   );
-  assert.deepEqual(throttle.consume("192.0.2.11"), { allowed: true });
+  assert.deepEqual(await throttle.consume("192.0.2.11"), { allowed: true });
 
-  now += 1_000;
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
   assert.deepEqual(
-    throttle.consume("192.0.2.10"),
+    await throttle.consume("192.0.2.10"),
     { allowed: true },
     "the same client can try again when the window expires",
   );
 });
 
-test("a burst from one client IP cannot exceed the configured login limit", () => {
+test("a burst from one client IP cannot exceed the configured login limit", async () => {
+  signupTestDb.reset();
   const throttle = createDaily007LoginThrottle({
     limit: 3,
     windowMs: 1_000,
   });
-  const results = Array.from(
+  const results = await Promise.all(Array.from(
     { length: 12 },
     () => throttle.consume("192.0.2.12"),
-  );
+  ));
 
   assert.equal(results.filter((result) => result.allowed).length, 3);
   assert.equal(results.filter((result) => !result.allowed).length, 9);
