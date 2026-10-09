@@ -1744,8 +1744,10 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       );
       await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [row.captain_user_id, next]);
       if (prizeCoins > 0) await client.query(
-        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason)
-         VALUES ($1, $2, $3, 'match_prize')`, [row.captain_user_id, prizeCoins, next],
+        `INSERT INTO daily007_v2_wallet_ledger
+           (user_id, amount, balance_after, reason, match_id, registration_id)
+         VALUES ($1, $2, $3, 'match_prize', $4, $5)`,
+        [row.captain_user_id, prizeCoins, next, row.match_id, row.id],
       );
       if (rank === 1) {
         await client.query(

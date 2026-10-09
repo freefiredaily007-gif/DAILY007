@@ -613,11 +613,13 @@ test("concurrent first-place submissions serialize on the real tournament row lo
 
       const ledger = await pool.query<{
         user_id: string;
+        match_id: string;
+        registration_id: string;
         amount: number;
         balance_after: number;
         reason: string;
       }>(
-        `SELECT user_id, amount, balance_after, reason
+        `SELECT user_id, match_id, registration_id, amount, balance_after, reason
            FROM daily007_v2_wallet_ledger
           WHERE user_id = ANY($1::uuid[])
           ORDER BY user_id`,
@@ -625,6 +627,8 @@ test("concurrent first-place submissions serialize on the real tournament row lo
       );
       assert.deepEqual(ledger.rows, [{
         user_id: winningPlayer.userId,
+        match_id: fixture.matchId,
+        registration_id: winningPlayer.registrationId,
         amount: 500,
         balance_after: 600,
         reason: "match_prize",
@@ -2094,11 +2098,13 @@ test("concurrent tournament payouts preserve one player's wallet history and acc
       assert.deepEqual(wallet.rows, [{ wallet_coins: 1500 }]);
 
       const ledger = await pool.query<{
+        match_id: string | null;
+        registration_id: string | null;
         amount: number;
         balance_after: number;
         reason: string;
       }>(
-        `SELECT amount, balance_after, reason
+        `SELECT match_id, registration_id, amount, balance_after, reason
            FROM daily007_v2_wallet_ledger
           WHERE user_id = $1
           ORDER BY balance_after`,
@@ -2106,11 +2112,33 @@ test("concurrent tournament payouts preserve one player's wallet history and acc
       );
       assert.equal(ledger.rows.length, 3, "wallet history must contain its original row and two payout credits");
       assert.deepEqual(ledger.rows[0], {
+        match_id: null,
+        registration_id: null,
         amount: 500,
         balance_after: 1000,
         reason: "match_prize",
       });
       const payoutLedger = ledger.rows.slice(1);
+      assert.deepEqual(
+        payoutLedger.map(({ match_id, registration_id, amount }) => ({
+          match_id,
+          registration_id,
+          amount,
+        })).sort((left, right) => left.match_id!.localeCompare(right.match_id!)),
+        [
+          {
+            match_id: fixture.matchIds[0],
+            registration_id: fixture.registrations[0].registrationId,
+            amount: 300,
+          },
+          {
+            match_id: fixture.matchIds[1],
+            registration_id: fixture.registrations[1].registrationId,
+            amount: 200,
+          },
+        ].sort((left, right) => left.match_id.localeCompare(right.match_id)),
+        "each prize ledger credit must reference its own tournament and registration",
+      );
       assert.deepEqual(
         payoutLedger.map((entry) => entry.amount).sort((left, right) => left - right),
         [200, 300],
@@ -2276,6 +2304,35 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
           { amount: 250, balance_after: 1250, reason: "match_prize" },
         ],
       );
+      const tournamentPayoutLedger = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        user_id: string;
+        amount: number;
+        balance_after: number;
+      }>(
+        `SELECT match_id, registration_id, user_id, amount, balance_after
+           FROM daily007_v2_wallet_ledger
+          WHERE match_id = $1 AND reason = 'match_prize'
+          ORDER BY registration_id`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(tournamentPayoutLedger.rows, [
+        {
+          match_id: fixture.matchId,
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          amount: 500,
+          balance_after: 600,
+        },
+        {
+          match_id: fixture.matchId,
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          amount: 250,
+          balance_after: 1250,
+        },
+      ].sort((left, right) => left.registration_id.localeCompare(right.registration_id)));
       assert.deepEqual(runnerUpAfterRetry.match, winnerStateAfterFirst.match);
 
       const standingsAfterRetry = await publicStandings(origin, fixture.matchId);
