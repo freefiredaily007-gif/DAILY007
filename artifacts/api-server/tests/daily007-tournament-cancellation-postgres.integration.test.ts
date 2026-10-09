@@ -366,7 +366,7 @@ test("cancelling one tournament completes while a different PostgreSQL tournamen
   }
 });
 
-test("a waiting PostgreSQL cancellation succeeds after the first refund write rolls back", async () => {
+test("a waiting PostgreSQL cancellation succeeds after the second refund fails and the first rolls back", async () => {
   const fixture = await createFixture();
   const matchId = fixture.matchIds[0];
   const pauseKey = 740082n;
@@ -376,29 +376,55 @@ test("a waiting PostgreSQL cancellation succeeds after the first refund write ro
   let waitingCancellation: Promise<CancellationOutcome> | undefined;
 
   try {
-    const firstRegistration = await pool.query<{ id: string }>(
-      `SELECT id
+    const registrations = await pool.query<{
+      id: string;
+      captain_user_id: string;
+      entry_coins_paid: number;
+    }>(
+      `SELECT id, captain_user_id, entry_coins_paid
          FROM daily007_v2_registrations
         WHERE match_id = $1 AND status IN ('approved', 'pending')
         ORDER BY captain_user_id, id
-        LIMIT 1`,
+        LIMIT 2`,
       [matchId],
     );
-    const failingRegistrationId = firstRegistration.rows[0]?.id;
+    const firstRegistration = registrations.rows[0];
+    const failingRegistration = registrations.rows[1];
     assert.ok(
-      failingRegistrationId,
-      "The underfilled tournament needs a paid registration.",
+      firstRegistration && failingRegistration,
+      "The underfilled tournament needs two paid registrations.",
     );
+    const firstPayerIndex = fixture.payerIds.indexOf(firstRegistration.captain_user_id);
+    assert.notEqual(firstPayerIndex, -1, "The first registration's payer must be in the fixture.");
+    const expectedFirstBalance = [100, 200, 300][firstPayerIndex] +
+      Number(firstRegistration.entry_coins_paid);
 
     await pool.query("CREATE SEQUENCE daily007_test_cancel_refund_fail_once");
     await pool.query(`
-      CREATE FUNCTION daily007_test_fail_first_cancel_refund() RETURNS trigger AS $$
+      CREATE FUNCTION daily007_test_fail_second_cancel_refund() RETURNS trigger AS $$
       BEGIN
         IF NEW.match_id = '${matchId}'::uuid
-           AND NEW.registration_id = '${failingRegistrationId}'::uuid THEN
+           AND NEW.registration_id = '${failingRegistration.id}'::uuid THEN
           IF nextval('daily007_test_cancel_refund_fail_once') = 1 THEN
             PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
-            RAISE EXCEPTION 'Injected PostgreSQL cancellation refund failure';
+            IF NOT EXISTS (
+              SELECT 1
+                FROM daily007_v2_wallet_ledger
+               WHERE match_id = '${matchId}'::uuid
+                 AND registration_id = '${firstRegistration.id}'::uuid
+                 AND reason = 'tournament_cancel_refund'
+            ) THEN
+              RAISE EXCEPTION 'First cancellation refund ledger write was not reached';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+                FROM daily007_v2_users
+               WHERE id = '${firstRegistration.captain_user_id}'::uuid
+                 AND wallet_coins = ${expectedFirstBalance}
+            ) THEN
+              RAISE EXCEPTION 'First cancellation refund wallet write was not reached';
+            END IF;
+            RAISE EXCEPTION 'Injected PostgreSQL second cancellation refund failure';
           END IF;
         END IF;
         RETURN NEW;
@@ -406,9 +432,9 @@ test("a waiting PostgreSQL cancellation succeeds after the first refund write ro
       $$ LANGUAGE plpgsql
     `);
     await pool.query(`
-      CREATE TRIGGER daily007_test_fail_first_cancel_refund
+      CREATE TRIGGER daily007_test_fail_second_cancel_refund
       BEFORE INSERT ON daily007_v2_wallet_ledger
-      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_first_cancel_refund()
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_second_cancel_refund()
     `);
 
     blocker = await pool.connect();
@@ -431,7 +457,7 @@ test("a waiting PostgreSQL cancellation succeeds after the first refund write ro
     if (first.status === "rejected") {
       assert.match(
         String(first.reason),
-        /Injected PostgreSQL cancellation refund failure/,
+        /Injected PostgreSQL second cancellation refund failure/,
       );
     }
     assert.equal(waiting.status, "fulfilled");
@@ -535,10 +561,10 @@ test("a waiting PostgreSQL cancellation succeeds after the first refund write ro
       ),
     );
     await pool.query(
-      "DROP TRIGGER IF EXISTS daily007_test_fail_first_cancel_refund ON daily007_v2_wallet_ledger",
+      "DROP TRIGGER IF EXISTS daily007_test_fail_second_cancel_refund ON daily007_v2_wallet_ledger",
     );
     await pool.query(
-      "DROP FUNCTION IF EXISTS daily007_test_fail_first_cancel_refund()",
+      "DROP FUNCTION IF EXISTS daily007_test_fail_second_cancel_refund()",
     );
     await pool.query(
       "DROP SEQUENCE IF EXISTS daily007_test_cancel_refund_fail_once",
