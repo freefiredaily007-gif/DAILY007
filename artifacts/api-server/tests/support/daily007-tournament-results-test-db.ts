@@ -333,10 +333,12 @@ class MemoryTournamentResultsDatabase {
         match_status: this.match.status,
       }] : [];
     } else if (normalized.startsWith(
-      "SELECT registration_id FROM daily007_v2_result_awards WHERE match_id = $1 AND rank = 1",
+      "SELECT registration_id FROM daily007_v2_result_awards WHERE match_id = $1 AND rank = $2",
     )) {
-      const winner = this.awards.find((award) => award.match_id === values[0] && award.rank === 1);
-      rows = winner ? [{ registration_id: winner.registration_id }] : [];
+      const placement = this.awards.find(
+        (award) => award.match_id === values[0] && award.rank === Number(values[1]),
+      );
+      rows = placement ? [{ registration_id: placement.registration_id }] : [];
     } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {
       const user = this.users.get(String(values[0]));
       rows = user ? [{ wallet_coins: user.wallet_coins }] : [];

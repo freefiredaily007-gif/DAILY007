@@ -664,6 +664,131 @@ test("concurrent first-place submissions serialize on the real tournament row lo
   }
 });
 
+test("concurrent submissions for the same non-winning rank pay only one player", async () => {
+  const fixture = await createFixture();
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let submissions: Promise<ResultResponse>[] = [];
+
+  try {
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [fixture.matchId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      submissions = [
+        submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[0], 2, 4),
+        submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[1], 2, 9),
+      ];
+
+      try {
+        const waitingRequests = await waitForBlockedResultRequests(blockerPid, 2);
+        assert.equal(waitingRequests.length, 2);
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const results = await Promise.all(submissions);
+      assert.deepEqual(
+        results.map((result) => result.status).sort(),
+        [201, 409],
+        `exactly one player may receive this placement: ${JSON.stringify(results)}`,
+      );
+      const winningIndex = results.findIndex((result) => result.status === 201);
+      const rejectedIndex = results.findIndex((result) => result.status === 409);
+      assert.notEqual(winningIndex, -1);
+      assert.notEqual(rejectedIndex, -1);
+
+      const successful = results[winningIndex];
+      const rejected = results[rejectedIndex];
+      const winningPlayer = fixture.players[winningIndex];
+      const rejectedPlayer = fixture.players[rejectedIndex];
+      assert.ok(successful);
+      assert.ok(rejected);
+      assert.ok(winningPlayer);
+      assert.ok(rejectedPlayer);
+      assert.equal(
+        rejected.body.error,
+        "This placement has already been awarded for this tournament.",
+      );
+      assert.equal(successful.body.registrationId, winningPlayer.registrationId);
+      assert.equal(successful.body.userId, winningPlayer.userId);
+      assert.equal(successful.body.prizeCoins, 250);
+      assert.equal(successful.body.walletCoins, 350);
+
+      const awards = await pool.query<{
+        registration_id: string;
+        user_id: string;
+        rank: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT registration_id, user_id, rank, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1 AND rank = 2`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(awards.rows, [{
+        registration_id: winningPlayer.registrationId,
+        user_id: winningPlayer.userId,
+        rank: 2,
+        kills: winningIndex === 0 ? 4 : 9,
+        prize_coins: 250,
+      }], "exactly one rank-two award must be saved");
+
+      const rejectedAward = await pool.query(
+        "SELECT registration_id FROM daily007_v2_result_awards WHERE registration_id = $1",
+        [rejectedPlayer.registrationId],
+      );
+      assert.deepEqual(rejectedAward.rows, [], "the rejected player must receive no award");
+
+      const winningState = await captureSettlementState(fixture, winningPlayer);
+      assert.deepEqual(winningState, {
+        walletCoins: 350,
+        awards: [{
+          registration_id: winningPlayer.registrationId,
+          user_id: winningPlayer.userId,
+          rank: 2,
+          kills: winningIndex === 0 ? 4 : 9,
+          prize_coins: 250,
+        }],
+        stats: {
+          matches: 1,
+          wins: 0,
+          kills: winningIndex === 0 ? 4 : 9,
+          prize_coins: 250,
+        },
+        ledger: [{
+          amount: 250,
+          balance_after: 350,
+          reason: "match_prize",
+        }],
+        match: { enabled: true, status: "open" },
+      });
+
+      const rejectedState = await captureSettlementState(fixture, rejectedPlayer);
+      assert.equal(rejectedState.walletCoins, 100, "the rejected player's wallet must not change");
+      assert.equal(rejectedState.stats, null, "the rejected player must receive no stats update");
+      assert.deepEqual(rejectedState.ledger, [], "the rejected player must have no prize ledger row");
+      assert.deepEqual(rejectedState.match, { enabled: true, status: "open" });
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await Promise.allSettled(submissions);
+    await cleanupFixture(fixture);
+  }
+});
+
 test("an independent tournament result completes while another match row is locked", async () => {
   const lockedFixture = await createFixture();
   let independentFixture: TournamentFixture | undefined;

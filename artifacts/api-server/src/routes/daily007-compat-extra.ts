@@ -1704,14 +1704,20 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       if (!row.has_started) {
         throw Object.assign(new Error("Results can only be published after the tournament starts."), { status: 409 });
       }
-      if (rank === 1) {
-        const winner = await client.query<{ registration_id: string }>(
-          "SELECT registration_id FROM daily007_v2_result_awards WHERE match_id = $1 AND rank = 1",
-          [row.match_id],
-        );
-        if (winner.rows[0] && winner.rows[0].registration_id !== row.id) {
+      // The match row is locked above, so submissions for this tournament serialize at this check.
+      const existingPlacement = await client.query<{ registration_id: string }>(
+        "SELECT registration_id FROM daily007_v2_result_awards WHERE match_id = $1 AND rank = $2",
+        [row.match_id, rank],
+      );
+      const placementAward = existingPlacement.rows[0];
+      if (placementAward) {
+        if (placementAward.registration_id === row.id) {
+          throw Object.assign(new Error("A result has already been published for this registration."), { status: 409 });
+        }
+        if (rank === 1) {
           throw Object.assign(new Error("A winner has already been declared for this tournament."), { status: 409 });
         }
+        throw Object.assign(new Error("This placement has already been awarded for this tournament."), { status: 409 });
       }
       const prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
       const account = await client.query<{ wallet_coins: number }>(
