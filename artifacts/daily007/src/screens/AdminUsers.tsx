@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, findNodeHandle, Platform, View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
 import { AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
@@ -27,6 +27,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [deleteWarningTarget, setDeleteWarningTarget] = useState<any | null>(null);
   const [deleteEmailTarget, setDeleteEmailTarget] = useState<any | null>(null);
   const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
+  const roleRowRefs = useRef(new Map<string, View>());
+  const focusRoleAfterRefresh = useRef<string | null>(null);
 
   const load = async () => {
     try {
@@ -39,6 +41,24 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     }
   };
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const userId = focusRoleAfterRefresh.current;
+    if (!users || !userId) return;
+    if (Platform.OS !== 'android') {
+      focusRoleAfterRefresh.current = null;
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      if (focusRoleAfterRefresh.current !== userId) return;
+      focusRoleAfterRefresh.current = null;
+      const row = roleRowRefs.current.get(userId);
+      const nativeTag = row ? findNodeHandle(row) : null;
+      if (nativeTag != null) AccessibilityInfo.setAccessibilityFocus(nativeTag);
+    }, 350);
+    return () => clearTimeout(timeout);
+  }, [users]);
 
   const roleChangeAccessibilityLabel = (u: any) => u.role === 'tournament_admin'
     ? `Remove Tournament Admin access from ${u.name}`
@@ -122,7 +142,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     setBusy(u.$id);
     try {
       await Api.adminSetUserRole(u.$id, role);
-      toast(granting ? `${u.name} is now a Tournament Admin` : `${u.name} is now a player`, 'success');
+      focusRoleAfterRefresh.current = u.$id;
+      toast(`Role updated for ${u.name}`, 'success');
       await load();
     } catch (e) {
       const message = errMessage(e);
@@ -215,6 +236,9 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         const mine = (regs ?? []).filter((g) => g.userId === u.$id);
         const approved = mine.filter((g) => g.status === 'approved').length;
         const blocked = u.status === 'blocked';
+        const roleLabel = u.role === 'admin'
+          ? 'Full Admin'
+          : u.role === 'tournament_admin' ? 'Tournament Admin' : 'Player';
         return (
           <Card key={u.$id}>
             <View style={{
@@ -225,7 +249,17 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={st.name}>{u.name} {blocked && <Text style={{ color: '#ff3d3d', fontSize: 10 }}>· BLOCKED</Text>}</Text>
                 <Text style={st.sub}>{u.email}</Text>
-                <Text style={st.role}>{u.role === 'admin' ? 'FULL ADMIN' : u.role === 'tournament_admin' ? 'TOURNAMENT ADMIN' : 'PLAYER'}</Text>
+                <View
+                  ref={(node) => {
+                    if (node) roleRowRefs.current.set(String(u.$id), node);
+                    else roleRowRefs.current.delete(String(u.$id));
+                  }}
+                  accessible
+                  accessibilityRole="text"
+                  accessibilityLabel={`${u.name}, ${roleLabel}`}
+                >
+                  <Text accessible={false} style={st.role}>{roleLabel.toUpperCase()}</Text>
+                </View>
                 <Text style={st.sub}>Joined {String(u.createdAt || '').slice(0, 10)}</Text>
               </View>
               <Text style={[st.coins, stackUserBalance && { alignSelf: 'flex-start' }]}>{u.coins ?? 0} COINS</Text>

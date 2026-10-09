@@ -33,8 +33,11 @@ const ADMIN_NAV_KEYS = [
   'settings',
 ];
 const ADMIN_NAV_ITEMS = ADMIN_NAV_KEYS.map((key) => ({ key }));
-const roleChangeSuccessToast = usersSource.match(
-  /toast\(granting \? ([\s\S]*?), 'success'\);/,
+const roleChangeHandler = usersSource.match(
+  /const confirmTournamentAdminChange = async \(\) => \{([\s\S]*?)\n  \};/,
+)?.[1] ?? '';
+const roleChangeFocusEffect = usersSource.match(
+  /useEffect\(\(\) => \{([\s\S]*?)\n\s*\}, \[users\]\);/,
 )?.[1] ?? '';
 
 test('Admin tabs expose readable names and announce the selected section', () => {
@@ -97,12 +100,32 @@ test('successful toasts announce politely without including the decorative check
   assert.match(toastSource, /\{toast\.kind === 'err' \? '✕ ' : '✓ '\}\{toast\.msg\}/);
 });
 
-test('successful role grants name the affected user and resulting role', () => {
-  assert.match(roleChangeSuccessToast, /`\$\{u\.name\} is now a Tournament Admin`/);
+test('successful role changes return TalkBack focus to the refreshed user role', () => {
+  assert.match(usersSource, /const roleRowRefs = useRef\(new Map<string, View>\(\)\)/);
+  assert.match(usersSource, /const focusRoleAfterRefresh = useRef<string \| null>\(null\)/);
+  assert.match(roleChangeHandler, /focusRoleAfterRefresh\.current = u\.\$id;\s*toast\(`Role updated for \$\{u\.name\}`/);
+  assert.match(roleChangeFocusEffect, /Platform\.OS !== 'android'/);
+  assert.match(roleChangeFocusEffect, /setTimeout\([\s\S]*?, 350\)/);
+  assert.match(roleChangeFocusEffect, /roleRowRefs\.current\.get\(userId\)/);
+  assert.match(roleChangeFocusEffect, /findNodeHandle\(row\)/);
+  assert.match(roleChangeFocusEffect, /AccessibilityInfo\.setAccessibilityFocus\(nativeTag\)/);
+  assert.match(
+    usersSource,
+    /accessible\s+accessibilityRole="text"\s+accessibilityLabel=\{`\$\{u\.name\}, \$\{roleLabel\}`\}/,
+    'The focus target should announce the affected user and their refreshed role as one accessible element.',
+  );
+  assert.match(usersSource, /<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/);
+  assert.match(
+    usersSource,
+    /const roleLabel = u\.role === 'admin'\s*\? 'Full Admin'\s*:\s*u\.role === 'tournament_admin' \? 'Tournament Admin' : 'Player'/,
+    'The focused role label must reflect the refreshed server role.',
+  );
 });
 
-test('successful role removals name the affected user and resulting player role', () => {
-  assert.match(roleChangeSuccessToast, /`\$\{u\.name\} is now a player`/);
+test('successful role changes announce success once without repeating the resulting role', () => {
+  const successToasts = roleChangeHandler.match(/toast\([^;]*'success'\);/g) ?? [];
+  assert.deepEqual(successToasts, ['toast(`Role updated for ${u.name}`, \'success\');']);
+  assert.doesNotMatch(successToasts[0], /is now a Tournament Admin|is now a player/);
 });
 
 test('a failed refresh after last Full Admin rejection keeps the role unchanged', () => {
@@ -150,7 +173,7 @@ test('a failed refresh after last Full Admin rejection keeps the role unchanged'
   assert.match(loadBranch, /setUsers\(u \?\? \[\]\)/);
   assert.match(
     usersSource,
-    /u\.role === 'admin' \? 'FULL ADMIN' : u\.role === 'tournament_admin' \? 'TOURNAMENT ADMIN' : 'PLAYER'/,
+    /const roleLabel = u\.role === 'admin'[\s\S]*?<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/,
     'A later successful refresh must render the server role without optimistic demotion.',
   );
   assert.match(usersSource, /const filtered = \(users \?\? \[\]\)\.filter/);
