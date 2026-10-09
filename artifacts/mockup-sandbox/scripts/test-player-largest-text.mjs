@@ -15,6 +15,7 @@ const videoCatalogRefreshAnnouncementOnly = process.argv.includes("--video-catal
 const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty-search-only");
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
 const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
+const profilePasswordConflictOnly = process.argv.includes("--profile-password-conflict-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -2026,10 +2027,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2049,13 +2050,18 @@ try {
   if (videoCatalogPositionOnly) {
     await checkVideoCatalogPositionSurvivesRefreshError();
   }
+  if (profilePasswordConflictOnly) {
+    await navigateToScreen("Profile", "PROFILE");
+    await checkProfilePasswordConflictRetry();
+  }
   const focusedVideoCheck = videoStartFailureOnly
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
     || videoCatalogRefreshAnnouncementOnly
     || videoCatalogEmptySearchOnly
     || lateVideoCatalogResponseOnly
-    || videoCatalogPositionOnly;
+    || videoCatalogPositionOnly
+    || profilePasswordConflictOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -2135,7 +2141,9 @@ try {
                 ? "PASS — a late catalog response cannot undo a newer successful retry."
                 : videoCatalogPositionOnly
                   ? "PASS — catalog recovery restores the prior scroll position after a player return error."
-                  : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
+                  : profilePasswordConflictOnly
+                    ? "PASS — password conflicts preserve the form and allow a successful retry."
+                    : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
