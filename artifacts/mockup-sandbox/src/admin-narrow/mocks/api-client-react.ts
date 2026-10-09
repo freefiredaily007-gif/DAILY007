@@ -187,6 +187,7 @@ const activeRewardPreviewVideos = rewardPreviewVideos.filter((video) => video.id
 type VideoRewardPreviewMode =
   | "unavailable"
   | "unavailableRefreshFailure"
+  | "lateCatalogResponse"
   | "transient"
   | "lateCompletion"
   | "startFailure"
@@ -198,6 +199,8 @@ type VideoRewardPreviewCalls = {
   completions: unknown[];
   listRefetches: number;
   lateCompletionRejections: number;
+  catalogRefetchCancelOptions: boolean[];
+  lateCatalogResponsesResolved: number;
 };
 
 let videoRewardPreviewMode: VideoRewardPreviewMode = null;
@@ -214,6 +217,8 @@ function getVideoRewardPreviewCalls(): VideoRewardPreviewCalls {
     completions: [],
     listRefetches: 0,
     lateCompletionRejections: 0,
+    catalogRefetchCancelOptions: [],
+    lateCatalogResponsesResolved: 0,
   };
   return preview.__videoRewardPreviewCalls;
 }
@@ -226,6 +231,7 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
     __videoRewardPreviewCalls?: VideoRewardPreviewCalls;
     __resolvePendingVideoWatchStart?: () => void;
     __rejectPendingVideoRewardCompletion?: () => void;
+    __resolveHeldVideoCatalogRefetch?: () => void;
   };
   preview.__videoRewardPreviewCalls = {
     starts: [],
@@ -233,27 +239,61 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
     completions: [],
     listRefetches: 0,
     lateCompletionRejections: 0,
+    catalogRefetchCancelOptions: [],
+    lateCatalogResponsesResolved: 0,
   };
   preview.__resolvePendingVideoWatchStart = undefined;
   preview.__rejectPendingVideoRewardCompletion = undefined;
+  preview.__resolveHeldVideoCatalogRefetch = undefined;
 }
 
 export const getDaily007ListVideosQueryKey = () => ["isolated-preview", "videos"];
 
 export function useDaily007ListVideos() {
-  const [refreshCount, setRefreshCount] = useState(0);
-  const [refreshFailed, setRefreshFailed] = useState(false);
-  const refreshFailureCount = useRef(0);
   const mode = videoRewardPreviewMode;
-  const removesUnavailable = mode === "unavailable" || mode === "unavailableRefreshFailure";
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [refreshFailed, setRefreshFailed] = useState(mode === "lateCatalogResponse");
+  const refreshFailureCount = useRef(0);
+  const lateCatalogRequestSequenceRef = useRef(0);
+  const removesUnavailable = mode === "unavailable"
+    || mode === "unavailableRefreshFailure"
+    || mode === "lateCatalogResponse";
   const videos = mode
     ? removesUnavailable && refreshCount > 0
       ? activeRewardPreviewVideos
       : rewardPreviewVideos
     : largestTextVideos;
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (options?: { cancelRefetch?: boolean }) => {
     const calls = getVideoRewardPreviewCalls();
     calls.listRefetches += 1;
+    calls.catalogRefetchCancelOptions.push(options?.cancelRefetch ?? false);
+    if (mode === "lateCatalogResponse") {
+      if (options?.cancelRefetch !== true) {
+        return { error: new Error("Temporary video catalog refresh failure.") };
+      }
+
+      const requestSequence = ++lateCatalogRequestSequenceRef.current;
+      if (requestSequence === 1) {
+        return new Promise<{ data: { videos: typeof rewardPreviewVideos } }>((resolve) => {
+          const preview = globalThis as typeof globalThis & {
+            __resolveHeldVideoCatalogRefetch?: () => void;
+          };
+          preview.__resolveHeldVideoCatalogRefetch = () => {
+            preview.__resolveHeldVideoCatalogRefetch = undefined;
+            if (requestSequence === lateCatalogRequestSequenceRef.current) {
+              setRefreshFailed(false);
+              setRefreshCount((current) => current + 1);
+            }
+            calls.lateCatalogResponsesResolved += 1;
+            resolve({ data: { videos: rewardPreviewVideos } });
+          };
+        });
+      }
+
+      setRefreshFailed(false);
+      setRefreshCount((current) => current + 1);
+      return { data: { videos: activeRewardPreviewVideos } };
+    }
     if (mode === "unavailableRefreshFailure" && calls.completions.length === 0) {
       return { data: { videos: rewardPreviewVideos } };
     }

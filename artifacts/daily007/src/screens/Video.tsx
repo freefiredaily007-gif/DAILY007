@@ -165,9 +165,12 @@ export default function Video() {
   const [catalogErrorAnnouncementVersion, setCatalogErrorAnnouncementVersion] = useState(0);
   const [catalogRecoveryAnnouncementVersion, setCatalogRecoveryAnnouncementVersion] = useState(0);
   const playbackCycleRef = useRef(0);
+  const catalogReloadRequestSequenceRef = useRef(0);
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
   const reloadVideoCatalog = useCallback(async () => {
-    const result = await videosQuery.refetch();
+    const requestSequence = ++catalogReloadRequestSequenceRef.current;
+    const result = await videosQuery.refetch({ cancelRefetch: true });
+    if (requestSequence !== catalogReloadRequestSequenceRef.current) return;
     if (result.error) {
       setCatalogErrorAnnouncementVersion((version) => version + 1);
       return;
