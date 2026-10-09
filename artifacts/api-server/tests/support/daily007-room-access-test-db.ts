@@ -47,6 +47,7 @@ type TestRegistration = {
 };
 
 export const TEST_ADMIN_ID = "82000000-0000-4000-8000-000000000001";
+export const TEST_FULL_ADMIN_ID = "82000000-0000-4000-8000-000000000007";
 export const TEST_PLAYER_ID = "82000000-0000-4000-8000-000000000002";
 export const TEST_PENDING_PLAYER_ID = "82000000-0000-4000-8000-000000000003";
 export const TEST_UNREGISTERED_PLAYER_ID = "82000000-0000-4000-8000-000000000004";
@@ -74,6 +75,17 @@ class RoomAccessTestDatabase {
         name: "Tournament Admin",
         email: "room-admin@example.test",
         role: "tournament_admin",
+        wallet_coins: 0,
+        phone: null,
+        game_uid: null,
+        status: "active",
+        auth_version: 0,
+      }],
+      [TEST_FULL_ADMIN_ID, {
+        id: TEST_FULL_ADMIN_ID,
+        name: "Full Admin",
+        email: "full-room-admin@example.test",
+        role: "admin",
         wallet_coins: 0,
         phone: null,
         game_uid: null,

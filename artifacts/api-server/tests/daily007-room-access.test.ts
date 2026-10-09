@@ -8,6 +8,7 @@ import { makeToken } from "../src/lib/daily007-session-token";
 import {
   roomAccessTestDb,
   TEST_ADMIN_ID,
+  TEST_FULL_ADMIN_ID,
   TEST_BLOCKED_PLAYER_ID,
   TEST_BLOCKED_REGISTRATION_ID,
   TEST_MATCH_ID,
@@ -780,6 +781,65 @@ test("v2 admin room saves remain supported by the isolated room-access fixture",
     assert.equal(roomAccessTestDb.match.room_published, true);
     assert.equal(roomAccessTestDb.match.status, matchBefore.status);
     assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+  });
+});
+
+test("Full Admins can save and publish room credentials through both admin APIs without changing tournament status or registrations", async () => {
+  const fullAdminToken = makeToken(TEST_FULL_ADMIN_ID, 0);
+  assert.ok(fullAdminToken);
+  const routes = [
+    {
+      label: "v2",
+      path: `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+      credentials: {
+        roomId: "FULL-ADMIN-V2-ROOM",
+        roomPassword: "full-admin-v2-password",
+      },
+    },
+    {
+      label: "compatibility",
+      path: `/admin/tournaments/${TEST_MATCH_ID}/room`,
+      credentials: {
+        roomId: "FULL-ADMIN-COMPAT-ROOM",
+        roomPassword: "full-admin-compat-password",
+      },
+    },
+  ];
+
+  await withServer(async (origin) => {
+    for (const route of routes) {
+      roomAccessTestDb.reset();
+      const matchBefore = structuredClone(roomAccessTestDb.match);
+      const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+
+      const saved = await request(
+        origin,
+        route.path,
+        "PUT",
+        fullAdminToken,
+        route.credentials,
+      );
+
+      assert.equal(saved.status, 200, `${route.label} should accept a Full Admin token`);
+      if (route.label === "v2") {
+        assert.deepEqual(saved.body, {
+          match: { id: TEST_MATCH_ID, published: true },
+        });
+      } else {
+        assert.deepEqual(saved.body, {
+          id: TEST_MATCH_ID,
+          roomPublished: true,
+          roomTime: matchBefore.room_time,
+          ...route.credentials,
+        });
+      }
+
+      assert.equal(roomAccessTestDb.match.room_id, route.credentials.roomId);
+      assert.equal(roomAccessTestDb.match.room_password, route.credentials.roomPassword);
+      assert.equal(roomAccessTestDb.match.room_published, true);
+      assert.equal(roomAccessTestDb.match.status, matchBefore.status);
+      assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+    }
   });
 });
 
