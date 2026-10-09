@@ -209,6 +209,78 @@ test("cancellation and dismissal restore the Google button without reporting an 
   }
 });
 
+test("Google sign-in can be retried after the account picker is dismissed", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  const successes = [];
+  const providerStarts = [];
+  const events = [];
+  let loading = false;
+  let errorMessage = "";
+  let providerAttempts = 0;
+  let activeSession = null;
+
+  async function attemptSignIn() {
+    errorMessage = "";
+    await runGoogleSSOAttempt({
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => activeSession,
+        async startSSOFlow() {
+          providerAttempts += 1;
+          providerStarts.push({ attempt: providerAttempts, loading, errorMessage });
+          if (providerAttempts === 1) {
+            return { authSessionResult: { type: "dismiss" } };
+          }
+
+          return {
+            createdSessionId: "retry-session",
+            async setActive({ session }) {
+              activeSession = createSession(session, events);
+            },
+          };
+        },
+        async exchangeToken(token) {
+          events.push(`exchange:${token}`);
+          return { account: "daily007-player" };
+        },
+      }),
+      setLoading(value) {
+        loading = value;
+        loadingChanges.push(value);
+      },
+      showError(message) {
+        errorMessage = message;
+        errors.push(message);
+      },
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+  }
+
+  await attemptSignIn();
+  assert.equal(loading, false);
+  assert.equal(errorMessage, "");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(successes, []);
+  assert.equal(providerAttempts, 1);
+
+  await attemptSignIn();
+  assert.equal(loading, false);
+  assert.equal(errorMessage, "");
+  assert.equal(providerAttempts, 2);
+  assert.deepEqual(loadingChanges, [true, false, true, false]);
+  assert.deepEqual(providerStarts, [
+    { attempt: 1, loading: true, errorMessage: "" },
+    { attempt: 2, loading: true, errorMessage: "" },
+  ]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(successes, [{ account: "daily007-player" }]);
+  assert.deepEqual(events, [
+    "token:retry-session",
+    "exchange:verified-clerk-jwt",
+  ]);
+});
+
 test("a missing active Clerk session after activation is a retryable error", async () => {
   let exchanges = 0;
   const result = await runGoogleSSOFlow({
