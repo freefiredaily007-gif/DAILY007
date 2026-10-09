@@ -15,6 +15,26 @@ export default function WebView({ style, onMessage }: WebViewProps) {
     (globalThis as typeof globalThis & { __videoRewardPreview?: boolean })
       .__videoRewardPreview,
   );
+  React.useEffect(() => {
+    if (!rewardPreview) return undefined;
+    const preview = globalThis as typeof globalThis & {
+      __sendVideoRewardPreviewProgress?: (currentTime: number, duration?: number) => void;
+    };
+    const sendProgress = (currentTime: number, duration = 8) => {
+      sendMessage(onMessage, {
+        type: "progress",
+        currentTime,
+        duration,
+        playing: true,
+      });
+    };
+    preview.__sendVideoRewardPreviewProgress = sendProgress;
+    return () => {
+      if (preview.__sendVideoRewardPreviewProgress === sendProgress) {
+        preview.__sendVideoRewardPreviewProgress = undefined;
+      }
+    };
+  }, [onMessage, rewardPreview]);
   return (
     <View testID="large-text-preview-webview" style={style as any}>
       {rewardPreview ? (

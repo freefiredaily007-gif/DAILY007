@@ -10,6 +10,7 @@ const sandboxRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const workspaceRoot = path.resolve(sandboxRoot, "../..");
 const videoStartFailureOnly = process.argv.includes("--video-start-failure-only");
 const lateVideoRewardResponseOnly = process.argv.includes("--late-video-reward-response-only");
+const pendingVideoWatchStartOnly = process.argv.includes("--pending-video-watch-start-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -1506,6 +1507,86 @@ async function checkDelayedVideoWatchStart() {
   console.log("PASS — a late session reply cannot reward ended playback, and a fresh playback uses its own session.");
 }
 
+async function checkRepeatedProgressWhileVideoWatchStartPending() {
+  await navigateToScreen("VideoDelayedStart", "Tutorial Videos");
+  await clickSelector(
+    '[data-testid="video-catalog-card-still-active-video"]',
+    "active video for repeated progress during a pending watch-session start",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator before repeated pending-start progress",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector(
+    '[data-testid="video-preview-start-playback"]',
+    "start playback with a pending server session",
+  );
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 1
+      && typeof window.__resolvePendingVideoWatchStart === "function"`,
+    "the first pending video-watch session request",
+  );
+
+  const sentProgressCount = await evaluate(`(() => {
+    const sendProgress = window.__sendVideoRewardPreviewProgress;
+    if (typeof sendProgress !== "function") {
+      throw new Error("The preview progress sender is unavailable.");
+    }
+    for (const currentTime of [0.25, 0.5, 0.75]) {
+      window.__daily007VideoNow += 1_000;
+      sendProgress(currentTime, 8);
+    }
+    return 3;
+  })()`);
+  assert(sentProgressCount === 3, "three progress updates must be sent while session creation is pending.");
+  const pendingProgress = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts.length ?? 0,
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+  }))()`);
+  assert(
+    pendingProgress.starts === 1
+      && pendingProgress.sessions.length === 0
+      && pendingProgress.completions.length === 0,
+    `Repeated progress must not issue another start or complete an unstarted session: ${JSON.stringify(pendingProgress)}`,
+  );
+
+  await evaluate("window.__resolvePendingVideoWatchStart?.()");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.sessions.length === 1
+      && typeof window.__resolvePendingVideoWatchStart !== "function"`,
+    "the one resolved server watch session",
+  );
+  await clickSelector(
+    '[data-testid="video-preview-finish-playback"]',
+    "complete the playback after its start request resolves",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes("1 coin added to your wallet.")
+      && window.__videoRewardPreviewCalls?.completions.length === 1`,
+    "completion using the resolved watch session",
+  );
+  const completedPlayback = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts ?? [],
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+  }))()`);
+  assert(
+    completedPlayback.starts.length === 1
+      && completedPlayback.sessions.length === 1
+      && completedPlayback.sessions[0] === "preview-video-watch-session-1"
+      && completedPlayback.completions.length === 1
+      && completedPlayback.completions[0]?.data?.sessionId === completedPlayback.sessions[0]
+      && completedPlayback.completions[0]?.data?.percentWatched >= 75,
+    `The completed playback must use exactly its one pending-start session: ${JSON.stringify(completedPlayback)}`,
+  );
+  console.log("PASS — repeated progress during a pending start creates one session, and completion uses that session.");
+}
+
 async function checkProfilePasswordConflictRetry() {
   const conflictMessage = "The password changed in another session. Sign in again and retry.";
   const successMessage = "Password changed. Other sessions stay active until the next sign-in.";
@@ -1652,14 +1733,20 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
-  const focusedVideoCheck = videoStartFailureOnly || lateVideoRewardResponseOnly;
+  if (pendingVideoWatchStartOnly) {
+    await checkDelayedVideoWatchStart();
+    await checkRepeatedProgressWhileVideoWatchStartPending();
+  }
+  const focusedVideoCheck = videoStartFailureOnly
+    || lateVideoRewardResponseOnly
+    || pendingVideoWatchStartOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -1679,6 +1766,7 @@ try {
       await checkUnavailableVideoCatalogRefreshFailure();
       await checkTransientVideoRewardRetry();
       await checkDelayedVideoWatchStart();
+      await checkRepeatedProgressWhileVideoWatchStartPending();
     }
 
     await navigateToScreen("Home", "GAME MODES");
@@ -1727,6 +1815,8 @@ try {
       ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
       : lateVideoRewardResponseOnly
         ? "PASS — late video completion responses cannot affect the next playback, and its own retry still works."
+          : pendingVideoWatchStartOnly
+            ? "PASS — repeated progress during a pending video start creates one session, and completion uses it."
       : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
