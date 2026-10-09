@@ -202,7 +202,13 @@ async function backendPid(client: { query<T>(sql: string): Promise<{ rows: T[] }
   return Number(pid);
 }
 
-async function waitForBlockedWalletRequests(blockerPid: number, expectedCount: number, timeoutMs = 5_000) {
+async function waitForBlockedRequests(
+  blockerPid: number,
+  expectedCount: number,
+  queryFragment: string,
+  lockDescription: string,
+  timeoutMs = 5_000,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const result = await pool.query<{ pid: number; blockers: number[] }>(
@@ -212,26 +218,26 @@ async function waitForBlockedWalletRequests(blockerPid: number, expectedCount: n
           AND activity.wait_event_type = 'Lock'
           AND activity.query ILIKE $1
         ORDER BY activity.query_start`,
-      ["%SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE%"],
+      [`%${queryFragment}%`],
     );
     if (result.rows.length >= expectedCount) {
-      assert.equal(result.rows.length, expectedCount, "Only the two competing tournament joins should be waiting.");
+      assert.equal(result.rows.length, expectedCount, `Only the ${expectedCount} competing requests should be waiting.`);
       const requestPids = new Set(result.rows.map((row) => Number(row.pid)));
       assert.ok(
         result.rows.some((row) => row.blockers.map(Number).includes(blockerPid)),
-        "At least one tournament join must be waiting directly on the test wallet lock.",
+        `At least one request must be waiting directly on the test ${lockDescription} lock.`,
       );
       assert.ok(
         result.rows.every((row) =>
           row.blockers.some((pid) => Number(pid) === blockerPid || requestPids.has(Number(pid))),
         ),
-        "Each join must be queued behind the test lock or the earlier waiting join.",
+        `Each request must be queued behind the test ${lockDescription} lock or an earlier waiting request.`,
       );
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`Timed out waiting for ${expectedCount} tournament joins to block on the wallet row.`);
+  throw new Error(`Timed out waiting for ${expectedCount} requests to block on the ${lockDescription} row.`);
 }
 
 async function runConcurrentWalletRace(teamType: "solo" | "duo"): Promise<void> {
@@ -271,7 +277,12 @@ async function runConcurrentWalletRace(teamType: "solo" | "duo"): Promise<void> 
       );
 
       try {
-        await waitForBlockedWalletRequests(blockerPid, 2);
+        await waitForBlockedRequests(
+          blockerPid,
+          2,
+          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "wallet",
+        );
         await blocker.query("COMMIT");
         blockerTransactionOpen = false;
       } finally {
@@ -438,7 +449,169 @@ async function runConcurrentWalletRace(teamType: "solo" | "duo"): Promise<void> 
   }
 }
 
+async function runConcurrentDuoRetryRace(): Promise<void> {
+  let fixtureForCleanup: WalletRaceFixture | undefined;
+  let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let submissions: Promise<RegistrationResponse>[] = [];
+
+  try {
+    const fixture = await createFixture("duo");
+    fixtureForCleanup = fixture;
+    const matchId = fixture.matchIds[0];
+    const entryCoins = fixture.entryCoins[0];
+    const blocker = await pool.connect();
+    blockerForCleanup = blocker;
+
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [matchId]);
+      const blockerPid = await backendPid(blocker);
+
+      submissions = fixture.teammates.map((teammate, index) =>
+        registerForMatch(
+          origin,
+          fixture.userId,
+          matchId,
+          fixture.gameUids[0],
+          {
+            ...teammate,
+            teamName: fixture.teamNames[index],
+          },
+        ),
+      );
+
+      try {
+        await waitForBlockedRequests(
+          blockerPid,
+          2,
+          "FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+          "match",
+        );
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const responses = await Promise.all(submissions);
+      assert.deepEqual(
+        responses.map((response) => response.status).sort(),
+        [200, 201],
+        `one retry must create the registration and the other must reuse it: ${JSON.stringify(responses)}`,
+      );
+      const winnerIndex = responses.findIndex((response) => response.body.alreadyRegistered === false);
+      const retryIndex = responses.findIndex((response) => response.body.alreadyRegistered === true);
+      assert.notEqual(winnerIndex, -1, "one response must identify the newly created registration");
+      assert.notEqual(retryIndex, -1, "one response must identify the existing registration");
+      assert.equal(responses[winnerIndex].status, 201);
+      assert.equal(responses[retryIndex].status, 200);
+      assert.notEqual(fixture.teamNames[0], fixture.teamNames[1]);
+      assert.notEqual(fixture.teammates[0].uid, fixture.teammates[1].uid);
+
+      const registrations = await pool.query<{
+        id: string;
+        team_name: string;
+        entry_coins_paid: number;
+        status: string;
+      }>(
+        `SELECT id, team_name, entry_coins_paid, status
+           FROM daily007_v2_registrations
+          WHERE match_id = $1 AND captain_user_id = $2`,
+        [matchId, fixture.userId],
+      );
+      assert.equal(registrations.rows.length, 1, "a retry must not create a second registration");
+      const registration = registrations.rows[0];
+      assert.ok(registration);
+      assert.equal(registration.team_name, fixture.teamNames[winnerIndex]);
+      assert.equal(registration.entry_coins_paid, entryCoins);
+      assert.equal(registration.status, "approved");
+      assert.equal(responses[winnerIndex].body.registrationId, registration.id);
+      assert.equal(responses[retryIndex].body.registrationId, registration.id);
+      for (const response of responses) {
+        assert.equal(response.body.entryCoinsPaid, entryCoins);
+        assert.equal(response.body.walletCoins, STARTING_WALLET_COINS - entryCoins);
+      }
+
+      const roster = await pool.query<{
+        registration_id: string;
+        position: number;
+        member_uid: string | null;
+        member_name: string;
+      }>(
+        `SELECT registration_id, position, member_uid, member_name
+           FROM daily007_v2_roster
+          WHERE registration_id = $1
+          ORDER BY position`,
+        [registration.id],
+      );
+      assert.deepEqual(
+        roster.rows,
+        [{
+          registration_id: registration.id,
+          position: 1,
+          member_uid: fixture.teammates[winnerIndex].uid,
+          member_name: fixture.teammates[winnerIndex].name,
+        }],
+        "the registration must retain only the teammate payload from the winning request",
+      );
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [fixture.userId],
+      );
+      assert.deepEqual(
+        wallet.rows,
+        [{ wallet_coins: STARTING_WALLET_COINS - entryCoins }],
+        "a retried signup must debit the entry fee only once",
+      );
+
+      const ledger = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT match_id, registration_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1 AND match_id = $2`,
+        [fixture.userId, matchId],
+      );
+      assert.deepEqual(
+        ledger.rows,
+        [{
+          match_id: matchId,
+          registration_id: registration.id,
+          amount: -entryCoins,
+          balance_after: STARTING_WALLET_COINS - entryCoins,
+          reason: "match_entry",
+        }],
+        "there must be exactly one fee debit linked to the winning registration",
+      );
+    });
+  } finally {
+    try {
+      if (blockerForCleanup && blockerTransactionOpen) {
+        await blockerForCleanup.query("ROLLBACK");
+        blockerTransactionOpen = false;
+      }
+    } finally {
+      blockerForCleanup?.release();
+      await Promise.allSettled(submissions);
+      if (fixtureForCleanup) await cleanupFixture(fixtureForCleanup);
+    }
+  }
+}
+
 test("concurrent solo joins charge each tournament's own fee", () => runConcurrentWalletRace("solo"));
 
 test("concurrent duo joins keep fees and teammate rosters matched to each tournament", () =>
   runConcurrentWalletRace("duo"));
+
+test("concurrent duo retries keep one registration, fee debit, and winning teammate roster", () =>
+  runConcurrentDuoRetryRace());
