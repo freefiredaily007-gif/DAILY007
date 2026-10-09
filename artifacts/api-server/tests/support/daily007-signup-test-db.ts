@@ -436,6 +436,11 @@ class MemorySignupDatabase {
     )) {
       const user = this.users.get(first);
       rows = user ? [this.accountRow(user)] : [];
+    } else if (normalized.startsWith(
+      "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+    )) {
+      const user = this.users.get(first);
+      rows = user ? [{ role: user.role, status: user.status }] : [];
     } else if (normalized.startsWith("SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE")) {
       const user = this.users.get(first);
       rows = user ? [{ role: user.role }] : [];
