@@ -5,7 +5,7 @@ import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
-import { Api, apiError, SessionPersistenceError, setSession, User } from '../lib/api';
+import { Api, apiError, LoginRateLimitError, SessionPersistenceError, setSession, User } from '../lib/api';
 import {
   MAX_SIGNUP_PASSWORD_LENGTH,
   signupPasswordError,
@@ -24,6 +24,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [refCode, setRefCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [loginRetryDeadline, setLoginRetryDeadline] = useState<number | null>(null);
+  const [loginRetryRemaining, setLoginRetryRemaining] = useState(0);
+  const [loginThrottleMessageBase, setLoginThrottleMessageBase] = useState('');
+  const [loginThrottleStatus, setLoginThrottleStatus] = useState('');
   const [pendingSignupSession, setPendingSignupSession] = useState<User | null>(null);
   const nameInputRef = React.useRef<NativeTextInput>(null);
   const referralInputRef = React.useRef<NativeTextInput>(null);
@@ -54,8 +58,37 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
     return () => subscription.remove();
   }, []);
 
+  React.useEffect(() => {
+    if (loginRetryDeadline === null) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const updateRemaining = () => {
+      const remainingMs = loginRetryDeadline - Date.now();
+      const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      setLoginRetryRemaining(remainingSeconds);
+      if (remainingMs <= 0) {
+        setLoginRetryDeadline(null);
+        setLoginThrottleStatus('You can try logging in now.');
+        return;
+      }
+      timer = setTimeout(updateRemaining, Math.min(1000, remainingMs));
+    };
+    updateRemaining();
+    return () => {
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [loginRetryDeadline]);
+
   const submit = async () => {
+    if (mode === 'login' && loginRetryDeadline !== null) {
+      if (loginRetryDeadline > Date.now()) return;
+      setLoginRetryDeadline(null);
+      setLoginRetryRemaining(0);
+    }
     setErr('');
+    if (mode === 'login') {
+      setLoginThrottleMessageBase('');
+      setLoginThrottleStatus('');
+    }
     if (!retrySignupSession) {
       if (!email.trim() || !password) { setErr('Email and password are required.'); return; }
       if (mode === 'signup' && !name.trim()) { setErr('Name is required.'); return; }
@@ -91,7 +124,18 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
       if (retrySignupSession) setPendingSignupSession(null);
       onDone(u);
     } catch (e) {
-      setErr(apiError(e));
+      if (mode === 'login' && e instanceof LoginRateLimitError) {
+        const seconds = e.retryAfterSeconds;
+        const message = apiError(e);
+        setLoginRetryDeadline(Date.now() + seconds * 1000);
+        setLoginRetryRemaining(seconds);
+        setLoginThrottleMessageBase(message);
+        setLoginThrottleStatus(
+          `${message} Wait ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before trying again.`,
+        );
+      } else {
+        setErr(apiError(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -134,7 +178,18 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           <Pressable
             testID="auth-login-tab"
             disabled={busy || pendingSignupSession !== null}
-            onPress={() => setMode('login')}
+            onPress={() => {
+              setErr('');
+              if (loginRetryDeadline !== null) {
+                const seconds = Math.max(0, Math.ceil((loginRetryDeadline - Date.now()) / 1000));
+                setLoginRetryRemaining(seconds);
+                setLoginThrottleStatus(seconds > 0
+                  ? `${loginThrottleMessageBase || 'Too many login attempts. Please try again shortly.'} Wait ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before trying again.`
+                  : 'You can try logging in now.');
+                if (seconds === 0) setLoginRetryDeadline(null);
+              }
+              setMode('login');
+            }}
             style={[s.tab, mode === 'login' && s.tabOn]}
           >
             <Text style={[s.tabText, mode === 'login' && s.tabTextOn]}>LOGIN</Text>
@@ -142,14 +197,23 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           <Pressable
             testID="auth-signup-tab"
             disabled={busy || pendingSignupSession !== null}
-            onPress={() => setMode('signup')}
+            onPress={() => { setErr(''); setMode('signup'); }}
             style={[s.tab, mode === 'signup' && s.tabOn]}
           >
             <Text style={[s.tabText, mode === 'signup' && s.tabTextOn]}>SIGN UP</Text>
           </Pressable>
         </View>
 
-        <Msg kind="err" text={err} />
+        <Msg kind="err" text={err} accessibilityLiveRegion={err ? 'assertive' : undefined} />
+        {!isSignup && loginThrottleStatus ? (
+          <Msg
+            kind={loginRetryRemaining > 0 ? 'err' : 'ok'}
+            text={loginThrottleStatus}
+            testID="auth-login-throttle-status"
+            accessibilityLabel={loginThrottleStatus}
+            accessibilityLiveRegion={loginRetryRemaining > 0 ? 'assertive' : 'polite'}
+          />
+        ) : null}
         {!isSignup && notice ? <Text style={s.sessionNotice}>{notice}</Text> : null}
         {!isSignup
           ? <Text style={s.sessionHint}>Signing in here will sign out your other Daily007 sessions.</Text>
@@ -267,8 +331,25 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
 
         <Btn
           testID="auth-submit"
-          title={retrySignupSession ? 'RETRY SAVING SESSION' : isSignup ? 'CREATE ACCOUNT' : 'LOGIN'}
-          accessibilityLabel={retrySignupSession ? 'Retry saving session' : isSignup ? 'Create Account' : 'Login'}
+          title={retrySignupSession
+            ? 'RETRY SAVING SESSION'
+            : isSignup
+              ? 'CREATE ACCOUNT'
+              : loginRetryRemaining > 0
+                ? `WAIT ${loginRetryRemaining} ${loginRetryRemaining === 1 ? 'SECOND' : 'SECONDS'}`
+                : 'LOGIN'}
+          accessibilityLabel={retrySignupSession
+            ? 'Retry saving session'
+            : isSignup
+              ? 'Create Account'
+              : loginRetryRemaining > 0
+                ? `Login available in ${loginRetryRemaining} ${loginRetryRemaining === 1 ? 'second' : 'seconds'}`
+                : 'Login'}
+          accessibilityHint={!isSignup && loginRetryRemaining > 0
+            ? 'Wait until the countdown ends before trying to log in.'
+            : undefined}
+          accessibilityState={{ disabled: !isSignup && loginRetryRemaining > 0 }}
+          disabled={!isSignup && loginRetryRemaining > 0}
           onPress={submit}
           loading={busy}
           style={isSignup && s.signupSubmit}

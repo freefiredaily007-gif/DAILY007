@@ -93,6 +93,16 @@ export class SessionPersistenceError extends Error {
   }
 }
 
+export class LoginRateLimitError extends Error {
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.name = 'LoginRateLimitError';
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 function activateSession(u: User | null): void {
   current = u;
   if (u?.token) http.defaults.headers.common['Authorization'] = 'Bearer ' + u.token;
@@ -256,10 +266,30 @@ function normalizeUser(value: any, token?: string): User {
 }
 
 async function authenticate(path: string, body: object): Promise<{ user: User; token: string }> {
-  const result = await unwrap(http.post(path, body));
-  const token = result?.token ?? result?.accessToken;
-  if (typeof token !== 'string' || !token) throw new Error('The server did not return an authentication token.');
-  return { user: normalizeUser(result, token), token };
+  try {
+    const result = await unwrap(http.post(path, body));
+    const token = result?.token ?? result?.accessToken;
+    if (typeof token !== 'string' || !token) throw new Error('The server did not return an authentication token.');
+    return { user: normalizeUser(result, token), token };
+  } catch (error: any) {
+    const headers = error?.response?.headers;
+    const retryAfterHeader = typeof headers?.get === 'function'
+      ? headers.get('retry-after') ?? headers.get('Retry-After')
+      : headers?.['retry-after'] ?? headers?.['Retry-After'];
+    const retryAfterSeconds = Number(retryAfterHeader);
+    if (
+      path.endsWith('/auth/login') &&
+      error?.response?.status === 429 &&
+      Number.isFinite(retryAfterSeconds) &&
+      retryAfterSeconds > 0
+    ) {
+      throw new LoginRateLimitError(
+        errMessage(error),
+        Math.ceil(retryAfterSeconds),
+      );
+    }
+    throw error;
+  }
 }
 
 async function currentAccount(): Promise<User> {
