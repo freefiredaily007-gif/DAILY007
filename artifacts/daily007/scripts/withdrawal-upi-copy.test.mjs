@@ -36,7 +36,7 @@ test('the withdrawal copy button reports errors and stays separate from payout a
   assert.match(copyPress[1], /setCopiedUpiId,\s*setErr,/);
   assert.match(
     screenSource,
-    /<Msg kind="err" text=\{err\} accessibilityLiveRegion="assertive" \/>/,
+    /<Msg kind="err" text=\{err\} accessibilityLabel=\{err \|\| undefined\} accessibilityLiveRegion="assertive" \/>/,
   );
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
   assert.doesNotMatch(
@@ -56,7 +56,7 @@ test('the withdrawal copy button reports errors and stays separate from payout a
 test('payment and withdrawal success feedback is polite without changing payout actions or styling', () => {
   assert.match(
     screenSource,
-    /<Msg kind="ok" text=\{okMsg\} accessibilityLiveRegion="polite" \/>/,
+    /<Msg\s+kind="ok"\s+text=\{okMsg\}\s+accessibilityLabel=\{okMsg \|\| undefined\}\s+accessibilityLiveRegion="polite"\s+testID="admin-payment-action-success"\s*\/>/,
     'Payment, rejection, and manual-payout confirmations must use a polite live region.',
   );
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
@@ -71,20 +71,85 @@ test('payment and withdrawal success feedback is polite without changing payout 
   const approvalAction = screenSource.slice(approvalStart, approvalEnd);
   assert.match(approvalAction, /Api\.adminWithdrawalAction\(id, action\)/);
   assert.match(approvalAction, /Api\.adminPaymentAction\(id, action\)/);
-  assert.match(approvalAction, /setOkMsg\(action === 'approve'/);
+  assert.match(approvalAction, /showOkMsg\(action === 'approve'/);
 
   const rejectionStart = screenSource.indexOf('const reject = async');
   const rejectionEnd = screenSource.indexOf('\n  const showProof = async', rejectionStart);
   const rejectionAction = screenSource.slice(rejectionStart, rejectionEnd);
   assert.match(rejectionAction, /Api\.adminWithdrawalAction\(target\.id, 'reject', reason\.trim\(\)\)/);
   assert.match(rejectionAction, /Api\.adminPaymentAction\(target\.id, 'reject', reason\.trim\(\)\)/);
-  assert.match(rejectionAction, /setOkMsg\(target\.kind === 'withdrawal'/);
+  assert.match(rejectionAction, /showOkMsg\(target\.kind === 'withdrawal'/);
 
   const payoutStart = screenSource.indexOf('const markPaid = async');
   const payoutEnd = screenSource.indexOf('\n\n  return', payoutStart);
   const payoutAction = screenSource.slice(payoutStart, payoutEnd);
-  assert.match(payoutAction, /Api\.adminMarkWithdrawalPaid\(payoutTarget\)/);
-  assert.match(payoutAction, /setOkMsg\('Manual payout recorded'\)/);
+  assert.match(payoutAction, /Api\.adminMarkWithdrawalPaid\(targetId\)/);
+  assert.match(payoutAction, /showOkMsg\(/);
+});
+
+test('failed deposit and withdrawal actions announce an assertive error without false success', () => {
+  assert.match(
+    screenSource,
+    /<Msg kind="err" text=\{err\} accessibilityLabel=\{err \|\| undefined\} accessibilityLiveRegion="assertive" \/>/,
+    'The full failure message must be the assertive live-region label.',
+  );
+  assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
+  assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
+
+  const approvalStart = screenSource.indexOf('const act = async');
+  const approvalEnd = screenSource.indexOf('\n  const reject = async', approvalStart);
+  const approvalAction = screenSource.slice(approvalStart, approvalEnd);
+  const approvalCatch = approvalAction.match(/catch \(e: any\) \{([\s\S]*?)\n\s*\}\n\s*finally/)?.[1];
+  assert.ok(approvalCatch, 'Approval failures must be handled in their own catch path.');
+  assert.match(approvalAction, /await Api\.adminPaymentAction\(id, action\)/);
+  assert.match(approvalAction, /await Api\.adminWithdrawalAction\(id, action\)/);
+  assert.match(approvalCatch, /Could not \$\{action\} the \$\{requestType\} request for/);
+  assert.match(approvalCatch, /The request remains in this list/);
+  assert.match(approvalCatch, /activate \$\{actionLabel\} for \$\{userName \|\| 'this player'\} to retry/);
+  assert.doesNotMatch(approvalCatch, /showOkMsg|setAll|load\(/);
+
+  const rejectionStart = screenSource.indexOf('const reject = async');
+  const rejectionEnd = screenSource.indexOf('\n  const showProof = async', rejectionStart);
+  const rejectionAction = screenSource.slice(rejectionStart, rejectionEnd);
+  const rejectionCatch = rejectionAction.match(/catch \(e: any\) \{([\s\S]*?)\n\s*\}\n\s*finally/)?.[1];
+  assert.ok(rejectionCatch, 'Rejection failures must be handled in their own catch path.');
+  assert.match(rejectionAction, /await Api\.adminPaymentAction\(target\.id, 'reject', reason\.trim\(\)\)/);
+  assert.match(rejectionAction, /await Api\.adminWithdrawalAction\(target\.id, 'reject', reason\.trim\(\)\)/);
+  assert.match(rejectionCatch, /setRejectTarget\(null\)/);
+  assert.match(rejectionCatch, /Could not reject the \$\{requestType\} request for/);
+  assert.match(rejectionCatch, /activate REJECT for \$\{target\.userName \|\| 'this player'\} to retry/);
+  assert.doesNotMatch(rejectionCatch, /showOkMsg|setAll|load\(/);
+
+  for (const actionBlock of [approvalAction, rejectionAction]) {
+    const tryBlock = actionBlock.slice(actionBlock.indexOf('try {'), actionBlock.indexOf('} catch'));
+    assert.match(tryBlock, /showOkMsg\(/, 'Only the successful API path can show confirmation.');
+  }
+
+  assert.match(screenSource, /accessibilityLabel=\{`Approve \$\{p\.kind === 'withdrawal' \? 'withdrawal' : 'deposit'\} request for \$\{p\.userName \|\| 'player'\}`\}/);
+  assert.match(screenSource, /accessibilityLabel=\{`Reject \$\{p\.kind === 'withdrawal' \? 'withdrawal' : 'deposit'\} request for \$\{p\.userName \|\| 'player'\}`\}/);
+  assert.match(screenSource, /key=\{p\.kind \+ ':' \+ p\.id\}/);
+});
+
+test('a failed manual payout announces the error and leaves the payout action available', () => {
+  const payoutStart = screenSource.indexOf('const markPaid = async');
+  const payoutEnd = screenSource.indexOf('\n\n  return', payoutStart);
+  const payoutAction = screenSource.slice(payoutStart, payoutEnd);
+  const payoutCatch = payoutAction.match(/catch \(e: any\) \{([\s\S]*?)\n\s*\}\n\s*finally/)?.[1];
+
+  assert.ok(payoutCatch, 'Manual payout failures must be handled in their own catch path.');
+  assert.match(payoutAction, /await Api\.adminMarkWithdrawalPaid\(targetId\)/);
+  assert.match(payoutCatch, /setPayoutTarget\(null\)/);
+  assert.match(payoutCatch, /Could not record the manual payout for/);
+  assert.match(payoutCatch, /The withdrawal remains in this list/);
+  assert.match(payoutCatch, /Check its payout status before activating RECORD MANUAL PAYOUT SENT again/);
+  assert.doesNotMatch(payoutCatch, /showOkMsg|setAll|load\(/);
+  assert.match(
+    payoutAction.slice(payoutAction.indexOf('try {'), payoutAction.indexOf('} catch')),
+    /showOkMsg\(/,
+    'Manual payout confirmation must only follow a successful API response.',
+  );
+  assert.match(screenSource, /accessibilityLabel=\{`Record manual payout sent for \$\{p\.userName \|\| 'player'\}`\}/);
+  assert.match(screenSource, /Record manual payout sent for \$\{p\.userName \|\| 'player'\}/);
 });
 
 test('successful UPI copying announces politely without changing the focused button label', () => {
@@ -94,7 +159,7 @@ test('successful UPI copying announces politely without changing the focused but
     'A confirmed copy must announce a concise success message politely.',
   );
   assert.match(screenSource, /accessibilityLabel="Copy withdrawal UPI ID"/);
-  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="assertive" \/>/);
+  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLabel=\{err \|\| undefined\} accessibilityLiveRegion="assertive" \/>/);
 });
 
 test('copy sends the exact account text and only shows COPIED after clipboard success', async () => {
@@ -176,7 +241,7 @@ test('a rejected clipboard write reaches an assertive live region without markin
     ['error', ''],
     ['error', 'Could not copy this UPI ID.'],
   ]);
-  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="assertive" \/>/);
+  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLabel=\{err \|\| undefined\} accessibilityLiveRegion="assertive" \/>/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
   assert.equal(
     getWithdrawalUpiCopyLabel('withdrawal-failed', copiedRequestId),
