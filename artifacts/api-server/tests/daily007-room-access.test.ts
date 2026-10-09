@@ -919,6 +919,36 @@ test("compatibility room saves reject cancelled tournaments without changing roo
   });
 });
 
+test("v2 room saves reject cancelled tournaments without changing room or registration state", async () => {
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.status = "cancelled";
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+  const matchBefore = structuredClone(roomAccessTestDb.match);
+  const registrationsBefore = structuredClone(roomAccessTestDb.registrations);
+
+  await withServer(async (origin) => {
+    const rejected = await request(
+      origin,
+      `/daily007/v2/admin/matches/${TEST_MATCH_ID}/room`,
+      "PUT",
+      adminToken,
+      {
+        roomId: "REPLACEMENT-CANCELLED-V2-ROOM",
+        roomPassword: "replacement-cancelled-v2-password",
+      },
+    );
+
+    assert.equal(rejected.status, 404);
+    assert.deepEqual(rejected.body, {
+      error: "Match not found or cancelled.",
+    });
+    assert.deepEqual(roomAccessTestDb.match, matchBefore);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
+  });
+});
+
 test("legacy room publishing only marks saved credentials as published for manageable tournaments", async () => {
   roomAccessTestDb.reset();
   roomAccessTestDb.match.room_published = false;
