@@ -166,6 +166,9 @@ export default function Video() {
   const [catalogRecoveryAnnouncementVersion, setCatalogRecoveryAnnouncementVersion] = useState(0);
   const playbackCycleRef = useRef(0);
   const catalogReloadRequestSequenceRef = useRef(0);
+  const catalogScrollRef = useRef<ScrollView | null>(null);
+  const catalogScrollOffsetRef = useRef(0);
+  const catalogScrollRestorePendingRef = useRef(false);
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
   const reloadVideoCatalog = useCallback(async () => {
     const requestSequence = ++catalogReloadRequestSequenceRef.current;
@@ -209,6 +212,35 @@ export default function Video() {
     });
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (showPlayer) return undefined;
+    if (videosQuery.isError) {
+      if (catalogScrollOffsetRef.current > 0) {
+        catalogScrollRestorePendingRef.current = true;
+      }
+      return undefined;
+    }
+    if (videosQuery.isLoading || videosQuery.isFetching || !catalogScrollRestorePendingRef.current) {
+      return undefined;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      catalogScrollRef.current?.scrollTo({
+        y: catalogScrollOffsetRef.current,
+        animated: false,
+      });
+      catalogScrollRestorePendingRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    showPlayer,
+    videosQuery.dataUpdatedAt,
+    videosQuery.isError,
+    videosQuery.isFetching,
+    videosQuery.isLoading,
+    videos.length,
+  ]);
 
   const filteredVideos = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -585,9 +617,17 @@ export default function Video() {
 
   return (
     <ScrollView
+      ref={catalogScrollRef}
+      testID="video-catalog-scroll"
       style={styles.root}
       contentContainerStyle={styles.scrollContent}
       keyboardShouldPersistTaps="handled"
+      onScroll={(event) => {
+        if (!showPlayer && !videosQuery.isError && !catalogScrollRestorePendingRef.current) {
+          catalogScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+        }
+      }}
+      scrollEventThrottle={16}
     >
       {showPlayer && selectedVideo ? (
         <>
@@ -863,6 +903,7 @@ export default function Video() {
                   accessibilityHint="Opens the in-app YouTube player"
                   testID={`video-catalog-card-${video.id}`}
                   onPress={() => {
+                    catalogScrollRestorePendingRef.current = true;
                     setSelectedVideoId(video.id);
                     setShowPlayer(true);
                   }}

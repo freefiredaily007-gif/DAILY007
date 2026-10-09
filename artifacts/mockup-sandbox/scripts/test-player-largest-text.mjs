@@ -14,6 +14,7 @@ const pendingVideoWatchStartOnly = process.argv.includes("--pending-video-watch-
 const videoCatalogRefreshAnnouncementOnly = process.argv.includes("--video-catalog-refresh-announcement-only");
 const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty-search-only");
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
+const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -1282,6 +1283,136 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
   console.log("PASS — a late stale catalog response cannot restore the inactive video, old error, or duplicate recovery announcement.");
 }
 
+async function checkVideoCatalogPositionSurvivesRefreshError() {
+  const catalogError = "Could not load videos. Check your connection and try again.";
+  const targetSelector = '[data-testid="video-catalog-card-lower-active-video"]';
+  await navigateToScreen("VideoCatalogPositionRefreshFailure", "Tutorial Videos (18)");
+  await waitForCondition(
+    `Boolean(document.querySelector(${JSON.stringify(targetSelector)}))
+      && window.__videoRewardPreviewCalls?.listRefetches >= 1`,
+    "the lower active video in a longer catalog",
+  );
+
+  const initialPosition = await evaluate(`(() => {
+    const target = document.querySelector(${JSON.stringify(targetSelector)});
+    if (!target) return { missingTarget: true };
+    let parent = target.parentElement;
+    let scroll = null;
+    while (parent && parent !== document.body) {
+      const style = getComputedStyle(parent);
+      if (/(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 1) {
+        scroll = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    if (!scroll) return { missingScroll: true };
+    const targetBefore = target.getBoundingClientRect();
+    const viewportBefore = scroll.getBoundingClientRect();
+    scroll.scrollTop += targetBefore.top - viewportBefore.top
+      - Math.max(0, (scroll.clientHeight - targetBefore.height) * 0.42);
+    scroll.dispatchEvent(new Event("scroll", { bubbles: true }));
+    const targetAfter = target.getBoundingClientRect();
+    const viewportAfter = scroll.getBoundingClientRect();
+    return {
+      missingTarget: false,
+      missingScroll: false,
+      scrollTestId: scroll.getAttribute("data-testid"),
+      scrollTop: scroll.scrollTop,
+      targetOffset: targetAfter.top - viewportAfter.top,
+      targetVisible: targetAfter.bottom > viewportAfter.top && targetAfter.top < viewportAfter.bottom,
+      viewportHeight: scroll.clientHeight,
+    };
+  })()`);
+  assert(
+    !initialPosition.missingTarget
+      && !initialPosition.missingScroll
+      && initialPosition.scrollTestId === "video-catalog-scroll"
+      && initialPosition.scrollTop > 0
+      && initialPosition.targetVisible,
+    `The lower active video should be reached by scrolling the catalog: ${JSON.stringify(initialPosition)}`,
+  );
+  await delay(100);
+  await clickSelector(targetSelector, "lower active video card");
+  await waitForCondition(
+    `document.body.innerText.includes("Lower Catalog Recovery Video")
+      && Boolean(document.querySelector('[data-testid="video-catalog-back"]'))`,
+    "the lower video player before returning to the catalog",
+  );
+  await clickSelector('[data-testid="video-catalog-back"]', "return from the lower video");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))
+      && window.__videoRewardPreviewCalls?.listRefetches >= 2`,
+    "the catalog refresh error after returning from the player",
+  );
+  const returnedError = await evaluate(`(() => ({
+    errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+    reloadVisible: document.querySelector('[data-testid="video-catalog-reload"]') !== null,
+    listRefetches: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+  }))()`);
+  assert(
+    returnedError.errorVisible && returnedError.reloadVisible,
+    `Returning from the player should expose a retryable catalog error: ${JSON.stringify(returnedError)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-reload"]', "retry the catalog after returning from the player");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))
+      && window.__videoRewardPreviewCalls?.listRefetches === ${returnedError.listRefetches + 1}`,
+    "a second recoverable catalog error",
+  );
+  await clickSelector('[data-testid="video-catalog-reload"]', "retry the catalog until it recovers");
+  const targetOffsetTolerance = 100;
+  const restoredPositionCondition = `(() => {
+    const scroll = document.querySelector('[data-testid="video-catalog-scroll"]');
+    const target = document.querySelector(${JSON.stringify(targetSelector)});
+    if (!scroll || !target) return false;
+    const targetBounds = target.getBoundingClientRect();
+    const viewport = scroll.getBoundingClientRect();
+    const targetOffset = targetBounds.top - viewport.top;
+    return window.__videoRewardPreviewCalls?.listRefetches === ${returnedError.listRefetches + 2}
+      && !document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && scroll.scrollTop > 0
+      && targetBounds.bottom > viewport.top
+      && targetBounds.top < viewport.bottom
+      && Math.abs(targetOffset - ${initialPosition.targetOffset}) <= ${targetOffsetTolerance};
+  })()`;
+  await waitForCondition(
+    restoredPositionCondition,
+    "the recovered catalog restored near the previously opened video",
+  );
+  const restoredPosition = await evaluate(`(() => {
+    const scroll = document.querySelector('[data-testid="video-catalog-scroll"]');
+    const target = document.querySelector(${JSON.stringify(targetSelector)});
+    const targetBounds = target.getBoundingClientRect();
+    const viewport = scroll.getBoundingClientRect();
+    return {
+      errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+      reloadVisible: document.querySelector('[data-testid="video-catalog-reload"]') !== null,
+      scrollTop: scroll.scrollTop,
+      originalScrollTop: ${initialPosition.scrollTop},
+      targetOffset: targetBounds.top - viewport.top,
+      originalTargetOffset: ${initialPosition.targetOffset},
+      targetVisible: targetBounds.bottom > viewport.top && targetBounds.top < viewport.bottom,
+      activeResultReachable: target.getAttribute("data-testid") === "video-catalog-card-lower-active-video",
+      listRefetches: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+    };
+  })()`);
+  assert(
+    !restoredPosition.errorVisible
+      && !restoredPosition.reloadVisible
+      && restoredPosition.scrollTop > 0
+      && restoredPosition.targetVisible
+      && Math.abs(restoredPosition.targetOffset - restoredPosition.originalTargetOffset) <= targetOffsetTolerance
+      && restoredPosition.activeResultReachable
+      && restoredPosition.listRefetches === returnedError.listRefetches + 2,
+    `The recovered catalog should return near the opened active video instead of restarting at the top: ${JSON.stringify(restoredPosition)}`,
+  );
+  console.log("PASS — after a refresh error, catalog recovery restores the scroll position near the previously opened active video.");
+}
+
 async function checkTransientVideoRewardRetry() {
   await navigateToScreen("VideoTransient", "Tutorial Videos");
   await clickSelector('[data-testid="video-catalog-card-unavailable-video"]', "transient-failure test video");
@@ -1895,10 +2026,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -1915,12 +2046,16 @@ try {
   if (lateVideoCatalogResponseOnly) {
     await checkLateVideoCatalogResponseCannotUndoRetry();
   }
+  if (videoCatalogPositionOnly) {
+    await checkVideoCatalogPositionSurvivesRefreshError();
+  }
   const focusedVideoCheck = videoStartFailureOnly
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
     || videoCatalogRefreshAnnouncementOnly
     || videoCatalogEmptySearchOnly
-    || lateVideoCatalogResponseOnly;
+    || lateVideoCatalogResponseOnly
+    || videoCatalogPositionOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -1998,7 +2133,9 @@ try {
               ? "PASS — catalog recovery preserves a search with no remaining matches."
               : lateVideoCatalogResponseOnly
                 ? "PASS — a late catalog response cannot undo a newer successful retry."
-                : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
+                : videoCatalogPositionOnly
+                  ? "PASS — catalog recovery restores the prior scroll position after a player return error."
+                  : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
   console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);

@@ -183,11 +183,29 @@ const rewardPreviewVideos = [
   },
 ];
 const activeRewardPreviewVideos = rewardPreviewVideos.filter((video) => video.id !== "unavailable-video");
+const catalogPositionPreviewVideos = Array.from({ length: 18 }, (_, index) => {
+  const number = String(index + 1).padStart(2, "0");
+  const isLowerTarget = index === 14;
+  const id = isLowerTarget ? "lower-active-video" : `catalog-position-video-${number}`;
+  const title = isLowerTarget
+    ? "Lower Catalog Recovery Video"
+    : `Catalog Position Preview Video ${number}`;
+  return {
+    id,
+    title,
+    topic: `Catalog Position Topic ${number}`,
+    youtubeId: `catalog-position-preview-${number}`,
+    url: `https://www.youtube.com/watch?v=catalog-position-preview-${number}`,
+    active: true,
+    createdAt: "2026-10-01T00:00:00.000Z",
+  };
+});
 
 type VideoRewardPreviewMode =
   | "unavailable"
   | "unavailableRefreshFailure"
   | "lateCatalogResponse"
+  | "catalogPositionRefreshFailure"
   | "transient"
   | "lateCompletion"
   | "startFailure"
@@ -258,10 +276,13 @@ export function useDaily007ListVideos() {
   const removesUnavailable = mode === "unavailable"
     || mode === "unavailableRefreshFailure"
     || mode === "lateCatalogResponse";
+  const previewVideos = mode === "catalogPositionRefreshFailure"
+    ? catalogPositionPreviewVideos
+    : rewardPreviewVideos;
   const videos = mode
     ? removesUnavailable && refreshCount > 0
       ? activeRewardPreviewVideos
-      : rewardPreviewVideos
+      : previewVideos
     : largestTextVideos;
   const refetch = useCallback(async (options?: { cancelRefetch?: boolean }) => {
     const calls = getVideoRewardPreviewCalls();
@@ -293,6 +314,24 @@ export function useDaily007ListVideos() {
       setRefreshFailed(false);
       setRefreshCount((current) => current + 1);
       return { data: { videos: activeRewardPreviewVideos } };
+    }
+    if (mode === "catalogPositionRefreshFailure") {
+      if (options?.cancelRefetch === true) {
+        if (refreshFailureCount.current < 2) {
+          refreshFailureCount.current += 1;
+          setRefreshFailed(true);
+          return { error: new Error("Temporary video catalog refresh failure.") };
+        }
+        setRefreshFailed(false);
+        setRefreshCount((current) => current + 1);
+        return { data: { videos: catalogPositionPreviewVideos } };
+      }
+      if (calls.listRefetches === 1) {
+        return { data: { videos: catalogPositionPreviewVideos } };
+      }
+      refreshFailureCount.current = Math.max(refreshFailureCount.current, 1);
+      setRefreshFailed(true);
+      return { error: new Error("Temporary video catalog refresh failure.") };
     }
     if (mode === "unavailableRefreshFailure" && calls.completions.length === 0) {
       return { data: { videos: rewardPreviewVideos } };
