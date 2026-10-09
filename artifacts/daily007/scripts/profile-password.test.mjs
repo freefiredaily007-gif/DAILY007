@@ -419,7 +419,7 @@ test("Profile update control blocks a second submit while the mocked request is 
   assert.equal(mutationCalls, 1);
 });
 
-test("successful Profile password change closes and clears the form and shows success feedback", async () => {
+test("successful Profile password change closes and clears the form and announces success once", async () => {
   const currentPassword = "mock-current-password";
   const newPassword = "mock-new-password";
   const confirmNewPassword = newPassword;
@@ -481,10 +481,34 @@ test("successful Profile password change closes and clears the form and shows su
       `The ${field} input should be controlled by the state cleared after success.`,
     );
   }
+  const successMessageMarkup = profileSource.match(
+    /<Text style=\{s\.connected\}[^>]*>\{passwordMessage\}<\/Text>/,
+  )?.[0];
+  assert.ok(successMessageMarkup, "Profile should render the success message state.");
+  assert.match(
+    successMessageMarkup,
+    /accessibilityLiveRegion="polite"/,
+    "TalkBack should politely announce the successful password change.",
+  );
+  assert.equal(
+    (successMessageMarkup.match(/accessibilityLiveRegion=/g) ?? []).length,
+    1,
+    "The success message should have exactly one live-region announcement.",
+  );
+  assert.doesNotMatch(
+    successMessageMarkup,
+    /accessibilityRole="alert"/,
+    "Success feedback should remain polite rather than interrupting speech.",
+  );
+  assert.doesNotMatch(
+    profileSource,
+    /setAccessibilityFocus|announceForAccessibility/,
+    "Success feedback should not add a redundant announcement or force a focus jump.",
+  );
   assert.match(
     profileSource,
-    /\{!!passwordMessage && <Text style=\{s\.connected\}>\{passwordMessage\}<\/Text>\}/,
-    "Profile should render the success message state.",
+    /\{!!passwordMessage && <Text style=\{s\.connected\} accessibilityLiveRegion="polite">\{passwordMessage\}<\/Text>\}/,
+    "Profile should conditionally render the single polite success announcement.",
   );
 });
 

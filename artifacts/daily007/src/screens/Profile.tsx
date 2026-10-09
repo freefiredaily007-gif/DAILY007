@@ -213,7 +213,7 @@ export default function Profile() {
         <Text style={s.connectTitle}>DAILY007 PASSWORD</Text>
         <Text style={s.connectDescription}>Change your Daily007 password. This does not change your Google password.</Text>
         <Btn testID="profile-change-password" title="CHANGE PASSWORD" kind="ghost" onPress={openPasswordModal} />
-        {!!passwordMessage && <Text style={s.connected}>{passwordMessage}</Text>}
+        {!!passwordMessage && <Text style={s.connected} accessibilityLiveRegion="polite">{passwordMessage}</Text>}
       </Card>
 
       <Btn title="🎮 MY MATCHES" kind="ghost" onPress={() => nav.navigate('MyMatches')} />
