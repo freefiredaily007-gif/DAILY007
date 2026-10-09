@@ -332,6 +332,12 @@ export default function AdminTournaments() {
       try {
         const refreshedResults = await resultLogsQuery.refetch();
         if (actionRequestId.current !== requestId) return;
+        if (refreshedResults.isError) {
+          setResultError(
+            `Could not confirm whether the result for ${playerLabel} was saved. ${apiError(refreshedResults.error)} Keep this player selected and retry this result later. A saved result will be recovered without a second payout.`,
+          );
+          return;
+        }
         const savedResult = refreshedResults.data?.data?.find(
           (entry) => entry.tournamentId === tournament.id && entry.registrationId === registrationId,
         );
@@ -360,17 +366,11 @@ export default function AdminTournaments() {
           }
           return;
         }
-        if (refreshedResults.isError) {
-          setResultError(
-            `Could not confirm whether this result was saved. ${apiError(refreshedResults.error)} Refresh the result list before retrying.`,
-          );
-        } else {
-          setResultError(publishError);
-        }
+        setResultError(publishError);
       } catch (refreshError: any) {
         if (actionRequestId.current !== requestId) return;
         setResultError(
-          `Could not confirm whether this result was saved. ${apiError(refreshError)} Refresh the result list before retrying.`,
+          `Could not confirm whether the result for ${playerLabel} was saved. ${apiError(refreshError)} Keep this player selected and retry this result later. A saved result will be recovered without a second payout.`,
         );
       }
     } finally {

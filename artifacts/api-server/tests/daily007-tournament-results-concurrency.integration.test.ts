@@ -55,9 +55,47 @@ after(async () => {
 });
 
 
-async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
+type ServerFaults = {
+  dropNextPublishedResultResponse?: boolean;
+  failNextResultLogRefresh?: boolean;
+};
+
+async function withServer(
+  run: (origin: string) => Promise<void>,
+  configuredFaults: ServerFaults = {},
+): Promise<void> {
+  const faults = { ...configuredFaults };
   const app = express();
   app.use(express.json());
+  app.use((request, response, next) => {
+    if (
+      faults.failNextResultLogRefresh &&
+      request.method === "GET" &&
+      request.path === "/admin/results" &&
+      request.query.includeUnfinalized === "true"
+    ) {
+      faults.failNextResultLogRefresh = false;
+      return response.status(503).json({ error: "Simulated result-log refresh failure." });
+    }
+
+    if (
+      faults.dropNextPublishedResultResponse &&
+      request.method === "POST" &&
+      request.path === "/admin/results"
+    ) {
+      const sendJson = response.json.bind(response);
+      response.json = ((body: unknown) => {
+        if (response.statusCode === 201) {
+          faults.dropNextPublishedResultResponse = false;
+          response.socket?.destroy();
+          return response;
+        }
+        return sendJson(body);
+      }) as typeof response.json;
+    }
+
+    next();
+  });
   app.use(compatCoreRouter);
   app.use(compatExtraRouter);
   app.use((
@@ -1569,6 +1607,81 @@ test("Admin recovery returns reverse-inserted unfinalized placements in ascendin
         false,
         "a tournament with no first-place result must remain out of the completed list",
       );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a lost publish response and failed result-log refresh leave one recoverable award", async () => {
+  const fixture = await createFixture();
+  const runnerUp = fixture.players[1];
+
+  try {
+    await withServer(async (origin) => {
+      let lostResponseError: unknown;
+      try {
+        await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
+      } catch (error) {
+        lostResponseError = error;
+      }
+      assert.ok(lostResponseError, "the committed publish response should be lost to the client");
+
+      const stateAfterLostResponse = await captureSettlementState(fixture, runnerUp);
+      assert.deepEqual(stateAfterLostResponse, {
+        walletCoins: 350,
+        awards: [{
+          registration_id: runnerUp.registrationId,
+          user_id: runnerUp.userId,
+          rank: 2,
+          kills: 3,
+          prize_coins: 250,
+        }],
+        stats: { matches: 1, wins: 0, kills: 3, prize_coins: 250 },
+        ledger: [{ amount: 250, balance_after: 350, reason: "match_prize" }],
+        match: { enabled: true, status: "open" },
+      }, "the server must commit the placement and prize before its response is lost");
+
+      const failedRefresh = await fetch(`${origin}/admin/results?includeUnfinalized=true`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(failedRefresh.status, 503, "the first recovery refresh should fail");
+
+      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, runnerUp, 2, 3);
+      assert.equal(retry.status, 409, "retrying the uncertain result must not publish another award");
+      assert.equal(retry.body.error, "A result has already been published for this registration.");
+
+      const recoveryResponse = await fetch(`${origin}/admin/results?includeUnfinalized=true`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(recoveryResponse.status, 200, "result-log recovery should work after the refresh failure");
+      const recoveryBody = await recoveryResponse.json() as {
+        success: boolean;
+        data: Array<Record<string, unknown>>;
+      };
+      assert.equal(recoveryBody.success, true);
+      assert.ok(
+        recoveryBody.data.some(
+          (entry) =>
+            entry.tournamentId === fixture.matchId &&
+            entry.registrationId === runnerUp.registrationId &&
+            entry.rank === 2 &&
+            entry.prizeCoins === 250,
+        ),
+        "the committed placement must remain available for later recovery",
+      );
+
+      const finalState = await captureSettlementState(fixture, runnerUp);
+      assert.deepEqual(
+        finalState,
+        stateAfterLostResponse,
+        "recovery and retry must leave exactly one award and one prize credit",
+      );
+      assert.equal(finalState.awards.length, 1);
+      assert.equal(finalState.ledger.length, 1);
+    }, {
+      dropNextPublishedResultResponse: true,
+      failNextResultLogRefresh: true,
     });
   } finally {
     await cleanupFixture(fixture);

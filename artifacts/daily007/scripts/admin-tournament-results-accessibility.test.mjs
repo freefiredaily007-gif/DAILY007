@@ -297,8 +297,41 @@ test('ambiguous submissions refresh saved results and show the stored rank and p
   assert.match(catchBody, /setSelectedRegistrationId\(''\)/);
   assert.match(catchBody, /setPublishedRegistrationIds/);
   assert.match(catchBody, /setResultError\(publishError\)/);
-  assert.match(catchBody, /Could not confirm whether this result was saved/);
+  assert.match(catchBody, /Could not confirm whether the result for \$\{playerLabel\} was saved/);
   assert.doesNotMatch(catchBody, /Api\.adminPublishResult/);
+});
+
+test('a failed result-log refresh leaves the result unconfirmed and the player available for recovery', () => {
+  const publishMethod = screenSource.slice(
+    screenSource.indexOf('const publishResult = async'),
+    screenSource.indexOf('\n  useEffect(() => { load(); }, [load]);'),
+  );
+  const catchBody = publishMethod.match(/} catch \(e: any\) \{([\s\S]*?)\n    } finally/)?.[1];
+  assert.ok(catchBody, 'The publish flow must handle and recover from submission errors.');
+
+  const refreshFailureStart = catchBody.indexOf('if (refreshedResults.isError)');
+  const savedResultLookup = catchBody.indexOf('const savedResult = refreshedResults.data');
+  assert.ok(refreshFailureStart >= 0, 'A failed refresh must keep the result status unconfirmed.');
+  assert.ok(
+    savedResultLookup > refreshFailureStart,
+    'Cached result rows must not be treated as confirmed after a failed refresh.',
+  );
+  const refreshFailureBranch = catchBody.slice(refreshFailureStart, savedResultLookup);
+  assert.match(refreshFailureBranch, /Could not confirm whether the result for \$\{playerLabel\} was saved/);
+  assert.match(
+    refreshFailureBranch,
+    /Keep this player selected and retry this result later\. A saved result will be recovered without a second payout/,
+  );
+  assert.doesNotMatch(
+    refreshFailureBranch,
+    /setPublishedRegistrationIds|setSelectedRegistrationId\(''\)|setResultRank\('1'\)|setResultKills\(''\)/,
+    'An unconfirmed result must stay selected and available for later recovery.',
+  );
+  assert.match(
+    screenSource,
+    /<Msg kind="err" text=\{resultError\} accessibilityLiveRegion="polite" \/>/,
+    'The unconfirmed status must be announced to the admin.',
+  );
 });
 
 test('saved placement and winner recovery each announce once without republishing', () => {
