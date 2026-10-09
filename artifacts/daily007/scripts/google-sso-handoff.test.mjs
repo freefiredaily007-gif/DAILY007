@@ -546,3 +546,142 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(callbackSource, /getSSOCallbackMessage\(Platform\.OS,\s*authCompletion\?\.type\)/);
   assert.match(callbackSource, /Platform\.OS === 'web'[\s\S]*?WebBrowser\.maybeCompleteAuthSession\(\)/);
 });
+
+test("Google recovery errors use the single Android announcement path and keep recovery retries available", async () => {
+  const buttonSource = await readFile(
+    new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
+    "utf8",
+  );
+  const requestRecovery = buttonSource.match(
+    /const requestRecovery = async \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1];
+  const recoverWithOwnerCode = buttonSource.match(
+    /const recoverWithOwnerCode = async \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1];
+  const googleErrorReporter = buttonSource.match(
+    /function reportGoogleError\([\s\S]*?\n\}/,
+  )?.[0];
+  const requestRecoveryControl = buttonSource.match(
+    /\{allowRecoveryRequest && \(recoveryAvailable \|\| error === RECOVERY_CONFLICT\) && \(\s*<Pressable[\s\S]*?testID="request-google-account-recovery"[\s\S]*?<\/Pressable>/,
+  )?.[0];
+  const ownerRecoveryControl = buttonSource.match(
+    /\{allowRecoveryRequest && \(recoveryAvailable \|\| error === RECOVERY_CONFLICT \|\| recoverySubmitted\) && \(\s*<View[\s\S]*?testID="owner-recovery-code"[\s\S]*?testID="recover-with-owner-code"[\s\S]*?<\/View>/,
+  )?.[0];
+
+  assert.ok(requestRecovery, "recovery review handler should exist");
+  assert.ok(recoverWithOwnerCode, "owner-code recovery handler should exist");
+  assert.ok(googleErrorReporter, "Google errors should use the shared error reporter");
+  assert.ok(requestRecoveryControl, "recovery review should remain available while recovery is active");
+  assert.ok(ownerRecoveryControl, "owner-code input and recovery action should remain available");
+
+  assert.match(
+    googleErrorReporter,
+    /onError\?\.\(message\);[\s\S]*?if \(onError && Platform\.OS === 'android'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
+  );
+  assert.equal(
+    (buttonSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
+    1,
+    "recovery errors should share exactly one direct Android announcement call",
+  );
+  assert.match(buttonSource, /const showError = \(message: string\) => \{\s*setError\(message\);\s*reportGoogleError\(onError, message\);/);
+
+  assert.match(
+    requestRecovery,
+    /if \(!activeSession\) \{\s*showError\('Your Google session has expired\. Choose Continue with Google and try again\.'\);\s*return;/,
+    "missing-session recovery-review errors should be reported",
+  );
+  assert.match(
+    requestRecovery,
+    /catch \(e: any\) \{\s*setRecoveryAvailable\(true\);\s*showError\(apiError\(e\)\);/,
+    "failed recovery-review requests should report an error and restore recovery availability",
+  );
+  assert.match(requestRecovery, /finally \{\s*setRecoveryBusy\(false\);\s*\}/);
+  assert.match(requestRecoveryControl, /disabled=\{recoveryBusy\}/);
+
+  assert.match(
+    recoverWithOwnerCode,
+    /if \(!activeSession\) \{\s*showError\('Your Google session has expired\. Choose Continue with Google and try again\.'\);\s*return;/,
+    "missing-session owner-code errors should be reported",
+  );
+  assert.match(
+    recoverWithOwnerCode,
+    /await Api\.requestGoogleOwnerRecovery\(clerkJwt, ownerRecoveryCode\);[\s\S]*?setOwnerRecoveryCode\(''\);[\s\S]*?setRecoveryAvailable\(false\);/,
+    "owner recovery state should only be cleared after the server accepts the owner code",
+  );
+  assert.match(
+    recoverWithOwnerCode,
+    /\} catch \(e: any\) \{\s*showError\(recoveryCompleted[\s\S]*?: apiError\(e\)\);/,
+    "owner-code failures should report their error",
+  );
+  assert.match(recoverWithOwnerCode, /finally \{\s*setRecoveryBusy\(false\);/);
+  assert.match(ownerRecoveryControl, /accessibilityLabel="Owner recovery code"/);
+  assert.match(ownerRecoveryControl, /accessibilityLabel="Recover sole Full Admin account with owner code"/);
+  assert.match(ownerRecoveryControl, /disabled=\{recoveryBusy \|\| !ownerRecoveryCode\.trim\(\)\}/);
+});
+
+test("the recovery TalkBack harness is development-only and cannot call real recovery endpoints", async () => {
+  const buttonSource = await readFile(
+    new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
+    "utf8",
+  );
+  const authSource = await readFile(
+    new URL("../src/screens/Auth.tsx", import.meta.url),
+    "utf8",
+  );
+  const profileSource = await readFile(
+    new URL("../src/screens/Profile.tsx", import.meta.url),
+    "utf8",
+  );
+  const testScreenSource = await readFile(
+    new URL("../src/screens/GoogleRecoveryAccessibilityTest.tsx", import.meta.url),
+    "utf8",
+  );
+  const testRouteSource = await readFile(
+    new URL("../app/google-recovery-accessibility-test.tsx", import.meta.url),
+    "utf8",
+  );
+  const requestRecovery = buttonSource.match(
+    /const requestRecovery = async \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1];
+  const recoverWithOwnerCode = buttonSource.match(
+    /const recoverWithOwnerCode = async \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1];
+
+  assert.ok(requestRecovery, "recovery review handler should exist");
+  assert.ok(recoverWithOwnerCode, "owner-code recovery handler should exist");
+  assert.match(
+    testScreenSource,
+    /if \(!__DEV__\) return <Redirect href="\/" \/>;/,
+    "the recovery harness should redirect away outside development builds",
+  );
+  assert.match(
+    testScreenSource,
+    /Errors are generated locally; this screen does not send recovery requests or use the real owner code\./,
+  );
+  assert.match(testScreenSource, /devRecoveryTestScenario=\{scenario\}/);
+  assert.match(testScreenSource, /accessibilityLiveRegion=\{Platform\.OS === 'android' \? undefined : 'assertive'\}/);
+  assert.match(testRouteSource, /<GoogleRecoveryAccessibilityTest \/>/);
+  assert.match(
+    authSource,
+    /\{__DEV__ && \([\s\S]*?<Link href="\/google-recovery-accessibility-test" asChild>/,
+    "the test screen link should only appear during development",
+  );
+  assert.doesNotMatch(authSource, /allowRecoveryRequest/);
+  assert.doesNotMatch(profileSource, /allowRecoveryRequest/);
+
+  assert.match(
+    requestRecovery,
+    /if \(isRecoveryTestMode\) \{\s*throw new Error\('Test failure: recovery review was not submitted\.[\s\S]*?\n      \}\s*await Api\.requestGoogleRecovery/,
+    "the test recovery-request failure must happen before the real endpoint",
+  );
+  assert.match(
+    recoverWithOwnerCode,
+    /if \(isRecoveryTestMode\) \{\s*throw new Error\('Test rejection: the owner code was not accepted\.[\s\S]*?\n      \}\s*await Api\.requestGoogleOwnerRecovery/,
+    "the test owner-code failure must happen before the real endpoint",
+  );
+  assert.match(
+    buttonSource,
+    /const isRecoveryTestMode = __DEV__ && allowRecoveryRequest === true && devRecoveryTestScenario !== undefined;/,
+    "simulated sessions and failures must be gated by development mode and the recovery test opt-in",
+  );
+});

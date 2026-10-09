@@ -1,5 +1,6 @@
 // Login / Signup screen
 import React, { useState } from 'react';
+import { Link } from 'expo-router';
 import { Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking } from 'react-native';
 import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -241,6 +242,13 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             }}
             onSuccess={onDone}
           />
+          {__DEV__ && (
+            <Link href="/google-recovery-accessibility-test" asChild>
+              <Pressable accessibilityRole="link" style={s.devRecoveryTestLink}>
+                <Text style={s.devRecoveryTestText}>DEV: Google recovery TalkBack test</Text>
+              </Pressable>
+            </Link>
+          )}
         </View>
 
         <Text style={s.or}>{isSignup ? 'OR REGISTER WITH EMAIL' : 'OR USE EMAIL'}</Text>
@@ -403,6 +411,8 @@ const s = StyleSheet.create({
   tabTextOn: { color: C.bg },
   googleArea: { marginBottom: 2 },
   googleHint: { color: C.sub, textAlign: 'center', fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  devRecoveryTestLink: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 12 },
+  devRecoveryTestText: { color: C.blue, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   or: { color: C.dim, textAlign: 'center', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 18, marginBottom: 14 },
   signupFields: {
     backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderTopColor: C.neon,

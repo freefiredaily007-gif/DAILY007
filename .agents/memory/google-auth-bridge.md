@@ -80,3 +80,9 @@ On Android, keep Google failure speech on one path: the Google button announces 
 **Why:** Combining `AccessibilityInfo.announceForAccessibility` with an assertive parent error live region can speak the same Google failure twice. On 2026-10-09, the user confirmed on Android 16 with TalkBack that provider and Daily007 server failures were each spoken once and the Google button remained retryable after the duplicate path was removed.
 
 **How to apply:** When changing the Google sign-in error callback, preserve one Android announcement, visible error text, and a retry-enabled button after loading ends. Confirm platform-specific announcements on a real device; source tests alone do not establish TalkBack speech.
+
+On 2026-10-09, the user confirmed on Android TalkBack that missing-session, simulated recovery-request, and simulated owner-code errors each spoke once and left the relevant recovery action retryable.
+
+**Why:** The recovery actions use distinct controls from ordinary Google sign-in, and the development-only local simulation verified their announcement and retry paths without contacting recovery APIs or requiring the owner code.
+
+**How to apply:** Keep recovery simulations development-only and local. After changing recovery error handling, recheck all three paths with TalkBack; do not treat source assertions or browser behavior as proof of native speech.

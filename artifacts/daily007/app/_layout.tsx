@@ -35,6 +35,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="session-verification-test" />
       <Stack.Screen name="video-unavailable-test" />
+      <Stack.Screen name="google-recovery-accessibility-test" />
     </Stack>
   );
 }

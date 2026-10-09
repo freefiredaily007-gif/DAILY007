@@ -21,9 +21,15 @@ type Props = {
   disabled?: boolean;
   label?: string;
   allowRecoveryRequest?: boolean;
+  devRecoveryTestScenario?: GoogleRecoveryTestScenario;
 };
 
 const RECOVERY_CONFLICT = 'An account already uses this email. Sign in with your password, then connect Google in Profile.';
+
+export type GoogleRecoveryTestScenario =
+  | 'missing-session'
+  | 'recovery-request-failure'
+  | 'owner-code-failure';
 
 function reportGoogleError(onError: Props['onError'], message: string) {
   onError?.(message);
@@ -98,12 +104,14 @@ function ConfiguredGoogleButton({
   disabled,
   label = 'Continue with Google',
   allowRecoveryRequest,
+  devRecoveryTestScenario,
 }: Props) {
   const { startSSOFlow } = useSSO();
   const [busy, setBusy] = useState(false);
   const googleAttemptInFlight = useRef(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+  const isRecoveryTestMode = __DEV__ && allowRecoveryRequest === true && devRecoveryTestScenario !== undefined;
+  const [recoveryAvailable, setRecoveryAvailable] = useState(isRecoveryTestMode);
   const [recoverySubmitted, setRecoverySubmitted] = useState(false);
   const [ownerRecoveryCode, setOwnerRecoveryCode] = useState('');
   const [error, setError] = useState('');
@@ -118,6 +126,12 @@ function ConfiguredGoogleButton({
     setError(message);
     reportGoogleError(onError, message);
     if (allowRecoveryRequest && message === RECOVERY_CONFLICT) setRecoveryAvailable(true);
+  };
+
+  const getRecoverySession = () => {
+    if (!isRecoveryTestMode) return getClerkInstance().session;
+    if (devRecoveryTestScenario === 'missing-session') return null;
+    return { getToken: async () => 'development-only-recovery-test-token' };
   };
 
   const authenticateGoogle = async () => {
@@ -167,7 +181,7 @@ function ConfiguredGoogleButton({
   };
 
   const requestRecovery = async () => {
-    const activeSession = getClerkInstance().session;
+    const activeSession = getRecoverySession();
     if (!activeSession) {
       showError('Your Google session has expired. Choose Continue with Google and try again.');
       return;
@@ -176,6 +190,9 @@ function ConfiguredGoogleButton({
     try {
       const clerkJwt = await activeSession.getToken();
       if (!clerkJwt) throw new Error('A verified Google session is required. Please try again.');
+      if (isRecoveryTestMode) {
+        throw new Error('Test failure: recovery review was not submitted. You can retry the request.');
+      }
       await Api.requestGoogleRecovery(clerkJwt);
       setRecoveryAvailable(false);
       setRecoverySubmitted(true);
@@ -190,7 +207,7 @@ function ConfiguredGoogleButton({
   };
 
   const recoverWithOwnerCode = async () => {
-    const activeSession = getClerkInstance().session;
+    const activeSession = getRecoverySession();
     if (!activeSession) {
       showError('Your Google session has expired. Choose Continue with Google and try again.');
       return;
@@ -205,6 +222,9 @@ function ConfiguredGoogleButton({
     try {
       const clerkJwt = await activeSession.getToken();
       if (!clerkJwt) throw new Error('A verified Google session is required. Please try again.');
+      if (isRecoveryTestMode) {
+        throw new Error('Test rejection: the owner code was not accepted. You can retry recovery.');
+      }
       await Api.requestGoogleOwnerRecovery(clerkJwt, ownerRecoveryCode);
       recoveryCompleted = true;
       setOwnerRecoveryCode('');
@@ -245,10 +265,15 @@ function ConfiguredGoogleButton({
       {allowRecoveryRequest && (recoveryAvailable || error === RECOVERY_CONFLICT || recoverySubmitted) && (
         <View style={s.ownerRecovery}>
           <Text style={s.ownerRecoveryLabel}>
-            Sole Full Admin? Enter the owner recovery code configured in Replit Secrets. Daily007 does not store the code.
+            {isRecoveryTestMode
+              ? 'Local simulation only. Enter any dummy text; nothing is sent or checked.'
+              : 'Sole Full Admin? Enter the owner recovery code configured in Replit Secrets. Daily007 does not store the code.'}
           </Text>
           <Input
             accessibilityLabel="Owner recovery code"
+            accessibilityHint={isRecoveryTestMode
+              ? 'Enter any dummy text. Do not use the real owner recovery code.'
+              : undefined}
             testID="owner-recovery-code"
             value={ownerRecoveryCode}
             onChangeText={setOwnerRecoveryCode}
@@ -263,6 +288,9 @@ function ConfiguredGoogleButton({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Recover sole Full Admin account with owner code"
+            accessibilityHint={isRecoveryTestMode
+              ? 'Triggers a local test rejection. No recovery request is sent.'
+              : undefined}
             testID="recover-with-owner-code"
             disabled={recoveryBusy || !ownerRecoveryCode.trim()}
             onPress={recoverWithOwnerCode}
@@ -273,7 +301,9 @@ function ConfiguredGoogleButton({
             ]}
           >
             <Text style={s.recoveryButtonText}>
-              {recoveryBusy ? 'VERIFYING OWNER CODE…' : 'VERIFY OWNER CODE & RECOVER'}
+              {recoveryBusy
+                ? isRecoveryTestMode ? 'RUNNING LOCAL TEST…' : 'VERIFYING OWNER CODE…'
+                : isRecoveryTestMode ? 'TEST OWNER-CODE REJECTION' : 'VERIFY OWNER CODE & RECOVER'}
             </Text>
           </Pressable>
         </View>
