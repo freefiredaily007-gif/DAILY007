@@ -364,6 +364,107 @@ test("v2 room endpoint requires approval and an open release window", async () =
   });
 });
 
+test("unapproved players cannot access replacement room credentials after release opens", async () => {
+  roomAccessTestDb.reset();
+  setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000));
+
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  const pendingPlayerToken = makeToken(TEST_PENDING_PLAYER_ID, 0);
+  const rejectedPlayerToken = makeToken(TEST_REJECTED_PLAYER_ID, 0);
+  const unregisteredPlayerToken = makeToken(TEST_UNREGISTERED_PLAYER_ID, 0);
+  assert.ok(adminToken);
+  assert.ok(pendingPlayerToken);
+  assert.ok(rejectedPlayerToken);
+  assert.ok(unregisteredPlayerToken);
+
+  const replacementCredentials = {
+    roomId: "REPLACEMENT-ROOM-661",
+    roomPassword: "replacement-password-661",
+  };
+
+  await withServer(async (origin) => {
+    const saved = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/room`,
+      "PUT",
+      adminToken,
+      replacementCredentials,
+    );
+    assert.equal(saved.status, 200);
+    assert.equal(roomAccessTestDb.match.room_id, replacementCredentials.roomId);
+    assert.equal(roomAccessTestDb.match.room_password, replacementCredentials.roomPassword);
+
+    setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS - 60_000));
+    assert.equal(
+      isRoomCredentialReleaseOpen(
+        tournamentInstantFromStored(roomAccessTestDb.match.starts_at),
+        Date.now(),
+      ),
+      true,
+      "The replacement credentials should be tested after the release window opens.",
+    );
+
+    const players = [
+      {
+        label: "pending",
+        token: pendingPlayerToken,
+        expectedRegistrationId: TEST_PENDING_REGISTRATION_ID,
+        expectedStatus: "pending",
+      },
+      {
+        label: "rejected",
+        token: rejectedPlayerToken,
+        expectedRegistrationId: TEST_REJECTED_REGISTRATION_ID,
+        expectedStatus: "rejected",
+      },
+      {
+        label: "unregistered",
+        token: unregisteredPlayerToken,
+      },
+    ];
+
+    for (const player of players) {
+      const compatibility = await request(origin, "/my/registrations", "GET", player.token);
+      assert.equal(compatibility.status, 200, `${player.label} compatibility request should succeed`);
+      if (player.expectedRegistrationId) {
+        assert.deepEqual(
+          compatibility.body.map((registration: any) => registration.id),
+          [player.expectedRegistrationId],
+        );
+        const registration = compatibility.body[0];
+        assert.equal(registration.status, player.expectedStatus);
+        for (const field of ["roomId", "roomPassword", "roomTime"]) {
+          assert.equal(field in registration, false, `${player.label} registration must omit ${field}`);
+          assert.equal(
+            field in registration.tournament,
+            false,
+            `${player.label} nested tournament must omit ${field}`,
+          );
+        }
+      } else {
+        assert.deepEqual(compatibility.body, []);
+      }
+
+      const compatibilitySerialized = JSON.stringify(compatibility.body);
+      assert.equal(compatibilitySerialized.includes(replacementCredentials.roomId), false);
+      assert.equal(compatibilitySerialized.includes(replacementCredentials.roomPassword), false);
+
+      const v2 = await request(
+        origin,
+        `/daily007/v2/matches/${TEST_MATCH_ID}/room`,
+        "GET",
+        player.token,
+      );
+      assert.equal(v2.status, 403, `${player.label} v2 request should be denied`);
+      assert.equal("roomId" in v2.body, false);
+      assert.equal("roomPassword" in v2.body, false);
+      const v2Serialized = JSON.stringify(v2.body);
+      assert.equal(v2Serialized.includes(replacementCredentials.roomId), false);
+      assert.equal(v2Serialized.includes(replacementCredentials.roomPassword), false);
+    }
+  });
+});
+
 test("blocked player with an approved registration is denied room credentials from both player APIs", async () => {
   roomAccessTestDb.reset();
   roomAccessTestDb.registrations.push({
