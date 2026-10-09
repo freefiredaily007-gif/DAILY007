@@ -560,6 +560,33 @@ test("clearing and compatibility-saving room credentials preserves registrations
     assert.equal(publicDetailAfterSave.status, 200);
     assertPublicTournamentOmitsRoomCredentials(publicDetailAfterSave.body);
 
+    const publicParticipantsAfterSave = await requestPublic(
+      origin,
+      `/tournaments/${TEST_MATCH_ID}/participants`,
+    );
+    assert.equal(publicParticipantsAfterSave.status, 200);
+    assert.equal(publicParticipantsAfterSave.body.tournamentId, TEST_MATCH_ID);
+    assert.equal(Array.isArray(publicParticipantsAfterSave.body.participants), true);
+    const publicParticipantsSerialized = JSON.stringify(publicParticipantsAfterSave.body);
+    for (const field of ["roomId", "roomPassword", "roomTime"]) {
+      assert.equal(
+        publicParticipantsSerialized.includes(`"${field}"`),
+        false,
+        `${field} must be omitted from public participants after a compatibility room save.`,
+      );
+    }
+    for (const credential of [
+      replacementCredentials.roomId,
+      replacementCredentials.roomPassword,
+      roomAccessTestDb.match.room_time,
+    ]) {
+      assert.equal(
+        publicParticipantsSerialized.includes(credential),
+        false,
+        "Public participants must not contain replacement room credentials or room time.",
+      );
+    }
+
     roomAccessTestDb.match.starts_at = matchBefore.starts_at;
     assert.equal(roomAccessTestDb.match.status, matchBefore.status);
     assert.deepEqual(roomAccessTestDb.registrations, registrationsBefore);
