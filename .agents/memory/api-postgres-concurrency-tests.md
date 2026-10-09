@@ -45,6 +45,12 @@ For concurrent wallet debits on different matches with different fees, correlate
 
 **How to apply:** Assert each match's configured and paid fee, map its response balance to its ledger entry, and verify the ledger balance chain from the starting balance to the final wallet value.
 
+For concurrent tournament payouts to one player across different matches, hold the player's wallet row until both result requests are waiting on that row; then verify both awards, the full wallet-ledger balance chain, and accumulated stats.
+
+**Why:** The requests lock independent tournament rows, so a shared-wallet blocker is needed to prove overlap at the serialization point that protects both balance and stats updates.
+
+**How to apply:** Match `pg_stat_activity` against the wallet `FOR UPDATE` query, confirm both waiters are blocked by the test lock or each other, then release and assert each configured prize persisted once.
+
 **Rule:** When expanding a concurrency test to a new registration mode, retain prior mode coverage when it exercises a distinct write path.
 
 **Why:** Team signups add roster writes; replacing a solo race with a team race would lose regression coverage for wallet-only registrations.

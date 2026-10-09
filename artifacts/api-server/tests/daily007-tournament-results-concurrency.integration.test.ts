@@ -41,6 +41,13 @@ type TournamentFixture = {
   players: [PlayerFixture, PlayerFixture, ...PlayerFixture[]];
 };
 
+type SharedPlayerPayoutFixture = {
+  adminId: string;
+  playerId: string;
+  matchIds: [string, string];
+  registrations: [PlayerFixture, PlayerFixture];
+};
+
 after(async () => {
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
@@ -172,6 +179,73 @@ async function createFixture(playerCount = 2): Promise<TournamentFixture> {
   }
 }
 
+async function createSharedPlayerPayoutFixture(): Promise<SharedPlayerPayoutFixture> {
+  const playerId = randomUUID();
+  const fixture: SharedPlayerPayoutFixture = {
+    adminId: randomUUID(),
+    playerId,
+    matchIds: [randomUUID(), randomUUID()],
+    registrations: [
+      { userId: playerId, registrationId: randomUUID(), gameUid: `uid-${randomUUID()}` },
+      { userId: playerId, registrationId: randomUUID(), gameUid: `uid-${randomUUID()}` },
+    ],
+  };
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES ($1, 'Concurrency Test Admin', $2, 'test-salt', 'test-hash', 'admin', 0)`,
+      [fixture.adminId, `admin-${fixture.adminId}@example.test`],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, wallet_coins)
+       VALUES ($1, 'Shared Payout Player', $2, 'test-salt', 'test-hash', 100)`,
+      [fixture.playerId, `player-${fixture.playerId}@example.test`],
+    );
+
+    const prizes: [{ pool: number; distribution: string }, { pool: number; distribution: string }] = [
+      { pool: 300, distribution: "1st: 300 coins" },
+      { pool: 200, distribution: "2nd: 200 coins" },
+    ];
+    for (const [index, matchId] of fixture.matchIds.entries()) {
+      const prize = prizes[index];
+      assert.ok(prize);
+      await client.query(
+        `INSERT INTO daily007_v2_matches
+           (id, title, mode, game_mode, team_type, capacity, prize_pool, prize_distribution, starts_at)
+         VALUES ($1, $2, 'solo', 'battle_royale', 'solo', 48, $3, $4, now() - interval '1 hour')`,
+        [matchId, `Shared payout tournament ${index + 1}`, prize.pool, prize.distribution],
+      );
+      const registration = fixture.registrations[index];
+      assert.ok(registration);
+      await client.query(
+        `INSERT INTO daily007_v2_registrations
+           (id, match_id, captain_user_id, captain_name, captain_game_name,
+            captain_game_uid, team_name, entry_coins_paid, status)
+         VALUES ($1, $2, $3, 'Shared Payout Player', $4, $5, '', 0, 'approved')`,
+        [
+          registration.registrationId,
+          matchId,
+          fixture.playerId,
+          `SharedGame${index + 1}`,
+          registration.gameUid,
+        ],
+      );
+    }
+    await client.query("COMMIT");
+    return fixture;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function seedExistingPlayerHistory(player: PlayerFixture): Promise<void> {
   const client = await pool.connect();
   try {
@@ -226,6 +300,44 @@ async function cleanupFixture(fixture: TournamentFixture): Promise<void> {
     await client.query(
       "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
       [[fixture.adminId, ...playerIds]],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function cleanupSharedPlayerPayoutFixture(fixture: SharedPlayerPayoutFixture): Promise<void> {
+  const client = await pool.connect();
+  const registrationIds = fixture.registrations.map((registration) => registration.registrationId);
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.playerId],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_user_stats WHERE user_id = $1",
+      [fixture.playerId],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_result_awards WHERE registration_id = ANY($1::uuid[])",
+      [registrationIds],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = ANY($1::uuid[])",
+      [registrationIds],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
+      [fixture.matchIds],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[fixture.adminId, fixture.playerId]],
     );
     await client.query("COMMIT");
   } catch (error) {
@@ -372,6 +484,49 @@ async function waitForBlockedResultRequests(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Timed out waiting for ${expectedCount} result requests to block in PostgreSQL.`);
+}
+
+async function waitForBlockedWalletPayoutRequests(
+  blockerPid: number,
+  expectedCount: number,
+  timeoutMs = 5_000,
+): Promise<Array<{ pid: number; blockers: number[] }>> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blockers: number[] }>(
+      `SELECT activity.pid, pg_blocking_pids(activity.pid) AS blockers
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.wait_event_type = 'Lock'
+          AND activity.query LIKE $1
+        ORDER BY activity.query_start`,
+      ["%SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE%"],
+    );
+    if (result.rows.length >= expectedCount) {
+      assert.equal(
+        result.rows.length,
+        expectedCount,
+        `Only the ${expectedCount} shared-wallet payout requests should be blocked.`,
+      );
+      const requestPids = new Set(result.rows.map((row) => Number(row.pid)));
+      assert.ok(
+        result.rows.some((row) => row.blockers.includes(blockerPid)),
+        "At least one payout request must be waiting directly on the test's wallet-row lock.",
+      );
+      assert.ok(
+        result.rows.every((row) =>
+          row.blockers.some((pid) => pid === blockerPid || requestPids.has(pid)),
+        ),
+        "Every payout request must be queued behind the wallet lock or another payout request.",
+      );
+      return result.rows.map((row) => ({
+        pid: Number(row.pid),
+        blockers: row.blockers.map(Number),
+      }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} shared-wallet payout requests in PostgreSQL.`);
 }
 
 test("concurrent first-place submissions serialize on the real tournament row lock", async () => {
@@ -1685,6 +1840,188 @@ test("concurrent first-, second-, and third-place results preserve configured pr
     blocker.release();
     await Promise.allSettled(submissions);
     await cleanupFixture(fixture);
+  }
+});
+
+test("concurrent tournament payouts preserve one player's wallet history and accumulated stats", async () => {
+  const fixture = await createSharedPlayerPayoutFixture();
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let submissions: Promise<ResultResponse>[] = [];
+
+  try {
+    await seedExistingPlayerHistory(fixture.registrations[0]);
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [fixture.playerId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      submissions = [
+        submitResult(
+          origin,
+          fixture.adminId,
+          fixture.matchIds[0],
+          fixture.registrations[0],
+          1,
+          7,
+        ),
+        submitResult(
+          origin,
+          fixture.adminId,
+          fixture.matchIds[1],
+          fixture.registrations[1],
+          2,
+          3,
+        ),
+      ];
+
+      try {
+        const waitingRequests = await waitForBlockedWalletPayoutRequests(blockerPid, 2);
+        assert.equal(waitingRequests.length, 2);
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const results = await Promise.all(submissions);
+      assert.deepEqual(results.map((result) => result.status), [201, 201]);
+      assert.deepEqual(
+        results.map((result) => ({
+          registrationId: result.body.registrationId,
+          userId: result.body.userId,
+          prizeCoins: result.body.prizeCoins,
+        })),
+        [
+          {
+            registrationId: fixture.registrations[0].registrationId,
+            userId: fixture.playerId,
+            prizeCoins: 300,
+          },
+          {
+            registrationId: fixture.registrations[1].registrationId,
+            userId: fixture.playerId,
+            prizeCoins: 200,
+          },
+        ],
+        "each tournament must award its configured prize to the shared player",
+      );
+      const responseBalances = results.map((result) => result.body.walletCoins).sort((a, b) =>
+        Number(a) - Number(b),
+      );
+      assert.ok(
+        [1200, 1300].includes(Number(responseBalances[0])) &&
+          Number(responseBalances[1]) === 1500,
+        `both responses must reflect the serialized wallet balance: ${JSON.stringify(responseBalances)}`,
+      );
+
+      const awards = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        user_id: string;
+        rank: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT match_id, registration_id, user_id, rank, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE registration_id = ANY($1::uuid[])
+          ORDER BY match_id, registration_id`,
+        [fixture.registrations.map((registration) => registration.registrationId)],
+      );
+      assert.deepEqual(
+        awards.rows,
+        [
+          {
+            match_id: fixture.matchIds[0],
+            registration_id: fixture.registrations[0].registrationId,
+            user_id: fixture.playerId,
+            rank: 1,
+            kills: 7,
+            prize_coins: 300,
+          },
+          {
+            match_id: fixture.matchIds[1],
+            registration_id: fixture.registrations[1].registrationId,
+            user_id: fixture.playerId,
+            rank: 2,
+            kills: 3,
+            prize_coins: 200,
+          },
+        ].sort((left, right) =>
+          left.match_id.localeCompare(right.match_id) ||
+          left.registration_id.localeCompare(right.registration_id),
+        ),
+        "each result award must persist exactly once",
+      );
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [fixture.playerId],
+      );
+      assert.deepEqual(wallet.rows, [{ wallet_coins: 1500 }]);
+
+      const ledger = await pool.query<{
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY balance_after`,
+        [fixture.playerId],
+      );
+      assert.equal(ledger.rows.length, 3, "wallet history must contain its original row and two payout credits");
+      assert.deepEqual(ledger.rows[0], {
+        amount: 500,
+        balance_after: 1000,
+        reason: "match_prize",
+      });
+      const payoutLedger = ledger.rows.slice(1);
+      assert.deepEqual(
+        payoutLedger.map((entry) => entry.amount).sort((left, right) => left - right),
+        [200, 300],
+        "each configured prize must be credited once",
+      );
+      let expectedBalance = 1000;
+      for (const entry of payoutLedger) {
+        assert.equal(entry.reason, "match_prize");
+        expectedBalance += entry.amount;
+        assert.equal(entry.balance_after, expectedBalance, "ledger balances must reflect both serialized credits");
+      }
+      assert.equal(expectedBalance, 1500);
+
+      const stats = await pool.query<{
+        matches: number;
+        wins: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT matches, wins, kills, prize_coins
+           FROM daily007_v2_user_stats
+          WHERE user_id = $1`,
+        [fixture.playerId],
+      );
+      assert.deepEqual(stats.rows, [{
+        matches: 7,
+        wins: 2,
+        kills: 52,
+        prize_coins: 1000,
+      }], "both results must increment the player's existing statistics");
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await Promise.allSettled(submissions);
+    await cleanupSharedPlayerPayoutFixture(fixture);
   }
 });
 
