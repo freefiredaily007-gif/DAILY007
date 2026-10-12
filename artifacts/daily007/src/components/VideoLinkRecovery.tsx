@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { AccessibilityInfo, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from './typography';
 import { useColors } from '@/hooks/useColors';
@@ -24,6 +24,17 @@ export function VideoLinkRecovery({
   onCopyLink,
 }: VideoLinkRecoveryProps) {
   const colors = useColors();
+  const errorAnnouncement =
+    'Couldn’t open this video in YouTube or your browser. Retry the browser link or copy it to open it manually.';
+
+  useEffect(() => {
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(errorAnnouncement);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' && status) AccessibilityInfo.announceForAccessibility(status);
+  }, [status]);
+
   const styles = StyleSheet.create({
     card: {
       backgroundColor: colors.card,
@@ -63,7 +74,7 @@ export function VideoLinkRecovery({
           accessibilityLiveRegion="polite"
           style={styles.error}
         >
-          Couldn’t open this video in YouTube or your browser. Retry the browser link or copy it to open it manually.
+          {errorAnnouncement}
         </Text>
       </View>
       <View style={styles.actions}>

@@ -89,6 +89,16 @@ test('double failure offers browser retry and copy recovery without resetting se
   );
   assert.match(videoScreenSource, /<VideoLinkRecovery/);
   assert.match(recoverySource, /Couldn’t open this video in YouTube or your browser\./);
+  assert.match(
+    recoverySource,
+    /if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(errorAnnouncement\)/,
+    'VoiceOver should hear the initial external-link failure.',
+  );
+  assert.match(
+    recoverySource,
+    /if \(Platform\.OS === 'ios' && status\) AccessibilityInfo\.announceForAccessibility\(status\)/,
+    'VoiceOver should hear retry and copy status feedback.',
+  );
   assert.match(recoverySource, /testID="video-open-link-error"/);
   assert.match(recoverySource, /testID="video-retry-browser"/);
   assert.match(recoverySource, /accessibilityLabel="Retry opening the video in your browser"/);
