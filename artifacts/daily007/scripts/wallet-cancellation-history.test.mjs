@@ -27,6 +27,14 @@ const iosMaestroFlow = await readFile(
   new URL('../maestro/wallet-cancellation-refund/voiceover-ios.yaml', import.meta.url),
   'utf8',
 );
+const largeTextMaestroFlow = await readFile(
+  new URL('../maestro/wallet-cancellation-refund/large-text.yaml', import.meta.url),
+  'utf8',
+);
+const largeTextAndroidRunner = await readFile(
+  new URL('./run-android-wallet-cancellation-refund-large-text.mjs', import.meta.url),
+  'utf8',
+);
 const packageSource = JSON.parse(await readFile(
   new URL('../package.json', import.meta.url),
   'utf8',
@@ -89,7 +97,7 @@ test('native fixture exposes the production cancellation-refund row as one compl
   assert.match(nativeTestSource, /amount: 27/);
   assert.match(nativeTestSource, /2030-02-03T10:20:00\.000Z/);
   assert.match(nativeTestSource, /balanceAfter: 155/);
-  assert.match(nativeTestSource, /eachDetailAppearsOnce/);
+  assert.match(nativeTestSource, /accessibilityDetailsAppearOnce/);
   assert.doesNotMatch(nativeTestSource, /\bApi\.|\bfetch\s*\(/);
 
   assert.match(maestroFlow, /wallet-cancellation-refund-test/);
@@ -101,6 +109,27 @@ test('native fixture exposes the production cancellation-refund row as one compl
   assert.equal(
     packageSource.scripts['test:android-wallet-cancellation-refund'],
     'maestro test maestro/wallet-cancellation-refund',
+  );
+});
+
+test('Android checks every refund detail at 1.5× text and restores the original font scale', () => {
+  assert.match(refundRowSource, /fontScale >= 1\.5/);
+  assert.match(refundRowSource, /cardLarge:\s*\{\s*flexDirection: 'column'/);
+  assert.match(nativeTestSource, /Every refund detail is visible without clipping or overlap at 1\.5×/);
+  assert.match(nativeTestSource, /detailsDoNotOverlap/);
+  assert.match(nativeTestSource, /detailTextFitsBounds/);
+  assert.match(nativeTestSource, /detailsFitCard/);
+  assert.match(nativeTestSource, /hasEveryDetail/);
+  assert.match(largeTextMaestroFlow, /Cancellation refund fixture · font scale 1\.5/);
+  assert.match(largeTextMaestroFlow, /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./);
+  assert.match(largeTextMaestroFlow, /Every refund detail is visible without clipping or overlap at 1\.5×/);
+  assert.match(largeTextAndroidRunner, /settings', 'put', 'system', 'font_scale', '1\.5'/);
+  assert.match(largeTextAndroidRunner, /font_scale',\s*originalFontScale/);
+  assert.match(largeTextAndroidRunner, /finally\s*\{/);
+  assert.match(largeTextAndroidRunner, /maestro', \['test', 'maestro\/wallet-cancellation-refund\/large-text\.yaml'\]/);
+  assert.equal(
+    packageSource.scripts['test:android-wallet-cancellation-refund-large-text'],
+    'node scripts/run-android-wallet-cancellation-refund-large-text.mjs',
   );
 });
 

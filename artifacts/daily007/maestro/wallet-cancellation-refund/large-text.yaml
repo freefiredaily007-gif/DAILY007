@@ -1,0 +1,18 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/wallet-cancellation-refund-test
+- extendedWaitUntil:
+    visible:
+      id: wallet-cancellation-refund-fixture-banner
+    timeout: 15000
+- assertVisible:
+    text: "Cancellation refund fixture · font scale 1.5"
+- assertVisible:
+    id: wallet-cancellation-refund-row
+- assertVisible:
+    text: "Entry fee refunded — Legacy Clash Cup (tournament cancelled). +27 coins credited. Date: 2030-02-03 10:20. Balance after: 155 coins."
+- assertVisible:
+    id: wallet-cancellation-refund-large-text-result
+- assertVisible:
+    text: "Every refund detail is visible without clipping or overlap at 1.5×"
