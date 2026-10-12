@@ -84,7 +84,12 @@ try {
 
     for (const cycle of cycles) {
       console.log(`Checking ${cycle.name} leaderboard at ${scale.label}× text scale.`);
-      const result = run("maestro", ["test", flowPath], {
+      const maestroArgs = ["test"];
+      if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
+        maestroArgs.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
+      }
+      maestroArgs.push(flowPath);
+      const result = run("maestro", maestroArgs, {
         stdio: "inherit",
         env: {
           ...process.env,

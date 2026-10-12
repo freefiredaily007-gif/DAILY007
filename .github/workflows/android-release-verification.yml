@@ -116,6 +116,8 @@ jobs:
             set -eu
 
             DIAG_DIR="$GITHUB_WORKSPACE/android-emulator-diagnostics"
+            export MAESTRO_TEST_OUTPUT_DIR="$DIAG_DIR/maestro-output"
+            mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
             METRO_PID=""
             cleanup() {
               adb logcat -d -t 2000 > "$DIAG_DIR/android-logcat.txt" 2>&1 || true
@@ -189,10 +191,10 @@ jobs:
             run_maestro_suite session-verification test:android-session-verification
 
       - name: Upload Android emulator diagnostics
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: android-emulator-diagnostics
+          name: android-emulator-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: android-emulator-diagnostics/
           if-no-files-found: warn
           retention-days: 3

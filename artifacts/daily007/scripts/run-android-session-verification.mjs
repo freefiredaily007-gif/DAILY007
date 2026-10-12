@@ -90,7 +90,12 @@ function restoreConnectivity() {
 
 function runMaestro(flowPath) {
   console.log(`Running Android flow ${flowPath}.`);
-  const result = run("maestro", ["test", flowPath], {
+  const args = ["test"];
+  if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
+    args.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
+  }
+  args.push(flowPath);
+  const result = run("maestro", args, {
     stdio: "inherit",
     env: { ...process.env, EXPO_DEV_URL: expoDevUrl },
   });
