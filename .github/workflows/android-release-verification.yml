@@ -100,6 +100,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Prepare Android emulator diagnostics
+        run: mkdir -p android-emulator-diagnostics
+
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -112,8 +115,32 @@ jobs:
           script: |
             set -euo pipefail
 
-            adb install -r "$RUNNER_TEMP/expo-go.apk"
-            adb reverse tcp:8081 tcp:8081
+            DIAG_DIR="$GITHUB_WORKSPACE/android-emulator-diagnostics"
+            METRO_PID=""
+            cleanup() {
+              adb logcat -d -t 2000 > "$DIAG_DIR/android-logcat.txt" 2>&1 || true
+              if [ -n "$METRO_PID" ]; then
+                kill "$METRO_PID" 2>/dev/null || true
+              fi
+            }
+            trap cleanup EXIT
+
+            run_logged() {
+              command_name="$1"
+              shift
+              command_log="$DIAG_DIR/${command_name}.log"
+              if "$@" > "$command_log" 2>&1; then
+                cat "$command_log"
+              else
+                command_status=$?
+                cat "$command_log"
+                echo "Android emulator command ${command_name} failed with exit code ${command_status}." >&2
+                return "$command_status"
+              fi
+            }
+
+            run_logged expo-go-install adb install -r "$RUNNER_TEMP/expo-go.apk"
+            run_logged adb-reverse adb reverse tcp:8081 tcp:8081
 
             EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
             EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
@@ -121,14 +148,8 @@ jobs:
             CI=1 \
               pnpm --filter @workspace/daily007 exec expo start \
                 --go --localhost --port 8081 \
-                > "$RUNNER_TEMP/daily007-metro.log" 2>&1 &
+                > "$DIAG_DIR/daily007-metro.log" 2>&1 &
             METRO_PID=$!
-
-            cleanup() {
-              adb logcat -d -t 2000 > "$RUNNER_TEMP/android-logcat.txt" 2>&1 || true
-              kill "$METRO_PID" 2>/dev/null || true
-            }
-            trap cleanup EXIT
 
             metro_ready=false
             for attempt in $(seq 1 90); do
@@ -140,16 +161,16 @@ jobs:
             done
 
             if [ "$metro_ready" != true ]; then
-              cat "$RUNNER_TEMP/daily007-metro.log"
+              cat "$DIAG_DIR/daily007-metro.log"
               echo "Metro did not become ready on port 8081." >&2
               exit 1
             fi
 
-            adb shell pm path host.exp.exponent
+            run_logged expo-go-package-path adb shell pm path host.exp.exponent
             run_maestro_suite() {
               suite_name="$1"
               package_script="$2"
-              suite_log="$RUNNER_TEMP/maestro-${suite_name}.log"
+              suite_log="$DIAG_DIR/maestro-${suite_name}.log"
               echo "Running Android Maestro suite: ${suite_name}"
               if EXPO_DEV_URL=exp://127.0.0.1:8081 \
                 pnpm --filter @workspace/daily007 run "$package_script" > "$suite_log" 2>&1; then
@@ -168,13 +189,10 @@ jobs:
             run_maestro_suite session-verification test:android-session-verification
 
       - name: Upload Android emulator diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-emulator-diagnostics
-          path: |
-            ${{ runner.temp }}/daily007-metro.log
-            ${{ runner.temp }}/maestro-*.log
-            ${{ runner.temp }}/android-logcat.txt
+          path: android-emulator-diagnostics/
           if-no-files-found: warn
           retention-days: 3
