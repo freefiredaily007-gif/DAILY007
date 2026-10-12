@@ -247,6 +247,7 @@ function createProfileScreen(user) {
     },
     useApp: () => ({ user, refresh: async () => user, logout() {} }),
     useNavigation: () => ({ navigate() {} }),
+    useFocusEffect: () => {},
     useDaily007ChangePassword: () => ({
       mutateAsync: async () => {},
       isPending: false,
