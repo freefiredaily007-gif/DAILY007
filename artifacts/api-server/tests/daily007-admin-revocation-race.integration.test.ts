@@ -159,6 +159,53 @@ async function seedRecoveryQueueRaceFixture(
   return { googleEmail, createdAt, accountName, accountEmail, phone, gameUid };
 }
 
+async function seedFinancialReadRaceFixture(
+  readerId: string,
+  demoterId: string,
+  playerId: string,
+  paymentId: string,
+  withdrawalId: string,
+): Promise<{ email: string; payerUpiId: string; withdrawalAccount: string }> {
+  const email = `financial-player-${playerId}@example.test`;
+  const payerUpiId = `payer-${playerId}@upi`;
+  const withdrawalAccount = `private-bank-account-${playerId}`;
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, role, wallet_coins)
+     VALUES
+       ($1, 'Financial Read Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+       ($3, 'Financial Read Demoter', $4, 'test-salt', 'test-hash', 'admin', 0),
+       ($5, 'Financial Player', $6, 'test-salt', 'test-hash', 'user', 0)`,
+    [
+      readerId,
+      `financial-reader-${readerId}@example.test`,
+      demoterId,
+      `financial-demoter-${demoterId}@example.test`,
+      playerId,
+      email,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_payments
+       (id, user_id, coins, amount, payer_upi_id, reference_normalized, reference, proof_object_path)
+     VALUES ($1, $2, 30, 30, $3, $4, $4, $5)`,
+    [
+      paymentId,
+      playerId,
+      payerUpiId,
+      `financial-payment-${paymentId}`,
+      `/objects/uploads/daily007/payment-proofs/${playerId}/${randomUUID()}.png`,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_withdrawals
+       (id, user_id, coins, method, account)
+     VALUES ($1, $2, 25, 'UPI', $3)`,
+    [withdrawalId, playerId, withdrawalAccount],
+  );
+  return { email, payerUpiId, withdrawalAccount };
+}
+
 async function waitForBlockedQuery(fragment: string, description: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -176,6 +223,32 @@ async function waitForBlockedQuery(fragment: string, description: string, timeou
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`Timed out waiting for the ${description} to block in PostgreSQL.`);
+}
+
+async function waitForBlockedQueryCountBy(
+  waitingFragment: string,
+  blockingFragment: string,
+  expectedCount: number,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+         FROM pg_stat_activity AS waiting
+         CROSS JOIN LATERAL unnest(pg_blocking_pids(waiting.pid)) AS blockers(blocker_pid)
+         JOIN pg_stat_activity AS blocker ON blocker.pid = blocker_pid
+        WHERE waiting.pid <> pg_backend_pid()
+          AND waiting.wait_event_type = 'Lock'
+          AND waiting.query ILIKE $1
+          AND blocker.query ILIKE $2`,
+      [`%${waitingFragment}%`, `%${blockingFragment}%`],
+    );
+    if ((result.rows[0]?.count ?? 0) >= expectedCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description} in PostgreSQL.`);
 }
 
 async function waitForQueryBlockedBy(
@@ -1667,5 +1740,250 @@ test("a concurrent demotion waits until an authorized recovery queue read finish
       "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
       [[readerId, demoterId, playerId]],
     );
+  }
+});
+
+test("financial reads queued behind an admin demotion return no private payment details", async () => {
+  const readerId = randomUUID();
+  const demoterId = randomUUID();
+  const playerId = randomUUID();
+  const paymentId = randomUUID();
+  const withdrawalId = randomUUID();
+  const pauseKey = 740082n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+  let readPromises: Promise<{ status: number; body: unknown }>[] = [];
+
+  try {
+    const fixture = await seedFinancialReadRaceFixture(
+      readerId,
+      demoterId,
+      playerId,
+      paymentId,
+      withdrawalId,
+    );
+    await pool.query("CREATE TABLE daily007_test_paused_financial_demotions (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_paused_financial_demotions (id) VALUES ($1)",
+      [readerId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_financial_demotion() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.role = 'admin'
+           AND NEW.role = 'tournament_admin'
+           AND EXISTS (
+             SELECT 1 FROM daily007_test_paused_financial_demotions WHERE id = NEW.id
+           ) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_financial_demotion
+      BEFORE UPDATE OF role ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_financial_demotion()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      demotionPromise = patchJson(origin, `/admin/users/${readerId}/role`, demoterId, {
+        role: "tournament_admin",
+      });
+      const demotionQuery = "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role";
+      await waitForBlockedQuery(
+        demotionQuery,
+        "the financial-read demotion to pause while holding the exclusive role gate",
+      );
+
+      readPromises = [
+        getJson(origin, "/admin/payments", readerId),
+        getJson(origin, `/admin/payments/${paymentId}/proof-url`, readerId),
+        getJson(origin, "/admin/withdrawals", readerId),
+      ];
+      await waitForBlockedQueryCountBy(
+        "SELECT pg_advisory_xact_lock_shared(740073)",
+        demotionQuery,
+        readPromises.length,
+        "all financial reads to queue behind the demotion",
+      );
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      pauseLockHeld = false;
+      const [demotion, ...reads] = await Promise.all([demotionPromise, ...readPromises]);
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+      assert.deepEqual(reads.map((read) => read.status), [403, 403, 403]);
+      for (const read of reads) {
+        assert.deepEqual(read.body, { error: "Administrator access is required." });
+        const serialized = JSON.stringify(read.body);
+        assert.equal(serialized.includes(fixture.email), false);
+        assert.equal(serialized.includes(fixture.payerUpiId), false);
+        assert.equal(serialized.includes(fixture.withdrawalAccount), false);
+        assert.equal(serialized.includes("https://"), false);
+      }
+    });
+
+    const reader = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [readerId],
+    );
+    assert.equal(reader.rows[0]?.role, "tournament_admin");
+  } finally {
+    if (blocker) {
+      if (pauseLockHeld) {
+        await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (demotionPromise || readPromises.length > 0) {
+      await Promise.allSettled([demotionPromise, ...readPromises].filter(Boolean) as Promise<unknown>[]);
+    }
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_pause_financial_demotion ON daily007_v2_users");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_financial_demotion()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_financial_demotions");
+    await pool.query("DELETE FROM daily007_v2_payments WHERE id = $1", [paymentId]);
+    await pool.query("DELETE FROM daily007_v2_withdrawals WHERE id = $1", [withdrawalId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[readerId, demoterId, playerId]],
+    );
+  }
+});
+
+test("financial reads already under the admin role gate finish before demotion", async () => {
+  const readerId = randomUUID();
+  const demoterId = randomUUID();
+  const playerId = randomUUID();
+  const paymentId = randomUUID();
+  const withdrawalId = randomUUID();
+  const privateObjectDir = process.env.PRIVATE_OBJECT_DIR;
+  const originalFetch = globalThis.fetch;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let tableLockHeld = false;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+  let paymentRead: Promise<{ status: number; body: unknown }> | undefined;
+  let proofRead: Promise<{ status: number; body: unknown }> | undefined;
+  let withdrawalRead: Promise<{ status: number; body: unknown }> | undefined;
+  let markSignerStarted: (() => void) | undefined;
+  let releaseSigner: ((response: Response) => void) | undefined;
+  let signerReleased = false;
+  const signerStarted = new Promise<void>((resolve) => { markSignerStarted = resolve; });
+  const heldSignerResponse = new Promise<Response>((resolve) => { releaseSigner = resolve; });
+
+  try {
+    const fixture = await seedFinancialReadRaceFixture(
+      readerId,
+      demoterId,
+      playerId,
+      paymentId,
+      withdrawalId,
+    );
+    process.env.PRIVATE_OBJECT_DIR = "daily007-test-bucket";
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === "http://127.0.0.1:1106/object-storage/signed-object-url") {
+        markSignerStarted?.();
+        return heldSignerResponse;
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "LOCK TABLE daily007_v2_payments, daily007_v2_withdrawals IN ACCESS EXCLUSIVE MODE",
+    );
+    tableLockHeld = true;
+
+    await withServer(async (origin) => {
+      paymentRead = getJson(origin, "/admin/payments", readerId);
+      proofRead = getJson(origin, `/admin/payments/${paymentId}/proof-url`, readerId);
+      withdrawalRead = getJson(origin, "/admin/withdrawals", readerId);
+      await Promise.all([
+        waitForBlockedQuery(
+          "FROM daily007_v2_payments p JOIN",
+          "the authorized payments read after its role check",
+        ),
+        waitForBlockedQuery(
+          "SELECT proof_object_path FROM daily007_v2_payments",
+          "the authorized proof lookup after its role check",
+        ),
+        waitForBlockedQuery(
+          "FROM daily007_v2_withdrawals w JOIN",
+          "the authorized withdrawals read after its role check",
+        ),
+      ]);
+
+      demotionPromise = patchJson(origin, `/admin/users/${readerId}/role`, demoterId, {
+        role: "tournament_admin",
+      });
+      await waitForQueryBlockedBy(
+        "SELECT pg_advisory_xact_lock(740073)",
+        "SELECT proof_object_path FROM daily007_v2_payments",
+        "the demotion to wait for the in-flight proof read",
+      );
+
+      await blocker!.query("COMMIT");
+      tableLockHeld = false;
+      await signerStarted;
+      const [payments, withdrawals] = await Promise.all([paymentRead, withdrawalRead]);
+      assert.equal(payments.status, 200, JSON.stringify(payments.body));
+      assert.equal(withdrawals.status, 200, JSON.stringify(withdrawals.body));
+      assert.equal(JSON.stringify(payments.body).includes(fixture.payerUpiId), true);
+      assert.equal(JSON.stringify(payments.body).includes(fixture.email), true);
+      assert.equal(JSON.stringify(withdrawals.body).includes(fixture.withdrawalAccount), true);
+      assert.equal(JSON.stringify(withdrawals.body).includes(fixture.email), true);
+
+      await waitForQueryBlockedBy(
+        "SELECT pg_advisory_xact_lock(740073)",
+        "SELECT proof_object_path FROM daily007_v2_payments",
+        "the demotion to keep waiting until the proof URL has been prepared",
+      );
+      releaseSigner?.(new Response(JSON.stringify({
+        signed_url: "https://storage.example.test/financial-proof",
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+      signerReleased = true;
+
+      const [proof, demotion] = await Promise.all([proofRead, demotionPromise]);
+      assert.equal(proof.status, 200, JSON.stringify(proof.body));
+      assert.deepEqual(proof.body, { url: "https://storage.example.test/financial-proof" });
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+    });
+
+    const reader = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [readerId],
+    );
+    assert.equal(reader.rows[0]?.role, "tournament_admin");
+  } finally {
+    if (blocker) {
+      if (tableLockHeld) await blocker.query("ROLLBACK").catch(() => undefined);
+      blocker.release();
+    }
+    if (!signerReleased) {
+      releaseSigner?.(new Response(JSON.stringify({
+        signed_url: "https://storage.example.test/financial-proof",
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    }
+    globalThis.fetch = originalFetch;
+    if (demotionPromise || paymentRead || proofRead || withdrawalRead) {
+      await Promise.allSettled(
+        [demotionPromise, paymentRead, proofRead, withdrawalRead].filter(Boolean) as Promise<unknown>[],
+      );
+    }
+    await pool.query("DELETE FROM daily007_v2_payments WHERE id = $1", [paymentId]);
+    await pool.query("DELETE FROM daily007_v2_withdrawals WHERE id = $1", [withdrawalId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[readerId, demoterId, playerId]],
+    );
+    if (privateObjectDir === undefined) delete process.env.PRIVATE_OBJECT_DIR;
+    else process.env.PRIVATE_OBJECT_DIR = privateObjectDir;
   }
 });

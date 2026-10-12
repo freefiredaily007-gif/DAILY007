@@ -419,49 +419,62 @@ router.get("/my/withdrawals", authenticate, async (req, res): Promise<void> => {
 });
 
 router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
-  const result = await pool.query(
-    `SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email,
-            p.coins, p.amount, p.reference AS "reference", p.reference AS "txnId", p.status,
-            p.payer_upi_id AS "payerUpiId",
-            p.proof_object_path IS NOT NULL AS "proofAvailable",
-            p.review_reason AS "reviewReason",
-            p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
-       FROM daily007_v2_payments p JOIN daily007_v2_users u ON u.id = p.user_id
-      WHERE p.status <> 'deleted'
-      ORDER BY p.created_at DESC LIMIT 500`,
-  );
-  res.json(result.rows);
+  try {
+    const rows = await roleTransaction(req, "admin", async (client) => {
+      const result = await client.query(
+        `SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email,
+                p.coins, p.amount, p.reference AS "reference", p.reference AS "txnId", p.status,
+                p.payer_upi_id AS "payerUpiId",
+                p.proof_object_path IS NOT NULL AS "proofAvailable",
+                p.review_reason AS "reviewReason",
+                p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
+           FROM daily007_v2_payments p JOIN daily007_v2_users u ON u.id = p.user_id
+          WHERE p.status <> 'deleted'
+          ORDER BY p.created_at DESC LIMIT 500`,
+      );
+      return result.rows;
+    });
+    res.json(rows);
+  } catch (e) { respondFailure(res, e); }
 });
 
 router.get("/admin/payments/:id/proof-url", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
   if (!validId(req.params.id)) { error(res, 400, "Payment request id must be a UUID."); return; }
-  const result = await pool.query<{ proof_object_path: string | null }>(
-    "SELECT proof_object_path FROM daily007_v2_payments WHERE id = $1 AND status <> 'deleted'",
-    [req.params.id],
-  );
-  const objectPath = result.rows[0]?.proof_object_path;
-  if (!objectPath || !isWalletObjectPath(objectPath)) { error(res, 404, "Payment proof is unavailable."); return; }
   try {
-    res.json({ url: await createWalletImageReadUrl(objectPath) });
-  } catch {
-    error(res, 404, "Payment proof is unavailable.");
-  }
+    const result = await roleTransaction(req, "admin", async (client) => {
+      const payment = await client.query<{ proof_object_path: string | null }>(
+        "SELECT proof_object_path FROM daily007_v2_payments WHERE id = $1 AND status <> 'deleted'",
+        [req.params.id],
+      );
+      const objectPath = payment.rows[0]?.proof_object_path;
+      if (!objectPath || !isWalletObjectPath(objectPath)) return null;
+      try {
+        return await createWalletImageReadUrl(objectPath);
+      } catch {
+        return null;
+      }
+    });
+    if (!result) { error(res, 404, "Payment proof is unavailable."); return; }
+    res.json({ url: result });
+  } catch (e) { respondFailure(res, e); }
 });
 
 router.get("/admin/withdrawals", authenticate, async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
-  const result = await pool.query(
-    `SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email,
-            w.coins, w.method, w.account, w.status, w.payout_status AS "payoutStatus",
-            w.review_reason AS "reviewReason",
-            w.created_at AS "createdAt", w.reviewed_at AS "reviewedAt"
-       FROM daily007_v2_withdrawals w JOIN daily007_v2_users u ON u.id = w.user_id
-      WHERE w.status <> 'deleted'
-      ORDER BY w.created_at DESC LIMIT 500`,
-  );
-  res.json(result.rows);
+  try {
+    const rows = await roleTransaction(req, "admin", async (client) => {
+      const result = await client.query(
+        `SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email,
+                w.coins, w.method, w.account, w.status, w.payout_status AS "payoutStatus",
+                w.review_reason AS "reviewReason",
+                w.created_at AS "createdAt", w.reviewed_at AS "reviewedAt"
+           FROM daily007_v2_withdrawals w JOIN daily007_v2_users u ON u.id = w.user_id
+          WHERE w.status <> 'deleted'
+          ORDER BY w.created_at DESC LIMIT 500`,
+      );
+      return result.rows;
+    });
+    res.json(rows);
+  } catch (e) { respondFailure(res, e); }
 });
 
 router.post("/admin/withdrawals/:id/payout", authenticate, async (req, res): Promise<void> => {

@@ -12,6 +12,40 @@ CREATE TABLE daily007_v2_users (
   wallet_coins integer NOT NULL DEFAULT 0 CHECK (wallet_coins >= 0)
 );
 
+CREATE TABLE daily007_v2_payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  coins integer NOT NULL CHECK (coins BETWEEN 1 AND 2147483647),
+  amount integer NOT NULL,
+  payer_upi_id text,
+  reference_normalized text NOT NULL UNIQUE,
+  reference text NOT NULL,
+  proof_object_path text,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'deleted')),
+  review_reason text,
+  reviewed_by uuid REFERENCES daily007_v2_users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  reviewed_at timestamptz
+);
+
+CREATE TABLE daily007_v2_withdrawals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  coins integer NOT NULL CHECK (coins BETWEEN 1 AND 2147483647),
+  method text NOT NULL,
+  account text NOT NULL,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'deleted')),
+  payout_status text NOT NULL DEFAULT 'not_paid'
+    CHECK (payout_status IN ('not_paid', 'manual_payout_required', 'paid')),
+  review_reason text,
+  reviewed_by uuid REFERENCES daily007_v2_users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  reviewed_at timestamptz,
+  paid_at timestamptz
+);
+
 CREATE TABLE daily007_v2_google_recovery_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
