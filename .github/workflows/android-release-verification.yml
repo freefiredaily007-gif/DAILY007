@@ -125,6 +125,7 @@ jobs:
             METRO_PID=$!
 
             cleanup() {
+              adb logcat -d -t 2000 > "$RUNNER_TEMP/android-logcat.txt" 2>&1 || true
               kill "$METRO_PID" 2>/dev/null || true
             }
             trap cleanup EXIT
@@ -145,11 +146,35 @@ jobs:
             fi
 
             adb shell pm path host.exp.exponent
-            EXPO_DEV_URL=exp://127.0.0.1:8081 \
-              pnpm --filter @workspace/daily007 run test:android-join-recovery
-            EXPO_DEV_URL=exp://127.0.0.1:8081 \
-              pnpm --filter @workspace/daily007 run test:android-wallet-cancellation-refund
-            EXPO_DEV_URL=exp://127.0.0.1:8081 \
-              pnpm --filter @workspace/daily007 run test:android-leaderboard-large-text
-            EXPO_DEV_URL=exp://127.0.0.1:8081 \
-              pnpm --filter @workspace/daily007 run test:android-session-verification
+            run_maestro_suite() {
+              suite_name="$1"
+              package_script="$2"
+              suite_log="$RUNNER_TEMP/maestro-${suite_name}.log"
+              echo "Running Android Maestro suite: ${suite_name}"
+              if EXPO_DEV_URL=exp://127.0.0.1:8081 \
+                pnpm --filter @workspace/daily007 run "$package_script" > "$suite_log" 2>&1; then
+                cat "$suite_log"
+              else
+                suite_status=$?
+                cat "$suite_log"
+                echo "Android Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
+                return "$suite_status"
+              fi
+            }
+
+            run_maestro_suite join-recovery test:android-join-recovery
+            run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
+            run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
+            run_maestro_suite session-verification test:android-session-verification
+
+      - name: Upload Android emulator diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-diagnostics
+          path: |
+            ${{ runner.temp }}/daily007-metro.log
+            ${{ runner.temp }}/maestro-*.log
+            ${{ runner.temp }}/android-logcat.txt
+          if-no-files-found: warn
+          retention-days: 3
