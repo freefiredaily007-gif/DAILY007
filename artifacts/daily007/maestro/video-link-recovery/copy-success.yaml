@@ -1,0 +1,16 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/video-link-recovery-test?copy=success
+- extendedWaitUntil:
+    visible:
+      id: video-link-recovery-fixture
+    timeout: 15000
+- assertVisible:
+    id: video-open-link-error
+- tapOn:
+    id: video-copy-link
+- assertVisible:
+    text: "Video link copied. Paste it into YouTube or a browser."
+- assertNotVisible:
+    id: video-manual-link

@@ -7,6 +7,14 @@ const videoScreenSource = readFileSync(
   new URL('../src/screens/Video.tsx', import.meta.url),
   'utf8',
 );
+const recoverySource = readFileSync(
+  new URL('../src/components/VideoLinkRecovery.tsx', import.meta.url),
+  'utf8',
+);
+const nativeFixtureSource = readFileSync(
+  new URL('../src/screens/VideoLinkRecoveryNativeTest.tsx', import.meta.url),
+  'utf8',
+);
 
 test('Android opens the selected video in the YouTube app first', async () => {
   const openedUrls = [];
@@ -79,12 +87,27 @@ test('double failure offers browser retry and copy recovery without resetting se
     externalActionSource,
     /setSelectedVideoId\(null\)|setSearchQuery\(['"]{2}\)|setShowPlayer\(false\)/,
   );
-  assert.match(videoScreenSource, /Couldn’t open this video in YouTube or your browser\./);
-  assert.match(videoScreenSource, /testID="video-open-link-error"/);
-  assert.match(videoScreenSource, /testID="video-retry-browser"/);
-  assert.match(videoScreenSource, /testID="video-copy-link"/);
-  assert.match(videoScreenSource, /testID="video-open-link-status"/);
-  assert.match(videoScreenSource, /selectable[\s\S]*?testID="video-manual-link"/);
+  assert.match(videoScreenSource, /<VideoLinkRecovery/);
+  assert.match(recoverySource, /Couldn’t open this video in YouTube or your browser\./);
+  assert.match(recoverySource, /testID="video-open-link-error"/);
+  assert.match(recoverySource, /testID="video-retry-browser"/);
+  assert.match(recoverySource, /accessibilityLabel="Retry opening the video in your browser"/);
+  assert.match(recoverySource, /accessibilityLabel="Copy video link"/);
+  assert.match(recoverySource, /accessibilityLiveRegion="polite"/);
+  assert.match(recoverySource, /testID="video-open-link-status"/);
+  assert.match(recoverySource, /selectable[\s\S]*?testID="video-manual-link"/);
+  assert.ok(
+    recoverySource.indexOf('testID="video-retry-browser"')
+      < recoverySource.indexOf('testID="video-copy-link"'),
+    'Browser retry should come before copy in the screen-reader control order.',
+  );
+  assert.match(videoScreenSource, /Video link copied\. Paste it into YouTube or a browser\./);
+  assert.match(videoScreenSource, /Automatic copy failed\. Select and copy the video URL below\./);
+  assert.match(nativeFixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  assert.match(nativeFixtureSource, /The browser still could not open the video/);
+  assert.match(nativeFixtureSource, /copyFails[\s\S]*?setManualUrl\(copyFails\)/);
+  assert.match(nativeFixtureSource, /Selected video: Daily007 TalkBack recovery demo/);
+  assert.match(nativeFixtureSource, /Catalog search: accessibility/);
   assert.match(videoScreenSource, /playerFailed && !externalLinkError/);
   assert.match(videoScreenSource, /value={searchQuery}/);
 });

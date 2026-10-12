@@ -1,0 +1,34 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/video-link-recovery-test?copy=fail
+- extendedWaitUntil:
+    visible:
+      id: video-link-recovery-fixture
+    timeout: 15000
+- assertVisible:
+    id: video-open-link-error
+- assertVisible:
+    text: "Couldn’t open this video in YouTube or your browser."
+- assertVisible:
+    id: video-retry-browser
+- assertVisible:
+    text: "Retry opening the video in your browser"
+- assertVisible:
+    id: video-copy-link
+- assertVisible:
+    text: "Copy video link"
+- tapOn:
+    id: video-retry-browser
+- assertVisible:
+    text: "The browser still could not open the video. Copy the URL or try again later."
+- tapOn:
+    id: video-copy-link
+- assertVisible:
+    text: "Automatic copy failed. Select and copy the video URL below."
+- assertVisible:
+    id: video-manual-link
+- assertVisible:
+    text: "Selected video: Daily007 TalkBack recovery demo"
+- assertVisible:
+    text: "Catalog search: accessibility"

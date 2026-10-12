@@ -19,6 +19,7 @@ import {
   VideoCatalogBackButton,
   VideoUnavailableErrorAnnouncement,
 } from '../components/VideoAccessibilityControls';
+import { VideoLinkRecovery } from '../components/VideoLinkRecovery';
 import { useColors } from '@/hooks/useColors';
 import {
   useDaily007CompleteVideoWatch,
@@ -662,70 +663,14 @@ export default function Video() {
             </View>
           ) : null}
           {externalLinkError ? (
-            <View style={styles.externalRecoveryCard} testID="video-open-link-error">
-              <View style={styles.externalRecoveryHeading}>
-                <Feather name="alert-circle" size={18} color={colors.destructive} />
-                <Text
-                  accessibilityRole="text"
-                  accessibilityLiveRegion="polite"
-                  style={styles.errorText}
-                >
-                  Couldn’t open this video in YouTube or your browser. Retry the browser link or copy it to open it manually.
-                </Text>
-              </View>
-              <View style={styles.externalRecoveryActions}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Retry opening the video in your browser"
-                  accessibilityHint="Opens the saved video link directly in your browser."
-                  accessibilityState={{ busy: externalLinkAction === 'browser', disabled: externalLinkAction !== null }}
-                  testID="video-retry-browser"
-                  disabled={externalLinkAction !== null}
-                  onPress={() => { void retryVideoInBrowser(); }}
-                  style={styles.externalRecoveryButton}
-                >
-                  <Feather name="refresh-cw" size={15} color={colors.primary} />
-                  <Text style={styles.externalButtonText}>
-                    {externalLinkAction === 'browser' ? 'OPENING BROWSER…' : 'RETRY IN BROWSER'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Copy video link"
-                  accessibilityHint="Copies the saved video URL so you can paste it into another app."
-                  accessibilityState={{ busy: externalLinkAction === 'copy', disabled: externalLinkAction !== null }}
-                  testID="video-copy-link"
-                  disabled={externalLinkAction !== null}
-                  onPress={() => { void copyVideoLink(); }}
-                  style={styles.externalRecoveryButton}
-                >
-                  <Feather name="copy" size={15} color={colors.primary} />
-                  <Text style={styles.externalButtonText}>
-                    {externalLinkAction === 'copy' ? 'COPYING LINK…' : 'COPY VIDEO LINK'}
-                  </Text>
-                </Pressable>
-              </View>
-              {externalLinkStatus ? (
-                <Text
-                  accessibilityRole="text"
-                  accessibilityLiveRegion="polite"
-                  testID="video-open-link-status"
-                  style={styles.externalLinkStatus}
-                >
-                  {externalLinkStatus}
-                </Text>
-              ) : null}
-              {externalLinkCopyFailed ? (
-                <Text
-                  accessibilityRole="text"
-                  selectable
-                  testID="video-manual-link"
-                  style={styles.manualVideoUrl}
-                >
-                  {selectedVideo.url}
-                </Text>
-              ) : null}
-            </View>
+            <VideoLinkRecovery
+              url={selectedVideo.url}
+              action={externalLinkAction}
+              status={externalLinkStatus}
+              copyFailed={externalLinkCopyFailed}
+              onRetryBrowser={() => { void retryVideoInBrowser(); }}
+              onCopyLink={() => { void copyVideoLink(); }}
+            />
           ) : null}
 
           <View style={styles.progressHeader}>
@@ -1065,20 +1010,6 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       lineHeight: 18,
       marginTop: 10,
     },
-    externalRecoveryCard: {
-      marginTop: 10,
-      padding: 12,
-      gap: 10,
-      backgroundColor: colors.card,
-      borderColor: colors.destructive,
-      borderWidth: 1,
-      borderRadius: colors.radius,
-    },
-    externalRecoveryHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-    externalRecoveryActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 14, rowGap: 4 },
-    externalRecoveryButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
-    externalLinkStatus: { color: colors.accent, fontSize: 12, lineHeight: 18 },
-    manualVideoUrl: { color: colors.primary, fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
     progressHeader: {
       flexDirection: 'row',
       alignItems: 'center',
