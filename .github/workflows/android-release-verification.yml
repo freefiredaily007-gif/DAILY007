@@ -113,7 +113,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
 
             DIAG_DIR="$GITHUB_WORKSPACE/android-emulator-diagnostics"
             METRO_PID=""
