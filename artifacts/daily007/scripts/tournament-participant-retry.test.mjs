@@ -20,6 +20,16 @@ const participantAvailabilityExpression = detailSource.match(
 const participantCountExpression = detailSource.match(
   /const participantCountLabel = ([^;]+);/,
 )?.[1];
+const initialParticipantLoadingExpression = detailSource.match(
+  /\{(participantsQuery\.isLoading && !participantsQuery\.data && !retryingParticipants) \?/,
+)?.[1];
+const evaluateInitialParticipantLoading = initialParticipantLoadingExpression
+  ? new Function(
+    "participantsQuery",
+    "retryingParticipants",
+    `return (${initialParticipantLoadingExpression});`,
+  )
+  : null;
 const evaluateParticipantAvailability = participantAvailabilityExpression
   ? new Function(
     "participantsQuery",
@@ -44,12 +54,39 @@ async function waitFor(predicate, message) {
 }
 
 test("TalkBack gets retry guidance and outcome announcements without disabling the focused control", () => {
+  const initialLoadingBranch = detailSource
+    .split("participantsQuery.isLoading && !participantsQuery.data && !retryingParticipants ? (")[1]
+    ?.split(") : participantListUnavailable ? (")[0];
   const errorBranch = detailSource
     .split(") : participantListUnavailable ? (")[1]
     ?.split(") : participants.length === 0 ? (")[0];
   const retryStatusOffset = detailSource.indexOf('testID="participants-retry-status"');
   const participantStateOffset = detailSource.indexOf("participantsQuery.isLoading && !participantsQuery.data");
 
+  assert.ok(initialLoadingBranch, "The initial participant loading state must remain distinct from retries and refreshes.");
+  assert.ok(evaluateInitialParticipantLoading, "The initial loading condition should be testable.");
+  assert.equal(
+    evaluateInitialParticipantLoading({ isLoading: true, data: undefined }, false),
+    true,
+    "A first load should expose its progress announcement.",
+  );
+  assert.equal(
+    evaluateInitialParticipantLoading({ isLoading: false, isFetching: true, data: { participants: [] } }, false),
+    false,
+    "A background refresh with cached participants should not repeat the progress announcement.",
+  );
+  assert.equal(
+    evaluateInitialParticipantLoading({ isLoading: true, data: undefined }, true),
+    false,
+    "A manual retry should not repeat the initial-load announcement.",
+  );
+  assert.match(initialLoadingBranch, /<ActivityIndicator accessible=\{false\}/);
+  assert.match(
+    initialLoadingBranch,
+    /<Text\s+accessible\s+accessibilityRole="text"\s+accessibilityLabel="Loading participants\."\s+accessibilityLiveRegion="polite"\s+testID="participants-initial-loading-status"/,
+  );
+  assert.match(initialLoadingBranch, /Loading participants…/);
+  assert.doesNotMatch(initialLoadingBranch, /numberOfLines=|ellipsizeMode=|overflow:\s*['"]hidden/);
   assert.ok(errorBranch, "The participant error state should remain distinct from the empty state.");
   assert.match(errorBranch, /Participant list couldn’t be loaded\./);
   assert.match(

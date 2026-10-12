@@ -247,8 +247,17 @@ export default function TDetail() {
       ) : null}
       {participantsQuery.isLoading && !participantsQuery.data && !retryingParticipants ? (
         <Card style={s.participantsLoading}>
-          <ActivityIndicator color={C.neon} />
-          <Text style={s.participantsHint}>Loading participants…</Text>
+          <ActivityIndicator accessible={false} color={C.neon} />
+          <Text
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel="Loading participants."
+            accessibilityLiveRegion="polite"
+            testID="participants-initial-loading-status"
+            style={s.participantsHint}
+          >
+            Loading participants…
+          </Text>
         </Card>
       ) : participantListUnavailable ? (
         <Card>
