@@ -69,6 +69,7 @@
 - [Daily007 full-capacity TalkBack](daily007-full-capacity-talkback.md) — iQOO Neo 10 / Android 16 confirmed one rejection-and-capacity announcement without repetition or focus movement.
 - [Daily007 registration error accessibility](daily007-join-form-accessibility.md) — keep one polite error announcement, attach details to affected inputs, and leave focus in place.
 - [Daily007 admin results TalkBack](daily007-admin-results-talkback.md) — iQOO Neo 10 / Android 16 confirmed TalkBack support from player selection through errors, outcomes, and publishing state.
+- [Daily007 native status announcements](daily007-native-status-announcements.md) — React Native live regions do not announce on iOS; pair them with iOS-only AccessibilityInfo announcements.
 - [Tournament result rank uniqueness](daily007-result-rank-uniqueness.md) — serialize awards on the match row; audit old duplicates before adding a database unique index.
 - [Daily007 My Matches TalkBack](daily007-my-matches-talkback.md) — published result rows announce all five details once, without the account-profile name.
 - [Admin payments TalkBack](daily007-admin-payments-talkback.md) — iQOO Neo 10/Android 16 confirmed success announcements without focus shifts or speech interruptions.

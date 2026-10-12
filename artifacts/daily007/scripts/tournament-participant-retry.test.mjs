@@ -67,7 +67,7 @@ test("TalkBack gets retry guidance and outcome announcements without disabling t
   assert.match(errorBranch, /preserveAccessibilityFocusWhileLoading/);
   assert.match(errorBranch, /accessibilityState=\{\{ busy: participantsQuery\.isFetching \}\}/);
   assert.match(errorBranch, /testID="participants-retry"/);
-  assert.match(detailSource, /setParticipantsRetryAnnouncement\('Retrying participant list\.'/);
+  assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.'/);
   assert.match(detailSource, /'Participant list updated\.'/);
   assert.match(detailSource, /Retry failed\. The participant list is still unavailable\. You can retry again\./);
   assert.match(detailSource, /result\.isSuccess/);
@@ -88,6 +88,25 @@ test("TalkBack gets retry guidance and outcome announcements without disabling t
   );
   assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel \|\| title\}/);
   assert.match(uiSource, /accessibilityState=\{accessibilityState\}/);
+});
+
+test("VoiceOver gets explicit participant retry guidance and start, success, and failure announcements", () => {
+  const errorBranch = detailSource
+    .split(") : participantListUnavailable ? (")[1]
+    ?.split(") : participants.length === 0 ? (")[0];
+
+  assert.match(detailSource, /import \{[^}]*AccessibilityInfo[^}]*Platform[^}]*\} from 'react-native';/);
+  assert.match(
+    detailSource,
+    /const announceParticipantsRetry = \(message: string\) => \{\s*setParticipantsRetryAnnouncement\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+  );
+  assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.'/);
+  assert.match(detailSource, /announceParticipantsRetry\(\s*result\.isSuccess\s*\?/);
+  assert.match(detailSource, /announceParticipantsRetry\(\s*'Retry failed\. The participant list is still unavailable\. You can retry again\.'/);
+  assert.match(errorBranch ?? "", /accessibilityLabel="Participant list couldn’t be loaded\. Try again here or pull down to retry\."/);
+  assert.match(errorBranch ?? "", /accessibilityLabel="Retry participant list"/);
+  assert.match(errorBranch ?? "", /accessibilityHint="Loads the latest list of joined players and teams\."/);
+  assert.match(errorBranch ?? "", /preserveAccessibilityFocusWhileLoading/);
 });
 
 test("participant retry guidance and control wrap at enlarged text without clipping", () => {

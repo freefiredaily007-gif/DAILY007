@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
   getGetTournamentResultsQueryKey,
@@ -88,22 +88,26 @@ export default function TDetail() {
     if (retryParticipantsInFlight.current || participantsQuery.isFetching) return;
     retryParticipantsInFlight.current = true;
     setRetryingParticipants(true);
-    setParticipantsRetryAnnouncement('Retrying participant list.');
+    announceParticipantsRetry('Retrying participant list.');
     try {
       const result = await participantsQuery.refetch();
-      setParticipantsRetryAnnouncement(
+      announceParticipantsRetry(
         result.isSuccess
           ? 'Participant list updated.'
           : 'Retry failed. The participant list is still unavailable. You can retry again.',
       );
     } catch {
-      setParticipantsRetryAnnouncement(
+      announceParticipantsRetry(
         'Retry failed. The participant list is still unavailable. You can retry again.',
       );
     } finally {
       retryParticipantsInFlight.current = false;
       setRetryingParticipants(false);
     }
+  };
+  const announceParticipantsRetry = (message: string) => {
+    setParticipantsRetryAnnouncement(message);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
   };
   useFocusEffect(useCallback(() => {
     setClockNow(Date.now());
@@ -251,6 +255,7 @@ export default function TDetail() {
           <Text
             accessible
             accessibilityRole="text"
+            accessibilityLabel="Participant list couldn’t be loaded. Try again here or pull down to retry."
             accessibilityLiveRegion="polite"
             testID="participants-error-guidance"
             style={s.participantsHint}
