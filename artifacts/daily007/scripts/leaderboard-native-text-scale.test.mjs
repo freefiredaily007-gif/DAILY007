@@ -58,10 +58,16 @@ test("Maestro scrolls to and checks every podium and expanded Top 20 label", () 
   }
 });
 
-test("runner checks both boundary scales and restores the original Android setting", () => {
+test("runner checks boundary and 2× scales and restores the original Android setting", () => {
   assert.match(runner, /setting: "1\.49"/);
   assert.match(runner, /setting: "1\.5"/);
+  assert.match(runner, /setting: "2", label: "2\.00", layout: "large"/);
   assert.match(runner, /name: "weekly"/);
   assert.match(runner, /name: "monthly"/);
+  assert.match(runner, /for \(const scale of scales\)[\s\S]*?for \(const cycle of cycles\)/);
+  assert.match(runner, /LEADERBOARD_SCALE: scale\.label/);
+  assert.match(runner, /LEADERBOARD_CYCLE: cycle\.name/);
   assert.match(runner, /finally\s*\{[\s\S]*?settings[\s\S]*?originalFontScale/);
+  assert.match(runner, /Could not verify restoration of Android font scale/);
+  assert.match(runner, /Android font scale was not restored/);
 });

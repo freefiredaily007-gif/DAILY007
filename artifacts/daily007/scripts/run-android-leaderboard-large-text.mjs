@@ -9,6 +9,7 @@ if (!expoDevUrl) {
 const scales = [
   { setting: "1.49", label: "1.49", layout: "compact" },
   { setting: "1.5", label: "1.50", layout: "large" },
+  { setting: "2", label: "2.00", layout: "large" },
 ];
 const cycles = [
   { name: "weekly", champion: "Weekly Champion With A Long Display Name" },
@@ -119,6 +120,35 @@ try {
         `Could not restore Android font scale to ${originalFontScale} (${detail}). Restore it in Android Settings.`,
       );
       process.exitCode = 1;
+    }
+
+    if (!restore.error && restore.status === 0) {
+      const restoredFontScale = run(
+        "adb",
+        ["shell", "settings", "get", "system", "font_scale"],
+      );
+      if (restoredFontScale.error || restoredFontScale.status !== 0) {
+        const detail = restoredFontScale.error?.message
+          || restoredFontScale.stderr?.trim()
+          || "unknown ADB error";
+        console.error(
+          `Could not verify restoration of Android font scale to ${originalFontScale} (${detail}).`,
+        );
+        process.exitCode = 1;
+      } else {
+        const restoredScaleValue = restoredFontScale.stdout?.trim() ?? "";
+        const restoredScale = Number(restoredScaleValue);
+        if (
+          !/^\d+(?:\.\d+)?$/.test(restoredScaleValue)
+          || !Number.isFinite(restoredScale)
+          || Math.abs(restoredScale - Number(originalFontScale)) > 0.005
+        ) {
+          console.error(
+            `Android font scale was not restored: expected ${originalFontScale}, received ${restoredScaleValue || "(empty)"}.`,
+          );
+          process.exitCode = 1;
+        }
+      }
     }
 
     const restart = run("adb", ["shell", "am", "force-stop", "host.exp.exponent"]);

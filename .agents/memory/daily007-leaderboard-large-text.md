@@ -7,4 +7,4 @@ description: Preserve the leaderboard's Android text-size breakpoint and wrappin
 
 **Why:** The 1.49× preview exposed podium score text escaping narrow cards and expanded player names being forced to one line. Moving the breakpoint earlier would avoid the boundary rather than verify it.
 
-**How to apply:** When changing the leaderboard, test Weekly and Monthly at 1.49× and 1.5× on narrow widths. Check text against its card bounds, all expanded Top 20 fields, and rank-20 scrolling.
+**How to apply:** When changing the leaderboard, test Weekly and Monthly at 1.49× and 1.5× around the breakpoint, plus 2× on Android. Check text against its card bounds, all expanded Top 20 fields, and rank-20 scrolling.
