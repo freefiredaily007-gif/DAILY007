@@ -74,6 +74,13 @@ class MemoryRecoveryDatabase {
     user.status = "blocked";
   }
 
+  linkUserToGoogle(userId: string, clerkUserId: string): void {
+    const user = this.users.get(userId);
+    if (!user) throw new Error("Cannot link an unknown recovery test account.");
+    if (user.clerk_user_id !== null) throw new Error("Cannot replace an existing Google link.");
+    user.clerk_user_id = clerkUserId;
+  }
+
   async connect(): Promise<{ query: Query; release(): void }> {
     let transactionSnapshot: Snapshot | null = null;
     return {

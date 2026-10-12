@@ -22,6 +22,7 @@ const TOURNAMENT_ADMIN_ID = "40000000-0000-4000-8000-000000000105";
 const REGULAR_USER_ID = "40000000-0000-4000-8000-000000000106";
 const BLOCKED_ADMIN_ID = "40000000-0000-4000-8000-000000000107";
 const PLAYER_CLERK_ID = "clerk-google-player-recovery";
+const NEWER_PLAYER_CLERK_ID = "clerk-google-player-newer-link";
 const OWNER_CLERK_ID = "clerk-google-sole-admin-recovery";
 const TEST_AUTH_SECRET = "daily007-account-recovery-route-test-secret";
 const TEST_OWNER_CODE = "o".repeat(64);
@@ -301,6 +302,85 @@ test("an active, distinct Full Admin can approve a pending request after fresh G
     assert.equal(request.review_method, "full_admin");
     assert.equal(getMockGoogleUserLookupCount(), 2,
       "approval must fetch and re-verify the Google identity instead of trusting the original request");
+  });
+});
+
+test("a pending recovery request cannot replace a Google link added by a newer sign-in", async () => {
+  recoveryTestDb.reset();
+  const player = recoveryTestDb.seedUser({
+    id: PLAYER_ID,
+    name: "Player Recovery",
+    email: "player@example.test",
+    status: "active",
+  });
+  recoveryTestDb.seedUser({
+    id: REVIEWER_ID,
+    name: "Full Admin Reviewer",
+    email: "reviewer@example.test",
+    role: "admin",
+    status: "active",
+  });
+  resetMockGoogleUser(verifiedGoogleUser(PLAYER_CLERK_ID, "player@example.test"));
+
+  await withRecoveryServer(async (origin) => {
+    const submitted = await postJson(
+      origin,
+      "/auth/google/recovery-request",
+      {},
+      clerkHeaders(PLAYER_CLERK_ID),
+    );
+    assert.equal(submitted.status, 202);
+    const request = recoveryRecordForUser(PLAYER_ID);
+    assert.ok(request, "the request for the original Google identity should be pending");
+    assert.equal(request.google_clerk_user_id, PLAYER_CLERK_ID);
+
+    // Model a successful ordinary Google sign-in linking this account before review.
+    recoveryTestDb.linkUserToGoogle(PLAYER_ID, NEWER_PLAYER_CLERK_ID);
+    const stateBeforeApproval = persistentState();
+    const queryCountBeforeApproval = recoveryTestDb.queryHistory.length;
+    const reviewerToken = makeToken(REVIEWER_ID);
+    assert.ok(reviewerToken);
+
+    const approval = await postJson(
+      origin,
+      `/admin/account-recovery-requests/${request.id}/approve`,
+      { reviewNote: REVIEW_NOTE },
+      { authorization: `Bearer ${reviewerToken}` },
+    );
+
+    assert.equal(approval.status, 409);
+    assert.deepEqual(approval.body, {
+      error: "The account or verified Google identity changed. Do not approve this request; refresh and review it again.",
+    });
+    assert.deepEqual(persistentState(), stateBeforeApproval,
+      "a stale approval must leave the newer link and pending recovery record unchanged");
+    assert.equal(player.clerk_user_id, NEWER_PLAYER_CLERK_ID,
+      "approval must not replace the Google identity linked by the newer sign-in");
+    assert.deepEqual({
+      status: request.status,
+      reviewed_at: request.reviewed_at,
+      reviewed_by: request.reviewed_by,
+      review_note: request.review_note,
+      review_method: request.review_method,
+    }, {
+      status: "pending",
+      reviewed_at: null,
+      reviewed_by: null,
+      review_note: null,
+      review_method: null,
+    });
+
+    const approvalQueries = recoveryTestDb.queryHistory.slice(queryCountBeforeApproval);
+    assert.equal(
+      approvalQueries.some(({ sql }) => sql.startsWith("UPDATE daily007_v2_users SET clerk_user_id = $2")),
+      false,
+      "approval must not write the stale request's Google identity to the account",
+    );
+    assert.equal(
+      approvalQueries.some(({ sql }) => sql.startsWith("UPDATE daily007_v2_google_recovery_requests")),
+      false,
+      "approval must not write review fields to the pending recovery request",
+    );
   });
 });
 
