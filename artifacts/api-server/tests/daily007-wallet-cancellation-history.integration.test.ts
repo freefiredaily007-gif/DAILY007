@@ -28,6 +28,7 @@ const fixture = {
   otherPlayerId: randomUUID(),
   knownTournamentId: randomUUID(),
   missingTournamentId: randomUUID(),
+  malformedTournamentId: "not-a-valid-uuid",
 };
 
 after(async () => {
@@ -74,12 +75,17 @@ async function seedLegacyRefunds(): Promise<void> {
        VALUES
          ($1, 27, 142, 'tournament_cancel_refund', NULL, $2::jsonb, now()),
          ($1, 19, 115, 'tournament_cancel_refund', NULL, $3::jsonb, now() - interval '1 second'),
-         ($1, 11, 96, 'tournament_cancel_refund', NULL, $4::jsonb, now() - interval '2 seconds')`,
+          ($1, 11, 96, 'tournament_cancel_refund', NULL, $4::jsonb, now() - interval '2 seconds'),
+          ($1, 7, 85, 'tournament_cancel_refund', NULL, $5::jsonb, now() - interval '3 seconds')`,
       [
         fixture.playerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.missingTournamentId}` }),
         JSON.stringify({ description: "Legacy cancellation refund — tournament ID unavailable" }),
+        JSON.stringify({
+          tournamentId: fixture.malformedTournamentId,
+          description: "Refund for the cancelled weekend cup",
+        }),
       ],
     );
     await client.query(
@@ -130,7 +136,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   }
 }
 
-test("Wallet history resolves legacy refund UUIDs and excludes another player's refund for the same tournament", async () => {
+test("Wallet history resolves legacy refund IDs, preserves readable descriptions for malformed IDs, and excludes another player's refund", async () => {
   await seedLegacyRefunds();
 
   await withServer(async (origin) => {
@@ -163,6 +169,11 @@ test("Wallet history resolves legacy refund UUIDs and excludes another player's 
           amount: 11,
           reason: "tournament_cancel_refund",
           description: "Legacy cancellation refund — tournament ID unavailable",
+        },
+        {
+          amount: 7,
+          reason: "tournament_cancel_refund",
+          description: "Refund for the cancelled weekend cup",
         },
       ],
     );

@@ -238,11 +238,14 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
     const descriptionTournamentId = typeof details.description === "string"
       ? details.description.match(UUID_IN_TEXT)?.[0]
       : null;
+    const structuredTournamentId = typeof details.tournamentId === "string" && details.tournamentId.trim()
+      ? details.tournamentId.trim()
+      : null;
     const tournamentId = typeof matchId === "string" && matchId.trim()
       ? matchId.trim()
       : descriptionTournamentId ??
-        (typeof details.tournamentId === "string" && details.tournamentId.trim()
-          ? details.tournamentId.trim()
+        (structuredTournamentId && UUID.test(structuredTournamentId)
+          ? structuredTournamentId
           : null);
     const resolvedTournamentTitle = typeof tournamentTitle === "string" && tournamentTitle.trim()
       ? tournamentTitle.trim()
