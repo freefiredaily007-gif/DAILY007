@@ -74,6 +74,7 @@
 - [Daily007 My Matches TalkBack](daily007-my-matches-talkback.md) — published result rows announce all five details once, without the account-profile name.
 - [Admin payments TalkBack](daily007-admin-payments-talkback.md) — iQOO Neo 10/Android 16 confirmed success announcements without focus shifts or speech interruptions.
 - [Daily007 Admin error announcements](daily007-admin-error-announcements.md) — keep repeated identical errors audible and include the affected row plus a safe retry action.
+- [Daily007 participant retry TalkBack](daily007-tournament-participant-talkback.md) — Android 16 TalkBack check passed for unavailable participant totals and successful recovery.
 - [Daily007 rejected deposit TalkBack](daily007-wallet-rejected-deposit-talkback.md) — iQOO Neo 10 / Android 16 confirmed the grouped summary and readable rejected-deposit reason at 1.5× text.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — Node needs browser globals for polling; keep React Native Web mock refetch identity stable across focus retries.
