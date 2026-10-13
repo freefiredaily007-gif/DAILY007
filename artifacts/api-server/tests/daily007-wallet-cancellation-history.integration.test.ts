@@ -79,7 +79,8 @@ async function seedLegacyRefunds(): Promise<void> {
           ($1, 7, 85, 'tournament_cancel_refund', NULL, $5::jsonb, now() - interval '3 seconds'),
           ($1, 5, 78, 'tournament_cancel_refund', NULL, $6::jsonb, now() - interval '4 seconds'),
           ($1, 3, 73, 'tournament_cancel_refund', NULL, $7::jsonb, now() - interval '5 seconds'),
-          ($1, 2, 70, 'tournament_cancel_refund', NULL, $8::jsonb, now() - interval '6 seconds')`,
+          ($1, 2, 70, 'tournament_cancel_refund', NULL, $8::jsonb, now() - interval '6 seconds'),
+          ($1, 12, 82, 'payment_approved', NULL, NULL, now() - interval '7 seconds')`,
       [
         fixture.playerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
@@ -97,10 +98,13 @@ async function seedLegacyRefunds(): Promise<void> {
     await client.query(
       `INSERT INTO daily007_v2_wallet_ledger
          (user_id, amount, balance_after, reason, match_id, details, created_at)
-       VALUES ($1, 83, 83, 'tournament_cancel_refund', NULL, $2::jsonb, now())`,
+        VALUES
+          ($1, 83, 83, 'tournament_cancel_refund', NULL, $2::jsonb, now()),
+          ($1, -9, 74, 'withdrawal_reserved', NULL, $3::jsonb, now() - interval '1 second')`,
       [
         fixture.otherPlayerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
+        JSON.stringify({ description: "Private other-player withdrawal" }),
       ],
     );
     await client.query("COMMIT");
@@ -142,7 +146,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   }
 }
 
-test("Wallet history keeps legacy refunds readable when descriptions or tournament IDs are unusable", async () => {
+test("Wallet history keeps refunds readable and excludes another player's non-refund ledger entries", async () => {
   await seedLegacyRefunds();
 
   await withServer(async (origin) => {
@@ -196,7 +200,20 @@ test("Wallet history keeps legacy refunds readable when descriptions or tourname
           reason: "tournament_cancel_refund",
           description: "Entry fee refunded (tournament cancelled)",
         },
+        {
+          amount: 12,
+          reason: "payment_approved",
+          description: "payment approved",
+        },
       ],
+    );
+    assert.equal(
+      body.some(({ amount, reason, description }) =>
+        amount === -9 ||
+        reason === "withdrawal_reserved" ||
+        description === "Private other-player withdrawal"),
+      false,
+      "another player's withdrawal ledger entry must not appear in this Wallet history",
     );
   });
 });
