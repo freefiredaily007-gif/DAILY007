@@ -76,7 +76,10 @@ async function seedLegacyRefunds(): Promise<void> {
          ($1, 27, 142, 'tournament_cancel_refund', NULL, $2::jsonb, now()),
          ($1, 19, 115, 'tournament_cancel_refund', NULL, $3::jsonb, now() - interval '1 second'),
           ($1, 11, 96, 'tournament_cancel_refund', NULL, $4::jsonb, now() - interval '2 seconds'),
-          ($1, 7, 85, 'tournament_cancel_refund', NULL, $5::jsonb, now() - interval '3 seconds')`,
+          ($1, 7, 85, 'tournament_cancel_refund', NULL, $5::jsonb, now() - interval '3 seconds'),
+          ($1, 5, 78, 'tournament_cancel_refund', NULL, $6::jsonb, now() - interval '4 seconds'),
+          ($1, 3, 73, 'tournament_cancel_refund', NULL, $7::jsonb, now() - interval '5 seconds'),
+          ($1, 2, 70, 'tournament_cancel_refund', NULL, $8::jsonb, now() - interval '6 seconds')`,
       [
         fixture.playerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
@@ -86,6 +89,9 @@ async function seedLegacyRefunds(): Promise<void> {
           tournamentId: fixture.malformedTournamentId,
           description: "Refund for the cancelled weekend cup",
         }),
+        JSON.stringify({}),
+        JSON.stringify({ description: "   " }),
+        JSON.stringify({ description: 17 }),
       ],
     );
     await client.query(
@@ -136,7 +142,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   }
 }
 
-test("Wallet history resolves legacy refund IDs, preserves readable descriptions for malformed IDs, and excludes another player's refund", async () => {
+test("Wallet history keeps legacy refunds readable when descriptions or tournament IDs are unusable", async () => {
   await seedLegacyRefunds();
 
   await withServer(async (origin) => {
@@ -174,6 +180,21 @@ test("Wallet history resolves legacy refund IDs, preserves readable descriptions
           amount: 7,
           reason: "tournament_cancel_refund",
           description: "Refund for the cancelled weekend cup",
+        },
+        {
+          amount: 5,
+          reason: "tournament_cancel_refund",
+          description: "Entry fee refunded (tournament cancelled)",
+        },
+        {
+          amount: 3,
+          reason: "tournament_cancel_refund",
+          description: "Entry fee refunded (tournament cancelled)",
+        },
+        {
+          amount: 2,
+          reason: "tournament_cancel_refund",
+          description: "Entry fee refunded (tournament cancelled)",
         },
       ],
     );
