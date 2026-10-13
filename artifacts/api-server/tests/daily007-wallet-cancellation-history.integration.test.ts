@@ -28,6 +28,8 @@ const fixture = {
   otherPlayerId: randomUUID(),
   knownTournamentId: randomUUID(),
   missingTournamentId: randomUUID(),
+  structuredTournamentId: randomUUID(),
+  structuredMissingTournamentId: randomUUID(),
   malformedTournamentId: "not-a-valid-uuid",
 };
 
@@ -37,7 +39,10 @@ after(async () => {
       "DELETE FROM daily007_v2_wallet_ledger WHERE user_id IN ($1, $2)",
       [fixture.playerId, fixture.otherPlayerId],
     );
-    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [fixture.knownTournamentId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
+      [[fixture.knownTournamentId, fixture.structuredTournamentId]],
+    );
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id IN ($1, $2)",
       [fixture.playerId, fixture.otherPlayerId],
@@ -66,8 +71,14 @@ async function seedLegacyRefunds(): Promise<void> {
       [fixture.otherPlayerId, `wallet-history-${fixture.otherPlayerId}@example.test`],
     );
     await client.query(
-      "INSERT INTO daily007_v2_matches (id, title) VALUES ($1, $2)",
-      [fixture.knownTournamentId, "Legacy Clash Cup"],
+      `INSERT INTO daily007_v2_matches (id, title)
+       VALUES ($1, $2), ($3, $4)`,
+      [
+        fixture.knownTournamentId,
+        "Legacy Clash Cup",
+        fixture.structuredTournamentId,
+        "Structured Reference Cup",
+      ],
     );
     await client.query(
       `INSERT INTO daily007_v2_wallet_ledger
@@ -80,7 +91,10 @@ async function seedLegacyRefunds(): Promise<void> {
           ($1, 5, 78, 'tournament_cancel_refund', NULL, $6::jsonb, now() - interval '4 seconds'),
           ($1, 3, 73, 'tournament_cancel_refund', NULL, $7::jsonb, now() - interval '5 seconds'),
           ($1, 2, 70, 'tournament_cancel_refund', NULL, $8::jsonb, now() - interval '6 seconds'),
-          ($1, 12, 82, 'payment_approved', NULL, NULL, now() - interval '7 seconds')`,
+          ($1, 12, 82, 'payment_approved', NULL, NULL, now() - interval '7 seconds'),
+          ($1, 9, 79, 'tournament_cancel_refund', $9, NULL, now() - interval '8 seconds'),
+          ($1, 8, 71, 'tournament_cancel_refund', NULL, $10::jsonb, now() - interval '9 seconds'),
+          ($1, 6, 65, 'tournament_cancel_refund', NULL, $11::jsonb, now() - interval '10 seconds')`,
       [
         fixture.playerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
@@ -93,6 +107,9 @@ async function seedLegacyRefunds(): Promise<void> {
         JSON.stringify({}),
         JSON.stringify({ description: "   " }),
         JSON.stringify({ description: 17 }),
+        fixture.knownTournamentId,
+        JSON.stringify({ tournamentId: fixture.structuredTournamentId }),
+        JSON.stringify({ tournamentId: fixture.structuredMissingTournamentId }),
       ],
     );
     await client.query(
@@ -204,6 +221,21 @@ test("Wallet history keeps refunds readable and excludes another player's non-re
           amount: 12,
           reason: "payment_approved",
           description: "payment approved",
+        },
+        {
+          amount: 9,
+          reason: "tournament_cancel_refund",
+          description: "Entry fee refunded — Legacy Clash Cup (tournament cancelled)",
+        },
+        {
+          amount: 8,
+          reason: "tournament_cancel_refund",
+          description: "Entry fee refunded — Structured Reference Cup (tournament cancelled)",
+        },
+        {
+          amount: 6,
+          reason: "tournament_cancel_refund",
+          description: `Entry fee refunded — tournament ${fixture.structuredMissingTournamentId} (tournament cancelled)`,
         },
       ],
     );
