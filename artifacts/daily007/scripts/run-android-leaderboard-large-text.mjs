@@ -7,6 +7,8 @@ if (!expoDevUrl) {
 }
 
 const scales = [
+  { setting: "1.2", label: "1.20", layout: "compact" },
+  { setting: "1.35", label: "1.35", layout: "compact" },
   { setting: "1.49", label: "1.49", layout: "compact" },
   { setting: "1.5", label: "1.50", layout: "large" },
   { setting: "2", label: "2.00", layout: "large" },
