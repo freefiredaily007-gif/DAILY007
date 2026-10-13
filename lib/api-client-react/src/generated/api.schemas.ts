@@ -1079,6 +1079,17 @@ export interface Daily007AdminApproveLeaderboardPeriodResponse {
 }
 
 /**
+ * Optional field-keyed validation messages; absent for capacity, network, and database failures.
+ */
+export type Daily007V2RegisterMatch400FieldErrors = {[key: string]: string};
+
+export type Daily007V2RegisterMatch400 = {
+  error: string;
+  /** Optional field-keyed validation messages; absent for capacity, network, and database failures. */
+  fieldErrors?: Daily007V2RegisterMatch400FieldErrors;
+};
+
+/**
  * Stable reason for the registration conflict.
  */
 export type Daily007V2RegisterMatch409Code = typeof Daily007V2RegisterMatch409Code[keyof typeof Daily007V2RegisterMatch409Code];

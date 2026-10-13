@@ -81,8 +81,65 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function fail(res: Response, status: number, error: string, code?: string): void {
-  res.status(status).json({ error, ...(code ? { code } : {}) });
+function fail(
+  res: Response,
+  status: number,
+  error: string,
+  code?: string,
+  fieldErrors?: Record<string, string>,
+): void {
+  res.status(status).json({
+    error,
+    ...(code ? { code } : {}),
+    ...(fieldErrors ? { fieldErrors } : {}),
+  });
+}
+
+function registrationFieldError(
+  message: string,
+  fieldErrors?: Record<string, string>,
+): Error & { status: number; fieldErrors?: Record<string, string> } {
+  return Object.assign(new Error(message), {
+    status: 400,
+    ...(fieldErrors ? { fieldErrors } : {}),
+  });
+}
+
+function teammateRosterFieldErrors(value: unknown, expectedCount: number): Record<string, string> | undefined {
+  const message = "Check the teammate name or UID that needs correction.";
+  const errors: Record<string, string> = {};
+  if (!Array.isArray(value)) {
+    if (expectedCount > 0) errors["memberName:0"] = message;
+    return Object.keys(errors).length ? errors : undefined;
+  }
+
+  if (value.length < expectedCount) {
+    errors[`memberName:${value.length}`] = message;
+  }
+
+  const seenUids = new Map<string, number>();
+  for (let index = 0; index < Math.min(value.length, expectedCount); index++) {
+    const member = value[index];
+    if (!isRecord(member) || typeof member.name !== "string" ||
+        member.name.trim().length === 0 || member.name.trim().length > 100) {
+      errors[`memberName:${index}`] = message;
+    }
+    if (isRecord(member) && member.uid !== undefined && member.uid !== null) {
+      if (typeof member.uid !== "string" || member.uid.trim().length > 128) {
+        errors[`memberUid:${index}`] = message;
+      } else if (member.uid.trim()) {
+        const normalizedUid = member.uid.trim().toLocaleLowerCase();
+        const previousIndex = seenUids.get(normalizedUid);
+        if (previousIndex !== undefined) {
+          errors[`memberUid:${previousIndex}`] = message;
+          errors[`memberUid:${index}`] = message;
+        } else {
+          seenUids.set(normalizedUid, index);
+        }
+      }
+    }
+  }
+  return Object.keys(errors).length ? errors : undefined;
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
@@ -515,19 +572,22 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
   const legacy = req.path.startsWith("/tournaments/");
   const captainName = cleanName(account.name, "captainName");
   if (!captainName) {
-    fail(res, 400, "Add a Daily007 profile name between 1 and 100 characters before registering.");
+    const message = "Add a Daily007 profile name between 1 and 100 characters before registering.";
+    fail(res, 400, message, undefined, { captainProfileName: message });
     return;
   }
   const captainGameName = cleanName(body.captainGameName, "captainGameName");
   if (!captainGameName) {
-    fail(res, 400, "captainGameName must be 1–100 characters.");
+    const message = "captainGameName must be 1–100 characters.";
+    fail(res, 400, message, undefined, { captainGameName: message });
     return;
   }
   const captainGameUid = typeof (legacy ? body.gameUid : body.captainGameUid) === "string"
     ? String(legacy ? body.gameUid : body.captainGameUid).trim()
     : "";
   if (!captainGameUid || captainGameUid.length > 128) {
-    fail(res, 400, "captainGameUid is required and must contain 1–128 characters.");
+    const message = "captainGameUid is required and must contain 1–128 characters.";
+    fail(res, 400, message, undefined, { captainGameUid: message });
     return;
   }
   try {
@@ -628,19 +688,38 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         submittedTeamName = typeof body.teamName === "string" ? body.teamName.trim() : "";
       }
       if (modeConfig.teamSize > 1 && (!submittedTeamName || submittedTeamName.length > 100)) {
-        throw Object.assign(new Error("Team registrations require a team name between 1 and 100 characters."), { status: 400 });
+        const message = "Team registrations require a team name between 1 and 100 characters.";
+        throw registrationFieldError(message, { teamName: message });
       }
       if (submittedTeamName.length > 100) {
-        throw Object.assign(new Error("Team name must not exceed 100 characters."), { status: 400 });
+        const message = "Team name must not exceed 100 characters.";
+        throw registrationFieldError(message, modeConfig.teamSize > 1 ? { teamName: message } : undefined);
       }
       const parsedTeammates = parseTeamMembers(teammateInput, teammateCount);
       if (!parsedTeammates) {
-        throw Object.assign(new Error(`${modeConfig.teamTypeLabel} registrations require exactly ${teammateCount} teammate name${teammateCount === 1 ? "" : "s"}; teammate UIDs are optional and must be unique.`), { status: 400 });
+        const message = `${modeConfig.teamTypeLabel} registrations require exactly ${teammateCount} teammate name${teammateCount === 1 ? "" : "s"}; teammate UIDs are optional and must be unique.`;
+        throw registrationFieldError(message, teammateRosterFieldErrors(teammateInput, teammateCount));
       }
-      const submittedUids = [captainGameUid, ...parsedTeammates.flatMap((member) => member.uid ? [member.uid] : [])]
-        .map((uid) => uid.toLocaleLowerCase());
-      if (new Set(submittedUids).size !== submittedUids.length) {
-        throw Object.assign(new Error("Each player in the registration must have a different game UID."), { status: 400 });
+      const submittedUids = [captainGameUid, ...parsedTeammates.flatMap((member) => member.uid ? [member.uid] : [])];
+      const submittedUidFields = [
+        "captainGameUid",
+        ...parsedTeammates.flatMap((member, index) => member.uid ? [`memberUid:${index}`] : []),
+      ];
+      const seenSubmittedUids = new Map<string, string>();
+      const duplicateUidFields: Record<string, string> = {};
+      for (let index = 0; index < submittedUids.length; index++) {
+        const normalizedUid = submittedUids[index].toLocaleLowerCase();
+        const previousField = seenSubmittedUids.get(normalizedUid);
+        if (previousField) {
+          const message = "Each player in the registration must have a different game UID.";
+          duplicateUidFields[previousField] = message;
+          duplicateUidFields[submittedUidFields[index]] = message;
+        } else {
+          seenSubmittedUids.set(normalizedUid, submittedUidFields[index]);
+        }
+      }
+      if (Object.keys(duplicateUidFields).length > 0) {
+        throw registrationFieldError("Each player in the registration must have a different game UID.", duplicateUidFields);
       }
       teammates = parsedTeammates;
       const duplicateUid = await client.query<{ id: string }>(
@@ -735,7 +814,9 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
     if (status) {
       const errorCode = (error as { code?: unknown }).code;
       const code = isRegistrationConflictCode(errorCode) ? errorCode : undefined;
-      fail(res, status, (error as Error).message, code);
+      const fieldErrors = (error as { fieldErrors?: unknown }).fieldErrors;
+      fail(res, status, (error as Error).message, code,
+        isRecord(fieldErrors) ? fieldErrors as Record<string, string> : undefined);
       return;
     }
     if ((error as { code?: string }).code === "23505") {

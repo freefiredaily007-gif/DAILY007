@@ -6,7 +6,11 @@ import { Btn, Card, C, Input, Msg } from '../components/ui';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildJoinFormPayload } from '../lib/joinFormPayload';
-import { validateJoinForm, type JoinFormField } from '../lib/joinFormValidation';
+import {
+  getRegistrationServerFieldErrors,
+  validateJoinForm,
+  type JoinFormField,
+} from '../lib/joinFormValidation';
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 
 type Member = { name: string; uid: string };
@@ -127,7 +131,13 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         members,
       }));
     } catch (e: any) {
-      announceError(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Registration could not be confirmed. Please try again.');
+      const responseData = e?.response?.data;
+      const serverFieldErrors = getRegistrationServerFieldErrors(responseData, {
+        isTeam,
+        teammateCount: members.length,
+      });
+      if (Object.keys(serverFieldErrors).length > 0) setFieldErrors(serverFieldErrors);
+      announceError(responseData?.error || responseData?.message || e?.message || 'Registration could not be confirmed. Please try again.');
       setFullCapacityFailure(isFullMatchRejection(e));
     } finally { setBusy(false); }
   };
@@ -220,6 +230,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
             clearFieldValidation('captainGameName');
           }}
           autoCapitalize="words"
+          maxLength={100}
         />
         {fieldErrorText('captainGameName', 'join-form-error-captain-game-name')}
         <Input
@@ -233,6 +244,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
             clearFieldValidation('captainGameUid');
           }}
           keyboardType="number-pad"
+          maxLength={128}
         />
         {fieldErrorText('captainGameUid', 'join-form-error-captain-game-uid')}
         {isTeam && (
@@ -266,6 +278,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
                 clearFieldValidation(`memberName:${i}`);
               }}
               autoCapitalize="words"
+              maxLength={100}
             />
             {fieldErrorText(`memberName:${i}`, `join-form-error-teammate-name-${i + 1}`)}
             <Input
@@ -278,6 +291,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
                 clearFieldValidation(`memberUid:${i}`);
               }}
               keyboardType="number-pad"
+              maxLength={128}
             />
             {fieldErrorText(`memberUid:${i}`, `join-form-error-teammate-uid-${i + 1}`)}
           </View>

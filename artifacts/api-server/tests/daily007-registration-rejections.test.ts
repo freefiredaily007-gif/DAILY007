@@ -24,6 +24,7 @@ type JoinCase = {
   expectedStatus: number;
   expectedError?: string;
   expectedCode?: string;
+  expectedFieldErrors?: Record<string, string>;
   expectedRosterRowsAtLedgerFailure?: number;
   prepare: () => void;
   body?: Record<string, unknown>;
@@ -174,9 +175,76 @@ const rejectedJoins: JoinCase[] = [
     name: "invalid team details",
     expectedStatus: 400,
     expectedError: "Team registrations require a team name between 1 and 100 characters.",
+    expectedFieldErrors: {
+      teamName: "Team registrations require a team name between 1 and 100 characters.",
+    },
     prepare: () => {
       registrationCapacityTestDb.match.mode = "squad";
       registrationCapacityTestDb.match.team_type = "duo";
+    },
+  },
+  {
+    name: "captain game name exceeds the API limit",
+    expectedStatus: 400,
+    expectedError: "captainGameName must be 1–100 characters.",
+    expectedFieldErrors: {
+      captainGameName: "captainGameName must be 1–100 characters.",
+    },
+    prepare: () => {},
+    body: {
+      captainGameName: "x".repeat(101),
+      captainGameUid: "FF-FIRST-PLAYER",
+      teammates: [],
+    },
+  },
+  {
+    name: "captain game UID exceeds the API limit",
+    expectedStatus: 400,
+    expectedError: "captainGameUid is required and must contain 1–128 characters.",
+    expectedFieldErrors: {
+      captainGameUid: "captainGameUid is required and must contain 1–128 characters.",
+    },
+    prepare: () => {},
+    body: {
+      captainGameName: "First Captain",
+      captainGameUid: "x".repeat(129),
+      teammates: [],
+    },
+  },
+  {
+    name: "invalid teammate name identifies its matching input",
+    expectedStatus: 400,
+    expectedError: "Duo registrations require exactly 1 teammate name; teammate UIDs are optional and must be unique.",
+    expectedFieldErrors: {
+      "memberName:0": "Check the teammate name or UID that needs correction.",
+    },
+    prepare: () => {
+      registrationCapacityTestDb.match.mode = "squad";
+      registrationCapacityTestDb.match.team_type = "duo";
+    },
+    body: {
+      captainGameName: "First Captain",
+      captainGameUid: "FF-FIRST-PLAYER",
+      teamName: "Test Duo",
+      teammates: [{ name: "x".repeat(101), uid: "FF-TEAMMATE-002" }],
+    },
+  },
+  {
+    name: "invalid teammate UID identifies its matching input",
+    expectedStatus: 400,
+    expectedError: "Duo registrations require exactly 1 teammate name; teammate UIDs are optional and must be unique.",
+    expectedFieldErrors: {
+      "memberUid:0": "Check the teammate name or UID that needs correction.",
+    },
+    prepare: () => {
+      registrationCapacityTestDb.match.mode = "squad";
+      registrationCapacityTestDb.match.team_type = "duo";
+    },
+    body: {
+      captainGameName: "First Captain",
+      captainGameUid: "FF-FIRST-PLAYER",
+      teamName: "Test Duo",
+      teammates: [{ name: "Second Player", uid: "x".repeat(129) }],
     },
   },
   {
@@ -225,6 +293,7 @@ test("rejected tournament joins leave registrations, roster, wallet, match, and 
         assert.equal(response.status, scenario.expectedStatus);
         if (scenario.expectedError) assert.equal(response.body.error, scenario.expectedError);
         assert.equal(response.body.code, scenario.expectedCode);
+        assert.deepEqual(response.body.fieldErrors, scenario.expectedFieldErrors);
         if (scenario.expectedRosterRowsAtLedgerFailure !== undefined) {
           assert.equal(
             registrationCapacityTestDb.rosterRowsAtLedgerFailure,

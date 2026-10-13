@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
 import { buildJoinFormPayload } from "../src/lib/joinFormPayload.ts";
-import { validateJoinForm } from "../src/lib/joinFormValidation.ts";
+import {
+  getRegistrationServerFieldErrors,
+  validateJoinForm,
+} from "../src/lib/joinFormValidation.ts";
 
 const requests = [];
 const mockedHttp = {
@@ -246,6 +249,68 @@ test("missing captain UID and team name identify the corresponding fields", () =
   );
 });
 
+test("server validation metadata identifies captain, team, and teammate fields only", () => {
+  assert.deepEqual(
+    getRegistrationServerFieldErrors({
+      error: "captainGameName must be 1–100 characters.",
+      fieldErrors: { captainGameName: "captainGameName must be 1–100 characters." },
+    }, { isTeam: true, teammateCount: 2 }),
+    { captainGameName: "captainGameName must be 1–100 characters." },
+  );
+  assert.deepEqual(
+    getRegistrationServerFieldErrors({
+      error: "Team registrations require a team name between 1 and 100 characters.",
+      fieldErrors: { teamName: "Team registrations require a team name between 1 and 100 characters." },
+    }, { isTeam: true, teammateCount: 2 }),
+    { teamName: "Team registrations require a team name between 1 and 100 characters." },
+  );
+  assert.deepEqual(
+    getRegistrationServerFieldErrors({
+      error: "Duo registrations require exactly 1 teammate name.",
+      fieldErrors: {
+        "memberName:0": "Check the teammate name or UID that needs correction.",
+        "memberUid:0": "Check the teammate name or UID that needs correction.",
+        "memberName:3": "Not a visible teammate field.",
+        "unknown": "Not a registration field.",
+      },
+    }, { isTeam: true, teammateCount: 1 }),
+    {
+      "memberName:0": "Check the teammate name or UID that needs correction.",
+      "memberUid:0": "Check the teammate name or UID that needs correction.",
+    },
+  );
+});
+
+test("capacity, network, and database errors remain form-level", () => {
+  assert.deepEqual(
+    getRegistrationServerFieldErrors({
+      error: "This match is full.",
+      code: "MATCH_FULL",
+    }, { isTeam: true, teammateCount: 2 }),
+    {},
+  );
+  assert.deepEqual(
+    getRegistrationServerFieldErrors(new Error("Network request failed"), {
+      isTeam: true,
+      teammateCount: 2,
+    }),
+    {},
+  );
+  assert.deepEqual(
+    getRegistrationServerFieldErrors({
+      error: "Internal server error.",
+      fieldErrors: { wallet: "Database write failed." },
+    }, { isTeam: true, teammateCount: 2 }),
+    {},
+  );
+  assert.deepEqual(
+    getRegistrationServerFieldErrors({
+      fieldErrors: { teamName: "Team name is invalid." },
+    }, { isTeam: false, teammateCount: 0 }),
+    {},
+  );
+});
+
 test("optional teammate UIDs may be blank, while duplicate UIDs identify both conflicting fields", () => {
   assert.equal(validateJoinForm(validJoinForm({
     members: [
@@ -284,6 +349,14 @@ test("optional teammate UIDs may be blank, while duplicate UIDs identify both co
       },
     },
   );
+});
+
+test("registration text limits match the API validation limits", () => {
+  assert.match(inputWithPlaceholder("Captain Free Fire in-game name"), /maxLength=\{100\}/);
+  assert.match(inputWithPlaceholder("Captain Free Fire UID"), /maxLength=\{128\}/);
+  assert.match(joinFormSource, /placeholder="Team name"[\s\S]*?maxLength=\{100\}/);
+  assert.match(joinFormSource, /accessibilityLabel=\{`Teammate \$\{i \+ 1\} Free Fire in-game name`\}[\s\S]*?maxLength=\{100\}/);
+  assert.match(joinFormSource, /accessibilityLabel=\{`Teammate \$\{i \+ 1\} Free Fire UID, optional`\}[\s\S]*?maxLength=\{128\}/);
 });
 
 test("field errors are reachable from their inputs and use one polite announcement without moving focus", () => {

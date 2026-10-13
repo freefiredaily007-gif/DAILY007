@@ -71,6 +71,7 @@ import type {
   Daily007ReferralDashboard,
   Daily007ReviewRequestBody,
   Daily007V2CreateMatchBody,
+  Daily007V2RegisterMatch400,
   Daily007V2RegisterMatch409,
   Daily007V2RegistrationBody,
   Daily007V2SetRoomBody,
@@ -1728,7 +1729,7 @@ return customFetch<void>(getDaily007V2RegisterMatchUrl(id),
 
 export const getDaily007V2RegisterMatchMutationKey = () => ['daily007V2RegisterMatch'] as const;
 
-export const getDaily007V2RegisterMatchMutationOptions = <TError = ErrorType<void | Daily007V2RegisterMatch409>,
+export const getDaily007V2RegisterMatchMutationOptions = <TError = ErrorType<Daily007V2RegisterMatch400 | Daily007V2RegisterMatch409>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2RegisterMatch>>, TError,Daily007V2RegisterMatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof daily007V2RegisterMatch>>, TError,Daily007V2RegisterMatchMutationVariables, TContext> => {
 
@@ -1757,13 +1758,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type Daily007V2RegisterMatchMutationResult = NonNullable<Awaited<ReturnType<typeof daily007V2RegisterMatch>>>
     export type Daily007V2RegisterMatchMutationBody = BodyType<Daily007V2RegistrationBody>
-    export type Daily007V2RegisterMatchMutationError = ErrorType<void | Daily007V2RegisterMatch409>
+    export type Daily007V2RegisterMatchMutationError = ErrorType<Daily007V2RegisterMatch400 | Daily007V2RegisterMatch409>
     export type Daily007V2RegisterMatchMutationVariables = {id: string;data: BodyType<Daily007V2RegistrationBody>}
 
     /**
  * @summary Register the authenticated account for a match
  */
-export const useDaily007V2RegisterMatch = <TError = ErrorType<void | Daily007V2RegisterMatch409>,
+export const useDaily007V2RegisterMatch = <TError = ErrorType<Daily007V2RegisterMatch400 | Daily007V2RegisterMatch409>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2RegisterMatch>>, TError,Daily007V2RegisterMatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof daily007V2RegisterMatch>>,

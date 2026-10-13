@@ -13,6 +13,48 @@ export type JoinFormValidationError = {
   fieldErrors: JoinFormFieldErrors;
 };
 
+export function getRegistrationServerFieldErrors(
+  responseData: unknown,
+  options: { isTeam: boolean; teammateCount: number },
+): JoinFormFieldErrors {
+  if (
+    responseData === null ||
+    typeof responseData !== 'object' ||
+    Array.isArray(responseData)
+  ) {
+    return {};
+  }
+  const responseFieldErrors = (responseData as Record<string, unknown>).fieldErrors;
+  if (
+    responseFieldErrors === null ||
+    typeof responseFieldErrors !== 'object' ||
+    Array.isArray(responseFieldErrors)
+  ) {
+    return {};
+  }
+
+  const fieldErrors: JoinFormFieldErrors = {};
+  for (const [field, message] of Object.entries(responseFieldErrors)) {
+    if (typeof message !== 'string' || !message.trim()) continue;
+    if (
+      field === 'captainProfileName' ||
+      field === 'captainGameName' ||
+      field === 'captainGameUid' ||
+      (field === 'teamName' && options.isTeam)
+    ) {
+      fieldErrors[field] = message;
+      continue;
+    }
+
+    const teammateField = /^(memberName|memberUid):(\d+)$/.exec(field);
+    if (!teammateField) continue;
+    const index = Number(teammateField[2]);
+    if (!Number.isInteger(index) || index < 0 || index >= options.teammateCount) continue;
+    fieldErrors[field as JoinFormField] = message;
+  }
+  return fieldErrors;
+}
+
 type JoinFormValidationInput = {
   captainProfileName: string;
   captainGameName: string;

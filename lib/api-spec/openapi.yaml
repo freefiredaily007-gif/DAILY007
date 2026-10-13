@@ -358,7 +358,19 @@ paths:
       responses:
         "201": { description: Registration and post-debit wallet balance }
         "200": { description: Existing registration receipt returned idempotently; no additional debit }
-        "400": { description: Invalid input }
+        "400":
+          description: Invalid input. Recognized registration validation failures may include the field or fields to correct.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  fieldErrors:
+                    type: object
+                    additionalProperties: { type: string }
+                    description: Optional field-keyed validation messages; absent for capacity, network, and database failures.
+                required: [error]
         "409":
           description: Registration conflict. Each response includes a stable code while retaining a readable error message.
           content:
