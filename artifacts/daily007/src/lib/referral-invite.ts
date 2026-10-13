@@ -70,7 +70,10 @@ export async function copyReferralLinkToClipboard(
   referralLink: string,
   setClipboardString: (text: string) => Promise<unknown>,
 ): Promise<void> {
-  await setClipboardString(referralLink);
+  const copied = await setClipboardString(referralLink);
+  if (copied === false) {
+    throw new Error('Clipboard did not confirm the copy.');
+  }
 }
 
 export const referralInviteCopyFallbackMessage =

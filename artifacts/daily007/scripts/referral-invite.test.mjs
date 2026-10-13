@@ -220,29 +220,45 @@ test("Earn shares the same server-provided HTTPS referral link and query code", 
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
 
-test("a referral-link clipboard rejection shows Earn's share-button fallback without native services or API calls", async (t) => {
+test("a failed referral-link clipboard write shows Earn's share-button fallback without native services or API calls", async (t) => {
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const clipboardValues = [];
-  const fallbackMessages = [];
+  const copiedStates = [];
+  const alerts = [];
   const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
   const networkRequests = t.mock.method(globalThis, "fetch", async () => {
     throw new Error("Unexpected network request");
   });
 
-  const copied = await copyReferralLinkToClipboardWithFallback(
-    referralLink,
-    async (value) => {
-      clipboardValues.push(value);
-      throw new Error("Clipboard unavailable");
+  let actionError = "";
+  let clipboardFailureMode = "reject";
+  const copyReferralLink = loadEarnAction(earnSource, "copyReferralLink", {
+    dashboard: { referralLink },
+    setActionError: (message) => { actionError = message; },
+    copyReferralLinkToClipboardWithFallback,
+    Clipboard: {
+      setStringAsync: async (value) => {
+        clipboardValues.push(value);
+        if (clipboardFailureMode === "reject") throw new Error("Clipboard unavailable");
+        return false;
+      },
     },
-    (message) => fallbackMessages.push(message),
-  );
+    setLinkCopied: (value) => copiedStates.push(value),
+    Alert: { alert: (...args) => alerts.push(args) },
+    setTimeout: () => assert.fail("A failed copy must not schedule copied-success feedback."),
+  });
 
-  assert.equal(copied, false);
-  assert.deepEqual(clipboardValues, [referralLink]);
-  assert.deepEqual(fallbackMessages, [referralInviteCopyFallbackMessage]);
+  for (const failureMode of ["reject", "false"]) {
+    clipboardFailureMode = failureMode;
+    await copyReferralLink();
+    assert.equal(actionError, referralInviteCopyFallbackMessage);
+  }
+
+  assert.deepEqual(clipboardValues, [referralLink, referralLink]);
+  assert.deepEqual(copiedStates, []);
+  assert.deepEqual(alerts, []);
   assert.equal(
-    fallbackMessages[0],
+    referralInviteCopyFallbackMessage,
     "Could not copy the invite link. Try the share button instead.",
   );
   assert.equal(networkRequests.mock.callCount(), 0);
