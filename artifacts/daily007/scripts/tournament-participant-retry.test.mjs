@@ -20,6 +20,9 @@ const participantAvailabilityExpression = detailSource.match(
 const participantCountExpression = detailSource.match(
   /const participantCountLabel = ([^;]+);/,
 )?.[1];
+const participantCountAccessibilityExpression = detailSource.match(
+  /const participantCountAccessibilityLabel = ([^;]+);/,
+)?.[1];
 const initialParticipantLoadingExpression = detailSource.match(
   /\{(participantsQuery\.isLoading && !participantsQuery\.data && !retryingParticipants) \?/,
 )?.[1];
@@ -42,6 +45,14 @@ const evaluateParticipantCount = participantCountExpression
     "participantListUnavailable",
     "participants",
     `return (${participantCountExpression});`,
+  )
+  : null;
+const evaluateParticipantCountAccessibility = participantCountAccessibilityExpression
+  ? new Function(
+    "participantListUnavailable",
+    "teamTournament",
+    "participants",
+    `return (${participantCountAccessibilityExpression});`,
   )
   : null;
 
@@ -105,7 +116,10 @@ test("TalkBack gets retry guidance and outcome announcements without disabling t
   assert.match(errorBranch, /accessibilityState=\{\{ busy: participantsQuery\.isFetching \}\}/);
   assert.match(errorBranch, /testID="participants-retry"/);
   assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.'/);
-  assert.match(detailSource, /'Participant list updated\.'/);
+  assert.match(
+    detailSource,
+    /`Participant list updated\. Joined \$\{teamTournament \? 'teams' : 'players'\}: \$\{result\.data\.participants\.length\}\.`/,
+  );
   assert.match(detailSource, /Retry failed\. The participant list is still unavailable\. You can retry again\./);
   assert.match(detailSource, /result\.isSuccess/);
   assert.match(
@@ -144,6 +158,38 @@ test("VoiceOver gets explicit participant retry guidance and start, success, and
   assert.match(errorBranch ?? "", /accessibilityLabel="Retry participant list"/);
   assert.match(errorBranch ?? "", /accessibilityHint="Loads the latest list of joined players and teams\."/);
   assert.match(errorBranch ?? "", /preserveAccessibilityFocusWhileLoading/);
+});
+
+test("VoiceOver identifies the participant heading as unavailable or states the recovered count", () => {
+  assert.ok(
+    evaluateParticipantCountAccessibility,
+    "The participant heading should expose a testable VoiceOver label.",
+  );
+  assert.equal(
+    evaluateParticipantCountAccessibility(true, false, [{ players: ["Cached Player"] }]),
+    "Joined players. Count unavailable.",
+    "A failed request must not expose the cached count as current.",
+  );
+  assert.equal(
+    evaluateParticipantCountAccessibility(false, false, [{ players: ["Current Player"] }]),
+    "Joined players: 1.",
+    "A successful retry must expose the current player count.",
+  );
+  assert.equal(
+    evaluateParticipantCountAccessibility(false, true, [{ players: ["Team One"] }, { players: ["Team Two"] }]),
+    "Joined teams: 2.",
+    "Team tournaments must expose the current team count.",
+  );
+
+  const headingOffset = detailSource.indexOf('testID="participant-count-heading"');
+  const headingStartOffset = detailSource.lastIndexOf("<SectionTitle", headingOffset);
+  const headingEndOffset = detailSource.indexOf(">", headingOffset);
+  const heading = detailSource.slice(headingStartOffset, headingEndOffset + 1);
+  assert.ok(heading, "The participant heading should have its own accessible header.");
+  assert.match(heading, /accessibilityLabel=\{participantCountAccessibilityLabel\}/);
+  assert.match(heading, /testID="participant-count-heading"/);
+  assert.match(uiSource, /accessibilityRole=\{accessibilityLabel \? 'header' : undefined\}/);
+  assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
 });
 
 test("participant retry guidance and control wrap at enlarged text without clipping", () => {
@@ -305,6 +351,15 @@ test("a failed participant refresh exposes retry instead of cached entries, then
       "A failed refresh must hide the cached participant total.",
     );
     assert.equal(
+      evaluateParticipantCountAccessibility(
+        evaluateParticipantAvailability(failedRefresh, false),
+        false,
+        failedRefresh.data.participants,
+      ),
+      "Joined players. Count unavailable.",
+      "VoiceOver must not announce the cached player count as current after a failed refresh.",
+    );
+    assert.equal(
       evaluateParticipantCount(
         evaluateParticipantAvailability({ isError: false, isFetching: true }, true),
         cachedParticipants.participants,
@@ -340,6 +395,15 @@ test("a failed participant refresh exposes retry instead of cached entries, then
       ),
       1,
       "A successful retry should restore the count from the latest participant list.",
+    );
+    assert.equal(
+      evaluateParticipantCountAccessibility(
+        evaluateParticipantAvailability(recoveredRefresh, false),
+        false,
+        recoveredRefresh.data.participants,
+      ),
+      "Joined players: 1.",
+      "VoiceOver should expose the current count after retry succeeds.",
     );
     assert.equal(requestCount, 2);
   } finally {

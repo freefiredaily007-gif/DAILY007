@@ -93,7 +93,7 @@ export default function TDetail() {
       const result = await participantsQuery.refetch();
       announceParticipantsRetry(
         result.isSuccess
-          ? 'Participant list updated.'
+          ? `Participant list updated. Joined ${teamTournament ? 'teams' : 'players'}: ${result.data.participants.length}.`
           : 'Retry failed. The participant list is still unavailable. You can retry again.',
       );
     } catch {
@@ -151,6 +151,9 @@ export default function TDetail() {
   const participants = participantsQuery.data?.participants ?? [];
   const participantListUnavailable = participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching);
   const participantCountLabel = participantListUnavailable ? 'COUNT UNAVAILABLE' : participants.length;
+  const participantCountAccessibilityLabel = participantListUnavailable
+    ? `Joined ${teamTournament ? 'teams' : 'players'}. Count unavailable.`
+    : `Joined ${teamTournament ? 'teams' : 'players'}: ${participants.length}.`;
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const tournamentStatus = isCompleted ? 'completed' : String(t.status || '').toLowerCase();
@@ -231,7 +234,12 @@ export default function TDetail() {
         {!!t.rules && <Text style={s.rules}>{t.rules}</Text>}
       </Card>
 
-      <SectionTitle accent={C.orange} icon={teamTournament ? 'users' : 'user'}>
+      <SectionTitle
+        accent={C.orange}
+        icon={teamTournament ? 'users' : 'user'}
+        accessibilityLabel={participantCountAccessibilityLabel}
+        testID="participant-count-heading"
+      >
         {teamTournament ? `JOINED TEAMS · ${participantCountLabel}` : `JOINED PLAYERS · ${participantCountLabel}`}
       </SectionTitle>
       {participantsRetryAnnouncement ? (

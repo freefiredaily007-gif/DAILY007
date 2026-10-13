@@ -284,14 +284,33 @@ export function Loading({ accessibilityLabel }: { accessibilityLabel?: string } 
   );
 }
 
-export function SectionTitle({ children, accent, icon }: { children: React.ReactNode; accent?: string; icon?: keyof typeof Feather.glyphMap }) {
+export function SectionTitle({
+  children,
+  accent,
+  icon,
+  accessibilityLabel,
+  testID,
+}: {
+  children: React.ReactNode;
+  accent?: string;
+  icon?: keyof typeof Feather.glyphMap;
+  accessibilityLabel?: string;
+  testID?: string;
+}) {
   const adminSurface = useAdminSurface();
   const markerColor = swapThemeColor(accent || (adminSurface ? C.orange : C.neon));
   return (
     <View style={[st.secRow, adminSurface && adminSt.secRow]}>
       <View style={[st.secBar, { backgroundColor: markerColor }, glow(markerColor, 6)]} />
       {icon ? <Feather name={icon} size={14} color={markerColor} /> : null}
-      <Text style={[st.secText, adminSurface && adminSt.secText]}>{children}</Text>
+      <Text
+        testID={testID}
+        accessibilityRole={accessibilityLabel ? 'header' : undefined}
+        accessibilityLabel={accessibilityLabel}
+        style={[st.secText, adminSurface && adminSt.secText]}
+      >
+        {children}
+      </Text>
     </View>
   );
 }
