@@ -298,6 +298,8 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
     Alert: { alert: (...args) => alerts.push(args) },
     setTimeout: () => assert.fail("A failed copy must not schedule the copied-success state reset."),
     setActionError,
+    __DEV__: false,
+    simulateReferralCodeCopyFailure: false,
   });
   await copyCode();
 
@@ -307,7 +309,14 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
   assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
-  assert.match(earnSource, /const copiedSuccessfully = await Clipboard\.setStringAsync\(dashboard\.code\);/);
+  assert.match(
+    earnSource,
+    /const writeReferralCode = __DEV__ && simulateReferralCodeCopyFailure[\s\S]*?throw new Error\('Simulated referral code clipboard failure'\)[\s\S]*?: Clipboard\.setStringAsync;\s*const copiedSuccessfully = await writeReferralCode\(dashboard\.code\);/,
+  );
+  assert.match(
+    earnSource,
+    /testID="referral-simulate-code-copy-failure"[\s\S]*?setSimulateReferralCodeCopyFailure\(\(current\) => !current\)/,
+  );
 
   clipboardFailureMode = "false";
   await copyCode();
@@ -316,6 +325,23 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.deepEqual(copiedStates, []);
   assert.deepEqual(alerts, []);
   assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+
+  const simulatedCopyCode = loadEarnAction(earnSource, "copyCode", {
+    dashboard,
+    Clipboard: {
+      setStringAsync: async () => assert.fail("The device test switch must reject before calling the real clipboard."),
+    },
+    setCopied: (value) => copiedStates.push(value),
+    Alert: { alert: (...args) => alerts.push(args) },
+    setTimeout: () => assert.fail("A simulated copy failure must not schedule success feedback."),
+    setActionError,
+    __DEV__: true,
+    simulateReferralCodeCopyFailure: true,
+  });
+  await simulatedCopyCode();
+  assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+  assert.deepEqual(copiedStates, []);
+  assert.deepEqual(alerts, []);
 
   const shareInvite = loadEarnAction(earnSource, "shareInvite", {
     dashboard,

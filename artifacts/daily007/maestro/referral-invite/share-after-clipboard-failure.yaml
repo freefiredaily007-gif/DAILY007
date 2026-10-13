@@ -1,0 +1,39 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/
+- extendedWaitUntil:
+    visible:
+      text: EARN
+    timeout: 20000
+- tapOn:
+    text: EARN
+- extendedWaitUntil:
+    visible:
+      id: referral-copy-code
+    timeout: 15000
+- tapOn:
+    id: referral-simulate-code-copy-failure
+- tapOn:
+    id: referral-copy-code
+- extendedWaitUntil:
+    visible:
+      text: "Could not copy the referral code. Try the share button instead."
+    timeout: 5000
+- tapOn:
+    id: referral-share-invite
+- extendedWaitUntil:
+    visible:
+      text: "Sharing link"
+    timeout: 10000
+- assertVisible:
+    text: 'regex:.*Join FreeFire Daily007 with my referral code [A-Z0-9]{5}.*'
+- assertVisible:
+    text: 'regex:.*Open Daily007: https://[^ ]+\\?ref=[A-Z0-9]{5}.*'
+- pressKey: BACK
+- assertVisible:
+    text: "Could not copy the referral code. Try the share button instead."
+- assertVisible:
+    id: referral-copy-code
+- assertVisible:
+    text: SHARE INVITE LINK

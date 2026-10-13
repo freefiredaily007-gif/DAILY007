@@ -42,6 +42,7 @@ export default function Earn() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
   const [simulateReferralBrowserOpenFailure, setSimulateReferralBrowserOpenFailure] = useState(false);
+  const [simulateReferralCodeCopyFailure, setSimulateReferralCodeCopyFailure] = useState(false);
   const [taskError, setTaskError] = useState('');
   const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
   const waitingForYoutubeReturn = useRef(false);
@@ -70,7 +71,10 @@ export default function Earn() {
   const copyCode = async () => {
     if (!dashboard?.code) return;
     try {
-      const copiedSuccessfully = await Clipboard.setStringAsync(dashboard.code);
+      const writeReferralCode = __DEV__ && simulateReferralCodeCopyFailure
+        ? async () => { throw new Error('Simulated referral code clipboard failure'); }
+        : Clipboard.setStringAsync;
+      const copiedSuccessfully = await writeReferralCode(dashboard.code);
       if (!copiedSuccessfully) throw new Error('Clipboard did not confirm the copy.');
       setCopied(true);
       Alert.alert('Referral code copied', 'Share it with a friend when they create their account.');
@@ -320,6 +324,25 @@ export default function Earn() {
                   {simulateReferralBrowserOpenFailure
                     ? 'DEV TEST: browser failure ON'
                     : 'DEV TEST: simulate browser failure'}
+                </Text>
+              </Pressable>
+            ) : null}
+            {__DEV__ ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  simulateReferralCodeCopyFailure
+                    ? 'Stop simulating referral code copy failures'
+                    : 'Simulate referral code copy failure'
+                }
+                testID="referral-simulate-code-copy-failure"
+                onPress={() => setSimulateReferralCodeCopyFailure((current) => !current)}
+                style={s.devTestButton}
+              >
+                <Text accessible={false} style={s.devTestButtonText}>
+                  {simulateReferralCodeCopyFailure
+                    ? 'DEV TEST: referral code copy failure ON'
+                    : 'DEV TEST: simulate referral code copy failure'}
                 </Text>
               </Pressable>
             ) : null}

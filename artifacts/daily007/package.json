@@ -40,6 +40,7 @@
     "test:tournament-winner-details": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-winner-details.test.mjs",
     "test:tournament-card-artwork": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-card-artwork.test.mjs",
     "test:referral-invite": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/referral-invite.test.mjs",
+    "test:android-referral-invite": "maestro test maestro/referral-invite/share-after-clipboard-failure.yaml",
     "test:session-verification": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/session-verification.test.mjs",
     "test:session-verification-native": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/session-verification-native.test.mjs",
     "test:android-session-verification": "node scripts/run-android-session-verification.mjs",

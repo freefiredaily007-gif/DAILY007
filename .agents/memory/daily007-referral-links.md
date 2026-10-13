@@ -16,3 +16,9 @@ For referral code and invite-link copies, treat a resolved `false` from Expo Cli
 **Why:** `Clipboard.setStringAsync` resolves to a boolean, so a failed write may not throw.
 
 **How to apply:** Check the resolved value before showing success for referral copy actions, and preserve an alternate sharing path on either failure mode.
+
+On 2026-10-14, the user confirmed Android's native share chooser opened after referral-code copying failed, showed the invite URL and referral code, and returned to a usable Earn screen with the recovery message visible.
+
+**Why:** The Android Share API was previously covered only by a mock, so native chooser behavior needed real-device confirmation.
+
+**How to apply:** Preserve the invite content and visible recovery state when clipboard copying fails; keep the Android Maestro flow as regression coverage.
