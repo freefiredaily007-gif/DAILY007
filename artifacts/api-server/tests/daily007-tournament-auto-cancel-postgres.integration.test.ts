@@ -457,6 +457,117 @@ test("late PostgreSQL tournament finalization failure rolls back refunds and the
         idempotency_key: `daily007:tournament-cancel:${fixture.matchIds[1]}:${fixture.registrationIds[2]}`,
       },
     ]);
+
+    const cursorAfterFirstSweep = await storedCursor();
+    assert.equal(
+      cursorAfterFirstSweep?.id,
+      fixture.matchIds[1],
+      "the persisted cursor must advance past the valid tournament after the earlier failure",
+    );
+
+    await pool.query(`DROP TRIGGER ${FINALIZATION_TRIGGER} ON daily007_v2_matches`);
+    await pool.query(`DROP FUNCTION ${FINALIZATION_FUNCTION}()`);
+    await runDaily007AutoCancellationSweep();
+
+    const attemptsAfterRetry = await pool.query<{
+      last_value: string;
+      is_called: boolean;
+    }>(`SELECT last_value::text, is_called FROM ${FINALIZATION_SEQUENCE}`);
+    assert.deepEqual(
+      attemptsAfterRetry.rows[0],
+      { last_value: "1", is_called: true },
+      "the failed finalization trigger must be removed before the retry",
+    );
+
+    const retriedMatch = await pool.query<{
+      status: string;
+      enabled: boolean;
+      is_full: boolean;
+      room_id: string | null;
+      room_password: string | null;
+      room_published: boolean;
+    }>(
+      `SELECT status, enabled, is_full, room_id, room_password, room_published
+         FROM daily007_v2_matches WHERE id = $1`,
+      [fixture.matchIds[0]],
+    );
+    assert.deepEqual(retriedMatch.rows[0], {
+      status: "cancelled",
+      enabled: false,
+      is_full: false,
+      room_id: null,
+      room_password: null,
+      room_published: false,
+    });
+
+    const retriedPayers = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[fixture.payerIds[0], fixture.payerIds[1]]],
+    );
+    assert.deepEqual(
+      new Map(retriedPayers.rows.map((payer) => [payer.id, payer.wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 145],
+        [fixture.payerIds[1], 120],
+      ]),
+      "the retry must credit each payer exactly once",
+    );
+
+    const retriedRefunds = await pool.query<{
+      user_id: string;
+      amount: number;
+      balance_after: number;
+      reason: string;
+      registration_id: string;
+      idempotency_key: string;
+    }>(
+      `SELECT user_id, amount, balance_after, reason, registration_id, idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'
+        ORDER BY registration_id`,
+      [fixture.matchIds[0]],
+    );
+    const expectedRetriedRefunds = [
+      {
+        user_id: fixture.payerIds[0],
+        amount: 25,
+        balance_after: 145,
+        reason: "tournament_cancel_refund",
+        registration_id: fixture.registrationIds[0],
+        idempotency_key: `daily007:tournament-cancel:${fixture.matchIds[0]}:${fixture.registrationIds[0]}`,
+      },
+      {
+        user_id: fixture.payerIds[1],
+        amount: 40,
+        balance_after: 120,
+        reason: "tournament_cancel_refund",
+        registration_id: fixture.registrationIds[1],
+        idempotency_key: `daily007:tournament-cancel:${fixture.matchIds[0]}:${fixture.registrationIds[1]}`,
+      },
+    ].sort((first, second) => first.registration_id.localeCompare(second.registration_id));
+    assert.deepEqual(retriedRefunds.rows, expectedRetriedRefunds);
+
+    const laterRefundCount = await pool.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
+      [fixture.matchIds[1]],
+    );
+    assert.equal(laterRefundCount.rows[0]?.count, 1);
+    const laterPayerAfterRetry = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [fixture.payerIds[2]],
+    );
+    assert.equal(
+      laterPayerAfterRetry.rows[0]?.wallet_coins,
+      88,
+      "retrying the failed tournament must not refund the later tournament again",
+    );
+    assert.equal(
+      (await storedCursor())?.id,
+      fixture.matchIds[0],
+      "the next sweep must wrap the persisted cursor and advance to the retried tournament",
+    );
   } finally {
     const cleanupErrors: unknown[] = [];
     for (const statement of [
