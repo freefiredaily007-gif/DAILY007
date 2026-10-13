@@ -950,6 +950,277 @@ test("concurrent approvals of one leaderboard period pay each rank only once", a
   }
 });
 
+test("concurrent approvals of separate leaderboard cycles add both rewards to the same winner", async () => {
+  const weeklyAdminId = randomUUID();
+  const monthlyAdminId = randomUUID();
+  const winnerId = randomUUID();
+  const weeklyPeriodId = randomUUID();
+  const monthlyPeriodId = randomUUID();
+  const winnerName = "Shared Weekly and Monthly Winner";
+  const startingBalance = 17;
+  const weeklyReward = 40;
+  const monthlyReward = 25;
+  const pauseKey = 740081n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let weeklyApprovalPromise: Promise<JsonResponse> | undefined;
+  let monthlyApprovalPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Weekly Approval Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Monthly Approval Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, $6, $7, 'test-salt', 'test-hash', 'user', $8)`,
+      [
+        weeklyAdminId,
+        `weekly-approval-admin-${weeklyAdminId}@example.test`,
+        monthlyAdminId,
+        `monthly-approval-admin-${monthlyAdminId}@example.test`,
+        winnerId,
+        winnerName,
+        `shared-cycle-winner-${winnerId}@example.test`,
+        startingBalance,
+      ],
+    );
+    const standings = [{
+      rank: 1,
+      userId: winnerId,
+      name: winnerName,
+      points: 50,
+      earnings: 0,
+      wins: 2,
+      kills: 3,
+      matches: 4,
+    }];
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES
+         ($1, 'weekly', '2020-01-01T00:00:00Z', '2020-01-08T00:00:00Z',
+          'pending_approval', $3::jsonb, $4::jsonb),
+         ($2, 'monthly', '2020-01-01T00:00:00Z', '2020-02-01T00:00:00Z',
+          'pending_approval', $3::jsonb, $5::jsonb)`,
+      [
+        weeklyPeriodId,
+        monthlyPeriodId,
+        JSON.stringify(standings),
+        JSON.stringify([{ rank: 1, coins: weeklyReward }]),
+        JSON.stringify([{ rank: 1, coins: monthlyReward }]),
+      ],
+    );
+    await pool.query(
+      "CREATE TABLE daily007_test_paused_cycle_payouts (period_id uuid PRIMARY KEY)",
+    );
+    await pool.query(
+      "INSERT INTO daily007_test_paused_cycle_payouts (period_id) VALUES ($1)",
+      [weeklyPeriodId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_first_cycle_payout() RETURNS trigger AS $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM daily007_test_paused_cycle_payouts
+           WHERE period_id = (NEW.details->>'periodId')::uuid
+        ) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_first_cycle_payout
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_first_cycle_payout()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+
+    await withServer(async (origin) => {
+      let weeklyApproval: JsonResponse;
+      let monthlyApproval: JsonResponse;
+      try {
+        weeklyApprovalPromise = postJson(
+          origin,
+          `/daily007/v2/admin/leaderboards/periods/${weeklyPeriodId}/approve`,
+          weeklyAdminId,
+          {},
+        );
+        await waitForBlockedQuery(
+          "INSERT INTO daily007_v2_wallet_ledger",
+          "the weekly payout after locking the shared winner",
+        );
+
+        monthlyApprovalPromise = postJson(
+          origin,
+          `/daily007/v2/admin/leaderboards/periods/${monthlyPeriodId}/approve`,
+          monthlyAdminId,
+          {},
+        );
+        await waitForBlockedQuery(
+          "SELECT wallet_coins FROM daily007_v2_users",
+          "the monthly payout to wait for the weekly winner balance update",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+        [weeklyApproval, monthlyApproval] = await Promise.all([
+          weeklyApprovalPromise,
+          monthlyApprovalPromise,
+        ]);
+      } finally {
+        await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      }
+
+      assert.equal(weeklyApproval.status, 200, JSON.stringify(weeklyApproval.body));
+      assert.equal(weeklyApproval.body.periodId, weeklyPeriodId);
+      assert.equal(weeklyApproval.body.cycleType, "weekly");
+      assert.equal(weeklyApproval.body.alreadyApproved, false);
+      assert.equal(weeklyApproval.body.approvedBy, weeklyAdminId);
+      assert.deepEqual(
+        weeklyApproval.body.payouts,
+        [{
+          rank: 1,
+          userId: winnerId,
+          name: winnerName,
+          coins: weeklyReward,
+          balanceAfter: startingBalance + weeklyReward,
+        }],
+      );
+
+      assert.equal(monthlyApproval.status, 200, JSON.stringify(monthlyApproval.body));
+      assert.equal(monthlyApproval.body.periodId, monthlyPeriodId);
+      assert.equal(monthlyApproval.body.cycleType, "monthly");
+      assert.equal(monthlyApproval.body.alreadyApproved, false);
+      assert.equal(monthlyApproval.body.approvedBy, monthlyAdminId);
+      assert.deepEqual(
+        monthlyApproval.body.payouts,
+        [{
+          rank: 1,
+          userId: winnerId,
+          name: winnerName,
+          coins: monthlyReward,
+          balanceAfter: startingBalance + weeklyReward + monthlyReward,
+        }],
+      );
+    });
+
+    const periods = await pool.query<{
+      id: string;
+      cycle_type: string;
+      status: string;
+      approved_by: string;
+    }>(
+      `SELECT id, cycle_type, status, approved_by
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = ANY($1::uuid[])
+        ORDER BY cycle_type`,
+      [[weeklyPeriodId, monthlyPeriodId]],
+    );
+    assert.deepEqual(periods.rows, [
+      { id: monthlyPeriodId, cycle_type: "monthly", status: "finalized", approved_by: monthlyAdminId },
+      { id: weeklyPeriodId, cycle_type: "weekly", status: "finalized", approved_by: weeklyAdminId },
+    ]);
+
+    const winner = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [winnerId],
+    );
+    assert.equal(winner.rows[0]?.wallet_coins, startingBalance + weeklyReward + monthlyReward);
+
+    const payouts = await pool.query<{
+      period_id: string;
+      rank: number;
+      user_id: string;
+      amount: number;
+      balance_after: number;
+      reason: string;
+      idempotency_key: string;
+    }>(
+      `SELECT details->>'periodId' AS period_id,
+              (details->>'rank')::integer AS rank,
+              user_id,
+              amount,
+              balance_after,
+              reason,
+              idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1
+        ORDER BY idempotency_key`,
+      [winnerId],
+    );
+    assert.deepEqual(payouts.rows, [
+      {
+        period_id: monthlyPeriodId,
+        rank: 1,
+        user_id: winnerId,
+        amount: monthlyReward,
+        balance_after: startingBalance + weeklyReward + monthlyReward,
+        reason: "Monthly Leaderboard Rank #1 Reward",
+        idempotency_key: `leaderboard-cycle:${monthlyPeriodId}:rank:1`,
+      },
+      {
+        period_id: weeklyPeriodId,
+        rank: 1,
+        user_id: winnerId,
+        amount: weeklyReward,
+        balance_after: startingBalance + weeklyReward,
+        reason: "Weekly Leaderboard Rank #1 Reward",
+        idempotency_key: `leaderboard-cycle:${weeklyPeriodId}:rank:1`,
+      },
+    ]);
+  } finally {
+    if (blocker) {
+      await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      blocker.release();
+    }
+    if (weeklyApprovalPromise || monthlyApprovalPromise) {
+      await Promise.allSettled(
+        [weeklyApprovalPromise, monthlyApprovalPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    const cleanupErrors: unknown[] = [];
+    for (const statement of [
+      "DROP TRIGGER IF EXISTS daily007_test_pause_first_cycle_payout ON daily007_v2_wallet_ledger",
+      "DROP FUNCTION IF EXISTS daily007_test_pause_first_cycle_payout()",
+      "DROP TABLE IF EXISTS daily007_test_paused_cycle_payouts",
+    ]) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const cleanup of [
+      () => pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [winnerId]),
+      () =>
+        pool.query(
+          "DELETE FROM daily007_v2_leaderboard_periods WHERE id = ANY($1::uuid[])",
+          [[weeklyPeriodId, monthlyPeriodId]],
+        ),
+      () =>
+        pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [
+          [weeklyAdminId, monthlyAdminId, winnerId],
+        ]),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up the overlapping leaderboard cycle payout fixture.",
+      );
+    }
+  }
+});
+
 test("a later leaderboard payout failure rolls back earlier winners and keeps the period pending", async () => {
   const adminId = randomUUID();
   const winnerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
