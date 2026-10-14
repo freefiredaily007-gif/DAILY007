@@ -19,6 +19,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^react-native$/, replacement: path.join(daily007Root, "node_modules/react-native-web") },
+      { find: /^expo-router$/, replacement: path.join(regressionRoot, "mocks/expo-router.tsx") },
       { find: /^@expo\/vector-icons$/, replacement: path.join(regressionRoot, "mocks/vector-icons.tsx") },
       { find: /^react-native-keyboard-controller$/, replacement: path.join(regressionRoot, "mocks/keyboard-controller.tsx") },
       { find: /^\.\.\/lib\/api$/, replacement: path.join(regressionRoot, "mocks/signup-auth-api.ts") },
@@ -28,6 +29,7 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
   },
   define: {
+    __DEV__: JSON.stringify(true),
     "process.env.EXPO_PUBLIC_DOMAIN": JSON.stringify(""),
   },
   server: {

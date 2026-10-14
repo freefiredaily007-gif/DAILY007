@@ -106,9 +106,9 @@ test('native fixture exposes the production cancellation-refund row as one compl
     maestroFlow,
     /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./,
   );
-  assert.equal(
+  assert.match(
     packageSource.scripts['test:android-wallet-cancellation-refund'],
-    'maestro test maestro/wallet-cancellation-refund',
+    /^maestro test --test-output-dir=.* maestro\/wallet-cancellation-refund$/,
   );
 });
 

@@ -2044,7 +2044,7 @@ test("logout clears the Daily007 session even if Clerk sign-out fails", async ()
     () => { calls.push("daily007-session"); },
   );
   assert.equal(clerkSignOutFailed, true);
-  assert.deepEqual(calls, ["clerk", "daily007-session"]);
+  assert.deepEqual(calls, ["daily007-session", "clerk"]);
 
   calls.length = 0;
   const success = await logoutDaily007(
@@ -2052,7 +2052,7 @@ test("logout clears the Daily007 session even if Clerk sign-out fails", async ()
     () => { calls.push("daily007-session"); },
   );
   assert.equal(success, false);
-  assert.deepEqual(calls, ["clerk", "daily007-session"]);
+  assert.deepEqual(calls, ["daily007-session", "clerk"]);
 });
 
 test("blocked Google-linked Daily007 accounts are denied sign-in", async () => {

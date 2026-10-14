@@ -518,8 +518,8 @@ test("tournament result status and winner details poll only while focused withou
     );
     assert.match(
       detailSource,
-      /refetchInterval: getTournamentResultsRefreshInterval\(isFocused\)/,
-      "status refresh should use the focus-aware polling interval",
+      /refetchInterval: getTournamentResultsRefreshInterval\(isFocused && isAppActive\)/,
+      "status refresh should use the focus-and-foreground-aware polling interval",
     );
 
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

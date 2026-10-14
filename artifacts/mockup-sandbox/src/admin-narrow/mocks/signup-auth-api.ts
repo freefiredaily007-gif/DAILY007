@@ -7,6 +7,16 @@ export class SessionPersistenceError extends Error {
   }
 }
 
+export class LoginRateLimitError extends Error {
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.name = "LoginRateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 export const Api = {
   login: async () => {
     throw new Error("Login is disabled in the isolated signup keyboard test.");
