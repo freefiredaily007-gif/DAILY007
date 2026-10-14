@@ -19,6 +19,7 @@ const GOOGLE_EMAIL = "google-postgres-rollback@example.test";
 const SECOND_GOOGLE_CLERK_USER_ID = "clerk-google-postgres-independent-test";
 const SECOND_GOOGLE_EMAIL = "google-postgres-independent@example.test";
 const REFERRAL_CODE = "ABCDE";
+const UNKNOWN_LEGACY_REFERRAL_CODE = "UNREGISTERED-LEGACY-CODE";
 const TEST_AUTH_SECRET = "google-postgres-rollback-tests-only-secret-at-least-32-chars";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
@@ -117,6 +118,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
 async function googleSignIn(
   origin: string,
   clerkUserId = GOOGLE_CLERK_USER_ID,
+  referralCode = REFERRAL_CODE,
 ): Promise<JsonResult> {
   const response = await fetch(`${origin}/auth/google`, {
     method: "POST",
@@ -125,7 +127,7 @@ async function googleSignIn(
       "content-type": "application/json",
       "x-mock-clerk-user-id": clerkUserId,
     },
-    body: JSON.stringify({ referralCode: REFERRAL_CODE }),
+    body: JSON.stringify({ referralCode }),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
@@ -183,6 +185,154 @@ async function resetReferralRewardFailureTrigger(): Promise<void> {
     EXECUTE FUNCTION daily007_test_fail_first_referral_reward()
   `);
 }
+
+test("a rejected legacy-style referral code rolls back Google signup before a valid-code retry", async () => {
+  await pool.query(
+    "DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger",
+  );
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const referrerId = randomUUID();
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Postgres Test Referrer', $2, 'test-salt', 'test-hash')`,
+    [referrerId, `referrer-${referrerId}@example.test`],
+  );
+  await pool.query(
+    "INSERT INTO daily007_v2_referral_short_codes (user_id, code) VALUES ($1, $2)",
+    [referrerId, REFERRAL_CODE],
+  );
+
+  try {
+    await withServer(async (origin) => {
+      assert.ok(
+        UNKNOWN_LEGACY_REFERRAL_CODE.length > REFERRAL_CODE.length,
+        "the unrecognized code must use the longer legacy-code shape",
+      );
+      const rejected = await googleSignIn(
+        origin,
+        GOOGLE_CLERK_USER_ID,
+        UNKNOWN_LEGACY_REFERRAL_CODE,
+      );
+      assert.equal(rejected.status, 400);
+      assert.match(String(rejected.body.error), /referral code is not recognized/i);
+
+      const rejectedSignupState = await pool.query<{
+        accounts: number;
+        referrals: number;
+        legacyCodes: number;
+        shortCodes: number;
+        rewards: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM daily007_v2_users
+             WHERE id <> $1 OR clerk_user_id IS NOT NULL) AS accounts,
+           (SELECT count(*)::int FROM daily007_v2_referrals) AS referrals,
+           (SELECT count(*)::int FROM daily007_v2_referral_codes) AS "legacyCodes",
+           (SELECT count(*)::int FROM daily007_v2_referral_short_codes) AS "shortCodes",
+           (SELECT count(*)::int FROM daily007_v2_wallet_ledger) AS rewards`,
+        [referrerId],
+      );
+      assert.deepEqual(
+        rejectedSignupState.rows[0],
+        { accounts: 0, referrals: 0, legacyCodes: 0, shortCodes: 1, rewards: 0 },
+        "the rejected transaction must leave no account, referral, generated legacy code, or wallet reward",
+      );
+      const rejectedIdentity = await pool.query(
+        "SELECT id FROM daily007_v2_users WHERE clerk_user_id = $1 OR email = $2",
+        [GOOGLE_CLERK_USER_ID, GOOGLE_EMAIL],
+      );
+      assert.deepEqual(rejectedIdentity.rows, [], "the rejected signup must not retain the Google identity");
+
+      const retry = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, REFERRAL_CODE);
+      assert.equal(retry.status, 201, "the same Google identity should retry with a valid referral code");
+      assert.equal(retry.body.coins, 10);
+      assert.equal(typeof retry.body.token, "string");
+
+      const accounts = await pool.query<{
+        id: string;
+        email: string;
+        clerk_user_id: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, email, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(accounts.rows, [{
+        id: retry.body.id,
+        email: GOOGLE_EMAIL,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+        wallet_coins: 10,
+      }], "the retry must create exactly one Google-linked account and reward balance");
+
+      const allAccounts = await pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM daily007_v2_users",
+      );
+      assert.equal(allAccounts.rows[0]?.count, 2, "only the referrer and retried Google account should exist");
+
+      const referrals = await pool.query<{
+        referrer_user_id: string;
+        referred_user_id: string;
+        code: string;
+      }>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals`,
+      );
+      assert.deepEqual(referrals.rows, [{
+        referrer_user_id: referrerId,
+        referred_user_id: String(retry.body.id),
+        code: REFERRAL_CODE,
+      }], "the retry must persist exactly one referral relationship");
+
+      const generatedCodes = await pool.query<{
+        legacy_codes: number;
+        short_codes: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM daily007_v2_referral_codes) AS legacy_codes,
+           (SELECT count(*)::int FROM daily007_v2_referral_short_codes) AS short_codes`,
+      );
+      assert.deepEqual(generatedCodes.rows[0], { legacy_codes: 1, short_codes: 2 });
+
+      const rewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger`,
+      );
+      assert.deepEqual(rewards.rows, [{
+        user_id: String(retry.body.id),
+        amount: 10,
+        balance_after: 10,
+        reason: "Referral Signup Bonus",
+      }], "the retry must persist exactly one 10-coin reward");
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(retry.body.token)}` },
+      });
+      assert.equal(walletResponse.status, 200);
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        [{ amount: 10, balanceAfter: 10, reason: "Referral Signup Bonus" }],
+        "Wallet history must show exactly one reward entry after the successful retry",
+      );
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = $1",
+      [GOOGLE_CLERK_USER_ID],
+    );
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    await resetReferralRewardFailureTrigger();
+    resetMockGoogleUser();
+  }
+});
 
 test("a waiting Google sign-in recovers after a real referral reward transaction rollback", async () => {
   await resetReferralRewardFailureTrigger();
