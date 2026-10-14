@@ -1730,6 +1730,124 @@ test("a verified Google email mismatch cannot link an account or change its rewa
   }
 });
 
+test("unverified Google identities cannot link a password account or change its rewards", async (t) => {
+  const unverifiedIdentities = [
+    {
+      name: "an unverified Google external account",
+      user: {
+        ...VERIFIED_GOOGLE_USER,
+        externalAccounts: [{
+          ...VERIFIED_GOOGLE_USER.externalAccounts[0],
+          verification: { status: "unverified" },
+        }],
+      },
+    },
+    {
+      name: "an unverified Clerk email",
+      user: {
+        ...VERIFIED_GOOGLE_USER,
+        emailAddresses: [{
+          ...VERIFIED_GOOGLE_USER.emailAddresses[0],
+          verification: { status: "unverified" },
+        }],
+      },
+    },
+  ];
+
+  for (const scenario of unverifiedIdentities) {
+    await t.test(scenario.name, async () => {
+      signupTestDb.reset();
+      resetMockGoogleUser(scenario.user as unknown as MockGoogleUser);
+
+      try {
+        await withGoogleAuthServer(async (origin) => {
+          const { account, token } = await createPasswordAccount(
+            origin,
+            "google-signup@example.test",
+          );
+          account.wallet_coins = 73;
+          const referrer = [...signupTestDb.users.values()].find(
+            (user) => user.email === "referrer@example.test",
+          );
+          assert.ok(referrer);
+          assert.equal(
+            signupTestDb.shortCodeOwners.get(SIGNUP_TEST_REFERRAL_CODE),
+            referrer.id,
+            "the supplied referral code must be valid",
+          );
+          signupTestDb.referrals.push({
+            id: `unverified-link-${scenario.name}`,
+            referrer_user_id: referrer.id,
+            referred_user_id: account.id,
+            code: SIGNUP_TEST_REFERRAL_CODE,
+          });
+          signupTestDb.ledger.push({
+            id: `unverified-link-${scenario.name}-wallet-entry`,
+            user_id: account.id,
+            amount: 73,
+            balance_after: 73,
+            reason: "Wallet Recharge",
+            idempotency_key: `unverified-link-${scenario.name}-wallet-entry`,
+            details: { source: "test fixture" },
+            created_at: new Date(1),
+          });
+
+          const accountBeforeLinkAttempt = structuredClone(account);
+          const referralsBeforeLinkAttempt = structuredClone(signupTestDb.referrals);
+          const ledgerBeforeLinkAttempt = structuredClone(signupTestDb.ledger);
+          const accountCountBeforeLinkAttempt = signupTestDb.users.size;
+
+          const rejectedLink = await googleAuth(
+            origin,
+            token,
+            SIGNUP_TEST_REFERRAL_CODE,
+          );
+
+          assert.equal(rejectedLink.status, 403);
+          assert.match(String(rejectedLink.body.error), /verified email address/i);
+          assert.equal(getMockGoogleUserLookupCount(), 1);
+          assert.deepEqual(account, accountBeforeLinkAttempt, "the password account must remain unchanged");
+          assert.equal(account.clerk_user_id, null, "the unverified Google identity must remain unlinked");
+          assert.equal(account.wallet_coins, 73, "the rejected link must not alter the balance");
+          assert.equal(signupTestDb.users.size, accountCountBeforeLinkAttempt, "the request must not create an account");
+          assert.deepEqual(
+            signupTestDb.referrals,
+            referralsBeforeLinkAttempt,
+            "the supplied referral code must not change referral relationships",
+          );
+          assert.deepEqual(
+            signupTestDb.ledger,
+            ledgerBeforeLinkAttempt,
+            "the rejected link must not change wallet history or rewards",
+          );
+
+          const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+            headers: { authorization: `Bearer ${token}` },
+          });
+          assert.equal(walletResponse.status, 200, "the current Daily007 session should remain valid");
+          const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+          assert.deepEqual(
+            walletHistory.map(({ amount, balanceAfter, reason }) => ({
+              amount,
+              balanceAfter,
+              reason,
+            })),
+            ledgerBeforeLinkAttempt.map(({ amount, balance_after, reason }) => ({
+              amount,
+              balanceAfter: balance_after,
+              reason,
+            })),
+            "the Wallet API must continue to return the original history",
+          );
+        });
+      } finally {
+        signupTestDb.reset();
+        resetMockGoogleUser();
+      }
+    });
+  }
+});
+
 test("a replaced Daily007 session cannot link Google or change the account's rewards", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
