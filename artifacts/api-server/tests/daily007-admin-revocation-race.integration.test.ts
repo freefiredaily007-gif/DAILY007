@@ -310,6 +310,7 @@ test("an in-flight admin mutation commits before demotion, and later mutations a
   let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
   let mutationPromise: Promise<JsonResponse> | undefined;
   let demotionPromise: Promise<JsonResponse> | undefined;
+  let queuedMutationPromise: Promise<JsonResponse> | undefined;
 
   try {
     await pool.query(
@@ -347,33 +348,59 @@ test("an in-flight admin mutation commits before demotion, and later mutations a
     await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
 
     await withServer(async (origin) => {
-      mutationPromise = patchJson(origin, `/admin/users/${targetId}`, actorId, {
-        coinsDelta: 25,
-        reason: "controlled race",
-      });
-      await waitForBlockedQuery(
-        "UPDATE daily007_v2_users SET status = COALESCE",
-        "the already-authorized wallet mutation",
-      );
+      let mutation: JsonResponse;
+      let demotion: JsonResponse;
+      let queuedMutation: JsonResponse;
+      try {
+        mutationPromise = patchJson(origin, `/admin/users/${targetId}`, actorId, {
+          coinsDelta: 25,
+          reason: "controlled race",
+        });
+        await waitForBlockedQuery(
+          "UPDATE daily007_v2_users SET status = COALESCE",
+          "the already-authorized wallet mutation",
+        );
 
-      demotionPromise = patchJson(origin, `/admin/users/${actorId}/role`, demoterId, {
-        role: "tournament_admin",
-      });
-      await waitForBlockedQuery(
-        "SELECT pg_advisory_xact_lock(740073)",
-        "the role-change advisory lock",
-      );
+        demotionPromise = patchJson(origin, `/admin/users/${actorId}/role`, demoterId, {
+          role: "tournament_admin",
+        });
+        await waitForBlockedQuery(
+          "SELECT pg_advisory_xact_lock(740073)",
+          "the role-change advisory lock",
+        );
+        const demotionBackend = await pool.query<{ pid: number }>(
+          `SELECT pid
+             FROM pg_stat_activity
+            WHERE pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%SELECT pg_advisory_xact_lock(740073)%'
+            ORDER BY query_start DESC
+            LIMIT 1`,
+        );
+        assert.ok(demotionBackend.rows[0], "the demotion should be queued behind the first mutation");
 
-      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
-      const [mutation, demotion] = await Promise.all([mutationPromise, demotionPromise]);
+        queuedMutationPromise = patchJson(origin, `/admin/users/${targetId}`, actorId, {
+          coinsDelta: 7,
+          reason: "must be rejected after demotion",
+        });
+        await waitForQueryBlockedByPid(
+          demotionBackend.rows[0].pid,
+          "the later wallet adjustment to queue behind the demotion",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+        [mutation, demotion, queuedMutation] = await Promise.all([
+          mutationPromise,
+          demotionPromise,
+          queuedMutationPromise,
+        ]);
+      } finally {
+        await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      }
+
       assert.equal(mutation.status, 200, JSON.stringify(mutation.body));
       assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
-
-      const laterMutation = await patchJson(origin, `/admin/users/${targetId}`, actorId, {
-        coinsDelta: 1,
-        reason: "must be rejected",
-      });
-      assert.equal(laterMutation.status, 403);
+      assert.equal(queuedMutation.status, 403, JSON.stringify(queuedMutation.body));
     });
 
     const actor = await pool.query<{ role: string }>(
@@ -396,8 +423,10 @@ test("an in-flight admin mutation commits before demotion, and later mutations a
       await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
       blocker.release();
     }
-    if (mutationPromise || demotionPromise) {
-      await Promise.allSettled([mutationPromise, demotionPromise].filter(Boolean) as Promise<JsonResponse>[]);
+    if (mutationPromise || demotionPromise || queuedMutationPromise) {
+      await Promise.allSettled(
+        [mutationPromise, demotionPromise, queuedMutationPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
     }
     await pool.query("DROP TRIGGER IF EXISTS daily007_test_pause_wallet_update ON daily007_v2_users");
     await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_wallet_update()");
