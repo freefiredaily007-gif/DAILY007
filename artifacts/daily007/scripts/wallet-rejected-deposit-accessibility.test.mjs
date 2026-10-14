@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import test from 'node:test';
+import ts from 'typescript';
 import {
   walletRejectedDepositAccessibilityLabel,
   walletRejectedDepositReasonText,
+  walletTransactionAmount,
+  walletTransactionDescription,
 } from '../src/lib/wallet-transaction-display.ts';
+import { depositAmountInr } from '../src/lib/coins.ts';
 
 const walletScreenSource = await readFile(
   new URL('../src/screens/Wallet.tsx', import.meta.url),
@@ -30,6 +36,174 @@ const typographySource = await readFile(
   new URL('../src/components/typography.tsx', import.meta.url),
   'utf8',
 );
+const walletScreenSourceFile = ts.createSourceFile(
+  'Wallet.tsx',
+  walletScreenSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+const rejectedDepositRowSourceFile = ts.createSourceFile(
+  'WalletRejectedDepositRow.tsx',
+  rejectedDepositRowSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+
+function findVariableInitializer(sourceFile, name) {
+  let initializer;
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === name
+    ) {
+      initializer = node.initializer;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  assert.ok(initializer, `Expected ${name} to have an initializer.`);
+  return initializer;
+}
+
+function findFlatListRenderItem() {
+  let renderItem;
+  function visit(node) {
+    if (
+      ts.isJsxAttribute(node)
+      && node.name.getText(walletScreenSourceFile) === 'renderItem'
+      && node.initializer
+      && ts.isJsxExpression(node.initializer)
+      && node.initializer.expression
+      && ts.isArrowFunction(node.initializer.expression)
+    ) {
+      renderItem = node.initializer.expression;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(walletScreenSourceFile);
+  assert.ok(renderItem, 'Wallet should render its transaction rows through FlatList.');
+  return renderItem;
+}
+
+function findFunctionDeclaration(sourceFile, name) {
+  let declaration;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
+      declaration = node;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  assert.ok(declaration, `Expected ${name} to be a function declaration.`);
+  return declaration;
+}
+
+function evaluateExpression(node, sourceFile, scope) {
+  const javascript = ts.transpileModule(
+    `const __value = (${node.getText(sourceFile)});`,
+    {
+      compilerOptions: {
+        jsx: ts.JsxEmit.React,
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __value;`,
+  )(...Object.values(scope));
+}
+
+function createProductionRejectedDepositRow() {
+  const View = ({ children }) => React.createElement('div', null, children);
+  const Text = ({ children, testID }) => React.createElement(
+    'span',
+    testID ? { 'data-testid': testID } : null,
+    children,
+  );
+  const Card = ({ children, accessibilityRole, accessibilityLabel, testID }) => React.createElement(
+    'article',
+    {
+      role: accessibilityRole,
+      'aria-label': accessibilityLabel,
+      'data-testid': testID,
+    },
+    children,
+  );
+  const javascript = ts.transpileModule(
+    findFunctionDeclaration(rejectedDepositRowSourceFile, 'WalletRejectedDepositRow')
+      .getText(rejectedDepositRowSourceFile)
+      .replace(/^export\s+/, ''),
+    {
+      compilerOptions: {
+        jsx: ts.JsxEmit.React,
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  return new Function(
+    'React',
+    'StyleSheet',
+    'View',
+    'useWindowDimensions',
+    'Text',
+    'C',
+    'Card',
+    'styles',
+    'walletRejectedDepositAccessibilityLabel',
+    'walletRejectedDepositReasonText',
+    `${javascript}\nreturn WalletRejectedDepositRow;`,
+  )(
+    React,
+    { create: () => ({}) },
+    View,
+    () => ({ fontScale: 1 }),
+    Text,
+    { green: 'green', red: 'red' },
+    Card,
+    {},
+    walletRejectedDepositAccessibilityLabel,
+    walletRejectedDepositReasonText,
+  );
+}
+
+function renderWalletTransaction(item) {
+  const Row = createProductionRejectedDepositRow();
+  const renderItem = evaluateExpression(
+    findFlatListRenderItem(),
+    walletScreenSourceFile,
+    {
+      React,
+      WalletRejectedDepositRow: Row,
+      walletTransactionDescription,
+      walletTransactionAmount,
+      depositAmountInr,
+      coinToMoneyRate: 1,
+      C: { green: 'green', red: 'red' },
+      Card: () => null,
+      Text: () => null,
+      View: () => null,
+      s: {},
+      fontScale: 1,
+    },
+  );
+  return renderToStaticMarkup(renderItem({ item, index: 0 }));
+}
+
+function getVisibleText(markup) {
+  return markup
+    .replace(/<[^>]*>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'");
+}
 
 test('a rejected deposit row announces its decision and payment details together', () => {
   assert.equal(
@@ -77,6 +251,73 @@ test('a rejected deposit row announces its decision and payment details together
       }).includes(`Rejection reason: ${visibleReason}`),
     );
   }
+});
+
+test('Wallet shows fallback and accessible rejection reasons for legacy API records', () => {
+  const olderApiRecords = [
+    { id: 'omitted', status: 'rejected', coins: 50, amount: 50 },
+    { id: 'null', status: 'rejected', coins: 50, amount: 50, reviewReason: null },
+    { id: 'empty', status: 'rejected', coins: 50, amount: 50, reviewReason: '' },
+    { id: 'whitespace', status: 'rejected', coins: 50, amount: 50, reviewReason: ' \t\n ' },
+  ];
+  const walletRequestItems = evaluateExpression(
+    findVariableInitializer(walletScreenSourceFile, 'pendingPays'),
+    walletScreenSourceFile,
+    { pays: olderApiRecords },
+  );
+
+  assert.match(walletScreenSource, /data=\{txns\}/);
+  assert.match(walletScreenSource, /setTxns\(merged\)/);
+  assert.match(
+    walletScreenSource,
+    /const merged = \[\.\.\.pendingPays, \.\.\.pendingWds, \.\.\.data\]/,
+  );
+  assert.equal(walletRequestItems.length, olderApiRecords.length);
+
+  for (const item of walletRequestItems) {
+    assert.equal(item.status, 'rejected');
+    assert.equal(item.isRequest, true);
+    assert.equal(item.requestType, 'payment');
+
+    const markup = renderWalletTransaction(item);
+    const visibleText = getVisibleText(markup);
+    assert.match(visibleText, /Reason: No rejection reason was provided\./, item.id);
+    assert.equal(
+      (visibleText.match(/No rejection reason was provided\./g) ?? []).length,
+      1,
+      `Wallet should show one fallback for the ${item.id} API record.`,
+    );
+    assert.match(markup, /role="text"/);
+    assert.match(
+      markup,
+      /aria-label="Deposit request\. Status: Rejected\. Original rupee amount: ₹50\. Coin amount: 50 coins\. Rejection reason: No rejection reason was provided\."/,
+      `Wallet should expose the fallback in the accessible label for the ${item.id} API record.`,
+    );
+  }
+});
+
+test('Wallet preserves the meaning of a nonblank administrator rejection reason', () => {
+  const [item] = evaluateExpression(
+    findVariableInitializer(walletScreenSourceFile, 'pendingPays'),
+    walletScreenSourceFile,
+    {
+      pays: [{
+        id: 'administrator-reason',
+        status: 'rejected',
+        coins: 50,
+        amount: 50,
+        reviewReason: '  The UPI   reference did not match. ',
+      }],
+    },
+  );
+
+  const markup = renderWalletTransaction(item);
+  assert.match(getVisibleText(markup), /Reason: The UPI reference did not match\./);
+  assert.match(
+    markup,
+    /aria-label="Deposit request\. Status: Rejected\. Original rupee amount: ₹50\. Coin amount: 50 coins\. Rejection reason: The UPI reference did not match\."/,
+  );
+  assert.doesNotMatch(getVisibleText(markup), /No rejection reason was provided\./);
 });
 
 test('Android renders the grouped label and verifies the rejected reason wraps without clipping', () => {
