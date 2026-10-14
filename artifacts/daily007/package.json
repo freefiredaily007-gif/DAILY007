@@ -9,6 +9,7 @@
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:video-watch-progress": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-watch-progress.test.mjs",
+    "test:video-catalog-screen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-catalog-screen.test.mjs",
     "test:video-unavailable-screen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-unavailable-screen.test.mjs",
     "test:video-links": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-links.test.mjs",
     "test:my-matches-resume-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/my-matches-resume-refresh.test.mjs",
