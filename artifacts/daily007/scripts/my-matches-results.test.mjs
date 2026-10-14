@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import ts from "typescript";
 import { tournamentResultAccessibilityLabel } from "../src/lib/tournamentResultAccessibility.ts";
+import { MY_MATCHES_TEXT_SCALE_RESULTS } from "../src/lib/myMatchesTextScaleFixture.ts";
 
 const myMatchesSource = readFileSync(
   new URL("../src/screens/MyMatches.tsx", import.meta.url),
@@ -60,7 +61,7 @@ function findRenderItemCallback() {
   return renderItemCallback;
 }
 
-function renderMatchCard(item) {
+function renderMatchCard(item, { fontScale = 1 } = {}) {
   const callback = findRenderItemCallback();
   const javascript = ts.transpileModule(
     `const __renderItem = (${callback.getText(myMatchesSourceFile)});`,
@@ -77,9 +78,19 @@ function renderMatchCard(item) {
   const Text = ({ children }) => React.createElement("span", null, children);
   const GCard = ({ children }) => React.createElement("article", null, children);
   const Badge = ({ text }) => React.createElement("span", null, text);
-  const TournamentResultRow = ({ entry, index }) => React.createElement(
+  const TournamentResultRow = ({ entry, index, fontScale }) => React.createElement(
     "div",
-    null,
+    {
+      role: "text",
+      "aria-label": tournamentResultAccessibilityLabel({
+        rank: entry.rank ?? index + 1,
+        gameName: entry.gameName,
+        teamName: entry.teamName,
+        kills: entry.kills,
+        prizeCoins: entry.prizeCoins,
+      }),
+      "data-font-scale": fontScale,
+    },
     entry.rank ?? index + 1,
     entry.gameName || entry.teamName || "Player",
     entry.teamName ? `TEAM ${entry.teamName}` : "",
@@ -100,7 +111,7 @@ function renderMatchCard(item) {
     tournamentResultAccessibilityLabel,
     C: { green: "green", red: "red", gold: "gold", orange: "orange" },
     s: new Proxy({}, { get: (_target, name) => String(name) }),
-    fontScale: 1,
+    fontScale,
     clockNow: Date.now(),
     navigation: { navigate() {} },
     getTournamentLifecycleState: () => "completed",
@@ -154,6 +165,36 @@ test("My Matches results show Free Fire details without the account profile name
     new RegExp(profileName),
     "The account profile name must not appear in rendered card text.",
   );
+});
+
+test("completed long-name results preserve all details and one spoken stop at 1.5×", () => {
+  const entry = MY_MATCHES_TEXT_SCALE_RESULTS[0];
+  const markup = renderMatchCard({
+    id: "registration-large-text",
+    status: "approved",
+    tournament: {
+      mode: "battle royale",
+      teamType: "squad",
+      name: "Large Text Clash",
+      status: "completed",
+      results: [entry],
+    },
+  }, { fontScale: 1.5 });
+  const renderedText = markup.replace(/<[^>]*>/g, "");
+
+  assert.match(markup, /data-font-scale="1\.5"/, "The completed result should receive the active 1.5× font scale.");
+  assert.equal((markup.match(/role="text"/g) ?? []).length, 1, "Each result should remain one accessible stop.");
+  assert.match(
+    markup,
+    new RegExp(`aria-label="Rank ${entry.rank}, Free Fire name ${entry.gameName}, team ${entry.teamName}, ${entry.kills} kills, prize ${entry.prizeCoins} coins"`),
+    "The single spoken label should retain rank, player, team, kills, and prize.",
+  );
+  assert.ok(renderedText.includes(String(entry.rank)), "The visible result should include its rank.");
+  assert.ok(renderedText.includes(entry.gameName), "The visible result should include the long Free Fire name.");
+  assert.ok(renderedText.includes(`TEAM ${entry.teamName}`), "The visible result should include the long team name.");
+  assert.ok(renderedText.includes(`${entry.kills} KILLS`), "The visible result should include kills.");
+  assert.ok(renderedText.includes(String(entry.prizeCoins)), "The visible result should include the prize amount.");
+  assert.match(renderedText, /Prize Won/, "The prize amount should remain identified.");
 });
 
 test("cancelled My Matches cards announce the refund state without archived awards", () => {
@@ -236,6 +277,8 @@ test("native Android fixture verifies wrapping bounds and can scroll to every re
   assert.match(nativeTextScaleScreenSource, /MY_MATCHES_TEXT_SCALE_RESULTS/);
   assert.match(nativeTextScaleScreenSource, /Number\(result\.nameLines\) > 1/);
   assert.match(nativeTextScaleScreenSource, /Number\(result\.detailsLines\) > 1/);
+  assert.match(nativeTextScaleScreenSource, /main\.x \+ main\.width <= row\.width \+ 1/);
+  assert.match(nativeTextScaleScreenSource, /prize\.x >= -1/);
   assert.match(nativeTextScaleScreenSource, /prize\.y >= main\.y \+ main\.height/);
   assert.match(nativeTextScaleScreenSource, /prize\.y \+ prize\.height <= row\.height \+ 1/);
   assert.match(nativeTextScaleScreenSource, /All 10 result rows wrap within bounds at 1\.50×/);
@@ -247,6 +290,7 @@ test("native Android fixture verifies wrapping bounds and can scroll to every re
   for (let rank = 1; rank <= 10; rank += 1) {
     assert.ok(nativeTextScaleFlow.includes(`id: my-matches-result-${rank}-${rank - 1}`));
     assert.ok(nativeTextScaleFlow.includes(`Rank ${rank}, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card ${rank}`));
+    assert.ok(nativeTextScaleFlow.includes(`team Blue Phoenix Squad With A Long Tournament Team Name ${rank}`));
   }
 });
 

@@ -39,7 +39,9 @@ function NativeFixture() {
     const prize = result.prize as LayoutBox;
     return Number(result.nameLines) > 1
       && Number(result.detailsLines) > 1
-      && main.width <= row.width
+      && main.x >= -1
+      && main.x + main.width <= row.width + 1
+      && prize.x >= -1
       && prize.x + prize.width <= row.width + 1
       && prize.y >= main.y + main.height
       && prize.y + prize.height <= row.height + 1;
