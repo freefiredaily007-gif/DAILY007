@@ -5,10 +5,18 @@ import test, { mock } from "node:test";
 const SESSION_KEY = "daily007_v2_session";
 let storedSession = null;
 let blockedSetItem = null;
+let blockedGetItem = null;
 const storage = {
   async getItem(key) {
     assert.equal(key, SESSION_KEY);
-    return storedSession;
+    const value = storedSession;
+    const block = blockedGetItem;
+    if (block) {
+      blockedGetItem = null;
+      block.entered.resolve();
+      await block.release.promise;
+    }
+    return value;
   },
   async setItem(key, value) {
     assert.equal(key, SESSION_KEY);
@@ -55,6 +63,7 @@ registerHooks({
 const {
   captureSessionIdentity,
   currentUser,
+  getSession,
   http,
   setSession,
   setSessionForIdentity,
@@ -71,6 +80,12 @@ function deferred() {
 function blockNextStorageWrite() {
   const block = { entered: deferred(), release: deferred() };
   blockedSetItem = block;
+  return block;
+}
+
+function blockNextStorageRead() {
+  const block = { entered: deferred(), release: deferred() };
+  blockedGetItem = block;
   return block;
 }
 
@@ -143,4 +158,44 @@ test("a late 401 from an older token cannot clear a newer active session", async
 
   assert.equal(currentUser(), activeAccount);
   assert.deepEqual(JSON.parse(storedSession), activeAccount);
+});
+
+test("a saved-session read finishing after logout cannot restore the old session", async () => {
+  const savedAccount = { id: "restore-logout-account", token: "restore-logout-token", role: "user" };
+  await setSession(null);
+  storedSession = JSON.stringify(savedAccount);
+
+  const blockedRead = blockNextStorageRead();
+  const restore = getSession();
+  await blockedRead.entered.promise;
+
+  const logout = setSession(null);
+  assert.equal(currentUser(), null);
+  await logout;
+  assert.equal(storedSession, null);
+
+  blockedRead.release.resolve();
+  assert.equal(await restore, null);
+  assert.equal(currentUser(), null);
+  assert.equal(storedSession, null);
+});
+
+test("a saved-session read finishing after a new sign-in keeps the newer session", async () => {
+  const savedAccount = { id: "restore-old-account", token: "restore-old-token", role: "user" };
+  const newAccount = { id: "restore-new-account", token: "restore-new-token", role: "admin" };
+  await setSession(null);
+  storedSession = JSON.stringify(savedAccount);
+
+  const blockedRead = blockNextStorageRead();
+  const restore = getSession();
+  await blockedRead.entered.promise;
+
+  await setSession(newAccount);
+  assert.equal(currentUser(), newAccount);
+  assert.deepEqual(JSON.parse(storedSession), newAccount);
+
+  blockedRead.release.resolve();
+  assert.equal(await restore, newAccount);
+  assert.equal(currentUser(), newAccount);
+  assert.deepEqual(JSON.parse(storedSession), newAccount);
 });
