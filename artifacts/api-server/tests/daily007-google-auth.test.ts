@@ -1326,6 +1326,99 @@ test("referral short-code failure rolls back a Google signup and Clerk identity 
   }
 });
 
+test("lowercase five-letter referral code with surrounding whitespace gives one 10-coin reward", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const pastedCode = ` \t${SIGNUP_TEST_REFERRAL_CODE.toLowerCase()} \n `;
+      assert.notEqual(pastedCode.trim(), SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(
+        signupTestDb.shortCodeOwners.get(SIGNUP_TEST_REFERRAL_CODE),
+        [...signupTestDb.users.values()].find((user) => user.email === "referrer@example.test")?.id,
+        "the fixture must register the five-letter code in the short-code lookup",
+      );
+
+      const signupResponse = await googleAuth(origin, undefined, pastedCode);
+      const signup = signupResponse.body;
+      assert.equal(signupResponse.status, 201);
+      assert.equal(signup.coins, 10);
+      assert.equal(typeof signup.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+
+      const userId = String(signup.id);
+      const account = signupTestDb.users.get(userId);
+      assert.ok(account, "referred Google signup should create a Daily007 account");
+      assert.equal(account.clerk_user_id, GOOGLE_CLERK_USER_ID);
+      assert.equal(account.wallet_coins, 10);
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: userId,
+          code: SIGNUP_TEST_REFERRAL_CODE,
+        }],
+      );
+
+      const signupRewards = signupTestDb.ledger.filter((entry) => entry.user_id === userId);
+      assert.deepEqual(
+        signupRewards.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+      assert.equal(
+        signupRewards.some((entry) => entry.reason === "Welcome Signup Bonus"),
+        false,
+        "a referral signup must not also receive a Welcome Signup Bonus",
+      );
+      assert.equal(
+        signupRewards[0]?.details.referralCode,
+        SIGNUP_TEST_REFERRAL_CODE,
+        "the wallet record should store the canonical five-letter referral code",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(signup.token)}` },
+      });
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(walletResponse.status, 200);
+      assert.equal(walletHistory.length, 1);
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("lowercase legacy referral code with surrounding whitespace gives one 10-coin reward", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
