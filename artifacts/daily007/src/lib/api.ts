@@ -363,7 +363,7 @@ export const Api = {
         prizeCoins: toCounter(stats?.prizeCoins ?? stats?.prize_coins),
       };
       if (Object.values(counters).some(
-        (value) => !Number.isFinite(value) || !Number.isInteger(value) || value < 0,
+        (value) => !Number.isSafeInteger(value) || value < 0,
       )) {
         throw new Error('Profile statistics response is incomplete.');
       }

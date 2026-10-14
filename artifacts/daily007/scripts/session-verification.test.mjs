@@ -466,6 +466,22 @@ test("successful profile statistics map every counter and leave statsError clear
       stats: { matches: 0, wins: 0, kills: 0, prizeCoins: 0 },
       expectedPrizeCoins: 0,
     },
+    {
+      name: "exact safe-integer boundary totals",
+      stats: {
+        matches: Number.MAX_SAFE_INTEGER,
+        wins: String(Number.MAX_SAFE_INTEGER),
+        kills: Number.MAX_SAFE_INTEGER,
+        prizeCoins: String(Number.MAX_SAFE_INTEGER),
+      },
+      expected: {
+        matches: Number.MAX_SAFE_INTEGER,
+        wins: Number.MAX_SAFE_INTEGER,
+        kills: Number.MAX_SAFE_INTEGER,
+        prizeCoins: Number.MAX_SAFE_INTEGER,
+      },
+      expectedPrizeCoins: Number.MAX_SAFE_INTEGER,
+    },
   ];
 
   for (const response of responses) {
@@ -483,9 +499,9 @@ test("successful profile statistics map every counter and leave statsError clear
       assert.equal(user.email, "verified@example.test");
       assert.equal(user.coins, 17);
       assert.equal(user.token, savedSession.token);
-      assert.equal(user.matches, response.stats.matches);
-      assert.equal(user.wins, response.stats.wins);
-      assert.equal(user.kills, response.stats.kills);
+      assert.equal(user.matches, response.expected?.matches ?? response.stats.matches);
+      assert.equal(user.wins, response.expected?.wins ?? response.stats.wins);
+      assert.equal(user.kills, response.expected?.kills ?? response.stats.kills);
       assert.equal(user.prizeCoins, response.expectedPrizeCoins);
       assert.equal(user.statsError, undefined);
     });
@@ -700,6 +716,24 @@ test("successful but malformed profile statistics preserve the account and leave
     {
       name: "a fractional kill total",
       stats: { matches: 9, wins: 2, kills: 31.5, prizeCoins: 120 },
+    },
+    {
+      name: "a numeric total above the safe-integer boundary",
+      stats: {
+        matches: Number.MAX_SAFE_INTEGER + 1,
+        wins: 2,
+        kills: 31,
+        prizeCoins: 120,
+      },
+    },
+    {
+      name: "a numeric-string total above the safe-integer boundary",
+      stats: {
+        matches: 9,
+        wins: 2,
+        kills: "9007199254740993",
+        prizeCoins: 120,
+      },
     },
     {
       name: "a null kill total",
