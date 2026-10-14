@@ -95,6 +95,26 @@ test('the email field names the exact target and a mismatch stays in the prompt'
   );
 });
 
+test('the deletion warning and email prompt keep content and actions scrollable at large text sizes', () => {
+  assert.match(
+    confirmComponent,
+    /<ScrollView[\s\S]*?style=\{s\.dialogScroll\}[\s\S]*?keyboardShouldPersistTaps="handled"[\s\S]*?<View style=\{s\.dialog\} accessibilityViewIsModal>[\s\S]*?accessibilityLabel=\{announcementLabel\}[\s\S]*?testID=\{cancelTestID\}[\s\S]*?testID=\{confirmTestID\}[\s\S]*?<\/ScrollView>/,
+    'The full warning and both actions should share a scrollable viewport.',
+  );
+  assert.match(
+    promptComponent,
+    /<ScrollView[\s\S]*?style=\{s\.dialogScroll\}[\s\S]*?keyboardShouldPersistTaps="handled"[\s\S]*?<View style=\{s\.dialog\} accessibilityViewIsModal>[\s\S]*?<TextInput[\s\S]*?testID=\{inputTestID\}[\s\S]*?testID=\{cancelTestID\}[\s\S]*?testID=\{confirmTestID\}[\s\S]*?<\/ScrollView>/,
+    'The email field and both actions should remain reachable with the keyboard shown.',
+  );
+  assert.match(adminKitSource, /dialogScroll: \{ width: '100%', flex: 1 \}/);
+  assert.match(adminKitSource, /dialogScrollContent: \{ flexGrow: 1, justifyContent: 'center', paddingVertical: 8 \}/);
+  assert.match(adminKitSource, /keyboardDismissMode="on-drag"/);
+  const dialogMessageStyle = adminKitSource.match(/dialogMsg:\s*\{([^}]+)\}/)?.[1] ?? '';
+  assert.doesNotMatch(dialogMessageStyle, /lineHeight/);
+  assert.doesNotMatch(confirmComponent, /allowFontScaling=\{false\}|maxFontSizeMultiplier=\{1\}/);
+  assert.doesNotMatch(promptComponent, /allowFontScaling=\{false\}|maxFontSizeMultiplier=\{1\}/);
+});
+
 test('deletion progress, success, and failure are announced without programmatic focus moves', () => {
   assert.match(
     deletePrompt,

@@ -240,45 +240,52 @@ export function ConfirmDialog({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={s.overlay}>
-        <View style={s.dialog} accessibilityViewIsModal>
-          {announcementLabel ? (
-            <View
-              accessible
-              accessibilityRole="text"
-              accessibilityLabel={announcementLabel}
-              accessibilityLiveRegion={announcementLiveRegion}
-            >
-              <Text accessible={false} style={s.dialogTitle}>{title}</Text>
-              <Text accessible={false} style={s.dialogMsg}>{message}</Text>
-            </View>
-          ) : (
-            <>
-              <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
-              <Text style={s.dialogMsg}>{message}</Text>
-            </>
-          )}
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
-            <View style={{ flex: 1 }}>
-              <ActionBtn
-                title="CANCEL"
-                kind="ghost"
-                onPress={onCancel}
-                testID={cancelTestID}
-                accessibilityLabel={cancelAccessibilityLabel}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <ActionBtn
-                title={confirmTitle}
-                kind={danger ? 'danger' : 'primary'}
-                onPress={onConfirm}
-                testID={confirmTestID}
-                accessibilityLabel={confirmAccessibilityLabel}
-                accessibilityHint={confirmAccessibilityHint}
-              />
+        <ScrollView
+          style={s.dialogScroll}
+          contentContainerStyle={s.dialogScrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <View style={s.dialog} accessibilityViewIsModal>
+            {announcementLabel ? (
+              <View
+                accessible
+                accessibilityRole="text"
+                accessibilityLabel={announcementLabel}
+                accessibilityLiveRegion={announcementLiveRegion}
+              >
+                <Text accessible={false} style={s.dialogTitle}>{title}</Text>
+                <Text accessible={false} style={s.dialogMsg}>{message}</Text>
+              </View>
+            ) : (
+              <>
+                <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
+                <Text style={s.dialogMsg}>{message}</Text>
+              </>
+            )}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+              <View style={{ flex: 1 }}>
+                <ActionBtn
+                  title="CANCEL"
+                  kind="ghost"
+                  onPress={onCancel}
+                  testID={cancelTestID}
+                  accessibilityLabel={cancelAccessibilityLabel}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ActionBtn
+                  title={confirmTitle}
+                  kind={danger ? 'danger' : 'primary'}
+                  onPress={onConfirm}
+                  testID={confirmTestID}
+                  accessibilityLabel={confirmAccessibilityLabel}
+                  accessibilityHint={confirmAccessibilityHint}
+                />
+              </View>
             </View>
           </View>
-        </View>
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -363,57 +370,64 @@ export function PromptDialog({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <View style={s.overlay}>
-        <View style={s.dialog} accessibilityViewIsModal>
-          <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
-          {!!message && <Text style={s.dialogMsg}>{message}</Text>}
-          {submitting && !!submittingMessage && (
-            <Text
-              accessibilityLiveRegion={Platform.OS === 'ios' ? undefined : 'polite'}
-              style={s.dialogMsg}
-            >
-              {submittingMessage}
-            </Text>
-          )}
-          <TextInput
-            value={val}
-            onChangeText={setVal}
-            keyboardType={keyboardType}
-            autoCapitalize={autoCapitalize}
-            autoCorrect={autoCorrect}
-            autoFocus
-            accessibilityLabel={accessibilityLabel ?? title}
-            accessibilityHint={accessibilityHint}
-            testID={inputTestID}
-            placeholder={placeholder}
-            placeholderTextColor="#5b6478"
-            style={[s.input, { marginTop: 12 }]}
-          />
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-            <View style={{ flex: 1 }}>
-              <ActionBtn
-                title="CANCEL"
-                kind="ghost"
-                onPress={close}
-                disabled={submitting}
-                testID={cancelTestID}
-                accessibilityLabel={cancelAccessibilityLabel}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <ActionBtn
-                title={submitting ? submittingLabel : confirmTitle}
-                onPress={() => { void submit(); }}
-                loading={submitting}
-                testID={confirmTestID}
-                accessibilityLabel={submitting
-                  ? submittingAccessibilityLabel ?? confirmAccessibilityLabel ?? submittingLabel
-                  : confirmAccessibilityLabel}
-                accessibilityHint={submitting ? undefined : confirmAccessibilityHint}
-                accessibilityState={{ disabled: submitting, busy: submitting }}
-              />
+        <ScrollView
+          style={s.dialogScroll}
+          contentContainerStyle={s.dialogScrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <View style={s.dialog} accessibilityViewIsModal>
+            <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
+            {!!message && <Text style={s.dialogMsg}>{message}</Text>}
+            {submitting && !!submittingMessage && (
+              <Text
+                accessibilityLiveRegion={Platform.OS === 'ios' ? undefined : 'polite'}
+                style={s.dialogMsg}
+              >
+                {submittingMessage}
+              </Text>
+            )}
+            <TextInput
+              value={val}
+              onChangeText={setVal}
+              keyboardType={keyboardType}
+              autoCapitalize={autoCapitalize}
+              autoCorrect={autoCorrect}
+              autoFocus
+              accessibilityLabel={accessibilityLabel ?? title}
+              accessibilityHint={accessibilityHint}
+              testID={inputTestID}
+              placeholder={placeholder}
+              placeholderTextColor="#5b6478"
+              style={[s.input, { marginTop: 12 }]}
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <View style={{ flex: 1 }}>
+                <ActionBtn
+                  title="CANCEL"
+                  kind="ghost"
+                  onPress={close}
+                  disabled={submitting}
+                  testID={cancelTestID}
+                  accessibilityLabel={cancelAccessibilityLabel}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ActionBtn
+                  title={submitting ? submittingLabel : confirmTitle}
+                  onPress={() => { void submit(); }}
+                  loading={submitting}
+                  testID={confirmTestID}
+                  accessibilityLabel={submitting
+                    ? submittingAccessibilityLabel ?? confirmAccessibilityLabel ?? submittingLabel
+                    : confirmAccessibilityLabel}
+                  accessibilityHint={submitting ? undefined : confirmAccessibilityHint}
+                  accessibilityState={{ disabled: submitting, busy: submitting }}
+                />
+              </View>
             </View>
           </View>
-        </View>
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -504,6 +518,8 @@ export function ScreenWrap({
 
 const s = StyleSheet.create({
   toast: { position: 'absolute', bottom: 96, left: 20, right: 20, backgroundColor: 'rgba(8,30,16,0.96)', borderColor: 'rgba(46,204,113,0.45)', borderWidth: 1, borderRadius: 12, padding: 12, zIndex: 99, elevation: 8 },
+  dialogScroll: { width: '100%', flex: 1 },
+  dialogScrollContent: { flexGrow: 1, justifyContent: 'center', paddingVertical: 8 },
   card: { backgroundColor: A.card, borderRadius: 14, borderWidth: 1, borderColor: A.border, borderTopColor: 'rgba(255,176,32,0.24)', padding: 14, paddingVertical: 14.5, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
   stat: { flexBasis: '31%', flexGrow: 1, backgroundColor: 'rgba(17,22,32,0.98)', borderRadius: 12, borderWidth: 1, borderColor: A.border, padding: 10, paddingVertical: 10.5, alignItems: 'flex-start', borderTopColor: 'rgba(255,176,32,0.22)' },
   statIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginBottom: 7 },
@@ -518,7 +534,7 @@ const s = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   dialog: { backgroundColor: A.cardSolid, borderRadius: 16, borderWidth: 1, borderColor: A.border, padding: 18, width: '100%', borderTopColor: 'rgba(255,122,26,0.55)' },
   dialogTitle: { color: A.text, fontWeight: '900', fontSize: 15, marginBottom: 6, fontFamily: 'Inter_700Bold' },
-  dialogMsg: { color: A.sub, fontSize: 12.5, lineHeight: 18, fontFamily: 'Inter_400Regular' },
+  dialogMsg: { color: A.sub, fontSize: 12.5, fontFamily: 'Inter_400Regular' },
   fieldLabel: { color: A.sub, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: 6, fontFamily: 'Inter_600SemiBold' },
   input: { backgroundColor: '#0e131b', borderWidth: 1, borderColor: 'rgba(77,163,255,0.11)', borderRadius: 10, color: A.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: 'Inter_400Regular' },
   sectionTitle: { color: A.text, fontSize: 12, fontWeight: '900', letterSpacing: 1.05, fontFamily: 'Inter_700Bold' },
