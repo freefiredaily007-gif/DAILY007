@@ -381,6 +381,106 @@ async function applyMockRoleChangeOnReconnect({ pendingBeforeReconnect = false }
   };
 }
 
+async function applyMockRoleChangeOnReconnectAndResumeTogether() {
+  const initialUser = {
+    id: "lifecycle-account",
+    name: "Lifecycle Player",
+    role: "user",
+    token: "lifecycle-session",
+  };
+  let currentUser = initialUser;
+  let savedSession = initialUser;
+  let accountRefreshCalls = 0;
+  let activeApiRequests = 0;
+  let peakActiveApiRequests = 0;
+  let sessionRejectionCalls = 0;
+  let accessRefreshRequest = null;
+  let resumeRefreshPromise = null;
+  let reconnectRefreshPromise = null;
+  const sharedLifecycleRefreshRequest = { current: null };
+  const pendingResponse = deferred();
+
+  const fetchAccount = async () => {
+    accountRefreshCalls += 1;
+    activeApiRequests += 1;
+    peakActiveApiRequests = Math.max(peakActiveApiRequests, activeApiRequests);
+    try {
+      if (accountRefreshCalls === 1) return await pendingResponse.promise;
+      return { role: "tournament_admin", token: undefined };
+    } finally {
+      activeApiRequests -= 1;
+    }
+  };
+
+  const refreshAccess = () => {
+    if (accessRefreshRequest) return accessRefreshRequest;
+    const request = refreshUserAccountAccessSafely(
+      currentUser,
+      fetchAccount,
+      (updatedUser) => {
+        currentUser = updatedUser;
+        savedSession = updatedUser;
+      },
+      () => {
+        currentUser = null;
+        savedSession = null;
+        sessionRejectionCalls += 1;
+      },
+    );
+    accessRefreshRequest = request;
+    void request.then(
+      () => {
+        if (accessRefreshRequest === request) accessRefreshRequest = null;
+      },
+      () => {
+        if (accessRefreshRequest === request) accessRefreshRequest = null;
+      },
+    );
+    return request;
+  };
+
+  const refreshAfterLifecycleSignal = () => refreshAccessAfterPending(
+    accessRefreshRequest,
+    sharedLifecycleRefreshRequest,
+    refreshAccess,
+  );
+  const network = createMockNetwork({
+    isConnected: false,
+    isInternetReachable: false,
+  });
+  const unsubscribe = subscribeToAccountAccessReconnect(
+    () => true,
+    () => {
+      reconnectRefreshPromise = refreshAfterLifecycleSignal();
+    },
+    network,
+  );
+  await Promise.resolve();
+
+  const existingRefreshPromise = refreshAccess();
+  refreshAccessIfActive("active", () => {
+    resumeRefreshPromise = refreshAfterLifecycleSignal();
+  });
+  network.emit({ isConnected: true, isInternetReachable: true });
+
+  assert.equal(accountRefreshCalls, 1);
+  assert.equal(resumeRefreshPromise, reconnectRefreshPromise);
+  assert.equal(peakActiveApiRequests, 1);
+
+  pendingResponse.resolve({ role: "user", token: undefined });
+  await Promise.all([existingRefreshPromise, resumeRefreshPromise]);
+  unsubscribe();
+
+  return {
+    currentUser,
+    savedSession,
+    accountRefreshCalls,
+    peakActiveApiRequests,
+    sessionRejectionCalls,
+    navigation: currentUser ? rootNavigationForRole(currentUser.role) : "Auth",
+  };
+}
+
 for (const [failureName, error] of [
   ["network", Object.assign(new Error("Network unavailable"), { code: "ERR_NETWORK" })],
   ["5xx", Object.assign(new Error("Server unavailable"), { response: { status: 503 } })],
@@ -567,6 +667,27 @@ test("connectivity restoration waits for an in-flight refresh before retrying", 
   assert.equal(state.savedSession.role, "tournament_admin");
   assert.equal(state.currentUser.token, "reconnecting-session");
   assert.equal(state.navigation, "Admin");
+  assert.equal(state.sessionRejectionCalls, 0);
+});
+
+test("reconnect and app resume share one role refresh behind an in-flight account check", async () => {
+  const state = await applyMockRoleChangeOnReconnectAndResumeTogether();
+
+  assert.equal(state.accountRefreshCalls, 2);
+  assert.equal(state.peakActiveApiRequests, 1);
+  assert.equal(state.currentUser.id, "lifecycle-account");
+  assert.equal(state.currentUser.role, "tournament_admin");
+  assert.equal(state.savedSession.role, "tournament_admin");
+  assert.equal(state.currentUser.token, "lifecycle-session");
+  assert.equal(state.savedSession.token, "lifecycle-session");
+  assert.equal(state.navigation, "Admin");
+  assert.deepEqual(
+    adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
+    {
+      activeScreen: "tournaments",
+      visibleNavKeys: ["tournaments", "registrations"],
+    },
+  );
   assert.equal(state.sessionRejectionCalls, 0);
 });
 
