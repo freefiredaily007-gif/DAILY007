@@ -3,6 +3,19 @@ export type RoomCredentialCopyFeedback = {
   message: string;
 };
 
+export function createRoomCredentialCopyRequestGuard() {
+  let currentRequestId = 0;
+  return {
+    beginRequest() {
+      currentRequestId += 1;
+      return currentRequestId;
+    },
+    isCurrentRequest(requestId: number) {
+      return requestId === currentRequestId;
+    },
+  };
+}
+
 export async function copyRoomCredentialToClipboard(
   label: string,
   value: string,

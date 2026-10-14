@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { copyRoomCredentialToClipboard } from "../src/lib/roomCredentialCopy.ts";
+import {
+  copyRoomCredentialToClipboard,
+  createRoomCredentialCopyRequestGuard,
+} from "../src/lib/roomCredentialCopy.ts";
 import { shouldStackRoomCredentialRows } from "../src/lib/roomCredentialLayout.ts";
 import {
   getRoomCredentialSchedule,
@@ -191,6 +194,97 @@ test("a successful retry copies the selected value and replaces the prior failur
   assert.match(
     panelSource,
     /testID="room-credential-copy-feedback"[\s\S]*?>\s*\{copyFeedback\.message\}/,
+  );
+});
+
+test("only the most recently tapped credential updates or announces copy feedback", async () => {
+  const createDeferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    return { promise, resolve };
+  };
+  const roomIdWrite = createDeferred();
+  const passwordWrite = createDeferred();
+  const requestGuard = createRoomCredentialCopyRequestGuard();
+  const clipboardAttempts = [];
+  const announcements = [];
+  let visibleFeedback;
+  const runCopy = async (label, value, writePromise) => {
+    const requestId = requestGuard.beginRequest();
+    clipboardAttempts.push(value);
+    const feedback = await copyRoomCredentialToClipboard(
+      label,
+      value,
+      () => writePromise,
+    );
+    if (!requestGuard.isCurrentRequest(requestId)) return;
+    visibleFeedback = feedback;
+    announcements.push(feedback.message);
+  };
+
+  const roomIdRequest = runCopy("Room ID", "FAKE-ROOM-123", roomIdWrite.promise);
+  const passwordRequest = runCopy("Password", "FAKE-PASS-456", passwordWrite.promise);
+
+  passwordWrite.resolve(true);
+  await passwordRequest;
+  assert.deepEqual(visibleFeedback, {
+    kind: "success",
+    message: "Password copied to clipboard.",
+  });
+  assert.deepEqual(announcements, ["Password copied to clipboard."]);
+
+  roomIdWrite.resolve(true);
+  await roomIdRequest;
+  assert.deepEqual(visibleFeedback, {
+    kind: "success",
+    message: "Password copied to clipboard.",
+  });
+  assert.deepEqual(announcements, ["Password copied to clipboard."]);
+  assert.deepEqual(clipboardAttempts, ["FAKE-ROOM-123", "FAKE-PASS-456"]);
+
+  const failureGuard = createRoomCredentialCopyRequestGuard();
+  const olderSuccess = createDeferred();
+  const latestFailure = createDeferred();
+  const failureAnnouncements = [];
+  let latestVisibleFeedback;
+  const runFailureScenario = async (requestGuard, announcementsForScenario, setVisible, label, value, writePromise) => {
+    const requestId = requestGuard.beginRequest();
+    const feedback = await copyRoomCredentialToClipboard(label, value, () => writePromise);
+    if (!requestGuard.isCurrentRequest(requestId)) return;
+    setVisible(feedback);
+    announcementsForScenario.push(feedback.message);
+  };
+  const olderSuccessRequest = runFailureScenario(
+    failureGuard,
+    failureAnnouncements,
+    (feedback) => { latestVisibleFeedback = feedback; },
+    "Room ID",
+    "FAKE-ROOM-123",
+    olderSuccess.promise,
+  );
+  const latestFailureRequest = runFailureScenario(
+    failureGuard,
+    failureAnnouncements,
+    (feedback) => { latestVisibleFeedback = feedback; },
+    "Password",
+    "FAKE-PASS-456",
+    latestFailure.promise,
+  );
+  latestFailure.resolve(false);
+  await latestFailureRequest;
+  olderSuccess.resolve(true);
+  await olderSuccessRequest;
+  assert.deepEqual(latestVisibleFeedback, {
+    kind: "failure",
+    message: "Could not copy Password. Please try again.",
+  });
+  assert.deepEqual(failureAnnouncements, ["Could not copy Password. Please try again."]);
+
+  assert.match(
+    panelSource,
+    /const requestId = copyRequestGuard\.current\.beginRequest\(\);[\s\S]*?await copyRoomCredentialToClipboard\([\s\S]*?if \(!copyRequestGuard\.current\.isCurrentRequest\(requestId\)\) return;[\s\S]*?setCopyFeedback\(feedback\);[\s\S]*?AccessibilityInfo\.announceForAccessibility\(feedback\.message\);/,
   );
 });
 

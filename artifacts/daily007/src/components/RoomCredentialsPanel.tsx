@@ -1,10 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from './typography';
 import { C, fmtTime12 } from './ui';
-import { copyRoomCredentialToClipboard, type RoomCredentialCopyFeedback } from '../lib/roomCredentialCopy';
+import {
+  copyRoomCredentialToClipboard,
+  createRoomCredentialCopyRequestGuard,
+  type RoomCredentialCopyFeedback,
+} from '../lib/roomCredentialCopy';
 import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
@@ -33,6 +37,7 @@ export function RoomCredentialsPanel({
   const password = roomPassword?.trim() ?? '';
   const [copyFeedback, setCopyFeedback] = useState<RoomCredentialCopyFeedback | null>(null);
   const [simulateClipboardFailure, setSimulateClipboardFailure] = useState(false);
+  const copyRequestGuard = useRef(createRoomCredentialCopyRequestGuard());
   const credentialsReady = hasServerAuthorizedRoomCredentials(id, password);
   const message = !schedule
     ? 'Tournament start time is unavailable. Room details remain hidden.'
@@ -47,6 +52,7 @@ export function RoomCredentialsPanel({
   }, [credentialsReady, id, password]);
 
   const copy = async (label: string, value: string) => {
+    const requestId = copyRequestGuard.current.beginRequest();
     const writeClipboard = __DEV__ && simulateClipboardFailure
       ? async () => { throw new Error('Simulated clipboard failure'); }
       : (clipboardValue: string) => Clipboard.setStringAsync(clipboardValue);
@@ -55,6 +61,7 @@ export function RoomCredentialsPanel({
       value,
       writeClipboard,
     );
+    if (!copyRequestGuard.current.isCurrentRequest(requestId)) return;
     setCopyFeedback(feedback);
     AccessibilityInfo.announceForAccessibility(feedback.message);
   };
