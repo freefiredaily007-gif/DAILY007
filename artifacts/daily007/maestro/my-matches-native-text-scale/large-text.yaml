@@ -1,0 +1,75 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/my-matches-native-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: my-matches-text-scale-banner
+    timeout: 15000
+- assertVisible:
+    text: "My Matches result fixture · font scale 1.50"
+- extendedWaitUntil:
+    visible:
+      text: "All 10 result rows wrap within bounds at 1.50×"
+    timeout: 15000
+
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-1-0
+    direction: DOWN
+- assertVisible:
+    text: "Rank 1, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 1, team Blue Phoenix Squad With A Long Tournament Team Name 1, 18 kills, prize 1000000 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-2-1
+    direction: DOWN
+- assertVisible:
+    text: "Rank 2, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 2, team Blue Phoenix Squad With A Long Tournament Team Name 2, 17 kills, prize 999863 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-3-2
+    direction: DOWN
+- assertVisible:
+    text: "Rank 3, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 3, team Blue Phoenix Squad With A Long Tournament Team Name 3, 16 kills, prize 999726 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-4-3
+    direction: DOWN
+- assertVisible:
+    text: "Rank 4, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 4, team Blue Phoenix Squad With A Long Tournament Team Name 4, 15 kills, prize 999589 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-5-4
+    direction: DOWN
+- assertVisible:
+    text: "Rank 5, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 5, team Blue Phoenix Squad With A Long Tournament Team Name 5, 14 kills, prize 999452 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-6-5
+    direction: DOWN
+- assertVisible:
+    text: "Rank 6, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 6, team Blue Phoenix Squad With A Long Tournament Team Name 6, 13 kills, prize 999315 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-7-6
+    direction: DOWN
+- assertVisible:
+    text: "Rank 7, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 7, team Blue Phoenix Squad With A Long Tournament Team Name 7, 12 kills, prize 999178 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-8-7
+    direction: DOWN
+- assertVisible:
+    text: "Rank 8, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 8, team Blue Phoenix Squad With A Long Tournament Team Name 8, 11 kills, prize 999041 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-9-8
+    direction: DOWN
+- assertVisible:
+    text: "Rank 9, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 9, team Blue Phoenix Squad With A Long Tournament Team Name 9, 10 kills, prize 998904 coins"
+- scrollUntilVisible:
+    element:
+      id: my-matches-result-10-9
+    direction: DOWN
+- assertVisible:
+    text: "Rank 10, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card 10, team Blue Phoenix Squad With A Long Tournament Team Name 10, 9 kills, prize 998767 coins"

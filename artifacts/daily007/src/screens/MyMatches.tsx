@@ -28,7 +28,7 @@ import {
   createFocusedLatestRequestGate,
   createFocusedRefreshCoalescer,
 } from '../lib/focusedLatestRequest';
-import { tournamentResultAccessibilityLabel } from '../lib/tournamentResultAccessibility';
+import { TournamentResultRow } from '../components/TournamentResultRow';
 
 export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
@@ -295,79 +295,15 @@ export default function MyMatches() {
                   {results.length > 0 ? (
                     <View style={s.results}>
                       <Text style={s.resultsTitle}>TOURNAMENT RESULTS</Text>
-                      {results.map((entry: any, index: number) => {
-                        const gameName = String(entry.gameName || '').trim();
-                        const teamName = String(entry.teamName || '').trim();
-                        const winnerName = gameName || teamName || 'Player';
-                        const resultMeta = [
-                          teamName ? `TEAM ${teamName}` : '',
-                          entry.kills != null ? `${entry.kills} KILLS` : '',
-                        ].filter(Boolean).join(' · ');
-                        const avatarName = gameName || teamName || 'P';
-                        const rank = Number(entry.rank) || index + 1;
-                        const rankStyle = rank === 1
-                          ? s.rankGold
-                          : rank === 2
-                            ? s.rankSilver
-                            : rank === 3
-                              ? s.rankBronze
-                              : s.rankOther;
-                        const avatarColors = ['#e94721', '#65423b', '#1f675c', '#5c4b7d'];
-                        return (
-                          <View
-                            testID={`my-matches-result-${rank}-${index}`}
-                            accessible
-                            accessibilityRole="text"
-                            accessibilityLabel={tournamentResultAccessibilityLabel({
-                              rank,
-                              gameName,
-                              teamName,
-                              kills: entry.kills,
-                              prizeCoins: entry.prizeCoins,
-                            })}
-                            key={`${entry.rank ?? 'rank'}-${index}`}
-                            style={[
-                              s.resultRow,
-                              fontScale >= 1.5 && s.resultRowLarge,
-                              index === results.length - 1 && s.resultRowLast,
-                            ]}
-                          >
-                            <View
-                              style={[s.rankMedal, rankStyle]}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                            >
-                              <Text style={s.rankNumber}>{rank}</Text>
-                            </View>
-                            <View
-                              style={[s.resultAvatar, { backgroundColor: avatarColors[index % avatarColors.length] }]}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                            >
-                              <Text style={s.resultAvatarInitial}>{avatarName.charAt(0).toUpperCase()}</Text>
-                            </View>
-                            <View
-                              style={s.resultIdentity}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                            >
-                              <Text style={s.resultName}>{winnerName}</Text>
-                              {!!resultMeta && <Text style={s.resultKills}>{resultMeta}</Text>}
-                            </View>
-                            <View
-                              style={[s.prizeWrap, fontScale >= 1.5 && s.prizeWrapLarge]}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                            >
-                              <View style={s.prizeAmountRow}>
-                                <View style={s.coinIcon}><Text style={s.coinStar}>★</Text></View>
-                                <Text style={s.prizeAmount}>{entry.prizeCoins ?? 0}</Text>
-                              </View>
-                              <Text style={s.prizeLabel}>Prize Won</Text>
-                            </View>
-                          </View>
-                        );
-                      })}
+                      {results.map((entry: any, index: number) => (
+                        <TournamentResultRow
+                          key={`${entry.rank ?? 'rank'}-${index}`}
+                          entry={entry}
+                          index={index}
+                          count={results.length}
+                          fontScale={fontScale}
+                        />
+                      ))}
                     </View>
                   ) : result ? <Text style={s.result}>🏆 {String(result)}</Text> : null}
               </GCard>
@@ -397,26 +333,4 @@ const s = StyleSheet.create({
   results: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
   resultsTitle: { color: '#fbbf24', fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 4 },
   result: { color: '#fbbf24', fontWeight: '800', marginTop: 8, fontSize: 13 },
-  resultRow: { flexDirection: 'row', alignItems: 'center', minHeight: 78, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#343842', gap: 8 },
-  resultRowLarge: { flexWrap: 'wrap', alignItems: 'flex-start' },
-  resultRowLast: { borderBottomWidth: 0 },
-  rankMedal: { width: 34, height: 34, borderRadius: 17, borderWidth: 3, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  rankGold: { backgroundColor: '#f6bf24', borderColor: '#ffe17c' },
-  rankSilver: { backgroundColor: '#cbd0d6', borderColor: '#f1f2f4' },
-  rankBronze: { backgroundColor: '#c77b48', borderColor: '#e0a273' },
-  rankOther: { backgroundColor: C.card2, borderColor: C.border },
-  rankNumber: { color: '#262626', fontSize: 12, fontWeight: '900' },
-  resultAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  resultAvatarInitial: { color: '#fff', fontSize: 21, fontWeight: '600' },
-  resultIdentity: { flex: 1, minWidth: 0 },
-  resultName: { color: C.text, fontSize: 14, fontWeight: '900', letterSpacing: 0.3 },
-  resultSub: { color: '#848994', fontSize: 11, fontWeight: '600', letterSpacing: 0.2, marginTop: 4 },
-  resultKills: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 0.4, marginTop: 3 },
-  prizeWrap: { minWidth: 66, alignItems: 'flex-end', flexShrink: 0 },
-  prizeWrapLarge: { marginLeft: 84, alignItems: 'flex-start' },
-  prizeAmountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 },
-  coinIcon: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#ffcc42', backgroundColor: '#e79b00', alignItems: 'center', justifyContent: 'center' },
-  coinStar: { color: '#fff3ad', fontSize: 10, fontWeight: '900', lineHeight: 12 },
-  prizeAmount: { color: C.green, fontSize: 19, fontWeight: '900', lineHeight: 22 },
-  prizeLabel: { color: '#848994', fontSize: 10, fontWeight: '600', marginTop: 4 },
 });

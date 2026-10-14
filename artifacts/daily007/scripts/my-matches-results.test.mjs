@@ -14,6 +14,22 @@ const resultAccessibilitySource = readFileSync(
   new URL("../src/lib/tournamentResultAccessibility.ts", import.meta.url),
   "utf8",
 );
+const resultRowSource = readFileSync(
+  new URL("../src/components/TournamentResultRow.tsx", import.meta.url),
+  "utf8",
+);
+const nativeTextScaleScreenSource = readFileSync(
+  new URL("../src/screens/MyMatchesNativeTextScaleTest.tsx", import.meta.url),
+  "utf8",
+);
+const nativeTextScaleFlow = readFileSync(
+  new URL("../maestro/my-matches-native-text-scale/large-text.yaml", import.meta.url),
+  "utf8",
+);
+const nativeTextScaleRunner = readFileSync(
+  new URL("./run-android-my-matches-large-text.mjs", import.meta.url),
+  "utf8",
+);
 const myMatchesSourceFile = ts.createSourceFile(
   "MyMatches.tsx",
   myMatchesSource,
@@ -61,12 +77,24 @@ function renderMatchCard(item) {
   const Text = ({ children }) => React.createElement("span", null, children);
   const GCard = ({ children }) => React.createElement("article", null, children);
   const Badge = ({ text }) => React.createElement("span", null, text);
+  const TournamentResultRow = ({ entry, index }) => React.createElement(
+    "div",
+    null,
+    entry.rank ?? index + 1,
+    entry.gameName || entry.teamName || "Player",
+    entry.teamName ? `TEAM ${entry.teamName}` : "",
+    entry.kills != null ? `${entry.kills} KILLS` : "",
+    "Prize Won",
+    entry.prizeCoins ?? 0,
+    index,
+  );
   const scope = {
     React,
     View,
     Text,
     GCard,
     Badge,
+    TournamentResultRow,
     Btn: () => null,
     RoomCredentialsPanel: () => null,
     tournamentResultAccessibilityLabel,
@@ -164,13 +192,13 @@ test("cancelled My Matches cards announce the refund state without archived awar
 
 test("each result announces all standings details as one accessible row", () => {
   const rowMarker = "testID={`my-matches-result-${rank}-${index}`}";
-  const markerIndex = myMatchesSource.indexOf(rowMarker);
-  const rowStart = myMatchesSource.lastIndexOf("<View", markerIndex);
-  const rowEnd = myMatchesSource.indexOf(">", markerIndex);
+  const markerIndex = resultRowSource.indexOf(rowMarker);
+  const rowStart = resultRowSource.lastIndexOf("<View", markerIndex);
+  const rowEnd = resultRowSource.indexOf(">", markerIndex);
 
   assert.ok(markerIndex >= 0, "Each result row needs a stable test ID.");
   assert.ok(rowStart >= 0 && rowEnd > markerIndex, "Each result needs an accessible row wrapper.");
-  const rowTag = myMatchesSource.slice(rowStart, rowEnd + 1);
+  const rowTag = resultRowSource.slice(rowStart, rowEnd + 1);
   assert.match(rowTag, /\baccessible\b/);
   assert.match(rowTag, /accessibilityRole="text"/);
   assert.match(rowTag, /accessibilityLabel=\{tournamentResultAccessibilityLabel\(\{/);
@@ -181,7 +209,7 @@ test("each result announces all standings details as one accessible row", () => 
     "A result should expose exactly one combined accessibility label.",
   );
   assert.equal(
-    (myMatchesSource.match(/accessibilityElementsHidden\s+importantForAccessibility="no-hide-descendants"/g) ?? []).length,
+    (resultRowSource.match(/accessibilityElementsHidden\s+importantForAccessibility="no-hide-descendants"/g) ?? []).length,
     4,
     "The rank badge, initials, visible labels, and prize art must not create duplicate stops.",
   );
@@ -190,6 +218,36 @@ test("each result announces all standings details as one accessible row", () => 
   assert.match(resultAccessibilitySource, /spokenTeam/);
   assert.match(resultAccessibilitySource, /spokenKills/);
   assert.match(resultAccessibilitySource, /`prize \$\{spokenPrize\}`/);
+});
+
+test("1.5× result rows stack prize details below the wrapping player and team names", () => {
+  assert.match(myMatchesSource, /<TournamentResultRow[\s\S]*?fontScale=\{fontScale\}/);
+  assert.match(resultRowSource, /const largeText = fontScale >= 1\.5/);
+  assert.match(resultRowSource, /resultRowLarge: \{[\s\S]*?flexDirection: 'column'[\s\S]*?alignItems: 'stretch'/);
+  assert.match(resultRowSource, /resultMainLarge: \{ flex: 0, width: '100%'/);
+  assert.match(resultRowSource, /prizeWrapLarge: \{ marginLeft: 92,[\s\S]*?alignSelf: 'stretch'/);
+  assert.match(resultRowSource, /resultName: \{[^}]*flexShrink: 1/);
+  assert.match(resultRowSource, /resultKills: \{[^}]*flexShrink: 1/);
+  assert.match(resultRowSource, /onTextLayout=\{onLayoutProbe \? report\('nameLines'\)/);
+  assert.match(resultRowSource, /onTextLayout=\{onLayoutProbe \? report\('detailsLines'\)/);
+});
+
+test("native Android fixture verifies wrapping bounds and can scroll to every result row", () => {
+  assert.match(nativeTextScaleScreenSource, /MY_MATCHES_TEXT_SCALE_RESULTS/);
+  assert.match(nativeTextScaleScreenSource, /Number\(result\.nameLines\) > 1/);
+  assert.match(nativeTextScaleScreenSource, /Number\(result\.detailsLines\) > 1/);
+  assert.match(nativeTextScaleScreenSource, /prize\.y >= main\.y \+ main\.height/);
+  assert.match(nativeTextScaleScreenSource, /prize\.y \+ prize\.height <= row\.height \+ 1/);
+  assert.match(nativeTextScaleScreenSource, /All 10 result rows wrap within bounds at 1\.50×/);
+  assert.match(nativeTextScaleRunner, /settings', 'put', 'system', 'font_scale', '1\.5'/);
+  assert.match(nativeTextScaleRunner, /maestro\/my-matches-native-text-scale\/large-text\.yaml/);
+  assert.match(nativeTextScaleRunner, /finally\s*\{[\s\S]*?originalFontScale/);
+  assert.match(nativeTextScaleRunner, /Could not verify restoration of Android font scale/);
+
+  for (let rank = 1; rank <= 10; rank += 1) {
+    assert.ok(nativeTextScaleFlow.includes(`id: my-matches-result-${rank}-${rank - 1}`));
+    assert.ok(nativeTextScaleFlow.includes(`Rank ${rank}, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card ${rank}`));
+  }
 });
 
 test("the spoken result includes all expected details and excludes the account profile name", () => {
