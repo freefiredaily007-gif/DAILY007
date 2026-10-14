@@ -453,7 +453,7 @@ test("a committed video disable wins the PostgreSQL completion race without rewa
         { sessionId: fixture.sessionId, percentWatched: 100 },
       );
       inFlight.push(completion);
-      await waitForBlockedBackend("daily007_v2_video_watch_sessions s", [
+      await waitForBlockedBackend("SELECT active FROM daily007_v2_videos", [
         blockerPid,
         disablePid,
       ]);
@@ -616,7 +616,7 @@ test("two concurrent completions for one watch session credit exactly once", asy
       );
       inFlight.push(firstCompletion);
       const firstCompletionPid = await waitForBlockedBackend(
-        "daily007_v2_video_watch_sessions s",
+        "FROM daily007_v2_video_watch_sessions",
         [blockerPid],
       );
 
@@ -629,7 +629,7 @@ test("two concurrent completions for one watch session credit exactly once", asy
       );
       inFlight.push(secondCompletion);
       const secondCompletionPid = await waitForBlockedBackend(
-        "daily007_v2_video_watch_sessions s",
+        "FROM daily007_v2_video_watch_sessions",
         [firstCompletionPid],
       );
       assert.notEqual(secondCompletionPid, firstCompletionPid);
@@ -853,6 +853,152 @@ test("two concurrent sessions for one player retain separate video rewards", asy
       walletBlocker.release();
     }
     await cleanupFixture(fixture);
+  }
+});
+
+test("two players can complete the same video without waiting on each other's wallet", async () => {
+  const lockedPlayerFixture = await createFixture();
+  const independentPlayerFixture = await createFixture();
+  let walletBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+
+  try {
+    assert.ok(
+      lockedPlayerFixture.playerId &&
+        lockedPlayerFixture.videoId &&
+        lockedPlayerFixture.sessionId,
+    );
+    assert.ok(independentPlayerFixture.playerId && independentPlayerFixture.sessionId);
+    assert.notEqual(lockedPlayerFixture.playerId, independentPlayerFixture.playerId);
+
+    await pool.query(
+      "UPDATE daily007_v2_video_watch_sessions SET video_id = $2 WHERE id = $1",
+      [independentPlayerFixture.sessionId, lockedPlayerFixture.videoId],
+    );
+
+    await withServer(async (origin) => {
+      walletBlocker = await pool.connect();
+      await walletBlocker.query("BEGIN");
+      await walletBlocker.query(
+        "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [lockedPlayerFixture.playerId],
+      );
+      const walletBlockerPid = await backendPid(walletBlocker);
+
+      const lockedPlayerCompletion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        lockedPlayerFixture.playerId,
+        "POST",
+        { sessionId: lockedPlayerFixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(lockedPlayerCompletion);
+      const lockedPlayerCompletionPid = await waitForBlockedBackend(
+        "SELECT wallet_coins FROM daily007_v2_users",
+        [walletBlockerPid],
+      );
+
+      const independentPlayerCompletion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        independentPlayerFixture.playerId,
+        "POST",
+        { sessionId: independentPlayerFixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(independentPlayerCompletion);
+
+      let completionTimeout: ReturnType<typeof setTimeout> | undefined;
+      const independentResponse = await Promise.race([
+        independentPlayerCompletion,
+        new Promise<never>((_resolve, reject) => {
+          completionTimeout = setTimeout(() => {
+            reject(new Error(
+              "A wallet lock for one player blocked another player's completion of the same video.",
+            ));
+          }, 5_000);
+        }),
+      ]).finally(() => {
+        if (completionTimeout) clearTimeout(completionTimeout);
+      });
+      assert.equal(independentResponse.status, 200);
+      assert.equal(independentResponse.body.rewarded, true);
+      assert.equal(independentResponse.body.coins, 1);
+      assert.equal(independentResponse.body.walletCoins, 13);
+      assert.equal(typeof independentResponse.body.transactionId, "string");
+
+      const stillBlockedPid = await waitForBlockedBackend(
+        "SELECT wallet_coins FROM daily007_v2_users",
+        [walletBlockerPid],
+      );
+      assert.equal(stillBlockedPid, lockedPlayerCompletionPid);
+
+      await walletBlocker.query("COMMIT");
+      walletBlocker.release();
+      walletBlocker = null;
+
+      const lockedPlayerResponse = await lockedPlayerCompletion;
+      assert.equal(lockedPlayerResponse.status, 200);
+      assert.equal(lockedPlayerResponse.body.rewarded, true);
+      assert.equal(lockedPlayerResponse.body.coins, 1);
+      assert.equal(lockedPlayerResponse.body.walletCoins, 13);
+      assert.equal(typeof lockedPlayerResponse.body.transactionId, "string");
+      assert.notEqual(
+        lockedPlayerResponse.body.transactionId,
+        independentResponse.body.transactionId,
+      );
+
+      const state = await pool.query<{
+        userId: string;
+        sessionId: string;
+        videoId: string;
+        walletCoins: number;
+        completedAt: Date | null;
+        ledgerId: string | null;
+        ledgerSessionId: string | null;
+        ledgerAmount: number | null;
+      }>(
+        `SELECT session.user_id AS "userId",
+                session.id::text AS "sessionId",
+                session.video_id::text AS "videoId",
+                player.wallet_coins AS "walletCoins",
+                session.completed_at AS "completedAt",
+                ledger.id::text AS "ledgerId",
+                ledger.details->>'sessionId' AS "ledgerSessionId",
+                ledger.amount AS "ledgerAmount"
+           FROM daily007_v2_video_watch_sessions session
+           JOIN daily007_v2_users player ON player.id = session.user_id
+           LEFT JOIN daily007_v2_wallet_ledger ledger
+             ON ledger.user_id = session.user_id
+            AND ledger.idempotency_key = 'daily007-video-watch:' || session.id::text
+          WHERE session.id = ANY($1::uuid[])
+          ORDER BY session.user_id`,
+        [[lockedPlayerFixture.sessionId, independentPlayerFixture.sessionId]],
+      );
+      assert.equal(state.rows.length, 2);
+      for (const row of state.rows) {
+        assert.equal(row.videoId, lockedPlayerFixture.videoId);
+        assert.equal(row.walletCoins, 13);
+        assert.ok(row.completedAt);
+        assert.ok(row.ledgerId);
+        assert.equal(row.ledgerSessionId, row.sessionId);
+        assert.equal(row.ledgerAmount, 1);
+      }
+      assert.equal(new Set(state.rows.map((row) => row.ledgerId)).size, 2);
+    }, async () => {
+      if (walletBlocker) {
+        await walletBlocker.query("ROLLBACK").catch(() => undefined);
+        walletBlocker.release();
+        walletBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+  } finally {
+    if (walletBlocker) {
+      await walletBlocker.query("ROLLBACK").catch(() => undefined);
+      walletBlocker.release();
+    }
+    await cleanupFixture(independentPlayerFixture);
+    await cleanupFixture(lockedPlayerFixture);
   }
 });
 

@@ -20,7 +20,6 @@ interface WatchSessionRow {
   started_at: Date | string;
   completed_at: Date | string | null;
   reward_ledger_id: string | null;
-  active: boolean;
 }
 
 interface WatchSessionStartRow {
@@ -187,17 +186,21 @@ export async function completeDaily007VideoWatch(
   message: string;
 }> {
   const locked = await client.query<WatchSessionRow>(
-    `SELECT s.id, s.video_id, s.duration_seconds, s.started_at, s.completed_at,
-            s.reward_ledger_id, v.active
-       FROM daily007_v2_video_watch_sessions s
-       JOIN daily007_v2_videos v ON v.id = s.video_id
-      WHERE s.id = $1 AND s.user_id = $2
-      FOR UPDATE OF s, v`,
+    `SELECT id, video_id, duration_seconds, started_at, completed_at, reward_ledger_id
+       FROM daily007_v2_video_watch_sessions
+      WHERE id = $1 AND user_id = $2
+      FOR UPDATE`,
     [sessionId, userId],
   );
   const session = locked.rows[0];
   if (!session) throw httpError(404, "Video watch session not found.");
-  if (!session.active) throw httpError(409, "This video is no longer available for rewards.");
+  const video = await client.query<{ active: boolean }>(
+    "SELECT active FROM daily007_v2_videos WHERE id = $1 FOR SHARE",
+    [session.video_id],
+  );
+  if (!video.rows[0]?.active) {
+    throw httpError(409, "This video is no longer available for rewards.");
+  }
 
   if (session.completed_at) {
     const account = await client.query<{ wallet_coins: number }>(

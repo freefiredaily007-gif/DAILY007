@@ -33,11 +33,11 @@ For a protected action queued behind an account block, pause the block only afte
 
 **How to apply:** Let the in-flight protected action finish, hold the block's status update before commit with a test advisory lock, start the second protected request, and verify `pg_blocking_pids` links its role check to the active block update.
 
-For concurrent video completions from two sessions owned by one player, use different videos so the requests contend at the shared wallet row rather than serializing on a video row. Observe both requests queued at the wallet lock before releasing it, then verify each session points to its own idempotency-keyed ledger row.
+For concurrent video sessions owned by one player, use different videos when isolating contention at the shared wallet row. Separately, use one shared video and separate players to prove video-state reads do not serialize independent wallet updates.
 
-**Why:** Reusing one video can serialize completions before the wallet update and hide a lost balance update or crossed session-to-ledger link.
+**Why:** A shared video lock can otherwise serialize different players before their independent wallet updates, masking unnecessary contention.
 
-**How to apply:** Create separate active video/session fixtures for one unique player, hold that player's wallet row, and assert both completion results, the total ledger count, final balance, and each session's ledger pointer.
+**How to apply:** For wallet contention, hold one player's wallet while different-video sessions wait, then verify each idempotency-keyed ledger link. For same-video independence, hold one player's wallet and assert the other player's completion finishes before releasing it; verify both rewards and session-to-ledger links.
 
 For concurrent wallet debits on different matches with different fees, correlate each response and ledger row by match or registration; do not assume request-array order determines which debit acquires the wallet lock first.
 
