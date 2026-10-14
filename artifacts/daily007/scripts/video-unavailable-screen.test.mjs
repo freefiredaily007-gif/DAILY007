@@ -627,6 +627,10 @@ test("the visible catalog removes a video disabled while it stays open", async (
   assert.match(videoSource, /refetchIntervalInBackground: false/);
   assert.match(
     videoSource,
+    /AppState\.addEventListener\('change', \(nextState\) => \{\s*setIsAppActive\(nextState === 'active'\)/,
+  );
+  assert.match(
+    videoSource,
     /shouldRefreshVideoCatalogOnFocus\(\{[\s\S]*?isPlayerOpen: showPlayer,[\s\S]*?\}\)\)\s*\{\s*void videosQuery\.refetch\(\)/,
   );
   assert.match(videoSource, /const videos: VideoItem\[\] = \(videosQuery\.data\?\.videos \?\? \[\]\)/);
@@ -667,17 +671,19 @@ test("the visible catalog removes a video disabled while it stays open", async (
   });
   let activeVideos = [{ id: "disabled-video", title: "Video before admin disables it" }];
   let requestCount = 0;
+  const state = {
+    isFocused: true,
+    isAppActive: true,
+    isPlayerOpen: false,
+  };
+  const refreshInterval = () => getVideoCatalogRefreshInterval(state, 5);
   const queryOptions = {
     queryKey: ["video-catalog-refresh-regression"],
     queryFn: async () => {
       requestCount += 1;
       return activeVideos;
     },
-    refetchInterval: getVideoCatalogRefreshInterval({
-      isFocused: true,
-      isAppActive: true,
-      isPlayerOpen: false,
-    }, 5),
+    refetchInterval: refreshInterval(),
     refetchIntervalInBackground: false,
   };
   const observer = new QueryObserver(queryClient, queryOptions);
@@ -687,24 +693,64 @@ test("the visible catalog removes a video disabled while it stays open", async (
     () => observer.getCurrentResult().data?.[0]?.id === "disabled-video",
     "The catalog query should load the initially active video.",
   );
+  // The Full Admin disables the listed video while the player catalog is backgrounded.
   activeVideos = [];
+  state.isAppActive = false;
+  observer.setOptions({ ...queryOptions, refetchInterval: refreshInterval() });
+  const requestsBeforeBackgroundWait = requestCount;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(
+    observer.getCurrentResult().data?.[0]?.id,
+    "disabled-video",
+    "The catalog should not poll or change its visible cards while the app is backgrounded.",
+  );
+  assert.equal(
+    requestCount,
+    requestsBeforeBackgroundWait,
+    "Catalog polling should stop while the app is backgrounded.",
+  );
+
+  // Video.tsx reruns its focused-screen effect on this AppState transition and refetches.
+  state.isAppActive = true;
+  observer.setOptions({ ...queryOptions, refetchInterval: refreshInterval() });
+  const requestsBeforeResume = requestCount;
+  await observer.refetch();
+  assert.ok(requestCount > requestsBeforeResume, "Resuming should trigger an immediate catalog request.");
   await waitFor(
     () => observer.getCurrentResult().data?.length === 0,
-    "A scheduled catalog refresh should remove the video disabled by the admin.",
+    "Resuming the app should promptly remove a video disabled by the admin.",
   );
   assert.ok(requestCount >= 2);
 
+  activeVideos = [{ id: "player-disabled-video", title: "Video disabled while player is open" }];
+  state.isPlayerOpen = true;
   observer.setOptions({
     ...queryOptions,
-    refetchInterval: getVideoCatalogRefreshInterval({
-      isFocused: true,
-      isAppActive: true,
-      isPlayerOpen: true,
-    }, 5),
+    refetchInterval: refreshInterval(),
   });
   const requestsWhenPlayerOpened = requestCount;
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(requestCount, requestsWhenPlayerOpened, "Opening the player should stop catalog polling.");
+  assert.equal(
+    observer.getCurrentResult().data?.length,
+    0,
+    "The catalog should remain unchanged while the player is open.",
+  );
+
+  // Returning to the catalog restores polling and performs the screen's focus refetch.
+  state.isPlayerOpen = false;
+  observer.setOptions({ ...queryOptions, refetchInterval: refreshInterval() });
+  const requestsBeforeReturningToCatalog = requestCount;
+  await observer.refetch();
+  assert.ok(
+    requestCount > requestsBeforeReturningToCatalog,
+    "Returning to the catalog should trigger an immediate request.",
+  );
+  assert.equal(
+    observer.getCurrentResult().data?.[0]?.id,
+    "player-disabled-video",
+    "Returning from the player should refresh the catalog.",
+  );
 
   unsubscribe();
   queryClient.clear();
