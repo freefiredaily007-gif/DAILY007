@@ -338,6 +338,56 @@ test("public participant with no saved teammates still contains its captain once
   }
 });
 
+test("public participants show only saved teammates in roster order for a partial roster", async () => {
+  registrationProfileTestDb.reset();
+  try {
+    const partial = registrationProfileTestDb.addOtherRegistration(
+      "pending",
+      TEST_MATCH_ID,
+      "Partial",
+    );
+    const savedRosterRows = partial.roster.filter((member) => member.position !== 2);
+    registrationProfileTestDb.roster = savedRosterRows.toReversed();
+
+    assert.deepEqual(
+      registrationProfileTestDb.roster.map(({ position }) => position),
+      [3, 1],
+      "The fixture should save only a subset of teammates, inserted out of roster order.",
+    );
+
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/tournaments/${TEST_MATCH_ID}/participants`);
+      assert.equal(response.status, 200);
+      const payload = await response.json() as {
+        tournamentId: string;
+        participants: { teamName: string | null; players: unknown[]; status: string }[];
+      };
+
+      assert.equal(payload.tournamentId, TEST_MATCH_ID);
+      assert.deepEqual(payload.participants, [{
+        teamName: partial.registration.team_name,
+        players: [
+          partial.registration.captain_game_name,
+          partial.roster[0].member_name,
+          partial.roster[2].member_name,
+        ],
+        status: "pending",
+      }]);
+
+      const players = payload.participants[0].players;
+      assert.equal(players.filter((player) => player === partial.registration.captain_game_name).length, 1);
+      assert.equal(players.includes(partial.registration.captain_game_uid), false);
+      for (const member of partial.roster) {
+        assert.equal(players.includes(member.member_uid), false, "Teammate UIDs must remain private.");
+      }
+      assert.equal(players.includes(partial.roster[1].member_name), false, "Unsaved teammate names must not be invented.");
+      assert.equal(players.some((player) => player === null), false);
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 type RegistrationRequest = {
   label: string;
   path: string;
