@@ -24,6 +24,7 @@
 - [Daily007 API client tests](daily007-api-client-tests.md) — Node 24 tests that import the Expo API client need native module mocks and an extensionless TypeScript resolver.
 - [Daily007 UI asset test isolation](daily007-ui-asset-tests.md) — test selectors as pure TypeScript with injected sources; separately guard Metro asset wiring without importing React Native UI into Node.
 - [API PostgreSQL concurrency tests](api-postgres-concurrency-tests.md) — queued row-lock waiters can be blocked by an earlier queued transaction, not only the original lock holder.
+- [PostgreSQL trigger lock assertions](postgres-trigger-lock-assertions.md) — identify the blocker PID and use `pg_blocking_pids()` when trigger-internal SQL makes query-text waits brittle.
 - [Workspace-scoped package installs](pnpm-workspace-package-installs.md) — if the package installer targets the monorepo root, install dependencies with the artifact workspace filter.
 - [pnpm security patches](pnpm-security-patches.md) — audit may retain version-based findings after patches; verify the patched lock snapshot through the real parent import path.
 - [Daily007 signup bonus](daily007-signup-bonus.md) — award 10 coins once to every new account; referral signups do not stack a second signup reward.
