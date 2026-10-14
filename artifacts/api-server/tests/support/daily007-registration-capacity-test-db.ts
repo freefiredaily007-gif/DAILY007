@@ -310,7 +310,7 @@ class RegistrationCapacityTestDatabase {
             if (this.lockHold === hold) this.lockHold = null;
           }
         }
-        if (normalized === "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
+        if (normalized === "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE") {
           const hold = this.walletLockHold;
           const userId = String(values[0]);
           let waitedForLock = false;
@@ -421,10 +421,10 @@ class RegistrationCapacityTestDatabase {
       ).length;
       rows = [{ count: String(count) }];
     } else if (normalized.startsWith(
-      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+      "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
     )) {
       const user = this.users.get(String(values[0]));
-      rows = user ? [{ wallet_coins: user.wallet_coins }] : [];
+      rows = user ? [{ wallet_coins: user.wallet_coins, status: user.status }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_registrations")) {
       if (this.failNextRegistrationInsertWithUniqueViolation) {
         this.failNextRegistrationInsertWithUniqueViolation = false;

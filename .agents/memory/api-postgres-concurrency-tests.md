@@ -57,6 +57,12 @@ For a password-login race with an account block, hold an uncommitted status upda
 
 **How to apply:** Correlate the waiting auth-version update to the blocker PID through `pg_blocking_pids`, commit the blocked status, then assert a generic login failure, no token, and an unchanged auth version.
 
+For authenticated player writes, recheck and lock the account status inside the same transaction as the write; middleware authentication alone can become stale before commit.
+
+**Why:** A block can commit after middleware has accepted a request but before its registration or team-edit transaction reaches the durable write.
+
+**How to apply:** Lock the player row in the write transaction, reject blocked status before mutating data, and test by holding an uncommitted block update until the request is observed waiting via `pg_blocking_pids`.
+
 **Rule:** When expanding a concurrency test to a new registration mode, retain prior mode coverage when it exercises a distinct write path.
 
 **Why:** Team signups add roster writes; replacing a solo race with a team race would lose regression coverage for wallet-only registrations.

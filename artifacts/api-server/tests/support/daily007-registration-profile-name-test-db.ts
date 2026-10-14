@@ -571,12 +571,19 @@ class RegistrationProfileTestDatabase {
       ).length;
       result = [{ count: String(count) }];
     } else if (
-      normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE")
+      normalized === "SELECT status FROM daily007_v2_users WHERE id = $1 FOR SHARE"
     ) {
       const user = [this.user, ...this.additionalUsers].find((candidate) =>
         candidate.id === String(values[0])
       );
-      result = user ? [{ wallet_coins: user.wallet_coins }] : [];
+      result = user ? [{ status: user.status }] : [];
+    } else if (
+      normalized.startsWith("SELECT wallet_coins")
+    ) {
+      const user = [this.user, ...this.additionalUsers].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = user ? [{ wallet_coins: user.wallet_coins, status: user.status }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_registrations")) {
       const [
         matchId,

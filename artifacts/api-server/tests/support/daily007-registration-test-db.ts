@@ -110,10 +110,10 @@ class MemoryRegistrationDatabase {
       const code = this.state.shortCodes.get(String(values[0]));
       rows = code ? [{ code }] : [];
     } else if (normalized.startsWith(
-      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+      "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
     )) {
       const account = this.state.accounts.get(String(values[0]));
-      rows = account ? [{ wallet_coins: account.wallet_coins }] : [];
+      rows = account ? [{ wallet_coins: account.wallet_coins, status: account.status }] : [];
     } else if (normalized.startsWith(
       "SELECT id FROM daily007_v2_wallet_ledger WHERE idempotency_key = $1",
     )) {
