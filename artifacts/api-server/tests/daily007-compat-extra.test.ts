@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import type { Server } from "node:http";
+import express from "express";
 import test from "node:test";
 
+import { makeToken } from "../src/lib/daily007-session-token";
+import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 import {
   isValidYoutubeChannelUrl,
   normalizePaymentReference,
@@ -20,6 +24,113 @@ import {
   reviewYoutubeSubscribeClaim,
   submitYoutubeSubscribeClaim,
 } from "../src/lib/daily007-youtube-subscribe.ts";
+import {
+  YOUTUBE_TEST_ADMIN_ID,
+  YOUTUBE_TEST_CLAIM_ID,
+  YOUTUBE_TEST_PLAYER_ID,
+  YOUTUBE_TEST_TOURNAMENT_ADMIN_ID,
+  youtubeClaimTestDb,
+} from "./support/daily007-youtube-claim-test-db";
+
+const TEST_AUTH_SECRET = "daily007-youtube-claim-test-secret-32-characters";
+const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
+process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
+
+test.after(() => {
+  if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
+  else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
+});
+
+async function withYoutubeClaimServer(run: (origin: string) => Promise<void>): Promise<void> {
+  const app = express();
+  app.use(express.json());
+  app.use(daily007CompatExtraRouter);
+  const server = await new Promise<Server>((resolve, reject) => {
+    const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
+    listeningServer.once("error", reject);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
+function youtubeAuthHeaders(userId: string): Record<string, string> {
+  const token = makeToken(userId, 0);
+  assert.ok(token, "test account should receive a Daily007 session token");
+  return {
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+  };
+}
+
+async function youtubeAdminRequest(
+  origin: string,
+  userId: string,
+  path: string,
+  method: "GET" | "POST",
+): Promise<{ status: number; body: any }> {
+  const response = await fetch(`${origin}${path}`, {
+    method,
+    headers: youtubeAuthHeaders(userId),
+    ...(method === "POST" ? { body: JSON.stringify({}) } : {}),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("Tournament Admin cannot read or review YouTube claims, and rejected requests preserve reward state", async () => {
+  youtubeClaimTestDb.reset();
+  const before = youtubeClaimTestDb.snapshot();
+
+  await withYoutubeClaimServer(async (origin) => {
+    const listed = await youtubeAdminRequest(
+      origin,
+      YOUTUBE_TEST_TOURNAMENT_ADMIN_ID,
+      "/admin/earn/youtube-subscribe/claims",
+      "GET",
+    );
+    assert.equal(listed.status, 403);
+
+    const reviewed = await youtubeAdminRequest(
+      origin,
+      YOUTUBE_TEST_TOURNAMENT_ADMIN_ID,
+      `/admin/earn/youtube-subscribe/claims/${YOUTUBE_TEST_CLAIM_ID}/approve`,
+      "POST",
+    );
+    assert.equal(reviewed.status, 403);
+
+    assert.deepEqual(youtubeClaimTestDb.snapshot(), before);
+    assert.equal(youtubeClaimTestDb.claimTableQueryCount, 0);
+  });
+});
+
+test("Full Admin can approve a YouTube subscribe claim and receive the configured reward", async () => {
+  youtubeClaimTestDb.reset();
+
+  await withYoutubeClaimServer(async (origin) => {
+    const reviewed = await youtubeAdminRequest(
+      origin,
+      YOUTUBE_TEST_ADMIN_ID,
+      `/admin/earn/youtube-subscribe/claims/${YOUTUBE_TEST_CLAIM_ID}/approve`,
+      "POST",
+    );
+
+    assert.equal(reviewed.status, 200);
+    assert.equal(reviewed.body.status, "approved");
+    assert.equal(reviewed.body.rewardCoins, 2);
+    assert.equal(reviewed.body.walletCoins, 12);
+    assert.equal(youtubeClaimTestDb.claims.get(YOUTUBE_TEST_CLAIM_ID)?.status, "approved");
+    assert.equal(youtubeClaimTestDb.users.get(YOUTUBE_TEST_PLAYER_ID)?.wallet_coins, 12);
+    assert.equal(youtubeClaimTestDb.ledger.length, 1);
+    assert.equal(youtubeClaimTestDb.ledger[0].amount, 2);
+    assert.equal(youtubeClaimTestDb.ledger[0].idempotency_key, `daily007-youtube-subscribe:${YOUTUBE_TEST_PLAYER_ID}`);
+  });
+});
 
 test("YouTube task URLs only accept secure YouTube hosts with a channel path", () => {
   assert.equal(isValidYoutubeChannelUrl("https://youtube.com/@freefiredaily007?si=abc"), true);
