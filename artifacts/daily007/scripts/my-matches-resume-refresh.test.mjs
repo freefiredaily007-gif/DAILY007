@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { didAppReturnToForeground } from "../src/lib/tournamentLifecycle.ts";
-import { createFocusedLatestRequestGate } from "../src/lib/focusedLatestRequest.ts";
+import {
+  createFocusedLatestRequestGate,
+  createFocusedRefreshCoalescer,
+} from "../src/lib/focusedLatestRequest.ts";
 import {
   createFocusedRetryController,
   isUsableNetworkState,
@@ -26,8 +29,21 @@ test("My Matches retries registration loading when connectivity returns while fo
     myMatchesSource,
     /const usable = isUsableNetworkState\(networkState\);/,
   );
-  assert.match(myMatchesSource, /if \(usable && refreshAfterFailure\) refreshMatches\(\);/);
+  assert.match(
+    myMatchesSource,
+    /if \(usable && refreshAfterFailure\) connectivityRefreshes\.request\(refreshMatches\);/,
+  );
+  assert.match(myMatchesSource, /connectivityRefreshes\.setFocused\(true\)/);
+  assert.match(myMatchesSource, /connectivityRefreshes\.setFocused\(false\)/);
+  assert.match(myMatchesSource, /if \(!usable\) connectivityRefreshes\.cancelPending\(\);/);
+  assert.match(
+    myMatchesSource,
+    /const load = useCallback\(async \(\) => \{\s*connectivityRefreshes\.cancelPending\(\);/,
+    "Immediate manual and scheduled loads should cancel a not-yet-started automatic refresh.",
+  );
   assert.match(myMatchesSource, /networkSubscription\.remove\(\);/);
+  assert.match(myMatchesSource, /refreshControl=\{<RefreshControl refreshing=\{loading\} onRefresh=\{load\}/);
+  assert.match(myMatchesSource, /setTimeout\(\(\) => \{\s*refreshMatches\(\);/);
   const focusEffect = myMatchesSource.match(
     /useFocusEffect\(useCallback\(\(\) => \{([\s\S]*?)\n\s*\}, \[[^\]]+\]\)\);/,
   )?.[1] ?? "";
@@ -176,6 +192,81 @@ function createFakeScheduler() {
     },
   };
 }
+
+test("connectivity bursts coalesce during delayed loads and stay focused", async () => {
+  const scheduler = createFakeScheduler();
+  const refreshes = createFocusedRefreshCoalescer({
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  }, 250);
+  const firstResponse = deferred();
+  let requestCount = 0;
+  const refresh = () => {
+    requestCount += 1;
+    if (requestCount === 1) return firstResponse.promise;
+  };
+
+  assert.equal(refreshes.request(refresh), false);
+  refreshes.setFocused(true);
+  for (let index = 0; index < 10; index += 1) {
+    assert.equal(refreshes.request(refresh), true);
+  }
+  assert.deepEqual(scheduler.delays, [250]);
+  assert.equal(scheduler.runNext(), true);
+  assert.equal(requestCount, 1);
+
+  for (let index = 0; index < 10; index += 1) {
+    refreshes.request(refresh);
+  }
+  assert.deepEqual(scheduler.delays, [250]);
+  assert.equal(scheduler.runNext(), true);
+  assert.equal(requestCount, 1, "a delayed request must not overlap a connectivity follow-up");
+
+  firstResponse.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requestCount, 2, "events during the delayed request should produce one follow-up");
+  assert.deepEqual(scheduler.delays, []);
+
+  refreshes.request(refresh);
+  assert.deepEqual(scheduler.delays, [250]);
+  refreshes.setFocused(false);
+  assert.deepEqual(scheduler.delays, [], "blur should cancel a queued automatic refresh");
+  assert.equal(scheduler.runNext(), false);
+  assert.equal(refreshes.request(refresh), false);
+  assert.equal(requestCount, 2);
+});
+
+test("an old focused request cannot block a new session's connectivity refresh", async () => {
+  const scheduler = createFakeScheduler();
+  const refreshes = createFocusedRefreshCoalescer({
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  }, 250);
+  const oldResponse = deferred();
+  const newResponse = deferred();
+  let requestCount = 0;
+  const refresh = () => {
+    requestCount += 1;
+    return requestCount === 1 ? oldResponse.promise : newResponse.promise;
+  };
+
+  refreshes.setFocused(true);
+  refreshes.request(refresh);
+  scheduler.runNext();
+  assert.equal(requestCount, 1);
+
+  refreshes.setFocused(false);
+  refreshes.setFocused(true);
+  refreshes.request(refresh);
+  scheduler.runNext();
+  assert.equal(requestCount, 2);
+
+  oldResponse.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requestCount, 2, "the blurred request must not alter the new focus session's lock");
+  newResponse.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+});
 
 test("failed loads retry with capped backoff and success stops the retry timer", () => {
   const scheduler = createFakeScheduler();

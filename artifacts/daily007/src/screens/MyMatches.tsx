@@ -20,13 +20,17 @@ import {
   getTournamentLifecycleState,
   MAX_TIMEOUT_MS,
 } from '../lib/tournamentLifecycle';
-import { createFocusedLatestRequestGate } from '../lib/focusedLatestRequest';
+import {
+  createFocusedLatestRequestGate,
+  createFocusedRefreshCoalescer,
+} from '../lib/focusedLatestRequest';
 import { tournamentResultAccessibilityLabel } from '../lib/tournamentResultAccessibility';
 
 export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
   const navigation: any = useNavigation();
   const [registrationRequests] = useState(createFocusedLatestRequestGate);
+  const [connectivityRefreshes] = useState(createFocusedRefreshCoalescer);
   const [retryController] = useState(createFocusedRetryController);
   const [regs, setRegs] = useState<any[]>([]);
   const [tab, setTab] = useState<'upcoming' | 'ongoing' | 'completed'>('upcoming');
@@ -39,6 +43,7 @@ export default function MyMatches() {
   const loadRef = useRef<() => Promise<void>>(async () => {});
 
   const load = useCallback(async () => {
+    connectivityRefreshes.cancelPending();
     await registrationRequests.run(
       () => Api.myRegistrations(),
       () => {
@@ -66,17 +71,18 @@ export default function MyMatches() {
         setLoading(false);
       },
     );
-  }, [registrationRequests, retryController]);
+  }, [connectivityRefreshes, registrationRequests, retryController]);
   loadRef.current = load;
 
   const refreshMatches = useCallback(() => {
     setClockNow(Date.now());
-    void load();
+    return load();
   }, [load]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
     registrationRequests.setFocused(true);
+    connectivityRefreshes.setFocused(true);
     retryController.setFocused(true);
     latestLoadFailed.current = false;
     appState.current = AppState.currentState;
@@ -91,7 +97,8 @@ export default function MyMatches() {
     ) => {
       const usable = isUsableNetworkState(networkState);
       retryController.setNetworkUsable(usable);
-      if (usable && refreshAfterFailure) refreshMatches();
+      if (!usable) connectivityRefreshes.cancelPending();
+      if (usable && refreshAfterFailure) connectivityRefreshes.request(refreshMatches);
     };
     let networkEventRevision = 0;
     const initialNetworkEventRevision = networkEventRevision;
@@ -110,13 +117,14 @@ export default function MyMatches() {
     return () => {
       active = false;
       registrationRequests.setFocused(false);
+      connectivityRefreshes.setFocused(false);
       retryController.setFocused(false);
       retryController.setNetworkUsable(false);
       latestLoadFailed.current = false;
       subscription.remove();
       networkSubscription.remove();
     };
-  }, [refreshMatches, registrationRequests, retryController]));
+  }, [connectivityRefreshes, refreshMatches, registrationRequests, retryController]));
 
   useEffect(() => {
     const transitions = regs.flatMap((registration) => {
