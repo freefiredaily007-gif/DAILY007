@@ -5,6 +5,7 @@ import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
+import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
 import daily007V2Router from "../src/routes/daily007-v2";
 
 const TEST_AUTH_SECRET = "daily007-registration-wallet-concurrency-test-secret";
@@ -52,6 +53,7 @@ after(async () => {
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
   app.use(express.json());
+  app.use(daily007CompatCoreRouter);
   app.use(daily007V2Router);
   app.use((
     error: unknown,
@@ -110,6 +112,19 @@ async function registerForMatch(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function editTeam(
+  origin: string,
+  userId: string,
+  registrationId: string,
+  body: Record<string, unknown>,
+): Promise<RegistrationResponse> {
+  const response = await fetch(`${origin}/my/registrations/${registrationId}/team`, {
+    method: "PATCH",
+    headers: authHeaders(userId),
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
 async function createFixture(
   teamType: "solo" | "duo" | "squad",
   options: { entryCoins?: [number, number]; startingWalletCoins?: number } = {},
@@ -248,6 +263,151 @@ async function waitForBlockedRequests(
   }
   throw new Error(`Timed out waiting for ${expectedCount} requests to block on the ${lockDescription} row.`);
 }
+
+async function runAfterAuthenticationBlockRace(
+  origin: string,
+  fixture: WalletRaceFixture,
+  matchId: string,
+  queryFragment: string,
+  request: () => Promise<RegistrationResponse>,
+): Promise<RegistrationResponse> {
+  const blocker = await pool.connect();
+  let transactionOpen = false;
+  let submission: Promise<RegistrationResponse> | undefined;
+  try {
+    await blocker.query("BEGIN");
+    transactionOpen = true;
+    await blocker.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [matchId]);
+    const blockerPid = await backendPid(blocker);
+
+    submission = request();
+    await waitForBlockedRequests(blockerPid, 1, queryFragment, "match");
+
+    // The request has already passed authentication and is now waiting before
+    // its transactional write. Commit the block first, then let it proceed.
+    await blocker.query("UPDATE daily007_v2_users SET status = 'blocked' WHERE id = $1", [fixture.userId]);
+    await blocker.query("COMMIT");
+    transactionOpen = false;
+    return await submission;
+  } finally {
+    if (transactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    if (submission) await Promise.allSettled([submission]);
+  }
+}
+
+async function readBlockedRaceState(fixture: WalletRaceFixture, matchId: string) {
+  const [account, registrations, roster, ledger] = await Promise.all([
+    pool.query<{ status: string; wallet_coins: number }>(
+      "SELECT status, wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [fixture.userId],
+    ),
+    pool.query(
+      `SELECT id, match_id, captain_user_id, captain_name, captain_game_name,
+              captain_game_uid, team_name, entry_coins_paid, status
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND captain_user_id = $2
+        ORDER BY id`,
+      [matchId, fixture.userId],
+    ),
+    pool.query(
+      `SELECT roster.registration_id, roster.position, roster.member_uid, roster.member_name
+         FROM daily007_v2_roster roster
+         JOIN daily007_v2_registrations registration ON registration.id = roster.registration_id
+        WHERE registration.match_id = $1 AND registration.captain_user_id = $2
+        ORDER BY roster.registration_id, roster.position`,
+      [matchId, fixture.userId],
+    ),
+    pool.query(
+      `SELECT match_id, registration_id, amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND match_id = $2
+        ORDER BY id`,
+      [fixture.userId, matchId],
+    ),
+  ]);
+  return {
+    account: account.rows,
+    registrations: registrations.rows,
+    roster: roster.rows,
+    ledger: ledger.rows,
+  };
+}
+
+test("a registration authenticated before an account block cannot commit afterward", async () => {
+  const fixture = await createFixture("duo");
+  try {
+    await withServer(async (origin) => {
+      const matchId = fixture.matchIds[0];
+      const before = await readBlockedRaceState(fixture, matchId);
+      assert.deepEqual(before, {
+        account: [{ status: "active", wallet_coins: fixture.startingWalletCoins }],
+        registrations: [],
+        roster: [],
+        ledger: [],
+      });
+      const response = await runAfterAuthenticationBlockRace(
+        origin,
+        fixture,
+        matchId,
+        "FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        () => registerForMatch(origin, fixture.userId, matchId, fixture.gameUids[0], {
+          teamName: fixture.teamNames[0],
+          teammates: fixture.teammates[0],
+        }),
+      );
+      assert.equal(response.status, 403, JSON.stringify(response.body));
+      assert.deepEqual(response.body, { error: "This account is blocked." });
+      assert.deepEqual(await readBlockedRaceState(fixture, matchId), {
+        ...before,
+        account: [{ status: "blocked", wallet_coins: fixture.startingWalletCoins }],
+      });
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a team edit authenticated before an account block cannot change the roster afterward", async () => {
+  const fixture = await createFixture("duo", { entryCoins: [0, 0] });
+  try {
+    await withServer(async (origin) => {
+      const matchId = fixture.matchIds[0];
+      const initial = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        { teamName: fixture.teamNames[0], teammates: fixture.teammates[0] },
+      );
+      assert.equal(initial.status, 201, JSON.stringify(initial.body));
+      const registrationId = String(initial.body.registrationId);
+      const before = await readBlockedRaceState(fixture, matchId);
+      assert.equal(before.registrations.length, 1);
+      assert.equal(before.roster.length, 1);
+      const response = await runAfterAuthenticationBlockRace(
+        origin,
+        fixture,
+        matchId,
+        "FROM daily007_v2_matches m",
+        () => editTeam(origin, fixture.userId, registrationId, {
+          captainGameName: "Blocked Edit Captain",
+          captainGameUid: `ff-${randomUUID()}`,
+          teamName: "Blocked Edit Squad",
+          teammates: [{ name: "Blocked Edit Teammate", uid: `ff-${randomUUID()}` }],
+        }),
+      );
+      assert.equal(response.status, 403, JSON.stringify(response.body));
+      assert.deepEqual(response.body, { error: "This account is blocked." });
+      assert.deepEqual(await readBlockedRaceState(fixture, matchId), {
+        ...before,
+        account: [{ status: "blocked", wallet_coins: fixture.startingWalletCoins }],
+      });
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
 
 async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]): Promise<void> {
   let fixtureForCleanup: WalletRaceFixture | undefined;
@@ -847,6 +1007,7 @@ test("a failed entry-fee ledger insert rolls back the wallet, registration, and 
     });
     fixtureForCleanup = fixture;
     const matchId = fixture.matchIds[0];
+
     const before = await readEntryPaymentState(fixture, matchId);
     assert.deepEqual(before, {
       wallet: [{ wallet_coins: fixture.startingWalletCoins }],

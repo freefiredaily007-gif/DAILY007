@@ -981,6 +981,13 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     const match = matchResult.rows[0];
     if (!match) return { kind: "missing" as const };
 
+    const accountResult = await client.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+      [account.id],
+    );
+    if (!accountResult.rows[0]) return { kind: "missing" as const };
+    if (accountResult.rows[0].status === "blocked") return { kind: "blocked" as const };
+
     const registrationResult = await client.query<{ id: string; status: string }>(
       `SELECT id, status FROM daily007_v2_registrations
         WHERE id = $1 AND match_id = $2 AND captain_user_id = $3

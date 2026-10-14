@@ -603,6 +603,17 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
       const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
 
+      const userResult = await client.query<{ wallet_coins: number; status: string }>(
+        "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [account.id],
+      );
+      const lockedUser = userResult.rows[0];
+      const balance = lockedUser?.wallet_coins;
+      if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 401 });
+      if (lockedUser.status === "blocked") {
+        throw Object.assign(new Error("This account is blocked."), { status: 403 });
+      }
+
       // Match row serialization makes this lookup race-safe for simultaneous retries.
       const existing = await client.query<{
         id: string; captain_game_name: string; captain_game_uid: string; entry_coins_paid: number;
@@ -750,16 +761,6 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           status: 409,
           code: REGISTRATION_CONFLICT_CODES.matchFull,
         });
-      }
-      const userResult = await client.query<{ wallet_coins: number; status: string }>(
-        "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
-        [account.id],
-      );
-      const lockedUser = userResult.rows[0];
-      const balance = lockedUser?.wallet_coins;
-      if (balance === undefined) throw Object.assign(new Error("Account not found."), { status: 401 });
-      if (lockedUser.status === "blocked") {
-        throw Object.assign(new Error("This account is blocked."), { status: 403 });
       }
       if (balance < match.entry_coins) {
         throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), {
