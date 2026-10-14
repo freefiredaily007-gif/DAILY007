@@ -98,7 +98,7 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
     earnSource,
     /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*async \(url\) => \{\s*if \(__DEV__ && simulateReferralBrowserOpenFailure\) \{\s*throw new Error\('Simulated referral browser open failure'\);\s*\}\s*return WebBrowser\.openBrowserAsync\(url\);\s*\},\s*showReferralOpenFallback,\s*\);/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 1);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 2);
   assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
   assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.equal(
@@ -153,7 +153,7 @@ test("Earn's development-only browser failure simulation announces recovery only
     earnSource,
     /onPress=\{\(\) => setSimulateReferralBrowserOpenFailure\(\(current\) => !current\)\}/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 1);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 2);
 
   await makeOpenReferralLink(true, true)();
   assert.deepEqual(openedUrls, []);
@@ -215,7 +215,7 @@ test("Earn shares the same server-provided HTTPS referral link and query code", 
   assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
   assert.match(
     earnSource,
-    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*setActionError/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
   );
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
@@ -375,29 +375,51 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.equal(networkRequests.mock.callCount(), 0);
 });
 
-test("a rejected share sheet shows Earn's copy-code fallback without native services or API calls", async (t) => {
+test("Earn announces the copy-code recovery once after a rejected share and stays silent after success", async (t) => {
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const sharedValues = [];
   const fallbackMessages = [];
+  const accessibilityAnnouncements = [];
+  const errors = [];
   const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
   const networkRequests = t.mock.method(globalThis, "fetch", async () => {
     throw new Error("Unexpected network request");
   });
 
-  const shared = await shareReferralInviteWithFallback(
-    "ABC12",
-    referralLink,
-    async (content) => {
-      sharedValues.push(content);
-      throw new Error("Share sheet unavailable");
+  const makeShareInvite = (share) => loadEarnAction(earnSource, "shareInvite", {
+    dashboard: { code: "ABC12", referralLink },
+    Share: { share },
+    shareReferralInviteWithFallback,
+    setActionError: (message) => {
+      errors.push(message);
+      if (message) fallbackMessages.push(message);
     },
-    (message) => fallbackMessages.push(message),
-  );
+    AccessibilityInfo: {
+      announceForAccessibility: (message) => accessibilityAnnouncements.push(message),
+    },
+  });
 
-  assert.equal(shared, false);
+  await makeShareInvite(async (content) => {
+    sharedValues.push(content);
+    return { action: "sharedAction" };
+  })();
+
   assert.equal(sharedValues.length, 1);
+  assert.deepEqual(errors, [""]);
+  assert.deepEqual(fallbackMessages, []);
+  assert.deepEqual(accessibilityAnnouncements, []);
+
+  await makeShareInvite(async (content) => {
+    sharedValues.push(content);
+    throw new Error("Share sheet unavailable");
+  })();
+
+  assert.equal(sharedValues.length, 2);
   assert.equal(sharedValues[0].url, referralLink);
+  assert.equal(sharedValues[1].url, referralLink);
+  assert.deepEqual(errors, ["", "", referralShareFallbackMessage]);
   assert.deepEqual(fallbackMessages, [referralShareFallbackMessage]);
+  assert.deepEqual(accessibilityAnnouncements, [referralShareFallbackMessage]);
   assert.equal(
     fallbackMessages[0],
     "Could not open the share sheet. You can copy the code instead.",
@@ -405,8 +427,9 @@ test("a rejected share sheet shows Earn's copy-code fallback without native serv
   assert.equal(networkRequests.mock.callCount(), 0);
   assert.match(
     earnSource,
-    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*setActionError/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
   );
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 2);
   assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
 });

@@ -91,7 +91,10 @@ export default function Earn() {
       dashboard.code,
       dashboard.referralLink,
       (content) => Share.share(content),
-      setActionError,
+      (message) => {
+        setActionError(message);
+        AccessibilityInfo.announceForAccessibility(message);
+      },
     );
   };
 
