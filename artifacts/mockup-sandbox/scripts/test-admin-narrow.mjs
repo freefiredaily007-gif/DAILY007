@@ -4164,6 +4164,13 @@ async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
   );
 
   const readsBeforeRetry = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  const secondFailureMessage =
+    "The tournament list could not be refreshed because the connection to the Daily007 service was interrupted. Check your internet connection and retry.";
+  if (largeText) {
+    await evaluate(
+      `window.__daily007TournamentResume.failNextTournamentRead(${JSON.stringify(secondFailureMessage)})`,
+    );
+  }
   if (largeText) {
     await tapSelector(
       '[data-testid="admin-tournament-refresh-retry"]',
@@ -4175,8 +4182,43 @@ async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
       "Admin initial-load Retry",
     );
   }
+  if (largeText) {
+    await waitForCondition(
+      `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry} && document.body.innerText.includes(${JSON.stringify(`Could not load tournaments: ${secondFailureMessage}`)}) && !document.body.innerText.includes('Initial Admin tournament request failed')`,
+      "the first Admin retry to fail with its updated, longer error",
+    );
+    await assertVisibleTextFits(
+      '[data-testid="admin-tournament-load-error"]',
+      390,
+      "The updated Admin tournament error at 1.5× text",
+    );
+    await assertReachableControl(
+      '[data-testid="admin-tournament-refresh-retry"]',
+      "The Admin Retry control after its first retry fails at 1.5× text",
+    );
+    const updatedFailureRetryState = await evaluate(`(() => {
+      const retry = document.querySelector('[data-testid="admin-tournament-refresh-retry"]');
+      return retry ? {
+        disabled: retry.disabled,
+        ariaDisabled: retry.getAttribute('aria-disabled'),
+        height: retry.getBoundingClientRect().height,
+      } : null;
+    })()`);
+    assert(
+      updatedFailureRetryState?.disabled === false
+        && updatedFailureRetryState?.ariaDisabled !== "true"
+        && updatedFailureRetryState?.height >= minimumAndroidTouchTarget,
+      `After its first retry fails, Admin Retry must remain enabled and at least ${minimumAndroidTouchTarget}px tall at 1.5× text: ${JSON.stringify(updatedFailureRetryState)}.`,
+    );
+    await tapSelector(
+      '[data-testid="admin-tournament-refresh-retry"]',
+      "Admin Retry again after its first retry fails at 1.5× text",
+    );
+  }
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry} && document.body.innerText.includes(${JSON.stringify(recoveredTournamentName)}) && !document.body.innerText.includes('Could not load tournaments') && !document.body.innerText.includes('Could not refresh tournaments')`,
+    largeText
+      ? `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry + 1} && document.body.innerText.includes(${JSON.stringify(recoveredTournamentName)}) && !document.body.innerText.includes('Could not load tournaments') && !document.body.innerText.includes('Could not refresh tournaments')`
+      : `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRetry} && document.body.innerText.includes(${JSON.stringify(recoveredTournamentName)}) && !document.body.innerText.includes('Could not load tournaments') && !document.body.innerText.includes('Could not refresh tournaments')`,
     "a successful Admin retry to show tournament cards and clear the initial-load error",
   );
   await assertText(recoveredTournamentName, "the Admin tournament after initial-load recovery");
@@ -7753,7 +7795,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during large-text Admin initial-load recovery checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — At Android 1.5× text, the Admin error remains readable, Retry is visible and tappable, and a successful retry loads tournaments and clears the error.");
+      console.log("PASS — At Android 1.5× text, a longer second-failure error stays readable, Retry remains enabled and reachable at 48px+, and a subsequent retry loads tournaments and clears the error.");
     } else if (adminInitialLoadFailureOnly) {
       await checkAdminInitialLoadFailure();
       assert(
