@@ -1918,7 +1918,7 @@ test("a permanent deletion waiting on one video does not block playback of anoth
   }
 });
 
-test("a catalog-setting failure after permanent deletion rolls back video and history state", async () => {
+test("a permanent video deletion can be retried after the catalog setting failure clears", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
   const adminId = fixture.adminId;
@@ -2014,6 +2014,43 @@ test("a catalog-setting failure after permanent deletion rolls back video and hi
       settingsAfter.rows,
       settingsBeforeRequest.rows,
       "the failed catalog marker update must not partially change settings",
+    );
+
+    await pool.query(
+      `ALTER TABLE daily007_v2_settings DROP CONSTRAINT ${failureConstraint}`,
+    );
+    failureConstraintCreated = false;
+
+    await withServer(async (origin) => {
+      const response = await sendPermanentDelete(origin, videoId, adminId);
+      assert.equal(response.status, 204, "the same deletion should succeed after the failure clears");
+      assert.deepEqual(response.body, {});
+    });
+
+    const [targetAfterRetry, unrelatedAfterRetry, watchSessionsAfterRetry, settingsAfterRetry] =
+      await Promise.all([
+        pool.query("SELECT * FROM daily007_v2_videos WHERE id = $1", [videoId]),
+        snapshotUnrelatedVideoState(videoId),
+        pool.query("SELECT * FROM daily007_v2_video_watch_sessions ORDER BY id"),
+        pool.query<{ settings: Record<string, unknown> }>(
+          "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+        ),
+      ]);
+    assert.equal(targetAfterRetry.rows.length, 0, "the retry should permanently remove the target video");
+    assert.deepEqual(
+      unrelatedAfterRetry,
+      unrelatedBefore,
+      "unrelated videos and their watch sessions must remain unchanged after retry",
+    );
+    assert.deepEqual(
+      watchSessionsAfterRetry.rows,
+      watchSessionsBefore.rows,
+      "the retry must leave all watch history unchanged",
+    );
+    assert.deepEqual(
+      settingsAfterRetry.rows[0]?.settings,
+      { ...settingsBeforeRequestValue, __daily007VideoCatalogSeeded: true },
+      "the retry should set the catalog marker without overwriting unrelated settings",
     );
   } finally {
     if (failureConstraintCreated) {
