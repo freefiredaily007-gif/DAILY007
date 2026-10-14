@@ -13,7 +13,11 @@ import { C, Btn, Card, Chip, Input, KV, Msg, Badge, SectionTitle, GCard, fmtDate
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { useApp } from '../App';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
-import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+import {
+  getRoomCredentialSchedule,
+  hasServerAuthorizedRoomCredentials,
+} from '../lib/roomCredentialTiming';
+import { createRoomCredentialAvailabilityAnnouncementTracker } from '../lib/roomCredentialAvailabilityAnnouncement';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import {
   fetchTournamentDetailSnapshot,
@@ -23,6 +27,9 @@ import {
   getTournamentResultsRefreshInterval,
   resolveTournamentWinnerState,
 } from '../lib/tournament-winner-details';
+
+const claimRoomDetailsAvailabilityAnnouncement =
+  createRoomCredentialAvailabilityAnnouncementTracker();
 
 export default function TDetail() {
   const nav: any = useNavigation();
@@ -38,6 +45,7 @@ export default function TDetail() {
   const [busy, setBusy] = useState(false);
   const [retryingParticipants, setRetryingParticipants] = useState(false);
   const [participantsRetryAnnouncement, setParticipantsRetryAnnouncement] = useState('');
+  const [roomDetailsAvailabilityAnnouncement, setRoomDetailsAvailabilityAnnouncement] = useState('');
   const retryParticipantsInFlight = useRef(false);
   const detailLoadInFlight = useRef(false);
   const [clockNow, setClockNow] = useState(Date.now());
@@ -61,6 +69,22 @@ export default function TDetail() {
   const isCompleted =
     String(t?.status ?? '').toLowerCase() === 'completed' ||
     String(resultsQuery.data?.status ?? '').toLowerCase() === 'finalized';
+  const roomCredentialsAvailable =
+    String(t?.myRegistration?.status ?? '').toLowerCase() === 'approved' &&
+    String(t?.status ?? '').toLowerCase() !== 'cancelled' &&
+    hasServerAuthorizedRoomCredentials(
+      t?.myRegistration?.roomId,
+      t?.myRegistration?.roomPassword,
+    );
+
+  useEffect(() => {
+    if (!isFocused || !claimRoomDetailsAvailabilityAnnouncement(tournamentId, roomCredentialsAvailable)) {
+      return;
+    }
+    const announcement = 'Room details are now available.';
+    setRoomDetailsAvailabilityAnnouncement(announcement);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(announcement);
+  }, [isFocused, tournamentId, roomCredentialsAvailable]);
 
   const load = useCallback(async () => {
     if (!id) { setLoading(false); return; }
@@ -386,13 +410,26 @@ export default function TDetail() {
       )}
 
       {canViewRoomDetails ? (
-        <RoomCredentialsPanel
-          startsAt={t.startsAt}
-          now={clockNow}
-          configured={t.myRegistration?.roomPublished === true}
-          roomId={t.myRegistration?.roomId}
-          roomPassword={t.myRegistration?.roomPassword}
-        />
+        <>
+          {roomDetailsAvailabilityAnnouncement ? (
+            <Text
+              accessible
+              accessibilityRole="text"
+              accessibilityLiveRegion="polite"
+              testID="room-details-availability-announcement"
+              style={s.participantsRetryStatus}
+            >
+              {roomDetailsAvailabilityAnnouncement}
+            </Text>
+          ) : null}
+          <RoomCredentialsPanel
+            startsAt={t.startsAt}
+            now={clockNow}
+            configured={t.myRegistration?.roomPublished === true}
+            roomId={t.myRegistration?.roomId}
+            roomPassword={t.myRegistration?.roomPassword}
+          />
+        </>
       ) : null}
 
       <Msg kind="err" text={err} />

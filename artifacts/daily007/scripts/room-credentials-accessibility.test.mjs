@@ -12,6 +12,9 @@ import {
   ROOM_CREDENTIAL_REVEAL_LEAD_MS,
 } from "../src/lib/roomCredentialTiming.ts";
 import {
+  createRoomCredentialAvailabilityAnnouncementTracker,
+} from "../src/lib/roomCredentialAvailabilityAnnouncement.ts";
+import {
   fetchTournamentDetailSnapshot,
   startTournamentDetailPolling,
   TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS,
@@ -77,6 +80,25 @@ test("room credentials stay hidden until the five-minute refresh supplies approv
   assert.match(panelSource, /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\)/);
   assert.match(panelSource, /\{credentialsReady \? \(/);
   assert.match(panelSource, /label="Room ID"[\s\S]*?label="Password"/);
+});
+
+test("room availability is announced once without exposing credentials", () => {
+  const claimAnnouncement = createRoomCredentialAvailabilityAnnouncementTracker();
+  assert.equal(claimAnnouncement("match-1", false), false);
+  assert.equal(claimAnnouncement("match-1", true), true);
+  assert.equal(claimAnnouncement("match-1", true), false, "unchanged polling must not repeat it");
+  assert.equal(claimAnnouncement("match-1", true), false, "screen re-entry must not repeat it");
+  assert.equal(claimAnnouncement("match-2", true), true, "each match can announce once");
+
+  assert.match(detailSource, /claimRoomDetailsAvailabilityAnnouncement\(tournamentId, roomCredentialsAvailable\)/);
+  assert.match(detailSource, /const announcement = 'Room details are now available\.'/);
+  assert.match(detailSource, /Platform\.OS === 'ios'.*AccessibilityInfo\.announceForAccessibility\(announcement\)/);
+  assert.match(detailSource, /accessibilityLiveRegion="polite"/);
+  assert.doesNotMatch(
+    detailSource,
+    /announcement\s*=\s*`[^`]*(?:roomId|roomPassword|Room ID|Password)/,
+    "the automatic announcement must never interpolate a credential",
+  );
 });
 
 test("large text on a narrow phone stacks each full-width value above its copy button", () => {
