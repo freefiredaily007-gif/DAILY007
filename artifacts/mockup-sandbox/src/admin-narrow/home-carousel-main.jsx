@@ -26,9 +26,13 @@ const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const singleHomeCardPreview = previewParams.get("single-card") === "1";
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
+const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
 const requestedScreen = previewParams.get("screen") ?? "Home";
+const dateSurfaceStartAt = dateSurfaceScenario === "positive-offset"
+  ? "2029-12-31T17:00:00.000Z"
+  : "2029-12-31T18:45:00.000Z";
 const scheduledStartMs = dateSurfacePreview
-  ? Date.parse("2029-12-31T18:45:00.000Z")
+  ? Date.parse(dateSurfaceStartAt)
   : Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
 let fakeNow = scheduledStartMs + (dateSurfacePreview && dateSurfacePhase === "after" ? 60_000 : -60_000);
 let startTimerFired = false;
@@ -81,7 +85,12 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     if (requestedScreen !== "MyMatches" && requestedScreen !== "TDetail") {
       throw new Error(`Unsupported IST date preview screen: ${requestedScreen}`);
     }
-    apiMocks.configureIstDateSurfacePreview();
+    const shiftedStart = new Date(scheduledStartMs + 5.5 * 60 * 60 * 1000);
+    apiMocks.configureIstDateSurfacePreview({
+      date: shiftedStart.toISOString().slice(0, 10),
+      time: istTime(scheduledStartMs),
+      startsAt: asIstTimestamp(scheduledStartMs),
+    });
     globalThis.__previewRouteParams = { id: "ist-date-boundary" };
     window.__daily007IstDateSurfacePreview = {
       ready: false,

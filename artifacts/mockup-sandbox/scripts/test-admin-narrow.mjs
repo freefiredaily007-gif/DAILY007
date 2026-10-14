@@ -6999,108 +6999,130 @@ let vitePort;
 async function checkIstDateSurfaces(port) {
   const surfaces = ["Home", "MyMatches", "TDetail"];
   const phases = ["before", "after"];
-  const timezoneStates = new Map();
+  const scenarios = [
+    {
+      id: "new-year",
+      timezoneIds: ["America/Los_Angeles", "Asia/Kolkata"],
+      date: "01 JAN 2030",
+      homeDate: "01 JAN",
+      time: "12:15 AM IST",
+    },
+    {
+      id: "positive-offset",
+      timezoneIds: ["Pacific/Kiritimati"],
+      date: "31 DEC 2029",
+      homeDate: "31 DEC",
+      time: "10:30 PM IST",
+    },
+  ];
 
-  for (const timezoneId of ["America/Los_Angeles", "Asia/Kolkata"]) {
-    await cdp("Emulation.setTimezoneOverride", { timezoneId });
-    const phaseStates = new Map();
-    timezoneStates.set(timezoneId, phaseStates);
-    const timezoneCondition = timezoneId === "Asia/Kolkata"
-      ? `["Asia/Kolkata", "Asia/Calcutta"].includes(Intl.DateTimeFormat().resolvedOptions().timeZone)`
-      : `Intl.DateTimeFormat().resolvedOptions().timeZone === ${JSON.stringify(timezoneId)}`;
+  for (const scenario of scenarios) {
+    const timezoneStates = new Map();
+    for (const timezoneId of scenario.timezoneIds) {
+      await cdp("Emulation.setTimezoneOverride", { timezoneId });
+      const phaseStates = new Map();
+      timezoneStates.set(timezoneId, phaseStates);
+      const timezoneCondition = timezoneId === "Asia/Kolkata"
+        ? `["Asia/Kolkata", "Asia/Calcutta"].includes(Intl.DateTimeFormat().resolvedOptions().timeZone)`
+        : `Intl.DateTimeFormat().resolvedOptions().timeZone === ${JSON.stringify(timezoneId)}`;
 
-    for (const phase of phases) {
-      const states = new Map();
-      phaseStates.set(phase, states);
+      for (const phase of phases) {
+        const states = new Map();
+        phaseStates.set(phase, states);
 
-      for (const screen of surfaces) {
-        const params = new URLSearchParams({
-          "ist-date-surfaces": "1",
-          "ist-date-phase": phase,
-          screen,
-        });
-        await cdp("Page.navigate", {
-          url: `http://127.0.0.1:${port}/home-carousel-preview.html?${params}`,
-        });
-        if (screen === "MyMatches") {
-          await waitForCondition(
-            `${timezoneCondition} && window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("MY MATCHES")`,
-            `My Matches to mount in ${timezoneId}`,
-          );
-          if (phase === "after") {
-            await evaluate(`document.querySelector('[data-testid="my-matches-tab-ongoing"]')?.click()`);
+        for (const screen of surfaces) {
+          const params = new URLSearchParams({
+            "ist-date-surfaces": "1",
+            "ist-date-phase": phase,
+            "ist-date-scenario": scenario.id,
+            screen,
+          });
+          await cdp("Page.navigate", {
+            url: `http://127.0.0.1:${port}/home-carousel-preview.html?${params}`,
+          });
+          if (screen === "MyMatches") {
+            await waitForCondition(
+              `${timezoneCondition} && window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("MY MATCHES")`,
+              `My Matches to mount in ${timezoneId}`,
+            );
+            if (phase === "after") {
+              await evaluate(`document.querySelector('[data-testid="my-matches-tab-ongoing"]')?.click()`);
+            }
           }
-        }
-        const readyCondition = screen === "Home"
-          ? phase === "before"
-            ? `window.__daily007HomeCarouselTest?.ready === true && document.querySelector('[data-testid="home-upcoming-card-starting-soon"]')?.innerText.includes("01 JAN")`
-            : `window.__daily007HomeCarouselTest?.ready === true && !document.querySelector('[data-testid="home-upcoming-card-starting-soon"]') && document.body.innerText.includes("Later Tournament One")`
-          : screen === "MyMatches"
+          const readyCondition = screen === "Home"
             ? phase === "before"
-              ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("CONFIRMED")`
-              : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("CONFIRMED")`
-            : phase === "before"
-              ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("UPCOMING")`
-              : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: 01 JAN 2030") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("UPCOMING")`;
-        await waitForCondition(
-          `${timezoneCondition} && (${readyCondition})`,
-          `${screen} to render the ${phase}-start IST state in ${timezoneId}`,
-        );
+              ? `window.__daily007HomeCarouselTest?.ready === true && document.querySelector('[data-testid="home-upcoming-card-starting-soon"]')?.innerText.includes(${JSON.stringify(scenario.homeDate)})`
+              : `window.__daily007HomeCarouselTest?.ready === true && !document.querySelector('[data-testid="home-upcoming-card-starting-soon"]') && document.body.innerText.includes("Later Tournament One")`
+            : screen === "MyMatches"
+              ? phase === "before"
+                ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("CONFIRMED")`
+                : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("CONFIRMED")`
+              : phase === "before"
+                ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("UPCOMING")`
+                : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("UPCOMING")`;
+          await waitForCondition(
+            `${timezoneCondition} && (${readyCondition})`,
+            `${screen} to render the ${phase}-start IST state in ${timezoneId}`,
+          );
 
-        const state = await evaluate(`(() => {
-          const bodyText = document.body.innerText;
-          const homeCard = document.querySelector('[data-testid="home-upcoming-card-starting-soon"]');
-          const text = ${JSON.stringify(screen)} === "Home" ? (homeCard?.innerText ?? "") : bodyText;
-          const lifecycle = ${JSON.stringify(screen)} === "Home"
-            ? (homeCard
-              ? (text.includes("UPCOMING") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
-              : "ongoing")
-            : ${JSON.stringify(screen)} === "MyMatches"
-              ? (text.includes("SCHEDULED START: 01 JAN 2030")
-                ? (text.includes("CONFIRMED") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
-                : "unknown")
-              : (text.includes("SCHEDULED START: 01 JAN 2030")
+          const state = await evaluate(`(() => {
+            const bodyText = document.body.innerText;
+            const homeCard = document.querySelector('[data-testid="home-upcoming-card-starting-soon"]');
+            const text = ${JSON.stringify(screen)} === "Home" ? (homeCard?.innerText ?? "") : bodyText;
+            const scheduledDateLabel = ${JSON.stringify(`SCHEDULED START: ${scenario.date}`)};
+            const lifecycle = ${JSON.stringify(screen)} === "Home"
+              ? (homeCard
                 ? (text.includes("UPCOMING") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
-                : "unknown");
-          return {
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            text,
-            laterCardVisible: bodyText.includes("Later Tournament One"),
-            lifecycle,
-          };
-        })()`);
+                : "ongoing")
+              : ${JSON.stringify(screen)} === "MyMatches"
+                ? (text.includes(scheduledDateLabel)
+                  ? (text.includes("CONFIRMED") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
+                  : "unknown")
+                : (text.includes(scheduledDateLabel)
+                  ? (text.includes("UPCOMING") ? "upcoming" : text.includes("ONGOING") ? "ongoing" : "unknown")
+                  : "unknown");
+            return {
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              text,
+              laterCardVisible: bodyText.includes("Later Tournament One"),
+              lifecycle,
+            };
+          })()`);
 
-        assert(
-          state?.timezone === timezoneId ||
-            (timezoneId === "Asia/Kolkata" && ["Asia/Kolkata", "Asia/Calcutta"].includes(state?.timezone)),
-          `${screen} must be checked in the requested browser timezone.`,
-        );
-        const expectedLifecycle = phase === "before" ? "upcoming" : "ongoing";
-        assert(
-          state?.lifecycle === expectedLifecycle,
-          `${screen} must classify the tournament as ${expectedLifecycle} ${phase === "before" ? "before" : "after"} the same start instant in ${timezoneId}.`,
-        );
-        const dateIsCorrect = screen === "Home"
-          ? phase === "after"
-            ? state.text === "" && state.laterCardVisible
-            : state.text.includes("01 JAN • 12:15 AM IST")
-          : state.text.includes("01 JAN 2030") && state.text.includes("12:15 AM IST");
-        assert(
-          dateIsCorrect,
-          `${screen} must preserve the 01 JAN 2030 IST calendar date and 12:15 AM IST start in ${timezoneId}.`,
-        );
-        states.set(screen, state.lifecycle);
+          assert(
+            state?.timezone === timezoneId ||
+              (timezoneId === "Asia/Kolkata" && ["Asia/Kolkata", "Asia/Calcutta"].includes(state?.timezone)),
+            `${screen} must be checked in the requested browser timezone.`,
+          );
+          const expectedLifecycle = phase === "before" ? "upcoming" : "ongoing";
+          assert(
+            state?.lifecycle === expectedLifecycle,
+            `${screen} must classify the tournament as ${expectedLifecycle} ${phase === "before" ? "before" : "after"} the same start instant in ${timezoneId}.`,
+          );
+          const dateIsCorrect = screen === "Home"
+            ? phase === "after"
+              ? state.text === "" && state.laterCardVisible
+              : state.text.includes(`${scenario.homeDate} • ${scenario.time}`)
+            : state.text.includes(scenario.date) && state.text.includes(scenario.time);
+          assert(
+            dateIsCorrect,
+            `${screen} must preserve the ${scenario.date} IST calendar date and ${scenario.time} start in ${timezoneId}.`,
+          );
+          states.set(screen, state.lifecycle);
+        }
       }
     }
-  }
 
-  for (const phase of phases) {
-    for (const screen of surfaces) {
-      assert(
-        timezoneStates.get("America/Los_Angeles")?.get(phase)?.get(screen) ===
-          timezoneStates.get("Asia/Kolkata")?.get(phase)?.get(screen),
-        `${screen} lifecycle classification must not change with the browser timezone ${phase} its start.`,
-      );
+    if (scenario.timezoneIds.length > 1) {
+      for (const phase of phases) {
+        for (const screen of surfaces) {
+          assert(
+            timezoneStates.get("America/Los_Angeles")?.get(phase)?.get(screen) ===
+              timezoneStates.get("Asia/Kolkata")?.get(phase)?.get(screen),
+            `${screen} lifecycle classification must not change with the browser timezone ${phase} its start.`,
+          );
+        }
+      }
     }
   }
 }
@@ -7613,7 +7635,7 @@ try {
         newBrowserErrors.length === 0,
         `New browser errors during IST date surface checks: ${newBrowserErrors.join(" | ")}`,
       );
-      console.log("PASS — Home, My Matches, and tournament details retain 01 JAN 2030, 12:15 AM IST in Los Angeles and Kolkata, classify Upcoming before and Ongoing after the same start instant, and remove the started match from Home's Upcoming list.");
+      console.log("PASS — Home, My Matches, and tournament details preserve IST dates in Los Angeles, Kolkata, and Pacific/Kiritimati, with lifecycle changes only after the exact same start instant.");
     } else if (keyboardFormsOnly) {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);

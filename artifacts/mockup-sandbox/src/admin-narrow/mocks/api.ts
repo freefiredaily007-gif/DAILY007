@@ -487,8 +487,16 @@ export function configurePlayerLargestTextPreview() {
   (globalThis as any).__daily007LargestTextApiCalls = walletPreviewCalls;
 }
 
-export function configureIstDateSurfacePreview() {
+export function configureIstDateSurfacePreview(
+  schedule: { date: string; time: string; startsAt: string } = {
+    date: istDateSurfaceTournament.date,
+    time: istDateSurfaceTournament.time,
+    startsAt: istDateSurfaceTournament.startsAt,
+  },
+) {
   istDateSurfacePreview = true;
+  Object.assign(istDateSurfaceTournament, schedule);
+  Object.assign(istDateSurfaceRegistration.tournament, schedule);
 }
 
 export function configureAdminTournamentEmptyFilterPreview() {
