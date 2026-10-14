@@ -1,0 +1,11 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/session-verification-test?scenario=seed
+- extendedWaitUntil:
+    visible:
+      id: session-verification-test-seeded
+    timeout: 20000
+- assertVisible: "Saved test session persisted"
+- assertNotVisible:
+    id: session-verification-test-seed-error

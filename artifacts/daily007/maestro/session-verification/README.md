@@ -1,6 +1,6 @@
 # Android saved-session recovery checks
 
-These Maestro flows use the development-only `/session-verification-test` route. The fixture runs the same saved-session restore helper, native connectivity/app-state recovery listener, and paused-session component as Daily007. It uses an in-memory test session and simulated verification responses; it does not call the API or write to account storage.
+These Maestro flows use the development-only `/session-verification-test` route. The fixture runs the same saved-session restore helper, native connectivity/app-state recovery listener, paused-session component, and AsyncStorage-backed session functions as Daily007. The runner first saves the current session as a local backup and seeds a deterministic test session while online, then force-stops Expo Go while connectivity is disabled. Verification responses are simulated locally; no API call or real account is used. The runner restores the prior saved session after the flows.
 
 The Android runner temporarily enables airplane mode and disables Wi-Fi through ADB, then restores both original settings. Using airplane mode also disables mobile data where available. It requires exactly one authorized Android device or emulator, Expo Go, Maestro, an available Expo development server, and working Wi-Fi with internet access before the run:
 
@@ -8,7 +8,7 @@ The Android runner temporarily enables airplane mode and disables Wi-Fi through 
 EXPO_DEV_URL=exp://YOUR_EXPO_HOST:PORT pnpm --filter @workspace/daily007 run test:android-session-verification
 ```
 
-The run reconnects while the paused screen is open, reconnects while the app is in the background and then foregrounds it, and tests two simulated HTTP 503 responses followed by a successful user retry. **Retry is never tapped** in either reconnect flow. The runner restores the device's original airplane-mode and Wi-Fi settings even when a flow fails.
+The run seeds the test session online, force-stops Expo Go offline, and confirms the session pauses from device storage. It also force-stops again while verification is paused, restores connectivity, and reopens the app to confirm verification succeeds during startup without a Retry tap. The suite additionally covers reconnecting while the paused screen is open, reconnecting while backgrounded and foregrounding the app, and two simulated HTTP 503 responses followed by a successful user retry. **Retry is never tapped** in the automatic recovery flows. The runner restores the previous saved session and the device's original airplane-mode and Wi-Fi settings even when a flow fails.
 
 The Android release verification workflow runs this suite on its Android emulator. For a physical-device spot check, use an Android 16 device with Expo Go, connect the device to the development server, and follow this checklist:
 

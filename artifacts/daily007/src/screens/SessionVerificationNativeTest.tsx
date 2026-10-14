@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Network from 'expo-network';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { ReadableText as Text } from '../components/typography';
 import { SessionVerificationPaused } from '../components/SessionVerificationPaused';
-import type { User } from '../lib/api';
+import { getSession, setSession, type User } from '../lib/api';
 import {
   restoreDaily007Session,
   subscribeToSessionVerificationRecovery,
@@ -17,7 +18,31 @@ const FIXTURE_SESSION: User = {
   token: 'native-session-recovery-token',
 };
 
-type Scenario = 'network' | 'resume' | 'transient';
+const SESSION_BACKUP_KEY = 'daily007_session_verification_test_backup';
+
+async function seedSavedSession(): Promise<void> {
+  const existingBackup = await AsyncStorage.getItem(SESSION_BACKUP_KEY);
+  if (existingBackup === null) {
+    await AsyncStorage.setItem(
+      SESSION_BACKUP_KEY,
+      JSON.stringify({ session: await getSession() }),
+    );
+  }
+  await setSession(FIXTURE_SESSION);
+}
+
+async function restoreSavedSession(): Promise<void> {
+  const rawBackup = await AsyncStorage.getItem(SESSION_BACKUP_KEY);
+  if (rawBackup === null) throw new Error('No saved-session test backup is available.');
+  const backup = JSON.parse(rawBackup) as { session?: User | null };
+  if (!Object.prototype.hasOwnProperty.call(backup, 'session')) {
+    throw new Error('The saved-session test backup is invalid.');
+  }
+  await setSession(backup.session ?? null);
+  await AsyncStorage.removeItem(SESSION_BACKUP_KEY);
+}
+
+type Scenario = 'seed' | 'cleanup' | 'network' | 'resume' | 'transient';
 
 export default function SessionVerificationNativeTest() {
   if (!__DEV__) return <Redirect href="/" />;
@@ -26,10 +51,10 @@ export default function SessionVerificationNativeTest() {
 
 function NativeSessionVerificationFixture() {
   const { scenario: requestedScenario } = useLocalSearchParams<{ scenario?: string }>();
-  const scenario: Scenario = requestedScenario === 'resume' || requestedScenario === 'transient'
+  const scenario: Scenario = requestedScenario === 'seed' || requestedScenario === 'cleanup' ||
+      requestedScenario === 'resume' || requestedScenario === 'transient'
     ? requestedScenario
     : 'network';
-  const savedSession = useRef<User | null>(FIXTURE_SESSION);
   const verificationRequest = useRef<Promise<void> | null>(null);
   const verificationAttempts = useRef(0);
   const manualRetry = useRef(false);
@@ -38,9 +63,11 @@ function NativeSessionVerificationFixture() {
   const [attemptCount, setAttemptCount] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [booting, setBooting] = useState(true);
+  const [seeded, setSeeded] = useState(false);
+  const [seedError, setSeedError] = useState('');
 
   const persistSession = useCallback(async (session: User | null) => {
-    savedSession.current = session;
+    await setSession(session);
   }, []);
 
   const verifyWithApi = useCallback(async (): Promise<User> => {
@@ -104,8 +131,29 @@ function NativeSessionVerificationFixture() {
 
   useEffect(() => {
     let mounted = true;
+    if (scenario === 'seed') {
+      void seedSavedSession().then(() => {
+        if (mounted) setSeeded(true);
+      }).catch(() => {
+        if (mounted) setSeedError('Could not persist the native test session.');
+      }).finally(() => {
+        if (mounted) setBooting(false);
+      });
+      return () => { mounted = false; };
+    }
+    if (scenario === 'cleanup') {
+      void restoreSavedSession().then(() => {
+        if (mounted) setSeeded(true);
+      }).catch((error: unknown) => {
+        if (mounted) setSeedError(error instanceof Error ? error.message : 'Could not restore the previous session.');
+      }).finally(() => {
+        if (mounted) setBooting(false);
+      });
+      return () => { mounted = false; };
+    }
+
     void restoreDaily007Session(
-      async () => savedSession.current,
+      getSession,
       verifyWithApi,
       persistSession,
     ).then((result) => {
@@ -120,7 +168,7 @@ function NativeSessionVerificationFixture() {
       if (mounted) setBooting(false);
     });
     return () => { mounted = false; };
-  }, [persistSession, verifyWithApi]);
+  }, [persistSession, scenario, verifyWithApi]);
 
   useEffect(
     () => subscribeToSessionVerificationRecovery(
@@ -134,6 +182,20 @@ function NativeSessionVerificationFixture() {
 
   if (booting) {
     return <Text testID="session-verification-test-loading">Checking saved test session…</Text>;
+  }
+
+  if (scenario === 'seed' || scenario === 'cleanup') {
+    const successTestId = scenario === 'seed'
+      ? 'session-verification-test-seeded'
+      : 'session-verification-test-cleaned';
+    const successMessage = scenario === 'seed'
+      ? 'Saved test session persisted'
+      : 'Previous saved session restored';
+    return seedError
+      ? <Text testID="session-verification-test-seed-error">{seedError}</Text>
+      : seeded
+        ? <Text testID={successTestId}>{successMessage}</Text>
+        : <Text testID="session-verification-test-seed-error">Saved test session was not persisted.</Text>;
   }
 
   if (verifiedSession) {
@@ -163,7 +225,7 @@ function NativeSessionVerificationFixture() {
         retrying={retrying}
       >
         <Text testID="session-verification-test-saved-token" style={{ color: '#F5F7FF', marginTop: 16 }}>
-          Saved test session token: {savedSession.current?.token ?? 'missing'}
+          Saved test session token: {verificationSession.token ?? 'missing'}
         </Text>
         <Text testID="session-verification-test-attempt-count" style={{ color: '#F5F7FF', marginTop: 8 }}>
           Verification attempts: {attemptCount}

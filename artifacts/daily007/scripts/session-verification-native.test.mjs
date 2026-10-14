@@ -10,12 +10,16 @@ const files = await Promise.all([
   readFile(new URL("../src/components/SessionVerificationPaused.tsx", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/network-reconnect.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/network-restored.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/network-restart-restored.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/seed-saved-session.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/restore-saved-session.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/background-before-reconnect.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/resume-after-reconnect.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/transient-retry.yaml", import.meta.url), "utf8"),
   readFile(new URL("../scripts/run-android-session-verification.mjs", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/README.md", import.meta.url), "utf8"),
   readFile(new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url), "utf8"),
+  readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8"),
 ]);
 
 const [
@@ -26,12 +30,16 @@ const [
   pausedScreen,
   networkReconnect,
   networkRestored,
+  networkRestartRestored,
+  seedSavedSession,
+  restoreSavedSession,
   backgroundBeforeReconnect,
   resumeAfterReconnect,
   transientRetry,
   runner,
   readme,
   androidWorkflow,
+  api,
 ] = files;
 
 test("production and native fixture share session-recovery listeners and paused-session UI", () => {
@@ -55,6 +63,14 @@ test("native flows reconnect without tapping Retry and verify after app resume",
   assert.match(networkRestored, /Saved session automatically verified/);
   assert.match(networkRestored, /Verified without tapping Retry/);
   assert.doesNotMatch(`${networkReconnect}\n${networkRestored}`, /tapOn:[\s\S]*?session-verification-retry/);
+  assert.match(networkRestartRestored, /session-verification-test\?scenario=network/);
+  assert.match(networkRestartRestored, /Saved session automatically verified/);
+  assert.match(networkRestartRestored, /Verified without tapping Retry/);
+  assert.doesNotMatch(networkRestartRestored, /tapOn:[\s\S]*?session-verification-retry/);
+  assert.match(
+    runner,
+    /runMaestro\("maestro\/session-verification\/network-reconnect\.yaml"\);[\s\S]*?force-stop", "host\.exp\.exponent"[\s\S]*?restoreConnectivity\(\);[\s\S]*?network-restart-restored\.yaml/,
+  );
 
   assert.match(backgroundBeforeReconnect, /session-verification-test\?scenario=resume/);
   assert.match(backgroundBeforeReconnect, /assertVisible: "SESSION VERIFICATION PAUSED"/);
@@ -63,6 +79,31 @@ test("native flows reconnect without tapping Retry and verify after app resume",
   assert.match(resumeAfterReconnect, /Verified without tapping Retry/);
   assert.doesNotMatch(`${backgroundBeforeReconnect}\n${resumeAfterReconnect}`, /tapOn:[\s\S]*?session-verification-retry/);
   assert.match(fixture, /scenario === 'resume' && AppState\.currentState !== 'active'/);
+});
+
+test("Android restart flow seeds and restores the real persisted Daily007 session", () => {
+  assert.match(api, /const KEY = 'daily007_v2_session'/);
+  assert.match(fixture, /import \{ getSession, setSession, type User \} from '\.\.\/lib\/api'/);
+  assert.match(fixture, /void seedSavedSession\(\)/);
+  assert.match(fixture, /await setSession\(FIXTURE_SESSION\)/);
+  assert.match(fixture, /restoreDaily007Session\(\s*getSession/);
+  assert.doesNotMatch(fixture, /savedSession\.current/);
+
+  assert.match(seedSavedSession, /session-verification-test\?scenario=seed/);
+  assert.match(seedSavedSession, /session-verification-test-seeded/);
+  assert.match(restoreSavedSession, /scenario=cleanup/);
+  assert.match(restoreSavedSession, /session-verification-test-cleaned/);
+  assert.match(fixture, /SESSION_BACKUP_KEY/);
+  assert.match(fixture, /await getSession\(\)/);
+  assert.match(fixture, /await setSession\(backup\.session \?\? null\)/);
+  const seedIndex = runner.indexOf('runMaestro("maestro/session-verification/seed-saved-session.yaml")');
+  const offlineIndex = runner.indexOf("disableConnectivity();", seedIndex);
+  const forceStopIndex = runner.indexOf('"am", "force-stop", "host.exp.exponent"', offlineIndex);
+  assert.ok(seedIndex >= 0 && offlineIndex > seedIndex && forceStopIndex > offlineIndex);
+  assert.match(runner, /finally\s*\{[\s\S]*?restore-saved-session\.yaml[\s\S]*?originalWifiState/);
+  assert.match(networkReconnect, /session-verification-test\?scenario=network/);
+  assert.match(networkRestored, /Verified without tapping Retry/);
+  assert.match(readme, /AsyncStorage-backed session functions/);
 });
 
 test("transient verification failure keeps the saved session and Retry available", () => {

@@ -1,0 +1,11 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/session-verification-test?scenario=cleanup
+- extendedWaitUntil:
+    visible:
+      id: session-verification-test-cleaned
+    timeout: 20000
+- assertVisible: "Previous saved session restored"
+- assertNotVisible:
+    id: session-verification-test-seed-error

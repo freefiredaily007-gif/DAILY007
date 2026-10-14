@@ -109,6 +109,7 @@ function runMaestro(flowPath) {
 let originalWifiState;
 let originalAirplaneModeState;
 let connectivityChangeAttempted = false;
+let sessionSeedAttempted = false;
 
 try {
   const devices = runChecked("adb", ["devices", "-l"], "Listing Android devices")
@@ -133,12 +134,21 @@ try {
   originalAirplaneModeState = readAirplaneModeState();
   connectivityChangeAttempted = true;
   restoreConnectivity();
+  sessionSeedAttempted = true;
+  runMaestro("maestro/session-verification/seed-saved-session.yaml");
 
   disableConnectivity();
   runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go offline");
   runMaestro("maestro/session-verification/network-reconnect.yaml");
   restoreConnectivity();
   runMaestro("maestro/session-verification/network-restored.yaml");
+
+  disableConnectivity();
+  runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go offline");
+  runMaestro("maestro/session-verification/network-reconnect.yaml");
+  runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Stopping Expo Go while saved-session verification is paused offline");
+  restoreConnectivity();
+  runMaestro("maestro/session-verification/network-restart-restored.yaml");
 
   disableConnectivity();
   runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go offline");
@@ -158,6 +168,17 @@ try {
   console.error(`Android saved-session recovery test failed: ${error.message}`);
   process.exitCode = 1;
 } finally {
+  if (sessionSeedAttempted) {
+    try {
+      setAirplaneModeEnabled(false);
+      setWifiEnabled(true);
+      runMaestro("maestro/session-verification/restore-saved-session.yaml");
+      console.log("Restored the app's saved session from before the native test.");
+    } catch (error) {
+      console.error(`Could not restore the app's previous saved session (${error.message}). Reopen the session-verification-test cleanup route while online.`);
+      process.exitCode = 1;
+    }
+  }
   if (originalWifiState !== undefined && originalAirplaneModeState !== undefined && connectivityChangeAttempted) {
     try {
       setAirplaneModeEnabled(originalAirplaneModeState === "1");
