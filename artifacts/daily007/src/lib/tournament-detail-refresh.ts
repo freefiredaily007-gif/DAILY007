@@ -15,13 +15,20 @@ export async function fetchTournamentDetailSnapshot(
   ]);
 
   if (tournamentResult.status === 'rejected') throw tournamentResult.reason;
+  if (
+    registrationsResult.status === 'fulfilled' &&
+    !Array.isArray(registrationsResult.value)
+  ) {
+    throw new Error(
+      'Could not verify your entry status. Your last confirmed status is shown. Pull to refresh to try again.',
+    );
+  }
 
   const registrations =
-    registrationsResult.status === 'fulfilled' && Array.isArray(registrationsResult.value)
+    registrationsResult.status === 'fulfilled'
       ? registrationsResult.value as any[]
       : [];
-  const registrationStatusKnown =
-    registrationsResult.status === 'fulfilled' && Array.isArray(registrationsResult.value);
+  const registrationStatusKnown = registrationsResult.status === 'fulfilled';
   const registration = registrations.find((item: any) =>
     String(item.tournamentId) === String(tournamentId) &&
     ['approved', 'pending'].includes(String(item.status ?? '').toLowerCase()),

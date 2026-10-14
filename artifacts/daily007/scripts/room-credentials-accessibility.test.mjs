@@ -498,6 +498,75 @@ test("match detail polling follows both focus and app activity without duplicate
   controller.stop();
 });
 
+test("a malformed registration snapshot preserves the last confirmed joined detail until valid data arrives", async () => {
+  const snapshots = [
+    {
+      tournament: { id: "match-1", name: "Confirmed tournament" },
+      registrations: [{ tournamentId: "match-1", status: "approved" }],
+    },
+    {
+      tournament: { id: "match-1", name: "Uncommitted tournament update" },
+      registrations: { malformed: true },
+    },
+    {
+      tournament: { id: "match-1", name: "Updated tournament" },
+      registrations: [],
+    },
+  ];
+  let snapshotIndex = 0;
+  let activeSnapshot = snapshots[snapshotIndex];
+  const api = {
+    async tournament() {
+      return activeSnapshot.tournament;
+    },
+    async myRegistrations() {
+      const registrations = activeSnapshot.registrations;
+      snapshotIndex = Math.min(snapshotIndex + 1, snapshots.length - 1);
+      activeSnapshot = snapshots[snapshotIndex];
+      return registrations;
+    },
+  };
+  let visibleDetail = null;
+  let visibleError = "";
+  const refreshDetail = async () => {
+    try {
+      visibleDetail = await fetchTournamentDetailSnapshot("match-1", api);
+      visibleError = "";
+    } catch (error) {
+      visibleError = error instanceof Error ? error.message : String(error);
+    }
+  };
+
+  await refreshDetail();
+  assert.equal(visibleDetail.registrationStatusKnown, true);
+  assert.equal(visibleDetail.joined, true);
+  assert.equal(visibleDetail.name, "Confirmed tournament");
+
+  await refreshDetail();
+  assert.equal(
+    visibleError,
+    "Could not verify your entry status. Your last confirmed status is shown. Pull to refresh to try again.",
+  );
+  assert.equal(visibleDetail.registrationStatusKnown, true);
+  assert.equal(visibleDetail.joined, true, "malformed data must not turn the confirmed joined state into unjoined");
+  assert.equal(visibleDetail.name, "Confirmed tournament", "the failed snapshot must not replace the visible detail");
+
+  await refreshDetail();
+  assert.equal(visibleError, "");
+  assert.equal(visibleDetail.registrationStatusKnown, true);
+  assert.equal(visibleDetail.joined, false, "a later valid empty response confirms that the player is no longer joined");
+  assert.equal(visibleDetail.name, "Updated tournament");
+
+  assert.match(
+    detailSource,
+    /const tournamentDetails = await fetchTournamentDetailSnapshot\(String\(id\), api\);\s*setT\(tournamentDetails\);/,
+    "TDetail must only replace its displayed snapshot after the helper resolves.",
+  );
+  assert.match(detailSource, /catch \(e: any\) \{\s*setErr\(e\?\.message \|\| 'Failed to load'\);\s*\}/);
+  assert.match(detailSource, /const joined = registrationStatusKnown && Boolean\(t\.joined\);/);
+  assert.match(detailSource, /<Msg kind="err" text=\{err\} \/>/);
+});
+
 test("route focus after app resume triggers exactly one match detail refresh", () => {
   const intervals = [];
   const timers = {
