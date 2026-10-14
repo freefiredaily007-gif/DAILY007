@@ -44,6 +44,7 @@ import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
 import {
   restoreDaily007Session,
+  runSingleFlight,
   subscribeToSessionVerificationRecovery,
 } from './lib/session-verification';
 import { SessionVerificationPaused } from './components/SessionVerificationPaused';
@@ -191,12 +192,10 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   }, []);
 
   const retrySessionVerification = useCallback((): Promise<void> => {
-    if (verificationRequest.current) return verificationRequest.current;
-    const savedSession = verificationSession;
-    if (!savedSession) return Promise.resolve();
-
-    setRetryingVerification(true);
-    const request = (async () => {
+    if (!verificationSession) return Promise.resolve();
+    return runSingleFlight(verificationRequest, async () => {
+      const savedSession = verificationSession;
+      setRetryingVerification(true);
       try {
         const result = await restoreDaily007Session(
           async () => savedSession,
@@ -217,12 +216,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
       } finally {
         setRetryingVerification(false);
       }
-    })();
-    verificationRequest.current = request;
-    void request.finally(() => {
-      if (verificationRequest.current === request) verificationRequest.current = null;
     });
-    return request;
   }, [verificationSession]);
 
   useEffect(() => {

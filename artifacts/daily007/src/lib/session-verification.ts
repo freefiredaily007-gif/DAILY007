@@ -23,6 +23,21 @@ export interface SessionVerificationAppStateSource {
   ): { remove: () => void };
 }
 
+export function runSingleFlight<T>(
+  requestSlot: { current: Promise<T> | null },
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (requestSlot.current) return requestSlot.current;
+
+  const request = Promise.resolve().then(operation);
+  requestSlot.current = request;
+  const clearRequest = () => {
+    if (requestSlot.current === request) requestSlot.current = null;
+  };
+  void request.then(clearRequest, clearRequest);
+  return request;
+}
+
 export function subscribeToSessionVerificationRecovery(
   paused: boolean,
   retry: () => void,

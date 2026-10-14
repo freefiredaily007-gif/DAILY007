@@ -8,6 +8,7 @@ import { SessionVerificationPaused } from '../components/SessionVerificationPaus
 import { getSession, setSession, type User } from '../lib/api';
 import {
   restoreDaily007Session,
+  runSingleFlight,
   subscribeToSessionVerificationRecovery,
 } from '../lib/session-verification';
 
@@ -95,12 +96,10 @@ function NativeSessionVerificationFixture() {
   }, [scenario]);
 
   const retrySessionVerification = useCallback((): Promise<void> => {
-    if (verificationRequest.current) return verificationRequest.current;
-    const session = verificationSession;
-    if (!session) return Promise.resolve();
-
-    setRetrying(true);
-    const request = (async () => {
+    if (!verificationSession) return Promise.resolve();
+    return runSingleFlight(verificationRequest, async () => {
+      const session = verificationSession;
+      setRetrying(true);
       try {
         const result = await restoreDaily007Session(
           async () => session,
@@ -121,12 +120,7 @@ function NativeSessionVerificationFixture() {
       } finally {
         setRetrying(false);
       }
-    })();
-    verificationRequest.current = request;
-    void request.finally(() => {
-      if (verificationRequest.current === request) verificationRequest.current = null;
     });
-    return request;
   }, [persistSession, verificationSession, verifyWithApi]);
 
   useEffect(() => {
