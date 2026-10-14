@@ -338,6 +338,78 @@ test("public participant with no saved teammates still contains its captain once
   }
 });
 
+test("tournament slot counts include rosterless active teams once and exclude rejected teams", async () => {
+  registrationProfileTestDb.reset();
+  try {
+    const rosterlessApproved = registrationProfileTestDb.addOtherRegistration(
+      "approved",
+      TEST_MATCH_ID,
+      "Rosterless",
+      false,
+    );
+    const pending = registrationProfileTestDb.addOtherRegistration(
+      "pending",
+      TEST_MATCH_ID,
+      "Pending",
+    );
+    const rejected = registrationProfileTestDb.addOtherRegistration(
+      "rejected",
+      TEST_MATCH_ID,
+      "Rejected",
+    );
+
+    assert.deepEqual(rosterlessApproved.roster, []);
+    assert.ok(
+      registrationProfileTestDb.roster.every(
+        (member) => member.registration_id !== rosterlessApproved.registration.id,
+      ),
+      "The approved team must have no saved teammate rows.",
+    );
+
+    await withServer(async (origin) => {
+      const [summaryResponse, participantsResponse] = await Promise.all([
+        fetch(`${origin}/tournaments/${TEST_MATCH_ID}`),
+        fetch(`${origin}/tournaments/${TEST_MATCH_ID}/participants`),
+      ]);
+      assert.equal(summaryResponse.status, 200);
+      assert.equal(participantsResponse.status, 200);
+
+      const summary = await summaryResponse.json() as {
+        filledSlots: number;
+        availableSlots: number;
+      };
+      const participantPayload = await participantsResponse.json() as {
+        participants: { teamName: string; status: string }[];
+      };
+      const visibleTeams = participantPayload.participants;
+
+      assert.equal(visibleTeams.length, 2);
+      assert.equal(summary.filledSlots, visibleTeams.length);
+      assert.equal(summary.filledSlots, 2);
+      assert.equal(summary.availableSlots, registrationProfileTestDb.match.capacity - 2);
+      assert.deepEqual(
+        visibleTeams.map(({ teamName, status }) => ({ teamName, status })),
+        [
+          { teamName: rosterlessApproved.registration.team_name, status: "approved" },
+          { teamName: pending.registration.team_name, status: "pending" },
+        ],
+      );
+      assert.equal(
+        visibleTeams.filter(({ teamName }) => teamName === rosterlessApproved.registration.team_name).length,
+        1,
+        "The rosterless approved team must count exactly once.",
+      );
+      assert.equal(
+        visibleTeams.some(({ teamName }) => teamName === rejected.registration.team_name),
+        false,
+        "Rejected registrations must not appear in participant totals.",
+      );
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 test("public participants show only saved teammates in roster order for a partial roster", async () => {
   registrationProfileTestDb.reset();
   try {

@@ -374,6 +374,28 @@ class RegistrationProfileTestDatabase {
             ["approved", "pending"].includes(candidate.status)
           ).length,
         }));
+    } else if (normalized.startsWith("SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,")) {
+      if (normalized.includes("daily007_v2_roster")) {
+        throw new Error("Tournament summary counts must not depend on saved roster rows.");
+      }
+      const idFilter = normalized.includes("m.id = $1") ? String(values[0]) : null;
+      const match = [this.match, ...this.additionalMatches].find((candidate) =>
+        (!idFilter || candidate.id === idFilter) &&
+        (idFilter !== null || candidate.status !== "cancelled") &&
+        (!normalized.includes("m.enabled = true") || candidate.enabled)
+      );
+      result = match
+        ? [{
+            ...structuredClone(match),
+            has_started: false,
+            has_winner: false,
+            completed_at: null,
+            registered_count: this.registrations.filter((registration) =>
+              registration.match_id === match.id &&
+              ["approved", "pending"].includes(registration.status)
+            ).length,
+          }]
+        : [];
     } else if (
       normalized.startsWith("SELECT match_id FROM daily007_v2_registrations WHERE id = $1 AND captain_user_id = $2")
     ) {
