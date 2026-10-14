@@ -1604,6 +1604,216 @@ test("a later leaderboard payout failure rolls back earlier winners and keeps th
   }
 });
 
+test("a leaderboard finalization failure rolls back every completed rank payout", async () => {
+  const adminId = randomUUID();
+  const winnerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
+  const winnerNames = [
+    "Finalization Failure Winner 1",
+    "Finalization Failure Winner 2",
+    "Finalization Failure Winner 3",
+  ];
+  const startingBalances = [11, 12, 13] as const;
+  const periodId = randomUUID();
+  const failureSequence = "daily007_test_leaderboard_finalize_failure_attempts";
+  let approvalPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Finalization Failure Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, $4, $5, 'test-salt', 'test-hash', 'user', $6),
+         ($7, $8, $9, 'test-salt', 'test-hash', 'user', $10),
+         ($11, $12, $13, 'test-salt', 'test-hash', 'user', $14)`,
+      [
+        adminId,
+        `finalization-failure-admin-${adminId}@example.test`,
+        winnerIds[0],
+        winnerNames[0],
+        `finalization-failure-winner-one-${winnerIds[0]}@example.test`,
+        startingBalances[0],
+        winnerIds[1],
+        winnerNames[1],
+        `finalization-failure-winner-two-${winnerIds[1]}@example.test`,
+        startingBalances[1],
+        winnerIds[2],
+        winnerNames[2],
+        `finalization-failure-winner-three-${winnerIds[2]}@example.test`,
+        startingBalances[2],
+      ],
+    );
+    const standings = winnerIds.map((userId, index) => ({
+      rank: index + 1,
+      userId,
+      name: winnerNames[index],
+      points: 30 - index * 10,
+      earnings: 0,
+      wins: 3 - index,
+      kills: 4 - index,
+      matches: 5 - index,
+    }));
+    const rewards = [
+      { rank: 1, coins: 40 },
+      { rank: 2, coins: 20 },
+      { rank: 3, coins: 10 },
+    ];
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES ($1, 'weekly', '2020-01-01T00:00:00Z', '2020-01-08T00:00:00Z',
+               'pending_approval', $2::jsonb, $3::jsonb)`,
+      [periodId, JSON.stringify(standings), JSON.stringify(rewards)],
+    );
+
+    await pool.query(`CREATE SEQUENCE ${failureSequence}`);
+    await pool.query(`
+      CREATE FUNCTION daily007_test_fail_leaderboard_finalization() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.id = '${periodId}'::uuid
+           AND OLD.status = 'pending_approval'
+           AND NEW.status = 'finalized' THEN
+          IF (
+            SELECT count(*)
+              FROM daily007_v2_wallet_ledger
+             WHERE idempotency_key LIKE 'leaderboard-cycle:${periodId}:rank:%'
+          ) <> 3 THEN
+            RAISE EXCEPTION 'All rank payouts were not visible before finalization';
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM daily007_v2_wallet_ledger
+             WHERE idempotency_key = 'leaderboard-cycle:${periodId}:rank:1'
+               AND user_id = '${winnerIds[0]}'::uuid
+               AND amount = 40 AND balance_after = 51
+          ) OR NOT EXISTS (
+            SELECT 1 FROM daily007_v2_wallet_ledger
+             WHERE idempotency_key = 'leaderboard-cycle:${periodId}:rank:2'
+               AND user_id = '${winnerIds[1]}'::uuid
+               AND amount = 20 AND balance_after = 32
+          ) OR NOT EXISTS (
+            SELECT 1 FROM daily007_v2_wallet_ledger
+             WHERE idempotency_key = 'leaderboard-cycle:${periodId}:rank:3'
+               AND user_id = '${winnerIds[2]}'::uuid
+               AND amount = 10 AND balance_after = 23
+          ) THEN
+            RAISE EXCEPTION 'Rank payout ledger values were not visible before finalization';
+          END IF;
+          IF (SELECT wallet_coins FROM daily007_v2_users WHERE id = '${winnerIds[0]}'::uuid) <> 51
+             OR (SELECT wallet_coins FROM daily007_v2_users WHERE id = '${winnerIds[1]}'::uuid) <> 32
+             OR (SELECT wallet_coins FROM daily007_v2_users WHERE id = '${winnerIds[2]}'::uuid) <> 23 THEN
+            RAISE EXCEPTION 'All winner balances were not updated before finalization';
+          END IF;
+          PERFORM nextval('${failureSequence}');
+          RAISE EXCEPTION 'Injected failure while finalizing leaderboard period';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_fail_leaderboard_finalization
+      BEFORE UPDATE ON daily007_v2_leaderboard_periods
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_leaderboard_finalization()
+    `);
+
+    await withServer(async (origin) => {
+      approvalPromise = postJson(
+        origin,
+        `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`,
+        adminId,
+        {},
+      );
+      const approval = await approvalPromise;
+      assert.equal(approval.status, 500, JSON.stringify(approval.body));
+    });
+
+    const failureObserved = await pool.query<{ last_value: string; is_called: boolean }>(
+      `SELECT last_value::text, is_called FROM ${failureSequence}`,
+    );
+    assert.deepEqual(
+      failureObserved.rows[0],
+      { last_value: "1", is_called: true },
+      "the trigger must observe all three payouts before failing finalization",
+    );
+
+    const period = await pool.query<{
+      status: string;
+      approved_by: string | null;
+      approved_at: Date | null;
+      settled_at: Date | null;
+    }>(
+      `SELECT status, approved_by, approved_at, settled_at
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = $1`,
+      [periodId],
+    );
+    assert.deepEqual(period.rows, [{
+      status: "pending_approval",
+      approved_by: null,
+      approved_at: null,
+      settled_at: null,
+    }]);
+
+    const winners = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [winnerIds],
+    );
+    assert.deepEqual(
+      new Map(winners.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map(winnerIds.map((winnerId, index) => [winnerId, startingBalances[index]])),
+      "all winner balances must return to their starting values",
+    );
+
+    const payoutRows = await pool.query(
+      `SELECT idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE idempotency_key LIKE $1`,
+      [`leaderboard-cycle:${periodId}:rank:%`],
+    );
+    assert.deepEqual(payoutRows.rows, [], "no payout ledger rows may remain after rollback");
+  } finally {
+    if (approvalPromise) await Promise.allSettled([approvalPromise]);
+
+    const cleanupErrors: unknown[] = [];
+    for (const statement of [
+      "DROP TRIGGER IF EXISTS daily007_test_fail_leaderboard_finalization ON daily007_v2_leaderboard_periods",
+      "DROP FUNCTION IF EXISTS daily007_test_fail_leaderboard_finalization()",
+      `DROP SEQUENCE IF EXISTS ${failureSequence}`,
+    ]) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const cleanup of [
+      () =>
+        pool.query(
+          "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
+          [winnerIds],
+        ),
+      () =>
+        pool.query("DELETE FROM daily007_v2_leaderboard_periods WHERE id = $1", [periodId]),
+      () =>
+        pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [
+          [adminId, ...winnerIds],
+        ]),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up the leaderboard finalization failure fixture.",
+      );
+    }
+  }
+});
+
 test("a protected mutation queued behind an admin block is rejected before writing", async () => {
   const actorId = randomUUID();
   const blockerAdminId = randomUUID();
