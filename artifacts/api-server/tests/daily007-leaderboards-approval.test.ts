@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test, { after } from "node:test";
 import express from "express";
 import type { Server } from "node:http";
@@ -93,6 +94,29 @@ async function call(
     ...request,
   });
   return { status: response.status, body: await response.json() };
+}
+
+async function callRewardsWithAuthorization(
+  origin: string,
+  authorization?: string,
+): Promise<JsonResult> {
+  const response = await fetch(
+    `${origin}/daily007/v2/admin/leaderboards/rewards`,
+    { headers: authorization ? { authorization } : {} },
+  );
+  return { status: response.status, body: await response.json() };
+}
+
+function tokenExpiredAt(userId: string, expiresAtSeconds: number): string {
+  const payload = Buffer.from(JSON.stringify({
+    sub: userId,
+    sv: 0,
+    exp: expiresAtSeconds,
+  })).toString("base64url");
+  const signature = createHmac("sha256", TEST_AUTH_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
 }
 
 function period(
@@ -1142,6 +1166,53 @@ test("Tournament Admin cannot read Full Admin leaderboard reward settings or cha
         originalFixture,
         "a rejected settings read must leave the in-memory leaderboard fixture unchanged",
       );
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
+test("signed-out requests cannot read leaderboard rewards or cycle metadata", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const captureFixture = () => structuredClone({
+    users: daily007LeaderboardTestDb.users,
+    matches: daily007LeaderboardTestDb.matches,
+    awards: daily007LeaderboardTestDb.awards,
+    periods: daily007LeaderboardTestDb.periods,
+    rewardSettings: daily007LeaderboardTestDb.rewardSettings,
+    ledger: daily007LeaderboardTestDb.ledger,
+    failWalletUpdateFor: daily007LeaderboardTestDb.failWalletUpdateFor,
+    failRewardSettingWriteFor: daily007LeaderboardTestDb.failRewardSettingWriteFor,
+    failActivePeriodSnapshotWriteFor: daily007LeaderboardTestDb.failActivePeriodSnapshotWriteFor,
+    rewardSettingWriteAttempts: daily007LeaderboardTestDb.rewardSettingWriteAttempts,
+    activePeriodSnapshotWriteAttempts: daily007LeaderboardTestDb.activePeriodSnapshotWriteAttempts,
+  });
+  const originalFixture = captureFixture();
+  const expiredToken = tokenExpiredAt(
+    TEST_FULL_ADMIN_ID,
+    Math.floor(Date.now() / 1000) - 1,
+  );
+  const rejectedRequests: { label: string; authorization?: string }[] = [
+    { label: "missing bearer token" },
+    { label: "invalid bearer token", authorization: "Bearer not-a-valid-token" },
+    { label: "expired bearer token", authorization: `Bearer ${expiredToken}` },
+  ];
+
+  try {
+    await withServer(async (origin) => {
+      for (const { label, authorization } of rejectedRequests) {
+        const response = await callRewardsWithAuthorization(origin, authorization);
+        assert.equal(response.status, 401, `${label} should receive Unauthorized`);
+        assert.deepEqual(response.body, {
+          error: "A valid Daily007 v2 bearer token is required.",
+        }, `${label} must not receive schedules or cycle metadata`);
+        assert.deepEqual(
+          captureFixture(),
+          originalFixture,
+          `${label} must leave the in-memory leaderboard fixture unchanged`,
+        );
+      }
     });
   } finally {
     daily007LeaderboardTestDb.reset();
