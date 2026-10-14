@@ -209,7 +209,7 @@ test("TalkBack field labels follow the registration order for Solo, Duo, and Squ
 test("required captain and teammate names identify the exact field that needs attention", () => {
   const missingProfileName = validateJoinForm(validJoinForm({ captainProfileName: " " }));
   assert.deepEqual(missingProfileName, {
-    message: "Captain Daily007 profile name is required. Add one in Profile before joining.",
+    message: "Complete the highlighted required fields.",
     fieldErrors: {
       captainProfileName: "Captain Daily007 profile name is required. Add one in Profile before joining.",
     },
@@ -217,7 +217,7 @@ test("required captain and teammate names identify the exact field that needs at
 
   const missingCaptainName = validateJoinForm(validJoinForm({ captainGameName: " " }));
   assert.deepEqual(missingCaptainName, {
-    message: "Captain Free Fire in-game name is required.",
+    message: "Complete the highlighted required fields.",
     fieldErrors: { captainGameName: "Captain Free Fire in-game name is required." },
   });
 
@@ -225,7 +225,7 @@ test("required captain and teammate names identify the exact field that needs at
     members: [{ name: "First Teammate", uid: "" }, { name: " ", uid: "" }],
   }));
   assert.deepEqual(missingTeammateName, {
-    message: "Teammate 2 Free Fire in-game name is required.",
+    message: "Complete the highlighted required fields.",
     fieldErrors: {
       "memberName:1": "Teammate 2 Free Fire in-game name is required.",
     },
@@ -236,14 +236,14 @@ test("missing captain UID and team name identify the corresponding fields", () =
   assert.deepEqual(
     validateJoinForm(validJoinForm({ captainGameUid: " " })),
     {
-      message: "Captain Free Fire UID is required.",
+      message: "Complete the highlighted required fields.",
       fieldErrors: { captainGameUid: "Captain Free Fire UID is required." },
     },
   );
   assert.deepEqual(
     validateJoinForm(validJoinForm({ teamName: " " })),
     {
-      message: "Team name is required.",
+      message: "Complete the highlighted required fields.",
       fieldErrors: { teamName: "Team name is required." },
     },
   );
@@ -326,7 +326,7 @@ test("optional teammate UIDs may be blank, while duplicate UIDs identify both co
       ],
     })),
     {
-      message: "Captain Free Fire UID and Teammate 1 Free Fire UID must have different UIDs.",
+      message: "Use a different UID for each player.",
       fieldErrors: {
         captainGameUid: "Captain Free Fire UID is also entered for Teammate 1 Free Fire UID. Enter a different UID.",
         "memberUid:0": "Teammate 1 Free Fire UID is also entered for Captain Free Fire UID. Enter a different UID or leave this optional field blank.",
@@ -342,10 +342,61 @@ test("optional teammate UIDs may be blank, while duplicate UIDs identify both co
       ],
     })),
     {
-      message: "Teammate 1 Free Fire UID and Teammate 2 Free Fire UID must have different UIDs.",
+      message: "Use a different UID for each player.",
       fieldErrors: {
-        "memberUid:0": "Teammate 1 Free Fire UID is also entered for Teammate 2 Free Fire UID. Enter a different UID.",
+        "memberUid:0": "Teammate 1 Free Fire UID is also entered for Teammate 2 Free Fire UID. Enter a different UID or leave this optional field blank.",
         "memberUid:1": "Teammate 2 Free Fire UID is also entered for Teammate 1 Free Fire UID. Enter a different UID or leave this optional field blank.",
+      },
+    },
+  );
+});
+
+test("one submit returns every missing required field and every field in a duplicate UID group", () => {
+  assert.deepEqual(
+    validateJoinForm(validJoinForm({
+      captainProfileName: " ",
+      captainGameName: " ",
+      captainGameUid: "shared-uid",
+      teamName: " ",
+      members: [
+        { name: " ", uid: " SHARED-UID " },
+        { name: "", uid: "shared-uid" },
+        { name: " ", uid: "" },
+      ],
+    })),
+    {
+      message: "Complete the highlighted required fields and use a different UID for each player.",
+      fieldErrors: {
+        captainProfileName: "Captain Daily007 profile name is required. Add one in Profile before joining.",
+        captainGameName: "Captain Free Fire in-game name is required.",
+        teamName: "Team name is required.",
+        "memberName:0": "Teammate 1 Free Fire in-game name is required.",
+        "memberName:1": "Teammate 2 Free Fire in-game name is required.",
+        "memberName:2": "Teammate 3 Free Fire in-game name is required.",
+        captainGameUid: "Captain Free Fire UID is also entered for Teammate 1 Free Fire UID and Teammate 2 Free Fire UID. Enter a different UID.",
+        "memberUid:0": "Teammate 1 Free Fire UID is also entered for Captain Free Fire UID and Teammate 2 Free Fire UID. Enter a different UID or leave this optional field blank.",
+        "memberUid:1": "Teammate 2 Free Fire UID is also entered for Captain Free Fire UID and Teammate 1 Free Fire UID. Enter a different UID or leave this optional field blank.",
+      },
+    },
+  );
+});
+
+test("one submit reports multiple separate duplicate UID groups", () => {
+  assert.deepEqual(
+    validateJoinForm(validJoinForm({
+      members: [
+        { name: "First Teammate", uid: "captain-uid-101" },
+        { name: "Second Teammate", uid: "team-uid-303" },
+        { name: "Third Teammate", uid: " TEAM-UID-303 " },
+      ],
+    })),
+    {
+      message: "Use a different UID for each player.",
+      fieldErrors: {
+        captainGameUid: "Captain Free Fire UID is also entered for Teammate 1 Free Fire UID. Enter a different UID.",
+        "memberUid:0": "Teammate 1 Free Fire UID is also entered for Captain Free Fire UID. Enter a different UID or leave this optional field blank.",
+        "memberUid:1": "Teammate 2 Free Fire UID is also entered for Teammate 3 Free Fire UID. Enter a different UID or leave this optional field blank.",
+        "memberUid:2": "Teammate 3 Free Fire UID is also entered for Teammate 2 Free Fire UID. Enter a different UID or leave this optional field blank.",
       },
     },
   );
@@ -392,6 +443,22 @@ test("field errors are reachable from their inputs and use one polite announceme
     joinFormSource,
     /AccessibilityInfo\.announceForAccessibility|setAccessibilityFocus|\.focus\(/,
   );
+  assert.match(
+    joinFormSource,
+    /if \(validation\) \{\s*setFieldErrors\(validation\.fieldErrors\);\s*return announceError\(validation\.message\);/,
+    "All field hints must be set before the one combined live-region message is announced.",
+  );
+  assert.match(joinFormSource, /key=\{errorAnnouncementId\}/);
+});
+
+test("correcting one field keeps unrelated validation hints and clears stale UID-conflict hints", () => {
+  const clearValidation = joinFormSource.match(
+    /const clearFieldValidation = \(field: JoinFormField\) => \{[\s\S]*?\n  \};/,
+  )?.[0];
+  assert.ok(clearValidation, "Changed fields must clear their own stale validation.");
+  assert.match(clearValidation, /delete next\[field\]/);
+  assert.match(clearValidation, /message\?\.includes\('is also entered'\)/);
+  assert.doesNotMatch(clearValidation, /setFieldErrors\(\{\}\)/);
 });
 
 test("JoinForm values remain distinct in the submitted form and registration API payload", async () => {

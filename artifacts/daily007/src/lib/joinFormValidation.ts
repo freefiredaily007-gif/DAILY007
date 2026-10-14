@@ -67,34 +67,37 @@ type JoinFormValidationInput = {
 export function validateJoinForm(
   input: JoinFormValidationInput,
 ): JoinFormValidationError | null {
+  const fieldErrors: JoinFormFieldErrors = {};
+  let hasMissingRequiredFields = false;
+
   if (!input.captainProfileName.trim()) {
     const message = 'Captain Daily007 profile name is required. Add one in Profile before joining.';
-    return { message, fieldErrors: { captainProfileName: message } };
+    fieldErrors.captainProfileName = message;
+    hasMissingRequiredFields = true;
   }
 
   if (!input.captainGameName.trim()) {
-    const message = 'Captain Free Fire in-game name is required.';
-    return { message, fieldErrors: { captainGameName: message } };
+    fieldErrors.captainGameName = 'Captain Free Fire in-game name is required.';
+    hasMissingRequiredFields = true;
   }
 
   if (!input.captainGameUid.trim()) {
-    const message = 'Captain Free Fire UID is required.';
-    return { message, fieldErrors: { captainGameUid: message } };
+    fieldErrors.captainGameUid = 'Captain Free Fire UID is required.';
+    hasMissingRequiredFields = true;
   }
 
   if (input.isTeam && !input.teamName.trim()) {
-    const message = 'Team name is required.';
-    return { message, fieldErrors: { teamName: message } };
+    fieldErrors.teamName = 'Team name is required.';
+    hasMissingRequiredFields = true;
   }
 
-  const missingTeammateNameIndex = input.members.findIndex((member) => !member.name.trim());
-  if (missingTeammateNameIndex >= 0) {
-    const message = `Teammate ${missingTeammateNameIndex + 1} Free Fire in-game name is required.`;
-    return {
-      message,
-      fieldErrors: { [`memberName:${missingTeammateNameIndex}`]: message },
-    };
-  }
+  input.members.forEach((member, index) => {
+    if (!member.name.trim()) {
+      fieldErrors[`memberName:${index}`] =
+        `Teammate ${index + 1} Free Fire in-game name is required.`;
+      hasMissingRequiredFields = true;
+    }
+  });
 
   const uidEntries: {
     field: JoinFormField;
@@ -115,27 +118,42 @@ export function validateJoinForm(
       optional: true,
     })),
   ];
-  const seenUids = new Map<string, (typeof uidEntries)[number]>();
+  const entriesByUid = new Map<string, (typeof uidEntries)[number][]>();
 
   for (const entry of uidEntries) {
     const normalizedUid = entry.value.trim().toLowerCase();
     if (!normalizedUid) continue;
 
-    const previousEntry = seenUids.get(normalizedUid);
-    if (previousEntry) {
-      const fieldErrors: JoinFormFieldErrors = {};
-      fieldErrors[previousEntry.field] =
-        `${previousEntry.label} is also entered for ${entry.label}. Enter a different UID.`;
-      fieldErrors[entry.field] =
-        `${entry.label} is also entered for ${previousEntry.label}. Enter a different UID` +
-        (entry.optional ? ' or leave this optional field blank.' : '.');
-      return {
-        message: `${previousEntry.label} and ${entry.label} must have different UIDs.`,
-        fieldErrors,
-      };
-    }
+    const entries = entriesByUid.get(normalizedUid) ?? [];
+    entries.push(entry);
+    entriesByUid.set(normalizedUid, entries);
+  }
 
-    seenUids.set(normalizedUid, entry);
+  const duplicateUidGroups = [...entriesByUid.values()].filter((entries) => entries.length > 1);
+  for (const entries of duplicateUidGroups) {
+    for (const entry of entries) {
+      const otherLabels = entries
+        .filter((other) => other !== entry)
+        .map((other) => other.label);
+      const others = otherLabels.length === 2
+        ? `${otherLabels[0]} and ${otherLabels[1]}`
+        : otherLabels.length > 2
+          ? `${otherLabels.slice(0, -1).join(', ')}, and ${otherLabels[otherLabels.length - 1]}`
+          : otherLabels[0];
+      fieldErrors[entry.field] =
+        `${entry.label} is also entered for ${others}. Enter a different UID` +
+        (entry.optional ? ' or leave this optional field blank.' : '.');
+    }
+  }
+
+  const hasDuplicateUids = duplicateUidGroups.length > 0;
+  if (Object.keys(fieldErrors).length > 0) {
+    const message = hasMissingRequiredFields && hasDuplicateUids
+      ? 'Complete the highlighted required fields and use a different UID for each player.'
+      : hasMissingRequiredFields
+        ? 'Complete the highlighted required fields.'
+        : 'Use a different UID for each player.';
+    return { message, fieldErrors };
   }
 
   return null;

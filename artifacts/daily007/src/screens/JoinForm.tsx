@@ -90,7 +90,21 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const clearFieldValidation = (field: JoinFormField) => {
     if (!fieldErrors[field]) return;
     setErr('');
-    setFieldErrors({});
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next[field];
+      if (field === 'captainGameUid' || field.startsWith('memberUid:')) {
+        for (const [key, message] of Object.entries(next)) {
+          if (
+            (key === 'captainGameUid' || key.startsWith('memberUid:')) &&
+            message?.includes('is also entered')
+          ) {
+            delete next[key as JoinFormField];
+          }
+        }
+      }
+      return next;
+    });
     setFullCapacityFailure(false);
   };
 
