@@ -278,6 +278,30 @@ async function waitForQueryBlockedBy(
   throw new Error(`Timed out waiting for ${description} in PostgreSQL.`);
 }
 
+async function waitForQueryBlockedByPid(
+  blockingPid: number,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_stat_activity AS waiting
+           CROSS JOIN LATERAL unnest(pg_blocking_pids(waiting.pid)) AS blockers(pid)
+          WHERE waiting.pid <> pg_backend_pid()
+            AND waiting.wait_event_type = 'Lock'
+            AND blockers.pid = $1
+       ) AS waiting`,
+      [blockingPid],
+    );
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description} in PostgreSQL.`);
+}
+
 test("an in-flight admin mutation commits before demotion, and later mutations are rejected", async () => {
   const actorId = randomUUID();
   const demoterId = randomUUID();
@@ -1054,6 +1078,16 @@ test("concurrent approvals of separate leaderboard cycles add both rewards to th
           "INSERT INTO daily007_v2_wallet_ledger",
           "the weekly payout after locking the shared winner",
         );
+        const weeklyPayoutBackend = await pool.query<{ pid: number }>(
+          `SELECT pid
+             FROM pg_stat_activity
+            WHERE pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%INSERT INTO daily007_v2_wallet_ledger%'
+            ORDER BY query_start DESC
+            LIMIT 1`,
+        );
+        assert.ok(weeklyPayoutBackend.rows[0], "the weekly payout should be waiting on the test lock");
 
         monthlyApprovalPromise = postJson(
           origin,
@@ -1061,8 +1095,8 @@ test("concurrent approvals of separate leaderboard cycles add both rewards to th
           monthlyAdminId,
           {},
         );
-        await waitForBlockedQuery(
-          "SELECT wallet_coins FROM daily007_v2_users",
+        await waitForQueryBlockedByPid(
+          weeklyPayoutBackend.rows[0].pid,
           "the monthly payout to wait for the weekly winner balance update",
         );
 
