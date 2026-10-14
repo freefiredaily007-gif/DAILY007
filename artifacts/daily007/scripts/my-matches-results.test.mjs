@@ -167,6 +167,48 @@ test("My Matches results show Free Fire details without the account profile name
   );
 });
 
+test("My Matches shows an individual result clearly when tournament standings are empty", () => {
+  const profileName = "Daily007 Profile Name";
+  const markup = renderMatchCard({
+    id: "registration-individual-result",
+    status: "approved",
+    playerName: profileName,
+    result: "Rank 2 · 3 kills · 600 coins",
+    resultDetails: {
+      rank: 2,
+      kills: 3,
+      prizeCoins: 600,
+      gameName: "RunnerUpFF",
+      teamName: "Blue Fire",
+      playerName: profileName,
+    },
+    tournament: {
+      mode: "battle royale",
+      teamType: "squad",
+      name: "Sunday Clash",
+      status: "completed",
+      results: [],
+    },
+  });
+  const renderedText = markup.replace(/<[^>]*>/g, "");
+
+  assert.match(renderedText, /YOUR RESULT/, "The fallback should identify the individual result.");
+  assert.match(renderedText, /RunnerUpFF/, "The fallback should show the Free Fire name.");
+  assert.match(renderedText, /TEAM Blue Fire/, "The fallback should show the team.");
+  assert.match(renderedText, /2/, "The fallback should show rank 2.");
+  assert.match(renderedText, /3 KILLS/, "The fallback should show kills.");
+  assert.match(renderedText, /600/, "The fallback should show the prize amount.");
+  assert.match(renderedText, /Prize Won/, "The amount should be explicitly identified as a prize.");
+  assert.equal((markup.match(/role="text"/g) ?? []).length, 1, "The individual result should be one spoken stop.");
+  assert.match(
+    markup,
+    /aria-label="Rank 2, Free Fire name RunnerUpFF, team Blue Fire, 3 kills, prize 600 coins"/,
+    "The one spoken label should identify rank, kills, and prize without the account name.",
+  );
+  assert.doesNotMatch(renderedText, new RegExp(profileName));
+  assert.doesNotMatch(markup, new RegExp(profileName));
+});
+
 test("completed long-name results preserve all details and one spoken stop at 1.5×", () => {
   const entry = MY_MATCHES_TEXT_SCALE_RESULTS[0];
   const markup = renderMatchCard({

@@ -88,6 +88,7 @@ class MemoryTournamentResultsDatabase {
   ledger: TestLedgerEntry[] = [];
   match: TestMatch = this.emptyMatch();
   additionalMatches: TestMatch[] = [];
+  emptyMyRegistrationStandingsMatchIds = new Set<string>();
   finalizationFailureObservation: FinalizationFailureObservation | null = null;
   private failNextMatchFinalization = false;
   private cancelMatchAfterPublicResultsStatusReadId: string | null = null;
@@ -105,6 +106,7 @@ class MemoryTournamentResultsDatabase {
     this.ledger = [];
     this.match = this.emptyMatch();
     this.additionalMatches = [];
+    this.emptyMyRegistrationStandingsMatchIds = new Set();
     this.finalizationFailureObservation = null;
     this.failNextMatchFinalization = false;
     this.cancelMatchAfterPublicResultsStatusReadId = null;
@@ -116,6 +118,10 @@ class MemoryTournamentResultsDatabase {
 
   cancelMatchAfterNextPublicResultsStatusRead(matchId: string): void {
     this.cancelMatchAfterPublicResultsStatusReadId = matchId;
+  }
+
+  setMyRegistrationStandingsEmpty(matchId: string): void {
+    this.emptyMyRegistrationStandingsMatchIds.add(matchId);
   }
 
   approveTestRegistrations(): void {
@@ -468,7 +474,9 @@ class MemoryTournamentResultsDatabase {
             match_has_winner: this.awards.some((award) =>
               award.match_id === match.id && award.rank === 1,
             ),
-            match_results: visibleAwards.length
+            match_results: this.emptyMyRegistrationStandingsMatchIds.has(match.id)
+              ? null
+              : visibleAwards.length
               ? visibleAwards
                 .map((award) => {
                   const resultRegistration = this.registrations.find(

@@ -586,6 +586,41 @@ test("published results exclude cancelled tournaments with existing awards", asy
   });
 });
 
+test("My Matches preserves an individual result when its tournament standings list is empty", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+
+    const runnerUpAward = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+      rank: 2,
+      kills: 3,
+      prizeCoins: 0,
+    });
+    assert.equal(runnerUpAward.status, 201);
+
+    tournamentResultsTestDb.setMyRegistrationStandingsEmpty(TEST_MATCH_ID);
+    const response = await call(origin, TEST_RUNNER_UP_ID, "/my/registrations", "GET");
+
+    assert.equal(response.status, 200);
+    const registration = response.body.find((entry: any) => entry.tournamentId === TEST_MATCH_ID);
+    assert.ok(registration, "My Matches should return the player's registration.");
+    assert.deepEqual(registration.tournament.results, [], "The test exercises an empty standings-list fallback.");
+    assert.equal(registration.result, "Rank 2 · 3 kills · 600 coins", "The existing result string remains compatible.");
+    assert.deepEqual(registration.resultDetails, {
+      rank: 2,
+      kills: 3,
+      prizeCoins: 600,
+      gameName: "RunnerUpFF",
+      teamName: null,
+    });
+    assert.equal(Object.hasOwn(registration.resultDetails, "playerName"), false);
+  });
+});
+
 test("failed result settlement rolls back every write and permits one valid retry", async () => {
   tournamentResultsTestDb.reset();
 

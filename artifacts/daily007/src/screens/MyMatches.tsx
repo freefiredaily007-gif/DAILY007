@@ -245,6 +245,9 @@ export default function MyMatches() {
               : typeof item.result === 'string'
                 ? item.result
                 : item.result?.description ?? item.result?.result ?? item.result?.placement;
+            const resultDetails = !cancelled && item.resultDetails && typeof item.resultDetails === 'object'
+              ? item.resultDetails
+              : null;
             const results = cancelled ? [] : Array.isArray(t.results) ? t.results : [];
             return (
               <GCard key={item.id} glowColor={roomReady ? C.green : undefined}>
@@ -304,6 +307,16 @@ export default function MyMatches() {
                           fontScale={fontScale}
                         />
                       ))}
+                    </View>
+                  ) : resultDetails ? (
+                    <View style={s.results}>
+                      <Text style={s.resultsTitle}>YOUR RESULT</Text>
+                      <TournamentResultRow
+                        entry={resultDetails}
+                        index={0}
+                        count={1}
+                        fontScale={fontScale}
+                      />
                     </View>
                   ) : result ? <Text style={s.result}>🏆 {String(result)}</Text> : null}
               </GCard>

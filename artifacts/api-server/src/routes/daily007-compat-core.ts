@@ -865,6 +865,15 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       result: row.result_rank === null || row.result_rank === undefined
         ? undefined
         : `Rank ${row.result_rank} · ${row.result_kills ?? 0} kills · ${row.result_prize_coins ?? 0} coins`,
+      resultDetails: row.result_rank === null || row.result_rank === undefined
+        ? undefined
+        : {
+          rank: row.result_rank,
+          kills: row.result_kills ?? 0,
+          prizeCoins: row.result_prize_coins ?? 0,
+          gameName: row.captain_game_name,
+          teamName: row.team_name,
+        },
       serverNowMs,
       roomId: expose ? row.room_id : undefined,
       roomPassword: expose ? row.room_password : undefined,
