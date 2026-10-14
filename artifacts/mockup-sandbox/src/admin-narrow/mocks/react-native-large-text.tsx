@@ -4,6 +4,10 @@ import * as Native from "react-native-web";
 export * from "react-native-web";
 
 const NativeComponents = Native as any;
+export function findNodeHandle() {
+  return null;
+}
+
 const requestedPlatform = typeof window !== "undefined"
   ? new URLSearchParams(window.location.search).get("platform")
   : null;

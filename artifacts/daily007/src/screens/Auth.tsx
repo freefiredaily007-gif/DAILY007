@@ -23,6 +23,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [refCode, setRefCode] = useState('');
+  const [referralCodeApplied, setReferralCodeApplied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [googleErr, setGoogleErr] = useState('');
@@ -50,6 +51,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
       });
       if (!invite) return;
       setRefCode((current) => current || invite.referralCode);
+      setReferralCodeApplied(true);
       setMode(invite.mode);
     };
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -127,6 +129,9 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
       if (retrySignupSession) setPendingSignupSession(null);
       onDone(u);
     } catch (e) {
+      if (mode === 'signup' && referralCodeApplied && !(e instanceof SessionPersistenceError)) {
+        setReferralCodeApplied(false);
+      }
       if (mode === 'login' && e instanceof LoginRateLimitError) {
         const seconds = e.retryAfterSeconds;
         const message = apiError(e);
@@ -239,6 +244,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             onError={(message) => {
               setErr('');
               setGoogleErr(message);
+              setReferralCodeApplied(false);
             }}
             onSuccess={onDone}
           />
@@ -276,23 +282,41 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               autoCapitalize="words"
               enterKeyHint="next"
               blurOnSubmit={false}
-              onSubmitEditing={() => referralInputRef.current?.focus()}
+              onSubmitEditing={() => {
+                if (referralCodeApplied && refCode.trim()) emailInputRef.current?.focus();
+                else referralInputRef.current?.focus();
+              }}
               style={s.signupInput}
             />
-            <Input
-              ref={referralInputRef}
-              testID="auth-referral-code"
-              accessibilityLabel="Referral Code, optional"
-              placeholder="Referral Code (Optional)"
-              value={refCode}
-              onChangeText={setRefCode}
-              editable={!authInputsDisabled}
-              autoCapitalize="characters"
-              enterKeyHint="next"
-              blurOnSubmit={false}
-              onSubmitEditing={() => emailInputRef.current?.focus()}
-              style={s.signupInput}
-            />
+            {referralCodeApplied && refCode.trim() ? (
+              <View style={s.referralApplied}>
+                <Text style={s.referralAppliedText}>
+                  Referral code {refCode.trim().toUpperCase()} applied
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change referral code"
+                  onPress={() => setReferralCodeApplied(false)}
+                >
+                  <Text style={s.referralChangeText}>Change</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Input
+                ref={referralInputRef}
+                testID="auth-referral-code"
+                accessibilityLabel="Referral Code, optional"
+                placeholder="Referral Code (Optional)"
+                value={refCode}
+                onChangeText={setRefCode}
+                editable={!authInputsDisabled}
+                autoCapitalize="characters"
+                enterKeyHint="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => emailInputRef.current?.focus()}
+                style={s.signupInput}
+              />
+            )}
             <Input
               ref={emailInputRef}
               testID="auth-email"
@@ -424,6 +448,13 @@ const s = StyleSheet.create({
   signupStep: { color: C.neon, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
   signupInput: { backgroundColor: C.card, marginBottom: 9, minHeight: 46 },
   signupInputLast: { backgroundColor: C.card, marginBottom: 0, minHeight: 46 },
+  referralApplied: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.card, borderRadius: 10, marginBottom: 9, minHeight: 46,
+    paddingHorizontal: 12, gap: 10,
+  },
+  referralAppliedText: { color: C.sub, flex: 1, fontSize: 12, fontWeight: '700' },
+  referralChangeText: { color: C.neon, fontSize: 12, fontWeight: '900' },
   signupSubmit: { marginTop: 7 },
   foot: { color: C.dim, textAlign: 'center', marginTop: 18, fontSize: 12 },
 });
