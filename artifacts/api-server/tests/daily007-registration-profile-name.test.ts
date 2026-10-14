@@ -358,6 +358,23 @@ async function sendTeamEdit(
   };
 }
 
+async function sendAdminRegistrationAction(
+  origin: string,
+  registrationId: string,
+  action: "approve" | "reject",
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const token = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+  assert.ok(token, "test tournament admin should receive a Daily007 session token");
+  const response = await fetch(`${origin}/admin/registrations/${registrationId}/${action}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return {
+    status: response.status,
+    body: await response.json().catch(() => ({})) as Record<string, unknown>,
+  };
+}
+
 test("blocked player cannot register or edit an approved team with a previously valid session", async () => {
   registrationProfileTestDb.reset(PROFILE_NAME);
   try {
@@ -1556,6 +1573,70 @@ test("v2 and legacy registration reject an empty profile name before charging th
     }
   } finally {
     registrationProfileTestDb.reset();
+  }
+});
+
+test("rejecting approved or pending registrations refunds once and prevents later approval", async () => {
+  for (const initialStatus of ["approved", "pending"] as const) {
+    registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+    try {
+      await withServer(async (origin) => {
+        const registered = await sendRegistration(
+          origin,
+          registrationRequests[0].path,
+          registrationRequests[0].body,
+        );
+        assert.equal(registered.status, 201);
+        const registration = registrationProfileTestDb.registrations[0];
+        assert.ok(registration);
+        registration.status = initialStatus;
+        const originalRoster = structuredClone(registrationProfileTestDb.roster);
+        const walletBeforeRejection = registrationProfileTestDb.user.wallet_coins;
+        const ledgerBeforeRejection = structuredClone(registrationProfileTestDb.ledger);
+        assert.equal(walletBeforeRejection, 93);
+        assert.equal(ledgerBeforeRejection.length, 1);
+        assert.equal(registration.entry_coins_paid, 7);
+
+        const firstRejection = await sendAdminRegistrationAction(origin, registration.id, "reject");
+        assert.equal(firstRejection.status, 200);
+        assert.deepEqual(firstRejection.body.data, {
+          id: registration.id,
+          status: "rejected",
+          refunded: true,
+        });
+        assert.equal(registration.status, "rejected");
+        assert.equal(registrationProfileTestDb.user.wallet_coins, 100);
+        assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+        assert.equal(registrationProfileTestDb.ledger.length, ledgerBeforeRejection.length + 1);
+        assert.deepEqual(registrationProfileTestDb.ledger.at(-1), {
+          user_id: TEST_PLAYER_ID,
+          amount: 7,
+          balance_after: 100,
+          reason: "registration_refund",
+          match_id: TEST_MATCH_ID,
+          registration_id: registration.id,
+        });
+        const registrationsAfterRefund = structuredClone(registrationProfileTestDb.registrations);
+        const ledgerAfterRefund = structuredClone(registrationProfileTestDb.ledger);
+
+        const repeatedRejection = await sendAdminRegistrationAction(origin, registration.id, "reject");
+        assert.equal(repeatedRejection.status, 200);
+        assert.equal(registrationProfileTestDb.user.wallet_coins, 100);
+        assert.deepEqual(registrationProfileTestDb.registrations, registrationsAfterRefund);
+        assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+        assert.deepEqual(registrationProfileTestDb.ledger, ledgerAfterRefund);
+
+        const approvalAfterRefund = await sendAdminRegistrationAction(origin, registration.id, "approve");
+        assert.equal(approvalAfterRefund.status, 409);
+        assert.match(String(approvalAfterRefund.body.error), /rejected and refunded/i);
+        assert.equal(registrationProfileTestDb.user.wallet_coins, 100);
+        assert.deepEqual(registrationProfileTestDb.registrations, registrationsAfterRefund);
+        assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+        assert.deepEqual(registrationProfileTestDb.ledger, ledgerAfterRefund);
+      });
+    } finally {
+      registrationProfileTestDb.reset();
+    }
   }
 });
 

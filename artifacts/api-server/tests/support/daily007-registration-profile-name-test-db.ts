@@ -57,7 +57,7 @@ export type CapturedLedgerEntry = {
   user_id: string;
   amount: number;
   balance_after: number;
-  reason: "match_entry";
+  reason: "match_entry" | "registration_refund";
   match_id: string;
   registration_id: string;
 };
@@ -280,6 +280,32 @@ class RegistrationProfileTestDatabase {
 
     if (["BEGIN", "COMMIT", "ROLLBACK"].includes(normalized)) {
       result = [];
+    } else if (normalized === "SELECT match_id FROM daily007_v2_registrations WHERE id = $1") {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = registration ? [{ match_id: registration.match_id }] : [];
+    } else if (
+      normalized === "SELECT capacity, mode, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE"
+    ) {
+      const match = [this.match, ...this.additionalMatches].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = match ? [structuredClone(match)] : [];
+    } else if (
+      normalized.startsWith("SELECT id, match_id, captain_user_id, entry_coins_paid, status FROM daily007_v2_registrations")
+    ) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = registration ? [structuredClone(registration)] : [];
+    } else if (
+      normalized === "SELECT status FROM daily007_v2_registrations WHERE id = $1 FOR UPDATE"
+    ) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = registration ? [{ status: registration.status }] : [];
     } else if (
       normalized.startsWith("SELECT id, name, email, role, wallet_coins, phone, game_uid, status, auth_version FROM daily007_v2_users")
     ) {
@@ -525,9 +551,10 @@ class RegistrationProfileTestDatabase {
     } else if (
       normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE")
     ) {
-      result = String(values[0]) === this.user.id
-        ? [{ wallet_coins: this.user.wallet_coins }]
-        : [];
+      const user = [this.user, ...this.additionalUsers].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      result = user ? [{ wallet_coins: user.wallet_coins }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_registrations")) {
       const [
         matchId,
@@ -561,19 +588,44 @@ class RegistrationProfileTestDatabase {
         member_name: String(memberName),
       });
     } else if (normalized.startsWith("UPDATE daily007_v2_users SET wallet_coins")) {
-      if (String(values[0]) === this.user.id) this.user.wallet_coins = Number(values[1]);
+      const user = [this.user, ...this.additionalUsers].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      if (user) user.wallet_coins = Number(values[1]);
     } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
       const [userId, amount, balanceAfter, matchId, registrationId] = values;
       this.ledger.push({
         user_id: String(userId),
         amount: Number(amount),
         balance_after: Number(balanceAfter),
-        reason: "match_entry",
+        reason: normalized.includes("'registration_refund'")
+          ? "registration_refund"
+          : "match_entry",
         match_id: String(matchId),
         registration_id: String(registrationId),
       });
+    } else if (
+      normalized === "UPDATE daily007_v2_registrations SET status = 'rejected' WHERE id = $1" ||
+      normalized === "UPDATE daily007_v2_registrations SET status = 'approved' WHERE id = $1"
+    ) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      if (registration) {
+        registration.status = normalized.includes("'rejected'") ? "rejected" : "approved";
+      }
     } else if (normalized.startsWith("UPDATE daily007_v2_matches SET status")) {
       this.match.status = String(values[1]);
+    } else if (
+      normalized === "UPDATE daily007_v2_matches SET is_full = $2, status = $3 WHERE id = $1"
+    ) {
+      const match = [this.match, ...this.additionalMatches].find((candidate) =>
+        candidate.id === String(values[0])
+      );
+      if (match) {
+        match.is_full = Boolean(values[1]);
+        match.status = String(values[2]);
+      }
     } else {
       throw new Error(`Unexpected registration profile test SQL: ${normalized}`);
     }
