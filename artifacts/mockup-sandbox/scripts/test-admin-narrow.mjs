@@ -4583,12 +4583,19 @@ async function checkTournamentScheduledStart(boundaryIndex) {
     `the player list to load both ${expected.name} test tournaments`,
   );
   const playerScheduleInfo = await assertIstRolloverSchedules("Player", expected);
+  const currentIstYear = await evaluate(
+    "Number(new Intl.DateTimeFormat('en', { year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date()))",
+  );
   await assertClockImmediatelyBeforeIstBoundary("Player", playerScheduleInfo, expected, 0);
   for (const schedule of playerScheduleInfo.schedules) {
-    const playerDateTime = `${schedule.istDateLabel} • ${schedule.time} IST`;
+    const year = schedule.istDate.slice(0, 4);
+    const expectedDateLabel = Number(year) === currentIstYear
+      ? schedule.istDateLabel
+      : `${schedule.istDateLabel} ${year}`;
+    const playerDateTime = `${expectedDateLabel} • ${schedule.time} IST`;
     assert(
       await evaluate(`document.body.innerText.includes(${JSON.stringify(playerDateTime)})`),
-      `Player card for ${schedule.name} must display its IST date and time (${playerDateTime}) in a non-IST browser timezone.`,
+      `Player card for ${schedule.name} must display its IST date, include the year only when it differs from the current IST year, and retain its time (${playerDateTime}) in a non-IST browser timezone.`,
     );
   }
 

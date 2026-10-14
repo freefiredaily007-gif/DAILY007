@@ -410,19 +410,37 @@ export function fmtTime12(t?: string) {
 export function fmtDate(d?: string) {
   if (!d) return '';
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  let year: number;
+  let monthLabel: string;
+  let dayLabel: string;
   if (dateOnly) {
-    const year = Number(dateOnly[1]);
+    year = Number(dateOnly[1]);
     const month = Number(dateOnly[2]);
     const day = Number(dateOnly[3]);
     const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
     const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return d;
-    const monthLabel = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][month - 1];
-    return `${String(day).padStart(2, '0')} ${monthLabel}`;
+    monthLabel = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][month - 1];
+    dayLabel = String(day).padStart(2, '0');
+  } else {
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return d;
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).formatToParts(dt);
+    year = Number(parts.find(part => part.type === 'year')?.value);
+    monthLabel = parts.find(part => part.type === 'month')?.value.toUpperCase() ?? '';
+    dayLabel = parts.find(part => part.type === 'day')?.value ?? '';
   }
-  const dt = new Date(d);
-  if (isNaN(dt.getTime())) return d;
-  return `${String(dt.getDate()).padStart(2, '0')} ${dt.toLocaleString('en', { month: 'short' }).toUpperCase()}`;
+  const currentIstYear = Number(new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+  }).format(new Date()));
+  const dateLabel = `${dayLabel} ${monthLabel}`;
+  return year === currentIstYear ? dateLabel : `${dateLabel} ${year}`;
 }
 
 export function statusOf(t: any): { key: string; label: string; color: string } {
