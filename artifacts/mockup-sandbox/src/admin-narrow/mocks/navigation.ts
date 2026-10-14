@@ -1,7 +1,17 @@
 import { useEffect } from "react";
 
 export function useFocusEffect(effect: () => void | (() => void)) {
-  useEffect(effect, [effect]);
+  const focusLifecyclePreview = typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).has("resume-while-refresh-only");
+  useEffect(() => {
+    if (!focusLifecyclePreview) return effect();
+    const preview = globalThis as typeof globalThis & {
+      __daily007PreviewFocusController?: {
+        register: (callback: () => void | (() => void)) => () => void;
+      };
+    };
+    return preview.__daily007PreviewFocusController?.register(effect) ?? effect();
+  }, [effect, focusLifecyclePreview]);
 }
 
 export function useNavigation() {

@@ -142,6 +142,45 @@ const scheduledTournament = (id, name, startsAtMs) => {
   };
 };
 
+let previewFocusController = null;
+if (new URLSearchParams(location.search).has("resume-while-refresh-only")) {
+  const listeners = new Set();
+  let focused = true;
+  previewFocusController = {
+    register(effect) {
+      let active = false;
+      let cleanup;
+      const focus = () => {
+        if (active) return;
+        active = true;
+        cleanup = effect();
+      };
+      const blur = () => {
+        if (!active) return;
+        active = false;
+        cleanup?.();
+        cleanup = undefined;
+      };
+      const listener = { focus, blur };
+      listeners.add(listener);
+      if (focused) focus();
+      return () => {
+        blur();
+        listeners.delete(listener);
+      };
+    },
+    setFocused(nextFocused) {
+      if (focused === nextFocused) return;
+      focused = nextFocused;
+      for (const listener of listeners) {
+        if (focused) listener.focus();
+        else listener.blur();
+      }
+    },
+  };
+  globalThis.__daily007PreviewFocusController = previewFocusController;
+}
+
 void import("./mocks/api.ts").then(async (apiMocks) => {
   const scheduledTournaments = [
     scheduledTournament("resume-boundary", firstScheduledTournamentName, scheduledStartMs),
@@ -210,7 +249,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     },
     failNextTournamentRead: apiMocks.failNextTournamentRead,
     deferNextTournamentRead: apiMocks.deferNextTournamentRead,
+    resolveDeferredTournamentRead: apiMocks.resolveDeferredTournamentRead,
     failDeferredTournamentRead: apiMocks.failDeferredTournamentRead,
+    setScreenFocused: (focused) => previewFocusController?.setFocused(focused),
     getVisibilityChangeCount: () => visibilityChangeCount,
     getVisibilityState: () => visibilityState,
     updateTournament: (updates) => apiMocks.updateTournamentPreview(updates),

@@ -338,6 +338,7 @@ let nextAdminUsersReadError: string | null = null;
 let nextMyRegistrationReadResponse: { value: unknown } | null = null;
 let deferredTournamentRead: {
   promise: Promise<any[]>;
+  resolve: (tournaments: any[]) => void;
   reject: (error: Error) => void;
   claimed: boolean;
 } | null = null;
@@ -1017,11 +1018,21 @@ export function resetTournamentReadCount() {
 
 export function deferNextTournamentRead() {
   if (deferredTournamentRead) throw new Error("A tournament read is already deferred.");
+  let resolve!: (tournaments: any[]) => void;
   let reject!: (error: Error) => void;
-  const promise = new Promise<any[]>((_, rejectPromise) => {
+  const promise = new Promise<any[]>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
     reject = rejectPromise;
   });
-  deferredTournamentRead = { promise, reject, claimed: false };
+  deferredTournamentRead = { promise, resolve, reject, claimed: false };
+}
+
+export function resolveDeferredTournamentRead(tournaments: any[]) {
+  const deferred = deferredTournamentRead;
+  if (!deferred?.claimed) return false;
+  deferredTournamentRead = null;
+  deferred.resolve(tournaments.map((tournament) => ({ ...tournament })));
+  return true;
 }
 
 export function failDeferredTournamentRead(message = "Held retry request failed") {

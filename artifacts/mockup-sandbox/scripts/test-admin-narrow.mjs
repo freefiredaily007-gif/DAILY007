@@ -31,6 +31,7 @@ const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-
 const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
+const refreshReturnOnly = process.argv.includes("--refresh-return-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
@@ -4647,6 +4648,63 @@ async function checkTournamentManualRefresh({
   );
 }
 
+async function checkTournamentRefreshAfterReturning() {
+  const initialName = "IST Start Boundary";
+  const currentName = "Current Tournament After Returning";
+  const staleName = "Stale Pending Tournament Response";
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true && document.body.innerText.includes('IST Start Boundary')",
+    "the Player tournament list to load before leaving",
+  );
+
+  const readsBeforeRefresh = await evaluate(
+    "window.__daily007TournamentResume.getTournamentReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
+  await triggerPlayerManualRefresh();
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Refreshing'`,
+    "the old Player pull to remain pending",
+  );
+
+  await evaluate("window.__daily007TournamentResume.setScreenFocused(false)");
+  await evaluate(
+    `window.__daily007TournamentResume.updateTournament({ name: ${JSON.stringify(currentName)} })`,
+  );
+  await evaluate("window.__daily007TournamentResume.setScreenFocused(true)");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 2} && document.body.innerText.includes(${JSON.stringify(currentName)})`,
+    "the Player screen to load current data when returning",
+  );
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"player-refresh-control-pending\"]')?.textContent === 'Refreshing'"),
+    "The older pull should still own its active indicator while its request is pending.",
+  );
+  assert(
+    await evaluate(`document.body.innerText.includes(${JSON.stringify(currentName)}) && !document.body.innerText.includes('Could not refresh tournaments')`),
+    "Returning should show current tournament data without showing a stale error.",
+  );
+
+  const released = await evaluate(`window.__daily007TournamentResume.resolveDeferredTournamentRead([{
+    id: 'resume-boundary',
+    name: ${JSON.stringify(staleName)},
+    status: 'upcoming',
+  }])`);
+  assert(released, "The old pending pull must be resolved after the returning screen loads.");
+  await waitForCondition(
+    `document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready' && document.body.innerText.includes(${JSON.stringify(currentName)})`,
+    "the old request to settle without leaving refresh active or replacing the current card",
+  );
+  assert(
+    !await evaluate(`document.body.innerText.includes(${JSON.stringify(staleName)}) || document.body.innerText.includes('Could not refresh tournaments')`),
+    "The stale request must neither replace current data nor show a stale error.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBeforeRefresh + 2,
+    "Resolving the held request must not trigger another tournament read.",
+  );
+}
+
 async function checkTournamentResume() {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -7733,6 +7791,8 @@ try {
     ? "home-carousel-preview.html?ist-date-surfaces=1"
     : adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
+    : refreshReturnOnly
+      ? "tournament-resume-preview.html?manual-refresh-only=1&resume-while-refresh-only=1"
     : manualRefreshOnly || manualRefreshLargeTextOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
     : tournamentDetailRegistrationFailureOnly
@@ -8015,6 +8075,13 @@ try {
         `Browser errors during Admin initial-load failure checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A failed first Admin tournament load shows a visible Retry control; retrying loads cards and clears the error.");
+    } else if (refreshReturnOnly) {
+      await checkTournamentRefreshAfterReturning();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Player refresh-after-return checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Returning during a pending Player pull loads current tournament data; the old response cannot replace the card or leave refresh active.");
     } else if (manualRefreshLargeTextOnly) {
       for (const fontScale of [1.5, 2]) {
         await setViewport(320, fontScale, "tournament-resume-preview.html?manual-refresh-only=1");
