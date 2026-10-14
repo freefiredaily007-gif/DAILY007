@@ -488,6 +488,84 @@ test("Google sign-in makes no API request with an empty Clerk token", async () =
   });
 });
 
+test("Google signup retries a corrected referral code with the same active Clerk session", async () => {
+  const requests = [];
+  const previousAdapter = http.defaults.adapter;
+  const errors = [];
+  const successes = [];
+  const activeSession = createSession("active-google-session", [], "verified-clerk-jwt");
+  await setSession(null);
+  http.defaults.adapter = async (config) => {
+    requests.push(config);
+    if (requests.length === 1) {
+      const response = {
+        status: 422,
+        data: { error: "Referral code is invalid" },
+        config,
+      };
+      return Promise.reject(Object.assign(new Error("Request failed with status code 422"), {
+        config,
+        response,
+      }));
+    }
+
+    return {
+      data: {
+        success: true,
+        data: {
+          id: "daily007-player",
+          email: "player@example.test",
+          token: "returned-daily007-token",
+        },
+      },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config,
+    };
+  };
+
+  async function retryWithReferral(referralCode) {
+    await runGoogleSSOAttempt({
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => activeSession,
+        async startSSOFlow() {
+          assert.fail("retry should reuse the active Clerk session");
+        },
+        exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, { referralCode }),
+      }),
+      setLoading() {},
+      showError: (message) => errors.push(message),
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => error?.response?.data?.error ?? error.message,
+    });
+  }
+
+  try {
+    await retryWithReferral("BAD00");
+    assert.deepEqual(errors, ["Referral code is invalid"]);
+    assert.deepEqual(successes, []);
+
+    await retryWithReferral("GOOD7");
+    assert.deepEqual(errors, ["Referral code is invalid"]);
+    assert.equal(successes.length, 1);
+    assert.equal(successes[0].user.id, "daily007-player");
+
+    assert.equal(requests.length, 2);
+    assert.deepEqual(
+      requests.map(({ data }) => typeof data === "string" ? JSON.parse(data) : data),
+      [{ referralCode: "BAD00" }, { referralCode: "GOOD7" }],
+    );
+    assert.deepEqual(
+      requests.map(({ headers }) => headerValue(headers, "Authorization")),
+      ["Bearer verified-clerk-jwt", "Bearer verified-clerk-jwt"],
+    );
+  } finally {
+    http.defaults.adapter = previousAdapter;
+    await setSession(null);
+  }
+});
+
 test("callback messages give clear success or retry guidance on web, Android, and iOS", () => {
   assert.match(getSSOCallbackMessage("web", "success"), /sign-in is complete/i);
   assert.match(getSSOCallbackMessage("web", "dismiss"), /try again/i);
@@ -543,6 +621,21 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(buttonSource, /strategy:\s*'oauth_google'/);
   assert.match(buttonSource, /AuthSession\.makeRedirectUri\(\{ scheme: 'daily007', path: 'sso-callback' \}\)/);
   assert.match(buttonSource, /exchangeToken:\s*\(clerkJwt\)\s*=>\s*Api\.googleAuth\(clerkJwt/);
+  assert.match(
+    buttonSource,
+    /\.\.\.\(referralCode\?\.trim\(\)\s*\?\s*\{\s*referralCode:\s*referralCode\.trim\(\)\s*\}\s*:\s*\{\}\)/,
+    "each Google attempt should send the current editable referral code",
+  );
+  assert.match(
+    authSource,
+    /<Input\s+ref=\{referralInputRef\}[\s\S]*?testID="auth-referral-code"[\s\S]*?value=\{refCode\}[\s\S]*?onChangeText=\{setRefCode\}[\s\S]*?editable=\{!authInputsDisabled\}/,
+    "prefilled referral codes should remain editable on signup",
+  );
+  assert.doesNotMatch(
+    authSource,
+    /refCode\.trim\(\)\s*\?\s*<Text[^>]*>Referral code/,
+    "signup should not replace a referral input with static applied-code text",
+  );
   assert.match(callbackSource, /getSSOCallbackMessage\(Platform\.OS,\s*authCompletion\?\.type\)/);
   assert.match(callbackSource, /Platform\.OS === 'web'[\s\S]*?WebBrowser\.maybeCompleteAuthSession\(\)/);
 });

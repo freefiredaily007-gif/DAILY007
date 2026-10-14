@@ -276,28 +276,23 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               autoCapitalize="words"
               enterKeyHint="next"
               blurOnSubmit={false}
-              onSubmitEditing={() => {
-                if (refCode.trim()) emailInputRef.current?.focus();
-                else referralInputRef.current?.focus();
-              }}
+              onSubmitEditing={() => referralInputRef.current?.focus()}
               style={s.signupInput}
             />
-            {refCode.trim()
-              ? <Text style={s.referralApplied}>Referral code {refCode.trim().toUpperCase()} applied</Text>
-              : <Input
-                ref={referralInputRef}
-                testID="auth-referral-code"
-                accessibilityLabel="Referral Code, optional"
-                placeholder="Referral Code (Optional)"
-                value={refCode}
-                onChangeText={setRefCode}
-                editable={!authInputsDisabled}
-                autoCapitalize="characters"
-                enterKeyHint="next"
-                blurOnSubmit={false}
-                onSubmitEditing={() => emailInputRef.current?.focus()}
-                style={s.signupInput}
-              />}
+            <Input
+              ref={referralInputRef}
+              testID="auth-referral-code"
+              accessibilityLabel="Referral Code, optional"
+              placeholder="Referral Code (Optional)"
+              value={refCode}
+              onChangeText={setRefCode}
+              editable={!authInputsDisabled}
+              autoCapitalize="characters"
+              enterKeyHint="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => emailInputRef.current?.focus()}
+              style={s.signupInput}
+            />
             <Input
               ref={emailInputRef}
               testID="auth-email"
@@ -429,7 +424,6 @@ const s = StyleSheet.create({
   signupStep: { color: C.neon, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
   signupInput: { backgroundColor: C.card, marginBottom: 9, minHeight: 46 },
   signupInputLast: { backgroundColor: C.card, marginBottom: 0, minHeight: 46 },
-  referralApplied: { color: C.green, fontSize: 13, fontWeight: '700', textAlign: 'center', marginVertical: 8 },
   signupSubmit: { marginTop: 7 },
   foot: { color: C.dim, textAlign: 'center', marginTop: 18, fontSize: 12 },
 });
