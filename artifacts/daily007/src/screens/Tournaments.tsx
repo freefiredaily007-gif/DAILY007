@@ -31,6 +31,14 @@ import {
 } from '../lib/tournamentLifecycle';
 import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncement';
 
+function announcePlayerLoadStatusOnIOS(message: string): void {
+  if (Platform.OS !== 'ios') return;
+  AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+    queue: true,
+    priority: 'low',
+  });
+}
+
 export default function Tournaments() {
   const nav: any = useNavigation();
   const route: any = useRoute();
@@ -50,6 +58,8 @@ export default function Tournaments() {
   const announcedTournamentStarts = useRef(new Set<string>());
   const hasLoadedList = useRef(false);
   const initialLoadFailed = useRef(false);
+  const announcedInitialLoadFailure = useRef(false);
+  const announcedInitialLoadRecovery = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
   const refreshingRequest = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
@@ -111,6 +121,33 @@ export default function Tournaments() {
       if (loadRequests.current.isCurrent(request)) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'ios' ||
+      !error ||
+      hasLoadedList.current ||
+      !initialLoadFailed.current ||
+      announcedInitialLoadFailure.current
+    ) {
+      return;
+    }
+    announcedInitialLoadFailure.current = true;
+    announcePlayerLoadStatusOnIOS(`Could not load tournaments: ${error}`);
+  }, [error]);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'ios' ||
+      !playerLoadAnnouncement ||
+      announcedInitialLoadRecovery.current
+    ) {
+      return;
+    }
+    announcedInitialLoadRecovery.current = true;
+    announcePlayerLoadStatusOnIOS(playerLoadAnnouncement);
+  }, [playerLoadAnnouncement]);
+
   useFocusEffect(useCallback(() => {
     listFocused.current = true;
     const stopCompletionPolling = startTournamentListRefreshPolling(

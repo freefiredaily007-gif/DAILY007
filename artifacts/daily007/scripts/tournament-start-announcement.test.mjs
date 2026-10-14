@@ -92,3 +92,31 @@ test("Player and Admin lists expose queued VoiceOver and polite live-region anno
     );
   }
 });
+
+test("Player first-load failure and recovery queue VoiceOver announcements once on iOS", () => {
+  assert.match(
+    playerScreenSource,
+    /function announcePlayerLoadStatusOnIOS\(message: string\): void \{\s*if \(Platform\.OS !== 'ios'\) return;\s*AccessibilityInfo\.announceForAccessibilityWithOptions\(message, \{\s*queue: true,\s*priority: 'low',\s*\}\);\s*\}/,
+    "Player load-status speech must be queued for VoiceOver only, leaving TalkBack to the live regions.",
+  );
+  assert.match(
+    playerScreenSource,
+    /const announcedInitialLoadFailure = useRef\(false\);[\s\S]*const announcedInitialLoadRecovery = useRef\(false\);/,
+    "Player first-load error and recovery announcements need independent one-time guards.",
+  );
+  assert.match(
+    playerScreenSource,
+    /announcedInitialLoadFailure\.current = true;\s*announcePlayerLoadStatusOnIOS\(`Could not load tournaments: \$\{error\}`\);/,
+    "The first tournament-load failure must announce its visible error once on iOS.",
+  );
+  assert.match(
+    playerScreenSource,
+    /announcedInitialLoadRecovery\.current = true;\s*announcePlayerLoadStatusOnIOS\(playerLoadAnnouncement\);/,
+    "The first successful recovery must announce the loaded status once on iOS.",
+  );
+  assert.match(
+    playerScreenSource,
+    /accessibilityLiveRegion="polite"/,
+    "The Android TalkBack live-region path must remain available.",
+  );
+});
