@@ -164,12 +164,15 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     loading: true,
     clockNow: 0,
     playerLoadAnnouncement: '',
+    playerRefreshAnnouncementVersion: 0,
   };
   const screen = { selectedTab: 'upcoming' };
   const refs = {
     loadRequests: { current: createLatestRequestGuard() },
     hasLoadedList: { current: false },
     initialLoadFailed: { current: false },
+    refreshingRequest: { current: false },
+    failedManualRefresh: { current: false },
   };
   const load = evaluateTypeScriptExpression(
     findVariableInitializer(tournamentsSourceFile, 'load'),
@@ -181,6 +184,8 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
       loadRequests: refs.loadRequests,
       hasLoadedList: refs.hasLoadedList,
       initialLoadFailed: refs.initialLoadFailed,
+      refreshingRequest: refs.refreshingRequest,
+      failedManualRefresh: refs.failedManualRefresh,
       setItems: (nextItems) => {
         state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
       },
@@ -189,6 +194,11 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
       setLoading: (loading) => { state.loading = loading; },
       setClockNow: (clockNow) => { state.clockNow = clockNow; },
       setPlayerLoadAnnouncement: (announcement) => { state.playerLoadAnnouncement = announcement; },
+      setPlayerRefreshAnnouncementVersion: (update) => {
+        state.playerRefreshAnnouncementVersion = typeof update === 'function'
+          ? update(state.playerRefreshAnnouncementVersion)
+          : update;
+      },
       setTab: (selectedTab) => { screen.selectedTab = selectedTab; },
       Date: { now },
     },
@@ -563,6 +573,69 @@ test('failed tournament refreshes preserve the last complete rows and successful
     tournamentsSource,
     /testID=\{hasLoadedList\.current \? 'player-tournament-refresh-error' : 'player-tournament-load-error'\}/,
   );
+});
+
+test('first-load registration failure keeps tournament counts and marks entry status unknown until retry', async () => {
+  const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const pastStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const initialTournaments = [
+    { id: 'initial-upcoming', status: 'upcoming', startsAt: futureStart },
+    { id: 'initial-ongoing', status: 'ongoing', startsAt: pastStart },
+    { id: 'initial-completed', status: 'completed', startsAt: pastStart },
+  ];
+  let registrationsFail = true;
+  const api = {
+    tournaments: async () => initialTournaments,
+    myRegistrations: async () => {
+      if (registrationsFail) throw new Error('Temporary registration lookup failure');
+      return [{ tournamentId: 'initial-upcoming', status: 'approved' }];
+    },
+  };
+  const harness = createTournamentLoadHarness(api);
+  const getTabCounts = () => Object.fromEntries(
+    Object.entries(tournamentTabsForRoute(
+      harness.state.items,
+      {},
+      (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+    )).map(([name, tournaments]) => [name, tournaments.length]),
+  );
+
+  await harness.load();
+
+  assert.equal(harness.state.loading, false, 'successful tournament rows should render despite the registration failure');
+  assert.deepEqual(harness.state.items.map((tournament) => tournament.id), [
+    'initial-upcoming',
+    'initial-ongoing',
+    'initial-completed',
+  ]);
+  assert.deepEqual(getTabCounts(), { upcoming: 1, ongoing: 1, completed: 1 });
+  for (const tournament of harness.state.items) {
+    assert.equal(tournament.joined, undefined);
+    assert.equal(tournament.joinedStatusUnknown, true);
+  }
+  assert.equal(harness.state.error, '', 'a failed registration lookup should not replace the successful tournament list with a list error');
+  assert.equal(harness.state.registrationError, 'Temporary registration lookup failure');
+  assert.equal(
+    harness.state.items.find((tournament) => tournament.id === 'initial-upcoming').myRegistration,
+    undefined,
+  );
+  assert.match(
+    tournamentsSource,
+    /text=\{`Could not confirm which tournaments you have joined: \$\{registrationError\}\. Entry status is unknown; refresh before joining\.`\}/,
+  );
+  assert.match(uiSource, /const statusUnknown = t\?\.joinedStatusUnknown === true;/);
+  assert.match(uiSource, /statusUnknown\s*\?\s*'ENTRY STATUS UNKNOWN · TAP TO CHECK →'/);
+
+  registrationsFail = false;
+  await harness.load();
+
+  assert.deepEqual(getTabCounts(), { upcoming: 1, ongoing: 1, completed: 1 });
+  const recoveredUpcoming = harness.state.items.find((tournament) => tournament.id === 'initial-upcoming');
+  assert.equal(recoveredUpcoming.joinedStatusUnknown, false);
+  assert.equal(recoveredUpcoming.joined, true);
+  assert.equal(recoveredUpcoming.myRegistration.status, 'approved');
+  assert.equal(harness.state.registrationError, '', 'a valid retry should clear the registration warning');
+  assert.equal(harness.state.error, '');
 });
 
 test('a mode-filtered refresh updates tab accessibility labels and retains selection', async () => {
