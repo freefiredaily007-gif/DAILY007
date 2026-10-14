@@ -1800,6 +1800,124 @@ test("a playback-start request returns not found after a permanent delete commit
   }
 });
 
+test("a permanent deletion waiting on one video does not block playback of another video", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const adminId = fixture.adminId;
+  const playerId = fixture.playerId;
+  const targetVideoId = fixture.videoId;
+  const attemptId = randomUUID();
+  const otherVideoResult = await pool.query<{ id: string }>(
+    `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
+     VALUES ('Independent playback video', 'Concurrency', $1, $2)
+     RETURNING id`,
+    [randomUUID().replace(/-/g, "").slice(0, 11), adminId],
+  );
+  const otherVideoId = otherVideoResult.rows[0]?.id;
+  assert.ok(otherVideoId, "the unrelated active video should be created");
+  fixture.additionalVideoIds.push(otherVideoId);
+
+  let videoBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<unknown>[] = [];
+  try {
+    await withServer(async (origin) => {
+      videoBlocker = await pool.connect();
+      await videoBlocker.query("BEGIN");
+      await videoBlocker.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+        [targetVideoId],
+      );
+      const blockerPid = await backendPid(videoBlocker);
+
+      const deletion = sendPermanentDelete(origin, targetVideoId, adminId);
+      inFlight.push(deletion);
+      const deletePid = await waitForBlockedBackend(
+        "FROM daily007_v2_videos",
+        [blockerPid],
+      );
+
+      const playbackStart = sendJson(
+        origin,
+        "/videos/watch/start",
+        playerId,
+        "POST",
+        { videoId: otherVideoId, durationSeconds: 30, attemptId },
+      );
+      inFlight.push(playbackStart);
+      let playbackTimeout: ReturnType<typeof setTimeout> | undefined;
+      let startResponse: JsonResponse;
+      try {
+        startResponse = await Promise.race([
+          playbackStart,
+          new Promise<never>((_resolve, reject) => {
+            playbackTimeout = setTimeout(
+              () => reject(new Error("Playback of an unrelated video waited on permanent deletion.")),
+              5_000,
+            );
+          }),
+        ]);
+      } finally {
+        if (playbackTimeout) clearTimeout(playbackTimeout);
+      }
+
+      assert.equal(startResponse.status, 201);
+      assert.equal(typeof startResponse.body.sessionId, "string");
+      fixture.sessionId = startResponse.body.sessionId as string;
+      const stillBlockedDeletePid = await waitForBlockedBackend(
+        "FROM daily007_v2_videos",
+        [blockerPid],
+      );
+      assert.equal(stillBlockedDeletePid, deletePid);
+
+      await videoBlocker.query("COMMIT");
+      videoBlocker.release();
+      videoBlocker = null;
+
+      const deleteResponse = await deletion;
+      assert.equal(deleteResponse.status, 204);
+      assert.deepEqual(deleteResponse.body, {});
+    }, async () => {
+      if (videoBlocker) {
+        await videoBlocker.query("ROLLBACK").catch(() => undefined);
+        videoBlocker.release();
+        videoBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+
+    const [targetVideo, otherVideo, session] = await Promise.all([
+      pool.query(
+        "SELECT id FROM daily007_v2_videos WHERE id = $1",
+        [targetVideoId],
+      ),
+      pool.query<{ id: string; active: boolean }>(
+        "SELECT id, active FROM daily007_v2_videos WHERE id = $1",
+        [otherVideoId],
+      ),
+      pool.query<{ id: string; user_id: string; video_id: string; start_attempt_id: string }>(
+        `SELECT id, user_id, video_id, start_attempt_id
+           FROM daily007_v2_video_watch_sessions
+          WHERE user_id = $1 AND start_attempt_id = $2`,
+        [playerId, attemptId],
+      ),
+    ]);
+    assert.equal(targetVideo.rows.length, 0, "the locked target video should be deleted");
+    assert.equal(otherVideo.rows.length, 1, "the unrelated video should remain available");
+    assert.equal(otherVideo.rows[0]?.active, true);
+    assert.equal(session.rows.length, 1, "the unrelated playback session should persist");
+    assert.equal(session.rows[0]?.id, fixture.sessionId);
+    assert.equal(session.rows[0]?.user_id, playerId);
+    assert.equal(session.rows[0]?.video_id, otherVideoId);
+    assert.equal(session.rows[0]?.start_attempt_id, attemptId);
+  } finally {
+    if (videoBlocker) {
+      await videoBlocker.query("ROLLBACK").catch(() => undefined);
+      videoBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
 test("a catalog-setting failure after permanent deletion rolls back video and history state", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
