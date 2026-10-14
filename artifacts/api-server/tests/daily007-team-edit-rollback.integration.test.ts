@@ -40,6 +40,13 @@ type TeamEditFixture = {
   teammates: { name: string; uid: string }[];
 };
 
+type TeamEditPayload = {
+  captainGameName: string;
+  captainGameUid: string;
+  teamName: string;
+  teammates: { name: string; uid: string }[];
+};
+
 type RegistrationResponse = {
   status: number;
   body: Record<string, unknown>;
@@ -194,25 +201,51 @@ async function editTeam(
   origin: string,
   playerId: string,
   registrationId: string,
+  payload: TeamEditPayload = {
+    captainGameName: "Updated Fire Captain",
+    captainGameUid: `ff-${randomUUID()}`,
+    teamName: "Updated Fire Squad",
+    teammates: [
+      { name: "Updated Mate North", uid: `ff-${randomUUID()}` },
+      { name: "Updated Mate East", uid: `ff-${randomUUID()}` },
+      { name: "Updated Mate West", uid: `ff-${randomUUID()}` },
+    ],
+  },
 ): Promise<RegistrationResponse> {
   const response = await fetch(`${origin}/my/registrations/${registrationId}/team`, {
     method: "PATCH",
     headers: authHeaders(playerId),
-    body: JSON.stringify({
-      captainGameName: "Updated Fire Captain",
-      captainGameUid: `ff-${randomUUID()}`,
-      teamName: "Updated Fire Squad",
-      teammates: [
-        { name: "Updated Mate North", uid: `ff-${randomUUID()}` },
-        { name: "Updated Mate East", uid: `ff-${randomUUID()}` },
-        { name: "Updated Mate West", uid: `ff-${randomUUID()}` },
-      ],
-    }),
+    body: JSON.stringify(payload),
   });
   return {
     status: response.status,
     body: await response.json().catch(() => ({})) as Record<string, unknown>,
   };
+}
+
+async function waitForBlockedRequest(
+  queryFragment: string,
+  expectedBlockerPid: number,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blockers: number[] }>(
+      `SELECT activity.pid, pg_blocking_pids(activity.pid) AS blockers
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.wait_event_type = 'Lock'
+          AND activity.query ILIKE $1`,
+      [`%${queryFragment}%`],
+    );
+    const waiter = result.rows.find((row) =>
+      row.blockers.map(Number).includes(expectedBlockerPid),
+    );
+    if (waiter) return Number(waiter.pid);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
 }
 
 async function snapshot(
@@ -379,6 +412,114 @@ test("a PostgreSQL roster insert failure preserves the last saved team, profile,
     });
   } finally {
     await removeRosterInsertFailure();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("concurrent PostgreSQL team edits keep captain and teammate details from one save together", async () => {
+  const fixture = await createFixture();
+  let registrationId: string | undefined;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  const edits: Promise<RegistrationResponse>[] = [];
+  try {
+    await withServer(async (origin) => {
+      const registered = await registerTeam(origin, fixture);
+      assert.equal(
+        registered.status,
+        201,
+        `expected the original Squad registration to succeed: ${JSON.stringify(registered.body)}`,
+      );
+      assert.equal(typeof registered.body.registrationId, "string");
+      registrationId = registered.body.registrationId as string;
+      const initial = await snapshot(fixture, registrationId);
+      assert.equal(initial.profile?.name, fixture.profileName);
+      assert.equal(initial.profile?.wallet_coins, STARTING_WALLET_COINS - ENTRY_COINS);
+      assert.equal(initial.registration?.entry_coins_paid, ENTRY_COINS);
+      assert.equal(initial.ledger.length, 1);
+
+      const firstEdit: TeamEditPayload = {
+        captainGameName: "First Race Captain",
+        captainGameUid: `ff-${randomUUID()}`,
+        teamName: "First Race Squad",
+        teammates: [
+          { name: "First Race North", uid: `ff-${randomUUID()}` },
+          { name: "First Race East", uid: `ff-${randomUUID()}` },
+          { name: "First Race West", uid: `ff-${randomUUID()}` },
+        ],
+      };
+      const secondEdit: TeamEditPayload = {
+        captainGameName: "Second Race Captain",
+        captainGameUid: `ff-${randomUUID()}`,
+        teamName: "Second Race Squad",
+        teammates: [
+          { name: "Second Race North", uid: `ff-${randomUUID()}` },
+          { name: "Second Race East", uid: `ff-${randomUUID()}` },
+          { name: "Second Race West", uid: `ff-${randomUUID()}` },
+        ],
+      };
+
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the blocker backend PID");
+      const blockerPid = blocker.processID;
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_registrations WHERE id = $1 FOR UPDATE",
+        [registrationId],
+      );
+
+      edits.push(editTeam(origin, fixture.playerId, registrationId, firstEdit));
+      const firstWaiterPid = await waitForBlockedRequest(
+        "FROM daily007_v2_registrations",
+        blockerPid,
+        "the first team edit's registration-row lock",
+      );
+
+      edits.push(editTeam(origin, fixture.playerId, registrationId, secondEdit));
+      await waitForBlockedRequest(
+        "FROM daily007_v2_matches m",
+        firstWaiterPid,
+        "the second team edit's match-row lock behind the first edit",
+      );
+
+      await blocker.query("COMMIT");
+      blockerTransactionOpen = false;
+      const results = await Promise.all(edits);
+      assert.deepEqual(
+        results.map((result) => result.status),
+        [200, 200],
+        `both valid team edits should succeed: ${JSON.stringify(results.map((result) => result.body))}`,
+      );
+
+      const after = await snapshot(fixture, registrationId);
+      const savedTeam = {
+        captainGameName: after.registration?.captain_game_name,
+        captainGameUid: after.registration?.captain_game_uid,
+        teamName: after.registration?.team_name,
+        teammates: after.roster.map((member) => ({ name: member.member_name, uid: member.member_uid })),
+      };
+      const asSavedShape = (edit: TeamEditPayload) => ({
+        captainGameName: edit.captainGameName,
+        captainGameUid: edit.captainGameUid,
+        teamName: edit.teamName,
+        teammates: edit.teammates,
+      });
+      assert.ok(
+        JSON.stringify(savedTeam) === JSON.stringify(asSavedShape(firstEdit)) ||
+          JSON.stringify(savedTeam) === JSON.stringify(asSavedShape(secondEdit)),
+        `fresh reads must contain one complete edit, not mixed captain and teammate details: ${JSON.stringify(savedTeam)}`,
+      );
+      assert.equal(after.profile?.name, fixture.profileName);
+      assert.equal(after.profile?.wallet_coins, STARTING_WALLET_COINS - ENTRY_COINS);
+      assert.equal(after.registration?.captain_name, fixture.profileName);
+      assert.equal(after.registration?.entry_coins_paid, ENTRY_COINS);
+      assert.deepEqual(after.ledger, initial.ledger);
+    });
+  } finally {
+    if (blockerTransactionOpen && blocker) await blocker.query("ROLLBACK");
+    await Promise.allSettled(edits);
+    blocker?.release();
     await cleanupFixture(fixture);
   }
 });
