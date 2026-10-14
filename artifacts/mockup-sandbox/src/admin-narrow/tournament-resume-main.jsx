@@ -212,6 +212,16 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getVisibilityChangeCount: () => visibilityChangeCount,
     getVisibilityState: () => visibilityState,
     updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),
+    setTournamentResponseFixtures: (fixtures) => {
+      const base = apiMocks.previewTournaments[0];
+      if (!base || !Array.isArray(fixtures)) return false;
+      apiMocks.previewTournaments.splice(
+        0,
+        apiMocks.previewTournaments.length,
+        ...fixtures.map((fixture) => ({ ...base, ...fixture })),
+      );
+      return true;
+    },
     getScheduledStartInfo: () => {
       const istBeforeStart = new Date(fakeNow + IST_OFFSET_MS).toISOString();
       return {

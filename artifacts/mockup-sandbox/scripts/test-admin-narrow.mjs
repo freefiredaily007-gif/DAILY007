@@ -4322,7 +4322,7 @@ async function checkTournamentManualRefresh() {
     `A failed refresh must expose its error as a polite TalkBack live region: ${JSON.stringify(refreshErrorAccessibility)}.`,
   );
   assert(
-    refreshErrorAccessibility.label === 'Could not refresh tournaments: Temporary network error',
+    refreshErrorAccessibility.label === 'Could not refresh tournaments: Held Player refresh failed',
     `A failed refresh must have a clear accessible label: ${JSON.stringify(refreshErrorAccessibility)}.`,
   );
   assert(
@@ -4332,7 +4332,7 @@ async function checkTournamentManualRefresh() {
   assert(
     JSON.stringify(refreshErrorAccessibility.announcements) === JSON.stringify([{
       testID: 'player-tournament-refresh-error',
-      text: 'Could not refresh tournaments: Temporary network error',
+      text: 'Could not refresh tournaments: Held Player refresh failed',
     }]),
     `A single failed refresh should produce one clear announcement: ${JSON.stringify(refreshErrorAccessibility.announcements)}.`,
   );
@@ -4362,6 +4362,82 @@ async function checkTournamentManualRefresh() {
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRefresh,
     "The successful manual refresh must not depend on an AppState resume event.",
   );
+
+  const assertSelectedPlayerTabRefresh = async (status, expectedCount, names) => {
+    const state = await evaluate(`(() => {
+      const tab = document.querySelector('[data-testid="tournament-tab-${status}"]');
+      const otherTabs = ["upcoming", "ongoing", "completed"]
+        .filter((value) => value !== "${status}")
+        .map((value) => document.querySelector('[data-testid="tournament-tab-' + value + '"]'));
+      const tabBorder = tab ? getComputedStyle(tab).borderColor : null;
+      return {
+        label: tab?.getAttribute("aria-label") ?? null,
+        selected: tab?.getAttribute("aria-pressed") === "true" ||
+          tab?.getAttribute("aria-selected") === "true" ||
+          Boolean(tab && otherTabs.every((other) =>
+            other && getComputedStyle(other).borderColor !== tabBorder
+          )),
+        body: document.body.innerText,
+      };
+    })()`);
+    assert(
+      state?.selected,
+      `Refreshing from ${status} must keep that Player tab selected.`,
+    );
+    assert(
+      state?.label?.startsWith(`${status[0].toUpperCase()}${status.slice(1)} tournaments, `) &&
+        state.label.endsWith(`, ${expectedCount}`),
+      `${status} tab count should reflect ${expectedCount} refreshed cards: ${JSON.stringify(state?.label)}.`,
+    );
+    for (const name of names) {
+      assert(
+        state.body.includes(name),
+        `${status} should show refreshed card "${name}".`,
+      );
+    }
+  };
+
+  await clickSelector('[data-testid="tournament-tab-ongoing"]', "Player Ongoing filter before refresh");
+  await waitForCondition(
+    `document.body.innerText.includes('No ongoing tournaments are available right now.')`,
+    "the empty Ongoing list before its response changes",
+  );
+  const ongoingNames = ["Ongoing Refresh One", "Ongoing Refresh Two"];
+  assert(
+    await evaluate(`window.__daily007TournamentResume.setTournamentResponseFixtures([
+      { id: 'ongoing-refresh-one', name: '${ongoingNames[0]}', status: 'ongoing' },
+      { id: 'ongoing-refresh-two', name: '${ongoingNames[1]}', status: 'ongoing' },
+    ])`),
+    "Could not configure the refreshed Ongoing tournament response.",
+  );
+  readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await triggerPlayerManualRefresh();
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.body.innerText.includes('${ongoingNames[0]}') && document.body.innerText.includes('${ongoingNames[1]}')`,
+    "the refreshed Ongoing cards to appear",
+  );
+  await assertSelectedPlayerTabRefresh("ongoing", 2, ongoingNames);
+
+  await clickSelector('[data-testid="tournament-tab-completed"]', "Player Completed filter before refresh");
+  await waitForCondition(
+    `document.body.innerText.includes('No completed tournaments are available right now.')`,
+    "the empty Completed list before its response changes",
+  );
+  const completedNames = ["Completed Refresh One", "Completed Refresh Two"];
+  assert(
+    await evaluate(`window.__daily007TournamentResume.setTournamentResponseFixtures([
+      { id: 'completed-refresh-one', name: '${completedNames[0]}', status: 'completed' },
+      { id: 'completed-refresh-two', name: '${completedNames[1]}', status: 'completed' },
+    ])`),
+    "Could not configure the refreshed Completed tournament response.",
+  );
+  readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  await triggerPlayerManualRefresh();
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.body.innerText.includes('${completedNames[0]}') && document.body.innerText.includes('${completedNames[1]}')`,
+    "the refreshed Completed cards to appear",
+  );
+  await assertSelectedPlayerTabRefresh("completed", 2, completedNames);
 }
 
 async function checkTournamentResume() {
@@ -7592,7 +7668,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during Player manual-refresh checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Repeated Player pulls during a pending request send no duplicates; failure preserves the card and one error, and a later refresh recovers.");
+      console.log("PASS — Player refreshes preserve the selected Ongoing and Completed tabs while updating their cards and counts; failure and recovery behavior also passes.");
     } else if (initialLoadFailureOnly) {
       await checkTournamentInitialLoadFailure();
       assert(
