@@ -10,6 +10,7 @@ import {
   chooseGoogleAccountAction,
   verifiedGoogleIdentity,
 } from "../src/lib/daily007-google-auth-validation.ts";
+import { shortReferralCodeForUserId } from "../src/lib/daily007-compat-extra-validation";
 import { logoutDaily007 } from "../../daily007/src/lib/logout";
 import {
   getMockGoogleUserLookupCount,
@@ -319,6 +320,73 @@ test("first and repeated Google sign-ins keep one Daily007 account and one signu
         headers: { authorization: `Bearer ${String(signup.token)}` },
       });
       assert.equal(replacedWalletResponse.status, 401, "repeat Google sign-in should replace the older session");
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("Google signup retries with a fallback short code when the first candidate is owned", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  const newAccountId = "40000000-0000-4000-8000-000000000002";
+  const firstCandidate = shortReferralCodeForUserId(newAccountId, 0);
+  const fallbackCandidate = shortReferralCodeForUserId(newAccountId, 1);
+  const referrer = [...signupTestDb.users.values()].find(
+    (user) => user.email === "referrer@example.test",
+  );
+  assert.ok(referrer, "the isolated fixture should contain the code-owning test account");
+  assert.notEqual(firstCandidate, fallbackCandidate);
+
+  const originalCode = signupTestDb.shortCodesByUser.get(referrer.id);
+  assert.ok(originalCode);
+  signupTestDb.shortCodeOwners.delete(originalCode);
+  signupTestDb.shortCodesByUser.set(referrer.id, firstCandidate);
+  signupTestDb.shortCodeOwners.set(firstCandidate, referrer.id);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signup = await googleAuth(origin);
+
+      assert.equal(signup.status, 201, "a short-code collision must not reject Google signup");
+      assert.equal(signup.body.id, newAccountId);
+      assert.equal(signup.body.coins, 10);
+      assert.equal(typeof signup.body.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+
+      const linkedAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(linkedAccounts.length, 1, "signup should leave one account linked to Google");
+
+      assert.equal(signupTestDb.shortCodesByUser.get(referrer.id), firstCandidate);
+      assert.equal(
+        signupTestDb.shortCodesByUser.get(newAccountId),
+        fallbackCandidate,
+        "signup should save the next available candidate",
+      );
+      assert.equal(signupTestDb.shortCodeOwners.get(firstCandidate), referrer.id);
+      assert.equal(signupTestDb.shortCodeOwners.get(fallbackCandidate), newAccountId);
+      assert.equal(
+        new Set(signupTestDb.shortCodeOwners.keys()).size,
+        signupTestDb.shortCodeOwners.size,
+        "no duplicate short code should be assigned",
+      );
+
+      const signupRewards = signupTestDb.ledger.filter(
+        (entry) => entry.user_id === newAccountId,
+      );
+      assert.deepEqual(
+        signupRewards.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{ amount: 10, balance_after: 10, reason: "Welcome Signup Bonus" }],
+        "the successful fallback signup should receive exactly one reward",
+      );
     });
   } finally {
     signupTestDb.reset();
