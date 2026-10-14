@@ -1,10 +1,14 @@
 {
   "expo": {
-    "name": "Daily007",
+    "name": "DAILY007",
     "displayName": "Daily007",
     "slug": "daily007",
     "version": "1.0.1",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "daily007",
