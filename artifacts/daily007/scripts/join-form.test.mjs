@@ -4,6 +4,7 @@ import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
 import { buildJoinFormPayload } from "../src/lib/joinFormPayload.ts";
 import {
+  getJoinFormSubmissionErrorMessage,
   getRegistrationServerFieldErrors,
   validateJoinForm,
 } from "../src/lib/joinFormValidation.ts";
@@ -309,6 +310,35 @@ test("capacity, network, and database errors remain form-level", () => {
     }, { isTeam: false, teammateCount: 0 }),
     {},
   );
+});
+
+test("a failed team edit explains that saved details are unchanged and attempted edits can be retried", () => {
+  assert.equal(
+    getJoinFormSubmissionErrorMessage("Database write failed.", { editing: true }),
+    "Your saved team is unchanged. Database write failed. Your attempted edits are still here; correct them or try saving again.",
+  );
+  assert.equal(
+    getJoinFormSubmissionErrorMessage("Network request failed.", {
+      editing: true,
+      outcomeUnknown: true,
+    }),
+    "Network request failed. We couldn't confirm whether your saved team changed. Your attempted edits are still here; check the saved team before retrying.",
+  );
+  assert.equal(
+    getJoinFormSubmissionErrorMessage("Registration could not be confirmed.", { editing: false }),
+    "Registration could not be confirmed.",
+  );
+
+  const failedEditCatch = joinFormSource.match(
+    /\} catch \(e: any\) \{([\s\S]*?)\} finally \{ setBusy\(false\); \}/,
+  )?.[1];
+  assert.ok(failedEditCatch, "A failed submission must be handled and release the save button.");
+  assert.match(failedEditCatch, /getJoinFormSubmissionErrorMessage\(message,\s*\{\s*editing,\s*outcomeUnknown: e\?\.isAxiosError === true && !e\?\.response/);
+  assert.doesNotMatch(failedEditCatch, /set(?:CaptainGameName|CaptainGameUid|TeamName|Members)\(/);
+  assert.match(joinFormSource, /value=\{teamName\}/);
+  assert.match(joinFormSource, /value=\{captainGameName\}/);
+  assert.match(joinFormSource, /onPress=\{submit\}[\s\S]*?loading=\{busy\}[\s\S]*?disabled=\{isUnavailable\}/);
+  assert.match(joinFormSource, /onPress=\{onCancel\}[\s\S]*?testID="join-form-cancel"/);
 });
 
 test("optional teammate UIDs may be blank, while duplicate UIDs identify both conflicting fields", () => {

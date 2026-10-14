@@ -13,6 +13,17 @@ export type JoinFormValidationError = {
   fieldErrors: JoinFormFieldErrors;
 };
 
+export function getJoinFormSubmissionErrorMessage(
+  message: string,
+  options: { editing: boolean; outcomeUnknown?: boolean },
+): string {
+  if (!options.editing) return message;
+  if (options.outcomeUnknown) {
+    return `${message} We couldn't confirm whether your saved team changed. Your attempted edits are still here; check the saved team before retrying.`;
+  }
+  return `Your saved team is unchanged. ${message} Your attempted edits are still here; correct them or try saving again.`;
+}
+
 export function getRegistrationServerFieldErrors(
   responseData: unknown,
   options: { isTeam: boolean; teammateCount: number },

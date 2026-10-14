@@ -7,6 +7,7 @@ import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScr
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildJoinFormPayload } from '../lib/joinFormPayload';
 import {
+  getJoinFormSubmissionErrorMessage,
   getRegistrationServerFieldErrors,
   validateJoinForm,
   type JoinFormField,
@@ -151,7 +152,11 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         teammateCount: members.length,
       });
       if (Object.keys(serverFieldErrors).length > 0) setFieldErrors(serverFieldErrors);
-      announceError(responseData?.error || responseData?.message || e?.message || 'Registration could not be confirmed. Please try again.');
+      const message = responseData?.error || responseData?.message || e?.message || 'Registration could not be confirmed. Please try again.';
+      announceError(getJoinFormSubmissionErrorMessage(message, {
+        editing,
+        outcomeUnknown: e?.isAxiosError === true && !e?.response,
+      }));
       setFullCapacityFailure(isFullMatchRejection(e));
     } finally { setBusy(false); }
   };
