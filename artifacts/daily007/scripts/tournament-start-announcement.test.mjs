@@ -43,6 +43,38 @@ test("each staggered tournament start has one concise announcement", () => {
   );
 });
 
+test("simultaneous tournament starts announce each tournament once", () => {
+  const announcedTournamentIds = new Set();
+  const announcements = [
+    takeTournamentStartAnnouncement(
+      { id: "same-time-first", name: "Same-Time First Match" },
+      announcedTournamentIds,
+    ),
+    takeTournamentStartAnnouncement(
+      { id: "same-time-second", name: "Same-Time Second Match" },
+      announcedTournamentIds,
+    ),
+  ].filter(Boolean);
+
+  assert.deepEqual(announcements, [
+    "Tournament Same-Time First Match is now ongoing.",
+    "Tournament Same-Time Second Match is now ongoing.",
+  ]);
+  assert.equal(
+    announcements.join(" "),
+    "Tournament Same-Time First Match is now ongoing. Tournament Same-Time Second Match is now ongoing.",
+    "Android must be able to expose both starts in one polite live-region update.",
+  );
+  assert.equal(
+    takeTournamentStartAnnouncement(
+      { id: "same-time-first", name: "Same-Time First Match" },
+      announcedTournamentIds,
+    ),
+    null,
+    "A refresh must not repeat a tournament already announced in the same-time batch.",
+  );
+});
+
 test("Player and Admin lists expose queued VoiceOver and polite live-region announcements", () => {
   for (const [screenName, source] of [
     ["Player", playerScreenSource],

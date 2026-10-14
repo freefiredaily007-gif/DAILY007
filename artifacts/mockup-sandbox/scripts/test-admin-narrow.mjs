@@ -45,6 +45,7 @@ const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
 const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-edit-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
+const sameTimeStartOnly = process.argv.includes("--same-time-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
 const adminLandscapeOnly = process.argv.includes("--admin-landscape-only");
 const adminFullAdminRecoveryOnly = process.argv.includes("--admin-full-admin-recovery-only");
@@ -4869,6 +4870,120 @@ async function checkTournamentScheduledStart(boundaryIndex) {
   );
 }
 
+async function checkSimultaneousTournamentStarts() {
+  const firstName = "IST Month-End Boundary";
+  const secondName = "Later Month-End Start";
+  const expectedAnnouncement =
+    `Tournament ${firstName} is now ongoing. Tournament ${secondName} is now ongoing.`;
+
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the simultaneous-start preview to initialize",
+  );
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > 0 &&
+      document.body.innerText.includes(${JSON.stringify(firstName)}) &&
+      document.body.innerText.includes(${JSON.stringify(secondName)})`,
+    "the Player list to load both simultaneous-start tournaments",
+  );
+  const playerSchedules = await evaluate(
+    "window.__daily007TournamentResume.getScheduledStartInfo().schedules",
+  );
+  assert(
+    playerSchedules.length === 2 && playerSchedules[0].startMs === playerSchedules[1].startMs,
+    `Player tournaments must share an exact start instant: ${JSON.stringify(playerSchedules)}.`,
+  );
+
+  await clickSelector('[data-testid="tournament-tab-ongoing"]', "player Ongoing filter");
+  await waitForCondition(
+    "document.body.innerText.includes('No ongoing tournaments are available right now.')",
+    "the Player Ongoing list to be empty before the shared start",
+  );
+  let tournamentReads = await evaluate(
+    "window.__daily007TournamentResume.getTournamentReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.rememberFocus()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} &&
+      window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) &&
+      window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(secondName)})`,
+    "both Player tournaments to become ongoing at their shared start",
+  );
+  await waitForCondition(
+    `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(expectedAnnouncement)}`,
+    "one Player announcement to include both simultaneous starts",
+  );
+  let announcement = await evaluate(
+    `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim()`,
+  );
+  assert(
+    (announcement.match(new RegExp(firstName, "g")) ?? []).length === 1 &&
+      (announcement.match(new RegExp(secondName, "g")) ?? []).length === 1,
+    `Each Player tournament must be named exactly once: ${JSON.stringify(announcement)}.`,
+  );
+  assert(
+    await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.getAttribute('aria-live') === 'polite'`),
+    "The Player simultaneous-start message must remain a polite live-region update.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.focusUnchanged()"),
+    "The Player simultaneous-start announcement must not move focus.",
+  );
+
+  await evaluate("window.__daily007TournamentResume.prepareAdminForScheduledStart()");
+  await evaluate("window.__daily007TournamentResume.showAdmin()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > 0 &&
+      document.body.innerText.includes(${JSON.stringify(firstName)}) &&
+      document.body.innerText.includes(${JSON.stringify(secondName)})`,
+    "the Admin list to load both simultaneous-start tournaments",
+  );
+  const adminSchedules = await evaluate(
+    "window.__daily007TournamentResume.getScheduledStartInfo().schedules",
+  );
+  assert(
+    adminSchedules.length === 2 && adminSchedules[0].startMs === adminSchedules[1].startMs,
+    `Admin tournaments must share an exact start instant: ${JSON.stringify(adminSchedules)}.`,
+  );
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
+  await waitForCondition(
+    "document.body.innerText.includes('No ongoing tournaments.')",
+    "the Admin Ongoing list to be empty before the shared start",
+  );
+  tournamentReads = await evaluate(
+    "window.__daily007TournamentResume.getTournamentReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.rememberFocus()");
+  await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${tournamentReads} &&
+      window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(firstName)}) &&
+      window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(secondName)})`,
+    "both Admin tournaments to become ongoing at their shared start",
+  );
+  await waitForCondition(
+    `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(expectedAnnouncement)}`,
+    "one Admin announcement to include both simultaneous starts",
+  );
+  announcement = await evaluate(
+    `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim()`,
+  );
+  assert(
+    (announcement.match(new RegExp(firstName, "g")) ?? []).length === 1 &&
+      (announcement.match(new RegExp(secondName, "g")) ?? []).length === 1,
+    `Each Admin tournament must be named exactly once: ${JSON.stringify(announcement)}.`,
+  );
+  assert(
+    await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.getAttribute('aria-live') === 'polite'`),
+    "The Admin simultaneous-start message must remain a polite live-region update.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.focusUnchanged()"),
+    "The Admin simultaneous-start announcement must not move focus.",
+  );
+}
+
 async function readHomeCarouselState() {
   return evaluate(`(() => {
     const carousel = document.querySelector('[data-testid="home-upcoming-carousel"]');
@@ -7114,6 +7229,8 @@ try {
     ? "tournament-resume-preview.html?initial-load-failure-only=1"
     : resumeOnly
       ? "tournament-resume-preview.html"
+    : sameTimeStartOnly
+      ? "tournament-resume-preview.html?scheduled-start-only=1&same-time-start-only=1&boundary=month-end"
     : scheduledStartOnly
       ? "tournament-resume-preview.html?scheduled-start-only=1&boundary=month-end"
       : adminTournamentHomeRefreshOnly
@@ -7178,7 +7295,7 @@ try {
   await connectCdp(pageTarget.webSocketDebuggerUrl);
   await cdp("Page.enable");
   await cdp("Runtime.enable");
-  if (scheduledStartOnly || istDateSurfacesOnly) {
+  if (scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly) {
     await cdp("Emulation.setTimezoneOverride", { timezoneId: "America/Los_Angeles" });
     await cdp("Page.reload", { ignoreCache: true });
   }
@@ -7191,6 +7308,7 @@ try {
     adminRetryConcurrencyOnly ||
     manualRefreshOnly ||
     scheduledStartOnly ||
+    sameTimeStartOnly ||
     istDateSurfacesOnly ||
     homeCarouselOnly ||
     keyboardFormsOnly ||
@@ -7212,13 +7330,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
+        : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || scheduledStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
+        : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -7252,6 +7370,8 @@ try {
           ? "Admin Retry concurrency"
         : manualRefreshOnly
           ? "Player pull-to-refresh"
+        : sameTimeStartOnly
+          ? "simultaneous-start Player and Admin tournament screens"
         : scheduledStartOnly
           ? "scheduled-start Player and Admin tournament screens"
         : keyboardFormsOnly
@@ -7457,6 +7577,15 @@ try {
       );
       console.log(
         "PASS — Fake notification recipients expose checkbox names and states; each selection change produces one polite count announcement without moving focus, and the send action and completion are labeled.",
+      );
+    } else if (sameTimeStartOnly) {
+      await checkSimultaneousTournamentStarts();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during simultaneous-start checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log(
+        "PASS — Player and Admin each announce both same-time tournament starts once in one polite update without moving focus.",
       );
     } else if (scheduledStartOnly) {
       await checkTournamentScheduledStart(0);

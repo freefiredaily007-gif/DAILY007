@@ -46,6 +46,7 @@ loadAnnouncementObserver.observe(rootElement, {
   characterData: true,
 });
 const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-start-only");
+const sameTimeStartOnly = new URLSearchParams(location.search).has("same-time-start-only");
 const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
 const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
 const adminInitialLoadFailureOnly = new URLSearchParams(location.search).has("admin-initial-load-failure-only");
@@ -89,7 +90,9 @@ const nextIstMidnightStart = (timestamp) => {
 let scheduledStartMs = scheduledStartOnly
   ? Date.parse(selectedBoundary.startsAt)
   : Date.now() + 10 * 60 * 1000;
-let laterScheduledStartMs = scheduledStartOnly
+let laterScheduledStartMs = sameTimeStartOnly
+  ? scheduledStartMs
+  : scheduledStartOnly
   ? scheduledStartMs + scheduledStartGapMs
   : scheduledStartMs + scheduledStartGapMs;
 let fakeNow = scheduledStartMs - (scheduledStartOnly ? 2_000 : 60 * 1000);
