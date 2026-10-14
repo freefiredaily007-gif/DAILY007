@@ -292,7 +292,7 @@ test('the standalone Results screen shows a polite list-load error and lets admi
   assert.match(listLoader, /setHasListLoadFailed\(true\)/);
   assert.doesNotMatch(listLoader, /setList\(\[\]\)/, 'A failed request must not look like a successful empty list.');
   assert.match(listLoader, /setListStatusMessage\(isRetry \? 'Retrying tournaments…' : ''\)/);
-  assert.match(listLoader, /setListStatusMessage\(isRetry \? 'Tournament list loaded\.' : ''\)/);
+  assert.match(listLoader, /setListStatusMessage\(isRetry && tournaments\.length > 0 \? 'Tournament list loaded\.' : ''\)/);
   assert.match(listLoader, /setListStatusMessage\(''\)/);
 
   assert.match(
@@ -317,6 +317,28 @@ test('the standalone Results screen shows a polite list-load error and lets admi
     resultsSource,
     /<Text accessibilityLiveRegion="polite" testID="admin-results-list-status">\s*\{listStatusMessage\}\s*<\/Text>/,
     'Retry progress and recovery outcomes must be announced once through a stable polite live region.',
+  );
+});
+
+test('the standalone Results screen shows an accessible empty state only after a successful empty response', () => {
+  const listLoader = resultsSource.match(
+    /const loadTournaments = useCallback\(async \(isRetry = false\) => \{[\s\S]*?\n  \}, \[\]\);/,
+  )?.[0];
+  assert.ok(listLoader, 'The tournament loader must distinguish successful empty data from request failure.');
+  assert.match(listLoader, /const tournaments = await Api\.tournaments\(\)/);
+  assert.match(listLoader, /setList\(tournaments\)/);
+  assert.match(listLoader, /catch \{[\s\S]*setListLoadError\('Could not load tournaments\. Please try again\.'\)/);
+  assert.doesNotMatch(listLoader, /catch \{[\s\S]*setList\(\[\]\)/);
+
+  assert.match(
+    resultsSource,
+    /<Msg kind="err" text=\{listLoadError\} accessibilityLiveRegion="polite" \/>[\s\S]*?\{!list \?[\s\S]*?listLoading && !hasListLoadFailed \? <Loading accessibilityLabel="Loading tournaments" \/>/,
+    'Failed requests must stay on the retryable error path rather than showing the empty state.',
+  );
+  assert.match(
+    resultsSource,
+    /\) : !sel \? list\.length === 0 \? \(\s*<Empty\s+title="NO TOURNAMENTS TO SHOW"\s+text="There are no tournaments available for results\."\s+accessibilityLabel="No tournaments are available for results\."\s+accessibilityLiveRegion="polite"\s*\/>\s*\)/,
+    'A successful empty response must show a clear, accessible no-tournaments state.',
   );
 });
 

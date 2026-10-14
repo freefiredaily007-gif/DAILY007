@@ -62,7 +62,7 @@ export default function AdminResults({
         setList(tournaments);
         setClockNow(Date.now());
         setHasListLoadFailed(false);
-        setListStatusMessage(isRetry ? 'Tournament list loaded.' : '');
+        setListStatusMessage(isRetry && tournaments.length > 0 ? 'Tournament list loaded.' : '');
       }
     } catch {
       if (listRequestId.current === currentRequest) {
@@ -185,7 +185,14 @@ export default function AdminResults({
           testID="admin-results-retry-tournaments"
           onPress={retryTournaments}
         />
-      )) : !sel ? list.map((t) => {
+      )) : !sel ? list.length === 0 ? (
+        <Empty
+          title="NO TOURNAMENTS TO SHOW"
+          text="There are no tournaments available for results."
+          accessibilityLabel="No tournaments are available for results."
+          accessibilityLiveRegion="polite"
+        />
+      ) : list.map((t) => {
         const lifecycle = getTournamentLifecycleState(t, clockNow);
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
