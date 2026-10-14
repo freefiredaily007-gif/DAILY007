@@ -40,6 +40,8 @@ export default function Profile() {
   const [bootstrapError, setBootstrapError] = React.useState('');
   const [setupError, setSetupError] = React.useState('');
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
+  const [statsRetrying, setStatsRetrying] = React.useState(false);
+  const statsRetryInFlight = React.useRef(false);
   const [googleConnectError, setGoogleConnectError] = React.useState('');
   const [passwordModalVisible, setPasswordModalVisible] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState('');
@@ -66,6 +68,17 @@ export default function Profile() {
     void refresh();
   }, [refresh]));
   const statsUnavailable = !!user?.statsError || user?.matches === undefined;
+  const retryProfileStats = async () => {
+    if (statsRetryInFlight.current) return;
+    statsRetryInFlight.current = true;
+    setStatsRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      statsRetryInFlight.current = false;
+      setStatsRetrying(false);
+    }
+  };
 
   const closeSetup = () => {
     setSetupVisible(false);
@@ -163,7 +176,22 @@ export default function Profile() {
         <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>🪙{statsUnavailable ? '—' : user?.prizeCoins ?? 0}</Text><Text style={s.statL}>PRIZES</Text></View>
       </View>
       {user?.statsError
-        ? <Text style={s.statsError}>Profile statistics unavailable: {user.statsError}</Text>
+        ? <>
+            <Text style={s.statsError} accessibilityLiveRegion="polite">
+              Profile statistics unavailable: {user.statsError}
+            </Text>
+            <Btn
+              testID="profile-stats-retry"
+              title={statsRetrying ? 'REFRESHING STATISTICS…' : 'RETRY STATISTICS'}
+              kind="ghost"
+              onPress={retryProfileStats}
+              disabled={statsRetrying}
+              loading={statsRetrying}
+              accessibilityLabel={statsRetrying ? 'Refreshing profile statistics' : 'Retry profile statistics'}
+              accessibilityHint="Refreshes your account and profile statistics."
+              accessibilityState={{ disabled: statsRetrying, busy: statsRetrying }}
+            />
+          </>
         : statsUnavailable ? <Text style={s.statsError}>Profile statistics are loading.</Text> : null}
 
       <SectionTitle accent={C.blue}>ACCOUNT</SectionTitle>

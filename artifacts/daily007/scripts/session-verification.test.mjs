@@ -162,7 +162,15 @@ function mockApiRequests(t, { statsFailure, statsResponse } = {}) {
   return requests;
 }
 
-function createProfileScreen(user) {
+function createProfileScreen(
+  user,
+  {
+    react = React,
+    getUser = () => user,
+    refresh = async () => user,
+    renderComponent = false,
+  } = {},
+) {
   let profileDeclaration = null;
 
   function visit(node) {
@@ -197,7 +205,7 @@ function createProfileScreen(user) {
       children,
     );
   };
-  const Text = ({ children, style, accessibilityLabel }) => {
+  const Text = ({ children, style, accessibilityLabel, accessibilityLiveRegion }) => {
     const testId = style?.profileStyle === "statV"
       ? "profile-stat-value"
       : style?.profileStyle === "statL"
@@ -206,6 +214,7 @@ function createProfileScreen(user) {
     const props = {
       ...(testId ? { "data-testid": testId } : {}),
       ...(accessibilityLabel ? { "aria-label": accessibilityLabel } : {}),
+      ...(accessibilityLiveRegion ? { "aria-live": accessibilityLiveRegion } : {}),
     };
     return React.createElement("span", props, children);
   };
@@ -215,9 +224,26 @@ function createProfileScreen(user) {
     children,
   );
   const SectionTitle = ({ children }) => React.createElement("h2", null, children);
-  const Button = ({ title, children, testID }) => React.createElement(
+  const Button = ({
+    title,
+    children,
+    testID,
+    onPress,
+    disabled,
+    accessibilityLabel,
+    accessibilityHint,
+    accessibilityState,
+  }) => React.createElement(
     "button",
-    testID ? { "data-testid": testID } : undefined,
+    {
+      ...(testID ? { "data-testid": testID } : {}),
+      ...(onPress ? { onClick: onPress } : {}),
+      ...(disabled ? { disabled: true } : {}),
+      ...(accessibilityLabel ? { "aria-label": accessibilityLabel } : {}),
+      ...(accessibilityHint ? { "aria-description": accessibilityHint } : {}),
+      ...(accessibilityState?.disabled ? { "aria-disabled": "true" } : {}),
+      ...(accessibilityState?.busy ? { "aria-busy": "true" } : {}),
+    },
     children ?? title,
   );
   const KeyValue = ({ k, v }) => React.createElement(
@@ -227,7 +253,7 @@ function createProfileScreen(user) {
     React.createElement("span", null, v),
   );
   const scope = {
-    React,
+    React: react,
     ScrollView: ({ children }) => React.createElement("main", null, children),
     View,
     Modal: ({ visible, children }) => visible
@@ -246,7 +272,7 @@ function createProfileScreen(user) {
     Constants: {
       expoConfig: { version: "1.0.0", android: { versionCode: 7 } },
     },
-    useApp: () => ({ user, refresh: async () => user, logout() {} }),
+    useApp: () => ({ user: getUser(), refresh, logout() {} }),
     useNavigation: () => ({ navigate() {} }),
     useFocusEffect: () => {},
     useDaily007ChangePassword: () => ({
@@ -264,7 +290,89 @@ function createProfileScreen(user) {
     ...Object.keys(scope),
     `${javascript}\nreturn Profile;`,
   )(...Object.values(scope));
-  return React.createElement(Profile);
+  return renderComponent
+    ? () => {
+        react.beginRender?.();
+        return Profile();
+      }
+    : react.createElement(Profile);
+}
+
+function createHookReact() {
+  const slots = [];
+  let cursor = 0;
+  return {
+    Fragment: Symbol("Fragment"),
+    createElement(type, props, ...children) {
+      return {
+        type,
+        props: {
+          ...props,
+          children: children.length === 0
+            ? props?.children
+            : children.length === 1
+              ? children[0]
+              : children,
+        },
+      };
+    },
+    useState(initialValue) {
+      const slot = cursor++;
+      if (!(slot in slots)) slots[slot] = initialValue;
+      return [
+        slots[slot],
+        (value) => { slots[slot] = value; },
+      ];
+    },
+    useRef(initialValue) {
+      const slot = cursor++;
+      if (!(slot in slots)) slots[slot] = { current: initialValue };
+      return slots[slot];
+    },
+    useCallback(callback) {
+      return callback;
+    },
+    useEffect() {},
+    beginRender() {
+      cursor = 0;
+    },
+  };
+}
+
+function renderHookTree(node, react) {
+  if (node == null || typeof node === "boolean") return null;
+  if (Array.isArray(node)) {
+    return node.map((child) => renderHookTree(child, react));
+  }
+  if (typeof node !== "object" || !("type" in node)) return node;
+
+  const { type, props = {} } = node;
+  const children = renderHookTree(props.children, react);
+  if (type === react.Fragment) return children;
+  if (typeof type === "function") {
+    return renderHookTree(type({ ...props, children }), react);
+  }
+  return react.createElement(type, props, children);
+}
+
+function findRenderedElement(node, predicate) {
+  if (node == null || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findRenderedElement(child, predicate);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (predicate(node)) return node;
+  return findRenderedElement(node.props?.children, predicate);
+}
+
+function renderedTextContent(node) {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(renderedTextContent).join("");
+  return renderedTextContent(node.props?.children);
 }
 
 test("401 and 403 verification responses clear the saved session", async () => {
@@ -446,6 +554,133 @@ test("Profile shows unavailable totals after successful malformed statistics", a
     /Profile statistics unavailable: Profile statistics response is incomplete\./,
   );
   assert.doesNotMatch(markup, /Profile statistics are loading/);
+});
+
+test("Profile retries unavailable statistics once and replaces the markers after success", async () => {
+  const unavailableUser = {
+    id: "verified-player",
+    name: "Verified Player",
+    email: "verified@example.test",
+    coins: 17,
+    token: savedSession.token,
+    statsError: "Network disconnected",
+  };
+  const refreshedUser = {
+    ...unavailableUser,
+    matches: 27,
+    wins: 11,
+    kills: 94,
+    prizeCoins: 640,
+    statsError: undefined,
+  };
+  let currentUser = unavailableUser;
+  let refreshCalls = 0;
+  let resolveRefresh;
+  const refreshPromise = new Promise((resolve) => {
+    resolveRefresh = resolve;
+  });
+  const refresh = () => {
+    refreshCalls += 1;
+    return refreshPromise.then((nextUser) => {
+      currentUser = nextUser;
+      return nextUser;
+    });
+  };
+  const react = createHookReact();
+  const renderProfile = createProfileScreen(unavailableUser, {
+    react,
+    getUser: () => currentUser,
+    refresh,
+    renderComponent: true,
+  });
+  const render = () => renderHookTree(renderProfile(), react);
+  const getRetryButton = (tree) => findRenderedElement(
+    tree,
+    (node) => node.type === "button" && node.props["data-testid"] === "profile-stats-retry",
+  );
+
+  let tree = render();
+  let retryButton = getRetryButton(tree);
+  assert.ok(retryButton, "Unavailable statistics should show a retry button.");
+  assert.equal(retryButton.props["aria-label"], "Retry profile statistics");
+  assert.equal(retryButton.props["aria-description"], "Refreshes your account and profile statistics.");
+  assert.match(renderedTextContent(tree), /Profile statistics unavailable: Network disconnected/);
+  assert.match(renderedTextContent(tree), /Verified Player/);
+
+  const retryRequest = retryButton.props.onClick();
+  assert.equal(refreshCalls, 1);
+  tree = render();
+  retryButton = getRetryButton(tree);
+  assert.equal(retryButton.props.disabled, true);
+  assert.equal(retryButton.props["aria-disabled"], "true");
+  assert.equal(retryButton.props["aria-busy"], "true");
+  await retryButton.props.onClick();
+  assert.equal(refreshCalls, 1, "A second tap during refresh must not start another request.");
+
+  resolveRefresh(refreshedUser);
+  await retryRequest;
+  tree = render();
+  assert.equal(getRetryButton(tree), null);
+  assert.doesNotMatch(renderedTextContent(tree), /Profile statistics unavailable:/);
+  const statCards = [];
+  const visit = (node) => {
+    if (node == null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (node.props?.["data-testid"] === "profile-stat-value") {
+      statCards.push(renderedTextContent(node.props.children));
+    }
+    visit(node.props?.children);
+  };
+  visit(tree);
+  assert.deepEqual(statCards, ["27", "11", "94", "🪙640"]);
+});
+
+test("Profile keeps the account and unavailable totals after a failed retry", async () => {
+  const unavailableUser = {
+    id: "verified-player",
+    name: "Verified Player",
+    email: "verified@example.test",
+    coins: 17,
+    token: savedSession.token,
+    statsError: "Network disconnected",
+  };
+  const stillUnavailableUser = {
+    ...unavailableUser,
+    statsError: "Statistics are still unavailable.",
+  };
+  let currentUser = unavailableUser;
+  let refreshCalls = 0;
+  const react = createHookReact();
+  const renderProfile = createProfileScreen(unavailableUser, {
+    react,
+    getUser: () => currentUser,
+    refresh: async () => {
+      refreshCalls += 1;
+      currentUser = stillUnavailableUser;
+      return stillUnavailableUser;
+    },
+    renderComponent: true,
+  });
+  const render = () => renderHookTree(renderProfile(), react);
+  let tree = render();
+  const retryButton = findRenderedElement(
+    tree,
+    (node) => node.type === "button" && node.props["data-testid"] === "profile-stats-retry",
+  );
+
+  await retryButton.props.onClick();
+  tree = render();
+  assert.equal(refreshCalls, 1);
+  assert.match(renderedTextContent(tree), /Verified Player/);
+  assert.match(renderedTextContent(tree), /Profile statistics unavailable: Statistics are still unavailable\./);
+  assert.match(renderedTextContent(tree), /—/);
+  assert.ok(findRenderedElement(
+    tree,
+    (node) => node.type === "button" && node.props["data-testid"] === "profile-stats-retry",
+  ));
 });
 
 test("successful but malformed profile statistics preserve the account and leave totals unavailable", async (t) => {
