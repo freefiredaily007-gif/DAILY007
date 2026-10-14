@@ -15,8 +15,8 @@ import {
   createRoomCredentialAvailabilityAnnouncementTracker,
 } from "../src/lib/roomCredentialAvailabilityAnnouncement.ts";
 import {
+  createTournamentDetailRefreshController,
   fetchTournamentDetailSnapshot,
-  startTournamentDetailPolling,
   TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS,
 } from "../src/lib/tournament-detail-refresh.ts";
 
@@ -337,11 +337,23 @@ test("clipboard failure simulation is development-only and covers both credentia
   );
 });
 
-test("room details refresh in place while focused and the interval stops on blur", async () => {
+test("match detail polling follows both focus and app activity without duplicate resume refreshes", async () => {
   assert.equal(TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS, 30_000);
   assert.match(
     detailSource,
-    /useEffect\(\s*\(\) => startTournamentDetailPolling\(isFocused,\s*\(\) => \{\s*void load\(\);\s*\}\),\s*\[isFocused, load\]\s*,?\s*\)/,
+    /AppState\.addEventListener\('change', \(nextState\) => \{\s*setIsAppActive\(nextState === 'active'\);/,
+  );
+  assert.match(
+    detailSource,
+    /detailRefreshController\.current\?\.update\(isFocused, isAppActive,/,
+  );
+  assert.match(
+    detailSource,
+    /getTournamentResultsRefreshInterval\(isFocused && isAppActive\)/,
+  );
+  assert.match(
+    detailSource,
+    /if \(!isFocused \|\| !isAppActive\) return undefined;/,
   );
   assert.match(
     detailSource,
@@ -413,6 +425,8 @@ test("room details refresh in place while focused and the interval stops on blur
     roomId: null,
     roomPassword: null,
   });
+  snapshotIndex = 0;
+  apiReads.length = 0;
 
   const intervals = [];
   const timers = {
@@ -425,11 +439,22 @@ test("room details refresh in place while focused and the interval stops on blur
       interval.active = false;
     },
   };
-  const stopWhileBlurred = startTournamentDetailPolling(false, refresh, timers);
-  assert.equal(intervals.length, 0, "a blurred screen must not create an interval");
-  stopWhileBlurred();
+  const controller = createTournamentDetailRefreshController(timers);
+  let refreshCalls = 0;
+  let pendingRefresh;
+  const trackedRefresh = () => {
+    refreshCalls += 1;
+    pendingRefresh = refresh();
+    return pendingRefresh;
+  };
 
-  const stopPolling = startTournamentDetailPolling(true, refresh, timers);
+  // Route focus may arrive while the app is still inactive; only resume refreshes.
+  controller.update(true, false, trackedRefresh);
+  assert.equal(refreshCalls, 0);
+  assert.equal(intervals.length, 0, "backgrounded focused screens must not poll");
+  controller.update(true, true, trackedRefresh);
+  await pendingRefresh;
+  assert.equal(refreshCalls, 1, "returning active while focused triggers one refresh");
   assert.equal(intervals.length, 1);
   assert.equal(intervals[0].delayMs, 30_000);
   await intervals[0].callback();
@@ -453,11 +478,51 @@ test("room details refresh in place while focused and the interval stops on blur
     ["my-registrations"],
   ]);
 
-  stopPolling();
-  assert.equal(intervals[0].active, false, "blurring should cancel the active interval");
+  controller.update(true, true, trackedRefresh);
+  assert.equal(refreshCalls, 3, "a repeated active/focused state must not refresh again");
+
+  // Backgrounding must cancel polling even when navigation focus remains.
+  controller.update(true, false, trackedRefresh);
+  assert.equal(intervals[0].active, false, "backgrounding cancels the active interval");
   const readsAfterBlur = apiReads.length;
-  if (intervals[0].active) await intervals[0].callback();
-  assert.equal(apiReads.length, readsAfterBlur, "the cancelled interval must not refresh after blur");
+  await intervals[0].callback();
+  assert.equal(apiReads.length, readsAfterBlur, "a cleared timer must not refresh in background");
+  assert.equal(refreshCalls, 3);
+
+  controller.update(true, true, trackedRefresh);
+  await pendingRefresh;
+  assert.equal(refreshCalls, 4, "resuming focused route refreshes exactly once");
+  assert.equal(intervals.length, 2);
+  controller.update(false, true, trackedRefresh);
+  assert.equal(intervals[1].active, false, "blurring cancels the active interval");
+  controller.stop();
+});
+
+test("route focus after app resume triggers exactly one match detail refresh", () => {
+  const intervals = [];
+  const timers = {
+    setInterval(callback, delayMs) {
+      const interval = { callback, delayMs, active: true };
+      intervals.push(interval);
+      return interval;
+    },
+    clearInterval(interval) {
+      interval.active = false;
+    },
+  };
+  const controller = createTournamentDetailRefreshController(timers);
+  let refreshCalls = 0;
+  const refresh = () => { refreshCalls += 1; };
+
+  // App resume can arrive first while another route is still current.
+  controller.update(false, true, refresh);
+  assert.equal(refreshCalls, 0);
+  controller.update(true, true, refresh);
+  assert.equal(refreshCalls, 1);
+  controller.update(true, true, refresh);
+  assert.equal(refreshCalls, 1, "the combined active/focused state must not duplicate refresh");
+  assert.equal(intervals.length, 1);
+  controller.stop();
 });
 
 test("a failed detail read waits for its paired registration request to settle", async () => {

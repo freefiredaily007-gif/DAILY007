@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
   getGetTournamentResultsQueryKey,
@@ -7,7 +7,7 @@ import {
   useGetTournamentResults,
 } from '@workspace/api-client-react';
 import { ReadableText as Text } from '../components/typography';
-import { useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
 import { C, Btn, Card, Chip, Input, KV, Msg, Badge, SectionTitle, GCard, fmtDate, fmtTime12, statusOf } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
@@ -20,8 +20,8 @@ import {
 import { createRoomCredentialAvailabilityAnnouncementTracker } from '../lib/roomCredentialAvailabilityAnnouncement';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import {
+  createTournamentDetailRefreshController,
   fetchTournamentDetailSnapshot,
-  startTournamentDetailPolling,
 } from '../lib/tournament-detail-refresh';
 import {
   getTournamentResultsRefreshInterval,
@@ -35,6 +35,7 @@ export default function TDetail() {
   const nav: any = useNavigation();
   const route: any = useRoute();
   const isFocused = useIsFocused();
+  const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const id = route?.params?.id;
   const { user } = useApp();
   const tournamentId = String(id ?? '');
@@ -62,7 +63,7 @@ export default function TDetail() {
       queryKey: getGetTournamentResultsQueryKey(tournamentId),
       enabled: Boolean(id) && isFocused,
       refetchOnMount: 'always',
-      refetchInterval: getTournamentResultsRefreshInterval(isFocused),
+      refetchInterval: getTournamentResultsRefreshInterval(isFocused && isAppActive),
       retry: 1,
     },
   });
@@ -133,18 +134,33 @@ export default function TDetail() {
     setParticipantsRetryAnnouncement(message);
     if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
   };
-  useFocusEffect(useCallback(() => {
-    setClockNow(Date.now());
-    void refreshAll();
-  }, [refreshAll]));
-
+  const refreshAllRef = useRef(refreshAll);
+  const detailRefreshController = useRef<ReturnType<typeof createTournamentDetailRefreshController> | null>(null);
+  if (!detailRefreshController.current) {
+    detailRefreshController.current = createTournamentDetailRefreshController();
+  }
+  useEffect(() => {
+    refreshAllRef.current = refreshAll;
+  }, [refreshAll]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      setIsAppActive(nextState === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
+  useEffect(() => {
+    detailRefreshController.current?.update(isFocused, isAppActive, () => {
+      setClockNow(Date.now());
+      void refreshAllRef.current();
+    });
+  }, [isFocused, isAppActive]);
   useEffect(
-    () => startTournamentDetailPolling(isFocused, () => { void load(); }),
-    [isFocused, load],
+    () => () => detailRefreshController.current?.stop(),
+    [],
   );
 
   useEffect(() => {
-    if (!isFocused) return undefined;
+    if (!isFocused || !isAppActive) return undefined;
     const schedule = getRoomCredentialSchedule(t?.startsAt);
     if (!schedule) return undefined;
     const nextTransition = [schedule.releaseAtMs, schedule.startsAtMs]
@@ -156,7 +172,7 @@ export default function TDetail() {
       void load();
     }, Math.min(MAX_TIMEOUT_MS, nextTransition - clockNow));
     return () => clearTimeout(timer);
-  }, [t?.startsAt, clockNow, isFocused, load]);
+  }, [t?.startsAt, clockNow, isFocused, isAppActive, load]);
 
   if (loading) return <View style={s.root} />;
   if (!t) return <View style={[s.root, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ color: C.sub }}>Tournament not found.</Text></View>;

@@ -34,13 +34,42 @@ export async function fetchTournamentDetailSnapshot(
 
 type IntervalTimers = Pick<typeof globalThis, 'setInterval' | 'clearInterval'>;
 
-export function startTournamentDetailPolling(
-  isFocused: boolean,
-  refresh: () => void,
+export function createTournamentDetailRefreshController(
   timers: IntervalTimers = globalThis,
-): () => void {
-  if (!isFocused) return () => {};
+): {
+  update: (isFocused: boolean, isAppActive: boolean, refresh: () => void) => void;
+  stop: () => void;
+} {
+  let shouldRefresh = false;
+  let timer: ReturnType<typeof timers.setInterval> | undefined;
+  let refreshLatest: () => void | Promise<void> = () => {};
 
-  const timer = timers.setInterval(refresh, TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS);
-  return () => timers.clearInterval(timer);
+  const refreshIfCurrent = () => {
+    if (shouldRefresh) return refreshLatest();
+    return undefined;
+  };
+
+  return {
+    update(isFocused, isAppActive, refresh) {
+      refreshLatest = refresh;
+      const nextShouldRefresh = isFocused && isAppActive;
+      if (nextShouldRefresh === shouldRefresh) return;
+
+      shouldRefresh = nextShouldRefresh;
+      if (shouldRefresh) {
+        void refreshIfCurrent();
+        timer = timers.setInterval(refreshIfCurrent, TOURNAMENT_DETAIL_REFRESH_INTERVAL_MS);
+      } else if (timer !== undefined) {
+        timers.clearInterval(timer);
+        timer = undefined;
+      }
+    },
+    stop() {
+      shouldRefresh = false;
+      if (timer !== undefined) {
+        timers.clearInterval(timer);
+        timer = undefined;
+      }
+    },
+  };
 }
