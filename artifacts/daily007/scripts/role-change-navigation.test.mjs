@@ -821,3 +821,62 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   assert.match(adminSource, /<Screen\s+go=\{navigate\}/);
   assert.match(adminSource, /onPress=\{\(\) => navigate\(n\.key\)\}/);
 });
+
+test("the expired-session notice stays scalable and the login form remains scroll-reachable", async () => {
+  const authSource = await readFile(
+    new URL("../src/screens/Auth.tsx", import.meta.url),
+    "utf8",
+  );
+  const typographySource = await readFile(
+    new URL("../src/components/typography.tsx", import.meta.url),
+    "utf8",
+  );
+  const scrollStart = authSource.indexOf("<KeyboardAwareScrollViewCompat");
+  const noticeStart = authSource.indexOf('testID="auth-session-notice"');
+  const emailStart = authSource.indexOf('testID="auth-email"');
+  const passwordStart = authSource.indexOf('testID="auth-password"');
+  const submitStart = authSource.indexOf('testID="auth-submit"');
+  const scrollEnd = authSource.indexOf("</KeyboardAwareScrollViewCompat>", submitStart);
+  assert.ok(
+    scrollStart >= 0
+      && noticeStart > scrollStart
+      && emailStart > noticeStart
+      && passwordStart > emailStart
+      && submitStart > passwordStart
+      && scrollEnd > submitStart,
+    "The complete session notice and all login controls must remain in one scrollable screen.",
+  );
+  assert.match(
+    authSource,
+    /contentContainerStyle=\{\[s\.wrap, isSignup && s\.signupWrap\]\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
+    "The login screen must retain its scroll content container and working tap behavior.",
+  );
+  assert.match(
+    authSource,
+    /wrap:\s*\{\s*flexGrow:\s*1,\s*justifyContent:\s*'center'/,
+    "The login content must grow naturally instead of clipping to a fixed height.",
+  );
+  assert.match(
+    authSource,
+    /sessionNotice:\s*\{\s*color:\s*C\.gold,\s*textAlign:\s*'center',\s*fontSize:\s*12,\s*lineHeight:\s*18/,
+    "The notice must have readable, centered text styling that can wrap as it scales.",
+  );
+  const noticeNode = authSource.slice(noticeStart, emailStart);
+  assert.match(noticeNode, /accessibilityLabel=\{notice\}/);
+  assert.match(authSource, /import \{ ReadableText as Text \} from '\.\.\/components\/typography'/);
+  assert.match(
+    typographySource,
+    /<NativeText\s+\{\.\.\.props\}/,
+    "The notice typography must preserve React Native's default system text scaling.",
+  );
+  assert.doesNotMatch(
+    typographySource,
+    /allowFontScaling:\s*false|allowFontScaling=\{false\}/,
+    "Shared readable text must not disable system text scaling.",
+  );
+  assert.doesNotMatch(
+    noticeNode,
+    /allowFontScaling\s*=\s*\{false\}|numberOfLines|ellipsizeMode/,
+    "The full notice must not disable native text scaling, limit lines, or truncate.",
+  );
+});
