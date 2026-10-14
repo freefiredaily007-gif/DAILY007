@@ -203,7 +203,8 @@ http.defaults.adapter = async (config) => {
 };
 
 storage.clear();
-if (storageFailureScenario || passwordSignupStorageFailureScenario) storage.failNextSessionWrite();
+if (storageFailureScenario) storage.failNextSessionWrite();
+if (passwordSignupStorageFailureScenario) storage.failSessionWrites(2);
 if (profileLinkScenario) storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
 resetClerkMock({
   startResultType: scenario === "profile-link-cancel" ? "dismiss" : null,

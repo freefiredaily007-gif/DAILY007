@@ -1,6 +1,6 @@
 const entries = new Map<string, string>();
 const DAILY007_SESSION_KEY = "daily007_v2_session";
-let rejectNextSessionWrite = false;
+let rejectedSessionWritesRemaining = 0;
 let sessionWriteAttempts = 0;
 let rejectedSessionWrites = 0;
 
@@ -11,8 +11,8 @@ export const storage = {
   async setItem(key: string, value: string) {
     if (key === DAILY007_SESSION_KEY) {
       sessionWriteAttempts += 1;
-      if (rejectNextSessionWrite) {
-        rejectNextSessionWrite = false;
+      if (rejectedSessionWritesRemaining > 0) {
+        rejectedSessionWritesRemaining -= 1;
         rejectedSessionWrites += 1;
         throw new Error("Mock AsyncStorage rejected setItem.");
       }
@@ -24,12 +24,15 @@ export const storage = {
   },
   clear() {
     entries.clear();
-    rejectNextSessionWrite = false;
+    rejectedSessionWritesRemaining = 0;
     sessionWriteAttempts = 0;
     rejectedSessionWrites = 0;
   },
   failNextSessionWrite() {
-    rejectNextSessionWrite = true;
+    this.failSessionWrites(1);
+  },
+  failSessionWrites(count: number) {
+    rejectedSessionWritesRemaining += count;
   },
   seedSession(session: unknown) {
     entries.set(DAILY007_SESSION_KEY, JSON.stringify(session));

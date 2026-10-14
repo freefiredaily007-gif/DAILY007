@@ -787,6 +787,79 @@ try {
 
   await clickSelector('[data-testid="auth-submit"]', "retry saving the password signup session");
   await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the repeated recoverable session-storage error after the second password signup write",
+  );
+  const repeatedPasswordSignupFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const repeatedPasswordSignupFailureView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    const retryButton = document.querySelector('[data-testid="auth-submit"]');
+    const nameInput = document.querySelector('[data-testid="auth-name"]');
+    const emailInput = document.querySelector('[data-testid="auth-email"]');
+    const passwordInput = document.querySelector('[data-testid="auth-password"]');
+    return {
+      signupFormVisible: bodyText.includes("PLAYER PROFILE")
+        && Boolean(nameInput)
+        && Boolean(emailInput)
+        && Boolean(passwordInput),
+      sessionNotSavedMessageVisible: bodyText.includes(
+        "Daily007 could not save your session on this device. Check available storage and try again.",
+      ),
+      retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
+      retryButtonDisabled: retryButton?.getAttribute("aria-disabled") === "true"
+        || retryButton?.hasAttribute("disabled") === true
+        || retryButton?.disabled === true,
+      signupFieldsReadOnly: [nameInput, emailInput, passwordInput]
+        .every((input) => input?.disabled === true || input?.readOnly === true),
+      formValues: {
+        name: nameInput?.value ?? "",
+        email: emailInput?.value ?? "",
+        password: passwordInput?.value ?? "",
+      },
+      signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+      walletBonusVisible: bodyText.includes("Welcome Signup Bonus"),
+    };
+  })()`);
+  assert.equal(
+    repeatedPasswordSignupFailure.passwordSignupAttempts,
+    1,
+    "Repeated storage failure must not create the password account again.",
+  );
+  assert.equal(
+    repeatedPasswordSignupFailure.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+    "Repeated storage failure must not submit registration again.",
+  );
+  assert.deepEqual(repeatedPasswordSignupFailure.storageWriteMetrics, {
+    sessionWriteAttempts: 2,
+    rejectedSessionWrites: 2,
+  });
+  assert.deepEqual(repeatedPasswordSignupFailure.sessionStorage, {}, "The second failed write must leave the session unsaved.");
+  assert.equal(repeatedPasswordSignupFailure.storedSession, null);
+  assert.equal(repeatedPasswordSignupFailure.currentSession, null);
+  assert.equal(repeatedPasswordSignupFailure.activeAuthorization, null);
+  assert.equal(
+    repeatedPasswordSignupFailure.calls.some((call) =>
+      ["/auth/me", "/me/stats", "/wallet/transactions", "/my/payments", "/my/withdrawals"].includes(call.path)),
+    false,
+    "Protected account and Wallet data must remain unavailable after the second failed write.",
+  );
+  assert.equal(repeatedPasswordSignupFailureView.signupFormVisible, true);
+  assert.equal(repeatedPasswordSignupFailureView.sessionNotSavedMessageVisible, true);
+  assert.equal(repeatedPasswordSignupFailureView.retryButtonLabel, "Retry saving session");
+  assert.equal(repeatedPasswordSignupFailureView.retryButtonDisabled, false);
+  assert.equal(repeatedPasswordSignupFailureView.signupFieldsReadOnly, true);
+  assert.deepEqual(repeatedPasswordSignupFailureView.formValues, {
+    name: "Mock Password Signup Player",
+    email: "password-signup@example.test",
+    password: "testpass123",
+  });
+  assert.equal(repeatedPasswordSignupFailureView.signedInTabCount, 0);
+  assert.equal(repeatedPasswordSignupFailureView.walletBonusVisible, false);
+  assert.equal(repeatedPasswordSignupFailure.unexpectedRequests.length, 0, repeatedPasswordSignupFailure.unexpectedRequests.join("; "));
+
+  await clickSelector('[data-testid="auth-submit"]', "retry saving the password signup session after the second failure");
+  await waitForExpression(
     `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
     "signed-in tabs after password signup session storage recovers",
   );
@@ -825,8 +898,11 @@ try {
   assert.deepEqual(passwordSignupRecovery.sessionStorage, {
     daily007_v2_session: JSON.stringify(passwordSignupRecovery.storedSession),
   });
-  assert.equal(passwordSignupRecovery.storageWriteMetrics.rejectedSessionWrites, 1);
-  assert.ok(passwordSignupRecovery.storageWriteMetrics.sessionWriteAttempts >= 2);
+  assert.equal(passwordSignupRecovery.storageWriteMetrics.rejectedSessionWrites, 2);
+  assert.ok(
+    passwordSignupRecovery.storageWriteMetrics.sessionWriteAttempts >= 3,
+    "The third or later session write should succeed after both injected failures.",
+  );
   assert.equal(passwordSignupWalletView.walletTabCount, 1);
   assert.equal(passwordSignupWalletView.walletTabSelected, true);
   assert.equal(passwordSignupWalletView.welcomeBonusRowCount, 1);
