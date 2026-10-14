@@ -23,19 +23,22 @@ const inputValueSelectors = [
   'input[placeholder="Captain Free Fire UID"]',
   'input[placeholder="Team name"]',
   'input[placeholder="Teammate 1 Free Fire in-game name"]',
+  'input[placeholder="Teammate 1 Free Fire UID (optional)"]',
   'input[placeholder="Teammate 2 Free Fire in-game name"]',
+  'input[placeholder="Teammate 2 Free Fire UID (optional)"]',
   'input[placeholder="Teammate 3 Free Fire in-game name"]',
+  'input[placeholder="Teammate 3 Free Fire UID (optional)"]',
 ];
 const keyboardFieldSelectors = [
   inputValueSelectors[0],
   inputValueSelectors[1],
   inputValueSelectors[2],
   inputValueSelectors[3],
-  'input[placeholder="Teammate 1 Free Fire UID (optional)"]',
   inputValueSelectors[4],
-  'input[placeholder="Teammate 2 Free Fire UID (optional)"]',
   inputValueSelectors[5],
-  'input[placeholder="Teammate 3 Free Fire UID (optional)"]',
+  inputValueSelectors[6],
+  inputValueSelectors[7],
+  inputValueSelectors[8],
 ];
 
 function assert(condition, message) {
@@ -320,6 +323,84 @@ async function assertFormValues(expectedValues, stage) {
   );
 }
 
+async function checkFieldValidationErrors(width) {
+  const expectedErrors = [
+    {
+      selector: inputValueSelectors[3],
+      error: '[data-testid="join-form-error-teammate-name-1"]',
+      message: "Teammate 1 Free Fire in-game name is required.",
+    },
+    {
+      selector: inputValueSelectors[5],
+      error: '[data-testid="join-form-error-teammate-name-2"]',
+      message: "Teammate 2 Free Fire in-game name is required.",
+    },
+    {
+      selector: inputValueSelectors[7],
+      error: '[data-testid="join-form-error-teammate-name-3"]',
+      message: "Teammate 3 Free Fire in-game name is required.",
+    },
+  ];
+  const errors = await evaluate(`(() => {
+    const root = document.querySelector('[data-testid="player-screen"]');
+    const expected = ${JSON.stringify(expectedErrors)};
+    return expected.map(({ selector, error }) => {
+      const input = document.querySelector(selector);
+      const message = document.querySelector(error);
+      if (!root || !input || !message) return null;
+      message.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const inputRect = input.getBoundingClientRect();
+      const messageRect = message.getBoundingClientRect();
+      const rootRect = root.getBoundingClientRect();
+      const style = getComputedStyle(message);
+      let clipped = false;
+      let parent = message.parentElement;
+      while (parent && parent !== root) {
+        const parentStyle = getComputedStyle(parent);
+        const parentRect = parent.getBoundingClientRect();
+        if (
+          (['hidden', 'clip'].includes(parentStyle.overflowX)
+            && (messageRect.left < parentRect.left - 2 || messageRect.right > parentRect.right + 2))
+          || (['hidden', 'clip'].includes(parentStyle.overflowY)
+            && (messageRect.top < parentRect.top - 2 || messageRect.bottom > parentRect.bottom + 2))
+        ) {
+          clipped = true;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+      return {
+        text: message.textContent.trim(),
+        visible: style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && messageRect.width > 0
+          && messageRect.height > 0
+          && messageRect.right > rootRect.left
+          && messageRect.left < rootRect.right
+          && messageRect.bottom > rootRect.top
+          && messageRect.top < rootRect.bottom,
+        associatedWithField: input.parentElement === message.parentElement
+          && [...input.parentElement.children].indexOf(message) > [...input.parentElement.children].indexOf(input),
+        clipped,
+        bounds: [messageRect.left, messageRect.right, messageRect.top, messageRect.bottom],
+        fieldBounds: [inputRect.left, inputRect.right, inputRect.top, inputRect.bottom],
+      };
+    });
+  })()`);
+  assert(
+    errors.length === expectedErrors.length
+      && errors.every((item, index) =>
+        item
+        && item.text === expectedErrors[index].message
+        && item.visible
+        && item.associatedWithField
+        && !item.clipped
+      ),
+    `A teammate validation message is missing, unreadable, clipped, or detached from its field at ${width}px: ${JSON.stringify(errors)}`,
+  );
+  return errors;
+}
+
 async function setInputValue(selector, value, description) {
   const updated = await evaluate(`(() => {
     const input = document.querySelector(${JSON.stringify(selector)});
@@ -349,18 +430,18 @@ async function runAtWidth(width) {
     "FF-TEST-CAPTAIN",
     "Test Squad",
     "Test Teammate 1",
+    "FF-TEST-TEAMMATE-1",
     "Test Teammate 2",
+    "FF-TEST-TEAMMATE-2",
     "Test Teammate 3",
+    "FF-TEST-TEAMMATE-3",
   ];
   await setInputValue(inputValueSelectors[0], expectedValues[0], "captain name");
   await setInputValue(inputValueSelectors[1], expectedValues[1], "captain UID");
   await setInputValue(inputValueSelectors[2], expectedValues[2], "team name");
-  for (let teammate = 1; teammate <= 3; teammate += 1) {
-    await setInputValue(
-      inputValueSelectors[teammate + 2],
-      expectedValues[teammate + 2],
-      `teammate ${teammate} name`,
-    );
+  for (const [index, selector] of inputValueSelectors.entries()) {
+    if (index < 3) continue;
+    await setInputValue(selector, expectedValues[index], `teammate form field ${index - 2}`);
   }
 
   await assertFormValues(expectedValues, "before opening the keyboard");
@@ -433,8 +514,38 @@ async function runAtWidth(width) {
   );
   await assertFormValues(expectedValues, "after keyboard dismissal and scrolling");
 
+  const incompleteValues = [...expectedValues];
+  incompleteValues[3] = "";
+  incompleteValues[7] = "";
+  await setInputValue(inputValueSelectors[3], incompleteValues[3], "missing teammate 1 name");
+  await setInputValue(inputValueSelectors[7], incompleteValues[7], "missing teammate 3 name");
+  await setInputValue(inputValueSelectors[5], "", "missing teammate 2 name");
+  incompleteValues[5] = "";
+  await assertFormValues(incompleteValues, "before submitting incomplete teammate details");
+  await evaluate(`document.querySelector('[data-testid="join-form-submit"]').click()`);
+  await waitForCondition(
+    "document.body.innerText.includes('Complete the highlighted required fields.')",
+    "the incomplete Squad validation message",
+  );
+  const validationErrors = await checkFieldValidationErrors(width);
+  await assertFormValues(incompleteValues, "after local teammate validation");
+  const joinAfterValidation = await checkReachable(
+    '[data-testid="join-form-submit"]',
+    "Join action after incomplete teammate validation",
+    width,
+  );
+  const cancelAfterValidation = await checkReachable(
+    '[data-testid="join-form-cancel"]',
+    "Cancel action after incomplete teammate validation",
+    width,
+  );
+  await assertFormValues(incompleteValues, "after reaching Join and Cancel following validation");
+  await evaluate(`document.querySelector('[data-testid="join-form-cancel"]').click()`);
+  await waitForCondition("window.__joinFormCancelCount === 2", "Cancel after incomplete teammate validation");
+  await assertFormValues(incompleteValues, "after Cancel following local validation");
+
   console.log(
-    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, all editable fields focusable and visible with the simulated keyboard open, and Join/Cancel reachable with keyboard open and dismissed (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}).`,
+    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, all editable fields focusable and visible with the simulated keyboard open, Join/Cancel reachable before and after validation, and all ${validationErrors.length} teammate errors visible beside their fields (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}; validation ${joinAfterValidation.scrollTop}/${cancelAfterValidation.scrollTop}).`,
   );
 }
 
