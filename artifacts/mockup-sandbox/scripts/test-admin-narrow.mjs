@@ -33,6 +33,7 @@ const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurren
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
+const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
 const adminKeyboardFormsOnly = process.argv.includes("--admin-keyboard-forms-only");
 const adminNotificationKeyboardOnly = process.argv.includes("--admin-notifications-keyboard-only");
@@ -4293,13 +4294,69 @@ async function triggerPlayerManualRefresh() {
   );
 }
 
-async function checkTournamentManualRefresh() {
+async function assertPlayerRefreshTextReadable({ width, fontScale, cardName, errorExpected }) {
+  const state = await evaluate(`(() => {
+    const findText = (text) => [...document.querySelectorAll("*")].find((element) =>
+      element.children.length === 0 && element.textContent?.trim() === text
+    );
+    const box = (element) => {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      };
+    };
+    return {
+      fontScale: window.__daily007LargeTextScale,
+      card: box(findText(${JSON.stringify(cardName)})),
+      errorNode: box(document.querySelector('[data-testid="player-tournament-refresh-error"]')),
+      errorText: document.querySelector('[data-testid="player-tournament-refresh-error"]')?.textContent?.trim() ?? null,
+    };
+  })()`);
+  assert(state?.fontScale === fontScale, `The Player preview did not apply ${fontScale}× Android text scale.`);
+  assert(state?.card, `The retained Player card title "${cardName}" is missing at ${fontScale}× text.`);
+  for (const [label, box] of [["card", state.card], ["refresh error", state.errorNode]].filter(([, box]) => box)) {
+    assert(
+      box.left >= -1 && box.right <= width + 1 &&
+        box.scrollWidth <= box.clientWidth + 2 &&
+        box.scrollHeight <= box.clientHeight + 2,
+      `The ${label} text is clipped at ${width}px and ${fontScale}× text: ${JSON.stringify(box)}.`,
+    );
+  }
+  if (errorExpected) {
+    assert(
+      state.errorNode && state.errorText?.includes("Could not refresh tournaments: Held Player refresh failed"),
+      `The refresh error is missing at ${fontScale}× text: ${JSON.stringify(state)}.`,
+    );
+    assert(
+      state.errorNode.bottom <= state.card.top + 2,
+      `The refresh error overlaps the retained card at ${fontScale}× text: ${JSON.stringify(state)}.`,
+    );
+  } else {
+    assert(!state.errorNode, `The refresh error should clear after recovery at ${fontScale}× text.`);
+  }
+  await assertPageHasNoHorizontalOverflow(width, `Player refresh at ${fontScale}× Android text`);
+}
+
+async function checkTournamentManualRefresh({
+  width = 390,
+  fontScale = 1,
+  initialName = "IST Start Boundary",
+  refreshedName = "Player Manually Refreshed IST Start Boundary",
+} = {}) {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
     "the Player pull-to-refresh preview to initialize",
   );
   await waitForCondition(
-    "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('IST Start Boundary')",
+    `window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes(${JSON.stringify(initialName)})`,
     "the Player list to load its tournament before manual refresh",
   );
 
@@ -4329,17 +4386,23 @@ async function checkTournamentManualRefresh() {
   );
   assert(heldReadFailed, "The test must release the held Player request with a failure.");
   await waitForCondition(
-    `document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed') && document.body.innerText.includes('IST Start Boundary') && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready'`,
+    `document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed') && document.body.innerText.includes(${JSON.stringify(initialName)}) && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready'`,
     "the failed Player refresh to show one error, preserve the loaded card, and stop refreshing",
   );
-  await assertText("IST Start Boundary", "the Player tournament after a failed manual refresh");
+  await assertPlayerRefreshTextReadable({
+    width,
+    fontScale,
+    cardName: initialName,
+    errorExpected: true,
+  });
+  await assertText(initialName, "the Player tournament after a failed manual refresh");
   const refreshErrorAccessibility = await evaluate(`(() => {
     const container = document.querySelector('[data-testid="player-tournament-refresh-error"]');
     const liveRegion = container?.querySelector('[aria-live]');
     return {
       liveRegion: liveRegion?.getAttribute('aria-live') ?? null,
       label: liveRegion?.getAttribute('aria-label') ?? null,
-      cardVisible: document.body.innerText.includes('IST Start Boundary'),
+      cardVisible: document.body.innerText.includes(${JSON.stringify(initialName)}),
       announcements: window.__daily007TournamentResume.getLoadAnnouncementEvents()
         .filter((event) => event.testID === 'player-tournament-refresh-error'),
     };
@@ -4373,16 +4436,22 @@ async function checkTournamentManualRefresh() {
   );
 
   await evaluate(
-    "window.__daily007TournamentResume.updateTournament({ name: 'Player Manually Refreshed IST Start Boundary' })",
+    `window.__daily007TournamentResume.updateTournament({ name: ${JSON.stringify(refreshedName)} })`,
   );
   readsBeforeRefresh = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await triggerPlayerManualRefresh();
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.body.innerText.includes('Player Manually Refreshed IST Start Boundary') && !document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.body.innerText.includes(${JSON.stringify(refreshedName)}) && !document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed')`,
     "a later successful manual refresh to update the Player card and clear its error",
   );
+  await assertPlayerRefreshTextReadable({
+    width,
+    fontScale,
+    cardName: refreshedName,
+    errorExpected: false,
+  });
   await assertText(
-    "Player Manually Refreshed IST Start Boundary",
+    refreshedName,
     "the updated Player tournament after manual refresh",
   );
   assert(
@@ -7413,7 +7482,7 @@ try {
     ? "home-carousel-preview.html?ist-date-surfaces=1"
     : adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
-    : manualRefreshOnly
+    : manualRefreshOnly || manualRefreshLargeTextOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
     : tournamentDetailRegistrationFailureOnly
       ? "tournament-resume-preview.html?detail-registration-failure-only=1"
@@ -7502,6 +7571,7 @@ try {
     adminLargeTextInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
     manualRefreshOnly ||
+    manualRefreshLargeTextOnly ||
     scheduledStartOnly ||
     sameTimeStartOnly ||
     istDateSurfacesOnly ||
@@ -7526,13 +7596,13 @@ try {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
         : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
-          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
-          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -7565,7 +7635,9 @@ try {
           ? "Admin first-load failure at 1.5× text"
         : adminRetryConcurrencyOnly
           ? "Admin Retry concurrency"
-        : manualRefreshOnly
+         : manualRefreshLargeTextOnly
+           ? "Player pull-to-refresh at large Android text"
+         : manualRefreshOnly
           ? "Player pull-to-refresh"
         : sameTimeStartOnly
           ? "simultaneous-start Player and Admin tournament screens"
@@ -7689,6 +7761,21 @@ try {
         `Browser errors during Admin initial-load failure checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A failed first Admin tournament load shows a visible Retry control; retrying loads cards and clears the error.");
+    } else if (manualRefreshLargeTextOnly) {
+      for (const fontScale of [1.5, 2]) {
+        await setViewport(320, fontScale, "tournament-resume-preview.html?manual-refresh-only=1");
+        await checkTournamentManualRefresh({
+          width: 320,
+          fontScale,
+          initialName: "Daily007 International Free Fire Championship Grand Finals",
+          refreshedName: "Player Manually Refreshed Daily007 International Free Fire Championship Grand Finals",
+        });
+        assert(
+          browserErrors.length === 0,
+          `Browser errors during Player refresh checks at ${fontScale}× Android text: ${browserErrors.join(" | ")}`,
+        );
+      }
+      console.log("PASS — At 1.5× and 2× Android text, the retained tournament card and refresh error fit without overlap; successful pulls update the card and clear the error.");
     } else if (manualRefreshOnly) {
       await checkTournamentManualRefresh();
       assert(

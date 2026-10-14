@@ -427,6 +427,10 @@ const largestTextTournaments = previewTournaments.map((tournament) => ({
   ...tournament,
   name: longTournamentName,
 }));
+export function updateTournamentPreview(updates: Record<string, unknown>) {
+  if (previewTournaments[0]) Object.assign(previewTournaments[0], updates);
+  if (largestTextTournaments[0]) Object.assign(largestTextTournaments[0], updates);
+}
 const largestTextRegistrations = [
   {
     id: "largest-text-upcoming-registration",

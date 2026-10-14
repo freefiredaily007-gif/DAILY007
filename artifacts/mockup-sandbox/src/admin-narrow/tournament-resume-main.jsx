@@ -211,7 +211,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     failDeferredTournamentRead: apiMocks.failDeferredTournamentRead,
     getVisibilityChangeCount: () => visibilityChangeCount,
     getVisibilityState: () => visibilityState,
-    updateTournament: (updates) => Object.assign(apiMocks.previewTournaments[0], updates),
+    updateTournament: (updates) => apiMocks.updateTournamentPreview(updates),
     setTournamentResponseFixtures: (fixtures) => {
       const base = apiMocks.previewTournaments[0];
       if (!base || !Array.isArray(fixtures)) return false;
