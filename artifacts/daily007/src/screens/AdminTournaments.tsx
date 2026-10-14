@@ -97,6 +97,7 @@ export default function AdminTournaments() {
   const [okMsg, setOkMsg] = useState('');
   const [loadError, setLoadError] = useState('');
   const [retryingList, setRetryingList] = useState(false);
+  const [listRecoveryAnnouncement, setListRecoveryAnnouncement] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const [startAnnouncement, setStartAnnouncement] = useState('');
   const appState = useRef(AppState.currentState);
@@ -159,19 +160,33 @@ export default function AdminTournaments() {
       hasLoadedList.current = true;
       setClockNow(Date.now());
       setLoadError('');
+      return true;
     } catch (e: any) {
       setList((current) => current ?? []);
       setLoadError(
         `${hasLoadedList.current ? 'Could not refresh' : 'Could not load'} tournaments: ${apiError(e)}`,
       );
+      return false;
     }
   }, []);
 
   const retryTournamentList = async () => {
     if (retryingList) return;
+    const recoveringListError = Boolean(loadError);
+    if (recoveringListError) setListRecoveryAnnouncement('');
     setRetryingList(true);
     try {
-      await load();
+      const loaded = await load();
+      if (recoveringListError && loaded) {
+        if (Platform.OS === 'ios') {
+          AccessibilityInfo.announceForAccessibilityWithOptions('Tournaments loaded.', {
+            queue: true,
+            priority: 'low',
+          });
+        } else {
+          setListRecoveryAnnouncement('Tournaments loaded.');
+        }
+      }
     } finally {
       setRetryingList(false);
     }
@@ -550,6 +565,16 @@ export default function AdminTournaments() {
           style={st.screenReaderAnnouncement}
         >
           {startAnnouncement}
+        </Text>
+      ) : null}
+      {listRecoveryAnnouncement && Platform.OS !== 'ios' ? (
+        <Text
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="admin-tournament-list-recovery-announcement"
+          style={st.screenReaderAnnouncement}
+        >
+          {listRecoveryAnnouncement}
         </Text>
       ) : null}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>

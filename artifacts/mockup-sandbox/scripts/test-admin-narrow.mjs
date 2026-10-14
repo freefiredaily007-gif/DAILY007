@@ -4242,6 +4242,11 @@ async function checkAdminRetryConcurrency() {
     "window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes('Could not load tournaments: Initial Admin tournament request failed') && Boolean(document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]'))",
     "the Admin initial-load error and Retry control",
   );
+  assert(
+    (await evaluate("window.__daily007TournamentResume.getLoadAnnouncementEvents()"))
+      .filter((event) => event.testID === "admin-tournament-list-recovery-announcement").length === 0,
+    "An initial load failure must not announce a successful tournament recovery.",
+  );
 
   const readsBeforeRetry = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
@@ -4267,7 +4272,7 @@ async function checkAdminRetryConcurrency() {
   assert(
     pendingRetryState?.disabledProperty === true
       && pendingRetryState?.ariaDisabled === "true"
-      && pendingRetryState?.accessibilityLabel === "Retry tournament refresh"
+      && pendingRetryState?.accessibilityLabel === "Retry loading tournaments"
       && pendingRetryState?.hasProgressIndicator === true,
     `The held Admin retry should expose its clear label and disabled state and show a progress indicator: ${JSON.stringify(pendingRetryState)}`,
   );
@@ -4318,14 +4323,43 @@ async function checkAdminRetryConcurrency() {
     await evaluate("document.body.innerText.split('Could not load tournaments:').length - 1") === 1,
     "A failed Admin retry must leave exactly one clear load error.",
   );
+  assert(
+    (await evaluate("window.__daily007TournamentResume.getLoadAnnouncementEvents()"))
+      .filter((event) => event.testID === "admin-tournament-list-recovery-announcement").length === 0,
+    "A failed Admin retry must not announce a successful tournament recovery.",
+  );
 
   const readsBeforeRecovery = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   await tapSelector(retrySelector, "re-enabled Admin Retry control");
   await waitForCondition(
-    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRecovery} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments')`,
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRecovery} && document.body.innerText.includes('IST Start Boundary') && !document.body.innerText.includes('Could not load tournaments') && document.querySelector('[data-testid="admin-tournament-list-recovery-announcement"]')?.textContent?.trim() === 'Tournaments loaded.'`,
     "a subsequent Admin retry to load the tournament and clear the error",
   );
+  const recoveryAnnouncementEvents = await evaluate(
+    "window.__daily007TournamentResume.getLoadAnnouncementEvents().filter((event) => event.testID === 'admin-tournament-list-recovery-announcement')",
+  );
+  assert(
+    recoveryAnnouncementEvents.length === 1
+      && recoveryAnnouncementEvents[0]?.text === "Tournaments loaded.",
+    `A successful retry after a list error must announce the recovery once: ${JSON.stringify(recoveryAnnouncementEvents)}.`,
+  );
   await assertText("IST Start Boundary", "the Admin tournament after retry becomes reusable");
+  const readsBeforeRoutineRefresh = await evaluate(
+    "window.__daily007TournamentResume.getTournamentReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.resumeCurrentList()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() > ${readsBeforeRoutineRefresh} && document.body.innerText.includes('IST Start Boundary')`,
+    "a routine Admin tournament refresh after recovery",
+  );
+  await delay(100);
+  const announcementsAfterRoutineRefresh = await evaluate(
+    "window.__daily007TournamentResume.getLoadAnnouncementEvents().filter((event) => event.testID === 'admin-tournament-list-recovery-announcement')",
+  );
+  assert(
+    announcementsAfterRoutineRefresh.length === 1,
+    `A routine Admin tournament refresh must not repeat the recovery announcement: ${JSON.stringify(announcementsAfterRoutineRefresh)}.`,
+  );
 }
 
 async function triggerPlayerManualRefresh() {

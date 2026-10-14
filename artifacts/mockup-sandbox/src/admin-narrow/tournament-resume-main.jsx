@@ -19,6 +19,7 @@ const captureLoadAnnouncement = (region) => {
     "player-tournament-refresh-error",
     "player-tournament-refresh-announcement",
     "player-tournament-load-announcement",
+    "admin-tournament-list-recovery-announcement",
   ].includes(testID)) {
     return;
   }
