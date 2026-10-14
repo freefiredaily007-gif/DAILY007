@@ -230,7 +230,17 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             accessibilityLiveRegion={loginRetryRemaining > 0 ? 'assertive' : 'polite'}
           />
         ) : null}
-        {!isSignup && notice ? <Text style={s.sessionNotice}>{notice}</Text> : null}
+        {!isSignup && notice ? (
+          <Text
+            testID="auth-session-notice"
+            accessibilityRole="text"
+            accessibilityLabel={notice}
+            accessibilityLiveRegion="polite"
+            style={s.sessionNotice}
+          >
+            {notice}
+          </Text>
+        ) : null}
         {!isSignup
           ? <Text style={s.sessionHint}>Signing in here will sign out your other Daily007 sessions.</Text>
           : null}
@@ -351,6 +361,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           <>
             <Input
               testID="auth-email"
+              accessibilityLabel="Email"
               placeholder="Enter Email"
               value={email}
               onChangeText={setEmail}
@@ -360,6 +371,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
             />
             <Input
               testID="auth-password"
+              accessibilityLabel="Password"
               placeholder="Enter Password"
               value={password}
               onChangeText={setPassword}

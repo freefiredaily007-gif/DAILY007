@@ -747,8 +747,33 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   assert.match(appSource, /if \(!user\) return <Auth\s+notice=\{authNotice\}/);
   assert.match(
     authSource,
-    /!isSignup && notice \? <Text style=\{s\.sessionNotice\}>\{notice\}<\/Text>/,
-    "The Auth login screen must display the rejection notice.",
+    /testID="auth-session-notice"[\s\S]*?accessibilityRole="text"[\s\S]*?accessibilityLabel=\{notice\}[\s\S]*?accessibilityLiveRegion="polite"[\s\S]*?>\s*\{notice\}\s*<\/Text>/,
+    "The Auth screen must expose one polite TalkBack announcement for the sign-in explanation.",
+  );
+  assert.equal(
+    (authSource.match(/testID="auth-session-notice"/g) ?? []).length,
+    1,
+    "The sign-in explanation must not be rendered as duplicate announcement nodes.",
+  );
+  assert.match(
+    authSource,
+    /testID="auth-email"\s+accessibilityLabel="Email"/,
+    "The email sign-in field must remain individually reachable by its accessible name.",
+  );
+  assert.match(
+    authSource,
+    /testID="auth-password"\s+accessibilityLabel="Password"/,
+    "The password sign-in field must remain individually reachable by its accessible name.",
+  );
+  assert.match(
+    authSource,
+    /<GoogleSSOButton[\s\S]*?label=\{mode === 'signup' \? 'Sign up with Google' : 'Continue with Google'\}/,
+    "The Google sign-in action must remain in the login accessibility tree.",
+  );
+  assert.match(
+    authSource,
+    /<Btn[\s\S]*?accessibilityLabel=\{retrySignupSession[\s\S]*?: 'Login'\}/,
+    "The email login action must remain in the login accessibility tree.",
   );
   assert.match(
     appSource,
