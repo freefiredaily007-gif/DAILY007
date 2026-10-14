@@ -15,6 +15,7 @@ import {
   getMockGoogleUserLookupCount,
   resetMockGoogleUser,
   resetMockGoogleUsers,
+  updateMockGoogleUser,
 } from "./support/daily007-google-auth-clerk-mock";
 import type { User as MockGoogleUser } from "./support/daily007-google-auth-clerk-mock";
 import {
@@ -1531,6 +1532,105 @@ test("a valid referral code does not change rewards when a password account link
       assert.equal(repeat.body.id, account.id);
       assert.equal(repeat.body.coins, 73);
       assert.equal(account.wallet_coins, 73);
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("a linked Google identity cannot sign in after its verified email changes", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "linked-email-change-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "linked-email-change-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "linked-email-change-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const linked = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(linked.status, 200);
+      assert.equal(linked.body.googleLinked, true);
+      assert.equal(linked.body.id, account.id);
+      assert.equal(account.clerk_user_id, GOOGLE_CLERK_USER_ID);
+
+      const accountAfterLink = structuredClone(account);
+      const referralsAfterLink = structuredClone(signupTestDb.referrals);
+      const ledgerAfterLink = structuredClone(signupTestDb.ledger);
+      const accountCountAfterLink = signupTestDb.users.size;
+
+      updateMockGoogleUser({
+        ...(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser),
+        emailAddresses: [{
+          emailAddress: "changed-google-email@example.test",
+          verification: { status: "verified" },
+        }],
+        externalAccounts: [{
+          provider: "google",
+          emailAddress: "changed-google-email@example.test",
+          firstName: "Google",
+          lastName: "Signup",
+          verification: { status: "verified" },
+        }],
+      });
+
+      const rejectedSignIn = await googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(rejectedSignIn.status, 409);
+      assert.match(String(rejectedSignIn.body.error), /linked Google email no longer matches/i);
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.deepEqual(account, accountAfterLink, "the existing account and Google link must remain unchanged");
+      assert.equal(account.wallet_coins, 73, "the rejected sign-in must not alter the balance");
+      assert.equal(signupTestDb.users.size, accountCountAfterLink, "the rejected sign-in must not create an account");
+      assert.deepEqual(
+        signupTestDb.referrals,
+        referralsAfterLink,
+        "the rejected sign-in must not change referral relationships",
+      );
+      assert.deepEqual(
+        signupTestDb.ledger,
+        ledgerAfterLink,
+        "the rejected sign-in must not add, remove, or change wallet history",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletResponse.status, 200, "the existing Daily007 session should remain usable");
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        ledgerAfterLink
+          .filter(({ user_id }) => user_id === account.id)
+          .map(({ amount, balance_after, reason }) => ({
+            amount,
+            balanceAfter: balance_after,
+            reason,
+          })),
+      );
     });
   } finally {
     signupTestDb.reset();

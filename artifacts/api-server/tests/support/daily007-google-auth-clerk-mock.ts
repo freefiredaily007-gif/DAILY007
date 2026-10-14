@@ -31,6 +31,13 @@ export function resetMockGoogleUsers(users: User[] = []): void {
   userLookupCount = 0;
 }
 
+export function updateMockGoogleUser(user: User): void {
+  if (!mockGoogleUsers.has(user.id)) {
+    throw new Error(`No matching mocked Google identity is configured for ${user.id}.`);
+  }
+  mockGoogleUsers.set(user.id, structuredClone(user));
+}
+
 export function getMockGoogleUserLookupCount(): number {
   return userLookupCount;
 }
