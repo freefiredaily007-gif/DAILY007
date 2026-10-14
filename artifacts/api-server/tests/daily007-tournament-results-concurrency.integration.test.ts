@@ -132,6 +132,112 @@ function authHeaders(userId: string): Record<string, string> {
   };
 }
 
+test("authenticated /me/stats totals match approved saved registrations and result awards", async () => {
+  const playerOneId = randomUUID();
+  const playerTwoId = randomUUID();
+  const playerIds = [playerOneId, playerTwoId];
+  const matchIds = [randomUUID(), randomUUID(), randomUUID()];
+  const registrationIds = Array.from({ length: 5 }, () => randomUUID());
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Stats Player One', $2, 'test-salt', 'test-hash'),
+              ($3, 'Stats Player Two', $4, 'test-salt', 'test-hash')`,
+      [playerOneId, `stats-${playerOneId}@example.test`, playerTwoId, `stats-${playerTwoId}@example.test`],
+    );
+    for (const [index, matchId] of matchIds.entries()) {
+      await pool.query(
+        `INSERT INTO daily007_v2_matches
+           (id, title, mode, capacity, starts_at)
+         VALUES ($1, $2, 'solo', 48, now() - interval '1 hour')`,
+        [matchId, `Profile Stats Match ${index + 1}`],
+      );
+    }
+
+    const registrations = [
+      { id: registrationIds[0]!, matchId: matchIds[0]!, userId: playerOneId, status: "approved", name: "Stats Player One" },
+      { id: registrationIds[1]!, matchId: matchIds[1]!, userId: playerOneId, status: "approved", name: "Stats Player One" },
+      { id: registrationIds[2]!, matchId: matchIds[2]!, userId: playerOneId, status: "pending", name: "Stats Player One" },
+      { id: registrationIds[3]!, matchId: matchIds[0]!, userId: playerTwoId, status: "approved", name: "Stats Player Two" },
+      { id: registrationIds[4]!, matchId: matchIds[1]!, userId: playerTwoId, status: "approved", name: "Stats Player Two" },
+    ];
+    for (const registration of registrations) {
+      await pool.query(
+        `INSERT INTO daily007_v2_registrations
+           (id, match_id, captain_user_id, captain_name, captain_game_uid,
+            entry_coins_paid, status)
+         VALUES ($1, $2, $3, $4, $5, 0, $6)`,
+        [
+          registration.id,
+          registration.matchId,
+          registration.userId,
+          registration.name,
+          `uid-${registration.id}`,
+          registration.status,
+        ],
+      );
+    }
+
+    const awards = [
+      { registrationId: registrationIds[0]!, matchId: matchIds[0]!, userId: playerOneId, rank: 1, kills: 4, prizeCoins: 700 },
+      { registrationId: registrationIds[1]!, matchId: matchIds[1]!, userId: playerOneId, rank: 3, kills: 6, prizeCoins: 75 },
+      { registrationId: registrationIds[3]!, matchId: matchIds[0]!, userId: playerTwoId, rank: 2, kills: 3, prizeCoins: 100 },
+      { registrationId: registrationIds[4]!, matchId: matchIds[1]!, userId: playerTwoId, rank: 1, kills: 9, prizeCoins: 500 },
+    ];
+    for (const award of awards) {
+      await pool.query(
+        `INSERT INTO daily007_v2_result_awards
+           (match_id, registration_id, user_id, rank, kills, prize_coins)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          award.matchId,
+          award.registrationId,
+          award.userId,
+          award.rank,
+          award.kills,
+          award.prizeCoins,
+        ],
+      );
+    }
+
+    await withServer(async (origin) => {
+      for (const [playerId, expected] of [
+        [playerOneId, { matches: 2, wins: 1, kills: 10, prizeCoins: 775 }],
+        [playerTwoId, { matches: 2, wins: 1, kills: 12, prizeCoins: 600 }],
+      ] as const) {
+        const response = await fetch(`${origin}/me/stats`, {
+          headers: authHeaders(playerId),
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(
+          await response.json(),
+          expected,
+          "the authenticated stats response should aggregate only this player's saved rows",
+        );
+      }
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_result_awards WHERE user_id = ANY($1::uuid[])",
+      [playerIds],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_registrations WHERE captain_user_id = ANY($1::uuid[])",
+      [playerIds],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
+      [matchIds],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [playerIds],
+    );
+  }
+});
+
 async function submitResult(
   origin: string,
   adminId: string,
