@@ -553,6 +553,117 @@ test("simultaneous referred Google sign-ins create one account and one 10-coin r
   }
 });
 
+test("a same-identity sign-in waiting on a failed welcome reward succeeds after rollback", async () => {
+  signupTestDb.reset();
+  signupTestDb.synchronizeNextAdvisoryLockQueries(2);
+  signupTestDb.failNextWelcomeSignupRewardLedgerWrite();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signIns = await Promise.all([1, 2].map(async () => {
+        const response = await fetch(`${origin}/auth/google`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer mocked-clerk-session",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        if (response.status === 201) {
+          return {
+            status: response.status,
+            body: await response.json() as Record<string, unknown>,
+          };
+        }
+        await response.text();
+        return { status: response.status, body: null };
+      }));
+
+      assert.deepEqual(
+        signIns.map(({ status }) => status).sort((left, right) => left - right),
+        [201, 500],
+        "the first transaction should fail and its waiting request should create the account",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.equal(
+        signupTestDb.advisoryLockWaitCount,
+        1,
+        "both requests should contend on the same provider-identity lock",
+      );
+      assert.deepEqual(signupTestDb.welcomeSignupRewardLedgerFailureContext, {
+        accountExists: true,
+        legacyCodeExists: true,
+        shortCodeExists: true,
+        walletCoins: 10,
+      }, "the injected failure should happen after signup state and wallet changes begin");
+
+      const failedSignIn = signIns.find(({ status }) => status === 500);
+      const recoveredSignIn = signIns.find(({ status }) => status === 201);
+      assert.ok(failedSignIn);
+      assert.ok(recoveredSignIn?.body);
+      assert.equal(recoveredSignIn.body.coins, 10);
+      assert.equal(typeof recoveredSignIn.body.token, "string");
+
+      const linkedAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(linkedAccounts.length, 1);
+      assert.equal(signupTestDb.users.size, 2, "only the seeded user and one Google account should remain");
+      const account = linkedAccounts[0];
+      assert.ok(account);
+      assert.equal(account.id, recoveredSignIn.body.id);
+      assert.equal(account.email, "google-signup@example.test");
+      assert.equal(account.wallet_coins, 10);
+      assert.equal(signupTestDb.shortCodesByUser.size, 2);
+      assert.equal(signupTestDb.shortCodeOwners.size, 2);
+      assert.equal(signupTestDb.legacyCodeOwners.size, 2);
+      assert.deepEqual(signupTestDb.referrals, [], "a non-referred signup must not create a referral");
+      assert.deepEqual(
+        signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          user_id: account.id,
+          amount: 10,
+          balance_after: 10,
+          reason: "Welcome Signup Bonus",
+        }],
+        "rollback and retry must leave exactly one complete welcome reward",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(recoveredSignIn.body.token)}` },
+      });
+      assert.equal(walletResponse.status, 200);
+      const walletHistory = await walletResponse.json() as {
+        amount: number;
+        balanceAfter: number;
+        reason: string;
+      }[];
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Welcome Signup Bonus",
+        }],
+        "the recovered account should show one welcome reward in Wallet history",
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("a same-identity sign-in waiting on a failed referral reward succeeds after rollback", async () => {
   signupTestDb.reset();
   signupTestDb.synchronizeNextAdvisoryLockQueries(2);
