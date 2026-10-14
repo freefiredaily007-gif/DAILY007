@@ -369,7 +369,7 @@ export default function Home() {
           <Text style={s.viewAll}>VIEW ALL →</Text>
         </Pressable>
       </View>
-      {!loading && upcomingItems.length > 0 && loadError && (
+      {!loading && upcomingItems.length > 0 && Boolean(loadError) && (
         <View testID="home-upcoming-refresh-error" style={s.upcomingRefreshNotice}>
           <Msg
             kind="err"

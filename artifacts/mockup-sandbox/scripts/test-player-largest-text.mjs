@@ -20,7 +20,6 @@ const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-onl
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
-  "Unexpected text node: . A text node cannot be a child of a <View>.",
 ]);
 const pending = new Map();
 let viteOutput = "";
@@ -80,8 +79,8 @@ function verifyBrowserErrorPolicy() {
     browserErrorForCdpEvent("Runtime.consoleAPICalled", {
       type: "error",
       args: [{ value: "Unexpected text node: . A text node cannot be a child of a <View>." }],
-    }) === null,
-    "The exact React Native Web text-node warning should be ignored by the browser harness.",
+    }) === "Unexpected text node: . A text node cannot be a child of a <View>.",
+    "The exact React Native Web text-node warning must remain visible to the browser harness.",
   );
   assert(
     browserErrorForCdpEvent("Runtime.consoleAPICalled", {
