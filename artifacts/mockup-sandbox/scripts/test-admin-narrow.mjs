@@ -4139,6 +4139,28 @@ async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !retry.disabled;
   })()`);
   assert(retryVisible, "The Admin initial-load Retry control must be visible and enabled.");
+  const initialLoadAccessibility = await evaluate(`(() => {
+    const error = document.querySelector('[data-testid="admin-tournament-load-error"]');
+    const liveRegion = error?.querySelector('[aria-live]');
+    const retry = document.querySelector('[data-testid="admin-tournament-refresh-retry"]');
+    return {
+      errorText: error?.innerText ?? null,
+      liveRegion: liveRegion?.getAttribute('aria-live') ?? null,
+      retryRole: retry?.getAttribute('role') ?? null,
+      retryLabel: retry?.getAttribute('aria-label') ?? null,
+    };
+  })()`);
+  assert(
+    initialLoadAccessibility.errorText?.includes(
+      "Could not load tournaments: Initial Admin tournament request failed",
+    ) && initialLoadAccessibility.liveRegion === "polite",
+    `The initial Admin error must be exposed as a polite live announcement: ${JSON.stringify(initialLoadAccessibility)}.`,
+  );
+  assert(
+    initialLoadAccessibility.retryRole === "button"
+      && initialLoadAccessibility.retryLabel === "Retry loading tournaments",
+    `The initial-load recovery action must be announced as a button with a clear purpose: ${JSON.stringify(initialLoadAccessibility)}.`,
+  );
 
   const readsBeforeRetry = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
   if (largeText) {
@@ -4160,6 +4182,11 @@ async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
   assert(
     !await evaluate("document.body.innerText.includes('Could not load tournaments')"),
     "A successful Admin retry must clear the initial-load error.",
+  );
+  assert(
+    !await evaluate("Boolean(document.querySelector('[data-testid=\"admin-tournament-load-error\"]'))")
+      && !await evaluate("Boolean(document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]'))"),
+    "A successful Admin retry must remove both the stale error announcement and its recovery action.",
   );
 }
 

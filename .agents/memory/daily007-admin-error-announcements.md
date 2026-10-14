@@ -7,6 +7,8 @@ For Admin error announcements, give each toast a new accessibility node when it 
 
 For Admin success messages that auto-dismiss, cancel any earlier dismissal timer before showing a replacement. A delayed timer from one action must not clear a newer status announcement.
 
+On iQOO Neo 10 / Android 16, TalkBack clearly communicated the Admin tournament first-load error and Retry purpose, and a successful retry cleared the error state. The exact spoken transcript was not captured.
+
 **Why:** Consecutive identical live-region text may not be announced as a new update, a generic error does not identify the affected action, and an earlier toast timer can silently erase a newer payment-status message.
 
 **How to apply:** Preserve fresh-node behavior and contextual error/retry wording when changing Admin toast handling. Cancel or supersede stale timers when replacing success messages; confirm actual TalkBack speech on Android because source checks cannot establish native speech behavior.

@@ -587,7 +587,7 @@ export default function AdminTournaments() {
             small
             disabled={retryingList}
             loading={retryingList}
-            accessibilityLabel="Retry tournament refresh"
+            accessibilityLabel={hasLoadedList.current ? 'Retry tournament refresh' : 'Retry loading tournaments'}
             accessibilityHint="Load the tournament list again."
             accessibilityState={{ disabled: retryingList, busy: retryingList }}
             testID="admin-tournament-refresh-retry"
