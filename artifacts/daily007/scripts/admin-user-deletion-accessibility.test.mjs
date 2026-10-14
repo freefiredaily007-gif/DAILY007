@@ -24,6 +24,14 @@ const promptEnd = usersSource.indexOf('/>', promptStart);
 const deletePrompt = promptStart >= 0 && promptEnd >= 0
   ? usersSource.slice(promptStart, promptEnd + 2)
   : '';
+const confirmComponentStart = adminKitSource.indexOf('export function ConfirmDialog');
+const promptComponentStart = adminKitSource.indexOf('export function PromptDialog');
+const confirmComponent = confirmComponentStart >= 0 && promptComponentStart > confirmComponentStart
+  ? adminKitSource.slice(confirmComponentStart, promptComponentStart)
+  : '';
+const promptComponent = promptComponentStart >= 0
+  ? adminKitSource.slice(promptComponentStart)
+  : '';
 const deleteHandler = usersSource.match(
   /const confirmDeleteUser = async \(email: string\): Promise<boolean> => \{([\s\S]*?)\n\s*\};/,
 )?.[1] ?? '';
@@ -60,6 +68,7 @@ test('the first dialog announces the account, permanent data loss, and teammate 
   );
   assert.match(adminKitSource, /<Text accessible=\{false\} style=\{s\.dialogTitle\}>/);
   assert.match(adminKitSource, /<Text accessible=\{false\} style=\{s\.dialogMsg\}>/);
+  assert.match(adminKitSource, /<View style=\{s\.dialog\} accessibilityViewIsModal>/);
 });
 
 test('the email field names the exact target and a mismatch stays in the prompt', () => {
@@ -73,6 +82,8 @@ test('the email field names the exact target and a mismatch stays in the prompt'
   );
   assert.match(deletePrompt, /accessibilityHint="Enter the account email shown above/);
   assert.match(deletePrompt, /submitting=\{deleteBusy\}/);
+  assert.match(adminKitSource, /<View style=\{s\.dialog\} accessibilityViewIsModal>/);
+  assert.match(promptComponent, /<TextInput[\s\S]*?autoFocus[\s\S]*?accessibilityLabel=\{accessibilityLabel \?\? title\}/);
   assert.match(
     deleteHandler,
     /if \(email\.trim\(\)\.toLowerCase\(\) !== String\(user\.email\)\.trim\(\)\.toLowerCase\(\)\) \{\s*toast\('The email does not match this account\. No data was removed\.', 'error'\);\s*return false;/,
@@ -91,10 +102,26 @@ test('deletion progress, success, and failure are announced without programmatic
   );
   assert.match(
     adminKitSource,
-    /<Text accessibilityLiveRegion="polite" style=\{s\.dialogMsg\}>\s*\{submittingMessage\}\s*<\/Text>/,
+    /accessibilityLiveRegion=\{Platform\.OS === 'ios' \? undefined : 'polite'\}[\s\S]*?\{submittingMessage\}/,
+  );
+  assert.match(
+    adminKitSource,
+    /if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(msg\)/,
+    'VoiceOver should hear transient mismatch, success, and failure feedback.',
+  );
+  assert.match(
+    adminKitSource,
+    /Platform\.OS === 'ios' && !announcedSubmitting\.current && submittingMessage[\s\S]*?announceForAccessibility\(submittingMessage\)/,
+    'VoiceOver should hear the pending state once without relying on live regions.',
+  );
+  assert.match(
+    adminKitSource,
+    /accessibilityLiveRegion=\{Platform\.OS === 'ios'\s*\? undefined\s*:\s*toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+    'Android retains live-region announcements while iOS uses explicit speech.',
   );
   assert.match(adminKitSource, /accessibilityState=\{\{ disabled: submitting, busy: submitting \}\}/);
   assert.match(adminKitSource, /if \(submitting\) return;\s*setVal\(''\);\s*onCancel\(\);/);
+  assert.doesNotMatch(confirmComponent, /AccessibilityInfo\.setAccessibilityFocus|\.focus\(/);
 
   assert.match(
     deleteHandler,
@@ -103,7 +130,11 @@ test('deletion progress, success, and failure are announced without programmatic
   );
   assert.match(deleteHandler, /catch \(e\) \{\s*toast\(errMessage\(e\), 'error'\);\s*await load\(\);\s*return false;/);
   assert.doesNotMatch(deleteHandler, /AccessibilityInfo|\.focus\(/);
+  assert.doesNotMatch(promptComponent, /AccessibilityInfo\.setAccessibilityFocus|\.focus\(/);
   assert.match(adminKitSource, /accessibilityLabel=\{toast\.msg\}/);
-  assert.match(adminKitSource, /accessibilityRole=\{toast\.kind === 'err' \? 'alert' : undefined\}/);
-  assert.match(adminKitSource, /accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/);
+  assert.match(adminKitSource, /accessibilityRole=\{Platform\.OS !== 'ios' && toast\.kind === 'err' \? 'alert' : undefined\}/);
+  assert.match(
+    adminKitSource,
+    /accessibilityLiveRegion=\{Platform\.OS === 'ios'\s*\? undefined\s*:\s*toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+  );
 });

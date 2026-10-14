@@ -94,6 +94,7 @@ export function AdminToastHost({ children }: { children: React.ReactNode }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const show = useCallback((msg: string, kind: ToastKind = 'ok') => {
     setToast({ id: ++toastSequence.current, msg, kind: kind === 'error' ? 'err' : 'ok' });
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(msg);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(null), 2600);
   }, []);
@@ -106,8 +107,10 @@ export function AdminToastHost({ children }: { children: React.ReactNode }) {
               key={toast.id}
               testID="admin-toast"
               accessibilityLabel={toast.msg}
-              accessibilityRole={toast.kind === 'err' ? 'alert' : undefined}
-              accessibilityLiveRegion={toast.kind === 'err' ? 'assertive' : 'polite'}
+              accessibilityRole={Platform.OS !== 'ios' && toast.kind === 'err' ? 'alert' : undefined}
+              accessibilityLiveRegion={Platform.OS === 'ios'
+                ? undefined
+                : toast.kind === 'err' ? 'assertive' : 'polite'}
               style={{ color: toast.kind === 'err' ? '#ffb4b4' : '#c9f7d4', fontWeight: '800', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}
             >
             {toast.kind === 'err' ? '✕ ' : '✓ '}{toast.msg}
@@ -330,6 +333,18 @@ export function PromptDialog({
 }) {
   const [val, setVal] = useState('');
   const submitInFlight = useRef(false);
+  const announcedSubmitting = useRef(false);
+  useEffect(() => {
+    if (!visible || !submitting) {
+      announcedSubmitting.current = false;
+      return;
+    }
+    if (Platform.OS === 'ios' && !announcedSubmitting.current && submittingMessage) {
+      AccessibilityInfo.announceForAccessibility(submittingMessage);
+      announcedSubmitting.current = true;
+    }
+  }, [submitting, submittingMessage, visible]);
+
   const close = () => {
     if (submitting) return;
     setVal('');
@@ -352,7 +367,10 @@ export function PromptDialog({
           <Text accessibilityRole="header" style={s.dialogTitle}>{title}</Text>
           {!!message && <Text style={s.dialogMsg}>{message}</Text>}
           {submitting && !!submittingMessage && (
-            <Text accessibilityLiveRegion="polite" style={s.dialogMsg}>
+            <Text
+              accessibilityLiveRegion={Platform.OS === 'ios' ? undefined : 'polite'}
+              style={s.dialogMsg}
+            >
               {submittingMessage}
             </Text>
           )}
