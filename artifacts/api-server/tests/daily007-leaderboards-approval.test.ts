@@ -777,6 +777,83 @@ test("Full Admin prize updates leave pending approval payout snapshots unchanged
       );
       assert.equal(daily007LeaderboardTestDb.users.get(TEST_PLAYER_ONE_ID)?.wallet_coins, 150);
       assert.equal(daily007LeaderboardTestDb.users.get(TEST_PLAYER_TWO_ID)?.wallet_coins, 140);
+
+      const monthlyApproval = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        `/daily007/v2/admin/leaderboards/periods/${TEST_MONTHLY_PERIOD_ID}/approve`,
+        "POST",
+      );
+      assert.equal(monthlyApproval.status, 200);
+      assert.deepEqual(monthlyApproval.body.rewards, [
+        { rank: 1, coins: 25 },
+        { rank: 2, coins: 0 },
+        { rank: 3, coins: 5 },
+      ]);
+      assert.deepEqual(
+        monthlyApproval.body.payouts.map((payout: {
+          rank: number;
+          userId: string;
+          coins: number;
+          balanceAfter: number;
+        }) => ({
+          rank: payout.rank,
+          userId: payout.userId,
+          coins: payout.coins,
+          balanceAfter: payout.balanceAfter,
+        })),
+        [
+          { rank: 1, userId: TEST_PLAYER_THREE_ID, coins: 25, balanceAfter: 125 },
+          { rank: 3, userId: TEST_PLAYER_TWO_ID, coins: 5, balanceAfter: 145 },
+        ],
+      );
+      assert.deepEqual(
+        [
+          TEST_PLAYER_ONE_ID,
+          TEST_PLAYER_TWO_ID,
+          TEST_PLAYER_THREE_ID,
+          TEST_PLAYER_FOUR_ID,
+        ].map((id) => daily007LeaderboardTestDb.users.get(id)?.wallet_coins),
+        [150, 145, 125, 100],
+      );
+      assert.deepEqual(
+        [1, 3].map((rank) => {
+          const entry = daily007LeaderboardTestDb.ledger.get(
+            `leaderboard-cycle:${TEST_MONTHLY_PERIOD_ID}:rank:${rank}`,
+          );
+          return {
+            userId: entry?.user_id,
+            amount: entry?.amount,
+            balanceAfter: entry?.balance_after,
+            cycleType: entry?.details.cycleType,
+            rank: entry?.details.rank,
+          };
+        }),
+        [
+          {
+            userId: TEST_PLAYER_THREE_ID,
+            amount: 25,
+            balanceAfter: 125,
+            cycleType: "monthly",
+            rank: 1,
+          },
+          {
+            userId: TEST_PLAYER_TWO_ID,
+            amount: 5,
+            balanceAfter: 145,
+            cycleType: "monthly",
+            rank: 3,
+          },
+        ],
+      );
+      assert.equal(
+        daily007LeaderboardTestDb.ledger.has(
+          `leaderboard-cycle:${TEST_MONTHLY_PERIOD_ID}:rank:2`,
+        ),
+        false,
+        "zero-value rank prizes must not create a ledger entry",
+      );
+      assert.equal(daily007LeaderboardTestDb.ledger.size, 4);
     });
   } finally {
     daily007LeaderboardTestDb.reset();
