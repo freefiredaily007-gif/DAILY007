@@ -73,6 +73,12 @@ When the server accepts a Google link but the returned Daily007 session cannot b
 
 **How to apply:** Keep session-persistence failures distinct from API authorization failures and continue protected calls with the original password-account bearer token.
 
+On 2026-10-14, the user reported that after a native Android force-close and relaunch, a linked password account still showed Google connected, an unlinked account still offered Connect Google, and the account ID, wallet balance, and Daily007 token were unchanged.
+
+**Why:** Browser mocks cannot prove native AsyncStorage survives an Android process restart.
+
+**How to apply:** Treat these restart checks as physically confirmed; repeat them after changing Google-link status refresh or Daily007 session restoration.
+
 ## Google sign-in error accessibility
 
 On Android, keep Google failure speech on one path: the Google button announces once after loading clears, and the login screen displays that error without a second assertive live-region announcement. Keep ordinary email/password failures on their existing live region.
