@@ -75,7 +75,9 @@ class MemoryLeaderboardDatabase {
   ledger = new Map<string, TestLedgerEntry>();
   failWalletUpdateFor: string | null = null;
   failRewardSettingWriteFor: "weekly" | "monthly" | null = null;
+  failActivePeriodSnapshotWriteFor: "weekly" | "monthly" | null = null;
   rewardSettingWriteAttempts: ("weekly" | "monthly")[] = [];
+  activePeriodSnapshotWriteAttempts: ("weekly" | "monthly")[] = [];
   private nextPeriodNumber = 100;
 
   reset(): void {
@@ -97,7 +99,9 @@ class MemoryLeaderboardDatabase {
     this.ledger = new Map();
     this.failWalletUpdateFor = null;
     this.failRewardSettingWriteFor = null;
+    this.failActivePeriodSnapshotWriteFor = null;
     this.rewardSettingWriteAttempts = [];
+    this.activePeriodSnapshotWriteAttempts = [];
     this.nextPeriodNumber = 100;
   }
 
@@ -433,6 +437,13 @@ class MemoryLeaderboardDatabase {
       normalized.includes("SET payout_configuration = $2::jsonb")
     ) {
       const cycleType = String(values[0]);
+      this.activePeriodSnapshotWriteAttempts.push(cycleType as "weekly" | "monthly");
+      if (this.failActivePeriodSnapshotWriteFor === cycleType) {
+        throw Object.assign(
+          new Error(`Simulated ${cycleType} active leaderboard prize snapshot write failure.`),
+          { status: 503 },
+        );
+      }
       const payoutConfiguration = JSON.parse(String(values[1])) as unknown;
       const cutoff = new Date(String(values[2])).getTime();
       for (const period of this.periods.values()) {

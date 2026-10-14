@@ -921,6 +921,81 @@ test("a failed monthly Full Admin prize save rolls back both schedules and activ
   }
 });
 
+test("a failed active-period snapshot update keeps player prizes and saved schedules unchanged", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedOpenPeriods(new Date());
+  const originalSettings = structuredClone(daily007LeaderboardTestDb.rewardSettings);
+  const originalActivePeriodSnapshots = [...daily007LeaderboardTestDb.periods.values()]
+    .filter((candidate) => candidate.status === "active")
+    .map((candidate) => ({
+      id: candidate.id,
+      cycleType: candidate.cycle_type,
+      payoutConfiguration: structuredClone(candidate.payout_configuration),
+    }));
+  daily007LeaderboardTestDb.failActivePeriodSnapshotWriteFor = "monthly";
+
+  try {
+    await withServer(async (origin) => {
+      const originalPlayerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(originalPlayerRead.status, 200);
+      const originalPlayerView = await originalPlayerRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+
+      const failedSave = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        {
+          weekly: { firstPlaceCoins: 701, secondPlaceCoins: 702, thirdPlaceCoins: 703 },
+          monthly: { firstPlaceCoins: 801, secondPlaceCoins: 802, thirdPlaceCoins: 803 },
+        },
+      );
+
+      assert.equal(failedSave.status, 503);
+      assert.deepEqual(
+        daily007LeaderboardTestDb.rewardSettingWriteAttempts,
+        ["weekly", "monthly"],
+        "both reward schedules must be written before the snapshot failure",
+      );
+      assert.deepEqual(
+        daily007LeaderboardTestDb.activePeriodSnapshotWriteAttempts,
+        ["weekly", "monthly"],
+        "the weekly snapshot must be written before the injected monthly snapshot failure",
+      );
+      assert.deepEqual(
+        daily007LeaderboardTestDb.rewardSettings,
+        originalSettings,
+        "both saved reward schedules must roll back after the snapshot failure",
+      );
+      assert.deepEqual(
+        [...daily007LeaderboardTestDb.periods.values()]
+          .filter((candidate) => candidate.status === "active")
+          .map((candidate) => ({
+            id: candidate.id,
+            cycleType: candidate.cycle_type,
+            payoutConfiguration: candidate.payout_configuration,
+          })),
+        originalActivePeriodSnapshots,
+        "both active-period prize snapshots must roll back",
+      );
+
+      const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(playerRead.status, 200);
+      const playerView = await playerRead.json() as {
+        weekly: { rewards: RewardSeed[] };
+        monthly: { rewards: RewardSeed[] };
+      };
+      assert.deepEqual(playerView.weekly.rewards, originalPlayerView.weekly.rewards);
+      assert.deepEqual(playerView.monthly.rewards, originalPlayerView.monthly.rewards);
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("invalid Full Admin prize edits leave both schedules and active-period snapshots unchanged", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());
