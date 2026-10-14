@@ -70,6 +70,30 @@ const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const nativeLabelFixtureSource = await readFile(
+  new URL("../src/screens/JoinFormAccessibilityNativeTest.tsx", import.meta.url),
+  "utf8",
+);
+const nativeLabelFlowSource = await readFile(
+  new URL("../maestro/join-form-accessibility/labels-solo-duo-squad.yaml", import.meta.url),
+  "utf8",
+);
+const nativeLabelRouteSource = await readFile(
+  new URL("../app/join-form-accessibility-test.tsx", import.meta.url),
+  "utf8",
+);
+const rootLayoutSource = await readFile(
+  new URL("../app/_layout.tsx", import.meta.url),
+  "utf8",
+);
+const androidWorkflowSource = await readFile(
+  new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url),
+  "utf8",
+);
+const packageJson = JSON.parse(await readFile(
+  new URL("../package.json", import.meta.url),
+  "utf8",
+));
 
 function validJoinForm(overrides = {}) {
   return {
@@ -205,6 +229,82 @@ test("TalkBack field labels follow the registration order for Solo, Duo, and Squ
     "Teammate 3 Free Fire in-game name",
     "Teammate 3 Free Fire UID, optional",
   ]);
+});
+
+test("Android release verification opens native Solo, Duo, and Squad label flows", () => {
+  assert.match(nativeLabelRouteSource, /JoinFormAccessibilityNativeTest/);
+  assert.match(rootLayoutSource, /<Stack\.Screen name="join-form-accessibility-test" \/>/);
+  assert.match(nativeLabelFixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  assert.match(nativeLabelFixtureSource, /onSubmit=\{async \(\) => \{\}\}/);
+  assert.equal(
+    packageJson.scripts["test:android-join-form-accessibility"],
+    'maestro test --test-output-dir="${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}" maestro/join-form-accessibility',
+  );
+  assert.match(
+    androidWorkflowSource,
+    /run_maestro_suite join-form-accessibility test:android-join-form-accessibility/,
+  );
+  assert.match(androidWorkflowSource, /Run JoinForm accessibility label regression tests/);
+
+  const formats = [
+    {
+      name: "Solo",
+      labels: [
+        "Captain Daily007 profile name, read-only",
+        "Captain Free Fire in-game name",
+        "Captain Free Fire UID",
+      ],
+    },
+    {
+      name: "Duo",
+      labels: [
+        "Captain Daily007 profile name, read-only",
+        "Captain Free Fire in-game name",
+        "Captain Free Fire UID",
+        "Team name",
+        "Teammate 1 Free Fire in-game name",
+        "Teammate 1 Free Fire UID, optional",
+      ],
+    },
+    {
+      name: "Squad",
+      labels: [
+        "Captain Daily007 profile name, read-only",
+        "Captain Free Fire in-game name",
+        "Captain Free Fire UID",
+        "Team name",
+        "Teammate 1 Free Fire in-game name",
+        "Teammate 1 Free Fire UID, optional",
+        "Teammate 2 Free Fire in-game name",
+        "Teammate 2 Free Fire UID, optional",
+        "Teammate 3 Free Fire in-game name",
+        "Teammate 3 Free Fire UID, optional",
+      ],
+    },
+  ];
+  let previousFormatOffset = -1;
+  for (const format of formats) {
+    const formatOffset = nativeLabelFlowSource.indexOf(`Current format: ${format.name}`);
+    assert.ok(formatOffset > previousFormatOffset, `${format.name} flow must follow the preceding format.`);
+    previousFormatOffset = formatOffset;
+    const nextFormatOffset = nativeLabelFlowSource.indexOf("Current format:", formatOffset + 1);
+    const formatFlow = nativeLabelFlowSource.slice(
+      formatOffset,
+      nextFormatOffset < 0 ? undefined : nextFormatOffset,
+    );
+    let previousLabelOffset = formatOffset;
+    for (const label of format.labels) {
+      const labelOffset = nativeLabelFlowSource.indexOf(`text: "${label}"`, previousLabelOffset);
+      assert.ok(labelOffset > previousLabelOffset, `${format.name} must expose and visit ${label} in order.`);
+      previousLabelOffset = labelOffset;
+    }
+    let previousTapOffset = -1;
+    for (const label of format.labels) {
+      const tapOffset = formatFlow.indexOf(`- tapOn:\n    text: "${label}"`, previousTapOffset + 1);
+      assert.ok(tapOffset > previousTapOffset, `${format.name} native input ${label} must be reachable in order.`);
+      previousTapOffset = tapOffset;
+    }
+  }
 });
 
 test("required captain and teammate names identify the exact field that needs attention", () => {

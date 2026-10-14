@@ -1,0 +1,167 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/join-form-accessibility-test
+- extendedWaitUntil:
+    visible:
+      id: join-form-accessibility-fixture
+    timeout: 15000
+
+- tapOn:
+    id: join-form-accessibility-select-solo
+- assertVisible:
+    text: "Current format: Solo"
+- scrollUntilVisible:
+    element:
+      text: "Captain Daily007 profile name, read-only"
+    direction: DOWN
+- assertVisible:
+    text: "Captain Daily007 profile name, read-only"
+- tapOn:
+    text: "Captain Daily007 profile name, read-only"
+- scrollUntilVisible:
+    element:
+      text: "Captain Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Captain Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Captain Free Fire UID"
+    direction: DOWN
+- tapOn:
+    text: "Captain Free Fire UID"
+- hideKeyboard
+
+- scrollUntilVisible:
+    element:
+      id: join-form-accessibility-select-duo
+    direction: UP
+- tapOn:
+    id: join-form-accessibility-select-duo
+- assertVisible:
+    text: "Current format: Duo"
+- scrollUntilVisible:
+    element:
+      text: "Captain Daily007 profile name, read-only"
+    direction: DOWN
+- assertVisible:
+    text: "Captain Daily007 profile name, read-only"
+- tapOn:
+    text: "Captain Daily007 profile name, read-only"
+- scrollUntilVisible:
+    element:
+      text: "Captain Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Captain Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Captain Free Fire UID"
+    direction: DOWN
+- tapOn:
+    text: "Captain Free Fire UID"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Team name"
+    direction: DOWN
+- tapOn:
+    text: "Team name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 1 Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 1 Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 1 Free Fire UID, optional"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 1 Free Fire UID, optional"
+- hideKeyboard
+
+- scrollUntilVisible:
+    element:
+      id: join-form-accessibility-select-squad
+    direction: UP
+- tapOn:
+    id: join-form-accessibility-select-squad
+- assertVisible:
+    text: "Current format: Squad"
+- scrollUntilVisible:
+    element:
+      text: "Captain Daily007 profile name, read-only"
+    direction: DOWN
+- assertVisible:
+    text: "Captain Daily007 profile name, read-only"
+- tapOn:
+    text: "Captain Daily007 profile name, read-only"
+- scrollUntilVisible:
+    element:
+      text: "Captain Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Captain Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Captain Free Fire UID"
+    direction: DOWN
+- tapOn:
+    text: "Captain Free Fire UID"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Team name"
+    direction: DOWN
+- tapOn:
+    text: "Team name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 1 Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 1 Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 1 Free Fire UID, optional"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 1 Free Fire UID, optional"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 2 Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 2 Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 2 Free Fire UID, optional"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 2 Free Fire UID, optional"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 3 Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 3 Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Teammate 3 Free Fire UID, optional"
+    direction: DOWN
+- tapOn:
+    text: "Teammate 3 Free Fire UID, optional"
+- hideKeyboard

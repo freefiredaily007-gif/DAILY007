@@ -151,12 +151,17 @@ test("non-capacity registration errors announce once through their visible error
   );
   assert.match(
     joinValidationSource,
-    /const message = 'Captain Free Fire in-game name is required\.'/,
+    /fieldErrors\.captainGameName = 'Captain Free Fire in-game name is required\.'/,
     "the local fixture should exercise the missing captain game name validation",
   );
   assert.match(
     joinFormSource,
-    /announceError\(e\?\.response\?\.data\?\.error \|\| e\?\.response\?\.data\?\.message \|\| e\?\.message \|\| 'Registration could not be confirmed\. Please try again\.'\)/,
+    /const message = responseData\?\.error \|\| responseData\?\.message \|\| e\?\.message \|\| 'Registration could not be confirmed\. Please try again\.'/,
+    "server failures such as insufficient balance should provide the visible error text",
+  );
+  assert.match(
+    joinFormSource,
+    /announceError\(getJoinFormSubmissionErrorMessage\(message,/,
     "server failures such as insufficient balance should continue to populate the visible error",
   );
   assert.equal(

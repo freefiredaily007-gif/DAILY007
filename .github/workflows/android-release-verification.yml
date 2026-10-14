@@ -55,6 +55,9 @@ jobs:
       - name: Run join recovery regression tests
         run: pnpm --filter @workspace/daily007 run test:tournament-join-recovery
 
+      - name: Run JoinForm accessibility label regression tests
+        run: pnpm --filter @workspace/daily007 run test:join-form
+
       - name: Run Wallet refund accessibility regression tests
         run: pnpm --filter @workspace/daily007 run test:wallet-cancellation-history
 
@@ -186,6 +189,7 @@ jobs:
             }
 
             run_maestro_suite join-recovery test:android-join-recovery
+            run_maestro_suite join-form-accessibility test:android-join-form-accessibility
             run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
             run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
             run_maestro_suite session-verification test:android-session-verification
