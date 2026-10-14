@@ -145,6 +145,7 @@ export default function Video() {
     },
   });
   const videos: VideoItem[] = (videosQuery.data?.videos ?? []) as VideoItem[];
+  const hasLoadedCatalog = videosQuery.data !== undefined;
   const styles = useMemo(() => createStyles(colors), [
     colors.background,
     colors.foreground,
@@ -216,7 +217,7 @@ export default function Video() {
 
   useEffect(() => {
     if (showPlayer) return undefined;
-    if (videosQuery.isError) {
+    if (videosQuery.isError && !hasLoadedCatalog) {
       if (catalogScrollOffsetRef.current > 0) {
         catalogScrollRestorePendingRef.current = true;
       }
@@ -237,6 +238,7 @@ export default function Video() {
   }, [
     showPlayer,
     videosQuery.dataUpdatedAt,
+    hasLoadedCatalog,
     videosQuery.isError,
     videosQuery.isFetching,
     videosQuery.isLoading,
@@ -624,7 +626,11 @@ export default function Video() {
       contentContainerStyle={styles.scrollContent}
       keyboardShouldPersistTaps="handled"
       onScroll={(event) => {
-        if (!showPlayer && !videosQuery.isError && !catalogScrollRestorePendingRef.current) {
+        if (
+          !showPlayer
+          && (!videosQuery.isError || hasLoadedCatalog)
+          && !catalogScrollRestorePendingRef.current
+        ) {
           catalogScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
         }
       }}
@@ -792,7 +798,9 @@ export default function Video() {
                 testID="video-catalog-error-message"
                 style={styles.errorText}
               >
-                Could not load videos. Check your connection and try again.
+                {hasLoadedCatalog
+                  ? 'Could not refresh videos. Showing the last loaded catalog.'
+                  : 'Could not load videos. Check your connection and try again.'}
               </Text>
               <Pressable
                 testID="video-catalog-reload"
@@ -814,14 +822,14 @@ export default function Video() {
               Video catalog reloaded successfully.
             </Text>
           ) : null}
-          {!videosQuery.isLoading && !videosQuery.isError && videos.length === 0 ? (
+          {!videosQuery.isLoading && hasLoadedCatalog && videos.length === 0 ? (
             <View style={styles.emptyCard}>
               <Feather name="video" size={22} color={colors.accent} />
               <Text style={styles.errorText}>No videos are available yet.</Text>
             </View>
           ) : null}
 
-          {!videosQuery.isError && videos.length > 0 ? (
+          {videos.length > 0 ? (
             <>
               <View style={styles.catalogSearch}>
                 <Feather name="search" size={17} color={colors.mutedForeground} />

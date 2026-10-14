@@ -755,3 +755,76 @@ test("the visible catalog removes a video disabled while it stays open", async (
   unsubscribe();
   queryClient.clear();
 });
+
+test("a failed background catalog refresh preserves playable cards until a later refresh succeeds", async () => {
+  assert.match(videoSource, /const hasLoadedCatalog = videosQuery\.data !== undefined/);
+  assert.match(videoSource, /videosQuery\.isError && !hasLoadedCatalog/);
+  assert.match(
+    videoSource,
+    /hasLoadedCatalog\s*\?\s*'Could not refresh videos\. Showing the last loaded catalog\.'/,
+  );
+  assert.ok(
+    findJsxConditional("videos.length > 0"),
+    "Loaded cards must remain rendered independently of the query error state.",
+  );
+  assert.match(videoSource, /selectedVideo = videos\.find\(\(video\) => video\.id === selectedVideoId\)/);
+  assert.match(videoSource, /setSelectedVideoId\(video\.id\);\s*setShowPlayer\(true\)/);
+  assert.match(videoSource, /!videosQuery\.isLoading && hasLoadedCatalog && videos\.length === 0/);
+
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const { QueryClient, QueryObserver } = await import("@tanstack/react-query");
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  const lastGoodCatalog = [{ id: "last-good", title: "Last good video", active: true }];
+  const refreshedCatalog = [{ id: "refreshed", title: "Updated video", active: true }];
+  let shouldFail = false;
+  let catalog = lastGoodCatalog;
+  const queryOptions = {
+    queryKey: ["video-catalog-background-failure"],
+    queryFn: async () => {
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error("Temporary network error");
+      }
+      return { videos: catalog };
+    },
+    retry: false,
+    refetchInterval: false,
+  };
+  const observer = new QueryObserver(queryClient, queryOptions);
+  const unsubscribe = observer.subscribe(() => {});
+
+  await waitFor(
+    () => observer.getCurrentResult().data?.videos?.[0]?.id === "last-good",
+    "The catalog should first load the active video.",
+  );
+  catalog = refreshedCatalog;
+  shouldFail = true;
+  const failedRefresh = await observer.refetch();
+  assert.ok(failedRefresh.error, "The simulated background refresh should fail.");
+  assert.equal(observer.getCurrentResult().isError, true);
+  assert.equal(
+    observer.getCurrentResult().data?.videos?.[0]?.id,
+    "last-good",
+    "A failed refresh should retain the last successful response for the catalog and player.",
+  );
+
+  observer.setOptions({ ...queryOptions, refetchInterval: 10 });
+  await waitFor(
+    () => observer.getCurrentResult().data?.videos?.[0]?.id === "refreshed",
+    "The next scheduled refresh should replace stale videos with the updated catalog.",
+  );
+  assert.equal(observer.getCurrentResult().isError, false);
+
+  unsubscribe();
+  queryClient.clear();
+});
