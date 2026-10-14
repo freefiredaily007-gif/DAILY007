@@ -1258,6 +1258,42 @@ test("team edits change only Free Fire and roster details, not the captain profi
   }
 });
 
+test("team edits reject captain and teammate UIDs differing only by capitalization without changing the roster", async () => {
+  registrationProfileTestDb.reset(` ${PROFILE_NAME} `);
+  try {
+    await withServer(async (origin) => {
+      const registered = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
+      assert.equal(registered.status, 201);
+      const registration = registrationProfileTestDb.registrations[0];
+      assert.ok(registration);
+      const originalRegistrations = structuredClone(registrationProfileTestDb.registrations);
+      const originalRoster = structuredClone(registrationProfileTestDb.roster);
+
+      const attemptedEdit = await sendTeamEdit(origin, registration.id, {
+        captainGameName: "UpdatedFireCaptain",
+        captainGameUid: "FF-Duplicate-Captain-UID",
+        teamName: "Attempted Red Dragon",
+        teammates: [
+          { name: "UpdatedMateOne", uid: "ff-duplicate-captain-uid" },
+          { name: "UpdatedMateTwo", uid: "FF-MATE-UPDATED-2" },
+          { name: "UpdatedMateThree", uid: "FF-MATE-UPDATED-3" },
+        ],
+      });
+
+      assert.equal(attemptedEdit.status, 400);
+      assert.match(String(attemptedEdit.body.error), /different game UID/i);
+      assert.deepEqual(registrationProfileTestDb.registrations, originalRegistrations);
+      assert.deepEqual(registrationProfileTestDb.roster, originalRoster);
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 test("team edits reject UIDs from another active registration in the same tournament", async () => {
   const duplicateUidCases = [
     { status: "approved" as const, useTeammateUid: false },
@@ -1281,16 +1317,18 @@ test("team edits reject UIDs from another active registration in the same tourna
           ? otherRegistration.roster[0].member_uid
           : otherRegistration.registration.captain_game_uid;
         assert.ok(otherUid);
+        const differentCapitalization = otherUid.toLowerCase();
+        assert.notEqual(differentCapitalization, otherUid);
 
         const originalRegistrations = structuredClone(registrationProfileTestDb.registrations);
-      const originalRoster = structuredClone(registrationProfileTestDb.roster);
+        const originalRoster = structuredClone(registrationProfileTestDb.roster);
         const attemptedEdit = await sendTeamEdit(origin, editedRegistration.id, {
           captainGameName: "UpdatedFireCaptain",
           captainGameUid: "FF-CAPTAIN-UPDATED",
           teamName: "Attempted Red Dragon",
           teammates: [
             { name: "UpdatedMateOne", uid: "FF-MATE-UPDATED-1" },
-            { name: "UpdatedMateTwo", uid: otherUid },
+            { name: "UpdatedMateTwo", uid: differentCapitalization },
             { name: "UpdatedMateThree", uid: "FF-MATE-UPDATED-3" },
           ],
         });

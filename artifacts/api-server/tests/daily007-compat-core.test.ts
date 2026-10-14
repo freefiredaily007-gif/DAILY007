@@ -134,6 +134,15 @@ test("team edits require the exact roster and reject duplicate game UIDs", () =>
     }, 2).error ?? "",
     /different game UID/,
   );
+  assert.match(
+    parseTeamEditPayload({
+      captainGameName: "Captain",
+      captainGameUid: "FF-Captain-100",
+      teamName: "Blue",
+      teammates: [{ name: "Teammate", uid: "ff-captain-100" }],
+    }, 2).error ?? "",
+    /different game UID/,
+  );
 });
 
 test("tournament status moves to Ongoing at start and completes only after the winner is declared", () => {
