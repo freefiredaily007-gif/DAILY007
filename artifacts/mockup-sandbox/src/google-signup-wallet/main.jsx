@@ -41,17 +41,73 @@ const PASSWORD_SIGNUP_TOKEN = "mock-password-signup-session-token";
 const scenario = new URLSearchParams(window.location.search).get("scenario");
 const storageFailureScenario = scenario === "storage-write-failure";
 const passwordSignupStorageFailureScenario = scenario === "password-signup-storage-failure";
+const passwordSignupRestartScenario = scenario === "password-signup-restart";
+const restartBackendStorageKey = "daily007-test-password-signup-backend";
+const restartScenarioMarkerKey = "daily007-test-password-signup-scenario";
+let passwordSignupRestartFirstLoad = false;
+if (passwordSignupRestartScenario) {
+  passwordSignupRestartFirstLoad =
+    window.sessionStorage.getItem(restartScenarioMarkerKey) !== scenario;
+  if (passwordSignupRestartFirstLoad) {
+    window.sessionStorage.setItem(restartScenarioMarkerKey, scenario);
+    window.localStorage.removeItem(restartBackendStorageKey);
+  }
+}
+const savedRestartBackendState = passwordSignupRestartScenario
+  ? JSON.parse(window.localStorage.getItem(restartBackendStorageKey) ?? "{}")
+  : {};
 const heldGoogleExchangeScenario = scenario === "double-tap" || scenario === "login-conflict";
 const profileLinkScenario = scenario?.startsWith("profile-link-") ?? false;
-const calls = [];
-const unexpectedRequests = [];
+const calls = passwordSignupRestartScenario ? (savedRestartBackendState.calls ?? []) : [];
+const unexpectedRequests = passwordSignupRestartScenario
+  ? (savedRestartBackendState.unexpectedRequests ?? [])
+  : [];
 const pendingGoogleExchangeResolvers = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
-let passwordAuthAttempts = 0;
-let passwordSignupAttempts = 0;
+let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
+let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 0;
+let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
+let passwordSignupLoginCredentialMatched = savedRestartBackendState.passwordSignupLoginCredentialMatched ?? false;
 let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked";
+
+function persistRestartBackendState() {
+  if (!passwordSignupRestartScenario) return;
+  window.localStorage.setItem(restartBackendStorageKey, JSON.stringify({
+    calls,
+    unexpectedRequests,
+    passwordAuthAttempts,
+    passwordSignupAttempts,
+    passwordSignupRegistered,
+    passwordSignupLoginCredentialMatched,
+  }));
+}
+
+function requestBody(config) {
+  if (typeof config.data !== "string") return config.data ?? {};
+  try {
+    return JSON.parse(config.data);
+  } catch {
+    return {};
+  }
+}
+
+function rejectMockAuth(config, status, message, statusText) {
+  const call = calls.at(-1);
+  if (call) call.status = status;
+  persistRestartBackendState();
+  throw Object.assign(new Error(message), {
+    config,
+    response: {
+      config,
+      data: { error: message },
+      headers: {},
+      status,
+      statusText,
+    },
+  });
+}
 
 function authorizationHeader(config) {
   const headers = config.headers;
@@ -66,6 +122,7 @@ function daily007TokenHeader(config) {
 }
 
 function respond(config, payload) {
+  persistRestartBackendState();
   return {
     config,
     data: { success: true, data: payload },
@@ -91,7 +148,33 @@ http.defaults.adapter = async (config) => {
     daily007Token: daily007TokenHeader(config),
   };
   calls.push(call);
+  persistRestartBackendState();
 
+  if (passwordSignupRestartScenario && method === "POST" && path === "/auth/register") {
+    passwordAuthAttempts += 1;
+    passwordSignupAttempts += 1;
+    if (passwordSignupRegistered) {
+      return rejectMockAuth(config, 409, "This mock account has already been registered.", "Conflict");
+    }
+    passwordSignupRegistered = true;
+    call.status = 200;
+    persistRestartBackendState();
+    return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
+  }
+  if (passwordSignupRestartScenario && method === "POST" && path === "/auth/login") {
+    passwordAuthAttempts += 1;
+    const body = requestBody(config);
+    passwordSignupLoginCredentialMatched =
+      passwordSignupRegistered &&
+      body.email === "password-signup@example.test" &&
+      body.password === "testpass123";
+    if (!passwordSignupLoginCredentialMatched) {
+      return rejectMockAuth(config, 401, "Email or password is incorrect.", "Unauthorized");
+    }
+    call.status = 200;
+    persistRestartBackendState();
+    return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
+  }
   if (passwordSignupStorageFailureScenario && method === "POST" && path === "/auth/register") {
     passwordAuthAttempts += 1;
     passwordSignupAttempts += 1;
@@ -150,11 +233,12 @@ http.defaults.adapter = async (config) => {
       : { ...ACCOUNT, token: DAILY007_TOKEN });
   }
   if (method === "GET" && path === "/auth/me") {
-    return respond(config, passwordSignupStorageFailureScenario
+    const account = passwordSignupStorageFailureScenario || passwordSignupRestartScenario
       ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
         ? { ...PASSWORD_ACCOUNT, googleLinked: googleLinkedForPasswordAccount }
-        : ACCOUNT);
+        : ACCOUNT;
+    return respond(config, account);
   }
   if (method === "GET" && path === "/me/stats") {
     return respond(config, { stats: { matches: 0, wins: 0, kills: 0, prizeCoins: 0 } });
@@ -196,6 +280,7 @@ http.defaults.adapter = async (config) => {
 
   const message = `Unexpected isolated API request: ${method} ${path}`;
   unexpectedRequests.push(message);
+  persistRestartBackendState();
   throw Object.assign(new Error(message), {
     config,
     response: { status: 500, data: { error: message } },
@@ -205,6 +290,7 @@ http.defaults.adapter = async (config) => {
 storage.clear();
 if (storageFailureScenario) storage.failNextSessionWrite();
 if (passwordSignupStorageFailureScenario) storage.failSessionWrites(2);
+if (passwordSignupRestartScenario && passwordSignupRestartFirstLoad) storage.failNextSessionWrite();
 if (profileLinkScenario) storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
 resetClerkMock({
   startResultType: scenario === "profile-link-cancel" ? "dismiss" : null,
@@ -225,6 +311,9 @@ window.__daily007GoogleSignupWalletTest = {
       maxConcurrentGoogleExchanges,
       passwordAuthAttempts,
       passwordSignupAttempts,
+      passwordSignupRegistered,
+      passwordSignupLoginCredentialMatched,
+      heldSessionWrite: storage.hasHeldSessionWrite(),
       unexpectedRequests: [...unexpectedRequests],
     };
   },
@@ -237,6 +326,13 @@ window.__daily007GoogleSignupWalletTest = {
   rejectNextSessionWrite() {
     storage.failNextSessionWrite();
     return true;
+  },
+  holdNextSessionWrite() {
+    storage.holdNextSessionWrite();
+    return true;
+  },
+  releaseHeldSessionWrite() {
+    return storage.releaseHeldSessionWrite();
   },
 };
 

@@ -909,6 +909,154 @@ try {
   assert.equal(passwordSignupRecovery.unexpectedRequests.length, 0, passwordSignupRecovery.unexpectedRequests.join("; "));
   assert.deepEqual(browserErrors, [], `Browser errors during password signup recovery: ${browserErrors.join(" | ")}`);
 
+  await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=password-signup-restart`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-submit"]'))`,
+    "the fresh authentication form for signup restart recovery",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-name"]'))
+      && Boolean(document.querySelector('[data-testid="auth-email"]'))
+      && Boolean(document.querySelector('[data-testid="auth-password"]'))`,
+    "the signup fields before simulating an app restart",
+  );
+  await setInputValue('[data-testid="auth-name"]', "Mock Password Signup Player", "restart-test signup name");
+  await setInputValue('[data-testid="auth-email"]', "password-signup@example.test", "restart-test signup email");
+  await setInputValue('[data-testid="auth-password"]', "testpass123", "restart-test signup password");
+  await clickSelector('[data-testid="auth-submit"]', "create the account before the simulated app restart");
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the session-storage failure before simulating an app restart",
+  );
+  const restartSignupFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(restartSignupFailure.passwordSignupAttempts, 1);
+  assert.equal(
+    restartSignupFailure.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+    "The mock account should be registered exactly once before the app restarts.",
+  );
+  assert.deepEqual(restartSignupFailure.storageWriteMetrics, {
+    sessionWriteAttempts: 1,
+    rejectedSessionWrites: 1,
+  });
+  assert.deepEqual(restartSignupFailure.sessionStorage, {});
+  assert.equal(restartSignupFailure.currentSession, null);
+  assert.equal(restartSignupFailure.activeAuthorization, null);
+  assert.equal(
+    restartSignupFailure.calls.some((call) =>
+      ["/auth/me", "/me/stats", "/wallet/transactions", "/my/payments", "/my/withdrawals"].includes(call.path)),
+    false,
+    "Protected account and Wallet data must remain unavailable after signup storage fails.",
+  );
+  assert.equal(restartSignupFailure.unexpectedRequests.length, 0);
+
+  const signupPageTimeOrigin = await evaluate("performance.timeOrigin");
+  await cdp("Page.reload", { ignoreCache: true });
+  await waitForExpression(
+    `performance.timeOrigin !== ${signupPageTimeOrigin}
+      && Boolean(window.__daily007GoogleSignupWalletTest?.snapshot)
+      && Boolean(document.querySelector('[data-testid="auth-submit"]'))
+      && Boolean(document.querySelector('[data-testid="auth-email"]'))
+      && Boolean(document.querySelector('[data-testid="auth-password"]'))`,
+    "the fresh login form after reloading the app",
+  );
+  const restartedAuthView = await evaluate(`(() => ({
+    signupFormVisible: document.body.innerText.includes("PLAYER PROFILE"),
+    protectedTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+  }))()`);
+  const restartedSignupState = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(restartedAuthView.signupFormVisible, false, "Reloading should return to a fresh login screen.");
+  assert.equal(restartedAuthView.protectedTabCount, 0, "Protected tabs must stay hidden after the reload.");
+  assert.equal(restartedSignupState.passwordSignupAttempts, 1, "The server-side account should survive the app reload.");
+  assert.equal(restartedSignupState.passwordAuthAttempts, 1);
+  assert.equal(
+    restartedSignupState.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+    "Reloading must not repeat account registration.",
+  );
+  assert.deepEqual(restartedSignupState.sessionStorage, {}, "A failed signup session must not reappear after reload.");
+  assert.equal(restartedSignupState.currentSession, null);
+  assert.equal(restartedSignupState.activeAuthorization, null);
+  assert.equal(restartedSignupState.unexpectedRequests.length, 0);
+
+  await evaluate("window.__daily007GoogleSignupWalletTest.holdNextSessionWrite()");
+  await setInputValue('[data-testid="auth-email"]', "password-signup@example.test", "existing account login email");
+  await setInputValue('[data-testid="auth-password"]', "testpass123", "existing account login password");
+  await clickSelector('[data-testid="auth-submit"]', "sign in to the account created before the app restart");
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return state.heldSessionWrite
+        && state.calls.some((call) => call.method === "POST" && call.path === "/auth/login" && call.status === 200);
+    })()`,
+    "the successful login waiting for its session to be saved",
+  );
+  const loginBeforePersistence = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const loginBeforePersistenceView = await evaluate(`(() => ({
+    protectedTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+    signupFormVisible: document.body.innerText.includes("PLAYER PROFILE"),
+  }))()`);
+  assert.equal(loginBeforePersistence.passwordSignupAttempts, 1, "Signing in must not register the account again.");
+  assert.equal(loginBeforePersistence.passwordAuthAttempts, 2);
+  assert.equal(loginBeforePersistence.passwordSignupLoginCredentialMatched, true);
+  assert.equal(
+    loginBeforePersistence.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+  );
+  assert.equal(
+    loginBeforePersistence.calls.filter((call) => call.method === "POST" && call.path === "/auth/login").length,
+    1,
+  );
+  assert.deepEqual(loginBeforePersistence.sessionStorage, {}, "The held login write must remain unsaved.");
+  assert.equal(loginBeforePersistence.storedSession, null);
+  assert.equal(loginBeforePersistence.currentSession, null);
+  assert.equal(loginBeforePersistence.activeAuthorization, null);
+  assert.equal(loginBeforePersistenceView.protectedTabCount, 0, "Protected tabs must stay hidden while login persistence is pending.");
+  assert.equal(loginBeforePersistenceView.signupFormVisible, false);
+  assert.equal(
+    loginBeforePersistence.calls.some((call) =>
+      ["/auth/me", "/me/stats", "/wallet/transactions", "/my/payments", "/my/withdrawals"].includes(call.path)),
+    false,
+    "Protected API requests must wait until the login session is persisted.",
+  );
+  assert.equal(loginBeforePersistence.unexpectedRequests.length, 0);
+
+  const releasedRestartLoginWrite = await evaluate("window.__daily007GoogleSignupWalletTest.releaseHeldSessionWrite()");
+  assert.equal(releasedRestartLoginWrite, true, "The held session write should be released.");
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))
+        && state.storedSession?.id === "mock-password-signup-player";
+    })()`,
+    "the persisted login session and protected player tabs after restart recovery",
+  );
+  const restartedLoginRecovery = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(restartedLoginRecovery.passwordSignupAttempts, 1);
+  assert.equal(
+    restartedLoginRecovery.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+    "The successful login must leave the original single registration intact.",
+  );
+  assert.equal(
+    restartedLoginRecovery.calls.filter((call) => call.method === "POST" && call.path === "/auth/login").length,
+    1,
+  );
+  assert.equal(restartedLoginRecovery.passwordSignupLoginCredentialMatched, true);
+  assert.equal(restartedLoginRecovery.currentSession?.id, "mock-password-signup-player");
+  assert.equal(restartedLoginRecovery.storedSession?.id, "mock-password-signup-player");
+  assert.equal(restartedLoginRecovery.storedSession?.token, "mock-password-signup-session-token");
+  assert.equal(restartedLoginRecovery.activeAuthorization, "Bearer mock-password-signup-session-token");
+  assert.deepEqual(restartedLoginRecovery.sessionStorage, {
+    daily007_v2_session: JSON.stringify(restartedLoginRecovery.storedSession),
+  });
+  assert.equal(restartedLoginRecovery.storageWriteMetrics.rejectedSessionWrites, 0);
+  assert.equal(restartedLoginRecovery.unexpectedRequests.length, 0, restartedLoginRecovery.unexpectedRequests.join("; "));
+  assert.deepEqual(browserErrors, [], `Browser errors during signup restart recovery: ${browserErrors.join(" | ")}`);
+
   const assertPasswordSession = (state, label) => {
     assert.equal(state.currentSession?.id, "mock-password-player", `${label}: active account ID changed.`);
     assert.equal(state.currentSession?.coins, 42, `${label}: active wallet balance changed.`);
@@ -1188,7 +1336,7 @@ try {
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google signup API/storage retries, password signup session-storage recovery, and Profile Google-link success/cancel/error/storage-failure scenarios.",
+    "PASS — Google signup retries, password signup recovery across reload and login, and Profile Google-link success/cancel/error/storage-failure scenarios.",
   );
 } finally {
   socket?.close();
