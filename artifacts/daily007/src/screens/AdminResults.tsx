@@ -18,6 +18,8 @@ export default function AdminResults({
   const [list, setList] = useState<Tournament[] | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [listLoadError, setListLoadError] = useState('');
+  const [hasListLoadFailed, setHasListLoadFailed] = useState(false);
+  const [listStatusMessage, setListStatusMessage] = useState('');
   const [sel, setSel] = useState<Tournament | null>(null);
   const [regs, setRegs] = useState<AdminRegistration[] | null>(null);
   const requestId = useRef(0);
@@ -49,24 +51,34 @@ export default function AdminResults({
     }
   }, [err, listLoadError]);
 
-  const loadTournaments = useCallback(async () => {
+  const loadTournaments = useCallback(async (isRetry = false) => {
     const currentRequest = ++listRequestId.current;
     setListLoading(true);
     setListLoadError('');
+    setListStatusMessage(isRetry ? 'Retrying tournaments…' : '');
     try {
       const tournaments = await Api.tournaments();
       if (listRequestId.current === currentRequest) {
         setList(tournaments);
         setClockNow(Date.now());
+        setHasListLoadFailed(false);
+        setListStatusMessage(isRetry ? 'Tournament list loaded.' : '');
       }
     } catch {
       if (listRequestId.current === currentRequest) {
         setListLoadError('Could not load tournaments. Please try again.');
+        setHasListLoadFailed(true);
+        setListStatusMessage('');
       }
     } finally {
       if (listRequestId.current === currentRequest) setListLoading(false);
     }
   }, []);
+
+  const retryTournaments = () => {
+    if (listLoading) return;
+    void loadTournaments(true);
+  };
 
   useEffect(() => {
     void loadTournaments();
@@ -158,13 +170,20 @@ export default function AdminResults({
       <Text style={st.h}>RESULTS</Text>
       <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
       <Msg kind="err" text={listLoadError} accessibilityLiveRegion="polite" />
+      <Text accessibilityLiveRegion="polite" testID="admin-results-list-status">
+        {listStatusMessage}
+      </Text>
       <Msg kind="ok" text={okMsg} />
-      {!list ? (listLoading ? <Loading accessibilityLabel="Loading tournaments" /> : (
+      {!list ? (listLoading && !hasListLoadFailed ? <Loading accessibilityLabel="Loading tournaments" /> : (
         <Btn
           title="RETRY TOURNAMENTS"
+          accessibilityLabel="Retry tournaments"
           accessibilityHint="Attempts to load the tournament list again."
+          accessibilityState={{ busy: listLoading }}
+          loading={listLoading}
+          preserveAccessibilityFocusWhileLoading
           testID="admin-results-retry-tournaments"
-          onPress={() => { void loadTournaments(); }}
+          onPress={retryTournaments}
         />
       )) : !sel ? list.map((t) => {
         const lifecycle = getTournamentLifecycleState(t, clockNow);

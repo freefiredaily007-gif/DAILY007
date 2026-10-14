@@ -283,12 +283,17 @@ test('the standalone Results screen connects validation and API errors to a poli
 
 test('the standalone Results screen shows a polite list-load error and lets admins retry', () => {
   const listLoader = resultsSource.match(
-    /const loadTournaments = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[\]\);/,
+    /const loadTournaments = useCallback\(async \(isRetry = false\) => \{[\s\S]*?\n  \}, \[\]\);/,
   )?.[0];
   assert.ok(listLoader, 'The tournament list must have a reusable loader for initial load and retry.');
   assert.match(listLoader, /await Api\.tournaments\(\)/);
+  assert.match(listLoader, /setListLoadError\(''\)/);
   assert.match(listLoader, /setListLoadError\('Could not load tournaments\. Please try again\.'\)/);
+  assert.match(listLoader, /setHasListLoadFailed\(true\)/);
   assert.doesNotMatch(listLoader, /setList\(\[\]\)/, 'A failed request must not look like a successful empty list.');
+  assert.match(listLoader, /setListStatusMessage\(isRetry \? 'Retrying tournaments…' : ''\)/);
+  assert.match(listLoader, /setListStatusMessage\(isRetry \? 'Tournament list loaded\.' : ''\)/);
+  assert.match(listLoader, /setListStatusMessage\(''\)/);
 
   assert.match(
     resultsSource,
@@ -296,9 +301,23 @@ test('the standalone Results screen shows a polite list-load error and lets admi
     'The tournament-list failure must be announced through the shared polite message component.',
   );
   assert.match(resultsSource, /title="RETRY TOURNAMENTS"/);
+  assert.match(resultsSource, /accessibilityLabel="Retry tournaments"/);
   assert.match(resultsSource, /accessibilityHint="Attempts to load the tournament list again\."/);
+  assert.match(resultsSource, /accessibilityState=\{\{ busy: listLoading \}\}/);
+  assert.match(resultsSource, /loading=\{listLoading\}\s+preserveAccessibilityFocusWhileLoading/);
+  assert.match(
+    resultsSource,
+    /listLoading && !hasListLoadFailed \? <Loading accessibilityLabel="Loading tournaments" \/>/,
+    'After the initial failure, keep the retry button mounted while retrying so TalkBack retains a usable focus target.',
+  );
   assert.match(resultsSource, /testID="admin-results-retry-tournaments"/);
-  assert.match(resultsSource, /onPress=\{\(\) => \{ void loadTournaments\(\); \}\}/);
+  assert.match(resultsSource, /onPress=\{retryTournaments\}/);
+  assert.match(resultsSource, /const retryTournaments = \(\) => \{\s*if \(listLoading\) return;\s*void loadTournaments\(true\);/);
+  assert.match(
+    resultsSource,
+    /<Text accessibilityLiveRegion="polite" testID="admin-results-list-status">\s*\{listStatusMessage\}\s*<\/Text>/,
+    'Retry progress and recovery outcomes must be announced once through a stable polite live region.',
+  );
 });
 
 test('the shared Msg forwards live-region semantics without replacing its existing text styling', () => {
