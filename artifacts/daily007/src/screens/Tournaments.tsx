@@ -39,6 +39,8 @@ function announcePlayerLoadStatusOnIOS(message: string): void {
   });
 }
 
+type TournamentLoadTrigger = 'focus' | 'scheduled' | 'resume' | 'manual';
+
 export default function Tournaments() {
   const nav: any = useNavigation();
   const route: any = useRoute();
@@ -63,13 +65,14 @@ export default function Tournaments() {
   const announcedInitialLoadRecovery = useRef(false);
   const failedManualRefresh = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
+  const activeLoad = useRef<Promise<void> | null>(null);
   const refreshingRequest = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
   const heading = route?.params?.gameModeLabel || legacyMode || gameMode;
 
-  const load = useCallback(async () => {
+  const loadLatest = useCallback(async () => {
     const request = loadRequests.current.begin();
     try {
       const [listResult, registrationsResult] = await Promise.allSettled([
@@ -136,6 +139,19 @@ export default function Tournaments() {
     }
   }, []);
 
+  const load = useCallback((trigger: TournamentLoadTrigger = 'focus') => {
+    const pending = activeLoad.current;
+    if (pending && trigger !== 'focus') return pending;
+
+    const promise = loadLatest();
+    activeLoad.current = promise;
+    const clearActiveLoad = () => {
+      if (activeLoad.current === promise) activeLoad.current = null;
+    };
+    void promise.then(clearActiveLoad, clearActiveLoad);
+    return promise;
+  }, [loadLatest]);
+
   useEffect(() => {
     if (
       Platform.OS !== 'ios' ||
@@ -167,12 +183,12 @@ export default function Tournaments() {
     const stopCompletionPolling = startTournamentListRefreshPolling(
       () => {
         setClockNow(Date.now());
-        void load();
+        void load('scheduled');
       },
       () => listFocused.current && AppState.currentState === 'active',
       TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
     );
-    if (AppState.currentState === 'active') void load();
+    if (AppState.currentState === 'active') void load('focus');
     return () => {
       listFocused.current = false;
       stopCompletionPolling();
@@ -185,7 +201,7 @@ export default function Tournaments() {
       appState.current = nextState;
       if (returnedToApp && listFocused.current) {
         setClockNow(Date.now());
-        void load();
+        void load('resume');
       }
     });
     return () => subscription.remove();
@@ -231,7 +247,7 @@ export default function Tournaments() {
           }
         }
         setClockNow(now);
-        void load();
+        void load('scheduled');
       }
     }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextTransition - now + 20)));
     return () => clearTimeout(timer);
@@ -259,7 +275,7 @@ export default function Tournaments() {
     refreshingRequest.current = true;
     setRefreshing(true);
     try {
-      await load();
+      await load('manual');
     } finally {
       refreshingRequest.current = false;
       setRefreshing(false);

@@ -32,6 +32,7 @@ const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-init
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const refreshReturnOnly = process.argv.includes("--refresh-return-only");
+const refreshCoalescingOnly = process.argv.includes("--refresh-coalescing-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
@@ -4705,6 +4706,96 @@ async function checkTournamentRefreshAfterReturning() {
   );
 }
 
+async function checkTournamentRefreshCoalescing() {
+  const initialName = "IST Start Boundary";
+  const refreshedName = "App Resume Refresh With Manual Pull";
+  await waitForCondition(
+    `window.__daily007TournamentResume?.ready === true && document.body.innerText.includes(${JSON.stringify(initialName)})`,
+    "the Player list to load before refresh-coalescing checks",
+  );
+
+  let readsBefore = await evaluate(
+    "window.__daily007TournamentResume.getTournamentReadCount()",
+  );
+  let registrationReadsBefore = await evaluate(
+    "window.__daily007TournamentResume.getMyRegistrationReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
+  await evaluate("window.__daily007TournamentResume.resumeCurrentList()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBefore + 1} && window.__daily007TournamentResume.getMyRegistrationReadCount() === ${registrationReadsBefore + 1}`,
+    "the app-resume tournament request to start",
+  );
+  await triggerPlayerManualRefresh();
+  assert(
+    await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBefore + 1,
+    "A manual pull during an app-resume request should share that request instead of duplicating it.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getMyRegistrationReadCount()") === registrationReadsBefore + 1,
+    "A manual pull during an app-resume request should not duplicate the registration lookup either.",
+  );
+  assert(
+    await evaluate("document.querySelector('[data-testid=\"player-refresh-control-pending\"]')?.textContent === 'Refreshing'"),
+    "The pull indicator should remain active while the shared request is pending.",
+  );
+
+  await evaluate(
+    `window.__daily007TournamentResume.updateTournament({ name: ${JSON.stringify(refreshedName)} })`,
+  );
+  const successfulRelease = await evaluate(`window.__daily007TournamentResume.resolveDeferredTournamentRead([{
+    id: 'resume-boundary',
+    name: ${JSON.stringify(refreshedName)},
+    status: 'upcoming',
+  }])`);
+  assert(successfulRelease, "The shared app-resume request should be resolvable for the success case.");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(refreshedName)}) && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready'`,
+    "the successful shared request to update the card and stop refreshing",
+  );
+  assert(
+    !await evaluate("document.body.innerText.includes('Could not refresh tournaments')"),
+    "A successful shared request must not leave a refresh error visible.",
+  );
+
+  readsBefore = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  registrationReadsBefore = await evaluate(
+    "window.__daily007TournamentResume.getMyRegistrationReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
+  await evaluate("window.__daily007TournamentResume.resumeCurrentList()");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBefore + 1} && window.__daily007TournamentResume.getMyRegistrationReadCount() === ${registrationReadsBefore + 1}`,
+    "a second app-resume tournament request to start",
+  );
+  await triggerPlayerManualRefresh();
+  assert(
+    await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBefore + 1,
+    "A manual pull during the second app-resume request must not issue a duplicate read.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getMyRegistrationReadCount()") === registrationReadsBefore + 1,
+    "The failed coalesced refresh must not issue a duplicate registration lookup.",
+  );
+
+  const failedRelease = await evaluate(
+    `window.__daily007TournamentResume.failDeferredTournamentRead("App-resume refresh failed")`,
+  );
+  assert(failedRelease, "The shared app-resume request should be rejectable for the failure case.");
+  await waitForCondition(
+    `document.body.innerText.includes('Could not refresh tournaments: App-resume refresh failed') && document.body.innerText.includes(${JSON.stringify(refreshedName)}) && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready'`,
+    "the failed shared request to preserve the card, show one error, and stop refreshing",
+  );
+  assert(
+    await evaluate("document.body.innerText.split('Could not refresh tournaments: App-resume refresh failed').length - 1") === 1,
+    "A failed shared request should show one clear error.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBefore + 1,
+    "The failed shared request should not create another tournament read.",
+  );
+}
+
 async function checkTournamentResume() {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -7791,6 +7882,8 @@ try {
     ? "home-carousel-preview.html?ist-date-surfaces=1"
     : adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
+    : refreshCoalescingOnly
+      ? "tournament-resume-preview.html?manual-refresh-only=1"
     : refreshReturnOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1&resume-while-refresh-only=1"
     : manualRefreshOnly || manualRefreshLargeTextOnly
@@ -7882,6 +7975,7 @@ try {
     adminLargeTextInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
     refreshReturnOnly ||
+    refreshCoalescingOnly ||
     manualRefreshOnly ||
     manualRefreshLargeTextOnly ||
     scheduledStartOnly ||
@@ -7908,13 +8002,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly
+        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly
+        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -7952,6 +8046,8 @@ try {
           ? "Admin Retry concurrency"
         : refreshReturnOnly
           ? "Player refresh after returning to the tournament list"
+        : refreshCoalescingOnly
+          ? "Player app-resume/manual refresh coalescing"
          : manualRefreshLargeTextOnly
            ? "Player pull-to-refresh at large Android text"
          : manualRefreshOnly
@@ -8078,6 +8174,13 @@ try {
         `Browser errors during Admin initial-load failure checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A failed first Admin tournament load shows a visible Retry control; retrying loads cards and clears the error.");
+    } else if (refreshCoalescingOnly) {
+      await checkTournamentRefreshCoalescing();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Player refresh-coalescing checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Manual pulls coalesce with pending app-resume reads; success updates cards, failure preserves them with one error, and refresh settles.");
     } else if (refreshReturnOnly) {
       await checkTournamentRefreshAfterReturning();
       assert(
