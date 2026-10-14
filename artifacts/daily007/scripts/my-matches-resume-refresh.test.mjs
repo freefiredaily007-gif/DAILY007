@@ -8,6 +8,7 @@ import {
 } from "../src/lib/focusedLatestRequest.ts";
 import {
   createFocusedRetryController,
+  createNetworkEventRevision,
   isUsableNetworkState,
 } from "../src/lib/focusedRetry.ts";
 
@@ -60,11 +61,16 @@ test("My Matches retries registration loading when connectivity returns while fo
   );
   assert.match(focusEffect, /Network\.addNetworkStateListener/);
   assert.match(focusEffect, /Network\.getNetworkStateAsync\(\)/);
-  assert.match(focusEffect, /networkEventRevision \+= 1;/);
+  assert.match(focusEffect, /networkEventRevision\.recordEvent\(\)/);
   assert.match(
     focusEffect,
-    /networkEventRevision !== initialNetworkEventRevision/,
+    /!networkEventRevision\.isCurrent\(initialNetworkEventRevision\)/,
     "A delayed initial network snapshot must not overwrite a newer network event.",
+  );
+  assert.match(
+    focusEffect,
+    /catch\(\(\) => \{\s*if \(active && networkEventRevision\.isCurrent\(initialNetworkEventRevision\)\)\s*\{\s*retryController\.setNetworkUsable\(false\);/,
+    "A stale rejected initial network check must not mark a newer event unusable.",
   );
   assert.match(focusEffect, /networkSubscription\.remove\(\)/);
   assert.match(myMatchesSource, /retryController\.setNetworkUsable\(usable\)/);
@@ -86,6 +92,96 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
+
+test("a delayed initial network snapshot cannot override a newer offline or online event", async () => {
+  for (const scenario of [
+    {
+      name: "offline listener event",
+      listenerState: { isConnected: false, isInternetReachable: false },
+      delayedSnapshot: { isConnected: true, isInternetReachable: true },
+      wasUsable: true,
+      expectedUsable: false,
+      expectedRefreshes: 0,
+    },
+    {
+      name: "usable listener event",
+      listenerState: { isConnected: true, isInternetReachable: true },
+      delayedSnapshot: { isConnected: false, isInternetReachable: false },
+      wasUsable: false,
+      expectedUsable: true,
+      expectedRefreshes: 1,
+    },
+    {
+      name: "usable listener event before initial check rejects",
+      listenerState: { isConnected: true, isInternetReachable: true },
+      rejectSnapshot: true,
+      wasUsable: false,
+      expectedUsable: true,
+      expectedRefreshes: 1,
+    },
+  ]) {
+    const revision = createNetworkEventRevision();
+    const initialRevision = revision.capture();
+    const initialSnapshot = deferred();
+    const retryScheduler = createFakeScheduler();
+    const refreshScheduler = createFakeScheduler();
+    const retries = createFocusedRetryController({
+      setTimeout: retryScheduler.setTimeout,
+      clearTimeout: retryScheduler.clearTimeout,
+    });
+    const connectivityRefreshes = createFocusedRefreshCoalescer({
+      setTimeout: refreshScheduler.setTimeout,
+      clearTimeout: refreshScheduler.clearTimeout,
+    }, 250);
+    retries.setFocused(true);
+    retries.setAppActive(true);
+    retries.setNetworkUsable(scenario.wasUsable);
+    connectivityRefreshes.setFocused(true);
+    let networkUsable = scenario.wasUsable;
+    let refreshCount = 0;
+    const latestLoadFailed = true;
+    const updateNetworkState = (state, refreshAfterFailure) => {
+      const usable = isUsableNetworkState(state);
+      networkUsable = usable;
+      retries.setNetworkUsable(usable);
+      if (!usable) connectivityRefreshes.cancelPending();
+      if (usable && refreshAfterFailure) {
+        connectivityRefreshes.request(() => { refreshCount += 1; });
+      }
+    };
+    if (scenario.wasUsable) {
+      assert.equal(retries.scheduleRetry(() => {}), 1_000);
+    }
+
+    const initialSnapshotWork = initialSnapshot.promise.then((state) => {
+      if (!revision.isCurrent(initialRevision)) return;
+      updateNetworkState(state, latestLoadFailed);
+    }).catch(() => {
+      if (!revision.isCurrent(initialRevision)) return;
+      networkUsable = false;
+      retries.setNetworkUsable(false);
+    });
+    revision.recordEvent();
+    updateNetworkState(scenario.listenerState, true);
+    if (scenario.rejectSnapshot) initialSnapshot.reject(new Error("stale initial network failure"));
+    else initialSnapshot.resolve(scenario.delayedSnapshot);
+    await initialSnapshotWork;
+
+    assert.equal(networkUsable, scenario.expectedUsable, scenario.name);
+    if (!scenario.expectedUsable) {
+      assert.equal(retries.scheduleRetry(() => {}), null, "offline state must not start a retry");
+      assert.deepEqual(retryScheduler.delays, []);
+      assert.deepEqual(refreshScheduler.delays, []);
+      assert.equal(refreshScheduler.runNext(), false);
+    } else {
+      assert.equal(retries.scheduleRetry(() => {}), 1_000, "usable connectivity keeps retries eligible");
+      assert.deepEqual(refreshScheduler.delays, [250]);
+      assert.equal(refreshScheduler.runNext(), true);
+      assert.equal(refreshCount, scenario.expectedRefreshes);
+      assert.deepEqual(refreshScheduler.delays, []);
+    }
+  }
+});
 
 test("rapid reconnect loads ignore older lists and errors after the newest list succeeds", async () => {
   const gate = createFocusedLatestRequestGate();

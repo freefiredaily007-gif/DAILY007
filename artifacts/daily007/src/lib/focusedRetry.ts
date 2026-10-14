@@ -7,6 +7,17 @@ type RetryScheduler = {
   clearTimeout?: (timer: unknown) => void;
 };
 
+export function createNetworkEventRevision() {
+  let revision = 0;
+  return {
+    capture: () => revision,
+    recordEvent() {
+      revision += 1;
+    },
+    isCurrent: (snapshotRevision: number) => revision === snapshotRevision,
+  };
+}
+
 export function isUsableNetworkState(networkState: {
   isConnected?: boolean | null;
   isInternetReachable?: boolean | null;

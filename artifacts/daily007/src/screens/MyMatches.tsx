@@ -12,7 +12,11 @@ import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
 } from '../lib/roomCredentialTiming';
-import { createFocusedRetryController, isUsableNetworkState } from '../lib/focusedRetry';
+import {
+  createFocusedRetryController,
+  createNetworkEventRevision,
+  isUsableNetworkState,
+} from '../lib/focusedRetry';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import {
   compareTournamentStartTime,
@@ -102,18 +106,20 @@ export default function MyMatches() {
       if (!usable) connectivityRefreshes.cancelPending();
       if (usable && refreshAfterFailure) connectivityRefreshes.request(refreshMatches);
     };
-    let networkEventRevision = 0;
-    const initialNetworkEventRevision = networkEventRevision;
+    const networkEventRevision = createNetworkEventRevision();
+    const initialNetworkEventRevision = networkEventRevision.capture();
     const networkSubscription = Network.addNetworkStateListener((networkState) => {
       if (!active) return;
-      networkEventRevision += 1;
+      networkEventRevision.recordEvent();
       updateNetworkState(networkState, true);
     });
     void Network.getNetworkStateAsync().then((networkState) => {
-      if (!active || networkEventRevision !== initialNetworkEventRevision) return;
+      if (!active || !networkEventRevision.isCurrent(initialNetworkEventRevision)) return;
       updateNetworkState(networkState, latestLoadFailed.current);
     }).catch(() => {
-      if (active) retryController.setNetworkUsable(false);
+      if (active && networkEventRevision.isCurrent(initialNetworkEventRevision)) {
+        retryController.setNetworkUsable(false);
+      }
     });
     refreshMatches();
     return () => {
