@@ -4402,6 +4402,11 @@ async function checkTournamentManualRefresh({
     `window.__daily007TournamentResume.getTournamentReadCount() > 0 && document.body.innerText.includes(${JSON.stringify(initialName)})`,
     "the Player list to load its tournament before manual refresh",
   );
+  assert(
+    await evaluate(`window.__daily007TournamentResume.getLoadAnnouncementEvents()
+      .filter((event) => event.testID === 'player-tournament-refresh-announcement').length`) === 0,
+    "An ordinary successful Player list load must not announce refresh recovery.",
+  );
 
   const visibilityChangesBeforeRefresh = await evaluate(
     "window.__daily007TournamentResume.getVisibilityChangeCount()",
@@ -4470,6 +4475,11 @@ async function checkTournamentManualRefresh({
     `A single failed refresh should produce one clear announcement: ${JSON.stringify(refreshErrorAccessibility.announcements)}.`,
   );
   assert(
+    await evaluate(`window.__daily007TournamentResume.getLoadAnnouncementEvents()
+      .filter((event) => event.testID === 'player-tournament-refresh-announcement').length`) === 0,
+    "A failed refresh must wait for recovery before announcing that tournaments updated.",
+  );
+  assert(
     await evaluate("document.body.innerText.split('Could not refresh tournaments: Held Player refresh failed').length - 1") === 1,
     "A failed Player refresh must leave exactly one clear error visible.",
   );
@@ -4486,6 +4496,20 @@ async function checkTournamentManualRefresh({
   await waitForCondition(
     `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBeforeRefresh + 1} && document.body.innerText.includes(${JSON.stringify(refreshedName)}) && !document.body.innerText.includes('Could not refresh tournaments: Held Player refresh failed')`,
     "a later successful manual refresh to update the Player card and clear its error",
+  );
+  await waitForCondition(
+    `window.__daily007TournamentResume.getLoadAnnouncementEvents()
+      .filter((event) => event.testID === 'player-tournament-refresh-announcement')
+      .some((event) => event.text === 'Tournaments updated.')`,
+    "the one-time announcement confirming the failed Player refresh recovered",
+  );
+  assert(
+    JSON.stringify(await evaluate(`window.__daily007TournamentResume.getLoadAnnouncementEvents()
+      .filter((event) => event.testID === 'player-tournament-refresh-announcement')`)) === JSON.stringify([{
+      testID: 'player-tournament-refresh-announcement',
+      text: 'Tournaments updated.',
+    }]),
+    "A recovered Player refresh must produce exactly one concise announcement.",
   );
   await assertPlayerRefreshTextReadable({
     width,
@@ -4578,6 +4602,14 @@ async function checkTournamentManualRefresh({
     "the refreshed Completed cards to appear",
   );
   await assertSelectedPlayerTabRefresh("completed", 2, completedNames);
+  assert(
+    JSON.stringify(await evaluate(`window.__daily007TournamentResume.getLoadAnnouncementEvents()
+      .filter((event) => event.testID === 'player-tournament-refresh-announcement')`)) === JSON.stringify([{
+      testID: 'player-tournament-refresh-announcement',
+      text: 'Tournaments updated.',
+    }]),
+    "Routine successful Player refreshes must not repeat the recovery announcement.",
+  );
 }
 
 async function checkTournamentResume() {

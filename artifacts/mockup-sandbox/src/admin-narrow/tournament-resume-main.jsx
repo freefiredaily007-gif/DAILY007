@@ -17,6 +17,7 @@ const captureLoadAnnouncement = (region) => {
   if (![
     "player-tournament-load-error",
     "player-tournament-refresh-error",
+    "player-tournament-refresh-announcement",
     "player-tournament-load-announcement",
   ].includes(testID)) {
     return;

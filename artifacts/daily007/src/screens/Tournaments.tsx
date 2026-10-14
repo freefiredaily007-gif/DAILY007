@@ -52,6 +52,7 @@ export default function Tournaments() {
   const [registrationError, setRegistrationError] = useState('');
   const [startAnnouncement, setStartAnnouncement] = useState('');
   const [playerLoadAnnouncement, setPlayerLoadAnnouncement] = useState('');
+  const [playerRefreshAnnouncementVersion, setPlayerRefreshAnnouncementVersion] = useState(0);
   const [clockNow, setClockNow] = useState(Date.now());
   const appState = useRef(AppState.currentState);
   const listFocused = useRef(false);
@@ -60,6 +61,7 @@ export default function Tournaments() {
   const initialLoadFailed = useRef(false);
   const announcedInitialLoadFailure = useRef(false);
   const announcedInitialLoadRecovery = useRef(false);
+  const failedManualRefresh = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
   const refreshingRequest = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
@@ -77,11 +79,13 @@ export default function Tournaments() {
       if (!loadRequests.current.isCurrent(request)) return;
       if (listResult.status === 'rejected') {
         if (!hasLoadedList.current) initialLoadFailed.current = true;
+        else if (refreshingRequest.current) failedManualRefresh.current = true;
         setError(apiError(listResult.reason));
         return;
       }
       const registrationStatusKnown = registrationsResult.status === 'fulfilled';
       if (!registrationStatusKnown && hasLoadedList.current) {
+        if (refreshingRequest.current) failedManualRefresh.current = true;
         setError(apiError(registrationsResult.reason));
         return;
       }
@@ -110,11 +114,16 @@ export default function Tournaments() {
       hasLoadedList.current = true;
       initialLoadFailed.current = false;
       if (recoveredInitialLoad) setPlayerLoadAnnouncement('Tournaments loaded.');
+      if (failedManualRefresh.current) {
+        failedManualRefresh.current = false;
+        setPlayerRefreshAnnouncementVersion((version) => version + 1);
+      }
       setClockNow(Date.now());
       setError('');
     } catch (e) {
       if (loadRequests.current.isCurrent(request)) {
         if (!hasLoadedList.current) initialLoadFailed.current = true;
+        else if (refreshingRequest.current) failedManualRefresh.current = true;
         setError(apiError(e));
       }
     } finally {
@@ -274,6 +283,17 @@ export default function Tournaments() {
           style={s.screenReaderAnnouncement}
         >
           {playerLoadAnnouncement}
+        </Text>
+      ) : null}
+      {Platform.OS === 'android' && playerRefreshAnnouncementVersion > 0 ? (
+        <Text
+          key={playerRefreshAnnouncementVersion}
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="player-tournament-refresh-announcement"
+          style={s.screenReaderAnnouncement}
+        >
+          Tournaments updated.
         </Text>
       ) : null}
       <FlatList
