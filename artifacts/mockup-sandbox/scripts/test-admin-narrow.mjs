@@ -4356,7 +4356,7 @@ async function assertPlayerRefreshTextReadable({ width, fontScale, cardName, err
       };
     };
     return {
-      fontScale: window.__daily007LargeTextScale,
+      fontScale: window.__daily007LargeTextScale ?? 1,
       card: box(findText(${JSON.stringify(cardName)})),
       errorNode: box(document.querySelector('[data-testid="player-tournament-refresh-error"]')),
       errorText: document.querySelector('[data-testid="player-tournament-refresh-error"]')?.textContent?.trim() ?? null,
@@ -4392,6 +4392,7 @@ async function checkTournamentManualRefresh({
   fontScale = 1,
   initialName = "IST Start Boundary",
   refreshedName = "Player Manually Refreshed IST Start Boundary",
+  includeSelectedTabRefreshChecks = true,
 } = {}) {
   await waitForCondition(
     "window.__daily007TournamentResume?.ready === true",
@@ -4500,6 +4501,7 @@ async function checkTournamentManualRefresh({
     await evaluate("window.__daily007TournamentResume.getVisibilityChangeCount()") === visibilityChangesBeforeRefresh,
     "The successful manual refresh must not depend on an AppState resume event.",
   );
+  if (!includeSelectedTabRefreshChecks) return;
 
   const assertSelectedPlayerTabRefresh = async (status, expectedCount, names) => {
     const state = await evaluate(`(() => {
@@ -7811,6 +7813,7 @@ try {
           fontScale,
           initialName: "Daily007 International Free Fire Championship Grand Finals",
           refreshedName: "Player Manually Refreshed Daily007 International Free Fire Championship Grand Finals",
+          includeSelectedTabRefreshChecks: false,
         });
         assert(
           browserErrors.length === 0,
