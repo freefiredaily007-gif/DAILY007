@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import ts from 'typescript';
 import { adminNavigationForRole } from '../src/lib/roleNavigation.ts';
 
 const toastSource = await readFile(
@@ -40,6 +41,96 @@ const roleChangeFocusEffect = usersSource.match(
   /useEffect\(\(\) => \{([\s\S]*?)\n\s*\}, \[users\]\);/,
 )?.[1] ?? '';
 
+function loadRenderedAdminTabs(role) {
+  const sourceFile = ts.createSourceFile(
+    'AdminApp.tsx',
+    adminAppSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const sourceWithoutImports = sourceFile.statements
+    .filter((statement) => !ts.isImportDeclaration(statement))
+    .map((statement) => statement.getFullText(sourceFile))
+    .join('\n')
+    .replace('export default function AdminApp(', 'function AdminApp(');
+  const compiled = ts.transpileModule(sourceWithoutImports, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.React,
+      module: ts.ModuleKind.None,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const createComponent = () => function Component() {};
+  const hostElement = () => {};
+  const React = {
+    createElement(type, props, ...children) {
+      return {
+        type,
+        props: {
+          ...(props ?? {}),
+          ...(children.length
+            ? { children: children.length === 1 ? children[0] : children }
+            : {}),
+        },
+      };
+    },
+  };
+  const scope = {
+    React,
+    useEffect() {},
+    useRef: (current) => ({ current }),
+    useState: (initial) => [initial, () => {}],
+    View: hostElement,
+    StyleSheet: { create: (styles) => styles },
+    Pressable: hostElement,
+    ScrollView: hostElement,
+    Image: hostElement,
+    Text: hostElement,
+    Feather: { glyphMap: {}, },
+    useApp: () => ({
+      user: { role, id: 'test-admin', name: 'Test Admin', email: 'admin@example.test' },
+      refresh() {},
+      logout() {},
+    }),
+    A: new Proxy({}, { get: (_target, property) => String(property) }),
+    AdminToastHost: createComponent(),
+    AdminUiProvider: createComponent(),
+    AdminDashboard: createComponent(),
+    AdminTournaments: createComponent(),
+    AdminRegs: createComponent(),
+    AdminPayments: createComponent(),
+    AdminWallet: createComponent(),
+    AdminUsers: createComponent(),
+    AdminNotifications: createComponent(),
+    AdminSettings: createComponent(),
+    AdminEarnTasks: createComponent(),
+    AdminVideos: createComponent(),
+    AdminLeaderboards: createComponent(),
+    logoImg: {},
+    adminNavigationForRole,
+    canNavigateAdminScreen: () => true,
+  };
+  const AdminApp = new Function(
+    ...Object.keys(scope),
+    `${compiled}\nreturn AdminApp;`,
+  )(...Object.values(scope));
+  const tree = AdminApp({});
+  const elements = [];
+  function visit(node) {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+    } else if (node && typeof node === 'object' && 'type' in node) {
+      elements.push(node);
+      visit(node.props?.children);
+    }
+  }
+  visit(tree);
+  return elements.filter((element) =>
+    typeof element.props?.testID === 'string' &&
+    element.props.testID.startsWith('admin-tab-'));
+}
+
 test('Admin tabs expose readable names and announce the selected section', () => {
   assert.match(adminAppSource, /accessibilityRole="tab"/);
   assert.match(adminAppSource, /accessibilityLabel=\{n\.accessibilityLabel \?\? n\.label\}/);
@@ -78,15 +169,75 @@ test('Full Admin and Tournament Admin expose the correct selected section', () =
   }
 });
 
+test('rendered Admin tabs expose the right names, roles, selection, and role restrictions', () => {
+  const roleCases = [
+    {
+      role: 'admin',
+      expectedTabs: [
+        ['dashboard', 'Dashboard'],
+        ['leaderboards', 'Leaderboard rewards'],
+        ['tournaments', 'Tournaments'],
+        ['registrations', 'Registrations'],
+        ['payments', 'Payments'],
+        ['wallet', 'Wallet'],
+        ['earnTasks', 'Earn tasks'],
+        ['videos', 'Videos'],
+        ['users', 'Users'],
+        ['notifications', 'Notifications'],
+        ['settings', 'Settings'],
+      ],
+      selectedTab: 'dashboard',
+    },
+    {
+      role: 'tournament_admin',
+      expectedTabs: [
+        ['tournaments', 'Tournaments'],
+        ['registrations', 'Registrations'],
+      ],
+      selectedTab: 'tournaments',
+    },
+  ];
+
+  for (const { role, expectedTabs, selectedTab } of roleCases) {
+    const tabs = loadRenderedAdminTabs(role);
+    assert.deepEqual(
+      tabs.map(({ props }) => [
+        props.testID.replace('admin-tab-', ''),
+        props.accessibilityLabel,
+      ]),
+      expectedTabs,
+      `${role} should render only its allowed tabs with their accessible names.`,
+    );
+    for (const { props } of tabs) {
+      assert.equal(
+        props.accessibilityRole,
+        'tab',
+        `${props.testID} should have the tab accessibility role.`,
+      );
+      assert.equal(
+        props.accessibilityState?.selected,
+        props.testID === `admin-tab-${selectedTab}`,
+        `${props.testID} should report whether it is the current section.`,
+      );
+    }
+    assert.deepEqual(
+      tabs.filter(({ props }) => props.accessibilityState?.selected)
+        .map(({ props }) => props.testID),
+      [`admin-tab-${selectedTab}`],
+      `${role} should have exactly one selected section.`,
+    );
+  }
+});
+
 test('admin error toasts expose the exact message as an assertive TalkBack alert', () => {
   assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
   assert.match(
     toastSource,
-    /accessibilityRole=\{toast\.kind === 'err' \? 'alert' : undefined\}/,
+    /accessibilityRole=\{Platform\.OS !== 'ios' && toast\.kind === 'err' \? 'alert' : undefined\}/,
   );
   assert.match(
     toastSource,
-    /accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+    /accessibilityLiveRegion=\{Platform\.OS === 'ios'\s*\?\s*undefined\s*:\s*toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
   );
   assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
 });
@@ -96,7 +247,7 @@ test('successful toasts announce politely without including the decorative check
   assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
   assert.match(
     toastSource,
-    /accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+    /accessibilityLiveRegion=\{Platform\.OS === 'ios'\s*\?\s*undefined\s*:\s*toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
   );
   assert.match(toastSource, /\{toast\.kind === 'err' \? '✕ ' : '✓ '\}\{toast\.msg\}/);
 });
@@ -176,7 +327,7 @@ test('a failed refresh after last Full Admin rejection keeps the role unchanged'
     rejectedRoleBranch,
     /Could not restrict Full Admin access for \$\{u\.name\}\. At least one Full Admin must remain, so no change was made\./,
   );
-  assert.match(loadBranch, /const loadedUsers = u \?\? \[\];\s*setUsers\(loadedUsers\);/);
+  assert.match(loadBranch, /const loadedUsers(?:: any\[\])? = u \?\? \[\];\s*setUsers\(loadedUsers\);/);
   assert.match(
     usersSource,
     /const roleLabel = u\.role === 'admin'[\s\S]*?<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/,
@@ -210,7 +361,7 @@ test('a later successful refresh politely confirms the unchanged Full Admin role
   assert.match(loadBranch, /toast\(status, 'success'\)/);
   assert.match(
     toastSource,
-    /accessibilityLabel=\{toast\.msg\}[\s\S]*?accessibilityLiveRegion=\{toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
+    /accessibilityLabel=\{toast\.msg\}[\s\S]*?accessibilityLiveRegion=\{Platform\.OS === 'ios'\s*\?\s*undefined\s*:\s*toast\.kind === 'err' \? 'assertive' : 'polite'\}/,
     'The current-list status must use the existing polite toast live region.',
   );
   assert.match(
