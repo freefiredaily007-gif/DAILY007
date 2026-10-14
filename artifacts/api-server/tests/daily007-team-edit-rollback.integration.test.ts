@@ -523,3 +523,102 @@ test("concurrent PostgreSQL team edits keep captain and teammate details from on
     await cleanupFixture(fixture);
   }
 });
+
+test("registration and team edits cannot commit after PostgreSQL blocks the account", async () => {
+  const registrationFixture = await createFixture();
+  const teamEditFixture = await createFixture();
+  const pendingRequests: Promise<RegistrationResponse>[] = [];
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let registrationId: string | undefined;
+
+  try {
+    blocker = await pool.connect();
+    assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the blocker backend PID");
+    const blockerPid = blocker.processID;
+
+    await withServer(async (origin) => {
+      await blocker!.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker!.query(
+        `UPDATE daily007_v2_users
+            SET status = 'blocked', auth_version = auth_version + 1
+          WHERE id = $1`,
+        [registrationFixture.playerId],
+      );
+      const registrationRequest = registerTeam(origin, registrationFixture);
+      pendingRequests.push(registrationRequest);
+      await waitForBlockedRequest(
+        "SELECT wallet_coins, status FROM daily007_v2_users",
+        blockerPid,
+        "the registration's locked account check",
+      );
+      await blocker!.query("COMMIT");
+      blockerTransactionOpen = false;
+
+      const rejectedRegistration = await registrationRequest;
+      assert.equal(
+        rejectedRegistration.status,
+        403,
+        `a queued registration must be rejected after the account is blocked: ${JSON.stringify(rejectedRegistration.body)}`,
+      );
+      const registrationState = await pool.query<{ count: string; wallet_coins: number; ledger_count: string }>(
+        `SELECT (SELECT count(*) FROM daily007_v2_registrations WHERE match_id = $1)::text AS count,
+                u.wallet_coins,
+                (SELECT count(*) FROM daily007_v2_wallet_ledger
+                  WHERE user_id = $2 AND match_id = $1)::text AS ledger_count
+           FROM daily007_v2_users u WHERE u.id = $2`,
+        [registrationFixture.matchId, registrationFixture.playerId],
+      );
+      assert.equal(registrationState.rows[0]?.count, "0");
+      assert.equal(registrationState.rows[0]?.wallet_coins, STARTING_WALLET_COINS);
+      assert.equal(registrationState.rows[0]?.ledger_count, "0");
+
+      const registered = await registerTeam(origin, teamEditFixture);
+      assert.equal(
+        registered.status,
+        201,
+        `the fixture team registration should succeed: ${JSON.stringify(registered.body)}`,
+      );
+      registrationId = registered.body.registrationId as string;
+      assert.ok(registrationId);
+      const beforeEdit = await snapshot(teamEditFixture, registrationId);
+
+      await blocker!.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker!.query(
+        `UPDATE daily007_v2_users
+            SET status = 'blocked', auth_version = auth_version + 1
+          WHERE id = $1`,
+        [teamEditFixture.playerId],
+      );
+      const editRequest = editTeam(origin, teamEditFixture.playerId, registrationId);
+      pendingRequests.push(editRequest);
+      await waitForBlockedRequest(
+        "SELECT status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+        blockerPid,
+        "the team edit's locked account check",
+      );
+      await blocker!.query("COMMIT");
+      blockerTransactionOpen = false;
+
+      const rejectedEdit = await editRequest;
+      assert.equal(
+        rejectedEdit.status,
+        403,
+        `a queued team edit must be rejected after the account is blocked: ${JSON.stringify(rejectedEdit.body)}`,
+      );
+      assert.deepEqual(
+        await snapshot(teamEditFixture, registrationId),
+        beforeEdit,
+        "blocked team edits must leave the last saved registration and roster unchanged",
+      );
+    });
+  } finally {
+    if (blockerTransactionOpen && blocker) await blocker.query("ROLLBACK");
+    await Promise.allSettled(pendingRequests);
+    blocker?.release();
+    await cleanupFixture(registrationFixture);
+    await cleanupFixture(teamEditFixture);
+  }
+});

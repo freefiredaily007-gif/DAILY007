@@ -989,6 +989,14 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     );
     const registration = registrationResult.rows[0];
     if (!registration) return { kind: "missing" as const };
+
+    const accountState = await client.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_users WHERE id = $1 FOR SHARE",
+      [account.id],
+    );
+    if (!accountState.rows[0]) return { kind: "missing" as const };
+    if (accountState.rows[0].status === "blocked") return { kind: "blocked" as const };
+
     if (!["approved", "pending"].includes(registration.status) || !match.enabled ||
         ["live", "closed", "cancelled", "completed"].includes(match.status) || match.has_result ||
         !isTeamEditWindowOpen(tournamentInstantFromStored(match.starts_at), match.database_now)) {
@@ -1045,6 +1053,7 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
   });
 
   if (outcome.kind === "missing") return fail(res, 404, "Registration not found.");
+  if (outcome.kind === "blocked") return fail(res, 403, "This account is blocked.");
   if (outcome.kind === "locked") return fail(res, 409, "Team editing is locked 30 minutes before the tournament starts.");
   if (outcome.kind === "invalid") return fail(res, 400, outcome.error);
   if (outcome.kind === "duplicate") return fail(res, 409, "A player game UID is already registered for this tournament.");

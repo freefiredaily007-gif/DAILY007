@@ -289,7 +289,7 @@ async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]):
         await waitForBlockedRequests(
           blockerPid,
           2,
-          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
           "wallet",
         );
         await blocker.query("COMMIT");
@@ -507,7 +507,7 @@ async function runConcurrentInsufficientBalanceRace(firstMatchIndex: 0 | 1): Pro
       await blocker.query("BEGIN");
       blockerTransactionOpen = true;
       await blocker.query(
-        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
         [fixture.userId],
       );
       const blockerPid = await backendPid(blocker);
@@ -533,7 +533,7 @@ async function runConcurrentInsufficientBalanceRace(firstMatchIndex: 0 | 1): Pro
         await waitForBlockedRequests(
           blockerPid,
           2,
-          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
           "wallet",
         );
         await blocker.query("COMMIT");
