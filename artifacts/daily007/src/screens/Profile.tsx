@@ -68,6 +68,32 @@ export default function Profile() {
     void refresh();
   }, [refresh]));
   const statsUnavailable = !!user?.statsError || user?.matches === undefined;
+  const profileStats = [
+    {
+      id: 'matches',
+      value: statsUnavailable ? '—' : user?.matches ?? 0,
+      label: 'MATCHES',
+      accessibilityLabel: statsUnavailable ? 'Matches unavailable' : `${user?.matches ?? 0} matches`,
+    },
+    {
+      id: 'wins',
+      value: statsUnavailable ? '—' : user?.wins ?? 0,
+      label: 'WINS',
+      accessibilityLabel: statsUnavailable ? 'Wins unavailable' : `${user?.wins ?? 0} wins`,
+    },
+    {
+      id: 'kills',
+      value: statsUnavailable ? '—' : user?.kills ?? 0,
+      label: 'KILLS',
+      accessibilityLabel: statsUnavailable ? 'Kills unavailable' : `${user?.kills ?? 0} kills`,
+    },
+    {
+      id: 'prizes',
+      value: `🪙${statsUnavailable ? '—' : user?.prizeCoins ?? 0}`,
+      label: 'PRIZES',
+      accessibilityLabel: statsUnavailable ? 'Prize coins unavailable' : `${user?.prizeCoins ?? 0} prize coins`,
+    },
+  ];
   const retryProfileStats = async () => {
     if (statsRetryInFlight.current) return;
     statsRetryInFlight.current = true;
@@ -170,10 +196,32 @@ export default function Profile() {
       </Card>
 
       <View style={[s.stats, fontScale >= 1.5 && s.statsLarge]}>
-        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{statsUnavailable ? '—' : user?.matches ?? 0}</Text><Text style={s.statL}>MATCHES</Text></View>
-        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{statsUnavailable ? '—' : user?.wins ?? 0}</Text><Text style={s.statL}>WINS</Text></View>
-        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{statsUnavailable ? '—' : user?.kills ?? 0}</Text><Text style={s.statL}>KILLS</Text></View>
-        <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>🪙{statsUnavailable ? '—' : user?.prizeCoins ?? 0}</Text><Text style={s.statL}>PRIZES</Text></View>
+        {profileStats.map((stat) => (
+          <View
+            key={stat.id}
+            testID="profile-stat-card"
+            style={[s.stat, fontScale >= 1.5 && s.statLarge]}
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={stat.accessibilityLabel}
+            importantForAccessibility="yes"
+          >
+            <Text
+              style={s.statV}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              {stat.value}
+            </Text>
+            <Text
+              style={s.statL}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              {stat.label}
+            </Text>
+          </View>
+        ))}
       </View>
       {user?.statsError
         ? <>

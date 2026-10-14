@@ -198,11 +198,26 @@ function createProfileScreen(
   const s = new Proxy({}, {
     get: (_target, key) => ({ profileStyle: String(key) }),
   });
-  const View = ({ children, style }) => {
+  const View = ({
+    children,
+    style,
+    accessible,
+    accessibilityRole,
+    accessibilityLabel,
+    importantForAccessibility,
+  }) => {
     const styleList = Array.isArray(style) ? style : [style];
     const isStatCard = styleList.some((entry) => entry?.profileStyle === "stat");
     const isStats = styleList.some((entry) => entry?.profileStyle === "stats");
     const isLargeStatCard = styleList.some((entry) => entry?.profileStyle === "statLarge");
+    const accessibilityProps = {
+      ...(accessible ? { "data-accessible": "true" } : {}),
+      ...(accessibilityRole ? { role: accessibilityRole } : {}),
+      ...(accessibilityLabel ? { "aria-label": accessibilityLabel } : {}),
+      ...(importantForAccessibility
+        ? { "data-important-for-accessibility": importantForAccessibility }
+        : {}),
+    };
     return React.createElement(
       "div",
       isStats
@@ -211,12 +226,20 @@ function createProfileScreen(
           ? {
               "data-testid": "profile-stat-card",
               "data-large-text-layout": String(isLargeStatCard),
+              ...accessibilityProps,
             }
           : undefined,
       children,
     );
   };
-  const Text = ({ children, style, accessibilityLabel, accessibilityLiveRegion }) => {
+  const Text = ({
+    children,
+    style,
+    accessibilityLabel,
+    accessibilityLiveRegion,
+    accessibilityElementsHidden,
+    importantForAccessibility,
+  }) => {
     const testId = style?.profileStyle === "statV"
       ? "profile-stat-value"
       : style?.profileStyle === "statL"
@@ -226,6 +249,10 @@ function createProfileScreen(
       ...(testId ? { "data-testid": testId } : {}),
       ...(accessibilityLabel ? { "aria-label": accessibilityLabel } : {}),
       ...(accessibilityLiveRegion ? { "aria-live": accessibilityLiveRegion } : {}),
+      ...(accessibilityElementsHidden ? { "aria-hidden": "true" } : {}),
+      ...(importantForAccessibility
+        ? { "data-important-for-accessibility": importantForAccessibility }
+        : {}),
     };
     return React.createElement("span", props, children);
   };
@@ -521,7 +548,7 @@ test("successful profile statistics map every counter and leave statsError clear
 
 function renderedProfileStatCards(markup) {
   return [...markup.matchAll(
-    /<div data-testid="profile-stat-card"[^>]*><span data-testid="profile-stat-value">([^<]*)<\/span><span data-testid="profile-stat-label">([^<]*)<\/span><\/div>/g,
+    /<div data-testid="profile-stat-card"[^>]*><span data-testid="profile-stat-value"[^>]*>([^<]*)<\/span><span data-testid="profile-stat-label"[^>]*>([^<]*)<\/span><\/div>/g,
   )].map(([, value, label]) => [label, value]);
 }
 
@@ -547,6 +574,47 @@ test("Profile renders successfully refreshed totals under their matching labels"
     ["PRIZES", "🪙640"],
   ]);
   assert.doesNotMatch(markup, /Profile statistics are loading|Profile statistics unavailable:/);
+});
+
+test("Profile announces each total with its label and hides duplicate visual text", () => {
+  const user = {
+    ...savedSession,
+    matches: 27,
+    wins: 11,
+    kills: 94,
+    prizeCoins: 640,
+  };
+  const markup = renderToStaticMarkup(createProfileScreen(user));
+  const statCards = [...markup.matchAll(
+    /<div data-testid="profile-stat-card"([^>]*)>([\s\S]*?)<\/div>/g,
+  )];
+  const expectedAnnouncements = [
+    "27 matches",
+    "11 wins",
+    "94 kills",
+    "640 prize coins",
+  ];
+
+  assert.equal(statCards.length, 4);
+  statCards.forEach(([, attributes, contents], index) => {
+    assert.match(attributes, /data-accessible="true"/);
+    assert.match(attributes, /role="text"/);
+    assert.match(attributes, /data-important-for-accessibility="yes"/);
+    assert.match(
+      attributes,
+      new RegExp(`aria-label="${expectedAnnouncements[index]}"`),
+    );
+    assert.equal(
+      [...contents.matchAll(/aria-hidden="true"/g)].length,
+      2,
+      "Both visible text nodes should be hidden under the single stat announcement.",
+    );
+    assert.equal(
+      [...contents.matchAll(/data-important-for-accessibility="no-hide-descendants"/g)].length,
+      2,
+    );
+    assert.doesNotMatch(attributes, /🪙|coin icon/i, "Decorative coin art must not be in the spoken label.");
+  });
 });
 
 test("Profile keeps large totals and labels inside stat cards at enlarged text scales", () => {
