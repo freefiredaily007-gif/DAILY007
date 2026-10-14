@@ -175,6 +175,26 @@ async function stopProcess(child) {
 }
 
 try {
+  const googleButtonSource = await readFile(
+    path.join(daily007Root, "src/components/GoogleSSOButton.tsx"),
+    "utf8",
+  );
+  assert.match(
+    googleButtonSource,
+    /function announceGoogleStatus\(message: string\)\s*\{\s*if \(Platform\.OS !== 'web'\)\s*\{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
+    "Native screen readers should receive explicit Google status announcements.",
+  );
+  assert.match(
+    googleButtonSource,
+    /if \(isBusy\) announceGoogleStatus\('Connecting to Google\. Please wait\.'\)/,
+    "The pending Google exchange should be explicitly announced.",
+  );
+  assert.match(
+    googleButtonSource,
+    /announceGoogleStatus\([\s\S]*?'Google sign-up complete\.'/,
+    "A successful Google signup should announce completion.",
+  );
+
   const appConfig = JSON.parse(await readFile(path.join(daily007Root, "app.json"), "utf8")).expo;
   const expectedAppVersion = appConfig.version;
   const expectedAndroidBuild = String(appConfig.android.versionCode);
@@ -247,6 +267,12 @@ try {
     `document.body.innerText.includes("Sign up with Google")`,
     "the Google signup action",
   );
+  const initialButtonFocused = await evaluate(`(() => {
+    const button = document.querySelector('[data-testid="continue-with-google"]');
+    button?.focus();
+    return document.activeElement === button;
+  })()`);
+  assert.equal(initialButtonFocused, true, "The Google signup action should receive focus before the request.");
   await clickSelector('[data-testid="continue-with-google"]', "Google signup action");
 
   await waitForExpression(
@@ -262,8 +288,12 @@ try {
       signupFieldsVisible: bodyText.includes("PLAYER PROFILE")
         && Boolean(nameInput),
       networkGuidanceVisible: bodyText.includes("Could not reach Daily007. Check your connection and try again."),
+      failureAnnouncementVisible: [...document.querySelectorAll('[aria-live="assertive"]')]
+        .some((node) => node.textContent?.includes("Could not reach Daily007. Check your connection and try again.")),
       nameInputDisabled: nameInput?.disabled === true,
       retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
+      retryButtonBusy: retryButton?.getAttribute("aria-busy") === "true",
+      retryButtonFocused: document.activeElement === retryButton,
       retryButtonDisabled: retryButton?.getAttribute("aria-disabled") === "true"
         || retryButton?.hasAttribute("disabled") === true,
       signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
@@ -285,8 +315,11 @@ try {
   assert.equal(failedAttempt.unexpectedRequests.length, 0, failedAttempt.unexpectedRequests.join("; "));
   assert.equal(failureView.signupFieldsVisible, true, "The signup form should remain usable after the exchange failure.");
   assert.equal(failureView.networkGuidanceVisible, true, "The signup form should explain how to recover from the connection failure.");
+  assert.equal(failureView.failureAnnouncementVisible, true, "The Google failure should be exposed as an assertive status.");
   assert.equal(failureView.nameInputDisabled, false, "The signup form should remain editable after the connection failure.");
   assert.equal(failureView.retryButtonLabel, "Sign up with Google", "The Google action should return to its retry label.");
+  assert.equal(failureView.retryButtonBusy, false, "The retry action should no longer be busy after failure.");
+  assert.equal(failureView.retryButtonFocused, true, "Focus should remain on the Google action so it can be retried.");
   assert.equal(failureView.retryButtonDisabled, false, "The Google action should be enabled for retry.");
   assert.equal(failureView.signedInTabCount, 0, "A failed exchange must not render signed-in player tabs.");
   assert.equal(failureView.walletBonusVisible, false, "A failed exchange must not show Wallet content.");
@@ -384,6 +417,12 @@ try {
       state.googleExchangeAttempts === 1 && state.inFlightGoogleExchanges === 1)`,
     "the first Google exchange held pending",
   );
+  const focusBeforePending = await evaluate(`(() => {
+    const button = document.querySelector('[data-testid="continue-with-google"]');
+    button?.focus();
+    return document.activeElement === button;
+  })()`);
+  assert.equal(focusBeforePending, true, "The Google signup action should be focusable before its request starts.");
   const pendingBeforeSecondPress = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assert.equal(pendingBeforeSecondPress.googleExchangeAttempts, 1);
   assert.equal(pendingBeforeSecondPress.inFlightGoogleExchanges, 1);
@@ -396,10 +435,11 @@ try {
   const pendingView = await evaluate(`(() => {
     const button = document.querySelector('[data-testid="continue-with-google"]');
     return {
-      buttonDisabled: button?.getAttribute("aria-disabled") === "true"
-        || button?.hasAttribute("disabled") === true
-        || button?.disabled === true,
+      buttonFocusable: button?.tabIndex === 0 && button?.disabled !== true,
       loadingLabelVisible: button?.innerText.includes("CONNECTING TO GOOGLE") === true,
+      accessibleLabel: button?.getAttribute("aria-label") ?? "",
+      busy: button?.getAttribute("aria-busy") === "true",
+      focused: document.activeElement === button,
       signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
       loginTabDisabled: document.querySelector('[data-testid="auth-login-tab"]')
         ?.getAttribute("aria-disabled") === "true",
@@ -426,8 +466,15 @@ try {
   assert.equal(pendingAfterSecondPress.activeAuthorization, null, "A pending exchange must not activate a Daily007 token.");
   assert.deepEqual(pendingAfterSecondPress.sessionStorage, {});
   assert.equal(pendingAfterSecondPress.unexpectedRequests.length, 0, pendingAfterSecondPress.unexpectedRequests.join("; "));
-  assert.equal(pendingView.buttonDisabled, true, "The Google action must stay disabled while the exchange is pending.");
+  assert.equal(pendingView.buttonFocusable, true, "The busy Google action should remain focusable without starting another request.");
   assert.equal(pendingView.loadingLabelVisible, true, "The Google action should show its connecting state while pending.");
+  assert.equal(
+    pendingView.accessibleLabel,
+    "Sign up with Google. Connecting to Google. Please wait.",
+    "The pending action should have a useful screen-reader label.",
+  );
+  assert.equal(pendingView.busy, true, "The pending action should expose its busy state.");
+  assert.equal(pendingView.focused, true, "The pending state should preserve focus on the Google action.");
   assert.equal(pendingView.signedInTabCount, 0, "Signed-in tabs must stay hidden until the exchange succeeds.");
   assert.equal(pendingView.loginTabDisabled, true, "LOGIN mode must be disabled during Google signup.");
   assert.equal(pendingView.signupTabDisabled, true, "SIGN UP mode must be disabled during Google signup.");

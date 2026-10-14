@@ -39,11 +39,11 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 
 **How to apply:** Keep `accessibilityState.selected` for native platforms and add `aria-selected` when browser tab semantics need it. Confirm native screen-reader behavior separately.
 
-**Rule:** React Native Web may omit native `accessibilityState.busy` from the rendered `aria-busy` attribute; its absence does not mean the native busy state was not passed.
+**Rule:** React Native Web `Pressable` may omit native `accessibilityState.busy` from `aria-busy`, and setting `disabled` removes its browser focusability. For pending actions, pass `aria-busy` explicitly; when focus must remain, keep the Pressable enabled and guard its handler while retaining native disabled/busy accessibility state.
 
-**Why:** The Admin Retry preview rendered the disabled state and progress indicator but no `aria-busy`, despite the native component receiving a busy state.
+**Why:** The Admin Retry preview rendered progress without `aria-busy`, and Google signup lost keyboard focus when `Pressable` became disabled during its held request.
 
-**How to apply:** Keep native busy state on the Pressable, use web checks for disabled state and visible progress, and verify busy or unavailable speech with TalkBack instead of adding web-only state props without need.
+**How to apply:** Pair `accessibilityState` with explicit `aria-busy` for web previews. If pending must preserve focus, keep `disabled` false and ignore presses in the handler; verify native screen-reader speech separately.
 
 **Rule:** For a tall list card, scroll each action into the nearest overflowing scroll container before hit-testing; centering the whole card may still leave its bottom actions off-screen.
 

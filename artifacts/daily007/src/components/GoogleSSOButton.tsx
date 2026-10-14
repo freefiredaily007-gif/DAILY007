@@ -46,6 +46,12 @@ function reportGoogleError(onError: Props['onError'], message: string) {
   }
 }
 
+function announceGoogleStatus(message: string) {
+  if (Platform.OS !== 'web') {
+    AccessibilityInfo.announceForAccessibility(message);
+  }
+}
+
 export default function GoogleSSOButton(props: Props) {
   if (!clerkConfigured) {
     return <UnavailableButton {...props} />;
@@ -67,11 +73,19 @@ function GoogleButtonFrame({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={loading ? `${label}. Connecting to Google. Please wait.` : label}
+      accessibilityState={{ disabled: !!disabled || !!loading, busy: !!loading }}
+      aria-busy={!!loading}
       testID="continue-with-google"
-      disabled={disabled || loading}
-      onPress={onPress}
-      style={({ pressed }) => [s.button, (disabled || loading) && s.disabled, pressed && !disabled && s.pressed]}
+      disabled={disabled}
+      onPress={() => {
+        if (!disabled && !loading) onPress();
+      }}
+      style={({ pressed }) => [
+        s.button,
+        (disabled || loading) && s.disabled,
+        pressed && !disabled && !loading && s.pressed,
+      ]}
     >
       {loading
         ? <Text style={s.spinner}>•••</Text>
@@ -173,12 +187,20 @@ function ConfiguredGoogleButton({
         setLoading: (isBusy) => {
           setBusy(isBusy);
           onBusyChange?.(isBusy);
+          if (isBusy) announceGoogleStatus('Connecting to Google. Please wait.');
         },
         showError,
         onSuccess: async (authenticated) => {
           const saved = await setSessionForAuthAttempt(authenticated.user, authRevision);
           if (!saved) return;
-          return onSuccess(authenticated.user);
+          announceGoogleStatus(
+            label.toLowerCase().includes('sign up')
+              ? 'Google sign-up complete.'
+              : label.toLowerCase().includes('connect')
+                ? 'Google connected successfully.'
+                : 'Google sign-in complete.',
+          );
+          await onSuccess(authenticated.user);
         },
         getErrorMessage: (e) => {
           const message = apiError(e);

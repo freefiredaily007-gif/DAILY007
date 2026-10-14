@@ -596,13 +596,22 @@ test("the React Native button and callback route use the isolated handoff and me
 
   assert.match(buttonSource, /runGoogleSSOAttempt\(/);
   assert.match(buttonSource, /authenticate:\s*\(\)\s*=>\s*runGoogleSSOFlow\(/);
-  assert.match(buttonSource, /setLoading:\s*setBusy/);
-  assert.match(buttonSource, /disabled=\{disabled \|\| loading\}/);
+  assert.match(
+    buttonSource,
+    /setLoading:\s*\(isBusy\)\s*=>\s*\{\s*setBusy\(isBusy\);\s*onBusyChange\?\.\(isBusy\);/,
+  );
+  assert.match(buttonSource, /accessibilityState=\{\{ disabled: !!disabled \|\| !!loading, busy: !!loading \}\}/);
+  assert.match(buttonSource, /aria-busy=\{!!loading\}/);
+  assert.match(buttonSource, /accessibilityLabel=\{loading \? `\$\{label\}\. Connecting to Google\. Please wait\.` : label\}/);
+  assert.match(buttonSource, /if \(isBusy\) announceGoogleStatus\('Connecting to Google\. Please wait\.'\)/);
+  assert.match(buttonSource, /announceGoogleStatus\([\s\S]*?'Google sign-up complete\.'/);
   assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
   assert.match(buttonSource, /return `\$\{message\} Please try again\.`/);
   assert.match(buttonSource, /onError && Platform\.OS === 'android'[\s\S]*?AccessibilityInfo\.announceForAccessibility\(message\)/);
+  const googleErrorReporter = buttonSource.match(/function reportGoogleError\([\s\S]*?\n\}/)?.[0];
+  assert.ok(googleErrorReporter, "Google errors should use the shared error reporter");
   assert.equal(
-    (buttonSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
+    (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
     1,
     "Google errors should have one direct Android announcement",
   );
@@ -613,7 +622,10 @@ test("the React Native button and callback route use the isolated handoff and me
     authGoogleError[0],
     /accessibilityLiveRegion=\{Platform\.OS === 'android' \? undefined : 'assertive'\}/,
   );
-  assert.match(authSource, /onError=\{\(message\) => \{\s*setErr\(''\);\s*setGoogleErr\(message\);\s*\}\}/);
+  assert.match(
+    authSource,
+    /onError=\{\(message\) => \{\s*setErr\(''\);\s*setGoogleErr\(message\);\s*setReferralCodeApplied\(false\);\s*\}\}/,
+  );
   assert.match(authSource, /accessibilityLiveRegion=\{err \? 'assertive' : undefined\}/);
   assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
@@ -672,7 +684,7 @@ test("Google recovery errors use the single Android announcement path and keep r
     /onError\?\.\(message\);[\s\S]*?if \(onError && Platform\.OS === 'android'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
   );
   assert.equal(
-    (buttonSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
+    (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
     1,
     "recovery errors should share exactly one direct Android announcement call",
   );
