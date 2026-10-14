@@ -122,6 +122,10 @@ export function captureSessionIdentity(): SessionIdentity | null {
   };
 }
 
+export function captureSessionRevision(): number {
+  return sessionRevision;
+}
+
 export function isSessionIdentityCurrent(identity: SessionIdentity): boolean {
   return Boolean(current?.token) &&
     sessionRevision === identity.revision &&
@@ -196,6 +200,24 @@ export function setSession(u: User | null): void | Promise<void> {
     .catch(() => {
       throw new SessionPersistenceError();
     });
+}
+
+export async function setSessionForAuthAttempt(
+  user: User,
+  expectedRevision: number,
+): Promise<boolean> {
+  if (!user.token || sessionRevision !== expectedRevision) return false;
+
+  const revision = ++sessionRevision;
+  try {
+    const persisted = await persistSessionMutation(user, revision);
+    return persisted &&
+      revision === sessionRevision &&
+      current?.token === user.token &&
+      accountIdOf(current) === accountIdOf(user);
+  } catch {
+    throw new SessionPersistenceError();
+  }
 }
 
 export async function setSessionForIdentity(

@@ -6,7 +6,15 @@ import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
-import { Api, apiError, LoginRateLimitError, SessionPersistenceError, setSession, User } from '../lib/api';
+import {
+  Api,
+  apiError,
+  captureSessionRevision,
+  LoginRateLimitError,
+  SessionPersistenceError,
+  setSessionForAuthAttempt,
+  User,
+} from '../lib/api';
 import {
   MAX_SIGNUP_PASSWORD_LENGTH,
   signupPasswordError,
@@ -103,6 +111,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
       }
     }
     setBusy(true);
+    const authRevision = captureSessionRevision();
     try {
       let u: User;
       if (retrySignupSession) {
@@ -119,7 +128,8 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
         u = { ...r.user, token: r.token };
       }
       try {
-        await setSession(u);
+        const saved = await setSessionForAuthAttempt(u, authRevision);
+        if (!saved) return;
       } catch (e) {
         if (mode === 'signup' && !retrySignupSession && e instanceof SessionPersistenceError) {
           setPendingSignupSession(u);

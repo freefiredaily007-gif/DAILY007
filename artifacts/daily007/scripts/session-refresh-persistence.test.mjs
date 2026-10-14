@@ -61,11 +61,13 @@ registerHooks({
 });
 
 const {
+  captureSessionRevision,
   captureSessionIdentity,
   currentUser,
   getSession,
   http,
   setSession,
+  setSessionForAuthAttempt,
   setSessionForIdentity,
 } = await import("../src/lib/api.ts");
 
@@ -198,4 +200,37 @@ test("a saved-session read finishing after a new sign-in keeps the newer session
   assert.equal(await restore, newAccount);
   assert.equal(currentUser(), newAccount);
   assert.deepEqual(JSON.parse(storedSession), newAccount);
+});
+
+test("an authentication attempt started before logout cannot restore its account", async () => {
+  const authRevision = captureSessionRevision();
+  const logout = setSession(null);
+  const staleSignIn = await setSessionForAuthAttempt(
+    { id: "stale-auth-account", token: "stale-auth-token", role: "user" },
+    authRevision,
+  );
+
+  await logout;
+  assert.equal(staleSignIn, false);
+  assert.equal(currentUser(), null);
+  assert.equal(storedSession, null);
+});
+
+test("logout supersedes an authentication write already waiting on device storage", async () => {
+  await setSession(null);
+  const authRevision = captureSessionRevision();
+  const blockedWrite = blockNextStorageWrite();
+  const signIn = setSessionForAuthAttempt(
+    { id: "pending-auth-account", token: "pending-auth-token", role: "user" },
+    authRevision,
+  );
+  await blockedWrite.entered.promise;
+
+  const logout = setSession(null);
+  blockedWrite.release.resolve();
+
+  assert.equal(await signIn, false);
+  await logout;
+  assert.equal(currentUser(), null);
+  assert.equal(storedSession, null);
 });

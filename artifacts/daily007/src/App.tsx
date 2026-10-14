@@ -155,6 +155,7 @@ const navTheme = {
 function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [logoutPending, setLogoutPending] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
   const [verificationSession, setVerificationSession] = useState<User | null>(null);
   const [retryingVerification, setRetryingVerification] = useState(false);
@@ -162,6 +163,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const accessRefreshRequest = useRef<Promise<User | null> | null>(null);
   const resumeAccessRefreshRequest = useRef<Promise<User | null> | null>(null);
   const verificationRequest = useRef<Promise<void> | null>(null);
+  const logoutInFlight = useRef(false);
 
   useEffect(() => {
     const handleExpiredSession = () => {
@@ -231,11 +233,21 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const refresh = useCallback((): Promise<User | null> => {
     if (refreshRequest.current) return refreshRequest.current;
     const request = (async () => {
+      const identity = captureSessionIdentity();
+      if (!identity) return null;
       try {
         const u = await Api.me();
-        if (u) { await setSession(u); setUser(u); return u; }
+        if (u) {
+          const saved = await setSessionForIdentity(u, identity);
+          if (!saved) return null;
+          setUser(u);
+          return u;
+        }
       } catch (e: any) {
-        if (e?.response?.status === 401 || e?.response?.status === 403) {
+        if (
+          (e?.response?.status === 401 || e?.response?.status === 403) &&
+          isSessionIdentityCurrent(identity)
+        ) {
           setSession(null);
           setUser(null);
         }
@@ -309,6 +321,12 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   }, [user?.id, refreshAccess, refreshAccessOnResume]);
 
   const logout = useCallback(async () => {
+    if (logoutInFlight.current) return;
+    logoutInFlight.current = true;
+    setLogoutPending(true);
+    setUser(null);
+    setVerificationSession(null);
+    setAuthNotice('');
     try {
       const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => setSession(null));
       if (clerkSignOutFailed) {
@@ -317,6 +335,8 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     } finally {
       setUser(null);
       setAuthNotice('');
+      setLogoutPending(false);
+      logoutInFlight.current = false;
     }
   }, [signOutClerk]);
 
@@ -324,6 +344,21 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     <View style={s.boot}>
       <Text style={s.logo}>FF DAILY007</Text>
       <ActivityIndicator color="#ff4655" size="large" style={{ marginTop: 20 }} />
+    </View>
+  );
+
+  if (logoutPending) return (
+    <View style={s.boot} testID="logout-pending">
+      <Text style={s.logo}>FF DAILY007</Text>
+      <ActivityIndicator color="#ff4655" size="large" style={{ marginTop: 20 }} />
+      <Text
+        accessibilityRole="text"
+        accessibilityLabel="Signing out of Daily007. Please wait."
+        accessibilityLiveRegion="polite"
+        style={s.logoutPendingText}
+      >
+        Signing out…
+      </Text>
     </View>
   );
 
@@ -336,7 +371,11 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
 
   if (!user) return <Auth
     notice={authNotice}
-    onDone={(u) => { setAuthNotice(''); setUser(u); }}
+    onDone={(u) => {
+      if (logoutInFlight.current) return;
+      setAuthNotice('');
+      setUser(u);
+    }}
   />;
 
   const rootNavigation = rootNavigationForRole(user.role);
@@ -388,4 +427,5 @@ export default function App() {
 const s = StyleSheet.create({
   boot: { flex: 1, backgroundColor: '#070a12', alignItems: 'center', justifyContent: 'center' },
   logo: { color: '#ff3d3d', fontSize: 30, fontWeight: '900', letterSpacing: 3, textShadowColor: '#ff3d3d66', textShadowRadius: 20 },
+  logoutPendingText: { color: '#F5F7FF', fontSize: 15, fontWeight: '600', marginTop: 16 },
 });

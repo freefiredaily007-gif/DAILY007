@@ -664,6 +664,7 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   const apiSource = await readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8");
   const logoutSource = await readFile(new URL("../src/lib/logout.ts", import.meta.url), "utf8");
   const authSource = await readFile(new URL("../src/screens/Auth.tsx", import.meta.url), "utf8");
+  const googleButtonSource = await readFile(new URL("../src/components/GoogleSSOButton.tsx", import.meta.url), "utf8");
   const adminSource = await readFile(new URL("../src/screens/AdminApp.tsx", import.meta.url), "utf8");
   const expiredHandlerStart = appSource.indexOf("const handleExpiredSession = () => {");
   const expiredHandlerEnd = appSource.indexOf("\n    };", expiredHandlerStart);
@@ -742,6 +743,44 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     localLogoutClearIndex >= 0 && remoteLogoutIndex > localLogoutClearIndex,
     "Logout must invalidate the local session before waiting for Clerk sign-out.",
   );
+  const appLogoutStart = appSource.indexOf("const logout = useCallback(async () => {");
+  const appLogoutEnd = appSource.indexOf("\n  }, [signOutClerk]);", appLogoutStart);
+  assert.ok(appLogoutStart >= 0 && appLogoutEnd > appLogoutStart, "App logout must remain a single guarded operation.");
+  const appLogoutSource = appSource.slice(appLogoutStart, appLogoutEnd);
+  const logoutGuardIndex = appLogoutSource.indexOf("if (logoutInFlight.current) return;");
+  const pendingStateIndex = appLogoutSource.indexOf("setLogoutPending(true)");
+  const logoutClearUserIndex = appLogoutSource.indexOf("setUser(null)");
+  const awaitClerkIndex = appLogoutSource.indexOf("await logoutDaily007(");
+  assert.ok(
+    logoutGuardIndex >= 0
+      && pendingStateIndex > logoutGuardIndex
+      && logoutClearUserIndex > pendingStateIndex
+      && awaitClerkIndex > logoutClearUserIndex,
+    "Logout must ignore duplicate requests and clear the visible user before awaiting Clerk.",
+  );
+  assert.match(
+    appSource,
+    /if \(logoutPending\) return \([\s\S]*?testID="logout-pending"[\s\S]*?Signing out…/,
+    "A dedicated pending state must be visible while Clerk sign-out is running.",
+  );
+  assert.match(
+    appSource,
+    /onDone=\{\(u\) => \{\s*if \(logoutInFlight\.current\) return;/,
+    "A sign-in completion cannot restore the user while logout is in progress.",
+  );
+  assert.match(authSource, /captureSessionRevision\(\)/);
+  assert.match(authSource, /setSessionForAuthAttempt\(u,\s*authRevision\)/);
+  assert.match(googleButtonSource, /captureSessionRevision\(\)/);
+  assert.match(googleButtonSource, /setSessionForAuthAttempt\(authenticated\.user,\s*authRevision\)/);
+  assert.match(apiSource, /sessionRevision !== expectedRevision/);
+  const profileRefreshStart = appSource.indexOf("const refresh = useCallback(");
+  const profileRefreshEnd = appSource.indexOf("\n  }, []);", profileRefreshStart);
+  assert.ok(profileRefreshStart >= 0 && profileRefreshEnd > profileRefreshStart, "The profile refresh callback must remain.");
+  const profileRefreshSource = appSource.slice(profileRefreshStart, profileRefreshEnd);
+  assert.match(profileRefreshSource, /captureSessionIdentity\(\)/);
+  assert.match(profileRefreshSource, /setSessionForIdentity\(u,\s*identity\)/);
+  assert.match(profileRefreshSource, /isSessionIdentityCurrent\(identity\)/);
+  assert.doesNotMatch(profileRefreshSource, /setSession\(u\)/);
   assert.match(appSource, /rootNavigationForRole\(user\.role\)/);
   assert.match(appSource, /rootNavigation === 'Admin'/);
   assert.match(appSource, /if \(!user\) return <Auth\s+notice=\{authNotice\}/);
