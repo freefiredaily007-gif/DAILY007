@@ -77,6 +77,40 @@ test('result validation and API errors are politely announced', () => {
   assert.match(screenSource, /const publishError = apiError\(e\)/);
 });
 
+test('iOS VoiceOver announces new tournament, room, and result errors without moving focus', () => {
+  const announcementEffect = screenSource.match(
+    /useEffect\(\(\) => \{\s*if \(Platform\.OS !== 'ios'\) return;[\s\S]*?\}, \[err, loadError, roomError, resultError\]\);/,
+  )?.[0];
+
+  assert.ok(announcementEffect, 'Tournament screen errors must be announced on iOS.');
+  for (const errorKey of ['err', 'loadError', 'roomError', 'resultError']) {
+    assert.match(announcementEffect, new RegExp(`\\['[^']+', ${errorKey}\\]`));
+  }
+  assert.match(announcementEffect, /message !== announcedErrors\.current\[key\]/);
+  assert.match(announcementEffect, /AccessibilityInfo\.announceForAccessibilityWithOptions/);
+  assert.match(announcementEffect, /queue: true/);
+  assert.doesNotMatch(announcementEffect, /setAccessibilityFocus|\.focus\(/);
+  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/);
+  assert.match(screenSource, /text=\{roomError\} accessibilityLiveRegion="polite"/);
+  assert.match(screenSource, /text=\{resultError\} accessibilityLiveRegion="polite"/);
+});
+
+test('iOS VoiceOver announces Results validation and API errors without moving focus', () => {
+  const announcementEffect = resultsSource.match(
+    /useEffect\(\(\) => \{\s*if \(Platform\.OS !== 'ios'\) return;[\s\S]*?\}, \[err, listLoadError\]\);/,
+  )?.[0];
+
+  assert.ok(announcementEffect, 'Admin Results errors must be announced on iOS.');
+  assert.match(announcementEffect, /\['result', err\]/);
+  assert.match(announcementEffect, /\['tournament-list', listLoadError\]/);
+  assert.match(announcementEffect, /message !== announcedErrors\.current\[key\]/);
+  assert.match(announcementEffect, /AccessibilityInfo\.announceForAccessibilityWithOptions/);
+  assert.match(announcementEffect, /queue: true/);
+  assert.doesNotMatch(announcementEffect, /setAccessibilityFocus|\.focus\(/);
+  assert.match(resultsSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/);
+  assert.match(resultsSource, /<Msg kind="err" text=\{listLoadError\} accessibilityLiveRegion="polite" \/>/);
+});
+
 test('approved-player load failures use one polite retry announcement without moving focus', () => {
   const failureMessage = screenSource.match(
     /<Text accessibilityLiveRegion="polite" style=\{st\.actionHint\}>[\s\S]*?\{resultBusy[\s\S]*?'Approved registrations could not be loaded\. Retry here\. If the problem continues, close and reopen this panel\.'[\s\S]*?<\/Text>/,

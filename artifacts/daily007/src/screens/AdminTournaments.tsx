@@ -117,6 +117,7 @@ export default function AdminTournaments() {
   const [retryingApprovedRegistrations, setRetryingApprovedRegistrations] = useState(false);
   const [resultError, setResultError] = useState('');
   const [resultSuccess, setResultSuccess] = useState('');
+  const announcedErrors = useRef<Record<string, string>>({});
   const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
   const approvedRegistrationsRequestId = useRef<number | null>(null);
@@ -131,6 +132,25 @@ export default function AdminTournaments() {
   const visibleTournaments = (list ?? []).filter(
     (tournament) => getTournamentLifecycleState(tournament, clockNow) === tab,
   );
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const messages = [
+      ['tournament', err],
+      ['tournament-list', loadError],
+      ['room', roomError],
+      ['result', resultError],
+    ] as const;
+    for (const [key, message] of messages) {
+      if (message && message !== announcedErrors.current[key]) {
+        AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+          queue: true,
+          priority: 'high',
+        });
+      }
+      announcedErrors.current[key] = message;
+    }
+  }, [err, loadError, roomError, resultError]);
 
   const load = useCallback(async () => {
     try {

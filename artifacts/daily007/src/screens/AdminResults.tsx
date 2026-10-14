@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { AccessibilityInfo, Platform, View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Input, Loading, Msg } from '../components/ui';
@@ -28,8 +28,26 @@ export default function AdminResults({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const announcedErrors = useRef<Record<string, string>>({});
   const [clockNow, setClockNow] = useState(Date.now());
   const initialTournamentHandled = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const messages = [
+      ['result', err],
+      ['tournament-list', listLoadError],
+    ] as const;
+    for (const [key, message] of messages) {
+      if (message && message !== announcedErrors.current[key]) {
+        AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+          queue: true,
+          priority: 'high',
+        });
+      }
+      announcedErrors.current[key] = message;
+    }
+  }, [err, listLoadError]);
 
   const loadTournaments = useCallback(async () => {
     const currentRequest = ++listRequestId.current;
