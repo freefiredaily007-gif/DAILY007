@@ -28,9 +28,14 @@ const singleHomeCardPreview = previewParams.get("single-card") === "1";
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
 const requestedScreen = previewParams.get("screen") ?? "Home";
+const dateSurfaceDateOnly = dateSurfaceScenario === "date-only";
+const dateSurfaceDate = dateSurfaceScenario === "positive-offset" ? "2029-12-31" : "2030-01-01";
 const dateSurfaceStartAt = dateSurfaceScenario === "positive-offset"
   ? "2029-12-31T17:00:00.000Z"
-  : "2029-12-31T18:45:00.000Z";
+  : dateSurfaceDateOnly
+    ? new Date(`${dateSurfaceDate}T00:00:00`).toISOString()
+    : "2029-12-31T18:45:00.000Z";
+const dateSurfaceTime = dateSurfaceDateOnly ? "12:15 AM" : null;
 const scheduledStartMs = dateSurfacePreview
   ? Date.parse(dateSurfaceStartAt)
   : Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
@@ -86,16 +91,18 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       throw new Error(`Unsupported IST date preview screen: ${requestedScreen}`);
     }
     const shiftedStart = new Date(scheduledStartMs + 5.5 * 60 * 60 * 1000);
-    apiMocks.configureIstDateSurfacePreview({
-      date: shiftedStart.toISOString().slice(0, 10),
-      time: istTime(scheduledStartMs),
-      startsAt: asIstTimestamp(scheduledStartMs),
-    });
+    const previewSchedule = {
+      date: dateSurfaceDateOnly ? dateSurfaceDate : shiftedStart.toISOString().slice(0, 10),
+      time: dateSurfaceTime ?? istTime(scheduledStartMs),
+      ...(dateSurfaceDateOnly ? {} : { startsAt: asIstTimestamp(scheduledStartMs) }),
+    };
+    const configuredSchedule = apiMocks.configureIstDateSurfacePreview(previewSchedule);
     globalThis.__previewRouteParams = { id: "ist-date-boundary" };
     window.__daily007IstDateSurfacePreview = {
       ready: false,
       screen: requestedScreen,
       tournamentId: "ist-date-boundary",
+      hasStartsAt: Object.prototype.hasOwnProperty.call(configuredSchedule, "startsAt"),
     };
     const screenModule = requestedScreen === "MyMatches"
       ? await import("../../../daily007/src/screens/MyMatches")
@@ -119,9 +126,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       : id === "later-two" && longHomeCardNamesPreview
         ? "custom"
         : "battle_royale",
-    date: asIstTimestamp(startsAt).slice(0, 10),
-    time: istTime(startsAt),
-    startsAt: asIstTimestamp(startsAt),
+    date: dateSurfaceDateOnly ? dateSurfaceDate : asIstTimestamp(startsAt).slice(0, 10),
+    time: dateSurfaceTime ?? istTime(startsAt),
+    ...(dateSurfaceDateOnly ? {} : { startsAt: asIstTimestamp(startsAt) }),
     entryCoins: 0,
     prizePool: 500,
     totalSlots: 48,
@@ -245,6 +252,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     },
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
+    getTournamentStartFieldPresence: () =>
+      apiMocks.previewTournaments.map((tournament) => Object.prototype.hasOwnProperty.call(tournament, "startsAt")),
     setRegistrations: apiMocks.setHomeCarouselRegistrationPreview,
     publishAdminCreatedTournament: () => {
       if (!adminTournamentHomeRefreshPreview) return false;

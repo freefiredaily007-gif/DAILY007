@@ -489,7 +489,7 @@ export function configurePlayerLargestTextPreview() {
 }
 
 export function configureIstDateSurfacePreview(
-  schedule: { date: string; time: string; startsAt: string } = {
+  schedule: { date: string; time: string; startsAt?: string } = {
     date: istDateSurfaceTournament.date,
     time: istDateSurfaceTournament.time,
     startsAt: istDateSurfaceTournament.startsAt,
@@ -498,6 +498,11 @@ export function configureIstDateSurfacePreview(
   istDateSurfacePreview = true;
   Object.assign(istDateSurfaceTournament, schedule);
   Object.assign(istDateSurfaceRegistration.tournament, schedule);
+  if (schedule.startsAt === undefined) {
+    Reflect.deleteProperty(istDateSurfaceTournament, "startsAt");
+    Reflect.deleteProperty(istDateSurfaceRegistration.tournament, "startsAt");
+  }
+  return { ...istDateSurfaceTournament };
 }
 
 export function configureAdminTournamentEmptyFilterPreview() {
