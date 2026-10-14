@@ -83,19 +83,24 @@ export default function Tournaments() {
         setError(apiError(listResult.reason));
         return;
       }
-      const registrationStatusKnown = registrationsResult.status === 'fulfilled';
+      const registrationStatusKnown =
+        registrationsResult.status === 'fulfilled' && Array.isArray(registrationsResult.value);
+      const registrationErrorMessage = registrationStatusKnown
+        ? ''
+        : registrationsResult.status === 'rejected'
+          ? apiError(registrationsResult.reason)
+          : 'Invalid registrations response.';
       if (!registrationStatusKnown && hasLoadedList.current) {
         if (refreshingRequest.current) failedManualRefresh.current = true;
-        setError(apiError(registrationsResult.reason));
+        setError('');
+        setRegistrationError(registrationErrorMessage);
         return;
       }
       const recoveredInitialLoad = !hasLoadedList.current && initialLoadFailed.current;
-      const registrations = registrationStatusKnown ? registrationsResult.value : [];
-      setRegistrationError(
-        registrationStatusKnown ? '' : apiError(registrationsResult.reason),
-      );
+      const registrations = registrationStatusKnown ? registrationsResult.value as any[] : [];
+      setRegistrationError(registrationErrorMessage);
       const registrationByTournament = new Map<string, any>();
-      for (const registration of Array.isArray(registrations) ? registrations : []) {
+      for (const registration of registrations) {
         const status = String(registration.status ?? '').toLowerCase();
         const tournamentId = String(registration.tournamentId ?? '');
         if (!tournamentId || !['approved', 'pending'].includes(status)) continue;
@@ -339,7 +344,7 @@ export default function Tournaments() {
             {!!registrationError && (
               <Msg
                 kind="err"
-                text={`Could not confirm which tournaments you have joined: ${registrationError}. Entry status is unknown; refresh before joining.`}
+                text={`Could not confirm which tournaments you have joined: ${registrationError}. ${hasLoadedList.current ? 'Showing your last confirmed status; refresh to try again.' : 'Entry status is unknown; refresh before joining.'}`}
               />
             )}
           </View>

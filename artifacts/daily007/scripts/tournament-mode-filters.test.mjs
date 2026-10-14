@@ -526,8 +526,8 @@ test('failed tournament refreshes preserve the last complete rows and successful
   assert.strictEqual(harness.state.items, lastGoodItems, 'a registration failure must not commit a new tournament list');
   assert.deepEqual(getTabCounts(), lastGoodCounts, 'tab counts must remain based on the last complete snapshot');
   assert.deepEqual(getTabs()[harness.screen.selectedTab].map((tournament) => tournament.id), ['last-ongoing']);
-  assert.equal(harness.state.error, 'Registration service unavailable');
-  assert.equal(harness.state.registrationError, '');
+  assert.equal(harness.state.error, '');
+  assert.equal(harness.state.registrationError, 'Registration service unavailable');
   assert.equal(harness.screen.selectedTab, 'ongoing');
   assert.equal(route.gameMode, 'clash_squad');
 
@@ -621,7 +621,7 @@ test('first-load registration failure keeps tournament counts and marks entry st
   );
   assert.match(
     tournamentsSource,
-    /text=\{`Could not confirm which tournaments you have joined: \$\{registrationError\}\. Entry status is unknown; refresh before joining\.`\}/,
+    /text=\{`Could not confirm which tournaments you have joined: \$\{registrationError\}\. \$\{hasLoadedList\.current \? 'Showing your last confirmed status; refresh to try again\.' : 'Entry status is unknown; refresh before joining\.'\}`\}/,
   );
   assert.match(uiSource, /const statusUnknown = t\?\.joinedStatusUnknown === true;/);
   assert.match(uiSource, /statusUnknown\s*\?\s*'ENTRY STATUS UNKNOWN · TAP TO CHECK →'/);
@@ -635,6 +635,46 @@ test('first-load registration failure keeps tournament counts and marks entry st
   assert.equal(recoveredUpcoming.joined, true);
   assert.equal(recoveredUpcoming.myRegistration.status, 'approved');
   assert.equal(harness.state.registrationError, '', 'a valid retry should clear the registration warning');
+  assert.equal(harness.state.error, '');
+});
+
+test('malformed registration refresh preserves confirmed JOINED cards until valid data arrives', async () => {
+  const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  let tournaments = [
+    { id: 'joined-match', status: 'upcoming', startsAt: futureStart, title: 'Confirmed match' },
+  ];
+  let registrations = [{ tournamentId: 'joined-match', status: 'approved' }];
+  const api = {
+    tournaments: async () => tournaments,
+    myRegistrations: async () => registrations,
+  };
+  const harness = createTournamentLoadHarness(api);
+
+  await harness.load();
+  const confirmedItems = harness.state.items;
+  assert.equal(confirmedItems[0].joined, true);
+  assert.equal(confirmedItems[0].joinedStatusUnknown, false);
+
+  tournaments = [
+    { id: 'joined-match', status: 'upcoming', startsAt: futureStart, title: 'Updated match' },
+    { id: 'new-match', status: 'upcoming', startsAt: futureStart, title: 'New match' },
+  ];
+  registrations = { invalid: true };
+  await harness.load();
+
+  assert.strictEqual(harness.state.items, confirmedItems, 'malformed registration data must not replace the confirmed snapshot');
+  assert.equal(harness.state.items[0].joined, true, 'the last confirmed JOINED state must remain visible');
+  assert.equal(harness.state.registrationError, 'Invalid registrations response.');
+  assert.equal(harness.state.error, '', 'the registration issue must not hide tournament cards behind a list error');
+
+  registrations = [];
+  await harness.load();
+
+  assert.notStrictEqual(harness.state.items, confirmedItems);
+  assert.deepEqual(harness.state.items.map((tournament) => tournament.id), ['joined-match', 'new-match']);
+  assert.equal(harness.state.items[0].joined, false, 'a later valid response should update status normally');
+  assert.equal(harness.state.items[0].title, 'Updated match');
+  assert.equal(harness.state.registrationError, '');
   assert.equal(harness.state.error, '');
 });
 

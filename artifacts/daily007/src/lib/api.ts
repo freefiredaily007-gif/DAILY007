@@ -407,7 +407,11 @@ export const Api = {
   tournaments: (qs: string | boolean = '') => unwrap(http.get('/tournaments' + (qs === true ? '?enabled=true' : qs || ''))),
   tournament: (id: string) => unwrap(http.get('/tournaments/' + id)),
   // registrations / join
-  myRegistrations: (): Promise<unknown> => unwrap(http.get('/my/registrations')),
+  myRegistrations: async (): Promise<unknown> => {
+    const registrations: unknown = await unwrap(http.get('/my/registrations'));
+    if (!Array.isArray(registrations)) throw new Error('Invalid registrations response.');
+    return registrations;
+  },
   join: (id: string, b: object) => {
     const payload = b as { playerName?: string; captainGameName?: string; gameUid?: string; teamName?: string; teamMembers?: string };
     let members: { name?: string; uid?: string }[] = [];
