@@ -427,15 +427,17 @@ test("Full Admin can permanently delete an unwatched video without changing othe
   });
 });
 
-test("Full Admin can hide a video without detaching its watch history", async () => {
+test("Full Admin can hide a video without detaching a completed rewarded watch session", async () => {
   videoTestDb.reset();
 
   await withServer(async (origin) => {
     const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, validVideo);
     assert.equal(created.status, 201);
     const videoId = String(created.body.id);
-    seedWatchHistory(videoId);
+    seedCompletedRewardedWatchHistory(videoId);
     const watchSessionsBefore = structuredClone(videoTestDb.watchSessions);
+    assert.ok(watchSessionsBefore[0].completed_at);
+    assert.ok(watchSessionsBefore[0].reward_ledger_id);
 
     const hidden = await patchVideo(
       origin,
@@ -449,7 +451,11 @@ test("Full Admin can hide a video without detaching its watch history", async ()
     assert.equal(videoTestDb.videos.length, 1);
     assert.equal(videoTestDb.videos[0].id, videoId);
     assert.equal(videoTestDb.videos[0].active, false);
-    assert.deepEqual(videoTestDb.watchSessions, watchSessionsBefore);
+    assert.deepEqual(
+      videoTestDb.watchSessions,
+      watchSessionsBefore,
+      "hiding the video must preserve every completion and reward field",
+    );
 
     const catalogResponse = await fetch(`${origin}/videos`);
     assert.equal(catalogResponse.status, 200);
