@@ -169,6 +169,8 @@ function createProfileScreen(
     getUser = () => user,
     refresh = async () => user,
     renderComponent = false,
+    width = 402,
+    fontScale = 1,
   } = {},
 ) {
   let profileDeclaration = null;
@@ -199,9 +201,18 @@ function createProfileScreen(
   const View = ({ children, style }) => {
     const styleList = Array.isArray(style) ? style : [style];
     const isStatCard = styleList.some((entry) => entry?.profileStyle === "stat");
+    const isStats = styleList.some((entry) => entry?.profileStyle === "stats");
+    const isLargeStatCard = styleList.some((entry) => entry?.profileStyle === "statLarge");
     return React.createElement(
       "div",
-      isStatCard ? { "data-testid": "profile-stat-card" } : undefined,
+      isStats
+        ? { "data-testid": "profile-stats" }
+        : isStatCard
+          ? {
+              "data-testid": "profile-stat-card",
+              "data-large-text-layout": String(isLargeStatCard),
+            }
+          : undefined,
       children,
     );
   };
@@ -266,7 +277,7 @@ function createProfileScreen(
     Btn: Button,
     KV: KeyValue,
     GoogleSSOButton: () => null,
-    useWindowDimensions: () => ({ width: 402, fontScale: 1 }),
+    useWindowDimensions: () => ({ width, fontScale }),
     Platform: { OS: "android" },
     Application: { nativeApplicationVersion: "1.0.0", nativeBuildVersion: "7" },
     Constants: {
@@ -510,7 +521,7 @@ test("successful profile statistics map every counter and leave statsError clear
 
 function renderedProfileStatCards(markup) {
   return [...markup.matchAll(
-    /<div data-testid="profile-stat-card"><span data-testid="profile-stat-value">([^<]*)<\/span><span data-testid="profile-stat-label">([^<]*)<\/span><\/div>/g,
+    /<div data-testid="profile-stat-card"[^>]*><span data-testid="profile-stat-value">([^<]*)<\/span><span data-testid="profile-stat-label">([^<]*)<\/span><\/div>/g,
   )].map(([, value, label]) => [label, value]);
 }
 
@@ -536,6 +547,58 @@ test("Profile renders successfully refreshed totals under their matching labels"
     ["PRIZES", "🪙640"],
   ]);
   assert.doesNotMatch(markup, /Profile statistics are loading|Profile statistics unavailable:/);
+});
+
+test("Profile keeps large totals and labels inside stat cards at enlarged text scales", () => {
+  const user = {
+    ...savedSession,
+    matches: 1234567,
+    wins: 234567,
+    kills: 7654321,
+    prizeCoins: 98765432,
+  };
+  const expectedCards = [
+    ["MATCHES", "1234567"],
+    ["WINS", "234567"],
+    ["KILLS", "7654321"],
+    ["PRIZES", "🪙98765432"],
+  ];
+  const viewports = [
+    { name: "standard", width: 402 },
+    { name: "narrow", width: 320 },
+  ];
+  const scales = [1.5, 2];
+
+  for (const viewport of viewports) {
+    for (const fontScale of scales) {
+      const markup = renderToStaticMarkup(createProfileScreen(user, {
+        width: viewport.width,
+        fontScale,
+      }));
+      assert.match(markup, /data-testid="profile-stats"/);
+      assert.deepEqual(
+        renderedProfileStatCards(markup),
+        expectedCards,
+        `${viewport.name} viewport at ${fontScale}× must keep every full total with its label`,
+      );
+      assert.equal(
+        [...markup.matchAll(/data-large-text-layout="true"/g)].length,
+        4,
+        `${viewport.name} viewport at ${fontScale}× must use the two-column large-text cards`,
+      );
+    }
+  }
+
+  assert.match(
+    profileSource,
+    /statV: \{[^}]*maxWidth: '100%'[^}]*flexShrink: 1[^}]*textAlign: 'center'/,
+    "Stat values should be able to shrink and wrap inside their cards.",
+  );
+  assert.match(
+    profileSource,
+    /statL: \{[^}]*maxWidth: '100%'[^}]*flexShrink: 1[^}]*textAlign: 'center'/,
+    "Stat labels should be able to shrink and wrap inside their cards.",
+  );
 });
 
 test("Profile shows unavailable totals after successful malformed statistics", async (t) => {
