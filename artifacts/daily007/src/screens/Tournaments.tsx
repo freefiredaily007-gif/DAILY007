@@ -401,6 +401,7 @@ export default function Tournaments() {
           return (
           <MatchCard
             t={cardItem}
+            largeText={largeText}
             roomDetails={roomDetails}
             onPress={() => nav.push('TDetail', { id: item.id })}
           />

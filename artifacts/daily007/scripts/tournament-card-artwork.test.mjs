@@ -77,3 +77,19 @@ test('the tournament card retains its title, status, values, slot counts, and Jo
     /<MatchCard[\s\S]*?onPress=\{\(\) => nav\.push\('TDetail', \{ id: item\.id \}\)\}/,
   );
 });
+
+test('large-text tournament cards stack titles, metadata, and stats without removing list navigation', () => {
+  assert.match(matchCardSource, /largeText = false/);
+  assert.match(tournamentsSource, /<MatchCard[\s\S]*?largeText=\{largeText\}/);
+  assert.match(uiSource, /artworkLarge:\s*\{[^}]*justifyContent: 'flex-start'[^}]*rowGap:/);
+  assert.match(uiSource, /artTopLarge:\s*\{[^}]*flexDirection: 'column'/);
+  assert.match(uiSource, /topRowLarge:\s*\{[^}]*flexDirection: 'column'/);
+  assert.match(uiSource, /metaRowLarge:\s*\{[^}]*flexDirection: 'column'/);
+  assert.match(uiSource, /statRowLarge:\s*\{[^}]*flexDirection: 'column'/);
+  assert.match(uiSource, /statLarge:\s*\{[^}]*flex: 0[^}]*width: '100%'[^}]*borderBottomWidth: 1/);
+  assert.match(
+    tournamentsSource,
+    /data=\{orderedVisible\}[\s\S]*?<MatchCard[\s\S]*?onPress=\{\(\) => nav\.push\('TDetail', \{ id: item\.id \}\)\}/,
+    'the lifecycle-filtered FlatList remains the scroll owner and cards remain tappable',
+  );
+});

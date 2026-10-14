@@ -457,10 +457,12 @@ export function MatchCard({
   t,
   onPress,
   roomDetails,
+  largeText = false,
 }: {
   t: any;
   onPress?: () => void;
   roomDetails?: React.ReactNode;
+  largeText?: boolean;
 }) {
   const s = statusOf(t);
   const [failedImageUrl, setFailedImageUrl] = useState('');
@@ -512,7 +514,7 @@ export function MatchCard({
         </View>
       )}
       {showFormatBanner ? (
-        <View style={mc.artwork}>
+        <View style={[mc.artwork, largeText && mc.artworkLarge]}>
           <Image
             source={imageSource}
             onError={() => {
@@ -522,8 +524,8 @@ export function MatchCard({
             style={mc.artImage}
           />
           <View pointerEvents="none" style={mc.artShade} />
-          <View style={mc.artTop}>
-            <View style={mc.formatPill}>
+          <View style={[mc.artTop, largeText && mc.artTopLarge]}>
+            <View style={[mc.formatPill, largeText && mc.formatPillLarge]}>
               <Feather name="users" size={11} color={C.text} />
               <Text style={mc.formatText}>{format.toUpperCase()}</Text>
               <View style={mc.matchupBadge}>
@@ -532,47 +534,47 @@ export function MatchCard({
             </View>
             <Badge text={s.label} color={s.color} />
           </View>
-          <View style={mc.artTitle}>
-            <Text style={mc.artMode}>{String(t?.mode || t?.gameMode || '').toUpperCase()}</Text>
+          <View style={[mc.artTitle, largeText && mc.artTitleLarge]}>
+            <Text style={[mc.artMode, largeText && mc.artModeLarge]}>{String(t?.mode || t?.gameMode || '').toUpperCase()}</Text>
             <Text style={mc.artName}>{t?.name || t?.title || 'Tournament'}</Text>
           </View>
         </View>
       ) : (
-        <View style={[mc.topRow, showBattleRoyalePoster && mc.brPosterTopRow]}>
-            <View style={mc.nameWrap}>
-            <Text style={mc.mode}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
-            <Text style={mc.name}>{t?.name || t?.title || 'Tournament'}</Text>
+        <View style={[mc.topRow, showBattleRoyalePoster && mc.brPosterTopRow, largeText && mc.topRowLarge]}>
+            <View style={[mc.nameWrap, largeText && mc.nameWrapLarge]}>
+            <Text style={[mc.mode, largeText && mc.modeLarge]}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
+            <Text style={[mc.name, largeText && mc.nameLarge]}>{t?.name || t?.title || 'Tournament'}</Text>
           </View>
           <Badge text={s.label} color={s.color} />
         </View>
       )}
       <View style={usesArtCard ? mc.bannerBody : undefined}>
         {!showFormatBanner && <View style={mc.sep} />}
-        <View style={mc.metaRow}>
-          <Text style={mc.meta}>
+        <View style={[mc.metaRow, largeText && mc.metaRowLarge]}>
+          <Text style={[mc.meta, largeText && mc.metaLarge]}>
             📅 {fmtDate(t?.date)}{t?.time ? ' • ' : ''}
             {t?.time ? <Text style={mc.metaTime}>{fmtTime12(t.time)} IST</Text> : null}
           </Text>
-          <Text style={mc.meta}>{filled}/{total} {slotUnit}</Text>
+          <Text style={[mc.meta, largeText && mc.metaLarge]}>{filled}/{total} {slotUnit}</Text>
         </View>
-        <View style={mc.statRow}>
-          <View style={mc.stat}>
+        <View style={[mc.statRow, largeText && mc.statRowLarge]}>
+          <View style={[mc.stat, largeText && mc.statLarge]}>
             <Text style={mc.statK}>ENTRY</Text>
             <Text style={[mc.statV, { color: C.gold }]}>🪙 {t?.entryCoins ?? 0}</Text>
           </View>
-          <View style={[mc.stat, { borderLeftWidth: 1, borderLeftColor: C.border, borderRightWidth: 1, borderRightColor: C.border }]}>
+          <View style={[mc.stat, { borderLeftWidth: 1, borderLeftColor: C.border, borderRightWidth: 1, borderRightColor: C.border }, largeText && mc.statLarge]}>
             <Text style={mc.statK}>PRIZE POOL</Text>
             <Text style={[mc.statV, { color: C.green }]}>🪙 {t?.prizePool ?? 0}</Text>
           </View>
-          <View style={mc.stat}>
+          <View style={[mc.stat, largeText && mc.statLarge]}>
             <Text style={mc.statK}>{slotUnit.toUpperCase()}</Text>
             <Text style={[mc.statV, { color: C.blue }]}>{filled}/{total}</Text>
             <Text style={{ color: C.dim, fontSize: 9, marginTop: 2 }}>{filledPlayers}/{totalPlayers} players</Text>
           </View>
         </View>
         {roomDetails}
-        <View style={[mc.joinBtn, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}>
-          <Text style={[mc.joinText, { color: ctaColor }]}>{ctaText}</Text>
+        <View style={[mc.joinBtn, largeText && mc.joinBtnLarge, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}>
+          <Text style={[mc.joinText, largeText && mc.joinTextLarge, { color: ctaColor }]}>{ctaText}</Text>
         </View>
       </View>
     </GCard>
@@ -582,34 +584,49 @@ export function MatchCard({
 const mc = StyleSheet.create({
   cardWithArt: { padding: 0, paddingVertical: 0, overflow: 'hidden', marginBottom: 12, borderRadius: 16 },
   artwork: { width: '100%', minHeight: 180, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
+  artworkLarge: { justifyContent: 'flex-start', rowGap: 14, padding: 14 },
   brPosterArtwork: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: C.bg2 },
   brPosterImage: { width: '100%', height: '100%' },
   brPosterTopRow: { paddingHorizontal: 14, paddingTop: 12 },
   artImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: C.bg2 },
   artShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,8,16,0.42)', borderBottomWidth: 1, borderBottomColor: '#ffffff12' },
   artTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', rowGap: 8 },
+  artTopLarge: { flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-start' },
   formatPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(7,10,18,0.82)', borderColor: '#ffffff55', borderWidth: 1, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
+  formatPillLarge: { flexWrap: 'wrap', maxWidth: '100%' },
   formatText: { color: C.text, fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
   matchupBadge: { backgroundColor: C.gold, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
   matchupText: { color: C.bg, fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
   artTitle: { maxWidth: '92%' },
+  artTitleLarge: { width: '100%', maxWidth: '100%' },
   artMode: { color: '#ffc06b', fontSize: 9, fontWeight: '900', letterSpacing: 1.7, marginBottom: 3 },
+  artModeLarge: { letterSpacing: 0.7 },
   artName: { color: C.text, fontSize: 17, fontWeight: '900', textShadowColor: '#000000aa', textShadowRadius: 6, textShadowOffset: { width: 0, height: 1 } },
   bannerBody: { padding: 14, paddingTop: 10 },
   topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
+  topRowLarge: { flexDirection: 'column', alignItems: 'stretch' },
   nameWrap: { flex: 1, minWidth: 0, marginRight: 8 },
+  nameWrapLarge: { width: '100%', marginRight: 0, marginBottom: 8 },
   mode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
+  modeLarge: { letterSpacing: 0.5 },
   name: { color: C.text, fontSize: 16, fontWeight: '900', marginTop: 2 },
+  nameLarge: { flexShrink: 1 },
   sep: { height: 1, backgroundColor: C.border, marginVertical: 10 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  metaRowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 6 },
   meta: { color: C.sub, fontSize: 12, fontWeight: '600' },
+  metaLarge: { width: '100%', minWidth: 0, flexShrink: 1 },
   metaTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   statRow: { flexDirection: 'row', borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  statRowLarge: { flexDirection: 'column' },
   stat: { flex: 1, alignItems: 'center', paddingVertical: 8 },
+  statLarge: { flex: 0, width: '100%', minWidth: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: C.border },
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   statV: { fontSize: 14, fontWeight: '900', marginTop: 2 },
   joinBtn: { marginTop: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 10 },
+  joinBtnLarge: { alignSelf: 'stretch', paddingHorizontal: 12 },
   joinText: { fontWeight: '900', fontSize: 12, letterSpacing: 1.5 },
+  joinTextLarge: { letterSpacing: 0.5, flexShrink: 1, textAlign: 'center' },
 });
 
 // ---------- glowing coin capsule (header) ----------
