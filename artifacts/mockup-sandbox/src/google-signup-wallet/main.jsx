@@ -41,7 +41,7 @@ const PASSWORD_SIGNUP_TOKEN = "mock-password-signup-session-token";
 const scenario = new URLSearchParams(window.location.search).get("scenario");
 const storageFailureScenario = scenario === "storage-write-failure";
 const passwordSignupStorageFailureScenario = scenario === "password-signup-storage-failure";
-const doubleTapScenario = scenario === "double-tap";
+const heldGoogleExchangeScenario = scenario === "double-tap" || scenario === "login-conflict";
 const profileLinkScenario = scenario?.startsWith("profile-link-") ?? false;
 const calls = [];
 const unexpectedRequests = [];
@@ -49,6 +49,7 @@ const pendingGoogleExchangeResolvers = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
+let passwordAuthAttempts = 0;
 let passwordSignupAttempts = 0;
 let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked";
 
@@ -92,13 +93,21 @@ http.defaults.adapter = async (config) => {
   calls.push(call);
 
   if (passwordSignupStorageFailureScenario && method === "POST" && path === "/auth/register") {
+    passwordAuthAttempts += 1;
     passwordSignupAttempts += 1;
     call.status = 200;
     return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
   }
+  if (method === "POST" && (path === "/auth/login" || path === "/auth/register")) {
+    passwordAuthAttempts += 1;
+    call.status = 200;
+    return respond(config, path === "/auth/register"
+      ? { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN }
+      : { ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
+  }
   if (method === "POST" && path === "/auth/google") {
     googleExchangeAttempts += 1;
-    if (doubleTapScenario) {
+    if (heldGoogleExchangeScenario) {
       inFlightGoogleExchanges += 1;
       maxConcurrentGoogleExchanges = Math.max(maxConcurrentGoogleExchanges, inFlightGoogleExchanges);
       return new Promise((resolve) => {
@@ -213,6 +222,7 @@ window.__daily007GoogleSignupWalletTest = {
       googleExchangeAttempts,
       inFlightGoogleExchanges,
       maxConcurrentGoogleExchanges,
+      passwordAuthAttempts,
       passwordSignupAttempts,
       unexpectedRequests: [...unexpectedRequests],
     };

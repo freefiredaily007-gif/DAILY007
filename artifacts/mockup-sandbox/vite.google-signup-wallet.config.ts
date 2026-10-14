@@ -15,6 +15,7 @@ export default defineConfig({
   base: "/",
   plugins: [react()],
   define: {
+    __DEV__: JSON.stringify(true),
     "process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": JSON.stringify("pk_test_daily007_mock"),
     "process.env.EXPO_PUBLIC_DOMAIN": JSON.stringify("daily007-test.example.invalid"),
     "process.env.NODE_ENV": JSON.stringify("development"),
@@ -32,6 +33,7 @@ export default defineConfig({
       { find: /^@react-navigation\/native-stack$/, replacement: mocks("navigation.tsx") },
       { find: /^@react-navigation\/bottom-tabs$/, replacement: mocks("navigation.tsx") },
       { find: /^@react-native-async-storage\/async-storage$/, replacement: mocks("async-storage.ts") },
+      { find: /^expo-router$/, replacement: mocks("expo-router.tsx") },
       { find: /^@clerk\/expo$/, replacement: mocks("clerk-expo.ts") },
       { find: /^expo-auth-session$/, replacement: mocks("auth-session.ts") },
       { find: /^expo-web-browser$/, replacement: mocks("web-browser.ts") },

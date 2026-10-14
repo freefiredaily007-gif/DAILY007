@@ -375,6 +375,9 @@ try {
     `document.body.innerText.includes("Sign up with Google")`,
     "the Google signup action for the double-tap scenario",
   );
+  await setInputValue('[data-testid="auth-name"]', "Competing Password Signup", "signup name");
+  await setInputValue('[data-testid="auth-email"]', "competing-password@example.test", "signup email");
+  await setInputValue('[data-testid="auth-password"]', "Daily007-safe-password-123", "signup password");
   await clickSelector('[data-testid="continue-with-google"]', "first Google signup press");
   await waitForExpression(
     `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
@@ -386,6 +389,9 @@ try {
   assert.equal(pendingBeforeSecondPress.inFlightGoogleExchanges, 1);
 
   await clickSelector('[data-testid="continue-with-google"]', "second Google signup press while the first exchange is pending");
+  await clickSelector('[data-testid="auth-login-tab"]', "LOGIN tab while Google signup is pending");
+  await clickSelector('[data-testid="auth-signup-tab"]', "SIGN UP tab while Google signup is pending");
+  await clickSelector('[data-testid="auth-submit"]', "password signup while Google signup is pending");
   const pendingAfterSecondPress = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   const pendingView = await evaluate(`(() => {
     const button = document.querySelector('[data-testid="continue-with-google"]');
@@ -395,9 +401,20 @@ try {
         || button?.disabled === true,
       loadingLabelVisible: button?.innerText.includes("CONNECTING TO GOOGLE") === true,
       signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+      loginTabDisabled: document.querySelector('[data-testid="auth-login-tab"]')
+        ?.getAttribute("aria-disabled") === "true",
+      signupTabDisabled: document.querySelector('[data-testid="auth-signup-tab"]')
+        ?.getAttribute("aria-disabled") === "true",
+      submitDisabled: document.querySelector('[data-testid="auth-submit"]')
+        ?.getAttribute("aria-disabled") === "true",
+      nameInputDisabled: (() => {
+        const input = document.querySelector('[data-testid="auth-name"]');
+        return input?.disabled === true || input?.readOnly === true;
+      })(),
     };
   })()`);
   assert.equal(pendingAfterSecondPress.googleExchangeAttempts, 1, "A second press must not start another Google exchange.");
+  assert.equal(pendingAfterSecondPress.passwordAuthAttempts, 0, "Password login or registration must not start while Google signup is pending.");
   assert.equal(pendingAfterSecondPress.inFlightGoogleExchanges, 1, "Only one Google exchange may remain in flight.");
   assert.equal(pendingAfterSecondPress.maxConcurrentGoogleExchanges, 1, "Google exchanges must not overlap.");
   assert.equal(
@@ -412,6 +429,10 @@ try {
   assert.equal(pendingView.buttonDisabled, true, "The Google action must stay disabled while the exchange is pending.");
   assert.equal(pendingView.loadingLabelVisible, true, "The Google action should show its connecting state while pending.");
   assert.equal(pendingView.signedInTabCount, 0, "Signed-in tabs must stay hidden until the exchange succeeds.");
+  assert.equal(pendingView.loginTabDisabled, true, "LOGIN mode must be disabled during Google signup.");
+  assert.equal(pendingView.signupTabDisabled, true, "SIGN UP mode must be disabled during Google signup.");
+  assert.equal(pendingView.submitDisabled, true, "Password submission must be disabled during Google signup.");
+  assert.equal(pendingView.nameInputDisabled, true, "Password signup fields must be disabled during Google signup.");
 
   assert.equal(
     await evaluate("window.__daily007GoogleSignupWalletTest.resolveNextGoogleExchange()"),
@@ -456,12 +477,14 @@ try {
   assert.equal(doubleTapExchanges.length, 1, "Two presses should produce exactly one Google exchange.");
   assert.equal(doubleTapExchanges[0].status, 200);
   assert.equal(doubleTapReport.googleExchangeAttempts, 1);
+  assert.equal(doubleTapReport.passwordAuthAttempts, 0, "The completed Google signup must not compete with a password auth request.");
   assert.equal(doubleTapReport.inFlightGoogleExchanges, 0);
   assert.equal(doubleTapReport.maxConcurrentGoogleExchanges, 1);
   assert.deepEqual(doubleTapReport.clerk.events, ["start-sso", "set-active", "get-token"]);
   assert.equal(doubleTapReport.storedSession?.id, "mock-daily007-google-player");
   assert.equal(doubleTapReport.storedSession?.token, "mock-daily007-session-token");
   assert.equal(doubleTapReport.currentSession?.id, "mock-daily007-google-player");
+  assert.equal(doubleTapReport.currentSession?.token, "mock-daily007-session-token");
   assert.deepEqual(doubleTapReport.sessionStorage, {
     daily007_v2_session: JSON.stringify(doubleTapReport.storedSession),
   });
@@ -469,6 +492,68 @@ try {
   assert.equal(doubleTapWalletView.walletTabSelected, true);
   assert.equal(doubleTapWalletView.welcomeBonusRowCount, 1, "Wallet should show only one welcome bonus row.");
   assert.equal(doubleTapReport.unexpectedRequests.length, 0, doubleTapReport.unexpectedRequests.join("; "));
+
+  await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=login-conflict`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the password-login conflict scenario",
+  );
+  await setInputValue('[data-testid="auth-email"]', "competing-password@example.test", "login email");
+  await setInputValue('[data-testid="auth-password"]', "Daily007-safe-password-123", "login password");
+  await clickSelector('[data-testid="continue-with-google"]', "Google sign-in while the login form is active");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.googleExchangeAttempts === 1 && state.inFlightGoogleExchanges === 1)`,
+    "the Google sign-in exchange held pending over the login form",
+  );
+  await clickSelector('[data-testid="auth-signup-tab"]', "SIGN UP tab while Google sign-in is pending");
+  await clickSelector('[data-testid="auth-login-tab"]', "LOGIN tab while Google sign-in is pending");
+  await clickSelector('[data-testid="auth-submit"]', "password login while Google sign-in is pending");
+  const loginConflictReport = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const loginConflictView = await evaluate(`(() => {
+    const email = document.querySelector('[data-testid="auth-email"]');
+    return {
+      loginTabDisabled: document.querySelector('[data-testid="auth-login-tab"]')
+        ?.getAttribute("aria-disabled") === "true",
+      signupTabDisabled: document.querySelector('[data-testid="auth-signup-tab"]')
+        ?.getAttribute("aria-disabled") === "true",
+      submitDisabled: document.querySelector('[data-testid="auth-submit"]')
+        ?.getAttribute("aria-disabled") === "true",
+      emailReadOnly: email?.readOnly === true || email?.disabled === true,
+    };
+  })()`);
+  assert.equal(loginConflictReport.passwordAuthAttempts, 0, "Password login must not start while Google sign-in is pending.");
+  assert.equal(loginConflictReport.googleExchangeAttempts, 1);
+  assert.equal(loginConflictReport.inFlightGoogleExchanges, 1);
+  assert.equal(loginConflictView.loginTabDisabled, true);
+  assert.equal(loginConflictView.signupTabDisabled, true);
+  assert.equal(loginConflictView.submitDisabled, true);
+  assert.equal(loginConflictView.emailReadOnly, true);
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.resolveNextGoogleExchange()"),
+    true,
+    "The held Google sign-in exchange should be available for release.",
+  );
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "signed-in tabs after Google sign-in wins over the blocked password login",
+  );
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.currentSession?.id === "mock-daily007-google-player"
+      && state.storedSession?.token === "mock-daily007-session-token")`,
+    "the one persisted Google session after the blocked password login",
+  );
+  const completedLoginConflict = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(completedLoginConflict.passwordAuthAttempts, 0);
+  assert.equal(completedLoginConflict.googleExchangeAttempts, 1);
+  assert.equal(completedLoginConflict.currentSession?.id, "mock-daily007-google-player");
+  assert.equal(completedLoginConflict.currentSession?.token, "mock-daily007-session-token");
+  assert.deepEqual(completedLoginConflict.sessionStorage, {
+    daily007_v2_session: JSON.stringify(completedLoginConflict.storedSession),
+  });
   assert.deepEqual(browserErrors, [], `Browser errors during the double-tap flow: ${browserErrors.join(" | ")}`);
 
   await cdp("Page.navigate", {

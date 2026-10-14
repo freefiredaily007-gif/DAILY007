@@ -33,6 +33,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [refCode, setRefCode] = useState('');
   const [referralCodeApplied, setReferralCodeApplied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [err, setErr] = useState('');
   const [googleErr, setGoogleErr] = useState('');
   const [loginRetryDeadline, setLoginRetryDeadline] = useState<number | null>(null);
@@ -40,13 +41,15 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [loginThrottleMessageBase, setLoginThrottleMessageBase] = useState('');
   const [loginThrottleStatus, setLoginThrottleStatus] = useState('');
   const [pendingSignupSession, setPendingSignupSession] = useState<User | null>(null);
+  const googleAttemptInFlight = React.useRef(false);
   const nameInputRef = React.useRef<NativeTextInput>(null);
   const referralInputRef = React.useRef<NativeTextInput>(null);
   const emailInputRef = React.useRef<NativeTextInput>(null);
   const passwordInputRef = React.useRef<NativeTextInput>(null);
   const isSignup = mode === 'signup';
   const retrySignupSession = isSignup ? pendingSignupSession : null;
-  const authInputsDisabled = busy || retrySignupSession !== null;
+  const authInputsDisabled = busy || googleBusy || retrySignupSession !== null;
+  const authTabsDisabled = busy || googleBusy || pendingSignupSession !== null;
 
   React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
@@ -91,6 +94,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   }, [loginRetryDeadline]);
 
   const submit = async () => {
+    if (googleAttemptInFlight.current || googleBusy) return;
     if (mode === 'login' && loginRetryDeadline !== null) {
       if (loginRetryDeadline > Date.now()) return;
       setLoginRetryDeadline(null);
@@ -195,8 +199,9 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
         <View style={[s.tabs, isSignup && s.signupTabs]}>
           <Pressable
             testID="auth-login-tab"
-            disabled={busy || pendingSignupSession !== null}
+            disabled={authTabsDisabled}
             onPress={() => {
+              if (googleAttemptInFlight.current) return;
               setErr('');
               setGoogleErr('');
               if (loginRetryDeadline !== null) {
@@ -215,8 +220,13 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           </Pressable>
           <Pressable
             testID="auth-signup-tab"
-            disabled={busy || pendingSignupSession !== null}
-            onPress={() => { setErr(''); setGoogleErr(''); setMode('signup'); }}
+            disabled={authTabsDisabled}
+            onPress={() => {
+              if (googleAttemptInFlight.current) return;
+              setErr('');
+              setGoogleErr('');
+              setMode('signup');
+            }}
             style={[s.tab, mode === 'signup' && s.tabOn]}
           >
             <Text style={[s.tabText, mode === 'signup' && s.tabTextOn]}>SIGN UP</Text>
@@ -260,6 +270,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           <GoogleSSOButton
             label={mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
             disabled={busy || retrySignupSession !== null}
+            onBusyChange={(isBusy) => {
+              googleAttemptInFlight.current = isBusy;
+              setGoogleBusy(isBusy);
+            }}
             referralCode={isSignup ? refCode : undefined}
             onError={(message) => {
               setErr('');
@@ -410,8 +424,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           accessibilityHint={!isSignup && loginRetryRemaining > 0
             ? 'Wait until the countdown ends before trying to log in.'
             : undefined}
-          accessibilityState={{ disabled: !isSignup && loginRetryRemaining > 0 }}
-          disabled={!isSignup && loginRetryRemaining > 0}
+          accessibilityState={{
+            disabled: busy || googleBusy || (!isSignup && loginRetryRemaining > 0),
+          }}
+          disabled={busy || googleBusy || (!isSignup && loginRetryRemaining > 0)}
           onPress={submit}
           loading={busy}
           style={isSignup && s.signupSubmit}

@@ -26,6 +26,7 @@ type Props = {
   referralCode?: string;
   dailyToken?: string;
   disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   label?: string;
   allowRecoveryRequest?: boolean;
   devRecoveryTestScenario?: GoogleRecoveryTestScenario;
@@ -109,6 +110,7 @@ function ConfiguredGoogleButton({
   referralCode,
   dailyToken,
   disabled,
+  onBusyChange,
   label = 'Continue with Google',
   allowRecoveryRequest,
   devRecoveryTestScenario,
@@ -168,7 +170,10 @@ function ConfiguredGoogleButton({
             ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
           }),
         }),
-        setLoading: setBusy,
+        setLoading: (isBusy) => {
+          setBusy(isBusy);
+          onBusyChange?.(isBusy);
+        },
         showError,
         onSuccess: async (authenticated) => {
           const saved = await setSessionForAuthAttempt(authenticated.user, authRevision);
