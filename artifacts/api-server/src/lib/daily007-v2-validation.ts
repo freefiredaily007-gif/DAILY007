@@ -47,8 +47,8 @@ export function parseTeamMembers(value: unknown, expectedCount = 3): TeamMemberI
 
 export function csvCell(value: unknown): string {
   let text = value === null || value === undefined ? "" : String(value);
-  // Prefix formula-like cells (including ones preceded by whitespace/control
-  // characters) with an apostrophe before CSV quoting for spreadsheet safety.
-  if (/^(?:\uFEFF|[\u0000-\u0020])*[=+\-@]/.test(text)) text = `'${text}`;
+  // Prefix formula-like cells (including ones preceded by Unicode whitespace,
+  // invisible format characters, or controls) before CSV quoting for safety.
+  if (/^(?:[\s\p{Cf}\p{Cc}])*[=+\-@]/u.test(text)) text = `'${text}`;
   return `"${text.replaceAll('"', '""')}"`;
 }

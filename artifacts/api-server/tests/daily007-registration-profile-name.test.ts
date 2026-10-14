@@ -43,12 +43,12 @@ const FORMULA_TEAMMATE_NAMES = [
   "+5+6",
 ] as const;
 const HIDDEN_PREFIX_PROFILE_NAME = ' =HYPERLINK("https://example.test", "captain")';
-const HIDDEN_PREFIX_CAPTAIN_GAME_NAME = "\t+SUM(1,2)";
-const HIDDEN_PREFIX_TEAM_NAME = "\uFEFF-1+2";
+const HIDDEN_PREFIX_CAPTAIN_GAME_NAME = "\t\u00A0+SUM(1,2)";
+const HIDDEN_PREFIX_TEAM_NAME = "\uFEFF\u200B-1+2";
 const HIDDEN_PREFIX_TEAMMATE_NAMES = [
   " @SUM(3,4)",
-  "\t=HYPERLINK(\"https://example.test\", \"mate\")",
-  "\uFEFF+5+6",
+  "\u200B=HYPERLINK(\"https://example.test\", \"mate\")",
+  "\uFEFF\u3000+5+6",
 ] as const;
 const MULTILINE_PROFILE_NAME = "Daily007\r\nCaptain";
 const MULTILINE_CAPTAIN_GAME_NAME = "Fire\r\nStorm";
@@ -1235,7 +1235,7 @@ test("admin registration CSV apostrophe-guards formula-like captain, team, and t
   }
 });
 
-test("admin registration CSV apostrophe-guards formulas after spaces, tabs, and byte-order marks", async () => {
+test("admin registration CSV apostrophe-guards formulas after Unicode whitespace and invisible characters", async () => {
   registrationProfileTestDb.reset();
   try {
     await withServer(async (origin) => {
