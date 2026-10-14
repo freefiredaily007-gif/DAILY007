@@ -49,6 +49,7 @@ const scheduledStartOnly = new URLSearchParams(location.search).has("scheduled-s
 const sameTimeStartOnly = new URLSearchParams(location.search).has("same-time-start-only");
 const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
 const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
+const tournamentDetailRegistrationFailureOnly = new URLSearchParams(location.search).has("detail-registration-failure-only");
 const adminInitialLoadFailureOnly = new URLSearchParams(location.search).has("admin-initial-load-failure-only");
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const scheduledStartGapMs = 3_000;
@@ -149,7 +150,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     );
   }
   apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
-  if (registrationInitialLoadFailureOnly) {
+  if (registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly) {
     apiMocks.configureMyRegistrationPreview([
       {
         id: "preview-registration-recovered",
@@ -170,10 +171,12 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   const [
     { default: Tournaments },
     { default: AdminTournaments },
+    { default: TDetail },
     { AdminUiProvider },
   ] = await Promise.all([
     import("../../../daily007/src/screens/Tournaments"),
     import("../../../daily007/src/screens/AdminTournaments"),
+    import("../../../daily007/src/screens/TDetail"),
     import("../../../daily007/src/components/ui"),
   ]);
   const renderAdmin = () => root.render(
@@ -192,6 +195,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   window.__daily007TournamentResume = {
     ready: true,
     getTournamentReadCount: apiMocks.getTournamentReadCount,
+    getTournamentDetailReadCount: apiMocks.getTournamentDetailReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     getLoadAnnouncementEvents: () => loadAnnouncementEvents.map((event) => ({ ...event })),
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
@@ -288,5 +292,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   };
 
   if (adminInitialLoadFailureOnly) renderAdmin();
+  else if (tournamentDetailRegistrationFailureOnly) {
+    globalThis.__previewRouteParams = { id: "resume-boundary" };
+    root.render(React.createElement(TDetail));
+  }
   else root.render(React.createElement(Tournaments));
 });

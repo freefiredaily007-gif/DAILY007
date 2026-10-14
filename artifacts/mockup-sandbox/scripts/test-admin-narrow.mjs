@@ -26,6 +26,7 @@ const minimumAndroidTouchTarget = 48; // CSS pixels equal dp in the 1× Android 
 const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
 const registrationInitialLoadFailureOnly = process.argv.includes("--registration-initial-load-failure-only");
+const tournamentDetailRegistrationFailureOnly = process.argv.includes("--tournament-detail-registration-failure-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
@@ -4035,6 +4036,52 @@ async function checkRegistrationInitialLoadFailure() {
   );
 }
 
+async function checkTournamentDetailRegistrationFailure() {
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the tournament-detail registration-failure preview to initialize",
+  );
+  await waitForCondition(
+    "window.__daily007TournamentResume.getTournamentDetailReadCount() > 0 && window.__daily007TournamentResume.getMyRegistrationReadCount() > 0 && document.body.innerText.includes('ENTRY STATUS UNKNOWN')",
+    "tournament details to remain visible when the initial registration lookup fails",
+  );
+  await assertText("IST Start Boundary", "the tournament details after registration lookup fails");
+  await assertText("MATCH INFO", "the loaded tournament details after registration lookup fails");
+  await assertText(
+    "We couldn’t confirm whether you’ve joined. Check your entry status again before trying to join.",
+    "the explanation that joined status is unknown",
+  );
+  assert(
+    await evaluate("Boolean(document.querySelector('[data-testid=\"tournament-entry-status-unknown\"]'))"),
+    "The detail screen must expose a distinct unknown entry-status state.",
+  );
+  assert(
+    !await evaluate("document.body.innerText.includes('JOIN NOW')"),
+    "The detail screen must not offer joining until entry status is verified.",
+  );
+
+  const readsAfterFailure = await evaluate(`({
+    tournaments: window.__daily007TournamentResume.getTournamentDetailReadCount(),
+    registrations: window.__daily007TournamentResume.getMyRegistrationReadCount(),
+  })`);
+  await clickSelector(
+    '[data-testid="tournament-entry-status-retry"]',
+    "the tournament entry-status retry action",
+  );
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentDetailReadCount() > ${readsAfterFailure.tournaments} &&
+      window.__daily007TournamentResume.getMyRegistrationReadCount() > ${readsAfterFailure.registrations} &&
+      document.body.innerText.includes('Joined') &&
+      !document.body.innerText.includes('ENTRY STATUS UNKNOWN')`,
+    "the successful retry to update joined status without hiding details",
+  );
+  await assertText("IST Start Boundary", "the tournament details after entry-status recovery");
+  assert(
+    await evaluate("Boolean(document.querySelector('[data-testid=\"tournament-entry-status-unknown\"]')) === false"),
+    "The unknown status guidance must clear after registration status is verified.",
+  );
+}
+
 async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
   const recoveredTournamentName = largeText
     ? "Daily007 International Free Fire Championship Grand Finals"
@@ -7245,6 +7292,8 @@ try {
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
     : manualRefreshOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
+    : tournamentDetailRegistrationFailureOnly
+      ? "tournament-resume-preview.html?detail-registration-failure-only=1"
     : registrationInitialLoadFailureOnly
       ? "tournament-resume-preview.html?registration-initial-load-failure-only=1"
     : initialLoadFailureOnly
@@ -7325,6 +7374,7 @@ try {
     resumeOnly ||
     initialLoadFailureOnly ||
     registrationInitialLoadFailureOnly ||
+    tournamentDetailRegistrationFailureOnly ||
     adminInitialLoadFailureOnly ||
     adminLargeTextInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
@@ -7353,13 +7403,13 @@ try {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
         : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
-          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
-          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
+          || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -7384,6 +7434,8 @@ try {
           ? "Player first-load failure"
         : registrationInitialLoadFailureOnly
           ? "Player registration lookup failure"
+        : tournamentDetailRegistrationFailureOnly
+          ? "Tournament-detail registration lookup failure"
         : adminInitialLoadFailureOnly
           ? "Admin first-load failure"
         : adminLargeTextInitialLoadFailureOnly
@@ -7486,6 +7538,13 @@ try {
         `Browser errors during Admin Retry concurrency checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Repeated taps while an Admin Retry is pending do not duplicate requests; failure re-enables the control for recovery.");
+    } else if (tournamentDetailRegistrationFailureOnly) {
+      await checkTournamentDetailRegistrationFailure();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during tournament-detail registration-failure checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Tournament details remain visible after a failed registration lookup; joining stays unavailable until retry confirms the player is already joined.");
     } else if (registrationInitialLoadFailureOnly) {
       await checkRegistrationInitialLoadFailure();
       assert(

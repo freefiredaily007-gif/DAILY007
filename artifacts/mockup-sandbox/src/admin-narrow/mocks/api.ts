@@ -331,6 +331,7 @@ function setPreviewRequestStatus<T extends { id: string; status: string }>(
 
 const empty = async () => [];
 let tournamentReadCount = 0;
+let tournamentDetailReadCount = 0;
 let nextTournamentReadError: string | null = null;
 let nextMyRegistrationReadError: string | null = null;
 let nextAdminUsersReadError: string | null = null;
@@ -632,6 +633,7 @@ export const Api = {
     ].map((user) => ({ ...user }));
   },
   tournament: async (id: string) => {
+    tournamentDetailReadCount += 1;
     const tournament = istDateSurfacePreview && String(id) === istDateSurfaceTournament.id
       ? istDateSurfaceTournament
       : [...largestTextTournaments, ...previewTournaments].find((item) => String(item.id) === String(id));
@@ -930,6 +932,10 @@ runAdminPreviewRejectedMutationProbes = async () => {
 
 export function getTournamentReadCount() {
   return tournamentReadCount;
+}
+
+export function getTournamentDetailReadCount() {
+  return tournamentDetailReadCount;
 }
 
 export function configureHomeCarouselRegistrationPreview(registrations: any[] = []) {

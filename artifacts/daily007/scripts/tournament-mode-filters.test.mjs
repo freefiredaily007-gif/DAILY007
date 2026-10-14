@@ -1365,6 +1365,35 @@ test('Home match shortcut Back flow preserves Home and loads fresh data for a se
   assertHomeIsActive();
 });
 
+test('tournament details survive a failed registration lookup and recover joined status on refresh', async () => {
+  let registrationResponse = Promise.reject(new Error('Temporary registration lookup failure'));
+  const api = {
+    async tournament(id) {
+      assert.equal(id, 'detail-recovery-match');
+      return { id, name: 'Detail Recovery Match' };
+    },
+    async myRegistrations() {
+      return registrationResponse;
+    },
+  };
+
+  const unknownSnapshot = await fetchTournamentDetailSnapshot('detail-recovery-match', api);
+  assert.equal(unknownSnapshot.name, 'Detail Recovery Match');
+  assert.equal(unknownSnapshot.registrationStatusKnown, false);
+  assert.equal(unknownSnapshot.joined, null);
+  assert.equal(unknownSnapshot.myRegistration, undefined);
+
+  registrationResponse = Promise.resolve([{
+    tournamentId: 'detail-recovery-match',
+    status: 'approved',
+  }]);
+  const recoveredSnapshot = await fetchTournamentDetailSnapshot('detail-recovery-match', api);
+  assert.equal(recoveredSnapshot.name, 'Detail Recovery Match');
+  assert.equal(recoveredSnapshot.registrationStatusKnown, true);
+  assert.equal(recoveredSnapshot.joined, true);
+  assert.equal(recoveredSnapshot.myRegistration.status, 'approved');
+});
+
 test('a pushed detail can return to the same mode heading and tournament list', () => {
   const modes = [
     { gameMode: 'battle_royale', label: 'Battle Royale' },

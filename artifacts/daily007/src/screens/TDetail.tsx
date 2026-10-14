@@ -44,6 +44,7 @@ export default function TDetail() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [retryingRegistrationStatus, setRetryingRegistrationStatus] = useState(false);
   const [retryingParticipants, setRetryingParticipants] = useState(false);
   const [participantsRetryAnnouncement, setParticipantsRetryAnnouncement] = useState('');
   const [roomDetailsAvailabilityAnnouncement, setRoomDetailsAvailabilityAnnouncement] = useState('');
@@ -109,6 +110,14 @@ export default function TDetail() {
       resultsQuery.refetch(),
     ]);
   }, [load, participantsQuery.refetch, resultsQuery.refetch]);
+  const retryRegistrationStatus = async () => {
+    setRetryingRegistrationStatus(true);
+    try {
+      await load();
+    } finally {
+      setRetryingRegistrationStatus(false);
+    }
+  };
   const retryParticipants = async () => {
     if (retryParticipantsInFlight.current || participantsQuery.isFetching) return;
     retryParticipantsInFlight.current = true;
@@ -184,7 +193,8 @@ export default function TDetail() {
       ? { ...t, status: 'completed' }
       : t;
   const st = statusOf(statusTournament);
-  const joined = !!t?.joined;
+  const registrationStatusKnown = t.registrationStatusKnown === true;
+  const joined = registrationStatusKnown && Boolean(t.joined);
   const teamType = String(t.teamType || '').toLowerCase();
   const mode = String(t.mode || '').toLowerCase();
   const teamTournament = Number(t.teamSize ?? 1) > 1;
@@ -452,8 +462,33 @@ export default function TDetail() {
       <Msg kind="ok" text={msg} />
 
       <View style={{ marginTop: 16 }}>
+        {!registrationStatusKnown ? (
+          <Card testID="tournament-entry-status-unknown">
+            <Text
+              accessible
+              accessibilityRole="text"
+              accessibilityLiveRegion="polite"
+              style={s.participantsHint}
+            >
+              We couldn’t confirm whether you’ve joined. Check your entry status again before trying to join.
+            </Text>
+            <Btn
+              title="RETRY ENTRY STATUS"
+              kind="ghost"
+              onPress={retryRegistrationStatus}
+              loading={retryingRegistrationStatus}
+              accessibilityLabel="Retry entry status"
+              accessibilityHint="Checks whether you have already joined this tournament."
+              accessibilityState={{ busy: retryingRegistrationStatus }}
+              style={{ marginTop: 10 }}
+              testID="tournament-entry-status-retry"
+            />
+          </Card>
+        ) : null}
         {st.key === 'completed' || ['closed', 'cancelled'].includes(tournamentStatus) ? (
           <Btn title="MATCH ENDED" kind="ghost" disabled />
+        ) : !registrationStatusKnown ? (
+          <Btn title="ENTRY STATUS UNKNOWN" kind="ghost" disabled />
         ) : joined ? (
           <Btn title={full ? 'Joined · Slots Full' : 'Joined'} kind="ghost" disabled />
         ) : st.key === 'ongoing' ? (

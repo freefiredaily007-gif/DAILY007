@@ -15,11 +15,13 @@ export async function fetchTournamentDetailSnapshot(
   ]);
 
   if (tournamentResult.status === 'rejected') throw tournamentResult.reason;
-  if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
 
-  const registrations = Array.isArray(registrationsResult.value)
-    ? registrationsResult.value
-    : [];
+  const registrations =
+    registrationsResult.status === 'fulfilled' && Array.isArray(registrationsResult.value)
+      ? registrationsResult.value as any[]
+      : [];
+  const registrationStatusKnown =
+    registrationsResult.status === 'fulfilled' && Array.isArray(registrationsResult.value);
   const registration = registrations.find((item: any) =>
     String(item.tournamentId) === String(tournamentId) &&
     ['approved', 'pending'].includes(String(item.status ?? '').toLowerCase()),
@@ -27,7 +29,8 @@ export async function fetchTournamentDetailSnapshot(
 
   return {
     ...tournamentResult.value,
-    joined: Boolean(registration),
+    registrationStatusKnown,
+    joined: registrationStatusKnown ? Boolean(registration) : null,
     myRegistration: registration,
   };
 }
