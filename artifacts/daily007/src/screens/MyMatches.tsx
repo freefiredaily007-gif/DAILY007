@@ -86,9 +86,11 @@ export default function MyMatches() {
     retryController.setFocused(true);
     latestLoadFailed.current = false;
     appState.current = AppState.currentState;
+    retryController.setAppActive(appState.current === 'active');
     const subscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = didAppReturnToForeground(appState.current, nextState);
       appState.current = nextState;
+      retryController.setAppActive(nextState === 'active');
       if (returnedToApp) refreshMatches();
     });
     const updateNetworkState = (

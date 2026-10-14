@@ -51,6 +51,13 @@ test("My Matches retries registration loading when connectivity returns while fo
   assert.match(focusEffect, /registrationRequests\.setFocused\(false\)/);
   assert.match(focusEffect, /retryController\.setFocused\(true\)/);
   assert.match(focusEffect, /retryController\.setFocused\(false\)/);
+  assert.match(focusEffect, /retryController\.setAppActive\(appState\.current === 'active'\)/);
+  assert.match(focusEffect, /retryController\.setAppActive\(nextState === 'active'\)/);
+  assert.match(
+    focusEffect,
+    /retryController\.setAppActive\(nextState === 'active'\);[\s\S]*?if \(returnedToApp\) refreshMatches\(\);/,
+    "Foreground state should be restored before the immediate return-to-app refresh.",
+  );
   assert.match(focusEffect, /Network\.addNetworkStateListener/);
   assert.match(focusEffect, /Network\.getNetworkStateAsync\(\)/);
   assert.match(focusEffect, /networkEventRevision \+= 1;/);
@@ -315,6 +322,40 @@ test("failed loads stop retrying when connectivity is unusable or My Matches los
   assert.equal(retries.scheduleRetry(() => { retryCount += 1; }), null);
   assert.equal(scheduler.runNext(), false);
   assert.equal(retryCount, 0);
+});
+
+test("background and inactive AppState cancel retries and active recovery requires usable connectivity", () => {
+  for (const inactiveState of ["background", "inactive"]) {
+    const scheduler = createFakeScheduler();
+    const retries = createFocusedRetryController({
+      setTimeout: scheduler.setTimeout,
+      clearTimeout: scheduler.clearTimeout,
+    });
+    let retryCount = 0;
+    const setAppState = (state) => retries.setAppActive(state === "active");
+    retries.setFocused(true);
+    retries.setNetworkUsable(true);
+    setAppState("active");
+    assert.equal(retries.scheduleRetry(() => { retryCount += 1; }), 1_000);
+
+    setAppState(inactiveState);
+    assert.deepEqual(scheduler.delays, [], `${inactiveState} should cancel the pending retry`);
+    assert.equal(retries.scheduleRetry(() => { retryCount += 1; }), null);
+    assert.equal(scheduler.runNext(), false);
+    assert.equal(retryCount, 0);
+
+    setAppState("active");
+    assert.equal(retries.scheduleRetry(() => { retryCount += 1; }), 1_000);
+    assert.equal(scheduler.runNext(), true);
+    assert.equal(retryCount, 1);
+
+    retries.setNetworkUsable(false);
+    assert.equal(retries.scheduleRetry(() => { retryCount += 1; }), null);
+    retries.setNetworkUsable(true);
+    assert.equal(retries.scheduleRetry(() => { retryCount += 1; }), 1_000);
+    assert.equal(scheduler.runNext(), true);
+    assert.equal(retryCount, 2);
+  }
 });
 
 test("My Matches only treats a connected network with no known reachability failure as usable", () => {

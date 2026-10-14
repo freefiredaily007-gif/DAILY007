@@ -22,6 +22,7 @@ export function createFocusedRetryController(scheduler: RetryScheduler = {}) {
     ((timer: unknown) => clearTimeout(timer as ReturnType<typeof setTimeout>));
   let focused = false;
   let networkUsable = false;
+  let appActive = true;
   let retryStep = 0;
   let timer: unknown | null = null;
 
@@ -49,11 +50,19 @@ export function createFocusedRetryController(scheduler: RetryScheduler = {}) {
       }
     },
 
+    setAppActive(nextAppActive: boolean) {
+      appActive = nextAppActive;
+      if (!appActive) {
+        cancelPending();
+        retryStep = 0;
+      }
+    },
+
     cancelPending,
 
     scheduleRetry(onRetry: () => void): number | null {
       cancelPending();
-      if (!focused || !networkUsable) return null;
+      if (!focused || !appActive || !networkUsable) return null;
 
       const delayMs = Math.min(
         INITIAL_RETRY_DELAY_MS * 2 ** retryStep,
@@ -62,7 +71,7 @@ export function createFocusedRetryController(scheduler: RetryScheduler = {}) {
       retryStep = Math.min(retryStep + 1, MAX_RETRY_STEP);
       timer = schedule(() => {
         timer = null;
-        if (focused && networkUsable) onRetry();
+        if (focused && appActive && networkUsable) onRetry();
       }, delayMs);
       return delayMs;
     },
