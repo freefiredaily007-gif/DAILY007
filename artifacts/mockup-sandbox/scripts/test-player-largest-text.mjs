@@ -16,6 +16,7 @@ const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
 const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
 const profilePasswordConflictOnly = process.argv.includes("--profile-password-conflict-only");
+const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-only");
 const browserErrors = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
@@ -527,6 +528,85 @@ async function checkEditProfileKeyboard(viewportWidth) {
   await assertInputValues(selectors, expectedValues, "after dismissing the keyboard");
   console.log(
     `PASS — Edit Profile at ${viewportWidth}px and 2× text; all fields and Save were reachable with the simulated keyboard open, and values remained after dismissal.`,
+  );
+}
+
+async function checkEditProfileSaveFailure(viewportWidth) {
+  const selectors = [
+    '[data-testid="edit-profile-name"]',
+    '[data-testid="edit-profile-phone"]',
+    '[data-testid="edit-profile-game-uid"]',
+  ];
+  const submittedValues = ["Updated Preview Player", "9876543210", "1234567890"];
+  const correctedValues = ["Corrected Preview Player", "9876543210", "1234567890"];
+  await navigateToScreen("EditProfile", "EDIT PROFILE", 2);
+  for (const [index, selector] of selectors.entries()) {
+    await setInputValue(selector, submittedValues[index], `Edit Profile field ${index + 1}`);
+  }
+
+  await setPreviewViewport(viewportWidth, 470);
+  for (const [index, selector] of selectors.entries()) {
+    await assertInputReachableWithKeyboard(selector, `Edit Profile field ${index + 1}`);
+  }
+  await checkReachable('[data-testid="edit-profile-save"]', "Edit Profile Save with keyboard open");
+  await evaluate(`(() => {
+    window.__daily007FailNextProfileSave = true;
+    const calls = window.__daily007LargestTextApiCalls;
+    if (Array.isArray(calls)) calls.length = 0;
+  })()`);
+  await clickSelector('[data-testid="edit-profile-save"]', "Edit Profile Save with keyboard open");
+  await waitForCondition(
+    "window.__daily007LargestTextApiCalls?.filter((call) => call.method === 'updateProfile').length === 1 && Boolean(document.querySelector('[data-testid=\"edit-profile-save-error\"]'))",
+    "the failed Edit Profile save and its visible error",
+  );
+
+  const failedSave = await evaluate(`(() => ({
+    values: ${JSON.stringify(selectors)}.map((selector) => document.querySelector(selector)?.value ?? null),
+    error: document.querySelector('[data-testid="edit-profile-save-error"]')?.textContent?.trim() ?? '',
+    calls: window.__daily007LargestTextApiCalls?.filter((call) => call.method === "updateProfile") ?? [],
+  }))()`);
+  assert(
+    JSON.stringify(failedSave.values) === JSON.stringify(submittedValues),
+    `A rejected save must preserve the name, phone, and Free Fire UID: ${JSON.stringify(failedSave.values)}`,
+  );
+  assert(
+    failedSave.error === "Could not save your profile. Please try again.",
+    `The failed save should show clear retry guidance: ${JSON.stringify(failedSave.error)}`,
+  );
+  assert(failedSave.calls.length === 1, "The failed save should make exactly one profile update request.");
+
+  await setInputValue(selectors[0], correctedValues[0], "corrected Edit Profile name");
+  await assertInputValues(selectors, correctedValues, "after correcting the name following a failed save");
+  await checkReachable('[data-testid="edit-profile-save"]', "Edit Profile retry Save with keyboard open");
+  await clickSelector('[data-testid="edit-profile-save"]', "Edit Profile retry Save with keyboard open");
+  await waitForCondition(
+    "window.__daily007LargestTextApiCalls?.filter((call) => call.method === 'updateProfile').length === 2 && !document.querySelector('[data-testid=\"edit-profile-save-error\"]')",
+    "the successful Edit Profile retry",
+  );
+
+  const retriedSave = await evaluate(`(() => ({
+    values: ${JSON.stringify(selectors)}.map((selector) => document.querySelector(selector)?.value ?? null),
+    error: document.querySelector('[data-testid="edit-profile-save-error"]')?.textContent?.trim() ?? '',
+    calls: window.__daily007LargestTextApiCalls?.filter((call) => call.method === "updateProfile") ?? [],
+  }))()`);
+  assert(
+    JSON.stringify(retriedSave.calls[1]?.payload) === JSON.stringify({
+      name: correctedValues[0],
+      phone: correctedValues[1],
+      gameUid: correctedValues[2],
+    }),
+    `The retry must submit the corrected field and preserved details: ${JSON.stringify(retriedSave.calls)}`,
+  );
+  assert(
+    retriedSave.error === '',
+    `A successful retry should clear the previous save error: ${JSON.stringify(retriedSave.error)}`,
+  );
+  assert(
+    JSON.stringify(retriedSave.values) === JSON.stringify(correctedValues),
+    "A successful retry should leave the corrected field values visible.",
+  );
+  console.log(
+    `PASS — Edit Profile failure recovery at ${viewportWidth}px and 2× text; values persisted, the error was clear, and the corrected form retried with the keyboard open.`,
   );
 }
 
@@ -2027,10 +2107,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2054,6 +2134,17 @@ try {
     await navigateToScreen("Profile", "PROFILE");
     await checkProfilePasswordConflictRetry();
   }
+  if (profileSaveFailureOnly) {
+    for (const viewportWidth of [375, 320]) {
+      await cdp("Emulation.setDeviceMetricsOverride", {
+        width: viewportWidth,
+        height: 820,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await checkEditProfileSaveFailure(viewportWidth);
+    }
+  }
   const focusedVideoCheck = videoStartFailureOnly
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
@@ -2061,7 +2152,8 @@ try {
     || videoCatalogEmptySearchOnly
     || lateVideoCatalogResponseOnly
     || videoCatalogPositionOnly
-    || profilePasswordConflictOnly;
+    || profilePasswordConflictOnly
+    || profileSaveFailureOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -2143,6 +2235,8 @@ try {
                   ? "PASS — catalog recovery restores the prior scroll position after a player return error."
                   : profilePasswordConflictOnly
                     ? "PASS — password conflicts preserve the form and allow a successful retry."
+                    : profileSaveFailureOnly
+                      ? "PASS — failed Edit Profile saves preserve all details and allow retry at 2× text."
                     : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {

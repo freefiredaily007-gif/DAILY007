@@ -617,6 +617,19 @@ export const Api = {
   },
   updateProfile: async (payload: unknown) => {
     walletPreviewCalls.push({ method: "updateProfile", payload });
+    const previewControls = globalThis as typeof globalThis & {
+      __daily007FailNextProfileSave?: boolean;
+    };
+    if (previewControls.__daily007FailNextProfileSave === true) {
+      previewControls.__daily007FailNextProfileSave = false;
+      const error = new Error("Profile update request timed out.");
+      Object.assign(error, {
+        response: {
+          data: { error: "Could not save your profile. Please try again." },
+        },
+      });
+      throw error;
+    }
     return {};
   },
   adminStats: async () => ({ ...stats, stats: { ...stats } }),

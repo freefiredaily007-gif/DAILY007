@@ -13,16 +13,18 @@ export default function EditProfile() {
   const [phone, setPhone] = useState(user?.phone ?? '');
   const [gameUid, setGameUid] = useState(user?.gameUid ?? '');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const save = async () => {
     if (!name.trim()) { Alert.alert('Missing', 'Name is required'); return; }
+    setSaveError('');
     setSaving(true);
     try {
       await Api.updateProfile({ name: name.trim(), phone: phone.trim(), gameUid: gameUid.trim() });
       await refresh();
       Alert.alert('Saved', 'Profile updated');
     } catch (e: any) {
-      Alert.alert('Error', e?.response?.data?.error ?? e.message);
+      setSaveError(e?.response?.data?.error ?? e?.message ?? 'Could not update profile. Please try again.');
     } finally { setSaving(false); }
   };
 
@@ -41,6 +43,16 @@ export default function EditProfile() {
         <TextInput testID="edit-profile-phone" style={s.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor={C.sub} />
         <Text style={s.label}>FREE FIRE UID</Text>
         <TextInput testID="edit-profile-game-uid" style={s.input} value={gameUid} onChangeText={setGameUid} placeholder="In-game UID" placeholderTextColor={C.sub} />
+        {saveError ? (
+          <Text
+            testID="edit-profile-save-error"
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+            style={s.saveError}
+          >
+            {saveError}
+          </Text>
+        ) : null}
         {saving
           ? <ActivityIndicator color={C.neon} style={{ marginTop: 8 }} />
           : <Btn testID="edit-profile-save" title="SAVE CHANGES" onPress={save} />}
@@ -54,4 +66,5 @@ const s = StyleSheet.create({
   content: { flexGrow: 1, padding: 14, paddingBottom: 24 },
   label: { color: C.sub, fontSize: 11, letterSpacing: 1, fontWeight: '700' },
   input: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  saveError: { color: C.red, fontSize: 14 },
 });
