@@ -207,6 +207,90 @@ test("public tournament participants include approved and pending teams but omit
   }
 });
 
+test("public tournament participants stop showing a pending team after admin rejection", async () => {
+  registrationProfileTestDb.reset(PROFILE_NAME);
+  try {
+    await withServer(async (origin) => {
+      const registered = await sendRegistration(
+        origin,
+        registrationRequests[0].path,
+        registrationRequests[0].body,
+      );
+      assert.equal(registered.status, 201);
+      const pending = registrationProfileTestDb.registrations.find(
+        (registration) => registration.captain_user_id === TEST_PLAYER_ID,
+      );
+      assert.ok(pending, "The pending team should be seeded through the registration route.");
+      pending.status = "pending";
+      const approved = registrationProfileTestDb.addOtherRegistration(
+        "approved",
+        TEST_MATCH_ID,
+        "Approved",
+      );
+      assert.equal(pending.entry_coins_paid, 7);
+      assert.equal(registrationProfileTestDb.user.wallet_coins, 93);
+      assert.equal(registrationProfileTestDb.ledger.length, 1);
+
+      const beforeResponse = await fetch(
+        `${origin}/tournaments/${TEST_MATCH_ID}/participants`,
+      );
+      assert.equal(beforeResponse.status, 200);
+      const before = await beforeResponse.json() as {
+        tournamentId: string;
+        participants: { teamName: string; players: string[]; status: string }[];
+      };
+      assert.equal(before.tournamentId, TEST_MATCH_ID);
+      assert.deepEqual(
+        before.participants.map(({ teamName, status }) => ({ teamName, status })),
+        [
+          { teamName: pending.team_name, status: "pending" },
+          { teamName: approved.registration.team_name, status: "approved" },
+        ],
+      );
+
+      const rejection = await sendAdminRegistrationAction(origin, pending.id, "reject");
+      assert.equal(rejection.status, 200);
+      assert.deepEqual(rejection.body.data, {
+        id: pending.id,
+        status: "rejected",
+        refunded: true,
+      });
+
+      const afterResponse = await fetch(
+        `${origin}/tournaments/${TEST_MATCH_ID}/participants`,
+      );
+      assert.equal(afterResponse.status, 200);
+      const after = await afterResponse.json() as {
+        tournamentId: string;
+        participants: { teamName: string; players: string[]; status: string }[];
+      };
+      assert.equal(after.tournamentId, TEST_MATCH_ID);
+      assert.deepEqual(after.participants, [{
+        teamName: approved.registration.team_name,
+        players: [
+          approved.registration.captain_game_name,
+          ...approved.roster.map((member) => member.member_name),
+        ],
+        status: "approved",
+      }]);
+
+      assert.equal(pending.status, "rejected");
+      assert.equal(registrationProfileTestDb.user.wallet_coins, 100);
+      assert.equal(registrationProfileTestDb.ledger.length, 2);
+      assert.deepEqual(registrationProfileTestDb.ledger.at(-1), {
+        user_id: TEST_PLAYER_ID,
+        amount: 7,
+        balance_after: 100,
+        reason: "registration_refund",
+        match_id: TEST_MATCH_ID,
+        registration_id: pending.id,
+      });
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
 test("public participant with no saved teammates still contains its captain once", async () => {
   registrationProfileTestDb.reset();
   try {
