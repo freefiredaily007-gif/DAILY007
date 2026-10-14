@@ -77,7 +77,7 @@ export async function copyReferralLinkToClipboard(
 }
 
 export const referralInviteCopyFallbackMessage =
-  'Could not copy the invite link. Try the share button instead.';
+  'Could not copy the invite link. Use Share Invite instead.';
 
 export async function copyReferralLinkToClipboardWithFallback(
   referralLink: string,

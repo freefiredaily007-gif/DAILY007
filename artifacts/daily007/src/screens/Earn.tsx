@@ -42,6 +42,7 @@ export default function Earn() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
   const [simulateReferralBrowserOpenFailure, setSimulateReferralBrowserOpenFailure] = useState(false);
+  const [simulateReferralLinkCopyFailure, setSimulateReferralLinkCopyFailure] = useState(false);
   const [simulateReferralCodeCopyFailure, setSimulateReferralCodeCopyFailure] = useState(false);
   const [taskError, setTaskError] = useState('');
   const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
@@ -70,6 +71,7 @@ export default function Earn() {
 
   const copyCode = async () => {
     if (!dashboard?.code) return;
+    setActionError('');
     try {
       const writeReferralCode = __DEV__ && simulateReferralCodeCopyFailure
         ? async () => { throw new Error('Simulated referral code clipboard failure'); }
@@ -80,7 +82,7 @@ export default function Earn() {
       Alert.alert('Referral code copied', 'Share it with a friend when they create their account.');
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      setActionError('Could not copy the referral code. Try the share button instead.');
+      showReferralCopyFallback('Could not copy the referral code. Use Share Invite instead.');
     }
   };
 
@@ -99,6 +101,11 @@ export default function Earn() {
   };
 
   const showReferralOpenFallback = (message: string) => {
+    setActionError(message);
+    AccessibilityInfo.announceForAccessibility(message);
+  };
+
+  const showReferralCopyFallback = (message: string) => {
     setActionError(message);
     AccessibilityInfo.announceForAccessibility(message);
   };
@@ -123,8 +130,10 @@ export default function Earn() {
     setActionError('');
     const copiedSuccessfully = await copyReferralLinkToClipboardWithFallback(
       dashboard.referralLink,
-      Clipboard.setStringAsync,
-      setActionError,
+      __DEV__ && simulateReferralLinkCopyFailure
+        ? async () => { throw new Error('Simulated referral link clipboard failure'); }
+        : Clipboard.setStringAsync,
+      showReferralCopyFallback,
     );
     if (!copiedSuccessfully) return;
     setLinkCopied(true);
@@ -310,6 +319,25 @@ export default function Earn() {
                 <Feather name={linkCopied ? 'check' : 'copy'} size={18} color={C.gold} />
               </Pressable>
             </View>
+            {__DEV__ ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  simulateReferralLinkCopyFailure
+                    ? 'Stop simulating invite link copy failures'
+                    : 'Simulate invite link copy failure'
+                }
+                testID="referral-simulate-link-copy-failure"
+                onPress={() => setSimulateReferralLinkCopyFailure((current) => !current)}
+                style={s.devTestButton}
+              >
+                <Text accessible={false} style={s.devTestButtonText}>
+                  {simulateReferralLinkCopyFailure
+                    ? 'DEV TEST: invite link copy failure ON'
+                    : 'DEV TEST: simulate invite link copy failure'}
+                </Text>
+              </Pressable>
+            ) : null}
             {__DEV__ ? (
               <Pressable
                 accessibilityRole="button"

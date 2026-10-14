@@ -98,7 +98,7 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
     earnSource,
     /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*async \(url\) => \{\s*if \(__DEV__ && simulateReferralBrowserOpenFailure\) \{\s*throw new Error\('Simulated referral browser open failure'\);\s*\}\s*return WebBrowser\.openBrowserAsync\(url\);\s*\},\s*showReferralOpenFallback,\s*\);/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 2);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
   assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
   assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.equal(
@@ -153,7 +153,7 @@ test("Earn's development-only browser failure simulation announces recovery only
     earnSource,
     /onPress=\{\(\) => setSimulateReferralBrowserOpenFailure\(\(current\) => !current\)\}/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 2);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
 
   await makeOpenReferralLink(true, true)();
   assert.deepEqual(openedUrls, []);
@@ -193,7 +193,7 @@ test("Earn copies the server-provided HTTPS referral link without changing its c
   assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
   assert.match(
     earnSource,
-    /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*Clipboard\.setStringAsync,\s*setActionError/,
+    /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*__DEV__ && simulateReferralLinkCopyFailure[\s\S]*?: Clipboard\.setStringAsync,\s*showReferralCopyFallback/,
   );
   assert.match(earnSource, /testID="referral-copy-link"[\s\S]*?onPress=\{copyReferralLink\}/);
 });
@@ -232,9 +232,17 @@ test("a failed referral-link clipboard write shows Earn's share-button fallback 
 
   let actionError = "";
   let clipboardFailureMode = "reject";
+  const accessibilityAnnouncements = [];
+  const showReferralCopyFallback = (message) => {
+    actionError = message;
+    accessibilityAnnouncements.push(message);
+  };
   const copyReferralLink = loadEarnAction(earnSource, "copyReferralLink", {
     dashboard: { referralLink },
     setActionError: (message) => { actionError = message; },
+    showReferralCopyFallback,
+    __DEV__: false,
+    simulateReferralLinkCopyFailure: false,
     copyReferralLinkToClipboardWithFallback,
     Clipboard: {
       setStringAsync: async (value) => {
@@ -257,14 +265,27 @@ test("a failed referral-link clipboard write shows Earn's share-button fallback 
   assert.deepEqual(clipboardValues, [referralLink, referralLink]);
   assert.deepEqual(copiedStates, []);
   assert.deepEqual(alerts, []);
+  assert.deepEqual(accessibilityAnnouncements, [
+    referralInviteCopyFallbackMessage,
+    referralInviteCopyFallbackMessage,
+  ]);
   assert.equal(
     referralInviteCopyFallbackMessage,
-    "Could not copy the invite link. Try the share button instead.",
+    "Could not copy the invite link. Use Share Invite instead.",
+  );
+  assert.match(
+    earnSource,
+    /const showReferralCopyFallback = \(message: string\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+  );
+  assert.match(earnSource, /testID="referral-simulate-link-copy-failure"/);
+  assert.match(
+    earnSource,
+    /__DEV__ && simulateReferralLinkCopyFailure[\s\S]*?throw new Error\('Simulated referral link clipboard failure'\)/,
   );
   assert.equal(networkRequests.mock.callCount(), 0);
   assert.match(
     earnSource,
-    /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*Clipboard\.setStringAsync,\s*setActionError/,
+    /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*__DEV__ && simulateReferralLinkCopyFailure[\s\S]*?: Clipboard\.setStringAsync,\s*showReferralCopyFallback/,
   );
   assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
@@ -284,6 +305,11 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   let actionError = "";
   let clipboardFailureMode = "reject";
   const setActionError = (message) => { actionError = message; };
+  const accessibilityAnnouncements = [];
+  const showReferralCopyFallback = (message) => {
+    setActionError(message);
+    accessibilityAnnouncements.push(message);
+  };
 
   const copyCode = loadEarnAction(earnSource, "copyCode", {
     dashboard,
@@ -298,6 +324,7 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
     Alert: { alert: (...args) => alerts.push(args) },
     setTimeout: () => assert.fail("A failed copy must not schedule the copied-success state reset."),
     setActionError,
+    showReferralCopyFallback,
     __DEV__: false,
     simulateReferralCodeCopyFailure: false,
   });
@@ -306,7 +333,10 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.deepEqual(clipboardValues, ["ABC12"]);
   assert.deepEqual(copiedStates, []);
   assert.deepEqual(alerts, []);
-  assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+  assert.equal(actionError, "Could not copy the referral code. Use Share Invite instead.");
+  assert.deepEqual(accessibilityAnnouncements, [
+    "Could not copy the referral code. Use Share Invite instead.",
+  ]);
   assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
   assert.match(
@@ -324,7 +354,11 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.deepEqual(clipboardValues, ["ABC12", "ABC12"]);
   assert.deepEqual(copiedStates, []);
   assert.deepEqual(alerts, []);
-  assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+  assert.equal(actionError, "Could not copy the referral code. Use Share Invite instead.");
+  assert.deepEqual(accessibilityAnnouncements, [
+    "Could not copy the referral code. Use Share Invite instead.",
+    "Could not copy the referral code. Use Share Invite instead.",
+  ]);
 
   const simulatedCopyCode = loadEarnAction(earnSource, "copyCode", {
     dashboard,
@@ -335,11 +369,17 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
     Alert: { alert: (...args) => alerts.push(args) },
     setTimeout: () => assert.fail("A simulated copy failure must not schedule success feedback."),
     setActionError,
+    showReferralCopyFallback,
     __DEV__: true,
     simulateReferralCodeCopyFailure: true,
   });
   await simulatedCopyCode();
-  assert.equal(actionError, "Could not copy the referral code. Try the share button instead.");
+  assert.equal(actionError, "Could not copy the referral code. Use Share Invite instead.");
+  assert.deepEqual(accessibilityAnnouncements, [
+    "Could not copy the referral code. Use Share Invite instead.",
+    "Could not copy the referral code. Use Share Invite instead.",
+    "Could not copy the referral code. Use Share Invite instead.",
+  ]);
   assert.deepEqual(copiedStates, []);
   assert.deepEqual(alerts, []);
 
@@ -373,6 +413,47 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.match(shareButtonSource, /SHARE INVITE LINK/);
   assert.doesNotMatch(shareButtonSource, /actionError|copied/);
   assert.equal(networkRequests.mock.callCount(), 0);
+});
+
+test("successful invite-link and referral-code copies stay silent about failures", async () => {
+  const referralLink = `https://${configuredDomain}/?ref=ABC12`;
+  const dashboard = { code: "ABC12", referralLink };
+  const announcements = [];
+  const errors = [];
+  const fallback = (message) => {
+    errors.push(message);
+    announcements.push(message);
+  };
+  const earnSource = await readFile(new URL("../src/screens/Earn.tsx", import.meta.url), "utf8");
+  const copyReferralLink = loadEarnAction(earnSource, "copyReferralLink", {
+    dashboard,
+    setActionError: (message) => errors.push(message),
+    showReferralCopyFallback: fallback,
+    copyReferralLinkToClipboardWithFallback,
+    Clipboard: { setStringAsync: async () => true },
+    setLinkCopied: () => {},
+    Alert: { alert() {} },
+    setTimeout() {},
+    __DEV__: false,
+    simulateReferralLinkCopyFailure: false,
+  });
+  const copyCode = loadEarnAction(earnSource, "copyCode", {
+    dashboard,
+    setActionError: (message) => errors.push(message),
+    showReferralCopyFallback: fallback,
+    Clipboard: { setStringAsync: async () => true },
+    setCopied: () => {},
+    Alert: { alert() {} },
+    setTimeout() {},
+    __DEV__: false,
+    simulateReferralCodeCopyFailure: false,
+  });
+
+  await copyReferralLink();
+  await copyCode();
+
+  assert.deepEqual(announcements, []);
+  assert.deepEqual(errors, ["", ""]);
 });
 
 test("Earn announces the copy-code recovery once after a rejected share and stays silent after success", async (t) => {
@@ -429,7 +510,7 @@ test("Earn announces the copy-code recovery once after a rejected share and stay
     earnSource,
     /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 2);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
   assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
   assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
 });
