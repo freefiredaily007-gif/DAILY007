@@ -42,6 +42,13 @@ const FORMULA_TEAMMATE_NAMES = [
   "=HYPERLINK(\"https://example.test\", \"mate\")",
   "+5+6",
 ] as const;
+const FORMULA_CAPTAIN_GAME_UID = "=CAPTAIN-UID";
+const FORMULA_CAPTAIN_EMAIL = "+captain@example.test";
+const FORMULA_TEAMMATE_GAME_UIDS = [
+  "+TEAMMATE-UID-1",
+  "-TEAMMATE-UID-2",
+  "@TEAMMATE-UID-3",
+] as const;
 const HIDDEN_PREFIX_PROFILE_NAME = ' =HYPERLINK("https://example.test", "captain")';
 const HIDDEN_PREFIX_CAPTAIN_GAME_NAME = "\t\u00A0+SUM(1,2)";
 const HIDDEN_PREFIX_TEAM_NAME = "\uFEFF\u200B-1+2";
@@ -1219,6 +1226,68 @@ test("admin registration CSV apostrophe-guards formula-like captain, team, and t
         teammate_1_name: FORMULA_TEAMMATE_NAMES[0],
         teammate_2_name: FORMULA_TEAMMATE_NAMES[1],
         teammate_3_name: FORMULA_TEAMMATE_NAMES[2],
+      };
+      for (const [column, formulaValue] of Object.entries(expectedFormulaCells)) {
+        const index = headers.indexOf(column);
+        assert.notEqual(index, -1, `CSV header should include ${column}`);
+        assert.equal(
+          values[index],
+          `'${formulaValue}`,
+          `${column} should retain the apostrophe guard before its formula marker`,
+        );
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
+test("admin registration CSV apostrophe-guards captain and teammate UIDs and captain email", async () => {
+  registrationProfileTestDb.reset();
+  registrationProfileTestDb.user.email = FORMULA_CAPTAIN_EMAIL;
+  const csvRegistrationRequest: RegistrationRequest = {
+    ...registrationRequests[0],
+    body: {
+      ...registrationRequests[0].body,
+      captainGameUid: FORMULA_CAPTAIN_GAME_UID,
+      teammates: FORMULA_TEAMMATE_NAMES.map((name, index) => ({
+        name,
+        uid: FORMULA_TEAMMATE_GAME_UIDS[index],
+      })),
+    },
+  };
+
+  try {
+    await withServer(async (origin) => {
+      const response = await sendRegistration(
+        origin,
+        csvRegistrationRequest.path,
+        csvRegistrationRequest.body,
+      );
+      assert.equal(response.status, 201);
+
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+
+      const records = parseCsvDocument(await csvResponse.text());
+      assert.equal(records.length, 2);
+      const [headers, values] = records;
+      assert.ok(headers);
+      assert.ok(values);
+      assert.equal(values.length, headers.length);
+
+      const expectedFormulaCells: Record<string, string> = {
+        captain_game_uid: FORMULA_CAPTAIN_GAME_UID,
+        captain_email: FORMULA_CAPTAIN_EMAIL,
+        teammate_1_game_uid: FORMULA_TEAMMATE_GAME_UIDS[0],
+        teammate_2_game_uid: FORMULA_TEAMMATE_GAME_UIDS[1],
+        teammate_3_game_uid: FORMULA_TEAMMATE_GAME_UIDS[2],
       };
       for (const [column, formulaValue] of Object.entries(expectedFormulaCells)) {
         const index = headers.indexOf(column);
