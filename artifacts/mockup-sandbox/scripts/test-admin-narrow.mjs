@@ -32,6 +32,7 @@ const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-init
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
+const homeRetryOnly = process.argv.includes("--home-retry-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
@@ -5807,6 +5808,146 @@ async function assertHomeCarouselCardOpens(id, description) {
   );
 }
 
+async function checkHomeRetryRecovery() {
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+    "Home to load its initial tournament cards",
+  );
+  const countsBeforeJoin = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+  ])`);
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "The initial Home refresh should be available.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${countsBeforeJoin.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${countsBeforeJoin.registrations + 1} &&
+      document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED')`,
+    "Home to display a joined tournament card before the retry scenario",
+  );
+
+  await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', {
+    name: 'Latest Tournament From Home Retry'
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.setRegistrations([])");
+  await evaluate("window.__daily007HomeCarouselTest.failNextRegistrationRead('Home retry setup failed')");
+  const countsBeforeStaleWarning = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "Home should allow a refresh to fail.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${countsBeforeStaleWarning.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${countsBeforeStaleWarning.registrations + 1} &&
+      document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText.includes('Home retry setup failed') &&
+      Boolean(document.querySelector('[data-testid="home-upcoming-retry"]'))`,
+    "Home to show a retryable stale-data warning while retaining the joined card",
+  );
+  const staleCardNodes = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    window.__daily007HomeCarouselTest.retryStaleCardNodes = cards;
+    return cards.map((card) => card.innerText);
+  })()`);
+  assert(
+    staleCardNodes.length === 3 &&
+      staleCardNodes[1].includes("JOINED") &&
+      !staleCardNodes[1].includes("Latest Tournament From Home Retry"),
+    `The initial refresh failure must leave all three cached cards and the prior joined card intact: ${JSON.stringify(staleCardNodes)}.`,
+  );
+
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+  ])`);
+  await evaluate("window.__daily007HomeCarouselTest.deferNextRegistrationRead()");
+  const countsBeforeVisibleRetry = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await tapSelector('[data-testid="home-upcoming-retry"]', "Home's visible retry button");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${countsBeforeVisibleRetry.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${countsBeforeVisibleRetry.registrations + 1} &&
+      document.querySelector('[data-testid="home-upcoming-retry"]')?.innerText.includes('RETRYING')`,
+    "The visible Home retry to start exactly one paired refresh and remain pending",
+  );
+  const pendingRetryState = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    return {
+      cardTexts: cards.map((card) => card.innerText),
+      cardNodesRetained: window.__daily007HomeCarouselTest.retryStaleCardNodes?.every(
+        (card, index) => card === cards[index],
+      ) ?? false,
+      warningVisible: Boolean(document.querySelector('[data-testid="home-upcoming-refresh-error"]')),
+      retryText: document.querySelector('[data-testid="home-upcoming-retry"]')?.innerText ?? null,
+    };
+  })()`);
+  assert(
+    pendingRetryState.cardTexts.length === 3 &&
+      pendingRetryState.cardTexts[1].includes("JOINED") &&
+      !pendingRetryState.cardTexts[1].includes("Latest Tournament From Home Retry") &&
+      pendingRetryState.cardNodesRetained &&
+      pendingRetryState.warningVisible &&
+      pendingRetryState.retryText?.includes("RETRYING"),
+    `While the paired retry is pending, Home must retain its cached joined cards and stale-data warning: ${JSON.stringify(pendingRetryState)}.`,
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
+    "The pending Home retry's registration response should be released.",
+  );
+  await waitForCondition(
+    `document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Latest Tournament From Home Retry') &&
+      document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED') &&
+      !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
+    "The successful visible retry to apply the latest joined card and clear the warning",
+  );
+  const countsAfterVisibleRetry = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    countsAfterVisibleRetry.tournaments === countsBeforeVisibleRetry.tournaments + 1 &&
+      countsAfterVisibleRetry.registrations === countsBeforeVisibleRetry.registrations + 1,
+    `The visible retry should perform only one read per endpoint: ${JSON.stringify({
+      before: countsBeforeVisibleRetry,
+      after: countsAfterVisibleRetry,
+    })}.`,
+  );
+
+  await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', {
+    name: 'Tournament After A Later Failed Refresh'
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.setRegistrations([])");
+  await evaluate("window.__daily007HomeCarouselTest.failNextRegistrationRead('A later Home refresh failed')");
+  const countsBeforeLaterFailure = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"), "Home should allow another refresh after recovery.");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${countsBeforeLaterFailure.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${countsBeforeLaterFailure.registrations + 1} &&
+      document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText.includes('A later Home refresh failed')`,
+    "A later Home refresh failure to restore the stale-data warning",
+  );
+  const laterFailureState = await evaluate(`(() => ({
+    cardText: document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText ?? null,
+    warningText: document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText ?? null,
+    retryVisible: Boolean(document.querySelector('[data-testid="home-upcoming-retry"]')),
+  }))()`);
+  assert(
+    laterFailureState.cardText?.includes("Latest Tournament From Home Retry") &&
+      laterFailureState.cardText.includes("JOINED") &&
+      !laterFailureState.cardText.includes("Tournament After A Later Failed Refresh") &&
+      laterFailureState.warningText?.includes("cards shown may be out of date") &&
+      laterFailureState.warningText.includes("A later Home refresh failed") &&
+      laterFailureState.retryVisible,
+    `A later refresh failure must preserve the last successful cards and keep the warning and retry available: ${JSON.stringify(laterFailureState)}.`,
+  );
+  console.log("PASS — Home's visible retry starts one paired refresh, preserves cached joined cards while pending, applies successful updates, and retains cards and warning after a later failure.");
+}
+
 async function checkHomeCarousel(width) {
   assertHomeCarouselNativeSelectedStateIsPassedThrough();
   await waitForCondition(
@@ -7610,7 +7751,7 @@ try {
         ? "admin-narrow-preview.html"
       : adminTournamentEmptyFilterOnly
         ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
-      : homeCarouselOnly
+      : homeCarouselOnly || homeRetryOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
         ? "keyboard-forms-preview.html"
@@ -7686,6 +7827,7 @@ try {
     sameTimeStartOnly ||
     istDateSurfacesOnly ||
     homeCarouselOnly ||
+    homeRetryOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminNotificationKeyboardOnly ||
@@ -7705,13 +7847,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
+        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
+        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -7727,8 +7869,10 @@ try {
           ? "Admin tournament landscape keyboard screens"
         : istDateSurfacesOnly
           ? "Home, My Matches, and tournament details IST date surfaces"
-        : homeCarouselOnly
-        ? "Home carousel"
+         : homeRetryOnly
+         ? "Home retry recovery"
+         : homeCarouselOnly
+         ? "Home carousel"
         : adminTournamentHomeRefreshOnly
           ? "Admin tournament creation and Home scheduled refresh"
         : adminTournamentEmptyFilterOnly
@@ -8027,6 +8171,18 @@ try {
         `Browser errors during Admin notification keyboard checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Targeted notifications remain sendable at all six requested phone widths with 1.5× text and a simulated Android keyboard.");
+    } else if (homeRetryOnly) {
+      await waitForCondition(
+        "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+        "Home to finish its initial render before the retry recovery check",
+      );
+      const knownHomePreviewErrors = new Set(browserErrors);
+      await checkHomeRetryRecovery();
+      const newBrowserErrors = browserErrors.filter((error) => !knownHomePreviewErrors.has(error));
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during Home retry recovery checks: ${newBrowserErrors.join(" | ")}`,
+      );
     } else if (homeCarouselOnly) {
       let homePreviewErrorBaseline;
       for (const width of [320, 430]) {
