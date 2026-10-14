@@ -102,6 +102,81 @@ test("a stale Full Admin request is rejected after its role changes before the t
   });
 });
 
+test("Tournament Admins cannot list, review, or pay payment and withdrawal requests", async () => {
+  walletTestDb.reset();
+  walletTestDb.users.set(TEST_SECOND_ADMIN_ID, {
+    id: TEST_SECOND_ADMIN_ID,
+    name: "Tournament Test Admin",
+    email: "tournament-admin@example.test",
+    role: "tournament_admin",
+    wallet_coins: 0,
+    phone: null,
+    game_uid: null,
+    status: "active",
+    auth_version: 0,
+  });
+
+  await withServer(async (origin) => {
+    const payment = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
+      coins: 120,
+      payerUpiId: "player@upi",
+      txnId: "tournament-admin-denial-test",
+    });
+    const withdrawal = await call(origin, TEST_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "player@upi",
+    });
+    assert.equal(payment.status, 201);
+    assert.equal(withdrawal.status, 201);
+
+    const paymentId = payment.body.id as string;
+    const withdrawalId = withdrawal.body.id as string;
+    const preparedPayout = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/admin/withdrawals/${withdrawalId}/approve`,
+      "POST",
+    );
+    assert.equal(preparedPayout.status, 200);
+    assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.payout_status, "manual_payout_required");
+
+    const paymentBefore = structuredClone(walletTestDb.payments.get(paymentId));
+    const withdrawalBefore = structuredClone(walletTestDb.withdrawals.get(withdrawalId));
+    const playerBalanceBefore = walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins;
+    const ledgerBefore = structuredClone(walletTestDb.ledger);
+    const notificationsBefore = structuredClone(walletTestDb.notifications);
+
+    const deniedCalls = await Promise.all([
+      call(origin, TEST_SECOND_ADMIN_ID, "/admin/payments", "GET"),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/payments/${paymentId}/proof-url`, "GET"),
+      call(origin, TEST_SECOND_ADMIN_ID, "/admin/withdrawals", "GET"),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/payments/${paymentId}/approve`, "POST"),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/payments/${paymentId}/reject`, "POST", {
+        reason: "Not authorized",
+      }),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/withdrawals/${withdrawalId}/approve`, "POST"),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/withdrawals/${withdrawalId}/reject`, "POST", {
+        reason: "Not authorized",
+      }),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/withdrawals/${withdrawalId}/payout`, "POST"),
+    ]);
+
+    assert.deepEqual(
+      deniedCalls.map(({ status }) => status),
+      Array(deniedCalls.length).fill(403),
+    );
+    assert.ok(deniedCalls.every(({ body }) =>
+      body.error === "Administrator access is required.",
+    ));
+    assert.deepEqual(walletTestDb.payments.get(paymentId), paymentBefore);
+    assert.deepEqual(walletTestDb.withdrawals.get(withdrawalId), withdrawalBefore);
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, playerBalanceBefore);
+    assert.deepEqual(walletTestDb.ledger, ledgerBefore);
+    assert.deepEqual(walletTestDb.notifications, notificationsBefore);
+  });
+});
+
 test("pending deposits do not change coins and approval credits the configured amount once", async () => {
   walletTestDb.reset({ settings: { coinToMoneyRate: "2.5" } });
 
