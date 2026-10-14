@@ -71,7 +71,46 @@ CREATE TABLE daily007_v2_wallet_ledger (
   balance_after integer NOT NULL CHECK (balance_after >= 0),
   reason text NOT NULL,
   idempotency_key text UNIQUE,
-  details jsonb
+  details jsonb,
+  match_id uuid,
+  registration_id uuid
+);
+
+CREATE TABLE daily007_v2_matches (
+  id uuid PRIMARY KEY,
+  title text NOT NULL,
+  prize_pool integer NOT NULL DEFAULT 0,
+  prize_distribution text NOT NULL DEFAULT '',
+  starts_at timestamptz NOT NULL,
+  status text NOT NULL DEFAULT 'active',
+  enabled boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE daily007_v2_registrations (
+  id uuid PRIMARY KEY,
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
+  captain_user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  status text NOT NULL DEFAULT 'approved'
+);
+
+CREATE TABLE daily007_v2_result_awards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
+  registration_id uuid NOT NULL REFERENCES daily007_v2_registrations(id),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  rank integer NOT NULL,
+  kills integer NOT NULL,
+  prize_coins integer NOT NULL,
+  CONSTRAINT daily007_v2_result_awards_registration_id_unique UNIQUE (registration_id),
+  UNIQUE (match_id, rank)
+);
+
+CREATE TABLE daily007_v2_user_stats (
+  user_id uuid PRIMARY KEY REFERENCES daily007_v2_users(id),
+  matches integer NOT NULL,
+  wins integer NOT NULL,
+  kills integer NOT NULL,
+  prize_coins integer NOT NULL
 );
 
 CREATE TABLE daily007_v2_leaderboard_periods (
