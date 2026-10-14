@@ -8,7 +8,7 @@ const screenSource = await readFile(
   "utf8",
 );
 
-function loadAdminLeaderboards(serverSchedules) {
+function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
   const sourceFile = ts.createSourceFile(
     "AdminLeaderboards.tsx",
     screenSource,
@@ -32,11 +32,14 @@ function loadAdminLeaderboards(serverSchedules) {
   const inputType = function Input() {};
   const buttonType = function Btn() {};
   const componentType = () => function Component() {};
+  const textType = componentType();
   let stateSlots;
   let stateIndex = 0;
   let refSlots;
   let refIndex = 0;
   let effectIndex = 0;
+  const saveCalls = [];
+  let failedSaveAttempts = failSaveAttempts;
 
   const React = {
     createElement(type, props, ...children) {
@@ -95,6 +98,11 @@ function loadAdminLeaderboards(serverSchedules) {
 
   const rewardsMutation = {
     async mutateAsync({ data }) {
+      saveCalls.push(structuredClone(data));
+      if (failedSaveAttempts > 0) {
+        failedSaveAttempts -= 1;
+        throw new Error("Prize settings could not be saved.");
+      }
       for (const cycle of ["weekly", "monthly"]) {
         if (data[cycle]) serverSchedules[cycle] = structuredClone(data[cycle]);
       }
@@ -132,7 +140,7 @@ function loadAdminLeaderboards(serverSchedules) {
       isPending: false,
     }),
     useDaily007AdminUpdateLeaderboardRewards: () => rewardsMutation,
-    Text: componentType(),
+    Text: textType,
     A: { gold: "#gold", green: "#green", red: "#red", text: "#text", sub: "#sub", border: "#border" },
     Btn: buttonType,
     Card: componentType(),
@@ -160,7 +168,7 @@ function loadAdminLeaderboards(serverSchedules) {
     return AdminLeaderboards();
   }
 
-  return { render, inputType, buttonType, serverSchedules };
+  return { render, inputType, buttonType, textType, serverSchedules, saveCalls };
 }
 
 function descendants(node, found = []) {
@@ -251,5 +259,88 @@ test("Full Admin form saves distinct six-digit prizes and displays them again af
     inputValues(reopened),
     expectedInputValues,
     "A newly opened Full Admin form should load the exact saved rank amounts.",
+  );
+});
+
+test("Full Admin keeps six-digit prize entries after a failed save and retries the same values", async () => {
+  const persistedSchedules = structuredClone(initialSchedules);
+  const app = loadAdminLeaderboards(persistedSchedules, { failSaveAttempts: 1 });
+
+  formInputs(app);
+  let inputs = formInputs(app);
+  for (const cycle of ["weekly", "monthly"]) {
+    for (const [key, label] of [
+      ["firstPlaceCoins", "1st place"],
+      ["secondPlaceCoins", "2nd place"],
+      ["thirdPlaceCoins", "3rd place"],
+    ]) {
+      const input = inputs.find(
+        (candidate) =>
+          candidate.props.accessibilityLabel === `${cycle} ${label} reward coins`,
+      );
+      assert.ok(input);
+      input.props.onChangeText(String(sixDigitSchedules[cycle][key]));
+    }
+  }
+
+  const expectedInputValues = Object.fromEntries(
+    ["weekly", "monthly"].flatMap((cycle) =>
+      [
+        ["firstPlaceCoins", "1st place"],
+        ["secondPlaceCoins", "2nd place"],
+        ["thirdPlaceCoins", "3rd place"],
+      ].map(([key, label]) => [
+        `${cycle} ${label} reward coins`,
+        String(sixDigitSchedules[cycle][key]),
+      ]),
+    ),
+  );
+  assert.deepEqual(inputValues(app), expectedInputValues);
+
+  const weeklyPayload = { weekly: sixDigitSchedules.weekly };
+  const findWeeklySaveButton = () =>
+    descendants(app.render()).find(
+      (element) =>
+        element.type === app.buttonType &&
+        element.props.title === "SAVE WEEKLY REWARDS",
+    );
+  const failedAttempt = findWeeklySaveButton();
+  assert.ok(failedAttempt);
+  assert.equal(failedAttempt.props.disabled, false);
+  await failedAttempt.props.onPress();
+
+  assert.deepEqual(app.saveCalls, [weeklyPayload]);
+  assert.deepEqual(inputValues(app), expectedInputValues);
+  const visibleError = descendants(app.render()).find(
+    (element) =>
+      element.type === app.textType &&
+      typeof element.props.children === "string" &&
+      element.props.children.includes("Prize settings could not be saved."),
+  );
+  assert.ok(visibleError, "the failed save should leave a visible error");
+  assert.deepEqual(persistedSchedules, initialSchedules, "a failed request must not update saved prizes");
+
+  const retry = findWeeklySaveButton();
+  assert.ok(retry);
+  assert.equal(retry.props.disabled, false);
+  await retry.props.onPress();
+
+  assert.deepEqual(app.saveCalls, [weeklyPayload, weeklyPayload]);
+  assert.deepEqual(persistedSchedules.weekly, sixDigitSchedules.weekly);
+  assert.deepEqual(persistedSchedules.monthly, initialSchedules.monthly);
+  assert.deepEqual(
+    inputValues(app),
+    expectedInputValues,
+    "the successful retry must keep all entered amounts visible",
+  );
+  assert.equal(
+    descendants(app.render()).some(
+      (element) =>
+        element.type === app.textType &&
+        typeof element.props.children === "string" &&
+        element.props.children.includes("Prize settings could not be saved."),
+    ),
+    false,
+    "the successful retry should clear the failure message",
   );
 });
