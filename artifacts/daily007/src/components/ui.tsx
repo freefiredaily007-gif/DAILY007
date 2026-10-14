@@ -414,13 +414,9 @@ export function fmtDate(d?: string) {
     const year = Number(dateOnly[1]);
     const month = Number(dateOnly[2]);
     const day = Number(dateOnly[3]);
-    const date = new Date(Date.UTC(year, month - 1, day));
-    if (
-      !Number.isFinite(date.getTime()) ||
-      date.getUTCFullYear() !== year ||
-      date.getUTCMonth() + 1 !== month ||
-      date.getUTCDate() !== day
-    ) return d;
+    const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return d;
     const monthLabel = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][month - 1];
     return `${String(day).padStart(2, '0')} ${monthLabel}`;
   }

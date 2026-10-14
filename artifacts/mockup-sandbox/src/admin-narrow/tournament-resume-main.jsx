@@ -63,6 +63,11 @@ const fixedBoundaryStarts = {
     laterName: "Later New Year Start",
     startsAt: "2027-01-01T00:00:01+05:30",
   },
+  "leap-day": {
+    name: "IST Leap-Day Boundary",
+    laterName: "Later Leap-Day Start",
+    startsAt: "2028-02-29T00:00:01+05:30",
+  },
 };
 const selectedBoundary = fixedBoundaryStarts[boundaryCase];
 if (!selectedBoundary) throw new Error(`Unsupported scheduled-start boundary: ${boundaryCase}`);

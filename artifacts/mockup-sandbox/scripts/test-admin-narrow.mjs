@@ -4449,6 +4449,14 @@ const istRolloverExpectations = [
     previousDate: "2026-12-31",
     utcDate: "2026-12-31",
   },
+  {
+    name: "IST Leap-Day Boundary",
+    laterName: "Later Leap-Day Start",
+    date: "2028-02-29",
+    dateLabel: "29 FEB",
+    previousDate: "2028-02-28",
+    utcDate: "2028-02-28",
+  },
 ];
 
 async function assertIstRolloverSchedules(screenName, expected) {
@@ -7449,11 +7457,15 @@ try {
         url: `http://127.0.0.1:${vitePort}/tournament-resume-preview.html?scheduled-start-only=1&boundary=new-year`,
       });
       await checkTournamentScheduledStart(1);
+      await cdp("Page.navigate", {
+        url: `http://127.0.0.1:${vitePort}/tournament-resume-preview.html?scheduled-start-only=1&boundary=leap-day`,
+      });
+      await checkTournamentScheduledStart(2);
       assert(
         browserErrors.length === 0,
         `Browser errors during scheduled-start checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Player and Admin cards preserve the fixed month-end and New Year IST dates in Los Angeles time, with Upcoming/Ongoing transitions at the exact start instants.");
+      console.log("PASS — Player and Admin cards preserve fixed month-end, New Year, and leap-day IST dates in Los Angeles time, with Upcoming/Ongoing transitions at the exact start instants.");
     } else if (istDateSurfacesOnly) {
       const knownHomePreviewErrors = new Set(browserErrors);
       await checkIstDateSurfaces(vitePort);
