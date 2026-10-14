@@ -665,6 +665,134 @@ test("Full Admin saves and reopens distinct six-digit weekly and monthly prizes"
   }
 });
 
+test("Full Admin prize edits update scheduled weekly and monthly periods before activation", async () => {
+  daily007LeaderboardTestDb.reset();
+  const scheduledAt = new Date();
+  const scheduledWindows = {
+    weekly: nextAdminStartedLeaderboardWindow("weekly", scheduledAt),
+    monthly: nextAdminStartedLeaderboardWindow("monthly", scheduledAt),
+  };
+  const periodIds = {
+    weekly: {
+      previous: "73000000-0000-4000-8000-000000000003",
+      scheduled: TEST_WEEKLY_PERIOD_ID,
+    },
+    monthly: {
+      previous: "73000000-0000-4000-8000-000000000004",
+      scheduled: TEST_MONTHLY_PERIOD_ID,
+    },
+  };
+  const staleRewards = [
+    { rank: 1, coins: 1 },
+    { rank: 2, coins: 2 },
+    { rank: 3, coins: 3 },
+  ];
+
+  for (const cycleType of ["weekly", "monthly"] as const) {
+    const window = scheduledWindows[cycleType];
+    const previousWindow = leaderboardPeriodWindow(
+      cycleType,
+      new Date(window.startsAt.getTime() - 1),
+    );
+    period(
+      periodIds[cycleType].previous,
+      cycleType,
+      previousWindow.startsAt,
+      previousWindow.endsAt,
+      "finalized",
+    );
+    period(
+      periodIds[cycleType].scheduled,
+      cycleType,
+      window.startsAt,
+      window.endsAt,
+      "pending_activation",
+      [],
+      staleRewards,
+      periodIds[cycleType].previous,
+    );
+  }
+
+  const savedRewards = {
+    weekly: { firstPlaceCoins: 1234, secondPlaceCoins: 2345, thirdPlaceCoins: 3456 },
+    monthly: { firstPlaceCoins: 4567, secondPlaceCoins: 5678, thirdPlaceCoins: 6789 },
+  };
+  const expectedRewards = {
+    weekly: [
+      { rank: 1, coins: 1234 },
+      { rank: 2, coins: 2345 },
+      { rank: 3, coins: 3456 },
+    ],
+    monthly: [
+      { rank: 1, coins: 4567 },
+      { rank: 2, coins: 5678 },
+      { rank: 3, coins: 6789 },
+    ],
+  };
+
+  try {
+    await withServer(async (origin) => {
+      const adminSave = await call(
+        origin,
+        TEST_FULL_ADMIN_ID,
+        "/daily007/v2/admin/leaderboards/rewards",
+        "PUT",
+        savedRewards,
+      );
+      assert.equal(adminSave.status, 200);
+      assert.deepEqual(
+        {
+          weekly: {
+            firstPlaceCoins: adminSave.body.weekly.firstPlaceCoins,
+            secondPlaceCoins: adminSave.body.weekly.secondPlaceCoins,
+            thirdPlaceCoins: adminSave.body.weekly.thirdPlaceCoins,
+          },
+          monthly: {
+            firstPlaceCoins: adminSave.body.monthly.firstPlaceCoins,
+            secondPlaceCoins: adminSave.body.monthly.secondPlaceCoins,
+            thirdPlaceCoins: adminSave.body.monthly.thirdPlaceCoins,
+          },
+        },
+        savedRewards,
+      );
+
+      for (const cycleType of ["weekly", "monthly"] as const) {
+        const scheduled = daily007LeaderboardTestDb.periods.get(periodIds[cycleType].scheduled);
+        assert.ok(scheduled);
+        assert.equal(scheduled.status, "pending_activation");
+        assert.deepEqual(
+          scheduled.payout_configuration,
+          expectedRewards[cycleType],
+          `${cycleType} scheduled period should capture the latest saved prizes`,
+        );
+      }
+
+      for (const cycleType of ["weekly", "monthly"] as const) {
+        await reconcileDaily007LeaderboardPeriods(scheduledWindows[cycleType].startsAt);
+        const scheduled = daily007LeaderboardTestDb.periods.get(periodIds[cycleType].scheduled);
+        assert.ok(scheduled);
+        assert.equal(scheduled.status, "active");
+
+        const playerRead = await fetch(`${origin}/daily007/v2/leaderboards`);
+        assert.equal(playerRead.status, 200);
+        const playerView = await playerRead.json() as {
+          weekly: { id: string; status: string; rewards: RewardSeed[] };
+          monthly: { id: string; status: string; rewards: RewardSeed[] };
+        };
+        assert.equal(playerView[cycleType].id, periodIds[cycleType].scheduled);
+        assert.equal(playerView[cycleType].status, "active");
+        assert.deepEqual(
+          playerView[cycleType].rewards,
+          expectedRewards[cycleType],
+          `${cycleType} public leaderboard should show its edited prizes after activation`,
+        );
+      }
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("Full Admin prize updates leave pending approval payout snapshots unchanged", async () => {
   daily007LeaderboardTestDb.reset();
   seedPendingAndOpenPeriods(new Date());
