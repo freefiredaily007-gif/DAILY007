@@ -51,6 +51,13 @@ const FORMULA_TEAMMATE_GAME_UIDS = [
 ] as const;
 const HIDDEN_PREFIX_PROFILE_NAME = ' =HYPERLINK("https://example.test", "captain")';
 const HIDDEN_PREFIX_CAPTAIN_GAME_NAME = "\t\u00A0+SUM(1,2)";
+const HIDDEN_PREFIX_CAPTAIN_GAME_UID = "\uFEFF=CAPTAIN-UID";
+const HIDDEN_PREFIX_CAPTAIN_EMAIL = "\u00A0+captain-formula@example.test";
+const HIDDEN_PREFIX_TEAMMATE_GAME_UIDS = [
+  "\t@TEAMMATE-UID-1",
+  "\u200B-TEAMMATE-UID-2",
+  " \uFEFF=TEAMMATE-UID-3",
+] as const;
 const HIDDEN_PREFIX_TEAM_NAME = "\uFEFF\u200B-1+2";
 const HIDDEN_PREFIX_TEAMMATE_NAMES = [
   " @SUM(3,4)",
@@ -1317,9 +1324,11 @@ test("admin registration CSV apostrophe-guards formulas after Unicode whitespace
 
       const registration = registrationProfileTestDb.registrations[0];
       assert.ok(registration);
+      registrationProfileTestDb.user.email = HIDDEN_PREFIX_CAPTAIN_EMAIL;
       registrationProfileTestDb.user.name = HIDDEN_PREFIX_PROFILE_NAME;
       registration.captain_name = HIDDEN_PREFIX_PROFILE_NAME;
       registration.captain_game_name = HIDDEN_PREFIX_CAPTAIN_GAME_NAME;
+      registration.captain_game_uid = HIDDEN_PREFIX_CAPTAIN_GAME_UID;
       registration.team_name = HIDDEN_PREFIX_TEAM_NAME;
       const savedRoster = registrationProfileTestDb.roster
         .filter((member) => member.registration_id === registration.id)
@@ -1327,6 +1336,7 @@ test("admin registration CSV apostrophe-guards formulas after Unicode whitespace
       assert.equal(savedRoster.length, HIDDEN_PREFIX_TEAMMATE_NAMES.length);
       savedRoster.forEach((member, index) => {
         member.member_name = HIDDEN_PREFIX_TEAMMATE_NAMES[index];
+        member.member_uid = HIDDEN_PREFIX_TEAMMATE_GAME_UIDS[index];
       });
 
       const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
@@ -1338,20 +1348,30 @@ test("admin registration CSV apostrophe-guards formulas after Unicode whitespace
       );
       assert.equal(csvResponse.status, 200);
 
-      const records = parseCsvDocument(await csvResponse.text());
+      const csvText = await csvResponse.text();
+      const records = parseCsvDocument(csvText);
+      const csvLines = csvText.trimEnd().split(/\r?\n/);
+      assert.equal(csvLines.length, 2);
       assert.equal(records.length, 2);
       const [headers, values] = records;
       assert.ok(headers);
       assert.ok(values);
       assert.equal(values.length, headers.length);
+      const dataLine = csvLines[1];
+      assert.ok(dataLine);
 
       const expectedFormulaCells: Record<string, string> = {
         captain_profile_name: HIDDEN_PREFIX_PROFILE_NAME,
         captain_game_name: HIDDEN_PREFIX_CAPTAIN_GAME_NAME,
+        captain_game_uid: HIDDEN_PREFIX_CAPTAIN_GAME_UID,
+        captain_email: HIDDEN_PREFIX_CAPTAIN_EMAIL,
         team_name: HIDDEN_PREFIX_TEAM_NAME,
         teammate_1_name: HIDDEN_PREFIX_TEAMMATE_NAMES[0],
+        teammate_1_game_uid: HIDDEN_PREFIX_TEAMMATE_GAME_UIDS[0],
         teammate_2_name: HIDDEN_PREFIX_TEAMMATE_NAMES[1],
+        teammate_2_game_uid: HIDDEN_PREFIX_TEAMMATE_GAME_UIDS[1],
         teammate_3_name: HIDDEN_PREFIX_TEAMMATE_NAMES[2],
+        teammate_3_game_uid: HIDDEN_PREFIX_TEAMMATE_GAME_UIDS[2],
       };
       for (const [column, formulaValue] of Object.entries(expectedFormulaCells)) {
         const index = headers.indexOf(column);
@@ -1360,6 +1380,10 @@ test("admin registration CSV apostrophe-guards formulas after Unicode whitespace
           values[index],
           `'${formulaValue}`,
           `${column} should retain the apostrophe before its original prefix and formula marker`,
+        );
+        assert.ok(
+          dataLine.includes(`"'${formulaValue.replaceAll('"', '""')}"`),
+          `${column} should remain a correctly quoted CSV cell`,
         );
       }
     });
