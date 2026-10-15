@@ -4515,24 +4515,26 @@ async function checkAdminResultEntryRetry() {
   await clickSelector(retrySelector, "Retry approved registrations");
   await waitForCondition(
     `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 2 &&
-      document.body.innerText.includes("Retrying approved registrations…") &&
-      document.querySelector('${panelSelector}')`,
+      document.body.innerText.includes("Retrying approved registrations…")`,
     "the retry to remain pending with Result Entry open",
   );
   const progressState = await evaluate(`(() => {
     const button = document.querySelector('${retrySelector}');
     return {
+      panelOpen: Boolean(document.querySelector(${JSON.stringify(panelSelector)})),
       text: button?.textContent?.trim() ?? "",
       disabled: button?.disabled ?? false,
       ariaDisabled: button?.getAttribute("aria-disabled"),
-      ariaBusy: button?.getAttribute("aria-busy"),
+      accessibleLabel: button?.getAttribute("aria-label"),
+      hasLoadingIndicator: (button?.childElementCount ?? 0) > 0,
     };
   })()`);
   assert(
-    progressState.text.includes("RETRYING") &&
+    progressState.panelOpen &&
       progressState.disabled &&
       progressState.ariaDisabled === "true" &&
-      progressState.ariaBusy === "true",
+      progressState.accessibleLabel === "Retry approved registrations" &&
+      progressState.hasLoadingIndicator,
     `Retry progress must be visible and the control unavailable while loading: ${JSON.stringify(progressState)}.`,
   );
   await clickSelector(retrySelector, "the disabled retry control during the pending request");
@@ -4545,10 +4547,13 @@ async function checkAdminResultEntryRetry() {
     "The pending successful approved-registration response should be released.",
   );
   await waitForCondition(
-    `document.querySelector('${panelSelector}') &&
-      document.body.innerText.includes("Retry Fixture Player") &&
+    `document.body.innerText.includes("Retry Fixture Player") &&
       document.body.innerText.includes("RESULT-RETRY-UID")`,
     "successful approved-player data to render inside the still-open Result Entry panel",
+  );
+  assert(
+    await evaluate(`Boolean(document.querySelector(${JSON.stringify(panelSelector)}))`),
+    "Result Entry should stay open after its retry succeeds.",
   );
 
   await clickSelector(openSelector, "closing the recovered Result Entry panel");
@@ -4559,14 +4564,16 @@ async function checkAdminResultEntryRetry() {
   await clickSelector(openSelector, "reopening Result Entry for the same tournament");
   await waitForCondition(
     `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 3 &&
-      document.querySelector('${panelSelector}') &&
       document.body.innerText.includes("Reopened Result Entry request failed.")`,
     "a later approved-registration request to fail without closing Result Entry",
+  );
+  assert(
+    await evaluate(`Boolean(document.querySelector(${JSON.stringify(panelSelector)}))`),
+    "Result Entry should stay open after the reopened request fails.",
   );
   await clickSelector(retrySelector, "retrying the reopened Result Entry panel");
   await waitForCondition(
     `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 4 &&
-      document.querySelector('${panelSelector}') &&
       document.body.innerText.includes("Second retry request failed.")`,
     "the later retry to fail while keeping Result Entry available",
   );
@@ -4576,7 +4583,7 @@ async function checkAdminResultEntryRetry() {
     `Approved-registration requests must target only the active tournament: ${JSON.stringify(requests)}.`,
   );
   assert(
-    await evaluate(`document.querySelector('${retrySelector}')?.disabled === false`),
+    await evaluate(`Boolean(document.querySelector(${JSON.stringify(panelSelector)})) && document.querySelector(${JSON.stringify(retrySelector)})?.disabled === false`),
     "The retry control should become available again after the later failure.",
   );
 }
