@@ -14,6 +14,7 @@ import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from '../lib
 
 export default function Profile() {
   const { width, fontScale } = useWindowDimensions();
+  const compactStats = width <= 360;
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const appVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '—';
   const configuredBuild = Platform.OS === 'ios'
@@ -94,6 +95,12 @@ export default function Profile() {
       accessibilityLabel: statsUnavailable ? 'Prize coins unavailable' : `${user?.prizeCoins ?? 0} prize coins`,
     },
   ];
+  const displayStatValue = (value: string | number) => {
+    if (!compactStats) return value;
+    return String(value)
+      .replace(/🪙(\d{9,})/, '🪙\u200B$1')
+      .replace(/(\d{9,})/g, (digits) => digits.replace(/(\d{4})(?=\d)/g, '$1\u200B'));
+  };
   const retryProfileStats = async () => {
     if (statsRetryInFlight.current) return;
     statsRetryInFlight.current = true;
@@ -199,7 +206,7 @@ export default function Profile() {
         ) : null}
       </Card>
 
-      <View style={[s.stats, fontScale >= 1.5 && s.statsLarge]}>
+      <View style={[s.stats, (compactStats || fontScale >= 1.5) && s.statsLarge]}>
         {profileStats.map((stat) => (
           <View
             key={stat.id}
@@ -215,7 +222,7 @@ export default function Profile() {
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             >
-              {stat.value}
+              {displayStatValue(stat.value)}
             </Text>
             <Text
               style={s.statL}

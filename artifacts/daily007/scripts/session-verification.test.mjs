@@ -210,6 +210,7 @@ function createProfileScreen(
     const styleList = Array.isArray(style) ? style : [style];
     const isStatCard = styleList.some((entry) => entry?.profileStyle === "stat");
     const isStats = styleList.some((entry) => entry?.profileStyle === "stats");
+    const isTwoColumnStats = styleList.some((entry) => entry?.profileStyle === "statsLarge");
     const isLargeStatCard = styleList.some((entry) => entry?.profileStyle === "statLarge");
     const accessibilityProps = {
       ...(accessible ? { "data-accessible": "true" } : {}),
@@ -222,7 +223,10 @@ function createProfileScreen(
     return React.createElement(
       "div",
       isStats
-        ? { "data-testid": "profile-stats" }
+        ? {
+            "data-testid": "profile-stats",
+            "data-two-column-layout": String(isTwoColumnStats),
+          }
         : isStatCard
           ? {
               "data-testid": "profile-stat-card",
@@ -668,6 +672,51 @@ test("Profile keeps large totals and labels inside stat cards at enlarged text s
     /statL: \{[^}]*maxWidth: '100%'[^}]*flexShrink: 1[^}]*textAlign: 'center'/,
     "Stat labels should be able to shrink and wrap inside their cards.",
   );
+});
+
+test("Profile keeps maximum safe-integer totals readable on narrow screens at enlarged text sizes", () => {
+  const user = {
+    ...savedSession,
+    matches: Number.MAX_SAFE_INTEGER,
+    wins: Number.MAX_SAFE_INTEGER,
+    kills: Number.MAX_SAFE_INTEGER,
+    prizeCoins: Number.MAX_SAFE_INTEGER,
+  };
+  const fullValue = "9007199254740991";
+  const wrappedValue = "9007\u200B1992\u200B5474\u200B0991";
+  const expectedCards = [
+    ["MATCHES", wrappedValue],
+    ["WINS", wrappedValue],
+    ["KILLS", wrappedValue],
+    ["PRIZES", `🪙\u200B${wrappedValue}`],
+  ];
+  const viewports = [320, 360];
+  const scales = [1, 1.5, 2];
+
+  for (const width of viewports) {
+    for (const fontScale of scales) {
+      const markup = renderToStaticMarkup(createProfileScreen(user, { width, fontScale }));
+      assert.deepEqual(
+        renderedProfileStatCards(markup),
+        expectedCards,
+        `${width}px viewport at ${fontScale}× must render every digit and its label`,
+      );
+      assert.match(
+        markup,
+        /data-testid="profile-stats" data-two-column-layout="true"/,
+        `${width}px viewport at ${fontScale}× must give each total a wider card`,
+      );
+      const statCards = [...markup.matchAll(/<div data-testid="profile-stat-card"([^>]*)>/g)];
+      assert.equal(statCards.length, 4);
+      statCards.forEach(([, attributes], index) => {
+        const spokenValue = index === 3 ? `${fullValue} prize coins` : `${fullValue} ${["matches", "wins", "kills"][index]}`;
+        assert.ok(
+          attributes.includes(`aria-label="${spokenValue}"`),
+          `${width}px viewport at ${fontScale}× must keep the full accessible total`,
+        );
+      });
+    }
+  }
 });
 
 test("Profile shows unavailable totals after successful malformed statistics", async (t) => {
