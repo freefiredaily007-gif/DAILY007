@@ -1,0 +1,24 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/withdrawal-upi-copy-test
+- extendedWaitUntil:
+    visible:
+      id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
+    timeout: 15000
+- tapOn:
+    id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
+- extendedWaitUntil:
+    visible:
+      text: "Withdrawal UPI ID copied"
+    timeout: 10000
+- tapOn:
+    id: withdrawal-upi-paste-destination
+- longPressOn:
+    id: withdrawal-upi-paste-destination
+- tapOn:
+    text: "Paste"
+- extendedWaitUntil:
+    visible:
+      text: "Pasted value matches exactly"
+    timeout: 10000

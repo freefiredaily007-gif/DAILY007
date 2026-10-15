@@ -18,6 +18,53 @@ const uiSource = await readFile(
   new URL('../src/components/ui.tsx', import.meta.url),
   'utf8',
 );
+const nativeFixtureSource = await readFile(
+  new URL('../src/screens/WithdrawalUpiCopyNativeTest.tsx', import.meta.url),
+  'utf8',
+);
+const maestroFlow = await readFile(
+  new URL('../maestro/withdrawal-upi-copy/copy-and-paste.yaml', import.meta.url),
+  'utf8',
+);
+const packageSource = await readFile(
+  new URL('../package.json', import.meta.url),
+  'utf8',
+);
+const workflowSource = await readFile(
+  new URL('../../../.github/workflows/android-release-verification.yml', import.meta.url),
+  'utf8',
+);
+
+test('the Android route uses a local-only withdrawal fixture and compares pasted text exactly', () => {
+  assert.match(nativeFixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  assert.ok(
+    nativeFixtureSource.includes("account: 'upi-copy-fixture@daily007.invalid'"),
+    'The fixture should use a non-sensitive synthetic UPI ID.',
+  );
+  assert.match(nativeFixtureSource, /\(Api as any\)\.adminWithdrawals = async \(\) => \[FIXTURE\]/);
+  assert.match(nativeFixtureSource, /\(Api as any\)\.adminPayments = async \(\) => \[\]/);
+  assert.match(nativeFixtureSource, /testOnlyRedactAccount: true/);
+  assert.match(nativeFixtureSource, /secureTextEntry/);
+  assert.match(nativeFixtureSource, /value === FIXTURE\.account/);
+  assert.match(nativeFixtureSource, /<AdminPayments \/>/);
+  assert.match(screenSource, /p\.testOnlyRedactAccount \? 'Test fixture hidden' : p\.account/);
+  assert.doesNotMatch(nativeFixtureSource, /adminMarkWithdrawalPaid|adminWithdrawalAction|adminPaymentAction/);
+});
+
+test('the Android flow copies from AdminPayments, pastes through Android, and reports only a safe result', () => {
+  assert.match(maestroFlow, /withdrawal-upi-copy-test/);
+  assert.match(maestroFlow, /copy-withdrawal-upi-withdrawal-upi-copy-fixture/);
+  assert.match(maestroFlow, /longPressOn:/);
+  assert.match(maestroFlow, /text: "Paste"/);
+  assert.match(maestroFlow, /Pasted value matches exactly/);
+  assert.doesNotMatch(maestroFlow, /upi-copy-fixture@daily007\.invalid|takeScreenshot|screenshot|approve|payout/i);
+  assert.ok(packageSource.includes('"test:android-withdrawal-upi-copy"'));
+  assert.ok(packageSource.includes('maestro/withdrawal-upi-copy'));
+  assert.match(
+    workflowSource,
+    /run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy/,
+  );
+});
 
 test('the withdrawal copy button reports errors and stays separate from payout actions', () => {
   const copyPress = screenSource.match(

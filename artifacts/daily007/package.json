@@ -31,6 +31,7 @@
     "test:ios-wallet-cancellation-refund": "maestro test maestro/wallet-cancellation-refund/voiceover-ios.yaml",
     "test:android-video-unavailable": "maestro test maestro/video-unavailable",
     "test:android-video-link-recovery": "maestro test maestro/video-link-recovery",
+    "test:android-withdrawal-upi-copy": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/withdrawal-upi-copy",
     "test:join-form": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/join-form.test.mjs",
     "test:login-retry-after": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/login-retry-after.test.mjs",
     "test:session-refresh-persistence": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/session-refresh-persistence.test.mjs",
