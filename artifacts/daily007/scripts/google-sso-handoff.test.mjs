@@ -281,6 +281,84 @@ test("Google sign-in can be retried after the account picker is dismissed", asyn
   ]);
 });
 
+test("Google sign-in can be retried after the provider rejects an attempt", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  const successes = [];
+  const providerStarts = [];
+  const events = [];
+  const inFlight = { current: false };
+  let loading = false;
+  let errorMessage = "";
+  let providerAttempts = 0;
+  let activeSession = null;
+
+  async function attemptSignIn() {
+    await runGoogleSSOAttempt({
+      inFlight,
+      onStart() {
+        errorMessage = "";
+      },
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => activeSession,
+        async startSSOFlow() {
+          providerAttempts += 1;
+          providerStarts.push({ attempt: providerAttempts, loading, errorMessage });
+          if (providerAttempts === 1) {
+            throw new Error("Google provider rejected the request");
+          }
+
+          return {
+            createdSessionId: "retry-session",
+            async setActive({ session }) {
+              activeSession = createSession(session, events);
+            },
+          };
+        },
+        async exchangeToken(token) {
+          events.push(`exchange:${token}`);
+          return { account: "daily007-player" };
+        },
+      }),
+      setLoading(value) {
+        loading = value;
+        loadingChanges.push(value);
+      },
+      showError(message) {
+        errorMessage = message;
+        errors.push(message);
+      },
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+  }
+
+  await attemptSignIn();
+  assert.equal(loading, false);
+  assert.equal(inFlight.current, false);
+  assert.equal(errorMessage, "Google provider rejected the request. Please try again.");
+  assert.deepEqual(errors, ["Google provider rejected the request. Please try again."]);
+  assert.deepEqual(successes, []);
+  assert.equal(providerAttempts, 1);
+
+  await attemptSignIn();
+  assert.equal(loading, false);
+  assert.equal(inFlight.current, false);
+  assert.equal(errorMessage, "");
+  assert.equal(providerAttempts, 2);
+  assert.deepEqual(loadingChanges, [true, false, true, false]);
+  assert.deepEqual(providerStarts, [
+    { attempt: 1, loading: true, errorMessage: "" },
+    { attempt: 2, loading: true, errorMessage: "" },
+  ]);
+  assert.deepEqual(errors, ["Google provider rejected the request. Please try again."]);
+  assert.deepEqual(successes, [{ account: "daily007-player" }]);
+  assert.deepEqual(events, [
+    "token:retry-session",
+    "exchange:verified-clerk-jwt",
+  ]);
+});
+
 test("a missing active Clerk session after activation is a retryable error", async () => {
   let exchanges = 0;
   const result = await runGoogleSSOFlow({
@@ -682,6 +760,8 @@ test("the React Native button and callback route use the isolated handoff and me
   );
 
   assert.match(buttonSource, /runGoogleSSOAttempt\(/);
+  assert.match(buttonSource, /inFlight:\s*googleAttemptInFlight/);
+  assert.match(buttonSource, /onStart:\s*\(\)\s*=>\s*\{\s*setError\(''\);\s*onError\?\.\(''\);/);
   assert.match(buttonSource, /authenticate:\s*\(\)\s*=>\s*runGoogleSSOFlow\(/);
   assert.match(
     buttonSource,

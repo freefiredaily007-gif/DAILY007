@@ -158,62 +158,59 @@ function ConfiguredGoogleButton({
   };
 
   const authenticateGoogle = async () => {
-    if (googleAttemptInFlight.current) return;
-    googleAttemptInFlight.current = true;
     const authRevision = captureSessionRevision();
-    try {
-      setError('');
-      onError?.('');
-      setRecoveryAvailable(false);
-      setRecoverySubmitted(false);
-      setOwnerRecoveryCode('');
-      await runGoogleSSOAttempt({
-        authenticate: () => runGoogleSSOFlow({
-          getActiveSession: () => getClerkInstance().session,
-          startSSOFlow: async () => {
-            const redirectUrl = Platform.OS === 'web'
-              ? AuthSession.makeRedirectUri()
-              : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
-            return startSSOFlow({
-              strategy: 'oauth_google',
-              redirectUrl,
-            });
-          },
-          exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, {
-            ...(dailyToken ? { dailyToken } : {}),
-            ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
-          }),
+    await runGoogleSSOAttempt({
+      inFlight: googleAttemptInFlight,
+      onStart: () => {
+        setError('');
+        onError?.('');
+        setRecoveryAvailable(false);
+        setRecoverySubmitted(false);
+        setOwnerRecoveryCode('');
+      },
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => getClerkInstance().session,
+        startSSOFlow: async () => {
+          const redirectUrl = Platform.OS === 'web'
+            ? AuthSession.makeRedirectUri()
+            : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
+          return startSSOFlow({
+            strategy: 'oauth_google',
+            redirectUrl,
+          });
+        },
+        exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, {
+          ...(dailyToken ? { dailyToken } : {}),
+          ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : {}),
         }),
-        setLoading: (isBusy) => {
-          setBusy(isBusy);
-          onBusyChange?.(isBusy);
-          if (isBusy) announceGoogleStatus('Connecting to Google. Please wait.');
-        },
-        showError,
-        onSuccess: async (authenticated) => {
-          const saved = await setSessionForAuthAttempt(authenticated.user, authRevision);
-          if (!saved) return;
-          announceGoogleStatus(
-            label.toLowerCase().includes('sign up')
-              ? 'Google sign-up complete.'
-              : label.toLowerCase().includes('connect')
-                ? 'Google connected successfully.'
-                : 'Google sign-in complete.',
-          );
-          await onSuccess(authenticated.user);
-        },
-        getErrorMessage: (e) => {
-          const message = apiError(e);
-          if (message === 'Network Error') {
-            return 'Could not reach Daily007. Check your connection and try again.';
-          }
-          if (message === RECOVERY_CONFLICT || /try again/i.test(message)) return message;
-          return `${message} Please try again.`;
-        },
-      });
-    } finally {
-      googleAttemptInFlight.current = false;
-    }
+      }),
+      setLoading: (isBusy) => {
+        setBusy(isBusy);
+        onBusyChange?.(isBusy);
+        if (isBusy) announceGoogleStatus('Connecting to Google. Please wait.');
+      },
+      showError,
+      onSuccess: async (authenticated) => {
+        const saved = await setSessionForAuthAttempt(authenticated.user, authRevision);
+        if (!saved) return;
+        announceGoogleStatus(
+          label.toLowerCase().includes('sign up')
+            ? 'Google sign-up complete.'
+            : label.toLowerCase().includes('connect')
+              ? 'Google connected successfully.'
+              : 'Google sign-in complete.',
+        );
+        await onSuccess(authenticated.user);
+      },
+      getErrorMessage: (e) => {
+        const message = apiError(e);
+        if (message === 'Network Error') {
+          return 'Could not reach Daily007. Check your connection and try again.';
+        }
+        if (message === RECOVERY_CONFLICT || /try again/i.test(message)) return message;
+        return `${message} Please try again.`;
+      },
+    });
   };
 
   const requestRecovery = async () => {

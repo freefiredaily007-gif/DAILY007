@@ -27,6 +27,8 @@ type GoogleSSOAttemptOptions<T> = {
   showError: (message: string) => void;
   onSuccess: (value: T) => void | Promise<void>;
   getErrorMessage: (error: unknown) => string;
+  inFlight?: { current: boolean };
+  onStart?: () => void;
 };
 
 const INACTIVE_SESSION_MESSAGE =
@@ -38,17 +40,27 @@ export async function runGoogleSSOAttempt<T>({
   showError,
   onSuccess,
   getErrorMessage,
+  inFlight,
+  onStart,
 }: GoogleSSOAttemptOptions<T>): Promise<void> {
-  setLoading(true);
+  if (inFlight?.current) return;
+  if (inFlight) inFlight.current = true;
+
   let errorMessage: string | undefined;
   try {
+    onStart?.();
+    setLoading(true);
     const result = await authenticate();
     if (result.status === 'error') errorMessage = result.message;
     else if (result.status === 'success') await onSuccess(result.value);
   } catch (error) {
     errorMessage = getErrorMessage(error);
   } finally {
-    setLoading(false);
+    try {
+      setLoading(false);
+    } finally {
+      if (inFlight) inFlight.current = false;
+    }
   }
   if (errorMessage !== undefined) showError(errorMessage);
 }
