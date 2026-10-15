@@ -865,7 +865,7 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     "Logout must invalidate the local session before waiting for Clerk sign-out.",
   );
   const appLogoutStart = appSource.indexOf("const logout = useCallback(async () => {");
-  const appLogoutEnd = appSource.indexOf("\n  }, [signOutClerk]);", appLogoutStart);
+  const appLogoutEnd = appSource.indexOf("\n  }, [signOutClerk, user?.id, user?.$id]);", appLogoutStart);
   assert.ok(appLogoutStart >= 0 && appLogoutEnd > appLogoutStart, "App logout must remain a single guarded operation.");
   const appLogoutSource = appSource.slice(appLogoutStart, appLogoutEnd);
   const logoutGuardIndex = appLogoutSource.indexOf("if (logoutInFlight.current) return;");

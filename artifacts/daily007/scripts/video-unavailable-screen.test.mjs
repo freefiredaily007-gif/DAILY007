@@ -281,6 +281,7 @@ function createCoinClaimRetry(retrySession, claimViewReward, rewardPending = fal
   const element = evaluateJsxConditional(findJsxConditional("retrySession"), {
     React,
     retrySession,
+    View: ({ children }) => React.createElement("div", {}, children),
     Pressable: ({ accessibilityLabel, children, onPress: pressHandler, testID }) => {
       onPress = pressHandler;
       return React.createElement(
@@ -291,9 +292,10 @@ function createCoinClaimRetry(retrySession, claimViewReward, rewardPending = fal
     },
     Text: createTestText,
     Feather: () => null,
-    styles: { retryButton: {}, externalButtonText: {} },
-    colors: { primary: "#0000ff" },
+    styles: { retryButton: {}, externalButtonText: {}, errorCard: {} },
+    colors: { primary: "#0000ff", accent: "#00aaff", destructive: "#ff0000" },
     rewardPending,
+    rewardError: "",
     claimViewReward,
   });
 
@@ -325,12 +327,33 @@ test("retrying a failed coin claim resubmits the same video session and playback
   let rewardMessage = "";
   let rewardPending = false;
   let refreshCalls = 0;
+  let persistedRetry = null;
   const claimViewReward = loadScreenCallback("claimViewReward", {
     playbackCycleRef,
+    accountId: "player-1",
+    captureSessionIdentity: () => ({ accountId: "player-1", token: "test-token", revision: 1 }),
+    isSessionIdentityCurrent: () => true,
+    savePendingVideoRewardRetry: async (accountId, sessionId, percent) => {
+      persistedRetry = { accountId, sessionId, percent };
+    },
+    clearPendingVideoRewardRetry: async (accountId, expectedSessionId) => {
+      if (!expectedSessionId || persistedRetry?.sessionId === expectedSessionId) {
+        persistedRetry = null;
+      }
+    },
     setRewardPending: (value) => { rewardPending = value; },
     setRewardError: (value) => { rewardError = value; },
     completeVideoWatch: ({ data }) => {
       claimRequests.push(data);
+      assert.deepEqual(
+        persistedRetry,
+        {
+          accountId: "player-1",
+          sessionId: "original-video-session",
+          percent: 82.5,
+        },
+        "The original session retry should be saved before each reward request.",
+      );
       if (claimRequests.length === 1) {
         return Promise.reject(new Error("Temporary ledger save failure"));
       }
@@ -349,6 +372,11 @@ test("retrying a failed coin claim resubmits the same video session and playback
     sessionId: "original-video-session",
     percent: 82.5,
   });
+  assert.deepEqual(persistedRetry, {
+    accountId: "player-1",
+    sessionId: "original-video-session",
+    percent: 82.5,
+  }, "The same-session retry reference should persist after a failed claim.");
   assert.equal(rewardPending, false);
 
   const retryControl = createCoinClaimRetry(retrySession, claimViewReward, rewardPending);
@@ -367,6 +395,7 @@ test("retrying a failed coin claim resubmits the same video session and playback
   assert.equal(rewardMessage, "1 coin added to your wallet.");
   assert.equal(rewardError, "");
   assert.equal(retrySession, null, "A successful claim should clear the retry session.");
+  assert.equal(persistedRetry, null, "A successful claim should clear the saved retry reference.");
   assert.equal(rewardPending, false);
   assert.equal(refreshCalls, 1);
   assert.equal(
@@ -374,6 +403,41 @@ test("retrying a failed coin claim resubmits the same video session and playback
     "",
     "The coin-claim retry control should disappear after success.",
   );
+});
+
+test("a permanently unavailable video clears its saved retry reference", async () => {
+  const playbackCycleRef = { current: 1 };
+  let retrySession = { sessionId: "expired-session", percent: 80 };
+  let persistedRetry = { sessionId: "expired-session" };
+  let rewardError = "";
+  let clearCalls = 0;
+  const claimViewReward = loadScreenCallback("claimViewReward", {
+    playbackCycleRef,
+    accountId: "player-1",
+    captureSessionIdentity: () => ({ accountId: "player-1", token: "test-token", revision: 1 }),
+    isSessionIdentityCurrent: () => true,
+    savePendingVideoRewardRetry: async () => {},
+    clearPendingVideoRewardRetry: async (_accountId, sessionId) => {
+      clearCalls += 1;
+      if (persistedRetry?.sessionId === sessionId) persistedRetry = null;
+    },
+    setRewardPending() {},
+    setRewardError: (value) => { rewardError = value; },
+    completeVideoWatch: async () => {
+      throw new Error("This video is no longer available for rewards.");
+    },
+    setRewardMessage() {},
+    setRetrySession: (value) => { retrySession = value; },
+    refresh: async () => {},
+    apiError: loadApiErrorHelper(),
+    VIDEO_UNAVAILABLE_FOR_REWARDS: "This video is no longer available for rewards.",
+  });
+
+  await claimViewReward("expired-session", 80);
+  assert.equal(retrySession, null);
+  assert.equal(persistedRetry, null);
+  assert.equal(clearCalls, 1);
+  assert.equal(rewardError, "This video is no longer available for rewards.");
 });
 
 test("a failed start can retry the same attempt without counting the failed wait or changing replay identity", async () => {

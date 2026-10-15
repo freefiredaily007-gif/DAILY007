@@ -42,6 +42,7 @@ import { HomeIconActive, HomeIconInactive } from './components/HomeEarnIcons';
 import { EarnIconActive, EarnIconInactive } from './components/HomeEarnIcons';
 import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
+import { clearPendingVideoRewardRetry } from './lib/video-reward-retry';
 import {
   restoreDaily007Session,
   runSingleFlight,
@@ -328,9 +329,21 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     setVerificationSession(null);
     setAuthNotice('');
     try {
-      const clerkSignOutFailed = await logoutDaily007(signOutClerk, () => setSession(null));
+      let retryClearFailed = false;
+      const accountId = user?.id ?? user?.$id;
+      const clerkSignOutFailed = await logoutDaily007(signOutClerk, async () => {
+        try {
+          if (accountId) await clearPendingVideoRewardRetry(accountId);
+        } catch {
+          retryClearFailed = true;
+        }
+        await setSession(null);
+      });
       if (clerkSignOutFailed) {
         Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
+      }
+      if (retryClearFailed) {
+        Alert.alert('Sign-out issue', 'Daily007 signed out, but the saved video coin retry could not be cleared from this device.');
       }
     } finally {
       setUser(null);
@@ -338,7 +351,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
       setLogoutPending(false);
       logoutInFlight.current = false;
     }
-  }, [signOutClerk]);
+  }, [signOutClerk, user?.id, user?.$id]);
 
   if (booting) return (
     <View style={s.boot}>

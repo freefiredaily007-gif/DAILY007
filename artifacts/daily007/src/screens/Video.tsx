@@ -28,7 +28,16 @@ import {
   useDaily007StartVideoWatch,
 } from '@workspace/api-client-react';
 import { useApp } from '../App';
-import { apiError } from '../lib/api';
+import {
+  apiError,
+  captureSessionIdentity,
+  isSessionIdentityCurrent,
+} from '../lib/api';
+import {
+  clearPendingVideoRewardRetry,
+  loadPendingVideoRewardRetry,
+  savePendingVideoRewardRetry,
+} from '../lib/video-reward-retry';
 import {
   createVideoWatchAttemptId,
   getCreditedVideoWatchSeconds,
@@ -186,7 +195,6 @@ export default function Video() {
     playbackCycleRef.current += 1;
     setShowPlayer(false);
     setSelectedVideoId(null);
-    setRetrySession(null);
   }, []);
 
   useFocusEffect(useCallback(() => {
@@ -252,7 +260,8 @@ export default function Video() {
       `${video.title} ${video.topic}`.toLowerCase().includes(query),
     );
   }, [searchQuery, videos]);
-  const { refresh } = useApp();
+  const { user, refresh } = useApp();
+  const accountId = user.id ?? user.$id;
   const { mutateAsync: startVideoWatch } = useDaily007StartVideoWatch();
   const { mutateAsync: completeVideoWatch } = useDaily007CompleteVideoWatch();
   const webFrameRef = useRef<any>(null);
@@ -283,17 +292,60 @@ export default function Video() {
   const [sessionStartRetryAvailable, setSessionStartRetryAvailable] = useState(false);
   const [sessionStartRetryPending, setSessionStartRetryPending] = useState(false);
 
+  useEffect(() => {
+    let active = true;
+    setRetrySession(null);
+    if (!accountId) return () => { active = false; };
+    void loadPendingVideoRewardRetry(accountId).then((retry) => {
+      if (active) {
+        setRetrySession(retry
+          ? { sessionId: retry.sessionId, percent: retry.percent }
+          : null);
+      }
+    }).catch(() => {
+      if (active) setRewardError('A saved coin claim could not be loaded. Check device storage and reopen the Video tab.');
+    });
+    return () => { active = false; };
+  }, [accountId]);
+
   const claimViewReward = useCallback(async (sessionId: string, percentWatched: number) => {
     const playbackCycle = playbackCycleRef.current;
+    const sessionIdentity = captureSessionIdentity();
+    const canPersistForAccount = Boolean(
+      accountId &&
+      sessionIdentity &&
+      sessionIdentity.accountId === accountId &&
+      isSessionIdentityCurrent(sessionIdentity),
+    );
+    let retrySaved = false;
     setRewardPending(true);
     setRewardError('');
+    if (canPersistForAccount && accountId) {
+      try {
+        await savePendingVideoRewardRetry(accountId, sessionId, percentWatched);
+        retrySaved = true;
+      } catch {
+        // Still submit the reward claim; report the persistence issue only if retry is needed.
+      }
+    }
     try {
       const result = await completeVideoWatch({
         data: { sessionId, percentWatched: Math.min(100, percentWatched) },
       });
+      let retryClearFailed = false;
+      if (accountId) {
+        try {
+          await clearPendingVideoRewardRetry(accountId, sessionId);
+        } catch {
+          retryClearFailed = true;
+        }
+      }
       if (playbackCycle === playbackCycleRef.current) {
         setRewardMessage(result.message || (result.rewarded ? '1 coin added to your wallet.' : 'This view has already been rewarded.'));
         setRetrySession(null);
+        if (retryClearFailed) {
+          setRewardError('The coin was recorded, but its saved retry could not be removed from this device.');
+        }
       }
       void refresh().catch(() => {
         if (playbackCycle === playbackCycleRef.current) {
@@ -301,18 +353,48 @@ export default function Video() {
         }
       });
     } catch (error) {
-      if (playbackCycle !== playbackCycleRef.current) return;
       const message = apiError(error);
-      setRewardError(message);
       if (message === VIDEO_UNAVAILABLE_FOR_REWARDS) {
-        setRetrySession(null);
+        let retryClearFailed = false;
+        if (accountId) {
+          try {
+            await clearPendingVideoRewardRetry(accountId, sessionId);
+          } catch {
+            retryClearFailed = true;
+          }
+        }
+        if (playbackCycle === playbackCycleRef.current) {
+          setRewardError(retryClearFailed
+            ? `${message} The saved retry could not be removed from this device.`
+            : message);
+          setRetrySession(null);
+        }
       } else {
-        setRetrySession({ sessionId, percent: percentWatched });
+        if (
+          !retrySaved &&
+          canPersistForAccount &&
+          accountId &&
+          sessionIdentity &&
+          isSessionIdentityCurrent(sessionIdentity)
+        ) {
+          try {
+            await savePendingVideoRewardRetry(accountId, sessionId, percentWatched);
+            retrySaved = true;
+          } catch {
+            // The in-memory retry remains available for this app session.
+          }
+        }
+        if (playbackCycle === playbackCycleRef.current) {
+          setRewardError(retrySaved
+            ? message
+            : `${message} This retry could not be saved on this device.`);
+          setRetrySession({ sessionId, percent: percentWatched });
+        }
       }
     } finally {
       if (playbackCycle === playbackCycleRef.current) setRewardPending(false);
     }
-  }, [completeVideoWatch, refresh]);
+  }, [accountId, completeVideoWatch, refresh]);
 
   const finishCurrentPlayback = useCallback(() => {
     const sessionId = currentSessionRef.current;
@@ -503,7 +585,6 @@ export default function Video() {
     setRewardMessage('');
     setRewardError('');
     setRewardPending(false);
-    setRetrySession(null);
   }, [selectedVideo?.id, showPlayer]);
 
   useEffect(() => {
@@ -783,6 +864,35 @@ export default function Video() {
         </>
       ) : (
         <>
+          {rewardError && !retrySession ? (
+            <View style={styles.errorCard}>
+              <Feather name="alert-circle" size={18} color={colors.destructive} />
+              <Text style={styles.errorText}>{rewardError}</Text>
+            </View>
+          ) : null}
+          {retrySession ? (
+            <View style={styles.errorCard}>
+              <Feather name="alert-circle" size={18} color={colors.accent} />
+              <Text style={styles.errorText}>
+                {rewardError || 'A completed video still needs its coin claim. Retry here without watching the video again.'}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Retry the saved coin reward claim"
+                accessibilityHint="Retries the original completed video session without starting another watch session."
+                accessibilityState={{ busy: rewardPending, disabled: rewardPending }}
+                testID="video-retry-claim"
+                disabled={rewardPending}
+                onPress={() => { void claimViewReward(retrySession.sessionId, retrySession.percent); }}
+                style={styles.retryButton}
+              >
+                <Feather name="refresh-cw" size={15} color={colors.primary} />
+                <Text style={styles.externalButtonText}>
+                  {rewardPending ? 'RETRYING CLAIM…' : 'RETRY COIN CLAIM'}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
           {videosQuery.isLoading ? (
             <View style={styles.emptyCard}>
               <ActivityIndicator color={colors.accent} />
