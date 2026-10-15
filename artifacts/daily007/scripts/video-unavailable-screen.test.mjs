@@ -543,14 +543,15 @@ test("an embed failure announces once and exposes an actionable YouTube recovery
   );
 });
 
-test("a failed start can retry the same attempt without counting the failed wait or changing replay identity", async () => {
-  const unavailableMessage = "This video is unavailable.";
+test("a temporary start failure can retry the same attempt without counting the failed wait or changing replay identity", async () => {
+  const temporaryFailureMessage = "Temporary session start failure.";
   const apiError = loadApiErrorHelper();
-  const unavailableResponse = {
+  const temporaryFailureResponse = {
     response: {
-      data: { error: unavailableMessage },
+      status: 503,
+      data: { error: temporaryFailureMessage },
     },
-    message: "Request failed with status code 404",
+    message: "Request failed with status code 503",
   };
   const currentSessionRef = { current: null };
   const startingSessionRef = { current: false };
@@ -672,13 +673,13 @@ test("a failed start can retry the same attempt without counting the failed wait
   });
   assert.equal(startingSessionRef.current, true);
   assert.deepEqual(progressWrites, [0], "Playback while the start request is pending must not be credited.");
-  rejectInitialStart(unavailableResponse);
+  rejectInitialStart(temporaryFailureResponse);
   await waitFor(
-    () => rewardErrors.at(-1) === unavailableMessage,
+    () => rewardErrors.at(-1) === temporaryFailureMessage,
     "The API start failure should reach the screen error state.",
   );
 
-  assert.equal(rewardErrors.at(-1), unavailableMessage);
+  assert.equal(rewardErrors.at(-1), temporaryFailureMessage);
   assert.equal(sessionStartFailedRef.current, true);
   assert.equal(startingSessionRef.current, false);
   assert.equal(currentSessionRef.current, null);
@@ -693,7 +694,7 @@ test("a failed start can retry the same attempt without counting the failed wait
   const errorMarkup = renderError(rewardErrors.at(-1));
   assert.match(errorMarkup, /data-testid="video-watch-error"/);
   assert.match(errorMarkup, /data-testid="video-watch-error-message"/);
-  assert.match(errorMarkup, /This video is unavailable\./);
+  assert.match(errorMarkup, /Temporary session start failure\./);
   assert.match(errorMarkup, /role="text"/);
   assert.match(errorMarkup, /aria-live="polite"/);
   assert.equal(
@@ -803,6 +804,70 @@ test("a failed start can retry the same attempt without counting the failed wait
   assert.equal(startRequests[2].videoId, "test-video");
   assert.equal(startRequests[2].attemptId, "attempt-2");
   assert.notEqual(startRequests[2].attemptId, startRequests[1].attemptId);
+});
+
+test("a 404 start failure announces that the video is unavailable and does not offer a retry", async () => {
+  const playbackCycleRef = { current: 1 };
+  const startingSessionRef = { current: false };
+  const sessionStartFailedRef = { current: false };
+  const sessionStartRetryAvailable = { current: false };
+  const sessionStartRetryPending = { current: false };
+  const rewardErrors = [];
+  const setSessionStartRetryAvailable = (value) => {
+    sessionStartRetryAvailable.current = value;
+  };
+  const setSessionStartRetryPending = (value) => {
+    sessionStartRetryPending.current = value;
+  };
+  const startVideoWatchSession = loadScreenCallback("startVideoWatchSession", {
+    startingSessionRef,
+    sessionStartFailedRef,
+    setRewardError: (value) => rewardErrors.push(value),
+    appLifecycleCycleRef: { current: 0 },
+    startVideoWatch: async () => {
+      throw {
+        response: {
+          status: 404,
+          data: { error: "Video not found." },
+        },
+      };
+    },
+    playbackCycleRef,
+    currentSessionRef: { current: null },
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
+    appIsActiveRef: { current: true },
+    latestPlaybackTimeRef: { current: null },
+    lastSampleRef: { current: null },
+    apiError: loadApiErrorHelper(),
+  });
+
+  startVideoWatchSession({
+    videoId: "deleted-video",
+    durationSeconds: 60,
+    attemptId: "deleted-video-attempt",
+  }, playbackCycleRef.current);
+  await waitFor(
+    () => sessionStartFailedRef.current,
+    "The 404 should reach the unavailable error state.",
+  );
+
+  assert.equal(rewardErrors.at(-1), "This video is no longer available.");
+  assert.equal(sessionStartFailedRef.current, true);
+  assert.equal(sessionStartRetryAvailable.current, false);
+  assert.equal(sessionStartRetryPending.current, false);
+
+  const errorMarkup = renderError(rewardErrors.at(-1));
+  assert.match(errorMarkup, /This video is no longer available\./);
+  assert.match(errorMarkup, /aria-live="polite"/);
+  assert.equal(
+    renderSessionStartRetry(
+      sessionStartRetryAvailable.current,
+      sessionStartRetryPending.current,
+    ),
+    "",
+    "A permanently missing video must not offer a session-start retry.",
+  );
 });
 
 test("a late start response from an ended playback cannot replace the replay session or progress", async () => {

@@ -501,10 +501,14 @@ export default function Video() {
       }
     }).catch((error) => {
       if (cycle === playbackCycleRef.current) {
+        const videoWasNotFound =
+          (error as { response?: { status?: number } } | null)?.response?.status === 404;
         sessionStartFailedRef.current = true;
-        setSessionStartRetryAvailable(true);
+        setSessionStartRetryAvailable(!videoWasNotFound);
         setSessionStartRetryPending(false);
-        setRewardError(apiError(error));
+        setRewardError(videoWasNotFound
+          ? 'This video is no longer available.'
+          : apiError(error));
       }
     }).finally(() => {
       if (cycle === playbackCycleRef.current) startingSessionRef.current = false;
