@@ -77,7 +77,7 @@ test("video completion before the minimum elapsed time cannot credit the wallet"
   let ledgerWrites = 0;
   const client = {
     async query<T = unknown>(sql: string) {
-      if (sql.includes("FROM daily007_v2_video_watch_sessions s")) {
+      if (sql.includes("WHERE id = $1 AND user_id = $2")) {
         return { rows: [{ ...session }] as T[] };
       }
       if (sql.includes("UPDATE daily007_v2_users SET wallet_coins")) walletWrites += 1;
@@ -120,10 +120,12 @@ test("disabling a video after playback starts rejects completion without a walle
         assert.deepEqual(values, ["user-id", "video-id", 30, "attempt-identifier-123"]);
         return { rows: [{ id: "session-id", started_at: startedAt }] as T[] };
       }
-      if (sql.includes("FROM daily007_v2_video_watch_sessions s")) {
-        assert.match(sql, /v\.active/);
-        assert.match(sql, /FOR UPDATE OF s, v/);
+      if (sql.includes("WHERE id = $1 AND user_id = $2")) {
+        assert.match(sql, /FOR UPDATE/);
         return { rows: [{ ...session, active: videoActive }] as T[] };
+      }
+      if (sql.includes("SELECT active FROM daily007_v2_videos")) {
+        return { rows: (videoActive ? [{ active: true }] : []) as T[] };
       }
       if (sql.includes("SELECT wallet_coins FROM daily007_v2_users")) {
         return { rows: [{ wallet_coins: walletCoins }] as T[] };
@@ -188,8 +190,11 @@ test("a completed playback session credits one coin once and writes one ledger r
   let ledgerWrites = 0;
   const client = {
     async query<T = unknown>(sql: string, values: any[] = []) {
-      if (sql.includes("FROM daily007_v2_video_watch_sessions s")) {
+      if (sql.includes("WHERE id = $1 AND user_id = $2")) {
         return { rows: [{ ...session }] as T[] };
+      }
+      if (sql.includes("SELECT active FROM daily007_v2_videos")) {
+        return { rows: [{ active: true }] as T[] };
       }
       if (sql.includes("SELECT wallet_coins FROM daily007_v2_users")) {
         return { rows: [{ wallet_coins: balance }] as T[] };
@@ -207,7 +212,7 @@ test("a completed playback session credits one coin once and writes one ledger r
         session.reported_percent = values[1];
         session.completed_at = new Date(now);
         session.reward_ledger_id = values[2];
-        return { rows: [] as T[] };
+        return { rows: [{ id: session.id }] as T[] };
       }
       return { rows: [] as T[] };
     },

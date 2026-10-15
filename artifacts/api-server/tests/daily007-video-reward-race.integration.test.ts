@@ -1421,6 +1421,99 @@ test("a failed watch-session completion update rolls back a video reward", async
   }
 });
 
+test("a suppressed watch-session completion update rolls back a video reward", async () => {
+  const fixture = await createFixture();
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
+  const triggerSuffix = randomUUID().replace(/-/g, "");
+  const suppressTrigger = `suppress_video_completion_${triggerSuffix}`;
+  const suppressFunction = `suppress_video_completion_function_${triggerSuffix}`;
+  const suppressSequence = `suppress_video_completion_sequence_${triggerSuffix}`;
+  const failedLedgerKey = `daily007-video-watch:${fixture.sessionId}`;
+
+  try {
+    await pool.query(`CREATE SEQUENCE ${suppressSequence}`);
+    await pool.query(`
+      CREATE FUNCTION ${suppressFunction}() RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        IF OLD.completed_at IS NULL
+           AND NEW.completed_at IS NOT NULL
+           AND OLD.reward_ledger_id IS NULL
+           AND NEW.reward_ledger_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1
+               FROM daily007_v2_wallet_ledger
+              WHERE id = NEW.reward_ledger_id
+                AND idempotency_key = '${failedLedgerKey}'
+                AND reason = 'video_watch_reward'
+           ) THEN
+          PERFORM nextval('${suppressSequence}');
+          RETURN NULL;
+        END IF;
+        RETURN NEW;
+      END;
+      $function$
+    `);
+    await pool.query(`
+      CREATE TRIGGER ${suppressTrigger}
+      BEFORE UPDATE OF completed_at, reward_ledger_id
+      ON daily007_v2_video_watch_sessions
+      FOR EACH ROW
+      WHEN (
+        OLD.id = '${fixture.sessionId}'::uuid
+        AND OLD.completed_at IS NULL
+        AND NEW.completed_at IS NOT NULL
+        AND OLD.reward_ledger_id IS NULL
+        AND NEW.reward_ledger_id IS NOT NULL
+      )
+      EXECUTE FUNCTION ${suppressFunction}()
+    `);
+
+    await withServer(async (origin) => {
+      const response = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.body.error, "Internal server error.");
+    });
+
+    const triggerEvidence = await pool.query<{ lastValue: string; isCalled: boolean }>(
+      `SELECT last_value::text AS "lastValue", is_called AS "isCalled"
+         FROM ${suppressSequence}`,
+    );
+    assert.equal(triggerEvidence.rows[0]?.lastValue, "1");
+    assert.equal(triggerEvidence.rows[0]?.isCalled, true);
+
+    const state = await inspectFixture(fixture);
+    assert.equal(state.walletCoins, 12, "a suppressed completion must not change the wallet");
+    assert.equal(state.ledgerCount, 0, "a suppressed completion must not leave a ledger row");
+    assert.equal(state.ledgerId, null);
+    assert.equal(state.completedAt, null, "the watch session must remain incomplete");
+    assert.equal(state.rewardLedgerId, null);
+
+    const session = await pool.query<{ reported_percent: number }>(
+      "SELECT reported_percent FROM daily007_v2_video_watch_sessions WHERE id = $1",
+      [fixture.sessionId],
+    );
+    assert.equal(session.rows[0]?.reported_percent, 0, "the watch session must remain unchanged");
+  } finally {
+    try {
+      await pool.query(
+        `DROP TRIGGER IF EXISTS ${suppressTrigger} ON daily007_v2_video_watch_sessions`,
+      );
+      await pool.query(`DROP FUNCTION IF EXISTS ${suppressFunction}()`);
+      await pool.query(`DROP SEQUENCE IF EXISTS ${suppressSequence}`);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
+});
+
 test("overlapping retries create one watch session and reward", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.playerId && fixture.videoId);

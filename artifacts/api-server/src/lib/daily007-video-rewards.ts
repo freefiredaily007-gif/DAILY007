@@ -257,12 +257,16 @@ export async function completeDaily007VideoWatch(
   const transactionId = ledger.rows[0]?.id;
   if (!transactionId) throw new Error("The video reward transaction could not be recorded.");
 
-  await client.query(
+  const completion = await client.query<{ id: string }>(
     `UPDATE daily007_v2_video_watch_sessions
         SET reported_percent = $2, completed_at = now(), reward_ledger_id = $3
-      WHERE id = $1`,
+      WHERE id = $1
+      RETURNING id`,
     [sessionId, percentWatched, transactionId],
   );
+  if (completion.rows[0]?.id !== sessionId) {
+    throw new Error("The video reward session could not be marked complete.");
+  }
 
   return {
     rewarded: true,
