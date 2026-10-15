@@ -979,6 +979,60 @@ test("legacy room publishing only marks saved credentials as published for manag
   });
 });
 
+test("Full Admins can clear and republish room credentials through compatibility admin actions", async () => {
+  const fullAdminToken = makeToken(TEST_FULL_ADMIN_ID, 0);
+  assert.ok(fullAdminToken);
+
+  roomAccessTestDb.reset();
+  roomAccessTestDb.match.room_published = false;
+  const beforeRepublish = structuredClone(roomAccessTestDb.match);
+  const registrationsBeforeRepublish = structuredClone(roomAccessTestDb.registrations);
+
+  await withServer(async (origin) => {
+    const republished = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/publish-room`,
+      "POST",
+      fullAdminToken,
+    );
+
+    assert.equal(republished.status, 200);
+    assert.deepEqual(republished.body, {
+      id: TEST_MATCH_ID,
+      roomPublished: true,
+    });
+    assert.equal(roomAccessTestDb.match.room_id, beforeRepublish.room_id);
+    assert.equal(roomAccessTestDb.match.room_password, beforeRepublish.room_password);
+    assert.equal(roomAccessTestDb.match.room_time, beforeRepublish.room_time);
+    assert.equal(roomAccessTestDb.match.room_published, true);
+    assert.equal(roomAccessTestDb.match.status, beforeRepublish.status);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBeforeRepublish);
+
+    roomAccessTestDb.reset();
+    const beforeClear = structuredClone(roomAccessTestDb.match);
+    const registrationsBeforeClear = structuredClone(roomAccessTestDb.registrations);
+
+    const cleared = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/room`,
+      "DELETE",
+      fullAdminToken,
+    );
+
+    assert.equal(cleared.status, 200);
+    assert.deepEqual(cleared.body, {
+      success: true,
+      roomPublished: false,
+    });
+    assert.equal(roomAccessTestDb.match.room_id, null);
+    assert.equal(roomAccessTestDb.match.room_password, null);
+    assert.equal(roomAccessTestDb.match.room_time, beforeClear.room_time);
+    assert.equal(roomAccessTestDb.match.room_published, false);
+    assert.equal(roomAccessTestDb.match.status, beforeClear.status);
+    assert.deepEqual(roomAccessTestDb.registrations, registrationsBeforeClear);
+  });
+});
+
 test("legacy room publishing rejects cancelled tournaments without changing retained room or registration state", async () => {
   roomAccessTestDb.reset();
   roomAccessTestDb.match.status = "cancelled";
