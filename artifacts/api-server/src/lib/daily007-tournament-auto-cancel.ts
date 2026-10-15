@@ -30,7 +30,10 @@ async function loadCandidateCursor(): Promise<CandidateCursor | null> {
   return { id: value.id, startsAt: new Date(value.startsAt).toISOString() };
 }
 
-async function saveCandidateCursor(cursor: CandidateCursor | null): Promise<void> {
+async function saveCandidateCursor(
+  cursor: CandidateCursor | null,
+  expectedCursorOnReset: CandidateCursor | null = null,
+): Promise<void> {
   await pool.query(
     `INSERT INTO daily007_v2_settings (id, settings)
      VALUES (1, jsonb_build_object('__daily007AutoCancelCursor', $1::jsonb))
@@ -38,10 +41,34 @@ async function saveCandidateCursor(cursor: CandidateCursor | null): Promise<void
        SET settings = jsonb_set(
          COALESCE(daily007_v2_settings.settings, '{}'::jsonb),
          '{__daily007AutoCancelCursor}',
-         $1::jsonb,
+          CASE
+            WHEN $1::jsonb = 'null'::jsonb
+            THEN CASE
+              WHEN daily007_v2_settings.settings->'__daily007AutoCancelCursor' = $2::jsonb
+              THEN $1::jsonb
+              ELSE daily007_v2_settings.settings->'__daily007AutoCancelCursor'
+            END
+            WHEN jsonb_typeof(daily007_v2_settings.settings->'__daily007AutoCancelCursor') = 'object'
+             AND daily007_v2_settings.settings->'__daily007AutoCancelCursor'->>'startsAt'
+               ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$'
+             AND daily007_v2_settings.settings->'__daily007AutoCancelCursor'->>'id'
+               ~* '^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$'
+             AND (
+               daily007_v2_settings.settings->'__daily007AutoCancelCursor'->>'startsAt'
+                 > $1::jsonb->>'startsAt'
+               OR (
+                 daily007_v2_settings.settings->'__daily007AutoCancelCursor'->>'startsAt'
+                   = $1::jsonb->>'startsAt'
+                 AND daily007_v2_settings.settings->'__daily007AutoCancelCursor'->>'id'
+                   > $1::jsonb->>'id'
+               )
+             )
+            THEN daily007_v2_settings.settings->'__daily007AutoCancelCursor'
+            ELSE $1::jsonb
+          END,
          true
        )`,
-    [JSON.stringify(cursor)],
+    [JSON.stringify(cursor), JSON.stringify(expectedCursorOnReset)],
   );
 }
 
@@ -83,8 +110,9 @@ export async function runDaily007AutoCancellationSweep(): Promise<void> {
     let lastCandidateCursor = await loadCandidateCursor();
     let candidates = await selectCandidates(lastCandidateCursor);
     if (candidates.rows.length === 0 && lastCandidateCursor !== null) {
+      const previousCursor = lastCandidateCursor;
       lastCandidateCursor = null;
-      await saveCandidateCursor(null);
+      await saveCandidateCursor(null, previousCursor);
       candidates = await selectCandidates(null);
     }
 

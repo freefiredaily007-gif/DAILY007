@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createInterface } from "node:readline";
 import test, { after } from "node:test";
 import { pool } from "@workspace/db";
 import { runDaily007AutoCancellationSweep } from "../src/lib/daily007-tournament-auto-cancel";
@@ -44,6 +46,20 @@ type CursorWrapFixture = {
   earlierStartsAt: string;
   laterStartsAt: string;
 };
+
+type ConcurrentSweepFixture = {
+  matchIds: string[];
+  registrationIds: string[];
+  payerId: string;
+};
+
+type SweepWorkerEvent = {
+  type: string;
+  count?: number;
+  id?: string;
+};
+
+const SWEEP_WORKER_BUNDLE = "/tmp/daily007-auto-cancel-sweep-worker.cjs";
 
 after(async () => {
   await pool.end();
@@ -351,6 +367,138 @@ async function storedCursor(): Promise<{ id: string; startsAt: string } | undefi
     : undefined;
 }
 
+async function createConcurrentSweepFixture(): Promise<ConcurrentSweepFixture> {
+  const matchIds = Array.from(
+    { length: 200 },
+    (_, index) => `40000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const registrationIds = matchIds.map(() => randomUUID());
+  const payerId = randomUUID();
+  const startsAt = matchIds.map(
+    (_, index) => new Date(Date.now() - 60 * 60 * 1000 + index * 1_000).toISOString(),
+  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO daily007_v2_users (id, wallet_coins) VALUES ($1, 1000)",
+      [payerId],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, capacity, starts_at, status,
+          enabled, is_full, room_id, room_password, room_published)
+       SELECT id, 'Concurrent Cursor Candidate', 'clash', 'clash_squad', 2,
+              starts_at, 'open', true, false, NULL, NULL, false
+         FROM unnest($1::uuid[], $2::timestamptz[]) AS candidates(id, starts_at)`,
+      [matchIds, startsAt],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, entry_coins_paid, status)
+       SELECT registration_id, match_id, $3, 1, 'approved'
+         FROM unnest($1::uuid[], $2::uuid[]) AS registrations(registration_id, match_id)`,
+      [registrationIds, matchIds, payerId],
+    );
+    await client.query("COMMIT");
+    return { matchIds, registrationIds, payerId };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function cleanupConcurrentSweepFixture(
+  fixture: ConcurrentSweepFixture,
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE match_id = ANY($1::uuid[])",
+      [fixture.matchIds],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = ANY($1::uuid[])",
+      [fixture.registrationIds],
+    );
+    await client.query(
+      "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
+      [fixture.matchIds],
+    );
+    await client.query("DELETE FROM daily007_v2_users WHERE id = $1", [fixture.payerId]);
+    await client.query("DELETE FROM daily007_v2_settings WHERE id = 1");
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function startSweepWorker(pauseBeforeCursorId?: string): {
+  child: ChildProcessWithoutNullStreams;
+  events: SweepWorkerEvent[];
+  waitForEvent(predicate: (event: SweepWorkerEvent) => boolean): Promise<SweepWorkerEvent>;
+  done: Promise<void>;
+} {
+  const child = spawn(process.execPath, [SWEEP_WORKER_BUNDLE], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...(pauseBeforeCursorId
+        ? { DAILY007_PAUSE_BEFORE_CURSOR_ID: pauseBeforeCursorId }
+        : { DAILY007_PAUSE_BEFORE_CURSOR_ID: "" }),
+    },
+  });
+  const events: SweepWorkerEvent[] = [];
+  const waiters: Array<{
+    predicate: (event: SweepWorkerEvent) => boolean;
+    resolve(event: SweepWorkerEvent): void;
+    timer: NodeJS.Timeout;
+  }> = [];
+  let stderr = "";
+
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    if (!line.startsWith("WORKER_EVENT:")) return;
+    const event = JSON.parse(line.slice("WORKER_EVENT:".length)) as SweepWorkerEvent;
+    events.push(event);
+    for (let index = waiters.length - 1; index >= 0; index -= 1) {
+      const waiter = waiters[index]!;
+      if (!waiter.predicate(event)) continue;
+      clearTimeout(waiter.timer);
+      waiters.splice(index, 1);
+      waiter.resolve(event);
+    }
+  });
+
+  const waitForEvent = (predicate: (event: SweepWorkerEvent) => boolean) => {
+    const previous = events.find(predicate);
+    if (previous) return Promise.resolve(previous);
+    return new Promise<SweepWorkerEvent>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const index = waiters.findIndex((waiter) => waiter.resolve === resolve);
+        if (index >= 0) waiters.splice(index, 1);
+        reject(new Error(`Timed out waiting for sweep worker event. ${stderr}`));
+      }, 15_000);
+      waiters.push({ predicate, resolve, timer });
+    });
+  };
+  const done = new Promise<void>((resolve, reject) => {
+    child.once("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Sweep worker exited with code ${code}. ${stderr}`));
+    });
+  });
+  return { child, events, waitForEvent, done };
+}
+
 async function waitForBlockedQuery(
   queryFragment: string,
   expectedBlockerPid: number,
@@ -509,6 +657,95 @@ test("a match that fills its final seat before the cancellation lock is not refu
       );
     }
     await cleanupFixture(fixture);
+  }
+});
+
+test("concurrent PostgreSQL sweeps cannot move the saved cursor backwards", async () => {
+  const fixture = await createConcurrentSweepFixture();
+  const slowWorker = startSweepWorker(fixture.matchIds[99]);
+  let fastWorker: ReturnType<typeof startSweepWorker> | undefined;
+
+  try {
+    await pool.query(
+      "INSERT INTO daily007_v2_settings (id, settings) VALUES (1, '{}'::jsonb)",
+    );
+    const slowBatch = await slowWorker.waitForEvent(
+      (event) => event.type === "batch-selected",
+    );
+    assert.equal(slowBatch.count, 100);
+    await slowWorker.waitForEvent(
+      (event) => event.type === "cursor-paused" && event.id === fixture.matchIds[99],
+    );
+    assert.equal(
+      (await storedCursor())?.id,
+      fixture.matchIds[98],
+      "the slow worker must pause after saving only its 99th candidate",
+    );
+
+    fastWorker = startSweepWorker();
+    const fastBatch = await fastWorker.waitForEvent(
+      (event) => event.type === "batch-selected",
+    );
+    assert.equal(fastBatch.count, 100);
+    await fastWorker.done;
+    assert.equal(
+      (await storedCursor())?.id,
+      fixture.matchIds[199],
+      "the fast worker must commit progress through the second batch",
+    );
+
+    slowWorker.child.stdin.write("resume\n");
+    slowWorker.child.stdin.end();
+    await slowWorker.done;
+
+    assert.equal(
+      (await storedCursor())?.id,
+      fixture.matchIds[199],
+      "the slow worker's stale cursor must not overwrite newer saved progress",
+    );
+
+    const matchRefunds = await pool.query<{
+      id: string;
+      status: string;
+      refund_count: number;
+    }>(
+      `SELECT match.id, match.status, count(ledger.id)::integer AS refund_count
+         FROM daily007_v2_matches match
+         LEFT JOIN daily007_v2_wallet_ledger ledger
+           ON ledger.match_id = match.id
+          AND ledger.reason = 'tournament_cancel_refund'
+        WHERE match.id = ANY($1::uuid[])
+        GROUP BY match.id, match.status
+        ORDER BY match.starts_at, match.id`,
+      [fixture.matchIds],
+    );
+    assert.equal(matchRefunds.rows.length, 200);
+    assert.ok(matchRefunds.rows.every(
+      ({ status, refund_count }) => status === "cancelled" && refund_count === 1,
+    ));
+
+    const payer = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [fixture.payerId],
+    );
+    assert.equal(payer.rows[0]?.wallet_coins, 1_200);
+    assert.deepEqual(
+      fastWorker.events
+        .filter((event) => event.type === "batch-selected")
+        .map((event) => event.count),
+      [100],
+    );
+  } finally {
+    if (slowWorker.child.exitCode === null) {
+      slowWorker.child.stdin.write("resume\n");
+      slowWorker.child.stdin.end();
+      await slowWorker.done.catch(() => undefined);
+    }
+    if (fastWorker?.child.exitCode === null) {
+      fastWorker.child.kill("SIGTERM");
+      await fastWorker.done.catch(() => undefined);
+    }
+    await cleanupConcurrentSweepFixture(fixture);
   }
 });
 
