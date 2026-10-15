@@ -35,3 +35,17 @@ CREATE TABLE daily007_v2_leaderboard_periods (
   settled_at timestamptz,
   UNIQUE (cycle_type, starts_at)
 );
+
+CREATE TABLE daily007_v2_matches (
+  id uuid PRIMARY KEY,
+  starts_at timestamptz NOT NULL
+);
+
+CREATE TABLE daily007_v2_result_awards (
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  rank integer NOT NULL,
+  kills integer NOT NULL,
+  prize_coins integer NOT NULL,
+  PRIMARY KEY (match_id, user_id)
+);
