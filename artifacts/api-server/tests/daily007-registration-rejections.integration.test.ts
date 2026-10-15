@@ -5,6 +5,7 @@ import express from "express";
 import test, { after } from "node:test";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
+import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
 import daily007V2Router from "../src/routes/daily007-v2";
 
 const TEST_AUTH_SECRET = "daily007-registration-rejections-postgres-test-secret";
@@ -60,6 +61,7 @@ after(async () => {
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
   app.use(express.json());
+  app.use(daily007CompatCoreRouter);
   app.use(daily007V2Router);
   app.use((
     error: unknown,
@@ -245,6 +247,86 @@ async function cleanupFixture(fixture: RejectionFixture): Promise<void> {
   }
 }
 
+async function seedPaidRegistrationForConcurrentRejection(
+  fixture: RejectionFixture,
+): Promise<{ registrationId: string; adminIds: [string, string] }> {
+  const registrationId = randomUUID();
+  const adminIds: [string, string] = [randomUUID(), randomUUID()];
+  fixture.userIds.push(...adminIds);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const adminId of adminIds) {
+      await client.query(
+        `INSERT INTO daily007_v2_users
+           (id, name, email, password_salt, password_hash, role)
+         VALUES ($1, 'Registration Rejection Admin', $2, 'test-salt', 'test-hash', 'tournament_admin')`,
+        [adminId, `admin-${adminId}@example.test`],
+      );
+    }
+    await client.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 'Rejected Join Player', 'Seeded Captain', $4, 7, 'approved')`,
+      [registrationId, fixture.matchId, fixture.playerId, fixture.gameUid],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, match_id, registration_id)
+       VALUES ($1, -7, 93, 'match_entry', $2, $3)`,
+      [fixture.playerId, fixture.matchId, registrationId],
+    );
+    await client.query("COMMIT");
+    return { registrationId, adminIds };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function rejectRegistration(
+  origin: string,
+  registrationId: string,
+  adminId: string,
+): Promise<RegistrationResponse> {
+  const response = await fetch(
+    `${origin}/admin/registrations/${registrationId}/reject`,
+    { method: "POST", headers: authHeaders(adminId) },
+  );
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function waitForBlockedRejectionRequests(
+  blockerPid: number,
+  expectedCount: number,
+  priorWaiterPids: number[] = [],
+): Promise<number[]> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blocker_pids: number[] }>(
+      `SELECT waiting.pid, pg_blocking_pids(waiting.pid) AS blocker_pids
+         FROM pg_stat_activity AS waiting
+        WHERE waiting.pid <> pg_backend_pid()
+          AND waiting.wait_event_type = 'Lock'
+          AND waiting.query ILIKE '%SELECT capacity, mode, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE%'
+        ORDER BY waiting.query_start`,
+    );
+    const waiters = result.rows.slice(0, expectedCount);
+    const knownBlockers = new Set([blockerPid, ...priorWaiterPids]);
+    if (
+      waiters.length >= expectedCount &&
+      waiters.every(({ blocker_pids }) => blocker_pids.some((pid) => knownBlockers.has(pid)))
+    ) {
+      return waiters.map(({ pid }) => pid);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} rejection requests to queue on the match lock.`);
+}
+
 const rejectedJoins: RejectionScenario[] = [
   {
     name: "insufficient wallet balance",
@@ -287,4 +369,68 @@ test("PostgreSQL rejected tournament joins preserve the player's balance, regist
       });
     }
   });
+});
+
+test("concurrent PostgreSQL registration rejections refund a paid entry only once", async () => {
+  const fixture = await createFixture(false, 93);
+  const { registrationId, adminIds } = await seedPaidRegistrationForConcurrentRejection(fixture);
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  const submissions: Promise<RegistrationResponse>[] = [];
+
+  try {
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    blockerTransactionOpen = true;
+    await blocker.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [fixture.matchId]);
+    const blockerPidResult = await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    const blockerPid = blockerPidResult.rows[0]?.pid;
+    assert.ok(blockerPid, "the match-lock blocker must have a PostgreSQL backend");
+
+    await withServer(async (origin) => {
+      try {
+        submissions.push(rejectRegistration(origin, registrationId, adminIds[0]));
+        const firstWaiterPids = await waitForBlockedRejectionRequests(blockerPid, 1);
+
+        submissions.push(rejectRegistration(origin, registrationId, adminIds[1]));
+        await waitForBlockedRejectionRequests(blockerPid, 2, firstWaiterPids);
+
+        await blocker!.query("COMMIT");
+        blockerTransactionOpen = false;
+
+        const responses = await Promise.all(submissions);
+        assert.deepEqual(
+          responses.map(({ status, body }) => ({ status, body })),
+          [
+            { status: 200, body: { success: true, data: { id: registrationId, status: "rejected", refunded: true } } },
+            { status: 200, body: { success: true, data: { id: registrationId, status: "rejected", refunded: true } } },
+          ],
+          "both administrators' requests should settle successfully",
+        );
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker!.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+        await Promise.allSettled(submissions);
+      }
+    });
+
+    const snapshot = await snapshotFixture(fixture);
+    assert.equal(snapshot.users.find((user) => user.id === fixture.playerId)?.wallet_coins, 100);
+    assert.deepEqual(
+      snapshot.registrations.map((registration) => registration.status),
+      ["rejected"],
+    );
+    assert.equal(
+      snapshot.ledger.filter((entry) => entry.reason === "registration_refund").length,
+      1,
+      "the paid registration must have exactly one refund ledger entry",
+    );
+  } finally {
+    if (blockerTransactionOpen) await blocker?.query("ROLLBACK");
+    blocker?.release();
+    await Promise.allSettled(submissions);
+    await cleanupFixture(fixture);
+  }
 });
