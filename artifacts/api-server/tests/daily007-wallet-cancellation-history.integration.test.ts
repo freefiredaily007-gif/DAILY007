@@ -236,6 +236,11 @@ test("Wallet history keeps refunds readable and excludes another player's non-re
       body.map(({ amount, reason, description }) => ({ amount, reason, description })),
       [
         {
+          amount: 100,
+          reason: "match_prize",
+          description: "Tournament prize — Victory Royale Cup · 2nd place · 7 kills",
+        },
+        {
           amount: 27,
           reason: "tournament_cancel_refund",
           description: "Entry fee refunded — Legacy Clash Cup (tournament cancelled)",

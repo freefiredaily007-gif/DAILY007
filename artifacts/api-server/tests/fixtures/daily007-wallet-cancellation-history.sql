@@ -17,6 +17,26 @@ CREATE TABLE daily007_v2_matches (
   title text NOT NULL
 );
 
+CREATE TABLE daily007_v2_registrations (
+  id uuid PRIMARY KEY,
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
+  captain_user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  captain_name text NOT NULL,
+  captain_game_uid text NOT NULL,
+  entry_coins_paid integer NOT NULL DEFAULT 0,
+  status text NOT NULL
+);
+
+CREATE TABLE daily007_v2_result_awards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
+  registration_id uuid NOT NULL REFERENCES daily007_v2_registrations(id),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  rank integer NOT NULL,
+  kills integer NOT NULL,
+  prize_coins integer NOT NULL
+);
+
 CREATE TABLE daily007_v2_wallet_ledger (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
