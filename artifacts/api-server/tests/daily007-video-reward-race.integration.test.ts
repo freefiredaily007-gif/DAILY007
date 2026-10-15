@@ -1234,6 +1234,108 @@ test("a failed wallet-ledger insert rolls back and allows the same session to re
   }
 });
 
+test("one player's rejected video reward does not affect another player's completion", async () => {
+  const failedFixture = await createFixture();
+  let independentFixture: TestFixture | null = null;
+  const failureConstraint = `reject_video_reward_${randomUUID().replace(/-/g, "")}`;
+  let constraintInstalled = false;
+
+  try {
+    independentFixture = await createFixture();
+    assert.ok(
+      failedFixture.playerId && failedFixture.videoId && failedFixture.sessionId,
+    );
+    assert.ok(
+      independentFixture.playerId &&
+        independentFixture.videoId &&
+        independentFixture.sessionId,
+    );
+    assert.notEqual(failedFixture.playerId, independentFixture.playerId);
+
+    const failedLedgerKey = `daily007-video-watch:${failedFixture.sessionId}`;
+    await pool.query(
+      `ALTER TABLE daily007_v2_wallet_ledger
+       ADD CONSTRAINT ${failureConstraint}
+       CHECK (
+         reason <> 'video_watch_reward'
+         OR idempotency_key IS DISTINCT FROM '${failedLedgerKey}'
+       )`,
+    );
+    constraintInstalled = true;
+
+    await withServer(async (origin) => {
+      const [failedResponse, independentResponse] = await Promise.all([
+        sendJson(
+          origin,
+          "/videos/watch/complete",
+          failedFixture.playerId!,
+          "POST",
+          { sessionId: failedFixture.sessionId, percentWatched: 100 },
+        ),
+        sendJson(
+          origin,
+          "/videos/watch/complete",
+          independentFixture!.playerId!,
+          "POST",
+          { sessionId: independentFixture!.sessionId, percentWatched: 100 },
+        ),
+      ]);
+
+      assert.equal(failedResponse.status, 500);
+      assert.equal(failedResponse.body.error, "Internal server error.");
+      assert.equal(independentResponse.status, 200);
+      assert.equal(independentResponse.body.rewarded, true);
+      assert.equal(independentResponse.body.coins, 1);
+      assert.equal(independentResponse.body.walletCoins, 13);
+      assert.equal(typeof independentResponse.body.transactionId, "string");
+
+      const [failedState, independentState] = await Promise.all([
+        inspectFixture(failedFixture),
+        inspectFixture(independentFixture!),
+      ]);
+
+      assert.equal(failedState.active, true);
+      assert.equal(failedState.walletCoins, 12);
+      assert.equal(failedState.ledgerCount, 0);
+      assert.equal(failedState.ledgerId, null);
+      assert.equal(failedState.completedAt, null);
+      assert.equal(failedState.rewardLedgerId, null);
+
+      assert.equal(independentState.active, true);
+      assert.equal(independentState.walletCoins, 13);
+      assert.equal(independentState.ledgerCount, 1);
+      assert.equal(independentState.ledgerAmount, 1);
+      assert.equal(independentState.ledgerBalanceAfter, 13);
+      assert.ok(independentState.completedAt);
+      assert.ok(independentState.ledgerId);
+      assert.equal(
+        independentState.rewardLedgerId,
+        independentState.ledgerId,
+        "the successful session should reference its only reward ledger row",
+      );
+      assert.equal(
+        independentState.ledgerId,
+        independentResponse.body.transactionId,
+      );
+    });
+  } finally {
+    try {
+      if (constraintInstalled) {
+        await pool.query(
+          `ALTER TABLE daily007_v2_wallet_ledger
+           DROP CONSTRAINT IF EXISTS ${failureConstraint}`,
+        );
+      }
+    } finally {
+      try {
+        await cleanupFixture(failedFixture);
+      } finally {
+        if (independentFixture) await cleanupFixture(independentFixture);
+      }
+    }
+  }
+});
+
 test("a failed watch-session completion update rolls back a video reward", async () => {
   const fixture = await createFixture();
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
