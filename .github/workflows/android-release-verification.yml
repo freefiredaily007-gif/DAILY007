@@ -101,6 +101,9 @@ jobs:
       - name: Verify native leaderboard text-scale test coverage
         run: pnpm --filter @workspace/daily007 run test:leaderboard-native-text-scale
 
+      - name: Verify native leaderboard tab test coverage
+        run: pnpm --filter @workspace/daily007 run test:leaderboard-tabs-emulator-coverage
+
       - name: Verify saved-session recovery test coverage
         run: |
           pnpm --filter @workspace/daily007 run test:session-verification
@@ -230,6 +233,7 @@ jobs:
             run_maestro_suite home-match-back test:android-home-match-back
             run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
             run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
+            run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
             run_maestro_suite session-verification test:android-session-verification
 
       - name: Upload Android emulator diagnostics

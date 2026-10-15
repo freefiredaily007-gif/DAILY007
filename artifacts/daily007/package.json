@@ -65,6 +65,8 @@
     "test:wallet-rejected-deposit-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-rejected-deposit-accessibility.test.mjs",
     "test:android-wallet-rejected-deposit": "node scripts/run-android-wallet-rejected-deposit.mjs",
     "test:android-leaderboard-large-text": "node scripts/run-android-leaderboard-large-text.mjs",
+    "test:leaderboard-tabs-emulator-coverage": "node --test scripts/leaderboard-tabs-emulator.test.mjs",
+    "test:android-leaderboard-tabs": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/leaderboard-tabs",
     "test:signup-keyboard": "node scripts/signup-keyboard.test.mjs",
     "test:profile-password": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/profile-password.test.mjs"
   },

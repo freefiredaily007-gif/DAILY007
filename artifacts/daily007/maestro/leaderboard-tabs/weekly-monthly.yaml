@@ -1,0 +1,48 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/leaderboard-native-text-scale-weekly
+- extendedWaitUntil:
+    visible:
+      id: leaderboard-details-tab-weekly
+      selected: true
+    timeout: 15000
+
+- assertVisible:
+    id: leaderboard-details-tab-weekly
+    text: Weekly leaderboard
+    selected: true
+- assertVisible:
+    id: leaderboard-details-tab-monthly
+    text: Monthly leaderboard
+    selected: false
+- assertVisible:
+    text: "Rank 1, Weekly Champion With A Long Display Name, 19,269 coins"
+
+- tapOn:
+    id: leaderboard-details-tab-monthly
+    text: Monthly leaderboard
+- assertVisible:
+    id: leaderboard-details-tab-monthly
+    text: Monthly leaderboard
+    selected: true
+- assertVisible:
+    id: leaderboard-details-tab-weekly
+    text: Weekly leaderboard
+    selected: false
+- assertVisible:
+    text: "Rank 1, Monthly Champion With A Long Display Name, 19,269 coins"
+
+- tapOn:
+    id: leaderboard-details-tab-weekly
+    text: Weekly leaderboard
+- assertVisible:
+    id: leaderboard-details-tab-weekly
+    text: Weekly leaderboard
+    selected: true
+- assertVisible:
+    id: leaderboard-details-tab-monthly
+    text: Monthly leaderboard
+    selected: false
+- assertVisible:
+    text: "Rank 1, Weekly Champion With A Long Display Name, 19,269 coins"
