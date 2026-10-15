@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import test from "node:test";
@@ -92,6 +92,125 @@ async function sendJson(
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
+
+test("retrying a video start after its committed response is lost reuses the session", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const attemptId = randomUUID();
+  let responseDropProxy: Server | null = null;
+  let committedSessionId: string | null = null;
+
+  try {
+    await withServer(async (origin) => {
+      const proxy = createServer((incoming, outgoing) => {
+        const requestChunks: Buffer[] = [];
+        incoming.on("data", (chunk: Buffer | string) => {
+          requestChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        incoming.on("end", () => {
+          void (async () => {
+            const requestBody = Buffer.concat(requestChunks).toString("utf8");
+            const headers = new Headers();
+            if (typeof incoming.headers.authorization === "string") {
+              headers.set("authorization", incoming.headers.authorization);
+            }
+            if (typeof incoming.headers["content-type"] === "string") {
+              headers.set("content-type", incoming.headers["content-type"]);
+            }
+            const requestUrl = new URL(incoming.url ?? "/", origin);
+            const upstream = await fetch(requestUrl, {
+              method: incoming.method ?? "GET",
+              headers,
+              ...(requestBody ? { body: requestBody } : {}),
+            });
+            if (
+              !committedSessionId &&
+              incoming.method === "POST" &&
+              requestUrl.pathname === "/videos/watch/start" &&
+              JSON.parse(requestBody).attemptId === attemptId
+            ) {
+              assert.equal(upstream.status, 201);
+              const result = await upstream.json() as { sessionId?: string };
+              assert.ok(result.sessionId, "the upstream start should commit and return a session");
+              committedSessionId = result.sessionId;
+              outgoing.destroy();
+              return;
+            }
+
+            const responseBody = await upstream.text();
+            outgoing.writeHead(upstream.status, {
+              "content-type": upstream.headers.get("content-type") ?? "application/json",
+            });
+            outgoing.end(responseBody);
+          })().catch(() => outgoing.destroy());
+        });
+      });
+      responseDropProxy = proxy;
+      const proxyOrigin = await new Promise<string>((resolve, reject) => {
+        proxy.once("error", reject);
+        proxy.listen(0, "127.0.0.1", () => {
+          const address = proxy.address();
+          assert.ok(address && typeof address !== "string");
+          resolve(`http://127.0.0.1:${address.port}`);
+        });
+      });
+
+      try {
+        await assert.rejects(fetch(`${proxyOrigin}/videos/watch/start`, {
+          method: "POST",
+          headers: authHeaders(fixture.playerId!),
+          body: JSON.stringify({ videoId: fixture.videoId, durationSeconds: 30, attemptId }),
+        }));
+        assert.ok(committedSessionId, "the proxy should only drop a successful committed start response");
+
+        const afterInterruptedResponse = await pool.query<{
+          id: string;
+          start_attempt_id: string | null;
+        }>(
+          `SELECT id, start_attempt_id
+             FROM daily007_v2_video_watch_sessions
+            WHERE user_id = $1 AND start_attempt_id = $2`,
+          [fixture.playerId, attemptId],
+        );
+        assert.equal(afterInterruptedResponse.rows.length, 1);
+        assert.equal(afterInterruptedResponse.rows[0]?.id, committedSessionId);
+
+        const retry = await sendJson(
+          origin,
+          "/videos/watch/start",
+          fixture.playerId!,
+          "POST",
+          { videoId: fixture.videoId, durationSeconds: 30, attemptId },
+        );
+        assert.equal(retry.status, 200);
+        assert.equal(retry.body.sessionId, committedSessionId);
+
+        const afterRetry = await pool.query<{ id: string | null; count: number }>(
+          `SELECT MIN(id::text) AS id, COUNT(*)::int AS count
+             FROM daily007_v2_video_watch_sessions
+            WHERE user_id = $1 AND start_attempt_id = $2`,
+          [fixture.playerId, attemptId],
+        );
+        assert.equal(afterRetry.rows[0]?.count, 1);
+        assert.equal(afterRetry.rows[0]?.id, committedSessionId);
+      } finally {
+        if (proxy.listening) {
+          await new Promise<void>((resolve, reject) => {
+            proxy.close((error) => error ? reject(error) : resolve());
+          });
+        }
+        responseDropProxy = null;
+      }
+    });
+  } finally {
+    if (responseDropProxy?.listening) {
+      await new Promise<void>((resolve, reject) => {
+        responseDropProxy?.close((error) => error ? reject(error) : resolve());
+      });
+    }
+    await cleanupFixture(fixture);
+  }
+});
 
 async function sendPermanentDelete(
   origin: string,
