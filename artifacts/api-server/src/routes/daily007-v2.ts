@@ -650,10 +650,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
 
       // Match row serialization makes this lookup race-safe for simultaneous retries.
       const existing = await client.query<{
-        id: string; captain_game_name: string; captain_game_uid: string; entry_coins_paid: number;
+        id: string; captain_game_name: string; captain_game_uid: string; team_name: string | null; entry_coins_paid: number;
         balance_after: number; capacity: number; status: string; is_full: boolean; registration_status: string;
       }>(
-        `SELECT r.id, r.captain_game_name, r.captain_game_uid, r.entry_coins_paid, l.balance_after,
+        `SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.entry_coins_paid, l.balance_after,
                 m.capacity, m.status, m.is_full, r.status AS registration_status
            FROM daily007_v2_registrations r
            JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
@@ -673,10 +673,19 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           [matchId],
         );
         const prior = existing.rows[0];
+        const savedRoster = await client.query<{ name: string; uid: string | null }>(
+          `SELECT member_name AS name, member_uid AS uid
+             FROM daily007_v2_roster
+            WHERE registration_id = $1
+            ORDER BY position`,
+          [prior.id],
+        );
         return {
           registrationId: prior.id,
           captainGameName: prior.captain_game_name,
           captainGameUid: prior.captain_game_uid,
+          teamName: prior.team_name ?? "",
+          teammates: savedRoster.rows,
           entryCoinsPaid: prior.entry_coins_paid,
           walletCoins: prior.balance_after,
           registeredCount: Number(countResult.rows[0].count),
@@ -837,6 +846,8 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         registrationId,
         captainGameName,
         captainGameUid,
+        teamName: submittedTeamName,
+        teammates,
         entryCoinsPaid: match.entry_coins,
         walletCoins: newBalance,
         registeredCount: newCount,

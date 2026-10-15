@@ -97,12 +97,13 @@ async function registerForMatch(
   matchId: string,
   gameUid: string,
   team: { teammates: Teammate[]; teamName: string } | null,
+  captainGameName = "Concurrent Test Player",
 ): Promise<RegistrationResponse> {
   const response = await fetch(`${origin}/daily007/v2/matches/${matchId}/register`, {
     method: "POST",
     headers: authHeaders(userId),
     body: JSON.stringify({
-      captainGameName: "Concurrent Test Player",
+      captainGameName,
       captainGameUid: gameUid,
       ...(team
         ? { teamName: team.teamName, teammates: team.teammates }
@@ -995,6 +996,85 @@ async function readEntryPaymentState(fixture: WalletRaceFixture, matchId: string
   };
 }
 
+async function runClosedTeamRetry(matchState: "full" | "disabled"): Promise<void> {
+  let fixtureForCleanup: WalletRaceFixture | undefined;
+
+  try {
+    const fixture = await createFixture("duo");
+    fixtureForCleanup = fixture;
+    const matchId = fixture.matchIds[0];
+    const originalTeam = {
+      teamName: fixture.teamNames[0],
+      teammates: fixture.teammates[0],
+    };
+    const alternateTeam = {
+      teamName: `Changed retry team ${randomUUID()}`,
+      teammates: [{ name: `Changed teammate ${randomUUID()}`, uid: `ff-${randomUUID()}` }],
+    };
+
+    await withServer(async (origin) => {
+      const created = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        originalTeam,
+      );
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      assert.equal(created.body.alreadyRegistered, false);
+      assert.equal(created.body.teamName, originalTeam.teamName);
+      assert.deepEqual(created.body.teammates, originalTeam.teammates);
+      const registrationId = created.body.registrationId;
+      assert.equal(typeof registrationId, "string");
+
+      const before = await readEntryPaymentState(fixture, matchId);
+      await pool.query(
+        `UPDATE daily007_v2_matches
+            SET status = $2, is_full = $3, enabled = $4
+          WHERE id = $1`,
+        [
+          matchId,
+          matchState === "full" ? "full" : "open",
+          matchState === "full",
+          matchState !== "disabled",
+        ],
+      );
+
+      const retried = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[1],
+        alternateTeam,
+        "Changed Retry Captain",
+      );
+      assert.equal(retried.status, 200, JSON.stringify(retried.body));
+      assert.equal(retried.body.alreadyRegistered, true);
+      assert.equal(retried.body.registrationId, registrationId);
+      assert.equal(retried.body.captainGameName, "Concurrent Test Player");
+      assert.equal(retried.body.captainGameUid, fixture.gameUids[0]);
+      assert.equal(retried.body.teamName, originalTeam.teamName);
+      assert.deepEqual(retried.body.teammates, originalTeam.teammates);
+
+      const after = await readEntryPaymentState(fixture, matchId);
+      assert.deepEqual(
+        after,
+        before,
+        `retrying after the match became ${matchState} must not change the saved entry or wallet ledger`,
+      );
+      assert.deepEqual(after.wallet, [{
+        wallet_coins: fixture.startingWalletCoins - fixture.entryCoins[0],
+      }]);
+      assert.equal(after.registrations.length, 1);
+      assert.equal(after.registrations[0]?.id, registrationId);
+      assert.equal(after.ledger.length, 1);
+      assert.equal(after.ledger[0]?.amount, -fixture.entryCoins[0]);
+    });
+  } finally {
+    if (fixtureForCleanup) await cleanupFixture(fixtureForCleanup);
+  }
+}
+
 test("a failed entry-fee ledger insert rolls back the wallet, registration, and roster", async () => {
   let fixtureForCleanup: WalletRaceFixture | undefined;
   let failureConstraint: string | undefined;
@@ -1078,3 +1158,9 @@ test("a 20-coin wallet accepts only the first 13- or 17-coin join in either lock
 
 test("concurrent duo retries keep one registration, fee debit, and winning teammate roster", () =>
   runConcurrentDuoRetryRace());
+
+test("a full tournament retry returns the saved team entry without charging again", () =>
+  runClosedTeamRetry("full"));
+
+test("a disabled tournament retry returns the saved team entry without charging again", () =>
+  runClosedTeamRetry("disabled"));
