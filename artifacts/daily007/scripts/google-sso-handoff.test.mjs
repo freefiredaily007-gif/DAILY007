@@ -418,6 +418,93 @@ test("a rejected Daily007 token exchange restores the Google button and reports 
   assert.equal(successCalls, 0);
 });
 
+test("Profile Google-link provider and server failures announce once and preserve the password session", async () => {
+  const profileSource = await readFile(
+    new URL("../src/screens/Profile.tsx", import.meta.url),
+    "utf8",
+  );
+  const buttonSource = await readFile(
+    new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
+    "utf8",
+  );
+  const profileButton = profileSource.match(
+    /<GoogleSSOButton\s+label="Connect Google"[\s\S]*?\/>/,
+  )?.[0];
+  assert.ok(profileButton, "Profile should render its Google-link button");
+  assert.match(profileButton, /dailyToken=\{user\.token\}/);
+  assert.match(profileButton, /onError=\{setGoogleLinkError\}/);
+  assert.match(
+    profileSource,
+    /\{!!googleLinkError && <Text style=\{s\.statsError\}>{googleLinkError}<\/Text>\}/,
+    "Profile should display the same error without adding a second live-region announcement",
+  );
+  assert.doesNotMatch(
+    profileSource.match(/\{!!googleLinkError[\s\S]*?\}/)?.[0] ?? "",
+    /accessibilityLiveRegion/,
+  );
+  assert.match(
+    buttonSource,
+    /const showError = \(message: string\) => \{\s*setError\(message\);\s*reportGoogleError\(onError, message\);/,
+  );
+  assert.match(
+    buttonSource,
+    /setLoading: \(isBusy\) => \{\s*setBusy\(isBusy\);\s*onBusyChange\?\.\(isBusy\);/,
+  );
+
+  const savedPasswordSession = { token: "existing-daily007-password-token" };
+  const scenarios = [
+    {
+      label: "provider",
+      error: "Google provider request failed",
+      getActiveSession: () => null,
+      async startSSOFlow() {
+        throw new Error("Google provider request failed");
+      },
+      async exchangeToken() {
+        assert.fail("the API must not be called after a provider failure");
+      },
+    },
+    {
+      label: "Daily007 server",
+      error: "Daily007 server unavailable",
+      getActiveSession: () => createSession("google-session", []),
+      async startSSOFlow() {
+        assert.fail("the existing Google session should be reused");
+      },
+      async exchangeToken() {
+        throw new Error("Daily007 server unavailable");
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const loadingChanges = [];
+    const errors = [];
+    await runGoogleSSOAttempt({
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: scenario.getActiveSession,
+        startSSOFlow: scenario.startSSOFlow,
+        exchangeToken: scenario.exchangeToken,
+      }),
+      setLoading: (loading) => loadingChanges.push(loading),
+      showError: (message) => errors.push(message),
+      onSuccess: () => {
+        savedPasswordSession.token = "unexpectedly-replaced-token";
+      },
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+
+    assert.deepEqual(loadingChanges, [true, false], `${scenario.label} failure should restore retry`);
+    assert.deepEqual(errors, [`${scenario.error}. Please try again.`]);
+    assert.equal(errors.length, 1, `${scenario.label} failure should be reported once`);
+    assert.equal(
+      savedPasswordSession.token,
+      "existing-daily007-password-token",
+      `${scenario.label} failure must preserve the existing Daily007 password session`,
+    );
+  }
+});
+
 test("an active Clerk session without a verified token is not exchanged with the API", async () => {
   const events = [];
   const activeSession = createSession("active-session", events, null);
