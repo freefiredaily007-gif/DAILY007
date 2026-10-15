@@ -9,6 +9,7 @@ import compatCoreRouter from "../src/routes/daily007-compat-core";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
 
 const TEST_AUTH_SECRET = "tournament-results-concurrency-tests-only-secret-at-least-32-chars";
+const MAX_SUPPORTED_WALLET_COINS = 2_147_483_647;
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -1382,6 +1383,67 @@ test("an unrelated unique conflict while writing the prize ledger is not reporte
     await pool.query("DROP FUNCTION IF EXISTS daily007_test_count_wallet_ledger_insert()");
     await pool.query("DROP SEQUENCE IF EXISTS daily007_test_wallet_ledger_insert_attempts");
     await pool.query(`DROP INDEX IF EXISTS ${testConstraint}`);
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a prize that exceeds the player's wallet limit leaves tournament settlement state unchanged", async () => {
+  const fixture = await createFixture();
+  const player = fixture.players[0];
+  const startingBalance = MAX_SUPPORTED_WALLET_COINS - 100;
+  const prizeCoins = 500;
+
+  try {
+    await seedExistingPlayerHistory(player);
+    await pool.query(
+      "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+      [player.userId, startingBalance],
+    );
+    await pool.query(
+      `UPDATE daily007_v2_matches
+          SET prize_pool = $2,
+              prize_distribution = '1st: 500 coins'
+        WHERE id = $1`,
+      [fixture.matchId, prizeCoins],
+    );
+
+    const before = await captureSettlementState(fixture, player);
+    assert.equal(before.walletCoins, startingBalance);
+    assert.deepEqual(before.awards, []);
+    assert.deepEqual(before.stats, {
+      matches: 5,
+      wins: 1,
+      kills: 42,
+      prize_coins: 500,
+    });
+    assert.deepEqual(before.ledger, [{
+      amount: 500,
+      balance_after: 1000,
+      reason: "match_prize",
+    }]);
+
+    await withServer(async (origin) => {
+      const response = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        player,
+        1,
+        7,
+      );
+
+      assert.equal(response.status, 409);
+      assert.equal(response.body.error, "Prize would exceed the supported wallet range.");
+      assert.equal(startingBalance + prizeCoins > MAX_SUPPORTED_WALLET_COINS, true);
+    });
+
+    const after = await captureSettlementState(fixture, player);
+    assert.deepEqual(
+      after,
+      before,
+      "a rejected oversized prize must not alter the wallet, award, stats, ledger, or match state",
+    );
+  } finally {
     await cleanupFixture(fixture);
   }
 });
