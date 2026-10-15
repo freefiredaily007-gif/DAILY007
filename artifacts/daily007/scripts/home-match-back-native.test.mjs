@@ -38,7 +38,7 @@ test('Maestro exercises two Home cards with native Android Back between details'
 test('the Android release emulator workflow runs the Home-to-match Back flow', async () => {
   const [packageSource, workflow] = await Promise.all([
     read('package.json'),
-    read('../../.github/workflows/android-release-verification.yml'),
+    read('../../.github/scripts/android-emulator-verification.sh'),
   ]);
   const packageJson = JSON.parse(packageSource);
 

@@ -9,7 +9,7 @@ const [flow, screen, fixtureRoute, packageJson, workflow] = await Promise.all([
   readFile(fromDaily007("src/screens/LeaderboardDetails.tsx"), "utf8"),
   readFile(fromDaily007("src/screens/LeaderboardNativeTextScaleTest.tsx"), "utf8"),
   readFile(fromDaily007("package.json"), "utf8"),
-  readFile(new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url), "utf8"),
+  readFile(new URL("../../../.github/scripts/android-emulator-verification.sh", import.meta.url), "utf8"),
 ]);
 
 test("Maestro checks both native leaderboard tabs, their selection, and matching standings", () => {

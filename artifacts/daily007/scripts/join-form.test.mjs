@@ -90,6 +90,10 @@ const androidWorkflowSource = await readFile(
   new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url),
   "utf8",
 );
+const androidEmulatorScriptSource = await readFile(
+  new URL("../../../.github/scripts/android-emulator-verification.sh", import.meta.url),
+  "utf8",
+);
 const androidJoinFormRunnerSource = await readFile(
   new URL("./run-android-join-form-accessibility.mjs", import.meta.url),
   "utf8",
@@ -249,7 +253,7 @@ test("Android release verification opens native Solo, Duo, and Squad label flows
     /Android API level \$\{apiLevel\} JoinForm accessibility label flow failed/,
   );
   assert.match(
-    androidWorkflowSource,
+    androidEmulatorScriptSource,
     /run_maestro_suite join-form-accessibility test:android-join-form-accessibility/,
   );
   assert.match(androidWorkflowSource, /Run JoinForm accessibility label regression tests/);
@@ -257,8 +261,8 @@ test("Android release verification opens native Solo, Duo, and Squad label flows
   assert.match(androidWorkflowSource, /Run JoinForm accessibility labels on Android 16 \(API 36\)/);
   assert.match(androidWorkflowSource, /api-level: 36/);
   assert.match(
-    androidWorkflowSource,
-    /Running Android API level \$\{ANDROID_API_LEVEL\} Maestro suite: join-form-accessibility[\s\S]*?pnpm --filter @workspace\/daily007 run test:android-join-form-accessibility/,
+    androidEmulatorScriptSource,
+    /if \[ "\$ANDROID_API_LEVEL" = 36 \]; then\s+run_maestro_suite join-form-accessibility test:android-join-form-accessibility/,
   );
 
   const formats = [

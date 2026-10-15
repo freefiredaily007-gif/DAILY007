@@ -86,6 +86,9 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify emulator script process lifetime and failure diagnostics
+        run: node --test .github/scripts/android-emulator-verification.test.mjs
+
       - name: Run join recovery regression tests
         run: pnpm --filter @workspace/daily007 run test:tournament-join-recovery
 
@@ -155,94 +158,8 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            set -eux
-
-            WORKSPACE_DIR="${GITHUB_WORKSPACE:-$PWD}"
-            RUNNER_TEMP_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-            DIAG_DIR="$WORKSPACE_DIR/android-emulator-diagnostics"
-            mkdir -p "$DIAG_DIR"
-            printf 'Emulator script started. cwd=%s workspace=%s runner_temp=%s\n' \
-              "$PWD" "$WORKSPACE_DIR" "$RUNNER_TEMP_DIR" > "$DIAG_DIR/runner-started.txt"
-            export ANDROID_API_LEVEL=35
-            export MAESTRO_TEST_OUTPUT_DIR="$DIAG_DIR/maestro-output"
-            mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
-            METRO_PID=""
-            cleanup() {
-              adb logcat -d -t 2000 > "$DIAG_DIR/android-logcat.txt" 2>&1 || true
-              if [ -n "$METRO_PID" ]; then
-                kill "$METRO_PID" 2>/dev/null || true
-              fi
-            }
-            trap cleanup EXIT
-
-            run_logged() {
-              command_name="$1"
-              shift
-              command_log="$DIAG_DIR/${command_name}.log"
-              if "$@" > "$command_log" 2>&1; then
-                cat "$command_log"
-              else
-                command_status=$?
-                cat "$command_log"
-                echo "Android emulator command ${command_name} failed with exit code ${command_status}." >&2
-                return "$command_status"
-              fi
-            }
-
-            run_logged expo-go-install adb install -r "$RUNNER_TEMP_DIR/expo-go.apk"
-            run_logged adb-reverse adb reverse tcp:8081 tcp:8081
-
-            EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
-            EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
-            EXPO_NO_TELEMETRY=1 \
-            CI=1 \
-              pnpm --filter @workspace/daily007 exec expo start \
-                --go --localhost --port 8081 \
-                > "$DIAG_DIR/daily007-metro.log" 2>&1 &
-            METRO_PID=$!
-
-            metro_ready=false
-            for attempt in $(seq 1 90); do
-              if curl --fail --silent http://127.0.0.1:8081/status | grep -q "packager-status:running"; then
-                metro_ready=true
-                break
-              fi
-              sleep 2
-            done
-
-            if [ "$metro_ready" != true ]; then
-              cat "$DIAG_DIR/daily007-metro.log"
-              echo "Metro did not become ready on port 8081." >&2
-              exit 1
-            fi
-
-            run_logged expo-go-package-path adb shell pm path host.exp.exponent
-            run_maestro_suite() {
-              suite_name="$1"
-              package_script="$2"
-              suite_log="$DIAG_DIR/maestro-${suite_name}.log"
-              echo "Running Android Maestro suite: ${suite_name}"
-              if EXPO_DEV_URL=exp://127.0.0.1:8081 \
-                pnpm --filter @workspace/daily007 run "$package_script" > "$suite_log" 2>&1; then
-                cat "$suite_log"
-              else
-                suite_status=$?
-                cat "$suite_log"
-                echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
-                return "$suite_status"
-              fi
-            }
-
-            run_maestro_suite join-recovery test:android-join-recovery
-            run_maestro_suite join-form-accessibility test:android-join-form-accessibility
-            run_maestro_suite home-match-back test:android-home-match-back
-            run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
-            run_maestro_suite wallet-cancellation-narrow-large-text test:android-wallet-cancellation-refund-large-text
-            run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
-            run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
-            run_maestro_suite session-verification test:android-session-verification
-            run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy
+          # The action executes each input line in a new sh process.
+          script: bash .github/scripts/android-emulator-verification.sh 35
 
       - name: Run JoinForm accessibility labels on Android 16 (API 36)
         uses: reactivecircus/android-emulator-runner@v2
@@ -253,84 +170,10 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            set -eux
-
-            WORKSPACE_DIR="${GITHUB_WORKSPACE:-$PWD}"
-            RUNNER_TEMP_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-            DIAG_DIR="$WORKSPACE_DIR/android-emulator-diagnostics/api-36"
-            mkdir -p "$DIAG_DIR"
-            printf 'Emulator script started. cwd=%s workspace=%s runner_temp=%s\n' \
-              "$PWD" "$WORKSPACE_DIR" "$RUNNER_TEMP_DIR" > "$DIAG_DIR/runner-started.txt"
-            export ANDROID_API_LEVEL=36
-            export MAESTRO_TEST_OUTPUT_DIR="$DIAG_DIR/maestro-output"
-            mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
-            METRO_PID=""
-            cleanup() {
-              adb logcat -d -t 2000 > "$DIAG_DIR/android-logcat.txt" 2>&1 || true
-              if [ -n "$METRO_PID" ]; then
-                kill "$METRO_PID" 2>/dev/null || true
-              fi
-            }
-            trap cleanup EXIT
-
-            run_logged() {
-              command_name="$1"
-              shift
-              command_log="$DIAG_DIR/${command_name}.log"
-              if "$@" > "$command_log" 2>&1; then
-                cat "$command_log"
-              else
-                command_status=$?
-                cat "$command_log"
-                echo "Android API level ${ANDROID_API_LEVEL} emulator command ${command_name} failed with exit code ${command_status}." >&2
-                return "$command_status"
-              fi
-            }
-
-            run_logged expo-go-install adb install -r "$RUNNER_TEMP_DIR/expo-go.apk"
-            run_logged adb-reverse adb reverse tcp:8081 tcp:8081
-
-            EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
-            EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
-            EXPO_NO_TELEMETRY=1 \
-            CI=1 \
-              pnpm --filter @workspace/daily007 exec expo start \
-                --go --localhost --port 8081 \
-                > "$DIAG_DIR/daily007-metro.log" 2>&1 &
-            METRO_PID=$!
-
-            metro_ready=false
-            for attempt in $(seq 1 90); do
-              if curl --fail --silent http://127.0.0.1:8081/status | grep -q "packager-status:running"; then
-                metro_ready=true
-                break
-              fi
-              sleep 2
-            done
-
-            if [ "$metro_ready" != true ]; then
-              cat "$DIAG_DIR/daily007-metro.log"
-              echo "Android API level ${ANDROID_API_LEVEL}: Metro did not become ready on port 8081." >&2
-              exit 1
-            fi
-
-            run_logged expo-go-package-path adb shell pm path host.exp.exponent
-
-            suite_log="$DIAG_DIR/maestro-join-form-accessibility.log"
-            echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: join-form-accessibility"
-            if EXPO_DEV_URL=exp://127.0.0.1:8081 \
-              pnpm --filter @workspace/daily007 run test:android-join-form-accessibility > "$suite_log" 2>&1; then
-              cat "$suite_log"
-            else
-              suite_status=$?
-              cat "$suite_log"
-              echo "Android API level ${ANDROID_API_LEVEL} Maestro suite join-form-accessibility failed with exit code ${suite_status}." >&2
-              exit "$suite_status"
-            fi
+          script: bash .github/scripts/android-emulator-verification.sh 36
 
       - name: Upload Android emulator diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-emulator-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}

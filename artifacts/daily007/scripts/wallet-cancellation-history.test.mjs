@@ -41,7 +41,7 @@ const packageSource = JSON.parse(await readFile(
   'utf8',
 ));
 const androidWorkflow = await readFile(
-  new URL('../../../.github/workflows/android-release-verification.yml', import.meta.url),
+  new URL('../../../.github/scripts/android-emulator-verification.sh', import.meta.url),
   'utf8',
 );
 

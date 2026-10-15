@@ -20,6 +20,7 @@ const files = await Promise.all([
   readFile(new URL("../maestro/session-verification/README.md", import.meta.url), "utf8"),
   readFile(new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url), "utf8"),
   readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8"),
+  readFile(new URL("../../../.github/scripts/android-emulator-verification.sh", import.meta.url), "utf8"),
 ]);
 
 const [
@@ -40,6 +41,7 @@ const [
   readme,
   androidWorkflow,
   api,
+  emulatorScript,
 ] = files;
 
 test("production and native fixture share session-recovery listeners and paused-session UI", () => {
@@ -128,7 +130,7 @@ test("Android runner toggles and restores Wi-Fi and is included in the release g
   assert.match(runner, /resume-after-reconnect\.yaml/);
   assert.match(runner, /transient-retry\.yaml/);
   assert.match(androidWorkflow, /test:session-verification-native/);
-  assert.match(androidWorkflow, /test:android-session-verification/);
+  assert.match(emulatorScript, /test:android-session-verification/);
   assert.match(readme, /Android emulator/);
   assert.match(readme, /Device checklist/);
   assert.match(readme, /Retry is never tapped/);
