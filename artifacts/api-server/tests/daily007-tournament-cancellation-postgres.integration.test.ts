@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test, { after } from "node:test";
 import { pool } from "@workspace/db";
+import { runDaily007AutoCancellationSweep } from "../src/lib/daily007-tournament-auto-cancel";
 import {
   cancelUnderfilledTournamentAndRefund,
   TournamentCancellationError,
@@ -741,5 +742,136 @@ test("a waiting PostgreSQL cancellation is rejected after the first cancellation
       "DROP FUNCTION IF EXISTS daily007_test_pause_cancel_refund()",
     );
     await cleanupFixture(fixture);
+  }
+});
+
+test("automatic and manual PostgreSQL cancellations refund once in either lock order", async () => {
+  for (const [index, firstPath] of ["manual", "automatic"].entries()) {
+    const fixture = await createFixture();
+    const matchId = fixture.matchIds[0];
+    const pauseKey = BigInt(740084 + index);
+    let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+    let pauseLockHeld = false;
+    let manualCancellation: Promise<CancellationOutcome> | undefined;
+    let automaticSweep: Promise<void> | undefined;
+
+    try {
+      await pool.query(
+        "UPDATE daily007_v2_matches SET capacity = 1 WHERE id = $1",
+        [fixture.matchIds[1]],
+      );
+      await pool.query(`
+        CREATE FUNCTION daily007_test_pause_mixed_cancel_refund() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.match_id = '${matchId}'::uuid THEN
+            PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+      `);
+      await pool.query(`
+        CREATE TRIGGER daily007_test_pause_mixed_cancel_refund
+        BEFORE INSERT ON daily007_v2_wallet_ledger
+        FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_mixed_cancel_refund()
+      `);
+
+      blocker = await pool.connect();
+      await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+      pauseLockHeld = true;
+
+      let firstCancellationPid: number;
+      if (firstPath === "manual") {
+        manualCancellation = captureCancellation(matchId, false);
+        firstCancellationPid = await waitForPausedRefundWrite();
+        automaticSweep = runDaily007AutoCancellationSweep();
+      } else {
+        automaticSweep = runDaily007AutoCancellationSweep();
+        firstCancellationPid = await waitForPausedRefundWrite();
+        manualCancellation = captureCancellation(matchId, false);
+      }
+      await waitForBlockedCancellation(firstCancellationPid);
+
+      await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      pauseLockHeld = false;
+
+      const manualOutcome = await manualCancellation;
+      await automaticSweep;
+      if (firstPath === "manual") {
+        assert.equal(manualOutcome.status, "fulfilled");
+        if (manualOutcome.status === "fulfilled") {
+          assert.deepEqual(manualOutcome.value, {
+            id: matchId,
+            status: "cancelled",
+            registrationsRefunded: 2,
+            accountsRefunded: 2,
+            coinsRefunded: 65,
+          });
+        }
+      } else {
+        assert.equal(manualOutcome.status, "rejected");
+        if (manualOutcome.status === "rejected") {
+          assert.ok(manualOutcome.reason instanceof TournamentCancellationError);
+          assert.equal(manualOutcome.reason.status, 409);
+          assert.equal(manualOutcome.reason.message, "Tournament is already cancelled.");
+        }
+      }
+
+      const match = await pool.query<{ status: string; enabled: boolean }>(
+        "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+        [matchId],
+      );
+      assert.deepEqual(match.rows, [{ status: "cancelled", enabled: false }]);
+
+      const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+        "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+        [fixture.payerIds],
+      );
+      assert.deepEqual(
+        new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+        new Map([
+          [fixture.payerIds[0], 125],
+          [fixture.payerIds[1], 240],
+          [fixture.payerIds[2], 300],
+        ]),
+      );
+
+      const refunds = await pool.query<{
+        registration_id: string;
+        amount: number;
+        count: number;
+      }>(
+        `SELECT registration_id, amount, count(*)::integer AS count
+           FROM daily007_v2_wallet_ledger
+          WHERE match_id = $1 AND reason = 'tournament_cancel_refund'
+          GROUP BY registration_id, amount
+          ORDER BY registration_id`,
+        [matchId],
+      );
+      assert.deepEqual(refunds.rows, [
+        { registration_id: fixture.registrationIds[0], amount: 25, count: 1 },
+        { registration_id: fixture.registrationIds[1], amount: 40, count: 1 },
+      ].sort((left, right) => left.registration_id.localeCompare(right.registration_id)));
+    } finally {
+      if (blocker && pauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker?.release();
+      await Promise.allSettled(
+        [manualCancellation, automaticSweep].filter(
+          (operation): operation is Promise<unknown> => operation !== undefined,
+        ),
+      );
+      await pool.query(
+        "DROP TRIGGER IF EXISTS daily007_test_pause_mixed_cancel_refund ON daily007_v2_wallet_ledger",
+      );
+      await pool.query(
+        "DROP FUNCTION IF EXISTS daily007_test_pause_mixed_cancel_refund()",
+      );
+      await pool.query("DELETE FROM daily007_v2_settings WHERE id = 1");
+      await cleanupFixture(fixture);
+    }
   }
 });
