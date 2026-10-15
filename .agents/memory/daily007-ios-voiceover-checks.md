@@ -9,6 +9,8 @@ On 2026-10-14, the user confirmed the My Matches published-result VoiceOver chec
 
 On 2026-10-14, the user confirmed the Player first-load VoiceOver error and recovery checks passed, including one-time speech after cards appear, no repeat after retries, and stable focus; exact wording was not recorded.
 
+On 2026-10-15, the user confirmed adjacent cancellation refunds are announced as separate VoiceOver items; exact spoken wording was not recorded.
+
 **Why:** VoiceOver speech and native focus behavior vary by platform and cannot be established by static checks alone.
 
 **How to apply:** For tasks that require iOS VoiceOver confirmation, keep the task open until the target flow is checked on an iPhone with VoiceOver enabled, or another suitable native iOS test environment.
