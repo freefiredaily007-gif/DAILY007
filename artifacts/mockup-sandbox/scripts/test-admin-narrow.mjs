@@ -38,6 +38,7 @@ const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const singleHomeCardOnly = process.argv.includes("--home-carousel-single-card-only");
 const homeStartTransitionOnly = process.argv.includes("--home-start-transition-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
+const homeInitialRetryOnly = process.argv.includes("--home-initial-retry-only");
 const homeDisabledTournamentRefreshOnly = process.argv.includes("--home-disabled-tournament-refresh-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
@@ -6371,6 +6372,97 @@ async function checkHomeRetryRecovery() {
   console.log("PASS — Home's visible retry starts one paired refresh, preserves cached joined cards while pending, applies successful updates, and retains cards and warning after a later failure.");
 }
 
+async function checkHomeInitialLoadRetry() {
+  const scenarios = [
+    {
+      name: "tournament request failure",
+      query: "tournament",
+      error: "Initial Home tournament request failed.",
+      expectedCard: "Starting at IST",
+    },
+    {
+      name: "registration request failure with no upcoming matches",
+      query: "registration-empty",
+      error: "Initial Home registration request failed.",
+      empty: true,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await setViewport(
+      390,
+      1,
+      `home-carousel-preview.html?home-initial-retry=${scenario.query}`,
+    );
+    await waitForCondition(
+      `window.__daily007HomeCarouselTest?.ready === true &&
+        Boolean(document.querySelector('[data-testid="home-empty-load-error"]')) &&
+        Boolean(document.querySelector('[data-testid="home-empty-retry"]'))`,
+      `Home to show the initial ${scenario.name}`,
+    );
+    const initialState = await evaluate(`(() => ({
+      error: document.querySelector('[data-testid="home-empty-load-error"]')?.innerText ?? "",
+      tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+      registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+      cards: document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length,
+    }))()`);
+    assert(
+      initialState.error.includes(scenario.error) &&
+        initialState.tournaments === 1 &&
+        initialState.registrations === 1 &&
+        initialState.cards === 0,
+      `Initial ${scenario.name} should show a retryable error with no cards and one request pair: ${JSON.stringify(initialState)}.`,
+    );
+
+    await tapSelector('[data-testid="home-empty-retry"]', `Home retry after ${scenario.name}`);
+    await waitForCondition(
+      scenario.empty
+        ? `window.__daily007HomeCarouselTest.getTournamentReadCount() === 2 &&
+          window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === 2 &&
+          !document.querySelector('[data-testid="home-empty-load-error"]') &&
+          document.body.innerText.includes("No upcoming tournaments are available right now.")`
+        : `window.__daily007HomeCarouselTest.getTournamentReadCount() === 2 &&
+          window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === 2 &&
+          !document.querySelector('[data-testid="home-empty-load-error"]') &&
+          Boolean(document.querySelector('[data-testid="home-upcoming-card-starting-soon"]'))`,
+      `Home to recover after ${scenario.name}`,
+    );
+    const recoveredState = await evaluate(`(() => ({
+      errorVisible: Boolean(document.querySelector('[data-testid="home-empty-load-error"]')),
+      cards: [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')]
+        .map((card) => card.innerText),
+      body: document.body.innerText,
+    }))()`);
+    assert(
+      !recoveredState.errorVisible &&
+        (scenario.empty
+          ? recoveredState.cards.length === 0 &&
+            recoveredState.body.includes("No upcoming tournaments are available right now.") &&
+            recoveredState.body.includes("CHECK MATCHES")
+          : recoveredState.cards.some((card) => card.includes(scenario.expectedCard))),
+      `Successful retry should clear the failure and show the correct ${scenario.empty ? "normal empty state" : "upcoming cards"}: ${JSON.stringify(recoveredState)}.`,
+    );
+
+    if (scenario.empty) {
+      const clicked = await evaluate(`(() => {
+        const action = [...document.querySelectorAll('[role="button"], button')]
+          .find((button) => button.textContent?.includes("CHECK MATCHES"));
+        if (!action) return false;
+        action.click();
+        return true;
+      })()`);
+      assert(clicked, "The normal empty-state CHECK MATCHES action should be available after recovery.");
+      await delay(130);
+      const navigations = await evaluate("globalThis.__previewNavigations ?? []");
+      assert(
+        JSON.stringify(navigations.at(-1)) === JSON.stringify(["Tournaments"]),
+        `CHECK MATCHES should open the tournament list: ${JSON.stringify(navigations.at(-1))}.`,
+      );
+    }
+  }
+  console.log("PASS — Home recovers from either initial request failure; successful empty data clears the error and CHECK MATCHES opens Tournaments.");
+}
+
 async function checkHomeCarousel(width) {
   assertHomeCarouselNativeSelectedStateIsPassedThrough();
   await waitForCondition(
@@ -8374,9 +8466,11 @@ try {
         ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
     : homeStartTransitionOnly
       ? "home-carousel-preview.html?home-start-selection=1"
+      : homeInitialRetryOnly
+        ? "home-carousel-preview.html?home-initial-retry=tournament"
       : singleHomeCardOnly
         ? "home-carousel-preview.html?single-card=1"
-      : homeCarouselOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly
+      : homeCarouselOnly || homeRetryOnly || homeInitialRetryOnly || homeDisabledTournamentRefreshOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
         ? "keyboard-forms-preview.html"
@@ -8458,6 +8552,7 @@ try {
     singleHomeCardOnly ||
     homeStartTransitionOnly ||
     homeRetryOnly ||
+    homeInitialRetryOnly ||
     homeDisabledTournamentRefreshOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
@@ -8478,13 +8573,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8502,6 +8597,8 @@ try {
           ? "Home, My Matches, and tournament details IST date surfaces"
          : homeRetryOnly
          ? "Home retry recovery"
+         : homeInitialRetryOnly
+         ? "Home initial-load retry recovery"
           : homeStartTransitionOnly
             ? "Home scheduled-start carousel selection"
          : homeCarouselOnly
@@ -8849,6 +8946,14 @@ try {
         `New browser errors during disabled-tournament Home refresh checks: ${newBrowserErrors.join(" | ")}`,
       );
       console.log("PASS — Admin closes the populated tournament, the enabled public list excludes it, and Home's scheduled poll removes only its card.");
+    } else if (homeInitialRetryOnly) {
+      const knownHomePreviewErrors = new Set(browserErrors);
+      await checkHomeInitialLoadRetry();
+      const newBrowserErrors = browserErrors.filter((error) => !knownHomePreviewErrors.has(error));
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during Home initial-load retry checks: ${newBrowserErrors.join(" | ")}`,
+      );
     } else if (homeRetryOnly) {
       await waitForCondition(
         "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",

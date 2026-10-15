@@ -292,7 +292,7 @@ test("remaining upcoming cards stay swipeable and open their tournament details"
 
 test("Home announces failed upcoming refreshes and exposes a named, busy-aware TalkBack retry", () => {
   const refreshFailureNotice = homeSource.match(
-    /\{!loading && upcomingItems\.length > 0 && loadError && \([\s\S]*?testID="home-upcoming-refresh-error"[\s\S]*?\n\s*\)\}/,
+    /\{!loading && upcomingItems\.length > 0 && Boolean\(loadError\) && \([\s\S]*?testID="home-upcoming-refresh-error"[\s\S]*?\n\s*\)\}/,
   )?.[0];
 
   assert.ok(refreshFailureNotice, "A failed refresh with visible cards must show an inline notice.");

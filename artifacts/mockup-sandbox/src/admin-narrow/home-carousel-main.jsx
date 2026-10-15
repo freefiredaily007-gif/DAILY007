@@ -26,6 +26,7 @@ const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const singleHomeCardPreview = previewParams.get("single-card") === "1";
 const homeStartSelectionPreview = previewParams.get("home-start-selection") === "1";
+const homeInitialRetryScenario = previewParams.get("home-initial-retry");
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
 const requestedScreen = previewParams.get("screen") ?? "Home";
@@ -190,7 +191,17 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     apiMocks.previewTournaments.length,
     ...(singleHomeCardPreview ? homeTournaments.slice(0, 1) : homeTournaments),
   );
+  if (homeInitialRetryScenario === "registration-empty") {
+    apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length);
+  }
   apiMocks.configureHomeCarouselRegistrationPreview();
+  if (homeInitialRetryScenario === "tournament") {
+    apiMocks.failNextTournamentRead("Initial Home tournament request failed.");
+  } else if (homeInitialRetryScenario === "registration-empty") {
+    apiMocks.failNextHomeCarouselRegistrationRead("Initial Home registration request failed.");
+  } else if (homeInitialRetryScenario) {
+    throw new Error(`Unsupported Home initial retry scenario: ${homeInitialRetryScenario}`);
+  }
 
   const { AccessibilityInfo } = await import("react-native");
   AccessibilityInfo.isScreenReaderEnabled = () => Promise.resolve(fakeScreenReaderEnabled);
