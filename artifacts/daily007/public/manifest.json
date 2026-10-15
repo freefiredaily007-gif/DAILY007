@@ -1,0 +1,24 @@
+{
+  "id": "./",
+  "name": "Daily007",
+  "short_name": "Daily007",
+  "description": "Join Daily007 tournaments, follow matches, and manage your rewards.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#070a12",
+  "background_color": "#070a12",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

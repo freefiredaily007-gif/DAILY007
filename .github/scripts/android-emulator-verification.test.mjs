@@ -36,7 +36,7 @@ async function run(api, failStage = "") {
 printf 'adb %s\\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   install) [ "$FAIL_STAGE" != install ] || exit 17; echo Success ;;
-  reverse) echo '8081' ;;
+  reverse) echo "$3 $4" ;;
   shell)
     if [ "$2" = pm ]; then
       echo package:/data/app/host.exp.exponent/base.apk
@@ -52,14 +52,18 @@ esac
 printf 'pnpm %s\\n' "$*" >> "$MOCK_CALLS"
 if [ "$3" = exec ]; then
   printf '%s' "$$" > "$MOCK_METRO_PID"
-  [ "$FAIL_STAGE" != host ] || exit 23
+  if [ "$FAIL_STAGE" = host ]; then
+    echo 'Metro startup failed: EADDRINUSE' >&2
+    exit 23
+  fi
   exec sleep 300
 fi
-[ "$EXPO_DEV_URL" = exp://127.0.0.1:8081 ] || exit 24
+[ "$EXPO_DEV_URL" = "exp://127.0.0.1:$METRO_PORT" ] || exit 24
 [ -d "$MAESTRO_TEST_OUTPUT_DIR" ] || exit 25
 echo 'mock suite passed'
 `,
     curl: `#!/usr/bin/env bash
+printf 'curl %s\\n' "$*" >> "$MOCK_CALLS"
 while [ ! -f "$MOCK_METRO_PID" ]; do sleep 0.01; done
 [ "$FAIL_STAGE" != host ] || exit 22
 printf 'packager-status:running'
@@ -104,10 +108,14 @@ for (const api of [35, 36]) {
     const result = await run(api);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.install, /Success/);
-    assert.match(result.verified, /host and emulator both reached/);
+    assert.match(result.verified, /host and emulator reached packager-status:running on port \d+/);
     assert.match(result.summary, /Expo Go installed successfully/);
     assert.match(result.calls, /adb shell pm path host.exp.exponent/);
-    assert.match(result.calls, /adb reverse tcp:8081 tcp:8081/);
+    const metroPort = result.calls.match(/adb reverse tcp:(\d+) tcp:\1/)?.[1];
+    assert.ok(metroPort, "adb reverse must use the dynamically selected Metro port");
+    assert.match(result.calls, new RegExp(`pnpm .*--port ${metroPort}`));
+    assert.match(result.calls, new RegExp(`curl --fail --silent http://127\\.0\\.0\\.1:${metroPort}/status`));
+    assert.match(result.calls, new RegExp(`adb shell .*127\\.0\\.0\\.1 ${metroPort}`));
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
     assert.equal(suites.length, api === 35 ? 9 : 1);
@@ -137,8 +145,9 @@ for (const stage of ["host", "emulator"]) {
     assert.match(result.summary, /Android API 35 emulator failure/);
     assert.doesNotMatch(result.summary, /Expo Go installed successfully/);
     assert.match(result.failureDetails, stage === "host"
-      ? /phase=Metro did not become ready on host port 8081/
+      ? /phase=Metro did not become ready on host port \d+/
       : /phase=validate emulator Metro response/);
     assert.match(result.output, /::error title=Android API 35 emulator failure::/);
+    if (stage === "host") assert.match(result.output, /Metro startup failed: EADDRINUSE/);
   });
 }

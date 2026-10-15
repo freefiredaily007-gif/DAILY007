@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const net = require('net');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
+const { injectPwaHead } = require('./pwa-html');
 
 // The original app owns its React Navigation tree inside Expo Router.
 process.env.EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK = '1';
@@ -210,6 +211,21 @@ async function exportWebApp(expoPublicDomain, expoPublicReplId) {
   if (!fs.existsSync(webEntry)) {
     throw new Error(`Daily007 web export did not create ${webEntry}`);
   }
+  for (const relativePath of [
+    'manifest.json',
+    'sw.js',
+    'icons/icon-192.png',
+    'icons/icon-512.png',
+  ]) {
+    if (!fs.existsSync(path.join(outputDir, relativePath))) {
+      throw new Error(`Daily007 web export is missing PWA asset: ${relativePath}`);
+    }
+  }
+  const pwaManifest = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, 'public', 'manifest.json'), 'utf-8'),
+  );
+  const html = fs.readFileSync(webEntry, 'utf-8');
+  fs.writeFileSync(webEntry, injectPwaHead(html, pwaManifest, basePath));
   console.log('Daily007 browser app ready');
 }
 
