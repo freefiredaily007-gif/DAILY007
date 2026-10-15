@@ -15,6 +15,7 @@ import {
   tournamentListEmptyMessage,
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
+import { getTournamentFormatCapacity } from '../src/lib/tournamentFormatCapacity.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
 import { createFocusedRefreshCoalescer } from '../src/lib/focusedLatestRequest.ts';
 import {
@@ -313,7 +314,7 @@ test('Solo, Duo, and Squad selections keep the selected game mode in their route
 test('format cards announce one mode, format, and capacity action without decorative focus stops', () => {
   assert.match(
     modeSubmodesSource,
-    /accessibilityGroup\s+accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.label\}`\}/,
+    /accessibilityGroup\s+accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.playersPerTeam\} \$\{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team, \$\{capacity\.label\}`\}/,
   );
   assert.match(
     modeSubmodesSource,
@@ -348,6 +349,47 @@ test('format cards announce one mode, format, and capacity action without decora
   }
 });
 
+test('format capacity counts and labels are correct for every mode and team size', () => {
+  const expected = [
+    { gameMode: 'battle_royale', teamType: 'solo', playersPerTeam: 1, slots: 48, totalPlayers: 48, label: '48 player slots' },
+    { gameMode: 'battle_royale', teamType: 'duo', playersPerTeam: 2, slots: 24, totalPlayers: 48, label: '24 team slots · 48 players' },
+    { gameMode: 'battle_royale', teamType: 'squad', playersPerTeam: 4, slots: 12, totalPlayers: 48, label: '12 team slots · 48 players' },
+    { gameMode: 'clash_squad', teamType: 'solo', playersPerTeam: 1, slots: 2, totalPlayers: 2, label: '2 team slots · 2 players' },
+    { gameMode: 'clash_squad', teamType: 'duo', playersPerTeam: 2, slots: 2, totalPlayers: 4, label: '2 team slots · 4 players' },
+    { gameMode: 'clash_squad', teamType: 'squad', playersPerTeam: 4, slots: 2, totalPlayers: 8, label: '2 team slots · 8 players' },
+    { gameMode: 'lone_wolf', teamType: 'solo', playersPerTeam: 1, slots: 2, totalPlayers: 2, label: '2 team slots · 2 players' },
+    { gameMode: 'lone_wolf', teamType: 'duo', playersPerTeam: 2, slots: 2, totalPlayers: 4, label: '2 team slots · 4 players' },
+    { gameMode: 'lone_wolf', teamType: 'squad', playersPerTeam: 4, slots: 2, totalPlayers: 8, label: '2 team slots · 8 players' },
+  ];
+
+  for (const fixture of expected) {
+    assert.deepEqual(
+      getTournamentFormatCapacity(fixture.gameMode, fixture.teamType, fixture.playersPerTeam),
+      {
+        playersPerTeam: fixture.playersPerTeam,
+        slots: fixture.slots,
+        totalPlayers: fixture.totalPlayers,
+        label: fixture.label,
+      },
+      `${fixture.gameMode} ${fixture.teamType}`,
+    );
+  }
+
+  assert.match(
+    modeSubmodesSource,
+    /accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.playersPerTeam\} \$\{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team, \$\{capacity\.label\}`\}/,
+  );
+  assert.match(
+    modeSubmodesSource,
+    /<Text style=\{\[styles\.sizeText,\s*\{ color: format\.accent \}\]\}>\{capacity\.playersPerTeam\}P<\/Text>/,
+  );
+  assert.match(
+    modeSubmodesSource,
+    /<Text style=\{styles\.formatPlayers\}>\{capacity\.playersPerTeam\} \{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team<\/Text>/,
+  );
+  assert.match(modeSubmodesSource, /<Text style=\{styles\.capacity\}>\{capacity\.label\}<\/Text>/);
+});
+
 test('format cards stack their details and remain scrollable at 1.5x Android text', () => {
   const formatSection = modeSubmodesSource.slice(
     modeSubmodesSource.indexOf('<View style={styles.formats}>'),
@@ -371,7 +413,7 @@ test('format cards stack their details and remain scrollable at 1.5x Android tex
     assert.match(modeSubmodesSource, new RegExp(`\\{ type: '${type}', title: '${title}'`));
   }
   assert.match(formatSection, /testID=\{`format-\$\{gameMode\}-\$\{format\.type\}`\}/);
-  assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.label\}`\}/);
+  assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{format\.title\}, \$\{capacity\.playersPerTeam\} \$\{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team, \$\{capacity\.label\}`\}/);
   assert.match(formatSection, /onPress=\{\(\) => navigation\.navigate\([\s\S]*?submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\)/);
   assert.match(formatSection, /style=\{styles\.formatName\}>\{format\.title\}<\/Text>/);
   assert.match(formatSection, /per team<\/Text>/);

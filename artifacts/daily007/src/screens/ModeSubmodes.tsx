@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, GCard, SectionTitle } from '../components/ui';
 import { submodeRouteParams } from '../lib/tournamentFilters';
+import { getTournamentFormatCapacity } from '../lib/tournamentFormatCapacity';
 
 type ModeKey = 'battle_royale' | 'clash_squad' | 'lone_wolf';
 type TeamType = 'solo' | 'duo' | 'squad';
@@ -20,17 +21,6 @@ const FORMATS: { type: TeamType; title: string; size: number; accent: string }[]
   { type: 'duo', title: 'DUO', size: 2, accent: C.orange },
   { type: 'squad', title: 'SQUAD', size: 4, accent: C.purple },
 ];
-
-function capacityFor(gameMode: ModeKey, type: TeamType, playersPerTeam: number) {
-  if (gameMode === 'battle_royale') {
-    if (type === 'solo') return { slots: 48, label: '48 player slots' };
-    return {
-      slots: type === 'duo' ? 24 : 12,
-      label: `${type === 'duo' ? 24 : 12} team slots · 48 players`,
-    };
-  }
-  return { slots: 2, label: `2 team slots · ${playersPerTeam * 2} players` };
-}
 
 export default function ModeSubmodes() {
   const navigation: any = useNavigation();
@@ -65,14 +55,14 @@ export default function ModeSubmodes() {
       <SectionTitle accent={mode.accent}>SELECT YOUR FORMAT</SectionTitle>
       <View style={styles.formats}>
         {FORMATS.map((format) => {
-          const capacity = capacityFor(gameMode, format.type, format.size);
+          const capacity = getTournamentFormatCapacity(gameMode, format.type, format.size);
           const displayAccent = swapThemeColor(format.accent);
           return (
             <GCard
               key={format.type}
               testID={`format-${gameMode}-${format.type}`}
               accessibilityGroup
-              accessibilityLabel={`${mode.title}, ${format.title}, ${capacity.label}`}
+              accessibilityLabel={`${mode.title}, ${format.title}, ${capacity.playersPerTeam} ${capacity.playersPerTeam === 1 ? 'player' : 'players'} per team, ${capacity.label}`}
               accessibilityHint="Opens available tournaments for this format"
               onPress={() => navigation.navigate(
                 'Tournaments',
@@ -84,13 +74,13 @@ export default function ModeSubmodes() {
               <View style={[styles.formatContent, largeText && styles.formatContentLarge]}>
                 <View style={[styles.formatTopRow, largeText && styles.formatTopRowLarge]}>
                   <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
-                    <Text style={[styles.sizeText, { color: format.accent }]}>{format.size}P</Text>
+                    <Text style={[styles.sizeText, { color: format.accent }]}>{capacity.playersPerTeam}P</Text>
                   </View>
                   {largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}
                 </View>
                 <View style={[styles.formatInfo, largeText && styles.formatInfoLarge]}>
                   <Text style={styles.formatName}>{format.title}</Text>
-                  <Text style={styles.formatPlayers}>{format.size} {format.size === 1 ? 'player' : 'players'} per team</Text>
+                   <Text style={styles.formatPlayers}>{capacity.playersPerTeam} {capacity.playersPerTeam === 1 ? 'player' : 'players'} per team</Text>
                   <Text style={styles.capacity}>{capacity.label}</Text>
                 </View>
                 {!largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}
