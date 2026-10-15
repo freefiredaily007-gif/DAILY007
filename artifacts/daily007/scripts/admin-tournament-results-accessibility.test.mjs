@@ -132,6 +132,11 @@ test('approved-player load failures use one polite retry announcement without mo
 test('Result Entry announces distinct successful empty states separately from load failures', () => {
   assert.match(
     screenSource,
+    /const resultEmptyTitle = resultRegs === null\s*\?\s*''\s*:\s*resultRegs\.length === 0\s*\?\s*'NO APPROVED PLAYERS'\s*:\s*'ALL RESULTS PUBLISHED';/,
+    'The empty-state heading must distinguish no approved players from already-published results.',
+  );
+  assert.match(
+    screenSource,
     /const resultEmptyMessage = resultRegs === null\s*\?\s*''\s*:\s*resultRegs\.length === 0\s*\?\s*'No approved registrations for this tournament\.'\s*:\s*'Every approved player already has a published result\.';/,
     'A successful empty response and an all-published response must have different messages.',
   );
@@ -148,6 +153,7 @@ test('Result Entry announces distinct successful empty states separately from lo
 
   const emptyState = resultEntryState.match(/<Empty[\s\S]*?\/>/)?.[0];
   assert.ok(emptyState, 'A successful empty response must render the shared empty state.');
+  assert.match(emptyState, /title=\{resultEmptyTitle\}/);
   assert.match(emptyState, /text=\{resultEmptyMessage\}/);
   assert.match(emptyState, /accessibilityLabel=\{resultEmptyMessage\}/);
   assert.equal(

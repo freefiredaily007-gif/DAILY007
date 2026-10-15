@@ -743,6 +743,11 @@ export default function AdminTournaments() {
         const winner = tournamentResults.find((entry) => Number(entry.rank) === 1);
         const winnerName = String(winner?.gameName || winner?.playerName || winner?.teamName || 'Winner');
         const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : 'UPCOMING';
+        const resultEmptyTitle = resultRegs === null
+          ? ''
+          : resultRegs.length === 0
+            ? 'NO APPROVED PLAYERS'
+            : 'ALL RESULTS PUBLISHED';
         const resultEmptyMessage = resultRegs === null
           ? ''
           : resultRegs.length === 0
@@ -930,6 +935,7 @@ export default function AdminTournaments() {
                   </>
                 ) : eligibleResultRegs.length === 0 ? (
                   <Empty
+                    title={resultEmptyTitle}
                     text={resultEmptyMessage}
                     accessibilityLabel={resultEmptyMessage}
                     accessibilityLiveRegion="polite"
