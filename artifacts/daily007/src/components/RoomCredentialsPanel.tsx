@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from './typography';
@@ -39,6 +40,13 @@ export function RoomCredentialsPanel({
   const [simulateClipboardFailure, setSimulateClipboardFailure] = useState(false);
   const copyRequestGuard = useRef(createRoomCredentialCopyRequestGuard());
   const credentialsReady = hasServerAuthorizedRoomCredentials(id, password);
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        copyRequestGuard.current.invalidateRequests();
+      };
+    }, []),
+  );
   const message = !schedule
     ? 'Tournament start time is unavailable. Room details remain hidden.'
     : now < schedule.releaseAtMs

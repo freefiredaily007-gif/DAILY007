@@ -10,6 +10,9 @@ export function createRoomCredentialCopyRequestGuard() {
       currentRequestId += 1;
       return currentRequestId;
     },
+    invalidateRequests() {
+      currentRequestId += 1;
+    },
     isCurrentRequest(requestId: number) {
       return requestId === currentRequestId;
     },

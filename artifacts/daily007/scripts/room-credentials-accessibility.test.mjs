@@ -366,6 +366,56 @@ test("only the most recently tapped credential updates or announces copy feedbac
   );
 });
 
+test("leaving tournament details suppresses a late clipboard result, while focused copies still report", async () => {
+  const createDeferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    return { promise, resolve };
+  };
+
+  const requestGuard = createRoomCredentialCopyRequestGuard();
+  const delayedWrite = createDeferred();
+  const announcements = [];
+  let visibleFeedback = null;
+  const runCopy = async (writePromise) => {
+    const requestId = requestGuard.beginRequest();
+    const feedback = await copyRoomCredentialToClipboard(
+      "Room ID",
+      "FAKE-ROOM-123",
+      () => writePromise,
+    );
+    if (!requestGuard.isCurrentRequest(requestId)) return;
+    visibleFeedback = feedback;
+    announcements.push(feedback.message);
+  };
+
+  const pendingCopy = runCopy(delayedWrite.promise);
+  requestGuard.invalidateRequests();
+  delayedWrite.resolve(true);
+  await pendingCopy;
+
+  assert.equal(visibleFeedback, null, "a late result must not update the departed panel");
+  assert.deepEqual(announcements, [], "a late result must not announce after navigation");
+
+  const focusedWrite = createDeferred();
+  const focusedCopy = runCopy(focusedWrite.promise);
+  focusedWrite.resolve(true);
+  await focusedCopy;
+  assert.deepEqual(visibleFeedback, {
+    kind: "success",
+    message: "Room ID copied to clipboard.",
+  });
+  assert.deepEqual(announcements, ["Room ID copied to clipboard."]);
+
+  assert.match(
+    panelSource,
+    /useFocusEffect\(\s*useCallback\(\(\) => \{\s*return \(\) => \{\s*copyRequestGuard\.current\.invalidateRequests\(\);\s*\};\s*\}, \[\]\)\s*,?\s*\)/,
+    "navigation blur and unmount must invalidate pending clipboard results",
+  );
+});
+
 test("clipboard failure simulation is development-only and covers both credentials", () => {
   assert.match(
     panelSource,
