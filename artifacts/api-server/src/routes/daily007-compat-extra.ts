@@ -78,6 +78,26 @@ const userId = (req: Request) => req.daily007Account?.id;
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 function error(res: Response, status: number, message: string) { res.status(status).json({ error: message }); }
 function validId(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
+const PAYMENT_HISTORY_PAGE_SIZE = 200;
+type PaymentHistoryCursor = { createdAt: string; id: string };
+function encodePaymentHistoryCursor(cursor: PaymentHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+function decodePaymentHistoryCursor(value: unknown): PaymentHistoryCursor | null {
+  if (
+    typeof value !== "string" ||
+    value.length > 512 ||
+    !/^[A-Za-z0-9_-]+$/.test(value)
+  ) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!isObject(parsed) || typeof parsed.createdAt !== "string" ||
+      !Number.isFinite(Date.parse(parsed.createdAt)) || !validId(parsed.id)) return null;
+    return { createdAt: parsed.createdAt, id: parsed.id };
+  } catch {
+    return null;
+  }
+}
 function text(value: unknown, min = 1, max = 200): string | null {
   return typeof value === "string" && value.trim().length >= min && value.trim().length <= max ? value.trim() : null;
 }
@@ -338,13 +358,58 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
 
 router.get("/my/payments", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
-  const result = await pool.query(
-    `SELECT id, coins, amount, reference AS "txnId", status,
-            review_reason AS "reviewReason", created_at AS "createdAt",
-            reviewed_at AS "reviewedAt"
-       FROM daily007_v2_payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
-  );
-  res.json(result.rows);
+  const paginated = req.query.paginated === "true" || req.query.cursor !== undefined;
+  if (req.query.paginated !== undefined && req.query.paginated !== "true") {
+    error(res, 400, "Payment history pagination must be true when requested."); return;
+  }
+  const cursorValue = req.query.cursor;
+  if (cursorValue !== undefined && typeof cursorValue !== "string") {
+    error(res, 400, "Payment history cursor is invalid."); return;
+  }
+  const cursor = cursorValue === undefined ? null : decodePaymentHistoryCursor(cursorValue);
+  if (cursorValue !== undefined && !cursor) {
+    error(res, 400, "Payment history cursor is invalid."); return;
+  }
+  if (!paginated) {
+    const result = await pool.query(
+      `SELECT id, coins, amount, reference AS "txnId", status,
+              review_reason AS "reviewReason", created_at AS "createdAt",
+              reviewed_at AS "reviewedAt"
+         FROM daily007_v2_payments WHERE user_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT 200`, [id],
+    );
+    res.json(result.rows);
+    return;
+  }
+  const result = cursor
+    ? await pool.query(
+      `SELECT id, coins, amount, reference AS "txnId", status,
+              review_reason AS "reviewReason", created_at AS "createdAt",
+              reviewed_at AS "reviewedAt", created_at::text AS "cursorCreatedAt"
+         FROM daily007_v2_payments
+        WHERE user_id = $1 AND (created_at, id) < ($2::timestamptz, $3::uuid)
+        ORDER BY created_at DESC, id DESC LIMIT $4`,
+      [id, cursor.createdAt, cursor.id, PAYMENT_HISTORY_PAGE_SIZE + 1],
+    )
+    : await pool.query(
+      `SELECT id, coins, amount, reference AS "txnId", status,
+              review_reason AS "reviewReason", created_at AS "createdAt",
+              reviewed_at AS "reviewedAt", created_at::text AS "cursorCreatedAt"
+         FROM daily007_v2_payments WHERE user_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [id, PAYMENT_HISTORY_PAGE_SIZE + 1],
+    );
+  const hasMore = result.rows.length > PAYMENT_HISTORY_PAGE_SIZE;
+  const pageRows = result.rows.slice(0, PAYMENT_HISTORY_PAGE_SIZE);
+  const lastRow = pageRows[pageRows.length - 1] as
+    | { id: string; cursorCreatedAt: string }
+    | undefined;
+  res.json({
+    items: pageRows.map(({ cursorCreatedAt: _cursorCreatedAt, ...payment }) => payment),
+    nextCursor: hasMore && lastRow
+      ? encodePaymentHistoryCursor({ createdAt: lastRow.cursorCreatedAt, id: lastRow.id })
+      : null,
+  });
 });
 
 router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {

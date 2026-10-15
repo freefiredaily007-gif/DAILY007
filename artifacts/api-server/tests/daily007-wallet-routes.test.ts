@@ -386,6 +386,59 @@ test("payment history returns only the authenticated player's newest 200 request
   });
 });
 
+test("payment history pagination returns older pages in order and remains scoped to the authenticated player", async () => {
+  walletTestDb.reset();
+  const playerPayments = Array.from({ length: 205 }, (_, index) => ({
+    id: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    userId: TEST_PLAYER_ID,
+    createdAt: new Date(Date.UTC(2026, 0, 1) + index * 1000),
+  }));
+  const otherPlayerPayments = Array.from({ length: 4 }, (_, index) => ({
+    id: `40000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    userId: TEST_SECOND_PLAYER_ID,
+    createdAt: new Date(Date.UTC(2027, 0, 1) + index * 1000),
+  }));
+  walletTestDb.seedPaymentHistory([...playerPayments, ...otherPlayerPayments]);
+
+  await withServer(async (origin) => {
+    const first = await call(origin, TEST_PLAYER_ID, "/my/payments?paginated=true", "GET");
+    assert.equal(first.status, 200);
+    assert.equal(first.body.items.length, 200);
+    assert.ok(first.body.nextCursor);
+    assert.deepEqual(
+      first.body.items.map((payment: { id: string }) => payment.id),
+      playerPayments.slice(-200).reverse().map(({ id }) => id),
+    );
+    assert.ok(first.body.items.every((payment: { id: string }) =>
+      walletTestDb.payments.get(payment.id)?.user_id === TEST_PLAYER_ID,
+    ));
+
+    const second = await call(
+      origin,
+      TEST_PLAYER_ID,
+      `/my/payments?paginated=true&cursor=${encodeURIComponent(first.body.nextCursor)}`,
+      "GET",
+    );
+    assert.equal(second.status, 200);
+    assert.equal(second.body.items.length, 5);
+    assert.equal(second.body.nextCursor, null);
+    assert.deepEqual(
+      second.body.items.map((payment: { id: string }) => payment.id),
+      playerPayments.slice(0, 5).reverse().map(({ id }) => id),
+    );
+    assert.ok(second.body.items.every((payment: { id: string }) =>
+      walletTestDb.payments.get(payment.id)?.user_id === TEST_PLAYER_ID,
+    ));
+    assert.equal(
+      JSON.stringify([...first.body.items, ...second.body.items]).includes(otherPlayerPayments[0].id),
+      false,
+    );
+
+    const invalid = await call(origin, TEST_PLAYER_ID, "/my/payments?paginated=true&cursor=not-a-cursor", "GET");
+    assert.equal(invalid.status, 400);
+  });
+});
+
 test("deposit display prefers the stored rupee amount over a changed conversion rate", () => {
   assert.equal(depositAmountInr(120, 300, 1), "₹300");
   assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");

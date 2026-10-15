@@ -406,13 +406,27 @@ class MemoryWalletDatabase {
     } else if (normalized.includes("FROM daily007_v2_payments WHERE user_id = $1")) {
       let history = [...this.payments.values()]
         .filter((item) => item.user_id === userId && item.status !== "deleted");
-      if (/\bORDER BY created_at DESC\b/i.test(normalized)) {
-        history = history.sort((left, right) =>
-          right.created_at.getTime() - left.created_at.getTime(),
+      if (normalized.includes("(created_at, id) < ($2::timestamptz, $3::uuid)")) {
+        const cursorTime = Date.parse(String(values[1]));
+        const cursorId = String(values[2]);
+        history = history.filter((item) =>
+          item.created_at.getTime() < cursorTime ||
+          (item.created_at.getTime() === cursorTime && item.id < cursorId),
         );
       }
-      const limit = normalized.match(/\bLIMIT\s+(\d+)\b/i);
-      if (limit) history = history.slice(0, Number(limit[1]));
+      if (/\bORDER BY created_at DESC\b/i.test(normalized)) {
+        history = history.sort((left, right) =>
+          right.created_at.getTime() - left.created_at.getTime() ||
+          right.id.localeCompare(left.id),
+        );
+      }
+      const limit = normalized.match(/\bLIMIT\s+(\d+|\$\d+)\b/i);
+      if (limit) {
+        const limitValue = limit[1].startsWith("$")
+          ? Number(values[Number(limit[1].slice(1)) - 1])
+          : Number(limit[1]);
+        history = history.slice(0, limitValue);
+      }
       rows = history.map((item) => ({
         id: item.id,
         coins: item.coins,
@@ -422,6 +436,9 @@ class MemoryWalletDatabase {
         reviewReason: item.review_reason,
         createdAt: item.created_at,
         reviewedAt: item.reviewed_at,
+        ...(normalized.includes('created_at::text AS "cursorCreatedAt"')
+          ? { cursorCreatedAt: item.created_at.toISOString() }
+          : {}),
       }));
     } else if (normalized.includes("FROM daily007_v2_withdrawals WHERE user_id = $1")) {
       rows = [...this.withdrawals.values()]

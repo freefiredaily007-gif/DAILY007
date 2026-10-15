@@ -466,6 +466,9 @@ export const Api = {
     proofObjectPath?: string;
   }) => unwrap(http.post('/payments', b)),
   myPayments: () => unwrap(http.get('/my/payments')),
+  myPaymentsPage: (cursor?: string) => unwrap(http.get('/my/payments', {
+    params: { paginated: 'true', ...(cursor ? { cursor } : {}) },
+  })),
   walletUploadUrl: (b: { purpose: 'payment-proof' | 'wallet-qr'; contentType: string; size: number }) =>
     unwrap(http.post('/wallet/uploads/request-url', b)),
   withdrawCoins: (b: { coins: number; method: string; account: string }) => unwrap(http.post('/withdrawals', b)),
