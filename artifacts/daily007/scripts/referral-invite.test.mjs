@@ -456,7 +456,7 @@ test("successful invite-link and referral-code copies stay silent about failures
   assert.deepEqual(errors, ["", ""]);
 });
 
-test("Earn announces the copy-code recovery once after a rejected share and stays silent after success", async (t) => {
+test("Earn announces copy-code recovery once for every rejected share and stays silent after a successful retry", async (t) => {
   const referralLink = `https://${configuredDomain}/?ref=ABC12`;
   const sharedValues = [];
   const fallbackMessages = [];
@@ -467,9 +467,16 @@ test("Earn announces the copy-code recovery once after a rejected share and stay
     throw new Error("Unexpected network request");
   });
 
-  const makeShareInvite = (share) => loadEarnAction(earnSource, "shareInvite", {
+  let shareSucceeds = false;
+  const shareInvite = loadEarnAction(earnSource, "shareInvite", {
     dashboard: { code: "ABC12", referralLink },
-    Share: { share },
+    Share: {
+      share: async (content) => {
+        sharedValues.push(content);
+        if (!shareSucceeds) throw new Error("Share sheet unavailable");
+        return { action: "sharedAction" };
+      },
+    },
     shareReferralInviteWithFallback,
     setActionError: (message) => {
       errors.push(message);
@@ -480,29 +487,46 @@ test("Earn announces the copy-code recovery once after a rejected share and stay
     },
   });
 
-  await makeShareInvite(async (content) => {
-    sharedValues.push(content);
-    return { action: "sharedAction" };
-  })();
-
-  assert.equal(sharedValues.length, 1);
-  assert.deepEqual(errors, [""]);
-  assert.deepEqual(fallbackMessages, []);
   assert.deepEqual(accessibilityAnnouncements, []);
+  assert.deepEqual(fallbackMessages, []);
 
-  await makeShareInvite(async (content) => {
-    sharedValues.push(content);
-    throw new Error("Share sheet unavailable");
-  })();
-
-  assert.equal(sharedValues.length, 2);
-  assert.equal(sharedValues[0].url, referralLink);
-  assert.equal(sharedValues[1].url, referralLink);
-  assert.deepEqual(errors, ["", "", referralShareFallbackMessage]);
+  await shareInvite();
+  assert.equal(sharedValues.length, 1);
   assert.deepEqual(fallbackMessages, [referralShareFallbackMessage]);
   assert.deepEqual(accessibilityAnnouncements, [referralShareFallbackMessage]);
+
+  await shareInvite();
+  assert.equal(sharedValues.length, 2);
+  assert.deepEqual(fallbackMessages, [
+    referralShareFallbackMessage,
+    referralShareFallbackMessage,
+  ]);
+  assert.deepEqual(accessibilityAnnouncements, [
+    referralShareFallbackMessage,
+    referralShareFallbackMessage,
+  ]);
+
+  shareSucceeds = true;
+  await shareInvite();
+  assert.equal(sharedValues.length, 3);
+  assert.deepEqual(errors, [
+    "",
+    referralShareFallbackMessage,
+    "",
+    referralShareFallbackMessage,
+    "",
+  ]);
+  assert.deepEqual(fallbackMessages, [
+    referralShareFallbackMessage,
+    referralShareFallbackMessage,
+  ]);
+  assert.deepEqual(accessibilityAnnouncements, [
+    referralShareFallbackMessage,
+    referralShareFallbackMessage,
+  ]);
+  assert.ok(sharedValues.every((content) => content.url === referralLink));
   assert.equal(
-    fallbackMessages[0],
+    fallbackMessages[1],
     "Could not open the share sheet. You can copy the code instead.",
   );
   assert.equal(networkRequests.mock.callCount(), 0);
