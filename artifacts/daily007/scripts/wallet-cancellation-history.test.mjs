@@ -5,6 +5,7 @@ import {
   walletTransactionAccessibilityLabel,
   walletTransactionAmount,
   walletTransactionDescription,
+  walletTransactionIsLeaderboardReward,
 } from '../src/lib/wallet-transaction-display.ts';
 
 const walletScreenSource = await readFile(
@@ -92,7 +93,54 @@ test('Wallet displays each prize tournament and saved placement in one accessibl
   assert.match(walletScreenSource, /const isMatchPrize = item\.reason === 'match_prize'/);
   assert.match(
     walletScreenSource,
-    /isMatchPrize \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
+    /isMatchPrize \|\| isLeaderboardReward \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
+  );
+});
+
+test('Wallet clearly displays and announces each retried leaderboard reward', () => {
+  for (const transaction of [
+    {
+      amount: 40,
+      balanceAfter: 51,
+      createdAt: '2030-02-03T10:20:00.000Z',
+      reason: 'Weekly Leaderboard Rank #1 Reward',
+      description: 'Weekly Leaderboard Rank #1 Reward',
+      details: { cycleType: 'weekly', rank: 1 },
+    },
+    {
+      amount: 20,
+      balanceAfter: 32,
+      createdAt: '2030-02-03T10:21:00.000Z',
+      reason: 'Weekly Leaderboard Rank #2 Reward',
+      description: 'Weekly Leaderboard Rank #2 Reward',
+      details: { cycleType: 'weekly', rank: 2 },
+    },
+    {
+      amount: 10,
+      balanceAfter: 23,
+      createdAt: '2030-02-03T10:22:00.000Z',
+      reason: 'Weekly Leaderboard Rank #3 Reward',
+      description: 'Weekly Leaderboard Rank #3 Reward',
+      details: { cycleType: 'weekly', rank: 3 },
+    },
+  ]) {
+    assert.equal(walletTransactionIsLeaderboardReward(transaction), true);
+    assert.equal(walletTransactionDescription(transaction), transaction.description);
+    assert.equal(walletTransactionAmount(transaction), `+${transaction.amount}`);
+    assert.equal(
+      walletTransactionAccessibilityLabel(transaction),
+      `${transaction.description}. +${transaction.amount} coins credited. Date: ${transaction.createdAt.slice(0, 16).replace('T', ' ')}. Balance after: ${transaction.balanceAfter} coins.`,
+    );
+  }
+
+  assert.match(walletScreenSource, /const isLeaderboardReward = walletTransactionIsLeaderboardReward\(item\)/);
+  assert.match(
+    walletScreenSource,
+    /isMatchPrize \|\| isLeaderboardReward \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
+  );
+  assert.match(
+    walletScreenSource,
+    /isLeaderboardReward\s*\?\s*`\$\{amountLabel\} coins`/,
   );
 });
 

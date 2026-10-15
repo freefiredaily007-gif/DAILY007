@@ -11,6 +11,7 @@ import {
   walletTransactionAccessibilityLabel,
   walletTransactionAmount,
   walletTransactionDescription,
+  walletTransactionIsLeaderboardReward,
 } from '../lib/wallet-transaction-display';
 import { WalletRejectedDepositRow } from '../components/WalletRejectedDepositRow';
 import { WalletCancellationRefundRow } from '../components/WalletCancellationRefundRow';
@@ -404,6 +405,7 @@ export default function Wallet() {
           const pos = item.amount > 0;
           const isCancellationRefund = item.reason === 'tournament_cancel_refund';
           const isMatchPrize = item.reason === 'match_prize';
+          const isLeaderboardReward = walletTransactionIsLeaderboardReward(item);
           const isRejectedDeposit = item.isRequest &&
             item.requestType === 'payment' &&
             item.status === 'rejected';
@@ -426,7 +428,7 @@ export default function Wallet() {
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
             <Card
-              {...(isMatchPrize ? {
+              {...(isMatchPrize || isLeaderboardReward ? {
                 accessible: true,
                 accessibilityRole: 'text' as const,
                 accessibilityLabel: walletTransactionAccessibilityLabel(item),
@@ -484,7 +486,9 @@ export default function Wallet() {
                   ? item.requestType === 'payment'
                     ? depositAmountLabel
                     : `${item.coins} 🪙`
-                  : amountLabel}
+                  : isLeaderboardReward
+                    ? `${amountLabel} coins`
+                    : amountLabel}
               </Text>
             </Card>
           );

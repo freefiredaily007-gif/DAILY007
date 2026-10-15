@@ -73,7 +73,8 @@ CREATE TABLE daily007_v2_wallet_ledger (
   idempotency_key text UNIQUE,
   details jsonb,
   match_id uuid,
-  registration_id uuid
+  registration_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE daily007_v2_matches (

@@ -1574,6 +1574,44 @@ test("a later leaderboard payout failure rolls back earlier winners and keeps th
           },
         ],
       );
+
+      for (const [index, expected] of [
+        { rank: 1, coins: 40, balanceAfter: 51 },
+        { rank: 2, coins: 20, balanceAfter: 32 },
+        { rank: 3, coins: 10, balanceAfter: 23 },
+      ].entries()) {
+        const history = await getJson(origin, "/wallet/transactions", winnerIds[index]);
+        assert.equal(history.status, 200, JSON.stringify(history.body));
+        assert.ok(Array.isArray(history.body));
+        assert.equal(history.body.length, 1);
+        const [transaction] = history.body as {
+          amount: number;
+          balanceAfter: number;
+          reason: string;
+          description: string;
+          details: { periodId: string; cycleType: string; rank: number };
+        }[];
+        assert.deepEqual(
+          {
+            amount: transaction.amount,
+            balanceAfter: transaction.balanceAfter,
+            reason: transaction.reason,
+            description: transaction.description,
+            periodId: transaction.details.periodId,
+            cycleType: transaction.details.cycleType,
+            rank: transaction.details.rank,
+          },
+          {
+            amount: expected.coins,
+            balanceAfter: expected.balanceAfter,
+            reason: `Weekly Leaderboard Rank #${expected.rank} Reward`,
+            description: `Weekly Leaderboard Rank #${expected.rank} Reward`,
+            periodId,
+            cycleType: "weekly",
+            rank: expected.rank,
+          },
+        );
+      }
     });
 
     const retriedPeriod = await pool.query<{

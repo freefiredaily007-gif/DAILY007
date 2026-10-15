@@ -3,10 +3,37 @@ type WalletTransactionDisplayItem = {
   balanceAfter?: unknown;
   createdAt?: unknown;
   description?: unknown;
+  details?: unknown;
   reason?: unknown;
 };
 
+function leaderboardRewardDescription(item: WalletTransactionDisplayItem): string | null {
+  const details = item.details && typeof item.details === "object"
+    ? item.details as Record<string, unknown>
+    : null;
+  const cycleType = details?.cycleType;
+  const rank = Number(details?.rank);
+  if (
+    (cycleType === "weekly" || cycleType === "monthly") &&
+    Number.isSafeInteger(rank) &&
+    rank > 0
+  ) {
+    const cycle = cycleType === "weekly" ? "Weekly" : "Monthly";
+    return `${cycle} Leaderboard Rank #${rank} Reward`;
+  }
+  return typeof item.reason === "string" &&
+      /^(weekly|monthly) leaderboard rank #\d+ reward$/i.test(item.reason.trim())
+    ? item.reason.trim()
+    : null;
+}
+
+export function walletTransactionIsLeaderboardReward(item: WalletTransactionDisplayItem): boolean {
+  return leaderboardRewardDescription(item) !== null;
+}
+
 export function walletTransactionDescription(item: WalletTransactionDisplayItem): string {
+  const leaderboardDescription = leaderboardRewardDescription(item);
+  if (leaderboardDescription) return leaderboardDescription;
   if (typeof item.description === "string" && item.description.trim()) {
     return item.description.trim();
   }
@@ -29,6 +56,8 @@ export function walletTransactionAccessibilityLabel(item: WalletTransactionDispl
   const amount = walletTransactionAmount(item);
   const parts = item.reason === "tournament_cancel_refund"
     ? [description, `${amount} coins credited`]
+    : walletTransactionIsLeaderboardReward(item)
+      ? [description, `${amount} coins credited`]
     : [description, `${amount} coins`];
   if (typeof item.createdAt === "string" && item.createdAt.trim()) {
     parts.push(`Date: ${item.createdAt.slice(0, 16).replace("T", " ")}`);

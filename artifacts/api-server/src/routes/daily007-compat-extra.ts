@@ -62,6 +62,20 @@ const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const MAX_INT = 2_147_483_647;
+function leaderboardRewardHistoryDescription(details: Record<string, unknown>): string | null {
+  const cycleType = details.cycleType;
+  const rank = Number(details.rank);
+  if (
+    (cycleType !== "weekly" && cycleType !== "monthly") ||
+    !Number.isSafeInteger(rank) ||
+    rank < 1
+  ) {
+    return null;
+  }
+  const cycle = cycleType === "weekly" ? "Weekly" : "Monthly";
+  return `${cycle} Leaderboard Rank #${rank} Reward`;
+}
+
 const SETTINGS_DEFAULTS = {
   appName: "Daily007",
   whatsappLink: "https://chat.whatsapp.com/F86q8n8R6cT2e0oiYDldGc?s=cl&p=a&mlu=4&ilr=4",
@@ -265,6 +279,7 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
     const existingDescription = typeof details.description === "string" && details.description.trim()
       ? details.description.trim()
       : null;
+    const leaderboardDescription = leaderboardRewardHistoryDescription(details);
     const descriptionTournamentId = typeof details.description === "string"
       ? details.description.match(UUID_IN_TEXT)?.[0]
       : null;
@@ -309,7 +324,7 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
             ? `Tournament prize — ${context}`
             : existingDescription ?? "Tournament prize";
         })()
-        : existingDescription ?? (row.reason === "video_watch_reward"
+        : leaderboardDescription ?? existingDescription ?? (row.reason === "video_watch_reward"
           ? "Video watch reward"
           : String(row.reason).replaceAll("_", " "));
     return {
