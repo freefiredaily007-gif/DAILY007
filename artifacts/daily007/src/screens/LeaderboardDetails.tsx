@@ -413,14 +413,16 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
             <Pressable
               accessible
               accessibilityRole="button"
-              accessibilityLabel="Retry leaderboard refresh"
+              accessibilityLabel={query.isFetching ? "Refreshing leaderboard" : "Retry leaderboard refresh"}
               accessibilityState={{ disabled: query.isFetching, busy: query.isFetching }}
               disabled={query.isFetching}
               testID="leaderboard-stale-retry-button"
               onPress={() => void query.refetch()}
               style={styles.retryButton}
             >
-              <Text style={styles.retryButtonText}>Try again</Text>
+              <Text style={styles.retryButtonText}>
+                {query.isFetching ? "Refreshing…" : "Try again"}
+              </Text>
             </Pressable>
           </View>
         ) : null}

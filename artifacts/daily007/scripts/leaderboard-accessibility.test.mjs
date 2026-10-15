@@ -753,11 +753,17 @@ test("a failed refresh with a selected cached period announces that results may 
   );
   assert.match(retryButton, /accessible/);
   assert.match(retryButton, /accessibilityRole="button"/);
-  assert.match(retryButton, /accessibilityLabel="Retry leaderboard refresh"/);
+  assert.match(
+    retryButton,
+    /accessibilityLabel=\{query\.isFetching \? "Refreshing leaderboard" : "Retry leaderboard refresh"\}/,
+  );
   assert.match(retryButton, /accessibilityState=\{\{ disabled: query\.isFetching, busy: query\.isFetching \}\}/);
   assert.match(retryButton, /disabled=\{query\.isFetching\}/);
   assert.match(retryButton, /onPress=\{\(\) => void query\.refetch\(\)\}/);
-  assert.match(retryButton, /<Text style=\{styles\.retryButtonText\}>Try again<\/Text>/);
+  assert.match(
+    retryButton,
+    /<Text style=\{styles\.retryButtonText\}>\s*\{query\.isFetching \? "Refreshing…" : "Try again"\}\s*<\/Text>/,
+  );
   assert.match(
     screenSource,
     /\{query\.isRefetchError && period \? \(\s*<View style=\{styles\.staleDataWarning\}>[\s\S]*?testID="leaderboard-stale-data-warning"[\s\S]*?leaderboard-stale-retry-button/,
@@ -903,28 +909,37 @@ test("retrying stale standings keeps them visible through success and repeated f
   try {
     const initialFailure = await observer.refetch();
     assert.equal(initialFailure.isRefetchError, true);
+    assert.equal(initialFailure.isFetching, false);
+    assert.equal(initialFailure.isRefetchError ? "Try again" : null, "Try again");
     assert.equal(initialFailure.data.weekly.standings[0].name, "Saved Player");
 
     const retryRequest = observer.refetch();
     const retrying = observer.getCurrentResult();
     assert.equal(retrying.isFetching, true);
     assert.equal(retrying.isRefetchError, true);
+    assert.equal(retrying.isFetching ? "Refreshing…" : "Try again", "Refreshing…");
     assert.equal(retrying.data.weekly.standings[0].name, "Saved Player");
 
     pendingRetry.resolve(refreshedData);
     const recovered = await retryRequest;
     assert.equal(recovered.isSuccess, true);
     assert.equal(recovered.isRefetchError, false);
+    assert.equal(recovered.isFetching, false);
+    assert.equal(recovered.isRefetchError ? "Couldn't refresh" : null, null);
+    assert.equal(recovered.isFetching ? "Refreshing…" : "Try again", "Try again");
     assert.equal(recovered.data.weekly.standings[0].name, "Updated Player");
 
     const repeatedRetryRequest = observer.refetch();
     const repeatedRetrying = observer.getCurrentResult();
     assert.equal(repeatedRetrying.isFetching, true);
+    assert.equal(repeatedRetrying.isFetching ? "Refreshing…" : "Try again", "Refreshing…");
     assert.equal(repeatedRetrying.data.weekly.standings[0].name, "Updated Player");
 
     pendingRepeatedFailure.reject(new Error("API is still unavailable"));
     const repeatedFailure = await repeatedRetryRequest;
     assert.equal(repeatedFailure.isRefetchError, true);
+    assert.equal(repeatedFailure.isFetching, false);
+    assert.equal(repeatedFailure.isRefetchError ? "Try again" : null, "Try again");
     assert.equal(repeatedFailure.data.weekly.standings[0].name, "Updated Player");
     assert.equal(requestCount, 3);
   } finally {
