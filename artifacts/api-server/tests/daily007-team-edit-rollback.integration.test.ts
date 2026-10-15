@@ -177,6 +177,33 @@ async function createFixture(): Promise<TeamEditFixture> {
   }
 }
 
+async function createAdditionalPlayerFixture(matchFixture: TeamEditFixture): Promise<TeamEditFixture> {
+  const fixture: TeamEditFixture = {
+    playerId: randomUUID(),
+    matchId: matchFixture.matchId,
+    profileName: "Second Daily007 Profile",
+    captainGameName: "Second Original Fire Captain",
+    captainGameUid: `ff-${randomUUID()}`,
+    teamName: "Second Original Fire Squad",
+    teammates: [
+      { name: "Second Original Mate North", uid: `ff-${randomUUID()}` },
+      { name: "Second Original Mate East", uid: `ff-${randomUUID()}` },
+      { name: "Second Original Mate West", uid: `ff-${randomUUID()}` },
+    ],
+  };
+  await pool.query(
+    `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, wallet_coins)
+     VALUES ($1, $2, $3, 'test-salt', 'test-hash', $4)`,
+    [
+      fixture.playerId,
+      fixture.profileName,
+      `player-${fixture.playerId}@example.test`,
+      STARTING_WALLET_COINS,
+    ],
+  );
+  return fixture;
+}
+
 async function registerTeam(
   origin: string,
   fixture: TeamEditFixture,
@@ -324,7 +351,7 @@ async function removeRosterInsertFailure(): Promise<void> {
   await pool.query(`DROP SEQUENCE IF EXISTS ${FAILURE_SEQUENCE}`);
 }
 
-async function cleanupFixture(fixture: TeamEditFixture): Promise<void> {
+async function cleanupFixture(fixture: TeamEditFixture, additionalPlayerIds: string[] = []): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -342,6 +369,9 @@ async function cleanupFixture(fixture: TeamEditFixture): Promise<void> {
     await client.query("DELETE FROM daily007_v2_registrations WHERE match_id = $1", [fixture.matchId]);
     await client.query("DELETE FROM daily007_v2_matches WHERE id = $1", [fixture.matchId]);
     await client.query("DELETE FROM daily007_v2_users WHERE id = $1", [fixture.playerId]);
+    for (const playerId of additionalPlayerIds) {
+      await client.query("DELETE FROM daily007_v2_users WHERE id = $1", [playerId]);
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -521,6 +551,134 @@ test("concurrent PostgreSQL team edits keep captain and teammate details from on
     await Promise.allSettled(edits);
     blocker?.release();
     await cleanupFixture(fixture);
+  }
+});
+
+test("concurrent PostgreSQL team edits cannot claim the same UID with different capitalization", async () => {
+  const fixture = await createFixture();
+  const secondFixture = await createAdditionalPlayerFixture(fixture);
+  let firstRegistrationId: string | undefined;
+  let secondRegistrationId: string | undefined;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  const edits: Promise<RegistrationResponse>[] = [];
+  try {
+    await withServer(async (origin) => {
+      const [firstRegistered, secondRegistered] = await Promise.all([
+        registerTeam(origin, fixture),
+        registerTeam(origin, secondFixture),
+      ]);
+      assert.equal(
+        firstRegistered.status,
+        201,
+        `expected the first original Squad registration to succeed: ${JSON.stringify(firstRegistered.body)}`,
+      );
+      assert.equal(
+        secondRegistered.status,
+        201,
+        `expected the second original Squad registration to succeed: ${JSON.stringify(secondRegistered.body)}`,
+      );
+      assert.equal(typeof firstRegistered.body.registrationId, "string");
+      assert.equal(typeof secondRegistered.body.registrationId, "string");
+      firstRegistrationId = firstRegistered.body.registrationId as string;
+      secondRegistrationId = secondRegistered.body.registrationId as string;
+
+      const [firstInitial, secondInitial] = await Promise.all([
+        snapshot(fixture, firstRegistrationId),
+        snapshot(secondFixture, secondRegistrationId),
+      ]);
+
+      const sharedUid = `FF-Race-${randomUUID()}`;
+      assert.notEqual(sharedUid.toUpperCase(), sharedUid.toLowerCase());
+      const firstEdit: TeamEditPayload = {
+        captainGameName: "First UID Race Captain",
+        captainGameUid: sharedUid.toUpperCase(),
+        teamName: "First UID Race Squad",
+        teammates: [
+          { name: "First UID Race North", uid: `ff-${randomUUID()}` },
+          { name: "First UID Race East", uid: `ff-${randomUUID()}` },
+          { name: "First UID Race West", uid: `ff-${randomUUID()}` },
+        ],
+      };
+      const secondEdit: TeamEditPayload = {
+        captainGameName: "Second UID Race Captain",
+        captainGameUid: `ff-${randomUUID()}`,
+        teamName: "Second UID Race Squad",
+        teammates: [
+          { name: "Second UID Race North", uid: sharedUid.toLowerCase() },
+          { name: "Second UID Race East", uid: `ff-${randomUUID()}` },
+          { name: "Second UID Race West", uid: `ff-${randomUUID()}` },
+        ],
+      };
+
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the blocker backend PID");
+      const blockerPid = blocker.processID;
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_registrations WHERE id = $1 FOR UPDATE",
+        [firstRegistrationId],
+      );
+
+      edits.push(editTeam(origin, fixture.playerId, firstRegistrationId, firstEdit));
+      const firstWaiterPid = await waitForBlockedRequest(
+        "FROM daily007_v2_registrations",
+        blockerPid,
+        "the first team edit's registration-row lock",
+      );
+
+      edits.push(editTeam(origin, secondFixture.playerId, secondRegistrationId, secondEdit));
+      await waitForBlockedRequest(
+        "FROM daily007_v2_matches m",
+        firstWaiterPid,
+        "the second registration's tournament-row lock behind the first edit",
+      );
+
+      await blocker.query("COMMIT");
+      blockerTransactionOpen = false;
+      const results = await Promise.all(edits);
+      assert.deepEqual(
+        results.map((result) => result.status).sort(),
+        [200, 409],
+        `only one edit may claim a case-insensitive UID: ${JSON.stringify(results.map((result) => result.body))}`,
+      );
+      const duplicateResponse = results.find((result) => result.status === 409);
+      assert.match(String(duplicateResponse?.body.error), /already registered/i);
+
+      const [firstAfter, secondAfter] = await Promise.all([
+        snapshot(fixture, firstRegistrationId),
+        snapshot(secondFixture, secondRegistrationId),
+      ]);
+      const activeUidValues = [
+        firstAfter.registration?.captain_game_uid,
+        ...firstAfter.roster.map((member) => member.member_uid),
+        secondAfter.registration?.captain_game_uid,
+        ...secondAfter.roster.map((member) => member.member_uid),
+      ].filter((uid): uid is string => uid !== null && uid !== undefined)
+        .map((uid) => uid.toLowerCase());
+      assert.equal(
+        activeUidValues.filter((uid) => uid === sharedUid.toLowerCase()).length,
+        1,
+        "fresh registration and roster reads must contain the shared UID exactly once",
+      );
+
+      const winningRegistrationId = results.find((result) => result.status === 200)?.body.data &&
+        (results.find((result) => result.status === 200)?.body.data as { registrationId?: string }).registrationId;
+      assert.ok(winningRegistrationId === firstRegistrationId || winningRegistrationId === secondRegistrationId);
+      assert.deepEqual(
+        winningRegistrationId === firstRegistrationId ? secondAfter : firstAfter,
+        winningRegistrationId === firstRegistrationId ? secondInitial : firstInitial,
+        "the registration that lost the duplicate check must retain its original team",
+      );
+      assert.deepEqual(firstAfter.ledger, firstInitial.ledger);
+      assert.deepEqual(secondAfter.ledger, secondInitial.ledger);
+    });
+  } finally {
+    if (blockerTransactionOpen && blocker) await blocker.query("ROLLBACK");
+    await Promise.allSettled(edits);
+    blocker?.release();
+    await cleanupFixture(fixture, [secondFixture.playerId]);
   }
 });
 
