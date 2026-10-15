@@ -875,3 +875,113 @@ test("automatic and manual PostgreSQL cancellations refund once in either lock o
     }
   }
 });
+
+test("a later prior refund rolls back earlier PostgreSQL cancellation writes", async () => {
+  const fixture = await createFixture();
+  const matchId = fixture.matchIds[0];
+
+  try {
+    const orderedRegistrations = await pool.query<{
+      id: string;
+      captain_user_id: string;
+      entry_coins_paid: number;
+    }>(
+      `SELECT id, captain_user_id, entry_coins_paid
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND status IN ('approved', 'pending')
+        ORDER BY captain_user_id, id`,
+      [matchId],
+    );
+    const firstRegistration = orderedRegistrations.rows[0];
+    const laterRegistration = orderedRegistrations.rows[1];
+    assert.ok(firstRegistration && laterRegistration);
+
+    const laterPayer = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [laterRegistration.captain_user_id],
+    );
+    const priorBalance = Number(laterPayer.rows[0]?.wallet_coins) +
+      Number(laterRegistration.entry_coins_paid);
+    await pool.query(
+      "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+      [laterRegistration.captain_user_id, priorBalance],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, match_id, registration_id,
+          idempotency_key, details)
+       VALUES ($1, $2, $3, 'registration_refund', $4, $5, $6, $7::jsonb)`,
+      [
+        laterRegistration.captain_user_id,
+        laterRegistration.entry_coins_paid,
+        priorBalance,
+        matchId,
+        laterRegistration.id,
+        `daily007:test-prior-registration-refund:${laterRegistration.id}`,
+        JSON.stringify({ description: "Seeded prior registration refund" }),
+      ],
+    );
+
+    const balancesBefore = await pool.query<{
+      id: string;
+      wallet_coins: number;
+    }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+
+    const outcome = await captureCancellation(matchId, true);
+    assert.equal(outcome.status, "rejected");
+    if (outcome.status === "rejected") {
+      assert.ok(outcome.reason instanceof TournamentCancellationError);
+      assert.equal(outcome.reason.status, 409);
+      assert.match(outcome.reason.message, /already has a refund record/);
+    }
+
+    const match = await pool.query<{ status: string; enabled: boolean }>(
+      "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(match.rows, [{ status: "open", enabled: true }]);
+
+    const balancesAfter = await pool.query<{
+      id: string;
+      wallet_coins: number;
+    }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(balancesAfter.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map(balancesBefore.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      "earlier cancellation credits must roll back when a later registration already has a refund",
+    );
+
+    const refunds = await pool.query<{
+      registration_id: string;
+      user_id: string;
+      amount: number;
+      reason: string;
+    }>(
+      `SELECT registration_id, user_id, amount, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1
+          AND reason IN ('registration_refund', 'tournament_cancel_refund')
+        ORDER BY registration_id`,
+      [matchId],
+    );
+    assert.deepEqual(refunds.rows, [{
+      registration_id: laterRegistration.id,
+      user_id: laterRegistration.captain_user_id,
+      amount: Number(laterRegistration.entry_coins_paid),
+      reason: "registration_refund",
+    }]);
+    assert.notEqual(
+      firstRegistration.id,
+      laterRegistration.id,
+      "the seeded prior refund must sort after a registration cancellation would otherwise refund",
+    );
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
