@@ -23,6 +23,7 @@
     "test:admin-tournament-retry-concurrency": "node scripts/test-admin-narrow.mjs --admin-retry-concurrency-only",
     "test:tournament-pull-refresh": "node scripts/test-admin-narrow.mjs --manual-refresh-only",
     "test:tournament-start-timer": "node scripts/test-admin-narrow.mjs --scheduled-start-only",
+    "test:tournament-same-time-start": "node scripts/test-admin-narrow.mjs --same-time-start-only",
     "test:ist-date-surfaces": "node scripts/test-admin-narrow.mjs --ist-date-surfaces-only",
     "test:home-carousel": "node scripts/test-admin-narrow.mjs --home-carousel-only",
     "test:home-start-transition": "node scripts/test-admin-narrow.mjs --home-start-transition-only",

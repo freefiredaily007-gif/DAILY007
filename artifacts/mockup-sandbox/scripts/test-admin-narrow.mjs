@@ -5538,6 +5538,17 @@ async function checkSimultaneousTournamentStarts() {
     "document.body.innerText.includes('No ongoing tournaments.')",
     "the Admin Ongoing list to be empty before the shared start",
   );
+  await assertAdminScheduledStartState({
+    selectedTab: "ongoing",
+    counts: {
+      upcoming: "Upcoming tournaments, 2",
+      ongoing: "Ongoing tournaments, 0",
+      completed: "Completed tournaments, 0",
+    },
+    tournamentNames: [],
+    actions: [],
+    nameCandidates: [firstName, secondName],
+  }, "before the shared Admin scheduled start");
   tournamentReads = await evaluate(
     "window.__daily007TournamentResume.getTournamentReadCount()",
   );
@@ -5549,6 +5560,24 @@ async function checkSimultaneousTournamentStarts() {
       window.__daily007TournamentResume.getVisibleText().includes(${JSON.stringify(secondName)})`,
     "both Admin tournaments to become ongoing at their shared start",
   );
+  await assertAdminScheduledStartState({
+    selectedTab: "ongoing",
+    counts: {
+      upcoming: "Upcoming tournaments, 0",
+      ongoing: "Ongoing tournaments, 2",
+      completed: "Completed tournaments, 0",
+    },
+    tournamentNames: [firstName, secondName],
+    actions: [
+      "cancel-tournament-resume-boundary",
+      "manage-room-resume-boundary",
+      "finish-tournament-resume-boundary",
+      "cancel-tournament-resume-boundary-later",
+      "manage-room-resume-boundary-later",
+      "finish-tournament-resume-boundary-later",
+    ],
+    nameCandidates: [firstName, secondName],
+  }, "after both simultaneous Admin starts");
   await waitForCondition(
     `document.querySelector('[data-testid="tournament-start-announcement"]')?.textContent?.trim() === ${JSON.stringify(expectedAnnouncement)}`,
     "one Admin announcement to include both simultaneous starts",
