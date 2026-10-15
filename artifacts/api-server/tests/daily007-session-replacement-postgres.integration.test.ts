@@ -87,6 +87,20 @@ async function login(
   };
 }
 
+async function authenticatedGet(
+  origin: string,
+  path: string,
+  token: string,
+): Promise<LoginResponse> {
+  const response = await fetch(`${origin}${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return {
+    status: response.status,
+    body: await response.json() as Record<string, unknown>,
+  };
+}
+
 async function waitForLoginBlockedBy(
   queryFragment: string,
   blockerPid: number,
@@ -197,4 +211,67 @@ test("both password-login routes reject a login whose account is blocked before 
       }
     }
   });
+});
+
+test("both authenticated API surfaces reject a token after its account is blocked", async () => {
+  const userId = randomUUID();
+  const email = `existing-session-block-${userId}@example.test`;
+  const password = `valid-existing-session-block-password-${userId}`;
+  const credentials = await hashPassword(password);
+
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, status, auth_version)
+     VALUES ($1, 'Existing Session Block Test', $2, $3, $4, 'active', 0)`,
+    [userId, email, credentials.salt, credentials.hash],
+  );
+
+  try {
+    await withServer(async (origin) => {
+      const loggedIn = await login(
+        origin,
+        "/daily007/v2/auth/login",
+        email,
+        password,
+        "198.51.100.120",
+      );
+      assert.equal(loggedIn.status, 200);
+      assert.equal(typeof loggedIn.body.token, "string");
+      const token = loggedIn.body.token as string;
+
+      const routes = [
+        { label: "Daily007 v2", path: "/daily007/v2/auth/me" },
+        { label: "compatibility", path: "/auth/me" },
+      ];
+      for (const route of routes) {
+        const activeResponse = await authenticatedGet(origin, route.path, token);
+        assert.equal(activeResponse.status, 200, `${route.label} accepts the active account token`);
+      }
+
+      await pool.query(
+        "UPDATE daily007_v2_users SET status = 'blocked' WHERE id = $1",
+        [userId],
+      );
+
+      for (const route of routes) {
+        const blockedResponse = await authenticatedGet(origin, route.path, token);
+        assert.equal(blockedResponse.status, 403, `${route.label} rejects the pre-block token`);
+        assert.deepEqual(blockedResponse.body, { error: "This account is blocked." });
+      }
+
+      const blockedAccount = await pool.query<{
+        status: string;
+        auth_version: number;
+      }>(
+        "SELECT status, auth_version FROM daily007_v2_users WHERE id = $1",
+        [userId],
+      );
+      assert.deepEqual(blockedAccount.rows[0], {
+        status: "blocked",
+        auth_version: 1,
+      });
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
+  }
 });
