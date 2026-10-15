@@ -90,6 +90,10 @@ const androidWorkflowSource = await readFile(
   new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url),
   "utf8",
 );
+const androidJoinFormRunnerSource = await readFile(
+  new URL("./run-android-join-form-accessibility.mjs", import.meta.url),
+  "utf8",
+);
 const packageJson = JSON.parse(await readFile(
   new URL("../package.json", import.meta.url),
   "utf8",
@@ -238,13 +242,24 @@ test("Android release verification opens native Solo, Duo, and Squad label flows
   assert.match(nativeLabelFixtureSource, /onSubmit=\{async \(\) => \{\}\}/);
   assert.equal(
     packageJson.scripts["test:android-join-form-accessibility"],
-    'maestro test --test-output-dir="${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}" maestro/join-form-accessibility',
+    "node scripts/run-android-join-form-accessibility.mjs",
+  );
+  assert.match(
+    androidJoinFormRunnerSource,
+    /Android API level \$\{apiLevel\} JoinForm accessibility label flow failed/,
   );
   assert.match(
     androidWorkflowSource,
     /run_maestro_suite join-form-accessibility test:android-join-form-accessibility/,
   );
   assert.match(androidWorkflowSource, /Run JoinForm accessibility label regression tests/);
+  assert.match(androidWorkflowSource, /api-level: 35/);
+  assert.match(androidWorkflowSource, /Run JoinForm accessibility labels on Android 16 \(API 36\)/);
+  assert.match(androidWorkflowSource, /api-level: 36/);
+  assert.match(
+    androidWorkflowSource,
+    /Running Android API level \$\{ANDROID_API_LEVEL\} Maestro suite: join-form-accessibility[\s\S]*?pnpm --filter @workspace\/daily007 run test:android-join-form-accessibility/,
+  );
 
   const formats = [
     {
