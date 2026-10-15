@@ -135,9 +135,9 @@ function prepareApiSession() {
   storedSession = JSON.stringify(savedSession);
 }
 
-function mockApiRequests(t, { statsFailure, statsResponse } = {}) {
+function mockApiRequests(t, { statsFailure, statsResponse, client = http } = {}) {
   const requests = [];
-  t.mock.method(http, "get", async (path) => {
+  t.mock.method(client, "get", async (path) => {
     requests.push(path);
     if (path === "/auth/me") {
       return {
@@ -1198,6 +1198,65 @@ test("a verified account stays retryable when saving refreshed session data fail
     requests,
     ["/auth/me", "/me/stats", "/auth/me", "/me/stats", "/auth/me", "/me/stats"],
     "The later retry should verify the account again using only mocked API requests.",
+  );
+});
+
+test("a fresh verification flow recovers after a refreshed-session write fails", async (t) => {
+  t.after(async () => {
+    mockedStorage.clearSessionWriteRejection();
+    await setSession(null);
+  });
+  await setSession(savedSession);
+  mockedStorage.rejectNextSessionWrites();
+  const statsResponse = { matches: 12, wins: 4, kills: 39, prizeCoins: 85 };
+  const firstRequests = mockApiRequests(t, { statsResponse });
+
+  const firstVerification = await restoreDaily007Session(
+    async () => savedSession,
+    Api.me,
+    setSession,
+  );
+  assert.deepEqual(firstVerification, { status: "retry", session: savedSession });
+  assert.deepEqual(
+    JSON.parse(storedSession),
+    savedSession,
+    "A failed refresh write must leave the saved session available for the next app start.",
+  );
+  assert.deepEqual(await getSession(), savedSession);
+  assert.deepEqual(firstRequests, ["/auth/me", "/me/stats"]);
+
+  const restartedApi = await import("../src/lib/api.ts?fresh-session-verification");
+  const restartRequests = mockApiRequests(t, {
+    statsResponse,
+    client: restartedApi.http,
+  });
+  const afterRestart = await restoreDaily007Session(
+    restartedApi.getSession,
+    restartedApi.Api.me,
+    restartedApi.setSession,
+  );
+
+  assert.equal(afterRestart.status, "verified");
+  assert.equal(afterRestart.session.id, "verified-player");
+  assert.equal(afterRestart.session.name, "Verified Player");
+  assert.equal(afterRestart.session.coins, 17);
+  assert.equal(afterRestart.session.matches, 12);
+  assert.equal(afterRestart.session.wins, 4);
+  assert.equal(afterRestart.session.kills, 39);
+  assert.equal(afterRestart.session.prizeCoins, 85);
+  assert.equal(afterRestart.session.token, savedSession.token);
+  const expectedStoredSession = { ...afterRestart.session };
+  delete expectedStoredSession.statsError;
+  assert.deepEqual(
+    JSON.parse(storedSession),
+    expectedStoredSession,
+    "The restarted app should persist the full refreshed account with the original token.",
+  );
+  assert.equal((await restartedApi.getSession()).token, savedSession.token);
+  assert.deepEqual(
+    restartRequests,
+    ["/auth/me", "/me/stats"],
+    "The restarted verification should use only the mocked API routes.",
   );
 });
 
