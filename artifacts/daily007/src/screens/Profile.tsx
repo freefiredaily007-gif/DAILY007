@@ -48,6 +48,7 @@ export default function Profile() {
   const [confirmNewPassword, setConfirmNewPassword] = React.useState('');
   const [passwordError, setPasswordError] = React.useState('');
   const [passwordMessage, setPasswordMessage] = React.useState('');
+  const passwordChangeInFlight = React.useRef(false);
 
   React.useEffect(() => {
     let active = true;
@@ -154,6 +155,8 @@ export default function Profile() {
   };
 
   const submitPasswordChange = async () => {
+    if (passwordChangeInFlight.current) return;
+    passwordChangeInFlight.current = true;
     setPasswordError('');
 
     try {
@@ -174,6 +177,8 @@ export default function Profile() {
       setConfirmNewPassword('');
     } catch (e) {
       setPasswordError(apiError(e));
+    } finally {
+      passwordChangeInFlight.current = false;
     }
   };
 

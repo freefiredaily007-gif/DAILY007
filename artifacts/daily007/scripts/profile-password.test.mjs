@@ -307,6 +307,7 @@ test("canceling Profile password change closes and clears every field without ca
     currentPassword: state.currentPassword,
     newPassword: state.newPassword,
     confirmNewPassword: state.confirmNewPassword,
+    passwordChangeInFlight: { current: false },
     changePassword: mockedMutation,
     submitProfilePasswordChange,
     apiError: () => "synthetic mutation error",
@@ -350,6 +351,7 @@ test("canceling Profile password change closes and clears every field without ca
 test("Profile update control blocks a second submit while the mocked request is pending", async () => {
   const currentPassword = "synthetic-current-entry";
   const newPassword = "synthetic-new-entry";
+  const passwordChangeInFlight = { current: false };
   let passwordBusy = false;
   let mutationCalls = 0;
   let resolveMutation;
@@ -375,6 +377,7 @@ test("Profile update control blocks a second submit while the mocked request is 
     currentPassword,
     newPassword,
     confirmNewPassword: newPassword,
+    passwordChangeInFlight,
     changePassword,
     submitProfilePasswordChange,
     apiError: () => "synthetic mutation error",
@@ -419,6 +422,54 @@ test("Profile update control blocks a second submit while the mocked request is 
   assert.equal(mutationCalls, 1);
 });
 
+test("the confirmation field cannot submit again until its password request settles", async () => {
+  const passwordChangeInFlight = { current: false };
+  let mutationCalls = 0;
+  const mutationResolvers = [];
+  const changePassword = async () => {
+    mutationCalls += 1;
+    await new Promise((resolve) => mutationResolvers.push(resolve));
+  };
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    currentPassword: "synthetic-current-entry",
+    newPassword: "synthetic-new-entry",
+    confirmNewPassword: "synthetic-new-entry",
+    passwordChangeInFlight,
+    changePassword,
+    submitProfilePasswordChange,
+    apiError: () => "synthetic mutation error",
+    setPasswordError: () => {},
+    setPasswordMessage: () => {},
+    setPasswordModalVisible: () => {},
+    setCurrentPassword: () => {},
+    setNewPassword: () => {},
+    setConfirmNewPassword: () => {},
+  });
+  const confirmationInput = profileSource.match(
+    /<Input(?:(?!<Input)[\s\S])*?onSubmitEditing=\{submitPasswordChange\}[\s\S]*?\/>/,
+  )?.[0];
+  assert.ok(confirmationInput, "The confirmation field should submit through the guarded handler.");
+  assert.match(confirmationInput, /onSubmitEditing=\{submitPasswordChange\}/);
+
+  const submitFromConfirmationField = () => submitPasswordChange();
+  const firstSubmission = submitFromConfirmationField();
+  assert.equal(mutationCalls, 1, "The first keyboard submit should start one request.");
+  assert.equal(passwordChangeInFlight.current, true, "The handler should synchronously lock before awaiting.");
+
+  await submitFromConfirmationField();
+  assert.equal(mutationCalls, 1, "A queued keyboard submit must not send a second request.");
+
+  mutationResolvers[0]();
+  await firstSubmission;
+  assert.equal(passwordChangeInFlight.current, false, "The guard should clear when the request settles.");
+
+  const retrySubmission = submitFromConfirmationField();
+  assert.equal(mutationCalls, 2, "The keyboard submit should work again after the pending request settles.");
+  mutationResolvers[1]();
+  await retrySubmission;
+  assert.equal(passwordChangeInFlight.current, false);
+});
+
 test("successful Profile password change closes and clears the form and announces success once", async () => {
   const currentPassword = "mock-current-password";
   const newPassword = "mock-new-password";
@@ -440,10 +491,12 @@ test("successful Profile password change closes and clears the form and announce
     setNewPassword: (value) => calls.newPassword.push(value),
     setConfirmNewPassword: (value) => calls.confirmNewPassword.push(value),
   };
+  const passwordChangeInFlight = { current: false };
   const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
     currentPassword,
     newPassword,
     confirmNewPassword,
+    passwordChangeInFlight,
     changePassword: async ({ data }) => {
       calls.mutation += 1;
       calls.validMutationPayload =
@@ -539,10 +592,12 @@ test("wrong-current-password 401 keeps the form and session available for retry"
   const productionApiError = loadApiError();
   const originalFetch = globalThis.fetch;
   let requestCount = 0;
+  const passwordChangeInFlight = { current: false };
   const submitForCurrentPassword = (currentPassword) => loadProfileCallback("submitPasswordChange", {
     currentPassword,
     newPassword,
     confirmNewPassword,
+    passwordChangeInFlight,
     changePassword: async ({ data }) => {
       calls.mutationPayloads.push(data);
       return customFetch("/api/auth/me/password", {
@@ -645,6 +700,7 @@ test("canceling after a rejected password change clears all entries before reope
     setPasswordError: (value) => { state.passwordError = value; },
     setPasswordMessage: () => {},
   };
+  const passwordChangeInFlight = { current: false };
   const openPasswordModal = loadProfileCallback("openPasswordModal", setters);
   const closePasswordModal = loadProfileCallback("closePasswordModal", {
     passwordBusy: false,
@@ -659,6 +715,7 @@ test("canceling after a rejected password change clears all entries before reope
     currentPassword: state.currentPassword,
     newPassword: state.newPassword,
     confirmNewPassword: state.confirmNewPassword,
+    passwordChangeInFlight,
     changePassword: async () => {
       mutationCalls += 1;
       throw new Error("Mocked password request rejected.");
