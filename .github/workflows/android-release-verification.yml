@@ -156,9 +156,14 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            set -eu
+            set -eux
 
-            DIAG_DIR="$GITHUB_WORKSPACE/android-emulator-diagnostics"
+            WORKSPACE_DIR="${GITHUB_WORKSPACE:-$PWD}"
+            RUNNER_TEMP_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+            DIAG_DIR="$WORKSPACE_DIR/android-emulator-diagnostics"
+            mkdir -p "$DIAG_DIR"
+            printf 'Emulator script started. cwd=%s workspace=%s runner_temp=%s\n' \
+              "$PWD" "$WORKSPACE_DIR" "$RUNNER_TEMP_DIR" > "$DIAG_DIR/runner-started.txt"
             export ANDROID_API_LEVEL=35
             export MAESTRO_TEST_OUTPUT_DIR="$DIAG_DIR/maestro-output"
             mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
@@ -185,7 +190,7 @@ jobs:
               fi
             }
 
-            run_logged expo-go-install adb install -r "$RUNNER_TEMP/expo-go.apk"
+            run_logged expo-go-install adb install -r "$RUNNER_TEMP_DIR/expo-go.apk"
             run_logged adb-reverse adb reverse tcp:8081 tcp:8081
 
             EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
@@ -249,9 +254,14 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            set -eu
+            set -eux
 
-            DIAG_DIR="$GITHUB_WORKSPACE/android-emulator-diagnostics/api-36"
+            WORKSPACE_DIR="${GITHUB_WORKSPACE:-$PWD}"
+            RUNNER_TEMP_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+            DIAG_DIR="$WORKSPACE_DIR/android-emulator-diagnostics/api-36"
+            mkdir -p "$DIAG_DIR"
+            printf 'Emulator script started. cwd=%s workspace=%s runner_temp=%s\n' \
+              "$PWD" "$WORKSPACE_DIR" "$RUNNER_TEMP_DIR" > "$DIAG_DIR/runner-started.txt"
             export ANDROID_API_LEVEL=36
             export MAESTRO_TEST_OUTPUT_DIR="$DIAG_DIR/maestro-output"
             mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
@@ -278,7 +288,7 @@ jobs:
               fi
             }
 
-            run_logged expo-go-install adb install -r "$RUNNER_TEMP/expo-go.apk"
+            run_logged expo-go-install adb install -r "$RUNNER_TEMP_DIR/expo-go.apk"
             run_logged adb-reverse adb reverse tcp:8081 tcp:8081
 
             EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
