@@ -26,13 +26,19 @@ if (
 const fixture = {
   playerId: randomUUID(),
   retryPlayerId: randomUUID(),
+  protectedDepositPlayerId: randomUUID(),
   racePlayerIds: [randomUUID(), randomUUID()] as const,
   adminId: randomUUID(),
 };
 
 after(async () => {
   try {
-    const playerIds = [fixture.playerId, fixture.retryPlayerId, ...fixture.racePlayerIds];
+    const playerIds = [
+      fixture.playerId,
+      fixture.retryPlayerId,
+      fixture.protectedDepositPlayerId,
+      ...fixture.racePlayerIds,
+    ];
     await pool.query("DELETE FROM daily007_v2_notifications WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_payments WHERE user_id = ANY($1::uuid[])", [playerIds]);
@@ -55,7 +61,8 @@ before(async () => {
        ($2, 'UPI Reference Retry Player', $5, 'test-salt', 'test-hash', 'user', 350),
        ($3, 'UPI Reference Test Admin', $6, 'test-salt', 'test-hash', 'admin', 0),
        ($7, 'UPI Reference Race Player One', $8, 'test-salt', 'test-hash', 'user', 900),
-       ($9, 'UPI Reference Race Player Two', $10, 'test-salt', 'test-hash', 'user', 450)`,
+       ($9, 'UPI Reference Race Player Two', $10, 'test-salt', 'test-hash', 'user', 450),
+       ($11, 'UPI Reference Protected Deposit Player', $12, 'test-salt', 'test-hash', 'user', 500)`,
     [
       fixture.playerId,
       fixture.retryPlayerId,
@@ -67,6 +74,8 @@ before(async () => {
       `wallet-reference-race-${fixture.racePlayerIds[0]}@example.test`,
       fixture.racePlayerIds[1],
       `wallet-reference-race-${fixture.racePlayerIds[1]}@example.test`,
+      fixture.protectedDepositPlayerId,
+      `wallet-reference-protected-deposit-${fixture.protectedDepositPlayerId}@example.test`,
     ],
   );
   await pool.query(
@@ -326,6 +335,112 @@ test("a deleted deposit keeps its normalized UPI reference reserved", async () =
     );
     assert.deepEqual(finalAccounts.rows, initialAccounts.rows);
     assert.deepEqual(finalLedger.rows, initialLedger.rows);
+  });
+});
+
+test("an approved deposit cannot be deleted and keeps its wallet history intact", async () => {
+  const reference = `APPROVED-UPI-REF-${randomUUID().replace(/-/g, "").toUpperCase()}`;
+
+  await withServer(async (origin) => {
+    const deposit = await call(origin, fixture.protectedDepositPlayerId, "/payments", "POST", {
+      coins: 125,
+      payerUpiId: "protected-player@upi",
+      txnId: reference,
+    });
+    assert.equal(deposit.status, 201);
+    const paymentId = deposit.body.id as string;
+    assert.ok(paymentId);
+
+    const approval = await call(
+      origin,
+      fixture.adminId,
+      `/admin/payments/${paymentId}/approve`,
+      "POST",
+    );
+    assert.equal(approval.status, 200);
+    assert.equal(approval.body.status, "approved");
+
+    const approvedState = await pool.query(
+      `SELECT p.id, p.user_id, p.coins, p.status, p.reference,
+              u.wallet_coins,
+              COALESCE(
+                jsonb_agg(
+                  jsonb_build_object(
+                    'id', ledger.id,
+                    'amount', ledger.amount,
+                    'balanceAfter', ledger.balance_after,
+                    'reason', ledger.reason
+                  ) ORDER BY ledger.created_at, ledger.id
+                ) FILTER (WHERE ledger.id IS NOT NULL),
+                '[]'::jsonb
+              ) AS ledger
+         FROM daily007_v2_payments p
+         JOIN daily007_v2_users u ON u.id = p.user_id
+         LEFT JOIN daily007_v2_wallet_ledger ledger ON ledger.user_id = u.id
+        WHERE p.id = $1
+        GROUP BY p.id, u.wallet_coins`,
+      [paymentId],
+    );
+    assert.equal(approvedState.rows.length, 1);
+    const approvedSnapshot = approvedState.rows[0] as {
+      id: string;
+      user_id: string;
+      coins: number;
+      status: string;
+      reference: string;
+      wallet_coins: number;
+      ledger: Array<{ id: string; amount: number; balanceAfter: number; reason: string }>;
+    };
+    assert.equal(approvedSnapshot.id, paymentId);
+    assert.equal(approvedSnapshot.user_id, fixture.protectedDepositPlayerId);
+    assert.equal(approvedSnapshot.coins, 125);
+    assert.equal(approvedSnapshot.status, "approved");
+    assert.equal(approvedSnapshot.reference, reference);
+    assert.equal(approvedSnapshot.wallet_coins, 625);
+    assert.equal(approvedSnapshot.ledger.length, 1);
+    assert.ok(approvedSnapshot.ledger[0]?.id);
+    assert.deepEqual(
+      (({ id: _id, ...entry }) => entry)(approvedSnapshot.ledger[0]!),
+      { amount: 125, balanceAfter: 625, reason: "payment_approved" },
+    );
+
+    const deletion = await call(
+      origin,
+      fixture.adminId,
+      `/admin/payments/${paymentId}`,
+      "DELETE",
+    );
+    assert.equal(deletion.status, 409);
+    assert.equal(deletion.body.error, "Approved financial records cannot be deleted.");
+
+    const finalState = await pool.query(
+      `SELECT p.id, p.user_id, p.coins, p.status, p.reference,
+              u.wallet_coins,
+              COALESCE(
+                jsonb_agg(
+                  jsonb_build_object(
+                    'id', ledger.id,
+                    'amount', ledger.amount,
+                    'balanceAfter', ledger.balance_after,
+                    'reason', ledger.reason
+                  ) ORDER BY ledger.created_at, ledger.id
+                ) FILTER (WHERE ledger.id IS NOT NULL),
+                '[]'::jsonb
+              ) AS ledger
+         FROM daily007_v2_payments p
+         JOIN daily007_v2_users u ON u.id = p.user_id
+         LEFT JOIN daily007_v2_wallet_ledger ledger ON ledger.user_id = u.id
+        WHERE p.id = $1
+        GROUP BY p.id, u.wallet_coins`,
+      [paymentId],
+    );
+    assert.deepEqual(finalState.rows, approvedState.rows);
+
+    const history = await call(origin, fixture.adminId, "/admin/payments", "GET");
+    assert.equal(history.status, 200);
+    assert.ok(history.body.some((payment: { id: string; status: string }) =>
+      payment.id === paymentId && payment.status === "approved",
+    ));
   });
 });
 

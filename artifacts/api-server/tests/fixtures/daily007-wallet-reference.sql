@@ -12,6 +12,14 @@ CREATE TABLE daily007_v2_users (
   wallet_coins integer NOT NULL DEFAULT 0 CHECK (wallet_coins >= 0)
 );
 
+CREATE TABLE daily007_v2_referrals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  referred_user_id uuid NOT NULL UNIQUE REFERENCES daily007_v2_users(id),
+  code text NOT NULL,
+  rewarded_at timestamptz
+);
+
 CREATE TABLE daily007_v2_payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
