@@ -11,6 +11,7 @@
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
 - [Expo auth browser previews](expo-auth-browser-preview.md) — define Expo dev globals and isolate Expo Router before diagnosing signup UI failures.
+- [Expo fixture component imports](expo-fixture-component-imports.md) — native test routes should import standalone UI components, not screens that pull in the app root.
 - [Expo Metro during API codegen](expo-metro-codegen.md) — confirm generated files and a later bundle before treating transient missing-module logs as a persistent failure.
 - [Mockup sandbox typecheck conflicts](mockup-sandbox-typecheck.md) — unrelated React type-version conflicts in shared sandbox UI can fail typecheck while an isolated Vite browser test passes.
 - [Daily007 browser preview mocks](daily007-browser-preview-mocks.md) — Vite scans off-route screen modules too; keep local API mock exports complete across the preview import graph.

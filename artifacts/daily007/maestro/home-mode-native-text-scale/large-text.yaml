@@ -1,0 +1,59 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/home-mode-native-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: home-mode-text-scale-banner
+    timeout: 15000
+- assertVisible:
+    text: "Home game-mode fixture | font scale 1.50"
+
+- scrollUntilVisible:
+    element:
+      id: home-mode-battle-royale
+    direction: DOWN
+- assertVisible:
+    text: "BATTLE ROYALE"
+- assertVisible:
+    text: "BROWSE TOURNAMENTS"
+- tapOn:
+    id: home-mode-battle-royale
+- assertVisible:
+    text: "Filtered tournaments: Battle Royale"
+- assertVisible:
+    text: "Game mode filter: battle_royale"
+- tapOn:
+    id: home-mode-destination-back
+
+- scrollUntilVisible:
+    element:
+      id: home-mode-clash-squad
+    direction: DOWN
+- assertVisible:
+    text: "CLASH SQUAD"
+- assertVisible:
+    text: "BROWSE TOURNAMENTS"
+- tapOn:
+    id: home-mode-clash-squad
+- assertVisible:
+    text: "Filtered tournaments: Clash Squad"
+- assertVisible:
+    text: "Game mode filter: clash_squad"
+- tapOn:
+    id: home-mode-destination-back
+
+- scrollUntilVisible:
+    element:
+      id: home-mode-lone-wolf
+    direction: DOWN
+- assertVisible:
+    text: "LONE WOLF"
+- assertVisible:
+    text: "BROWSE TOURNAMENTS"
+- tapOn:
+    id: home-mode-lone-wolf
+- assertVisible:
+    text: "Filtered tournaments: Lone Wolf"
+- assertVisible:
+    text: "Game mode filter: lone_wolf"
