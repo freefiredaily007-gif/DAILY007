@@ -20,6 +20,51 @@ import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScr
 
 const DEFAULT_MIN_WITHDRAW = 100;
 const DEFAULT_MAX_WITHDRAW = 5000;
+const DUPLICATE_PAYMENT_REFERENCE_ERROR = 'This payment reference has already been submitted.';
+
+function normalizeWalletPaymentReference(reference: unknown): string {
+  return typeof reference === 'string'
+    ? reference.normalize('NFKC').trim().toLocaleUpperCase('en-US')
+    : '';
+}
+
+function isDuplicatePaymentReferenceError(error: unknown): boolean {
+  const response = (error as {
+    response?: { status?: unknown; data?: { error?: unknown } };
+  } | null)?.response;
+  return response?.status === 409 &&
+    response.data?.error === DUPLICATE_PAYMENT_REFERENCE_ERROR;
+}
+
+async function findExistingPaymentByReference(reference: string) {
+  const normalizedReference = normalizeWalletPaymentReference(reference);
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+  while (true) {
+    const page = await Api.myPaymentsPage(cursor);
+    if (!Array.isArray(page?.items)) {
+      throw new Error('The wallet server returned an invalid payment-history page.');
+    }
+    const existing = page.items.find((payment: any) =>
+      normalizeWalletPaymentReference(payment.txnId) === normalizedReference);
+    if (existing) return existing;
+
+    const nextCursor = typeof page.nextCursor === 'string' ? page.nextCursor : '';
+    if (!nextCursor) return null;
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('The wallet server repeated a payment-history cursor.');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+}
+
+function walletPaymentStatusLabel(status: unknown): string {
+  if (status === 'pending') return 'Pending Admin approval';
+  if (status === 'approved') return 'Approved';
+  if (status === 'rejected') return 'Rejected';
+  return typeof status === 'string' && status ? status : 'Unavailable';
+}
 
 function formatWalletCoins(value: unknown, allowBreaks: boolean) {
   const amount = Number(value ?? 0);
@@ -38,6 +83,7 @@ export default function Wallet() {
   const [paymentHistoryCursor, setPaymentHistoryCursor] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+  const [rechargeNotice, setRechargeNotice] = useState('');
   const [showSheet, setShowSheet] = useState(false);
   const [tab, setTab] = useState<'add' | 'withdraw'>('add');
   const [amount, setAmount] = useState('');
@@ -181,7 +227,7 @@ export default function Wallet() {
       setError('Withdrawals are currently disabled by the administrator.');
       return;
     }
-    setOk(''); setError(''); setAmount(''); setPayerUpiId(''); setTxnId(''); setAccount(''); setProof(null);
+    setOk(''); setError(''); setRechargeNotice(''); setAmount(''); setPayerUpiId(''); setTxnId(''); setAccount(''); setProof(null);
     setTab(t); setShowSheet(true);
   };
 
@@ -217,7 +263,34 @@ export default function Wallet() {
       setOk('Your recharge request is waiting for Admin verification. Coins will be credited only after approval.');
       setShowSheet(false); setAmount(''); setPayerUpiId(''); setTxnId(''); setProof(null);
       load();
-    } catch (e) { setError(apiError(e)); } finally { setSubmitting(false); }
+    } catch (e) {
+      if (!isDuplicatePaymentReferenceError(e)) {
+        setError(apiError(e));
+        return;
+      }
+      try {
+        const existingPayment = await findExistingPaymentByReference(txnId);
+        await load();
+        if (!existingPayment) {
+          setRechargeNotice(
+            'This transaction ID is already in use, but no matching request was found in your Wallet. No new request was created. Check the reference and contact support before trying again.',
+          );
+          return;
+        }
+
+        const statusLabel = walletPaymentStatusLabel(existingPayment.status);
+        setOk(`Your recharge request was already saved. Current status: ${statusLabel}. Check Wallet history for the request.`);
+        setShowSheet(false);
+        setAmount('');
+        setPayerUpiId('');
+        setTxnId('');
+        setProof(null);
+      } catch {
+        setRechargeNotice(
+          'This transaction ID was already submitted, but its request status could not be checked. Refresh Wallet history before trying again. No new payment was created.',
+        );
+      }
+    } finally { setSubmitting(false); }
   };
 
   const balance = Number(user?.coins ?? 0);
@@ -439,7 +512,15 @@ export default function Wallet() {
                       autoCorrect={false}
                       maxLength={200}
                     />
-                    <Input testID="wallet-transaction-id" placeholder="Transaction ID / reference" value={txnId} onChangeText={setTxnId} />
+                    <Input
+                      testID="wallet-transaction-id"
+                      placeholder="Transaction ID / reference"
+                      value={txnId}
+                      onChangeText={(value) => {
+                        setTxnId(value);
+                        setRechargeNotice('');
+                      }}
+                    />
                     <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT (OPTIONAL)'} kind="ghost" onPress={pickProof} />
                     {proof && (
                       <View style={s.proofPreview}>
@@ -456,6 +537,16 @@ export default function Wallet() {
                   loading={submitting}
                   disabled={hasPending || !rechargeEnabled || !paymentUpi || !paymentQr || submitting}
                 />
+                {!!rechargeNotice && (
+                  <Text
+                    accessibilityRole="alert"
+                    accessibilityLiveRegion="polite"
+                    testID="wallet-recharge-reconciliation"
+                    style={s.pendingNote}
+                  >
+                    {rechargeNotice}
+                  </Text>
+                )}
                 {hasPending && <Text style={s.pendingNote}>A previous request is under verification. Coins will be credited once approved by the admin.</Text>}
               </>
             ) : (
