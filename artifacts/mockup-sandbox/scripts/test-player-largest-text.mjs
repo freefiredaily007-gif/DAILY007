@@ -1088,7 +1088,7 @@ async function checkUnavailableVideoRewardFlow() {
   console.log("PASS — unavailable video completion shows no retry and refreshes the catalog.");
 }
 
-async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview video") {
+async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview video", checkClearSearch = false) {
   const unavailableMessage = "This video is no longer available for rewards.";
   const catalogError = "Could not refresh videos. Showing the last loaded catalog.";
   const matchesOnlyRemovedVideo = searchQuery === "becomes unavailable";
@@ -1174,7 +1174,7 @@ async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview
     failedRefresh.errorVisible
       && failedRefresh.reloadVisible
       && failedRefresh.unavailableCard
-      && failedRefresh.activeCard
+      && failedRefresh.activeCard === !matchesOnlyRemovedVideo
       && failedRefresh.refreshes >= 1,
     `A failed catalog refresh should keep the last catalog visible alongside recovery: ${JSON.stringify(failedRefresh)}`,
   );
@@ -1207,7 +1207,7 @@ async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview
     repeatedFailure.errorVisible
       && repeatedFailure.reloadVisible
       && repeatedFailure.unavailableCard
-      && repeatedFailure.activeCard
+      && repeatedFailure.activeCard === !matchesOnlyRemovedVideo
       && repeatedFailure.refreshes === failedRefresh.refreshes + 1
       && repeatedFailure.errorLiveRegion === "polite"
       && repeatedFailure.freshAnnouncementNode
@@ -1260,8 +1260,64 @@ async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview
       && recoveredCatalog.refreshes === repeatedFailure.refreshes + 1,
     `Retrying the catalog should announce recovery, preserve the search, and show the correct filtered state: ${JSON.stringify(recoveredCatalog)}`,
   );
+  if (checkClearSearch) {
+    const emptyStateAccessibility = await evaluate(`(() => {
+      const button = document.querySelector('[data-testid="video-catalog-clear-search"]');
+      const card = button?.parentElement;
+      const bounds = button?.getBoundingClientRect();
+      button?.focus();
+      return {
+        label: button?.getAttribute("aria-label") ?? null,
+        role: button?.getAttribute("role") ?? null,
+        text: button?.textContent?.trim() ?? null,
+        focused: document.activeElement === button,
+        buttonBounds: bounds ? { left: bounds.left, right: bounds.right, width: bounds.width } : null,
+        cardWidth: card?.clientWidth ?? null,
+        cardScrollWidth: card?.scrollWidth ?? null,
+        viewportWidth: document.documentElement.clientWidth,
+      };
+    })()`);
+    assert(
+      emptyStateAccessibility.label === "Clear search"
+        && emptyStateAccessibility.role === "button"
+        && emptyStateAccessibility.text === "Clear search"
+        && emptyStateAccessibility.focused
+        && emptyStateAccessibility.buttonBounds?.left >= 0
+        && emptyStateAccessibility.buttonBounds?.right <= emptyStateAccessibility.viewportWidth + 1
+        && emptyStateAccessibility.cardScrollWidth <= emptyStateAccessibility.cardWidth + 2,
+      `The empty-results action must be labeled, focusable, and fit within the narrow enlarged-text layout: ${JSON.stringify(emptyStateAccessibility)}`,
+    );
+
+    await clickSelector('[data-testid="video-catalog-clear-search"]', "clear video search");
+    await waitForCondition(
+      `document.querySelector('[data-testid="video-catalog-search"]')?.value === ""
+        && document.body.innerText.includes("Tutorial Videos (1)")
+        && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))`,
+      "the full active catalog after clearing the search",
+    );
+    const clearedCatalog = await evaluate(`(() => ({
+      searchValue: document.querySelector('[data-testid="video-catalog-search"]')?.value ?? null,
+      searchFocused: document.activeElement === document.querySelector('[data-testid="video-catalog-search"]'),
+      activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
+      unavailableCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
+      emptyMessage: document.querySelector('[data-testid="video-catalog-no-search-results"]') !== null,
+      count: document.querySelector('[data-testid="video-catalog-search"]')?.value === ""
+        ? document.body.innerText.includes("Tutorial Videos (1)") : false,
+    }))()`);
+    assert(
+      clearedCatalog.searchValue === ""
+        && clearedCatalog.searchFocused
+        && clearedCatalog.activeCard
+        && !clearedCatalog.unavailableCard
+        && !clearedCatalog.emptyMessage
+        && clearedCatalog.count,
+      `Clearing the query should restore the active catalog and leave focus in the search field: ${JSON.stringify(clearedCatalog)}`,
+    );
+  }
   console.log(matchesOnlyRemovedVideo
-    ? "PASS — recovery preserves a search with no remaining matches and shows the empty-results message."
+    ? checkClearSearch
+      ? "PASS — clearing the empty catalog search restores active videos and returns focus to the search field at 320px and 2× text."
+      : "PASS — recovery preserves a search with no remaining matches and shows the empty-results message."
     : "PASS — catalog failures are announced again without moving reload focus, and recovery is announced after success.");
 }
 
@@ -2293,7 +2349,13 @@ try {
     await checkVideoCatalogConnectivityRecovery();
   }
   if (videoCatalogEmptySearchOnly) {
-    await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable");
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width: 320,
+      height: 820,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable", true);
   }
   if (lateVideoCatalogResponseOnly) {
     await checkLateVideoCatalogResponseCannotUndoRetry();

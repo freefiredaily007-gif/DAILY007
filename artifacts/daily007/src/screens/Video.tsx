@@ -185,6 +185,7 @@ export default function Video() {
   const [catalogErrorAnnouncementVersion, setCatalogErrorAnnouncementVersion] = useState(0);
   const [catalogRecoveryAnnouncementVersion, setCatalogRecoveryAnnouncementVersion] = useState(0);
   const [catalogReloadPending, setCatalogReloadPending] = useState(false);
+  const catalogSearchInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const playbackCycleRef = useRef(0);
   const catalogReloadRequestSequenceRef = useRef(0);
   const catalogScrollRef = useRef<ScrollView | null>(null);
@@ -1023,6 +1024,7 @@ export default function Video() {
               <View style={styles.catalogSearch}>
                 <Feather name="search" size={17} color={colors.mutedForeground} />
                 <TextInput
+                  ref={catalogSearchInputRef}
                   accessibilityLabel="Search videos by title or topic"
                   testID="video-catalog-search"
                   value={searchQuery}
@@ -1066,14 +1068,32 @@ export default function Video() {
               ))}
 
               {filteredVideos.length === 0 ? (
-                <View style={styles.emptyCard}>
-                  <Feather name="search" size={18} color={colors.accent} />
-                  <Text
-                    testID="video-catalog-no-search-results"
-                    style={styles.errorText}
+                <View style={[styles.emptyCard, styles.emptySearchCard]}>
+                  <View style={styles.emptySearchMessage}>
+                    <Feather name="search" size={18} color={colors.accent} />
+                    <Text
+                      testID="video-catalog-no-search-results"
+                      style={[styles.errorText, styles.emptySearchText]}
+                    >
+                      No videos match your search.
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear search"
+                    accessibilityHint="Clears the search and shows all available videos."
+                    testID="video-catalog-clear-search"
+                    onPress={() => {
+                      setSearchQuery('');
+                      catalogSearchInputRef.current?.focus();
+                    }}
+                    style={({ pressed }) => [
+                      styles.clearSearchButton,
+                      pressed && { opacity: 0.78 },
+                    ]}
                   >
-                    No videos match your search.
-                  </Text>
+                    <Text style={styles.clearSearchText}>Clear search</Text>
+                  </Pressable>
                 </View>
               ) : null}
             </>
@@ -1168,6 +1188,32 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       borderColor: colors.border,
       borderWidth: 1,
       borderRadius: colors.radius,
+    },
+    emptySearchCard: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      gap: 12,
+    },
+    emptySearchMessage: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    emptySearchText: { flex: 1 },
+    clearSearchButton: {
+      minHeight: 44,
+      alignSelf: 'flex-start',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: colors.radius,
+      backgroundColor: colors.secondary,
+    },
+    clearSearchText: {
+      color: colors.primary,
+      fontSize: 14,
+      lineHeight: 20,
+      fontWeight: '800',
     },
     playerShell: {
       width: '100%',
