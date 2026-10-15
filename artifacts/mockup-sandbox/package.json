@@ -31,6 +31,7 @@
     "test:home-retry": "node scripts/test-admin-narrow.mjs --home-retry-only",
     "test:home-initial-retry": "node scripts/test-admin-narrow.mjs --home-initial-retry-only",
     "test:home-refresh-overlap": "node scripts/test-admin-narrow.mjs --home-refresh-overlap-only",
+    "test:home-queued-away": "node scripts/test-admin-narrow.mjs --home-queued-away-only",
     "test:home-disabled-tournament-refresh": "node scripts/test-admin-narrow.mjs --home-disabled-tournament-refresh-only",
     "test:wallet-profile-keyboard": "node scripts/test-admin-narrow.mjs --keyboard-forms-only",
     "test:admin-tournament-keyboard": "node scripts/test-admin-narrow.mjs --admin-keyboard-forms-only",

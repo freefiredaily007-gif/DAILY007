@@ -348,6 +348,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     },
     leaveHome: () => root.render(null),
     returnHome: () => root.render(React.createElement(Home)),
+    blurHome: () => globalThis.__daily007PreviewFocusController?.blur?.(),
+    focusHome: () => globalThis.__daily007PreviewFocusController?.focus?.(),
     mergeHomeTournamentItems,
     setAppVisibility,
     updateTournament: (id, updates) => {

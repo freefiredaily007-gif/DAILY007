@@ -22,6 +22,19 @@ function triggerPreviewFocusCycle() {
   }
 }
 
+function blurPreviewFocus() {
+  for (const entry of previewFocusEntries) {
+    entry.cleanup?.();
+    entry.cleanup = undefined;
+  }
+}
+
+function focusPreview() {
+  for (const entry of previewFocusEntries) {
+    if (!entry.cleanup) entry.cleanup = entry.effect() || undefined;
+  }
+}
+
 export function useFocusEffect(effect: () => void | (() => void)) {
   const focusLifecyclePreview = typeof window !== "undefined"
     && new URLSearchParams(window.location.search).has("resume-while-refresh-only");
@@ -31,11 +44,15 @@ export function useFocusEffect(effect: () => void | (() => void)) {
       __daily007PreviewFocusController?: {
         register: (callback: () => void | (() => void)) => () => void;
         triggerFocusCycle: () => void;
+        blur: () => void;
+        focus: () => void;
       };
     };
     preview.__daily007PreviewFocusController ??= {
       register: registerPreviewFocusEffect,
       triggerFocusCycle: triggerPreviewFocusCycle,
+      blur: blurPreviewFocus,
+      focus: focusPreview,
     };
     return preview.__daily007PreviewFocusController?.register(effect) ?? effect();
   }, [effect, focusLifecyclePreview]);

@@ -114,6 +114,7 @@ export default function Home() {
   const activeRequestsRef = useRef(0);
   const homePollInFlightRef = useRef(false);
   const resumeRefreshPendingRef = useRef(false);
+  const homeFocusedRef = useRef(false);
   const refreshHomeIfIdleRef = useRef<() => void>(() => {});
   const appStateRef = useRef(AppState.currentState);
   const nav: any = useNavigation();
@@ -187,6 +188,7 @@ export default function Home() {
   }, []);
 
   const refreshHomeIfIdle = useCallback(() => {
+    if (!homeFocusedRef.current || !shouldRefreshHomeTournaments(appStateRef.current)) return;
     if (homePollInFlightRef.current) return;
     if (activeRequestsRef.current > 0) {
       resumeRefreshPendingRef.current = true;
@@ -204,10 +206,14 @@ export default function Home() {
   refreshHomeIfIdleRef.current = refreshHomeIfIdle;
 
   useFocusEffect(useCallback(() => {
+    homeFocusedRef.current = true;
     appStateRef.current = AppState.currentState;
     const appStateSubscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = didAppReturnToForeground(appStateRef.current, nextState);
       appStateRef.current = nextState;
+      if (!shouldRefreshHomeTournaments(nextState)) {
+        resumeRefreshPendingRef.current = false;
+      }
       if (returnedToApp) {
         setClockNow(Date.now());
         refreshHomeIfIdle();
@@ -220,8 +226,11 @@ export default function Home() {
         !homePollInFlightRef.current,
       HOME_TOURNAMENT_REFRESH_INTERVAL_MS,
     );
+    if (activeRequestsRef.current > 0) refreshHomeIfIdle();
     void load();
     return () => {
+      homeFocusedRef.current = false;
+      resumeRefreshPendingRef.current = false;
       appStateSubscription.remove();
       stopPolling();
     };

@@ -40,6 +40,7 @@ const homeStartTransitionOnly = process.argv.includes("--home-start-transition-o
 const homeRetryOnly = process.argv.includes("--home-retry-only");
 const homeInitialRetryOnly = process.argv.includes("--home-initial-retry-only");
 const homeRefreshOverlapOnly = process.argv.includes("--home-refresh-overlap-only");
+const homeQueuedAwayOnly = process.argv.includes("--home-queued-away-only");
 const homeDisabledTournamentRefreshOnly = process.argv.includes("--home-disabled-tournament-refresh-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
@@ -6481,6 +6482,121 @@ async function checkHomeRefreshOverlap() {
   console.log("PASS — Manual, periodic, and resume triggers share one held request pair, queue at most one resume refresh, and refresh again after a failed pair.");
 }
 
+async function checkHomeQueuedRefreshWhenAway() {
+  await setViewport(390, 1, "home-carousel-preview.html?manual-refresh-only=1&resume-while-refresh-only=1");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+    "Home's initial cards and manual refresh control",
+  );
+  const initial = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  const test = "window.__daily007HomeCarouselTest";
+
+  await evaluate(`${test}.deferNextTournamentRead()`);
+  await evaluate(`${test}.deferNextRegistrationRead()`);
+  await tapSelector('[data-testid="player-refresh-control-test-action"]', "Home's manual refresh control");
+  await waitForCondition(
+    `${test}.getTournamentReadCount() === ${initial.tournaments + 1} && ${test}.getMyRegistrationReadCount() === ${initial.registrations + 1}`,
+    "the held Home request pair before navigating away",
+  );
+  await evaluate(`${test}.setHomeAppState("background"); ${test}.setHomeAppState("active");`);
+  await evaluate(`${test}.blurHome()`);
+  await delay(100);
+  const stillBlurredCounts = await evaluate(`({
+    tournaments: ${test}.getTournamentReadCount(),
+    registrations: ${test}.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    stillBlurredCounts.tournaments === initial.tournaments + 1 &&
+      stillBlurredCounts.registrations === initial.registrations + 1,
+    `Blurring Home must discard the queued follow-up: ${JSON.stringify(stillBlurredCounts)}.`,
+  );
+  assert(await evaluate(`${test}.resolveDeferredTournamentRead()`), "The in-flight tournament request should remain resolvable while Home is blurred.");
+  assert(await evaluate(`${test}.releaseRegistrationRead()`), "The in-flight registration request should remain resolvable while Home is blurred.");
+  await delay(120);
+  const awayCounts = await evaluate(`({
+    tournaments: ${test}.getTournamentReadCount(),
+    registrations: ${test}.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    awayCounts.tournaments === initial.tournaments + 1 &&
+      awayCounts.registrations === initial.registrations + 1,
+    `The queued follow-up must not start after Home loses focus: ${JSON.stringify(awayCounts)}.`,
+  );
+  await evaluate(`${test}.focusHome()`);
+  await waitForCondition(
+    `${test}.getTournamentReadCount() === ${initial.tournaments + 2} &&
+      ${test}.getMyRegistrationReadCount() === ${initial.registrations + 2}`,
+    "Home to refresh normally when it is focused again",
+  );
+
+  const beforeQuickRefocus = await evaluate(`({
+    tournaments: ${test}.getTournamentReadCount(),
+    registrations: ${test}.getMyRegistrationReadCount(),
+  })`);
+  await evaluate(`${test}.deferNextTournamentRead()`);
+  await evaluate(`${test}.deferNextRegistrationRead()`);
+  await tapSelector('[data-testid="player-refresh-control-test-action"]', "Home's manual refresh control before a quick refocus");
+  await waitForCondition(
+    `${test}.getTournamentReadCount() === ${beforeQuickRefocus.tournaments + 1} &&
+      ${test}.getMyRegistrationReadCount() === ${beforeQuickRefocus.registrations + 1}`,
+    "the held Home request pair before a quick blur and refocus",
+  );
+  await evaluate(`${test}.setHomeAppState("background"); ${test}.setHomeAppState("active"); ${test}.blurHome(); ${test}.focusHome();`);
+  await delay(100);
+  const quickRefocusCounts = await evaluate(`({
+    tournaments: ${test}.getTournamentReadCount(),
+    registrations: ${test}.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    quickRefocusCounts.tournaments === beforeQuickRefocus.tournaments + 1 &&
+      quickRefocusCounts.registrations === beforeQuickRefocus.registrations + 1,
+    `A quick refocus must defer one follow-up instead of overlapping the held pair: ${JSON.stringify(quickRefocusCounts)}.`,
+  );
+  assert(await evaluate(`${test}.resolveDeferredTournamentRead()`), "The held tournament request should remain active after the quick refocus.");
+  assert(await evaluate(`${test}.releaseRegistrationRead()`), "The held registration request should remain active after the quick refocus.");
+  await waitForCondition(
+    `${test}.getTournamentReadCount() === ${beforeQuickRefocus.tournaments + 2} &&
+      ${test}.getMyRegistrationReadCount() === ${beforeQuickRefocus.registrations + 2}`,
+    "one follow-up refresh to run after Home quickly regains focus",
+  );
+
+  const beforeBackground = await evaluate(`({
+    tournaments: ${test}.getTournamentReadCount(),
+    registrations: ${test}.getMyRegistrationReadCount(),
+  })`);
+  await evaluate(`${test}.deferNextTournamentRead()`);
+  await evaluate(`${test}.deferNextRegistrationRead()`);
+  await tapSelector('[data-testid="player-refresh-control-test-action"]', "Home's manual refresh control before backgrounding");
+  await waitForCondition(
+    `${test}.getTournamentReadCount() === ${beforeBackground.tournaments + 1} &&
+      ${test}.getMyRegistrationReadCount() === ${beforeBackground.registrations + 1}`,
+    "the held Home request pair before app backgrounding",
+  );
+  await evaluate(`${test}.setHomeAppState("background"); ${test}.setHomeAppState("active"); ${test}.setHomeAppState("background");`);
+  assert(await evaluate(`${test}.resolveDeferredTournamentRead()`), "The in-flight tournament request should settle while the app is inactive.");
+  assert(await evaluate(`${test}.releaseRegistrationRead()`), "The in-flight registration request should settle while the app is inactive.");
+  await delay(120);
+  const inactiveCounts = await evaluate(`({
+    tournaments: ${test}.getTournamentReadCount(),
+    registrations: ${test}.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    inactiveCounts.tournaments === beforeBackground.tournaments + 1 &&
+      inactiveCounts.registrations === beforeBackground.registrations + 1,
+    `The queued follow-up must not start while the app is inactive: ${JSON.stringify(inactiveCounts)}.`,
+  );
+  await evaluate(`${test}.setHomeAppState("active")`);
+  await waitForCondition(
+    `${test}.getTournamentReadCount() === ${beforeBackground.tournaments + 2} &&
+      ${test}.getMyRegistrationReadCount() === ${beforeBackground.registrations + 2}`,
+    "Home to refresh normally when the app becomes active again",
+  );
+  console.log("PASS — A queued Home refresh is skipped after blur or backgrounding, while the active request settles and Home refreshes again on return.");
+}
+
 async function checkHomeInitialLoadRetry() {
   const scenarios = [
     {
@@ -8589,11 +8705,13 @@ try {
       ? "home-carousel-preview.html?home-start-selection=1"
       : homeRefreshOverlapOnly
         ? "home-carousel-preview.html?manual-refresh-only=1"
+      : homeQueuedAwayOnly
+        ? "home-carousel-preview.html?manual-refresh-only=1"
       : homeInitialRetryOnly
         ? "home-carousel-preview.html?home-initial-retry=tournament"
       : singleHomeCardOnly
         ? "home-carousel-preview.html?single-card=1"
-      : homeCarouselOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeDisabledTournamentRefreshOnly
+      : homeCarouselOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
         ? "keyboard-forms-preview.html"
@@ -8677,6 +8795,7 @@ try {
     homeRetryOnly ||
     homeInitialRetryOnly ||
     homeRefreshOverlapOnly ||
+    homeQueuedAwayOnly ||
     homeDisabledTournamentRefreshOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
@@ -8697,13 +8816,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8725,6 +8844,8 @@ try {
          ? "Home initial-load retry recovery"
          : homeRefreshOverlapOnly
          ? "Home refresh overlap recovery"
+         : homeQueuedAwayOnly
+         ? "Home queued refresh while away"
           : homeStartTransitionOnly
             ? "Home scheduled-start carousel selection"
          : homeCarouselOnly
@@ -9079,6 +9200,14 @@ try {
       assert(
         newBrowserErrors.length === 0,
         `New browser errors during Home refresh overlap checks: ${newBrowserErrors.join(" | ")}`,
+      );
+    } else if (homeQueuedAwayOnly) {
+      const knownHomePreviewErrors = new Set(browserErrors);
+      await checkHomeQueuedRefreshWhenAway();
+      const newBrowserErrors = browserErrors.filter((error) => !knownHomePreviewErrors.has(error));
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during queued Home refresh focus checks: ${newBrowserErrors.join(" | ")}`,
       );
     } else if (homeInitialRetryOnly) {
       const knownHomePreviewErrors = new Set(browserErrors);

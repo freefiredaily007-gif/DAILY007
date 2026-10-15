@@ -83,6 +83,21 @@ test("Home queues a foreground refresh when an older request is still running", 
   assert.match(homeSource, /refreshHomeIfIdleRef\.current\(\)/);
 });
 
+test("Home skips a queued refresh while unfocused or inactive", () => {
+  assert.match(
+    homeSource,
+    /if \(!homeFocusedRef\.current \|\| !shouldRefreshHomeTournaments\(appStateRef\.current\)\) return;/,
+  );
+  assert.match(
+    homeSource,
+    /if \(!shouldRefreshHomeTournaments\(nextState\)\) \{\s*resumeRefreshPendingRef\.current = false;\s*\}/,
+  );
+  assert.match(
+    homeSource,
+    /homeFocusedRef\.current = false;\s*resumeRefreshPendingRef\.current = false;/,
+  );
+});
+
 test("Home coalesces paired requests and releases the shared request after success or failure", async () => {
   const singleFlight = createHomeRefreshSingleFlight();
   const deferred = () => {
