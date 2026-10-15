@@ -4,6 +4,7 @@ import { ReadableText as Text, ReadableTextInput as TextInput } from '../compone
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
 import { AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { inr } from '../lib/coins';
+import { runOnceWhileInFlight } from '../lib/inFlightAction';
 
 type CoinAdjustment = {
   user: any;
@@ -22,10 +23,10 @@ export default function AdminWallet() {
   const [txns, setTxns] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const coinAdjustmentsInFlight = useRef(new Set<string>());
   const [prompt, setPrompt] = useState<{ u: any; sign: 1 | -1 } | null>(null);
   const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
+  const inFlightActions = useRef(new Set<string>()).current;
 
   const load = async () => {
     try {
@@ -49,32 +50,32 @@ export default function AdminWallet() {
 
   const submitAdjustment = async (adjustment: CoinAdjustment) => {
     const userId = String(adjustment.user.$id);
-    if (coinAdjustmentsInFlight.current.has(userId) || busy === userId) return;
-    coinAdjustmentsInFlight.current.add(userId);
-    setBusy(userId);
-    try {
-      await Api.adminAdjustCoins(
-        adjustment.user.$id,
-        adjustment.delta,
-        adjustment.note,
-        adjustment.requestId,
-      );
-      setRetryAdjustment(null);
-      toast(`${adjustment.delta > 0 ? '+' : ''}${adjustment.delta} coins for ${adjustment.user.name}`, 'success');
-      load();
-    } catch (e) {
-      const action = adjustment.delta > 0 ? 'add' : 'deduct';
-      const error = errMessage(e);
-      setRetryAdjustment({ ...adjustment, error });
-      toast(
-        `Could not ${action} ${adjustment.amount} coins for ${adjustment.user.name}: ${error}. ` +
-        'Use the retry prompt to safely repeat this same request.',
-        'error',
-      );
-    } finally {
-      coinAdjustmentsInFlight.current.delete(userId);
-      setBusy(null);
-    }
+    if (busy === userId) return;
+    await runOnceWhileInFlight(inFlightActions, `wallet:${userId}`, async () => {
+      setBusy(userId);
+      try {
+        await Api.adminAdjustCoins(
+          userId,
+          adjustment.delta,
+          adjustment.note,
+          adjustment.requestId,
+        );
+        setRetryAdjustment(null);
+        toast(`${adjustment.delta > 0 ? '+' : ''}${adjustment.delta} coins for ${adjustment.user.name}`, 'success');
+        load();
+      } catch (e) {
+        const action = adjustment.delta > 0 ? 'add' : 'deduct';
+        const error = errMessage(e);
+        setRetryAdjustment({ ...adjustment, error });
+        toast(
+          `Could not ${action} ${adjustment.amount} coins for ${adjustment.user.name}: ${error}. ` +
+          'Use the retry prompt to safely repeat this same request.',
+          'error',
+        );
+      } finally {
+        setBusy(null);
+      }
+    });
   };
 
   const confirmAdjust = async (v: string) => {

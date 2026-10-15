@@ -7,6 +7,7 @@ import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
 import { ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { copyWithdrawalUpi, getWithdrawalUpiCopyLabel } from '../lib/withdrawal-upi-copy';
+import { runOnceWhileInFlight } from '../lib/inFlightAction';
 
 const TABS = ['pending', 'approved', 'rejected'] as const;
 
@@ -19,7 +20,6 @@ function withdrawalPayoutStatusLabel(status: AdminWithdrawal['payoutStatus'] | u
 export default function AdminPayments() {
   const [tab, setTab] = useState<(typeof TABS)[number]>('pending');
   const [busyId, setBusyId] = useState<string | null>(null);
-  const requestMutationsInFlight = useRef(new Set<string>());
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const okMsgTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -32,6 +32,7 @@ export default function AdminPayments() {
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
   const [copiedUpiId, setCopiedUpiId] = useState<string | null>(null);
   const [copyAnnouncementSequence, setCopyAnnouncementSequence] = useState(0);
+  const inFlightActions = useRef(new Set<string>()).current;
 
   const [all, setAll] = useState<any[] | null>(null);
 
@@ -75,60 +76,54 @@ export default function AdminPayments() {
 
   const act = async (id: string, kind: string, action: 'approve' | 'reject', userName: string) => {
     const requestKey = `${kind}:${id}`;
-    if (requestMutationsInFlight.current.has(requestKey)) return;
+    if (inFlightActions.has(requestKey)) return;
     if (action === 'reject') {
       setRejectTarget({ id, kind, userName });
       return;
     }
-    requestMutationsInFlight.current.add(requestKey);
-    setErr(''); clearOkMsgTimeout(); setOkMsg(''); setBusyId(id);
-    try {
-      if (kind === 'withdrawal') await Api.adminWithdrawalAction(id, action);
-      else await Api.adminPaymentAction(id, action);
-      showOkMsg(action === 'approve'
-        ? (kind === 'withdrawal' ? 'Withdrawal approved' : 'Payment approved — coins credited')
-        : (kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected'), 2500);
-      await load();
-    } catch (e: any) {
-      const requestType = kind === 'withdrawal' ? 'withdrawal' : 'deposit';
-      const actionLabel = action === 'approve' ? 'APPROVE' : 'REJECT';
-      setErr(
-        `Could not ${action} the ${requestType} request for ${userName || 'this player'}: ${apiError(e)}. ` +
-        `The request remains in this list. Check its status, then activate ${actionLabel} for ${userName || 'this player'} to retry.`,
-      );
-    }
-    finally {
-      requestMutationsInFlight.current.delete(requestKey);
-      setBusyId(null);
-    }
+    await runOnceWhileInFlight(inFlightActions, requestKey, async () => {
+      setErr(''); clearOkMsgTimeout(); setOkMsg(''); setBusyId(id);
+      try {
+        if (kind === 'withdrawal') await Api.adminWithdrawalAction(id, action);
+        else await Api.adminPaymentAction(id, action);
+        showOkMsg(action === 'approve'
+          ? (kind === 'withdrawal' ? 'Withdrawal approved' : 'Payment approved — coins credited')
+          : (kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected'), 2500);
+        await load();
+      } catch (e: any) {
+        const requestType = kind === 'withdrawal' ? 'withdrawal' : 'deposit';
+        const actionLabel = action === 'approve' ? 'APPROVE' : 'REJECT';
+        setErr(
+          `Could not ${action} the ${requestType} request for ${userName || 'this player'}: ${apiError(e)}. ` +
+          `The request remains in this list. Check its status, then activate ${actionLabel} for ${userName || 'this player'} to retry.`,
+        );
+      }
+      finally { setBusyId(null); }
+    });
   };
 
   const reject = async (reason: string) => {
     const target = rejectTarget;
     if (!target) return;
     if (!reason.trim()) { setErr('A rejection reason is required.'); return; }
-    const requestKey = `${target.kind}:${target.id}`;
-    if (requestMutationsInFlight.current.has(requestKey)) return;
-    requestMutationsInFlight.current.add(requestKey);
-    setRejectBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
-    try {
-      if (target.kind === 'withdrawal') await Api.adminWithdrawalAction(target.id, 'reject', reason.trim());
-      else await Api.adminPaymentAction(target.id, 'reject', reason.trim());
-      setRejectTarget(null);
-      showOkMsg(target.kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected');
-      await load();
-    } catch (e: any) {
-      setRejectTarget(null);
-      const requestType = target.kind === 'withdrawal' ? 'withdrawal' : 'deposit';
-      setErr(
-        `Could not reject the ${requestType} request for ${target.userName || 'this player'}: ${apiError(e)}. ` +
-        `The request remains in this list. Check its status, then activate REJECT for ${target.userName || 'this player'} to retry.`,
-      );
-    }
-    finally {
-      requestMutationsInFlight.current.delete(requestKey);
-      setRejectBusy(false);
-    }
+    await runOnceWhileInFlight(inFlightActions, `${target.kind}:${target.id}`, async () => {
+      setRejectBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
+      try {
+        if (target.kind === 'withdrawal') await Api.adminWithdrawalAction(target.id, 'reject', reason.trim());
+        else await Api.adminPaymentAction(target.id, 'reject', reason.trim());
+        setRejectTarget(null);
+        showOkMsg(target.kind === 'withdrawal' ? 'Withdrawal rejected — coins refunded' : 'Payment rejected');
+        await load();
+      } catch (e: any) {
+        setRejectTarget(null);
+        const requestType = target.kind === 'withdrawal' ? 'withdrawal' : 'deposit';
+        setErr(
+          `Could not reject the ${requestType} request for ${target.userName || 'this player'}: ${apiError(e)}. ` +
+          `The request remains in this list. Check its status, then activate REJECT for ${target.userName || 'this player'} to retry.`,
+        );
+      }
+      finally { setRejectBusy(false); }
+    });
   };
 
   const showProof = async (id: string) => {
@@ -149,35 +144,31 @@ export default function AdminPayments() {
   const markPaid = async () => {
     const targetId = payoutTarget;
     if (!targetId) return;
-    const requestKey = `withdrawal:${targetId}`;
-    if (requestMutationsInFlight.current.has(requestKey)) return;
-    requestMutationsInFlight.current.add(requestKey);
-    const request = all?.find((item) => item.kind === 'withdrawal' && item.id === targetId);
-    setPayoutBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
-    try {
-      const payoutResult: AdminWithdrawalPayoutResult = await Api.adminMarkWithdrawalPaid(targetId);
-      setAll((current) => current?.map((item) =>
-        item.kind === 'withdrawal' && item.id === targetId
-          ? { ...item, payoutStatus: payoutResult.payoutStatus }
-          : item,
-      ) ?? current);
-      setPayoutTarget(null);
-      showOkMsg(
-        `Manual payout recorded. Payout status: ${withdrawalPayoutStatusLabel(payoutResult.payoutStatus)} ` +
-        `for ${request?.userName || 'this player'}.`,
-      );
-      await load();
-    } catch (e: any) {
-      setPayoutTarget(null);
-      setErr(
-        `Could not record the manual payout for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
-        `The withdrawal remains in this list. Check its payout status before activating RECORD MANUAL PAYOUT SENT again.`,
-      );
-    }
-    finally {
-      requestMutationsInFlight.current.delete(requestKey);
-      setPayoutBusy(false);
-    }
+    await runOnceWhileInFlight(inFlightActions, `withdrawal:${targetId}`, async () => {
+      const request = all?.find((item) => item.kind === 'withdrawal' && item.id === targetId);
+      setPayoutBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
+      try {
+        const payoutResult: AdminWithdrawalPayoutResult = await Api.adminMarkWithdrawalPaid(targetId);
+        setAll((current) => current?.map((item) =>
+          item.kind === 'withdrawal' && item.id === targetId
+            ? { ...item, payoutStatus: payoutResult.payoutStatus }
+            : item,
+        ) ?? current);
+        setPayoutTarget(null);
+        showOkMsg(
+          `Manual payout recorded. Payout status: ${withdrawalPayoutStatusLabel(payoutResult.payoutStatus)} ` +
+          `for ${request?.userName || 'this player'}.`,
+        );
+        await load();
+      } catch (e: any) {
+        setPayoutTarget(null);
+        setErr(
+          `Could not record the manual payout for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
+          `The withdrawal remains in this list. Check its payout status before activating RECORD MANUAL PAYOUT SENT again.`,
+        );
+      }
+      finally { setPayoutBusy(false); }
+    });
   };
 
   return (
