@@ -95,6 +95,45 @@ test("an overlong current password is rejected before password credential reads 
   });
 });
 
+test("invalid replacement passwords are rejected before password credential reads or writes", async () => {
+  const invalidReplacements: { label: string; value: unknown }[] = [
+    { label: "too-short", value: "short7" },
+    { label: "overlong", value: "x".repeat(201) },
+    { label: "malformed", value: 12345678 },
+  ];
+
+  await withServer(async (origin) => {
+    for (const invalidReplacement of invalidReplacements) {
+      passwordChangeTestDb.reset();
+      const before = passwordChangeTestDb.snapshot();
+      const token = makeToken(PASSWORD_CHANGE_TEST_USER_ID, before.auth_version);
+      assert.ok(token);
+
+      const result = await request(origin, "/auth/me/password", "PATCH", {
+        currentPassword: "current-password-test-only",
+        newPassword: invalidReplacement.value,
+      }, token);
+
+      assert.equal(result.status, 400, `${invalidReplacement.label}: validation error status`);
+      assert.equal(
+        result.body.error,
+        "Enter your current password and a new password of 8–200 characters.",
+        `${invalidReplacement.label}: validation error message`,
+      );
+      assert.equal(
+        passwordChangeTestDb.credentialReadSnapshots.length,
+        0,
+        `${invalidReplacement.label}: must not read stored password credentials`,
+      );
+      assert.equal(
+        passwordChangeTestDb.passwordWriteAttempts,
+        0,
+        `${invalidReplacement.label}: must not attempt a password write`,
+      );
+    }
+  });
+});
+
 test("an incorrect current password is rejected without changing credentials or the existing session", async () => {
   passwordChangeTestDb.reset();
   const originalPassword = "current-password-for-attempt-limit";
