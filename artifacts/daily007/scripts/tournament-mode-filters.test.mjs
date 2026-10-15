@@ -16,6 +16,11 @@ import {
   tournamentTabsForRoute,
 } from '../src/lib/tournamentFilters.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
+import { createFocusedRefreshCoalescer } from '../src/lib/focusedLatestRequest.ts';
+import {
+  createNetworkEventRevision,
+  isUsableNetworkState,
+} from '../src/lib/focusedRetry.ts';
 import {
   getNextRoomCredentialRefreshAtMs,
   getRoomCredentialSchedule,
@@ -121,6 +126,40 @@ function loadLifecycleRefreshEffect(scope) {
   )(...Object.values(scope));
 }
 
+function loadTournamentFocusEffect(scope) {
+  let effectCallback;
+
+  function visit(node) {
+    if (
+      ts.isCallExpression(node)
+      && node.expression.getText(tournamentsSourceFile) === 'useFocusEffect'
+      && ts.isCallExpression(node.arguments[0])
+      && node.arguments[0].expression.getText(tournamentsSourceFile) === 'useCallback'
+      && ts.isArrowFunction(node.arguments[0].arguments[0])
+    ) {
+      effectCallback = node.arguments[0].arguments[0];
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(tournamentsSourceFile);
+  assert.ok(effectCallback, 'the Tournaments focus effect should be present');
+  const javascript = ts.transpileModule(
+    `const __effect = (${effectCallback.getText(tournamentsSourceFile)});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __effect;`,
+  )(...Object.values(scope));
+}
+
 function findVariableInitializer(sourceFile, variableName) {
   let initializer;
 
@@ -172,6 +211,7 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     loadRequests: { current: createLatestRequestGuard() },
     hasLoadedList: { current: false },
     initialLoadFailed: { current: false },
+    latestLoadFailed: { current: false },
     refreshingRequest: { current: false },
     failedManualRefresh: { current: false },
     activeLoad: { current: null },
@@ -183,6 +223,7 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     loadRequests: refs.loadRequests,
     hasLoadedList: refs.hasLoadedList,
     initialLoadFailed: refs.initialLoadFailed,
+    latestLoadFailed: refs.latestLoadFailed,
     refreshingRequest: refs.refreshingRequest,
     failedManualRefresh: refs.failedManualRefresh,
     activeLoad: refs.activeLoad,
@@ -456,8 +497,14 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);\s*if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*listFocused\.current = false;\s*stopCompletionPolling\(\);\s*\};\s*\}, \[load\]\)\)/,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*connectivityRefreshes\.setFocused\(true\);[\s\S]*?const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);[\s\S]*?if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*active = false;\s*listFocused\.current = false;\s*connectivityRefreshes\.setFocused\(false\);[\s\S]*?stopCompletionPolling\(\);\s*networkSubscription\.remove\(\);\s*\};\s*\}, \[connectivityRefreshes, load\]\)\)/,
   );
+  assert.match(tournamentsSource, /Network\.addNetworkStateListener/);
+  assert.match(tournamentsSource, /Network\.getNetworkStateAsync\(\)/);
+  assert.match(tournamentsSource, /connectivityRefreshes\.request\(\(\) => \{/);
+  assert.match(tournamentsSource, /const latestLoadFailed = useRef\(false\)/);
+  assert.match(tournamentsSource, /latestLoadFailed\.current = !registrationStatusKnown/);
+  assert.match(tournamentsSource, /latestLoadFailed\.current = true/);
   assert.match(
     tournamentsSource,
     /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp && listFocused\.current\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\('resume'\);\s*\}/,
@@ -492,6 +539,171 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
     tournamentsSource,
     /ListEmptyComponent=\{error \? null : \(\s*<View style=\{s\.emptyState\}>\s*<Text[\s\S]*?accessibilityLabel=\{emptyMessage\.replace\('\\n', ' '\)\}[\s\S]*?style=\{s\.emptyMessage\}[\s\S]*?\{emptyMessage\}[\s\S]*?<\/Text>\s*<\/View>\s*\)\}/,
   );
+});
+
+test('a failed T-5 registration refresh is retried after connectivity returns and reveals only approved room details', async () => {
+  const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
+  const schedule = getRoomCredentialSchedule(new Date(startAtMs).toISOString());
+  assert.ok(schedule);
+  let fakeNow = schedule.releaseAtMs - 1_000;
+  const matches = [
+    {
+      id: 'approved-room',
+      status: 'upcoming',
+      startsAt: new Date(startAtMs).toISOString(),
+    },
+    {
+      id: 'pending-room',
+      status: 'upcoming',
+      startsAt: new Date(startAtMs + 10 * 60_000).toISOString(),
+    },
+  ];
+  let registrationCalls = 0;
+  let resolveReconnectRequest;
+  const reconnectRequest = new Promise((resolve) => { resolveReconnectRequest = resolve; });
+  const api = {
+    tournaments: async () => matches,
+    myRegistrations: async () => {
+      registrationCalls += 1;
+      if (registrationCalls === 2) throw new Error('Temporary connectivity failure');
+      if (registrationCalls === 3) resolveReconnectRequest();
+      const approved = {
+        tournamentId: 'approved-room',
+        status: 'approved',
+        roomPublished: true,
+        roomId: fakeNow >= schedule.releaseAtMs ? 'ROOM-APPROVED-RECOVERED' : null,
+        roomPassword: fakeNow >= schedule.releaseAtMs ? 'PASS-APPROVED-RECOVERED' : null,
+      };
+      return [
+        approved,
+        {
+          tournamentId: 'pending-room',
+          status: 'pending',
+          roomPublished: true,
+          roomId: null,
+          roomPassword: null,
+        },
+      ];
+    },
+  };
+  const harness = createTournamentLoadHarness(api, () => fakeNow);
+  const timers = [];
+  const canceledTimers = new Set();
+  const connectivityRefreshes = createFocusedRefreshCoalescer({
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => canceledTimers.add(timer),
+  });
+  let networkListener;
+  const focusEffect = loadTournamentFocusEffect({
+    AppState: { currentState: 'active' },
+    Network: {
+      addNetworkStateListener: (listener) => {
+        networkListener = listener;
+        return { remove() {} };
+      },
+      getNetworkStateAsync: async () => ({
+        isConnected: false,
+        isInternetReachable: false,
+      }),
+    },
+    connectivityRefreshes,
+    createNetworkEventRevision,
+    isUsableNetworkState,
+    listFocused: { current: false },
+    load: harness.load,
+    Date: { now: () => fakeNow },
+    setClockNow: (value) => { harness.state.clockNow = value; },
+    startTournamentListRefreshPolling: () => () => {},
+    TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+  });
+  const cleanupFocus = focusEffect();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(registrationCalls, 1, 'focus should load the pre-release status once');
+  assert.ok(networkListener, 'the focused screen should listen for network changes');
+
+  const lifecycleTimers = [];
+  let scheduledRefresh = Promise.resolve();
+  const lifecycleEffect = loadLifecycleRefreshEffect({
+    items: harness.state.items,
+    listFocused: { current: true },
+    AppState: { currentState: 'active' },
+    lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+    getRoomCredentialSchedule,
+    getNextRoomCredentialRefreshAtMs,
+    MAX_TIMEOUT_MS,
+    Platform: { OS: 'web' },
+    takeTournamentStartAnnouncement,
+    announcedTournamentStarts: { current: new Set() },
+    Date: { now: () => fakeNow },
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      lifecycleTimers.push(timer);
+      return timer;
+    },
+    clearTimeout() {},
+    setClockNow: (value) => { harness.state.clockNow = value; },
+    setStartAnnouncement() {},
+    load: (trigger) => {
+      scheduledRefresh = harness.load(trigger);
+      return scheduledRefresh;
+    },
+  });
+  const cleanupLifecycle = lifecycleEffect();
+  assert.equal(lifecycleTimers.length, 1);
+  assert.equal(lifecycleTimers[0].delayMs, 1_020);
+  fakeNow = schedule.releaseAtMs + 20;
+  lifecycleTimers[0].callback();
+  await scheduledRefresh;
+
+  assert.equal(registrationCalls, 2, 'the T-5 load should fail once while the network is unavailable');
+  assert.equal(harness.refs.latestLoadFailed.current, true);
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      harness.state.items[0].myRegistration.roomId,
+      harness.state.items[0].myRegistration.roomPassword,
+    ),
+    false,
+    'a failed T-5 read must not invent or expose credentials',
+  );
+
+  networkListener({ isConnected: false, isInternetReachable: false });
+  networkListener({ isConnected: true, isInternetReachable: true });
+  networkListener({ isConnected: true, isInternetReachable: true });
+  assert.equal(
+    timers.filter((timer) => !canceledTimers.has(timer)).length,
+    1,
+    'a burst of restored-connectivity events should queue only one refresh',
+  );
+  const reconnectTimer = timers.find((timer) => !canceledTimers.has(timer));
+  assert.equal(reconnectTimer.delayMs, 250, 'the reconnect refresh should use the coalescing delay');
+  reconnectTimer.callback();
+  await reconnectRequest;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(registrationCalls, 3, 'connectivity restoration should issue one retry without manual refresh');
+  const approved = harness.state.items.find((item) => item.id === 'approved-room').myRegistration;
+  assert.deepEqual(
+    { roomId: approved.roomId, roomPassword: approved.roomPassword },
+    {
+      roomId: 'ROOM-APPROVED-RECOVERED',
+      roomPassword: 'PASS-APPROVED-RECOVERED',
+    },
+  );
+  const pending = harness.state.items.find((item) => item.id === 'pending-room').myRegistration;
+  assert.equal(pending.status, 'pending');
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(pending.roomId, pending.roomPassword),
+    false,
+    'pending registrations must remain without room credentials',
+  );
+  assert.equal(harness.refs.latestLoadFailed.current, false);
+
+  cleanupLifecycle();
+  cleanupFocus();
 });
 
 test('failed tournament refreshes preserve the last complete rows and successful retry clears the error', async () => {

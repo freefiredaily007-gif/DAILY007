@@ -10,6 +10,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
+import * as Network from 'expo-network';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
@@ -22,6 +23,11 @@ import {
 } from '../lib/roomCredentialTiming';
 import { tournamentListEmptyMessage, tournamentTabsForRoute } from '../lib/tournamentFilters';
 import { createLatestRequestGuard } from '../lib/latestRequestGuard';
+import {
+  createNetworkEventRevision,
+  isUsableNetworkState,
+} from '../lib/focusedRetry';
+import { createFocusedRefreshCoalescer } from '../lib/focusedLatestRequest';
 import {
   compareTournamentStartTime,
   getTournamentLifecycleState,
@@ -42,7 +48,7 @@ function announcePlayerLoadStatusOnIOS(message: string): void {
   });
 }
 
-type TournamentLoadTrigger = 'focus' | 'scheduled' | 'resume' | 'manual';
+type TournamentLoadTrigger = 'focus' | 'scheduled' | 'resume' | 'connectivity' | 'manual';
 
 export default function Tournaments() {
   const nav: any = useNavigation();
@@ -59,11 +65,13 @@ export default function Tournaments() {
   const [playerLoadAnnouncement, setPlayerLoadAnnouncement] = useState('');
   const [playerRefreshAnnouncementVersion, setPlayerRefreshAnnouncementVersion] = useState(0);
   const [clockNow, setClockNow] = useState(Date.now());
+  const [connectivityRefreshes] = useState(createFocusedRefreshCoalescer);
   const appState = useRef(AppState.currentState);
   const listFocused = useRef(false);
   const announcedTournamentStarts = useRef(new Set<string>());
   const hasLoadedList = useRef(false);
   const initialLoadFailed = useRef(false);
+  const latestLoadFailed = useRef(false);
   const announcedInitialLoadFailure = useRef(false);
   const announcedInitialLoadRecovery = useRef(false);
   const failedManualRefresh = useRef(false);
@@ -84,6 +92,7 @@ export default function Tournaments() {
       ]);
       if (!loadRequests.current.isCurrent(request)) return;
       if (listResult.status === 'rejected') {
+        latestLoadFailed.current = true;
         if (!hasLoadedList.current) initialLoadFailed.current = true;
         else if (refreshingRequest.current) failedManualRefresh.current = true;
         setError(apiError(listResult.reason));
@@ -96,6 +105,7 @@ export default function Tournaments() {
         : registrationsResult.status === 'rejected'
           ? apiError(registrationsResult.reason)
           : 'Invalid registrations response.';
+      latestLoadFailed.current = !registrationStatusKnown;
       if (!registrationStatusKnown && hasLoadedList.current) {
         if (refreshingRequest.current) failedManualRefresh.current = true;
         setError('');
@@ -124,6 +134,7 @@ export default function Tournaments() {
       }));
       hasLoadedList.current = true;
       initialLoadFailed.current = false;
+      latestLoadFailed.current = !registrationStatusKnown;
       if (recoveredInitialLoad) setPlayerLoadAnnouncement('Tournaments loaded.');
       if (failedManualRefresh.current) {
         failedManualRefresh.current = false;
@@ -133,6 +144,7 @@ export default function Tournaments() {
       setError('');
     } catch (e) {
       if (loadRequests.current.isCurrent(request)) {
+        latestLoadFailed.current = true;
         if (!hasLoadedList.current) initialLoadFailed.current = true;
         else if (refreshingRequest.current) failedManualRefresh.current = true;
         setError(apiError(e));
@@ -183,6 +195,8 @@ export default function Tournaments() {
 
   useFocusEffect(useCallback(() => {
     listFocused.current = true;
+    connectivityRefreshes.setFocused(true);
+    let active = true;
     const stopCompletionPolling = startTournamentListRefreshPolling(
       () => {
         setClockNow(Date.now());
@@ -191,12 +205,40 @@ export default function Tournaments() {
       () => listFocused.current && AppState.currentState === 'active',
       TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
     );
+    const updateNetworkState = (
+      networkState: Parameters<typeof isUsableNetworkState>[0],
+      refreshAfterFailure: boolean,
+    ) => {
+      const usable = isUsableNetworkState(networkState);
+      if (!usable) connectivityRefreshes.cancelPending();
+      if (usable && refreshAfterFailure) {
+        connectivityRefreshes.request(() => {
+          if (!active || !listFocused.current || AppState.currentState !== 'active') return;
+          setClockNow(Date.now());
+          return load('connectivity');
+        });
+      }
+    };
+    const networkEventRevision = createNetworkEventRevision();
+    const initialNetworkEventRevision = networkEventRevision.capture();
+    const networkSubscription = Network.addNetworkStateListener((networkState) => {
+      if (!active) return;
+      networkEventRevision.recordEvent();
+      updateNetworkState(networkState, true);
+    });
+    void Network.getNetworkStateAsync().then((networkState) => {
+      if (!active || !networkEventRevision.isCurrent(initialNetworkEventRevision)) return;
+      updateNetworkState(networkState, latestLoadFailed.current);
+    }).catch(() => {});
     if (AppState.currentState === 'active') void load('focus');
     return () => {
+      active = false;
       listFocused.current = false;
+      connectivityRefreshes.setFocused(false);
       stopCompletionPolling();
+      networkSubscription.remove();
     };
-  }, [load]));
+  }, [connectivityRefreshes, load]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
