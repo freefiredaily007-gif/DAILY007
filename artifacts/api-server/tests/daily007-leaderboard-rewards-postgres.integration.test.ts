@@ -47,6 +47,32 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   }
 }
 
+async function waitForBlockedBackend(
+  blockerPid: number,
+  queryPattern: string,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number }>(
+      `SELECT waiting.pid
+         FROM pg_stat_activity AS waiting
+        WHERE waiting.pid <> pg_backend_pid()
+          AND waiting.wait_event_type = 'Lock'
+          AND waiting.query ILIKE $1
+          AND $2 = ANY(pg_blocking_pids(waiting.pid))
+        ORDER BY waiting.query_start
+        LIMIT 1`,
+      [queryPattern, blockerPid],
+    );
+    const pid = result.rows[0]?.pid;
+    if (pid !== undefined) return Number(pid);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
+}
+
 test("six-digit leaderboard prizes persist across a fresh API server instance", async () => {
   const adminId = randomUUID();
   const token = makeToken(adminId, 0);
@@ -328,5 +354,194 @@ test("a monthly active-period snapshot failure rolls back weekly and monthly pri
     await pool.query("DELETE FROM daily007_v2_leaderboard_periods WHERE id IN ($1, $2)", [weeklyPeriodId, monthlyPeriodId]);
     await pool.query("DELETE FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type IN ('weekly', 'monthly')");
     await pool.query("DELETE FROM daily007_v2_users WHERE id IN ($1, $2)", [adminId, playerId]);
+  }
+});
+
+test("overlapping weekly and monthly prize saves stay serialized through active-period snapshots", async () => {
+  const adminId = randomUUID();
+  const weeklyPeriodId = randomUUID();
+  const monthlyPeriodId = randomUUID();
+  const token = makeToken(adminId, 0);
+  assert.ok(token);
+
+  const firstSave = {
+    weekly: { firstPlaceCoins: 701, secondPlaceCoins: 702, thirdPlaceCoins: 703 },
+    monthly: { firstPlaceCoins: 801, secondPlaceCoins: 802, thirdPlaceCoins: 803 },
+  };
+  const secondSave = {
+    weekly: { firstPlaceCoins: 901, secondPlaceCoins: 902, thirdPlaceCoins: 903 },
+    monthly: { firstPlaceCoins: 1001, secondPlaceCoins: 1002, thirdPlaceCoins: 1003 },
+  };
+  const now = new Date();
+  const startsAt = new Date(now.getTime() - 86_400_000);
+  const endsAt = new Date(now.getTime() + 86_400_000);
+  const gateClient = await pool.connect();
+  let gateHeld = false;
+
+  await pool.query(
+    `INSERT INTO daily007_v2_users (id, name, email, role)
+     VALUES ($1, 'Leaderboard Race Admin', $2, 'admin')`,
+    [adminId, `leaderboard-race-admin-${adminId}@example.test`],
+  );
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_reward_settings
+         (cycle_type, first_place_coins, second_place_coins, third_place_coins, updated_by)
+       VALUES
+         ('weekly', 51, 42, 33, $1),
+         ('monthly', 91, 62, 33, $1)
+       ON CONFLICT (cycle_type) DO UPDATE SET
+         first_place_coins = EXCLUDED.first_place_coins,
+         second_place_coins = EXCLUDED.second_place_coins,
+         third_place_coins = EXCLUDED.third_place_coins,
+         updated_by = EXCLUDED.updated_by`,
+      [adminId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, payout_configuration)
+       VALUES
+         ($1, 'weekly', $3, $4, 'active', '[{"rank":1,"coins":51},{"rank":2,"coins":42},{"rank":3,"coins":33}]'),
+         ($2, 'monthly', $3, $4, 'active', '[{"rank":1,"coins":91},{"rank":2,"coins":62},{"rank":3,"coins":33}]')`,
+      [weeklyPeriodId, monthlyPeriodId, startsAt, endsAt],
+    );
+
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_first_monthly_reward_save() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.cycle_type = 'monthly' AND NEW.first_place_coins = 801 THEN
+          PERFORM pg_advisory_xact_lock(743113);
+        END IF;
+        RETURN NEW;
+      END
+      $$;
+      CREATE TRIGGER daily007_test_pause_first_monthly_reward_save
+        BEFORE INSERT OR UPDATE ON daily007_v2_leaderboard_reward_settings
+        FOR EACH ROW
+        EXECUTE FUNCTION daily007_test_pause_first_monthly_reward_save();
+    `);
+
+    const blocker = await gateClient.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    const blockerPid = Number(blocker.rows[0]?.pid);
+    assert.ok(blockerPid > 0);
+    await gateClient.query("SELECT pg_advisory_lock(743113)");
+    gateHeld = true;
+
+    await withServer(async (origin) => {
+      const putRewards = (rewards: typeof firstSave) => fetch(
+        `${origin}/daily007/v2/admin/leaderboards/rewards`,
+        {
+          method: "PUT",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(rewards),
+        },
+      );
+
+      const firstRequest = putRewards(firstSave);
+      const firstBackendPid = await waitForBlockedBackend(
+        blockerPid,
+        "INSERT INTO daily007_v2_leaderboard_reward_settings%",
+        "the first reward save to pause after its weekly writes",
+      );
+      const secondRequest = putRewards(secondSave);
+      await waitForBlockedBackend(
+        firstBackendPid,
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)%",
+        "the second reward save to queue behind the complete first save",
+      );
+
+      await gateClient.query("SELECT pg_advisory_unlock(743113)");
+      gateHeld = false;
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        firstRequest,
+        secondRequest,
+      ]);
+      assert.equal(firstResponse.status, 200);
+      assert.equal(secondResponse.status, 200);
+
+      const settings = await pool.query<{
+        cycle_type: string;
+        first_place_coins: number;
+        second_place_coins: number;
+        third_place_coins: number;
+      }>(
+        `SELECT cycle_type, first_place_coins, second_place_coins, third_place_coins
+           FROM daily007_v2_leaderboard_reward_settings
+          ORDER BY cycle_type`,
+      );
+      assert.deepEqual(settings.rows, [
+        {
+          cycle_type: "monthly",
+          first_place_coins: secondSave.monthly.firstPlaceCoins,
+          second_place_coins: secondSave.monthly.secondPlaceCoins,
+          third_place_coins: secondSave.monthly.thirdPlaceCoins,
+        },
+        {
+          cycle_type: "weekly",
+          first_place_coins: secondSave.weekly.firstPlaceCoins,
+          second_place_coins: secondSave.weekly.secondPlaceCoins,
+          third_place_coins: secondSave.weekly.thirdPlaceCoins,
+        },
+      ]);
+
+      const snapshots = await pool.query<{
+        id: string;
+        payout_configuration: unknown;
+      }>(
+        `SELECT id, payout_configuration
+           FROM daily007_v2_leaderboard_periods
+          WHERE id IN ($1, $2)
+          ORDER BY id`,
+        [weeklyPeriodId, monthlyPeriodId],
+      );
+      assert.deepEqual(
+        new Map(snapshots.rows.map((row) => [row.id, row.payout_configuration])),
+        new Map([
+          [weeklyPeriodId, [
+            { rank: 1, coins: secondSave.weekly.firstPlaceCoins },
+            { rank: 2, coins: secondSave.weekly.secondPlaceCoins },
+            { rank: 3, coins: secondSave.weekly.thirdPlaceCoins },
+          ]],
+          [monthlyPeriodId, [
+            { rank: 1, coins: secondSave.monthly.firstPlaceCoins },
+            { rank: 2, coins: secondSave.monthly.secondPlaceCoins },
+            { rank: 3, coins: secondSave.monthly.thirdPlaceCoins },
+          ]],
+        ]),
+      );
+
+      const playerViewResponse = await fetch(`${origin}/daily007/v2/leaderboards`);
+      assert.equal(playerViewResponse.status, 200);
+      const playerView = await playerViewResponse.json() as {
+        weekly: { rewards: unknown[] };
+        monthly: { rewards: unknown[] };
+      };
+      assert.deepEqual(playerView.weekly.rewards, [
+        { rank: 1, coins: secondSave.weekly.firstPlaceCoins },
+        { rank: 2, coins: secondSave.weekly.secondPlaceCoins },
+        { rank: 3, coins: secondSave.weekly.thirdPlaceCoins },
+      ]);
+      assert.deepEqual(playerView.monthly.rewards, [
+        { rank: 1, coins: secondSave.monthly.firstPlaceCoins },
+        { rank: 2, coins: secondSave.monthly.secondPlaceCoins },
+        { rank: 3, coins: secondSave.monthly.thirdPlaceCoins },
+      ]);
+    });
+  } finally {
+    if (gateHeld) await gateClient.query("SELECT pg_advisory_unlock(743113)");
+    gateClient.release();
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_pause_first_monthly_reward_save ON daily007_v2_leaderboard_reward_settings");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_first_monthly_reward_save()");
+    await pool.query(
+      "DELETE FROM daily007_v2_leaderboard_periods WHERE id IN ($1, $2)",
+      [weeklyPeriodId, monthlyPeriodId],
+    );
+    await pool.query("DELETE FROM daily007_v2_leaderboard_reward_settings");
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
   }
 });

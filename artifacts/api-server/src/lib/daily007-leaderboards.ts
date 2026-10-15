@@ -68,6 +68,9 @@ function transaction<T>(work: (client: SqlClient) => Promise<T>): Promise<T> {
     const client = await pool.connect() as unknown as SqlClient;
     try {
       await client.query("BEGIN");
+      // Keep leaderboard settings and their active-period snapshots serialized as
+      // one operation; interleaving saves could pair weekly data from one request
+      // with monthly data from another.
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
         [LOCK_NAME],
