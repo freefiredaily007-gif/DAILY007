@@ -219,6 +219,62 @@ test("a successful retry copies the selected value and replaces the prior failur
   );
 });
 
+test("changing either room credential clears old success and failure feedback before copying new values", async () => {
+  const resetEffect = panelSource.match(
+    /useEffect\(\(\) => \{\s*(setCopyFeedback\(null\);)\s*\}, \[([^\]]+)\]\);/,
+  );
+  assert.ok(resetEffect, "credential changes must clear the previous copy feedback");
+  const dependencies = resetEffect[2].split(",").map((dependency) => dependency.trim());
+  assert.deepEqual(dependencies, ["credentialsReady", "id", "password"]);
+  const resetFeedback = new Function("setCopyFeedback", resetEffect[1]);
+  let credentials = {
+    credentialsReady: true,
+    id: "FAKE-ROOM-101",
+    password: "FAKE-PASS-101",
+  };
+  let visibleFeedback = {
+    kind: "success",
+    message: "Room ID copied to clipboard.",
+  };
+
+  const updateCredentials = (nextCredentials) => {
+    const changed = dependencies.some(
+      (dependency) => credentials[dependency] !== nextCredentials[dependency],
+    );
+    credentials = nextCredentials;
+    if (changed) resetFeedback((nextFeedback) => { visibleFeedback = nextFeedback; });
+  };
+
+  updateCredentials({ ...credentials, id: "FAKE-ROOM-202" });
+  assert.equal(visibleFeedback, null, "a previous success must disappear when the room ID changes");
+  assert.equal(credentials.id, "FAKE-ROOM-202", "the new room ID is available after feedback clears");
+
+  visibleFeedback = {
+    kind: "failure",
+    message: "Could not copy Password. Please try again.",
+  };
+  updateCredentials({ ...credentials, password: "FAKE-PASS-202" });
+  assert.equal(visibleFeedback, null, "a previous failure must disappear when the password changes");
+  assert.equal(credentials.password, "FAKE-PASS-202", "the new password is available after feedback clears");
+
+  const clipboardValues = [];
+  const newCopyFeedback = await copyRoomCredentialToClipboard(
+    "Password",
+    credentials.password,
+    async (value) => {
+      clipboardValues.push(value);
+      return true;
+    },
+  );
+  assert.deepEqual(clipboardValues, ["FAKE-PASS-202"]);
+  assert.deepEqual(newCopyFeedback, {
+    kind: "success",
+    message: "Password copied to clipboard.",
+  });
+  assert.match(panelSource, /AccessibilityInfo\.announceForAccessibility\(feedback\.message\)/);
+  assert.match(panelSource, /testID="room-credential-copy-feedback"/);
+});
+
 test("only the most recently tapped credential updates or announces copy feedback", async () => {
   const createDeferred = () => {
     let resolve;
