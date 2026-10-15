@@ -7761,6 +7761,41 @@ async function checkAdminTournamentEditSaveAtLargeText() {
     "populated tournament edit form",
   );
 
+  const bannerUrlInput = 'input[placeholder="Optional custom banner image URL (HTTPS)"]';
+  const validationMessage = "Custom banner image must be a valid HTTPS URL.";
+  const unsafeBannerUrls = [
+    ["non-HTTPS", "http://example.invalid/clash-night-8.png"],
+    ["embedded credentials", "https://admin:password@example.invalid/clash-night-8.png"],
+  ];
+  for (const [description, unsafeUrl] of unsafeBannerUrls) {
+    await setTournamentFormValue(bannerUrlInput, unsafeUrl);
+    await resetAdminMutationCalls();
+    await clickTournamentFormControl(
+      "SAVE CHANGES",
+      `Reject tournament edit with ${description} banner URL`,
+    );
+    await waitForCondition(
+      `document.body.innerText.includes(${JSON.stringify(validationMessage)}) &&
+        Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]'))`,
+      `${description} banner URL validation while keeping the edit form open`,
+    );
+    const rejectedState = await evaluate(`(() => ({
+      errorVisible: document.body.innerText.includes(${JSON.stringify(validationMessage)}),
+      formOpen: Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]')),
+      enteredUrl: document.querySelector(${JSON.stringify(bannerUrlInput)})?.value ?? null,
+      mutationCalls: window.__daily007AdminMutations?.calls ?? null,
+    }))()`);
+    assert(
+      rejectedState?.errorVisible &&
+        rejectedState.formOpen &&
+        rejectedState.enteredUrl === unsafeUrl &&
+        Array.isArray(rejectedState.mutationCalls) &&
+        rejectedState.mutationCalls.length === 0,
+      `The ${description} banner URL should show validation, preserve the edit form, and make no update API call: ${JSON.stringify(rejectedState)}.`,
+    );
+  }
+
+  await setTournamentFormValue(bannerUrlInput, imageUrl);
   await resetAdminMutationCalls();
   await clickTournamentFormControl("SAVE CHANGES", "Save tournament changes action");
   await waitForCondition(
