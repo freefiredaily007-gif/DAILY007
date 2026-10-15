@@ -22,7 +22,7 @@ export default function Profile() {
   const appBuild = Application.nativeBuildVersion
     ?? (configuredBuild == null ? '—' : String(configuredBuild));
   const buildLabel = Platform.OS === 'ios' ? 'iOS build' : 'Android build';
-  const { user, logout, refresh } = useApp();
+  const { user, logout, refresh, googleLinkError, setGoogleLinkError } = useApp();
   const profileEmail = String(user?.email ?? '');
   const displayProfileEmail = fontScale >= 1.5
     ? profileEmail.replace(/([@._+-])/g, '$1\u200B')
@@ -42,7 +42,6 @@ export default function Profile() {
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
   const [statsRetrying, setStatsRetrying] = React.useState(false);
   const statsRetryInFlight = React.useRef(false);
-  const [googleConnectError, setGoogleConnectError] = React.useState('');
   const [passwordModalVisible, setPasswordModalVisible] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
@@ -271,9 +270,9 @@ export default function Profile() {
             <GoogleSSOButton
               label="Connect Google"
               dailyToken={user.token}
-              onError={setGoogleConnectError}
+              onError={setGoogleLinkError}
               onSuccess={async () => {
-                setGoogleConnectError('');
+                setGoogleLinkError('');
                 await refresh();
               }}
             />
@@ -281,7 +280,7 @@ export default function Profile() {
         ) : (
           <Text testID="profile-google-status-loading" style={s.connected}>Checking Google connection…</Text>
         )}
-        {!!googleConnectError && <Text style={s.statsError}>{googleConnectError}</Text>}
+        {!!googleLinkError && <Text style={s.statsError}>{googleLinkError}</Text>}
       </Card>
 
       <SectionTitle accent={C.gold}>SECURITY</SectionTitle>

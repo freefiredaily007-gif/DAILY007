@@ -1496,7 +1496,7 @@ try {
     delayedStorageFailure.calls.find((call) => call.method === "POST" && call.path === "/auth/google")?.status,
     200,
   );
-  assert.deepEqual(delayedStorageFailure.clerk.events, ["start-sso", "set-active", "get-token", "get-token"]);
+  assert.deepEqual(delayedStorageFailure.clerk.events, ["start-sso", "set-active", "get-token"]);
   assert.equal(delayedStorageFailure.unexpectedRequests.length, 0);
 
   await openProfileScenario("profile-link-already-linked");

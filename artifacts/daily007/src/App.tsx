@@ -58,7 +58,13 @@ import {
 } from './lib/roleNavigation';
 import { useClerk } from '@clerk/expo';
 
-export type Ctx = { user: User; refresh: () => Promise<User | null>; logout: () => void };
+export type Ctx = {
+  user: User;
+  refresh: () => Promise<User | null>;
+  logout: () => void;
+  googleLinkError: string;
+  setGoogleLinkError: (message: string) => void;
+};
 const Ctx = React.createContext<Ctx>(null as any);
 export const useApp = () => React.useContext(Ctx);
 
@@ -158,6 +164,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [user, setUser] = useState<User | null>(null);
   const [logoutPending, setLogoutPending] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
+  const [googleLinkError, setGoogleLinkError] = useState('');
   const [verificationSession, setVerificationSession] = useState<User | null>(null);
   const [retryingVerification, setRetryingVerification] = useState(false);
   const refreshRequest = useRef<Promise<User | null> | null>(null);
@@ -169,6 +176,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   useEffect(() => {
     const handleExpiredSession = () => {
       setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
+      setGoogleLinkError('');
       setSession(null);
       setUser(null);
       queryClient.clear();
@@ -328,6 +336,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     setUser(null);
     setVerificationSession(null);
     setAuthNotice('');
+    setGoogleLinkError('');
     try {
       let retryClearFailed = false;
       const accountId = user?.id ?? user?.$id;
@@ -387,6 +396,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     onDone={(u) => {
       if (logoutInFlight.current) return;
       setAuthNotice('');
+      setGoogleLinkError('');
       setUser(u);
     }}
   />;
@@ -394,7 +404,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const rootNavigation = rootNavigationForRole(user.role);
 
   return (
-    <Ctx.Provider value={{ user, refresh, logout }}>
+    <Ctx.Provider value={{ user, refresh, logout, googleLinkError, setGoogleLinkError }}>
       <QueryClientProvider client={queryClient}>
         <NavigationContainer theme={navTheme}>
           <Stack.Navigator screenOptions={{
