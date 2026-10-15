@@ -1,0 +1,40 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/home-match-back-test
+- extendedWaitUntil:
+    visible:
+      id: home-match-back-test-fixture
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: home-upcoming-card-home-back-match-one
+    direction: DOWN
+- extendedWaitUntil:
+    visible:
+      id: home-upcoming-card-home-back-match-one
+    timeout: 15000
+- tapOn:
+    id: home-upcoming-card-home-back-match-one
+- extendedWaitUntil:
+    visible: "Home Back Test Match One"
+    timeout: 10000
+- pressKey: BACK
+- extendedWaitUntil:
+    visible:
+      id: home-upcoming-card-home-back-match-one
+    timeout: 10000
+- swipe:
+    direction: LEFT
+- tapOn:
+    id: home-upcoming-card-home-back-match-two
+- extendedWaitUntil:
+    visible: "Home Back Test Match Two"
+    timeout: 10000
+- pressKey: BACK
+- extendedWaitUntil:
+    visible:
+      id: home-upcoming-card-home-back-match-two
+    timeout: 10000
+- assertVisible:
+    id: home-upcoming-card-home-back-match-one

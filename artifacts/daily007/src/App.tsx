@@ -65,7 +65,7 @@ export type Ctx = {
   googleLinkError: string;
   setGoogleLinkError: (message: string) => void;
 };
-const Ctx = React.createContext<Ctx>(null as any);
+export const Ctx = React.createContext<Ctx>(null as any);
 export const useApp = () => React.useContext(Ctx);
 
 setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
