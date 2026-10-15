@@ -1036,6 +1036,7 @@ router.get("/daily007/v2/admin/matches/:id/registrations.csv", authenticate, asy
       row.registeredAt,
     ].map(csvCell).join(",")),
   ];
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="daily007-${id}-registrations.csv"`);
   res.send(`${lines.join("\r\n")}\r\n`);

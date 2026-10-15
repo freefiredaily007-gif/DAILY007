@@ -924,8 +924,12 @@ test("only tournament admins can download registration CSV rows", async () => {
 
       const adminResponse = await getWithToken(origin, path, tournamentAdminToken);
       assert.equal(adminResponse.status, 200);
+      assert.equal(adminResponse.headers.get("cache-control"), "no-store");
       assert.match(adminResponse.headers.get("content-type") ?? "", /^text\/csv\b/);
-      assert.match(adminResponse.headers.get("content-disposition") ?? "", /registrations\.csv/);
+      assert.equal(
+        adminResponse.headers.get("content-disposition"),
+        `attachment; filename="daily007-${TEST_MATCH_ID}-registrations.csv"`,
+      );
       const adminRows = parseCsvDocument(await adminResponse.text());
       assert.equal(adminRows.length, 2, "The authorized CSV should contain its header and registration row.");
       assert.equal(adminRows[1][2], seeded.registration.captain_game_uid);
