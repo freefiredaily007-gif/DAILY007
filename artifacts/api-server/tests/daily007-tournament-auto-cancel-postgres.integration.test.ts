@@ -351,6 +351,47 @@ async function storedCursor(): Promise<{ id: string; startsAt: string } | undefi
     : undefined;
 }
 
+test("a PostgreSQL cursor write preserves the video seed marker and visible settings", async () => {
+  const fixture = await createFixture();
+  const visibleSettings = {
+    __daily007VideoCatalogSeeded: true,
+    rechargeEnabled: "false",
+    coinToMoneyRate: "2.5",
+    paymentNote: "Existing payment instructions",
+  };
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings`,
+      [JSON.stringify(visibleSettings)],
+    );
+    const lastMatch = await pool.query<{ starts_at: Date }>(
+      "SELECT starts_at FROM daily007_v2_matches WHERE id = $1",
+      [fixture.matchIds[1]],
+    );
+    assert.ok(lastMatch.rows[0]?.starts_at instanceof Date);
+
+    await runDaily007AutoCancellationSweep();
+
+    const saved = await pool.query<{ settings: Record<string, unknown> }>(
+      "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+    );
+    const expectedCursor = {
+      id: fixture.matchIds[1],
+      startsAt: lastMatch.rows[0].starts_at.toISOString(),
+    };
+    assert.deepEqual(saved.rows[0]?.settings, {
+      ...visibleSettings,
+      __daily007AutoCancelCursor: expectedCursor,
+    });
+    assert.deepEqual(await storedCursor(), expectedCursor);
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("late PostgreSQL tournament finalization failure rolls back refunds and the sweep continues", async () => {
   const fixture = await createFixture();
   try {
