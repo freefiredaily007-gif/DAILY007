@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # android-emulator-runner runs each script input line in a separate shell.
 # Invoke this file in one line so variables, functions, traps and Metro persist.
-set -euo pipefail
+set -Eeuo pipefail
 
 export ANDROID_API_LEVEL="${1:?Expected Android API level 35 or 36}"
 case "$ANDROID_API_LEVEL" in
@@ -18,6 +18,22 @@ mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
 printf 'Emulator script started. api=%s cwd=%s workspace=%s\n' \
   "$ANDROID_API_LEVEL" "$PWD" "$WORKSPACE_DIR" > "$DIAG_DIR/runner-started.txt"
 METRO_PID=""
+PHASE="initialize"
+FAILURE_REPORTED=0
+report_failure() {
+  local status="$1"
+  local line="$2"
+  [ "$FAILURE_REPORTED" = 1 ] && return 0
+  FAILURE_REPORTED=1
+  printf 'phase=%s\nexit_status=%s\nscript_line=%s\n' \
+    "$PHASE" "$status" "$line" > "$DIAG_DIR/failure-details.txt"
+  echo "::error title=Android API ${ANDROID_API_LEVEL} emulator failure::Phase '${PHASE}' failed at script line ${line} (exit ${status})."
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '\n### Android API %s emulator failure\n- Phase: `%s`\n- Script line: %s\n- Exit code: %s\n' \
+      "$ANDROID_API_LEVEL" "$PHASE" "$line" "$status" >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+trap 'report_failure "$?" "$LINENO"' ERR
 cleanup() {
   local status=$?
   printf 'exit_status=%s\n' "$status" > "$DIAG_DIR/runner-exit.txt"
@@ -44,10 +60,14 @@ run_logged() {
   fi
 }
 
+PHASE="install Expo Go APK"
 run_logged expo-go-install adb install -r "$RUNNER_TEMP_DIR/expo-go.apk"
+PHASE="verify Expo Go package installation"
 run_logged expo-go-package-path adb shell pm path host.exp.exponent
+PHASE="configure adb reverse"
 run_logged adb-reverse adb reverse tcp:8081 tcp:8081
 
+PHASE="start Expo Metro on host"
 EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
 EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
 EXPO_NO_TELEMETRY=1 \
@@ -57,6 +77,7 @@ CI=1 \
 METRO_PID=$!
 
 metro_ready=false
+PHASE="wait for Metro host status"
 for attempt in $(seq 1 90); do
   if curl --fail --silent http://127.0.0.1:8081/status > "$DIAG_DIR/metro-status.txt" &&
     grep -q "packager-status:running" "$DIAG_DIR/metro-status.txt"; then
@@ -68,14 +89,17 @@ for attempt in $(seq 1 90); do
 done
 if [ "$metro_ready" != true ]; then
   cat "$DIAG_DIR/daily007-metro.log"
-  echo "Android API level ${ANDROID_API_LEVEL}: Metro did not become ready on port 8081." >&2
+  PHASE="Metro did not become ready on host port 8081"
+  report_failure 1 "$LINENO"
   exit 1
 fi
 cat "$DIAG_DIR/metro-status.txt"
 
 # Query from Android through adb reverse, not only from the host.
+PHASE="probe Metro from emulator through adb reverse"
 run_logged emulator-metro-status adb shell \
   'printf "GET /status HTTP/1.0\r\nHost: localhost\r\n\r\n" | toybox nc -w 5 127.0.0.1 8081'
+PHASE="validate emulator Metro response"
 grep -q "packager-status:running" "$DIAG_DIR/emulator-metro-status.log"
 printf 'Expo Go installed; host and emulator both reached packager-status:running.\n' \
   > "$DIAG_DIR/setup-verified.txt"
@@ -90,6 +114,7 @@ run_maestro_suite() {
   local package_script="$2"
   local suite_log="$DIAG_DIR/maestro-${suite_name}.log"
   local suite_status
+  PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL=exp://127.0.0.1:8081 \
     pnpm --filter @workspace/daily007 run "$package_script" > "$suite_log" 2>&1; then

@@ -87,6 +87,8 @@ printf 'packager-status:running'
       exit: await exists("runner-exit.txt"),
       logcat: await exists("android-logcat.txt"),
       install: await exists("expo-go-install.log"),
+      failureDetails: await exists("failure-details.txt"),
+      output: result.stdout + result.stderr,
       summary: await readFile(env.GITHUB_STEP_SUMMARY, "utf8").catch(() => ""),
     };
   } finally {
@@ -121,6 +123,8 @@ test("install failure preserves its exit status, log and cleanup without startin
   assert.equal(result.verified, null);
   assert.doesNotMatch(result.calls, /pnpm/);
   assert.match(result.logcat, /mock logcat/);
+  assert.match(result.failureDetails, /phase=install Expo Go APK/);
+  assert.match(result.output, /Phase 'install Expo Go APK' failed/);
 });
 
 for (const stage of ["host", "emulator"]) {
@@ -129,7 +133,12 @@ for (const stage of ["host", "emulator"]) {
     assert.equal(result.status, 1);
     assert.equal(result.exit, "exit_status=1\n");
     assert.equal(result.verified, null);
-    assert.equal(result.summary, "");
     assert.doesNotMatch(result.calls, /pnpm .* run /);
+    assert.match(result.summary, /Android API 35 emulator failure/);
+    assert.doesNotMatch(result.summary, /Expo Go installed successfully/);
+    assert.match(result.failureDetails, stage === "host"
+      ? /phase=Metro did not become ready on host port 8081/
+      : /phase=validate emulator Metro response/);
+    assert.match(result.output, /::error title=Android API 35 emulator failure::/);
   });
 }
