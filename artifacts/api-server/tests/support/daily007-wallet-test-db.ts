@@ -415,9 +415,10 @@ class MemoryWalletDatabase {
         );
       }
       if (/\bORDER BY created_at DESC\b/i.test(normalized)) {
+        const usesIdTieBreaker = /\bORDER BY created_at DESC,\s*id DESC\b/i.test(normalized);
         history = history.sort((left, right) =>
           right.created_at.getTime() - left.created_at.getTime() ||
-          right.id.localeCompare(left.id),
+          (usesIdTieBreaker ? right.id.localeCompare(left.id) : 0),
         );
       }
       const limit = normalized.match(/\bLIMIT\s+(\d+|\$\d+)\b/i);

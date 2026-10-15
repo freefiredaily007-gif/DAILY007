@@ -386,6 +386,29 @@ test("payment history returns only the authenticated player's newest 200 request
   });
 });
 
+test("payment history keeps equal-timestamp requests in stable order across the 200-record boundary", async () => {
+  walletTestDb.reset();
+  const createdAt = new Date(Date.UTC(2026, 5, 1, 12));
+  const playerPayments = Array.from({ length: 205 }, (_, index) => ({
+    id: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    userId: TEST_PLAYER_ID,
+    createdAt,
+  }));
+  walletTestDb.seedPaymentHistory(playerPayments);
+  const expectedIds = playerPayments.slice(-200).reverse().map(({ id }) => id);
+
+  await withServer(async (origin) => {
+    const first = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
+    const second = await call(origin, TEST_PLAYER_ID, "/my/payments", "GET");
+
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(first.body.length, 200);
+    assert.deepEqual(first.body.map((payment: { id: string }) => payment.id), expectedIds);
+    assert.deepEqual(second.body.map((payment: { id: string }) => payment.id), expectedIds);
+  });
+});
+
 test("payment history pagination returns older pages in order and remains scoped to the authenticated player", async () => {
   walletTestDb.reset();
   const playerPayments = Array.from({ length: 205 }, (_, index) => ({
