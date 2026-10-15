@@ -20,7 +20,7 @@ const savedSession = {
 };
 
 let storedSession = null;
-let rejectNextStoredSessionWrite = false;
+let rejectedStoredSessionWrites = 0;
 const mockedStorage = {
   async getItem(key) {
     assert.equal(key, SESSION_KEY);
@@ -28,8 +28,8 @@ const mockedStorage = {
   },
   async setItem(key, value) {
     assert.equal(key, SESSION_KEY);
-    if (rejectNextStoredSessionWrite) {
-      rejectNextStoredSessionWrite = false;
+    if (rejectedStoredSessionWrites > 0) {
+      rejectedStoredSessionWrites -= 1;
       throw new Error("Mock AsyncStorage rejected the session refresh.");
     }
     storedSession = value;
@@ -38,11 +38,12 @@ const mockedStorage = {
     assert.equal(key, SESSION_KEY);
     storedSession = null;
   },
-  rejectNextSessionWrite() {
-    rejectNextStoredSessionWrite = true;
+  rejectNextSessionWrites(count = 1) {
+    assert.ok(Number.isInteger(count) && count > 0);
+    rejectedStoredSessionWrites = count;
   },
   clearSessionWriteRejection() {
-    rejectNextStoredSessionWrite = false;
+    rejectedStoredSessionWrites = 0;
   },
 };
 
@@ -1131,7 +1132,7 @@ test("a verified account stays retryable when saving refreshed session data fail
     await setSession(null);
   });
   await setSession(savedSession);
-  mockedStorage.rejectNextSessionWrite();
+  mockedStorage.rejectNextSessionWrites(2);
   const requests = mockApiRequests(t, {
     statsResponse: { matches: 12, wins: 4, kills: 39, prizeCoins: 85 },
   });
@@ -1143,11 +1144,37 @@ test("a verified account stays retryable when saving refreshed session data fail
   );
   assert.deepEqual(failedSave, { status: "retry", session: savedSession });
   assert.deepEqual(JSON.parse(storedSession), savedSession, "A failed refresh write must retain the full saved session.");
-  assert.equal((await getSession()).token, savedSession.token, "The in-memory session must retain its previous token.");
+  assert.deepEqual(await getSession(), savedSession, "The in-memory session must retain its previous account data and token.");
   assert.deepEqual(requests, ["/auth/me", "/me/stats"], "Account verification itself should have succeeded.");
 
-  const recovered = await restoreDaily007Session(
+  const failedSecondSave = await restoreDaily007Session(
     async () => failedSave.session,
+    Api.me,
+    setSession,
+  );
+  assert.deepEqual(
+    failedSecondSave,
+    { status: "retry", session: savedSession },
+    "A second failed write must leave verification retryable with the original session.",
+  );
+  assert.deepEqual(
+    JSON.parse(storedSession),
+    savedSession,
+    "A second failed refresh write must retain the complete original stored session.",
+  );
+  assert.deepEqual(
+    await getSession(),
+    savedSession,
+    "A second failed write must retain the original in-memory account data and token.",
+  );
+  assert.deepEqual(
+    requests,
+    ["/auth/me", "/me/stats", "/auth/me", "/me/stats"],
+    "The second verification attempt should use only mocked API requests.",
+  );
+
+  const recovered = await restoreDaily007Session(
+    async () => failedSecondSave.session,
     Api.me,
     setSession,
   );
@@ -1160,11 +1187,16 @@ test("a verified account stays retryable when saving refreshed session data fail
   const persistedAfterRecovery = JSON.parse(storedSession);
   assert.equal(persistedAfterRecovery.id, recovered.session.id);
   assert.equal(persistedAfterRecovery.name, recovered.session.name);
+  assert.equal(persistedAfterRecovery.coins, recovered.session.coins);
+  assert.equal(persistedAfterRecovery.matches, recovered.session.matches);
+  assert.equal(persistedAfterRecovery.wins, recovered.session.wins);
+  assert.equal(persistedAfterRecovery.kills, recovered.session.kills);
+  assert.equal(persistedAfterRecovery.prizeCoins, recovered.session.prizeCoins);
   assert.equal(persistedAfterRecovery.token, savedSession.token);
   assert.equal((await getSession()).id, "verified-player");
   assert.deepEqual(
     requests,
-    ["/auth/me", "/me/stats", "/auth/me", "/me/stats"],
+    ["/auth/me", "/me/stats", "/auth/me", "/me/stats", "/auth/me", "/me/stats"],
     "The later retry should verify the account again using only mocked API requests.",
   );
 });
