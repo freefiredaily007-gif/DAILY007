@@ -342,6 +342,12 @@ test("each player can hold one pending deposit without blocking the other", asyn
       secondHistory.body.map(({ id, txnId }: { id: string; txnId: string }) => ({ id, txnId })),
       [{ id: secondPending.body.id, txnId: "independent-player-deposit-2" }],
     );
+    const firstHistoryPayload = JSON.stringify(firstHistory.body);
+    const secondHistoryPayload = JSON.stringify(secondHistory.body);
+    assert.equal(firstHistoryPayload.includes(secondPending.body.id), false);
+    assert.equal(firstHistoryPayload.includes("independent-player-deposit-2"), false);
+    assert.equal(secondHistoryPayload.includes(firstPending.body.id), false);
+    assert.equal(secondHistoryPayload.includes("independent-player-deposit-1"), false);
   });
 });
 
