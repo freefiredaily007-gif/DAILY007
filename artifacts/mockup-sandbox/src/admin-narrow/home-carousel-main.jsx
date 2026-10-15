@@ -25,6 +25,7 @@ const adminTournamentHomeRefreshPreview = previewParams.get("admin-tournament-ho
 const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const singleHomeCardPreview = previewParams.get("single-card") === "1";
+const homeStartSelectionPreview = previewParams.get("home-start-selection") === "1";
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
 const requestedScreen = previewParams.get("screen") ?? "Home";
@@ -43,6 +44,7 @@ let fakeNow = scheduledStartMs + (dateSurfacePreview && dateSurfacePhase === "af
 let startTimerFired = false;
 let scheduledStartTimerCallback = null;
 let scheduledStartTimerHandle = null;
+let scheduledStartTimerTarget = null;
 let appVisibility = "visible";
 Date.now = () => fakeNow;
 Object.defineProperty(document, "visibilityState", {
@@ -58,15 +60,28 @@ const setAppVisibility = (state) => {
 const expectedStartTimerDelay = scheduledStartMs - fakeNow + 20;
 const realSetTimeout = globalThis.setTimeout.bind(globalThis);
 let shouldAccelerateStartTimer = true;
+const previewStartTargets = [
+  scheduledStartMs,
+  scheduledStartMs + 60 * 60 * 1000,
+  scheduledStartMs + 2 * 60 * 60 * 1000,
+];
 globalThis.setTimeout = (callback, delay, ...args) => {
+  const matchingStartTarget = typeof callback === "function"
+    ? previewStartTargets.find((target) =>
+        target > fakeNow && Math.abs(Number(delay) - (target - fakeNow + 20)) <= 5,
+      )
+    : undefined;
   if (
-    shouldAccelerateStartTimer &&
-    typeof callback === "function" &&
-    Math.abs(Number(delay) - expectedStartTimerDelay) <= 5
+    matchingStartTarget !== undefined &&
+    (homeStartSelectionPreview || (
+      shouldAccelerateStartTimer &&
+      Math.abs(Number(delay) - expectedStartTimerDelay) <= 5
+    ))
   ) {
     shouldAccelerateStartTimer = false;
+    scheduledStartTimerTarget = matchingStartTarget;
     scheduledStartTimerCallback = () => {
-      fakeNow = scheduledStartMs + 20;
+      fakeNow = matchingStartTarget + 20;
       startTimerFired = true;
       callback(...args);
     };
@@ -74,6 +89,14 @@ globalThis.setTimeout = (callback, delay, ...args) => {
     return scheduledStartTimerHandle;
   }
   return realSetTimeout(callback, delay, ...args);
+};
+globalThis.clearTimeout = (handle) => {
+  if (homeStartSelectionPreview && handle === scheduledStartTimerHandle) {
+    scheduledStartTimerCallback = null;
+    scheduledStartTimerTarget = null;
+    scheduledStartTimerHandle = null;
+  }
+  realClearTimeout(handle);
 };
 
 const asIstTimestamp = (timestamp) =>
@@ -145,21 +168,21 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       longHomeCardNamesPreview
         ? "Daily007 Grand Championship: Clash Squad Finals for the International Winter Festival"
         : "Starting at IST",
-      scheduledStartMs,
+      scheduledStartMs + (homeStartSelectionPreview ? 2 * 60 * 60 * 1000 : 0),
     ),
     tournament(
       "later-one",
       longHomeCardNamesPreview
         ? "Daily007 International Champions Cup: Battle Royale Solo Qualifier Round"
         : "Later Tournament One",
-      scheduledStartMs + 60 * 60 * 1000,
+      scheduledStartMs + (homeStartSelectionPreview ? 0 : 60 * 60 * 1000),
     ),
     tournament(
       "later-two",
       longHomeCardNamesPreview
         ? "Daily007 Weekend Custom Showdown: Team Challenge for the Global Player Championship"
         : "Later Tournament Two",
-      scheduledStartMs + 2 * 60 * 60 * 1000,
+      scheduledStartMs + (homeStartSelectionPreview ? 60 * 60 * 1000 : 2 * 60 * 60 * 1000),
     ),
   ];
   apiMocks.previewTournaments.splice(
@@ -233,10 +256,12 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getAccessibilityAnnouncements: () => [...accessibilityAnnouncements],
     clearAccessibilityAnnouncements: () => accessibilityAnnouncements.splice(0),
     hasScheduledStartTimer: () => typeof scheduledStartTimerCallback === "function",
+    getScheduledStartTimerTarget: () => scheduledStartTimerTarget,
     advancePastScheduledStart: () => {
       if (!scheduledStartTimerCallback) return false;
       const callback = scheduledStartTimerCallback;
       scheduledStartTimerCallback = null;
+      scheduledStartTimerTarget = null;
       if (scheduledStartTimerHandle !== null) {
         realClearTimeout(scheduledStartTimerHandle);
         scheduledStartTimerHandle = null;

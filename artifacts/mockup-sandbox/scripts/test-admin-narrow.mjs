@@ -34,6 +34,7 @@ const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const refreshReturnOnly = process.argv.includes("--refresh-return-only");
 const refreshCoalescingOnly = process.argv.includes("--refresh-coalescing-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
+const homeStartTransitionOnly = process.argv.includes("--home-start-transition-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
@@ -6833,6 +6834,83 @@ async function checkHomeCarousel(width) {
   await checkSingleHomeCarouselCard(width);
 }
 
+async function checkHomeStartTransitionSelection(width) {
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+    "Home's start-transition fixture to load all three Upcoming matches",
+  );
+  const initial = await readHomeCarouselState();
+  assert(
+    JSON.stringify(initial?.cards.map((card) => card.id)) ===
+      JSON.stringify(["starting-soon", "later-one", "later-two"]) &&
+      initial.activePage === 0 &&
+      initial.indicatorCount === 3,
+    `The start-transition fixture should begin with three ordered cards and page one selected: ${JSON.stringify(initial)}.`,
+  );
+
+  const firstStart = await evaluate("window.__daily007HomeCarouselTest.scheduledStartMs");
+  await swipeHomeCarousel("left", "the middle Upcoming tournament before its scheduled start");
+  await waitForHomeCarouselCard("later-one", 1, width, "The selected middle Upcoming tournament");
+  assert(
+    await evaluate(`window.__daily007HomeCarouselTest.getScheduledStartTimerTarget() === ${firstStart}`),
+    "Home should be watching the selected middle tournament's scheduled start.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.advancePastScheduledStart()"),
+    "The selected middle tournament's fake-clock start could not be advanced.",
+  );
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.getFakeNow() >= window.__daily007HomeCarouselTest.scheduledStartMs && !document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]') && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 2",
+    "Home to remove the selected middle tournament at its scheduled start",
+  );
+  await waitForHomeCarouselCard("later-two", 1, width, "The next remaining tournament after the middle card starts");
+  const afterMiddleStart = await readHomeCarouselState();
+  assert(
+    JSON.stringify(afterMiddleStart?.cards.map((card) => card.id)) ===
+      JSON.stringify(["starting-soon", "later-two"]) &&
+      afterMiddleStart.indicatorCount === 2 &&
+      afterMiddleStart.activePage === 1,
+    `Home should select the following tournament and keep both indicators synchronized after the middle card starts: ${JSON.stringify(afterMiddleStart)}.`,
+  );
+  await assertHomeCarouselCardOpens("later-two", "The next remaining tournament after the middle card starts");
+
+  const secondStart = firstStart + 60 * 60 * 1000;
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getScheduledStartTimerTarget() === ${secondStart}`,
+    "Home to schedule the selected last tournament's start",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.advancePastScheduledStart()"),
+    "The selected last tournament's fake-clock start could not be advanced.",
+  );
+  await waitForCondition(
+    "!document.querySelector('[data-testid=\"home-upcoming-card-later-two\"]') && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 1",
+    "Home to leave the final Upcoming tournament after the selected last card starts",
+  );
+  const finalState = await readHomeCarouselState();
+  assert(
+    finalState?.cards.length === 1 &&
+      finalState.cards[0]?.id === "starting-soon" &&
+      finalState.indicatorCount === 0 &&
+      finalState.activePage === -1 &&
+      finalState.cards[0].left >= finalState.viewport.left - 1 &&
+      finalState.cards[0].right <= finalState.viewport.right + 1,
+    `Home should fully show its final remaining card without stale page indicators: ${JSON.stringify(finalState)}.`,
+  );
+  await assertHomeCarouselAccessibility(
+    [{ id: "starting-soon", name: "Starting at IST" }],
+    0,
+    "The final remaining tournament after the selected last card starts",
+  );
+  await assertHomeCarouselCardOpens(
+    "starting-soon",
+    "The final remaining tournament after the selected last card starts",
+  );
+  console.log(
+    `PASS Home start-time selection at ${width}px — the selected middle card advances to the next remaining tournament, then the selected last card leaves one fully visible, tappable final card.`,
+  );
+}
+
 async function setKeyboardViewport(height, width = 375) {
   await cdp("Emulation.setDeviceMetricsOverride", {
     width,
@@ -8010,6 +8088,8 @@ try {
         ? "admin-narrow-preview.html"
       : adminTournamentEmptyFilterOnly
         ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
+    : homeStartTransitionOnly
+      ? "home-carousel-preview.html?home-start-selection=1"
       : homeCarouselOnly || homeRetryOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
@@ -8088,6 +8168,7 @@ try {
     sameTimeStartOnly ||
     istDateSurfacesOnly ||
     homeCarouselOnly ||
+    homeStartTransitionOnly ||
     homeRetryOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
@@ -8108,13 +8189,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8132,6 +8213,8 @@ try {
           ? "Home, My Matches, and tournament details IST date surfaces"
          : homeRetryOnly
          ? "Home retry recovery"
+          : homeStartTransitionOnly
+            ? "Home scheduled-start carousel selection"
          : homeCarouselOnly
          ? "Home carousel"
         : adminTournamentHomeRefreshOnly
@@ -8450,6 +8533,13 @@ try {
         `Browser errors during Admin notification keyboard checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Targeted notifications remain sendable at all six requested phone widths with 1.5× text and a simulated Android keyboard.");
+    } else if (homeStartTransitionOnly) {
+      const width = 390;
+      await checkHomeStartTransitionSelection(width);
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Home scheduled-start carousel selection checks: ${browserErrors.join(" | ")}`,
+      );
     } else if (homeRetryOnly) {
       await waitForCondition(
         "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
