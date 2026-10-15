@@ -202,6 +202,57 @@ test("a failed cursor save after a committed cancellation does not repeat its re
   );
 });
 
+test("a temporary settings read failure leaves refunds untouched and a later sweep credits once", async () => {
+  const eligibleMatch = match("settings-read-retry-match", "clash_squad", "clash", 2);
+  const payerId = "settings-read-retry-payer";
+
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [eligibleMatch],
+    registrations: [
+      registration("settings-read-retry-reg", eligibleMatch.id, payerId, 35, "approved"),
+    ],
+    accounts: [{ id: payerId, wallet_coins: 120 }],
+  });
+  autoCancellationTestDb.failNextSettingsRead();
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.matches.get(eligibleMatch.id)?.status, "open");
+  assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 120);
+  assert.equal(autoCancellationTestDb.ledger.size, 0);
+  assert.deepEqual(autoCancellationTestDb.settings, {});
+  assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, []);
+  assert.deepEqual(autoCancellationTestDb.mutationTrace, []);
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.matches.get(eligibleMatch.id)?.status, "cancelled");
+  assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 155);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === eligibleMatch.id).length,
+    1,
+  );
+  assert.deepEqual(
+    autoCancellationTestDb.settings.__daily007AutoCancelCursor,
+    {
+      id: eligibleMatch.id,
+      startsAt: new Date(eligibleMatch.startsAtWallMs).toISOString(),
+    },
+  );
+
+  await runDaily007AutoCancellationSweep();
+
+  assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 155);
+  assert.equal(
+    [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === eligibleMatch.id).length,
+    1,
+    "repeated sweeps must not credit the payer more than once",
+  );
+  assert.equal(autoCancellationTestDb.candidateSelectionSizes[0], 1);
+  assert.equal(autoCancellationTestDb.candidateSelectionSizes.at(-1), 0);
+});
+
 test("a later payer failure rolls back one tournament without stopping the sweep", async () => {
   const failingMatch = match("refund-failure-match", "clash_squad", "clash", 3);
   failingMatch.startsAtWallMs = scheduledStartWallTime - 1_000;

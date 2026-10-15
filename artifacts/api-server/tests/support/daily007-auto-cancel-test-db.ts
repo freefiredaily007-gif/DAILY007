@@ -119,6 +119,7 @@ class Daily007AutoCancelTestDatabase {
   private readonly finalizationWaiterCounts = new Map<string, number>();
   private readonly failedRefundWrites = new Map<string, string | null>();
   private failedCursorSaves = 0;
+  private failedSettingsReads = 0;
   // Kept outside transaction snapshots so tests can verify that a later failure
   // happened after an earlier wallet or ledger write had been attempted.
   readonly mutationTrace: string[] = [];
@@ -141,6 +142,7 @@ class Daily007AutoCancelTestDatabase {
     this.finalizationWaiterCounts.clear();
     this.failedRefundWrites.clear();
     this.failedCursorSaves = 0;
+    this.failedSettingsReads = 0;
     this.mutationTrace.length = 0;
     this.candidateSelectionSizes.length = 0;
   }
@@ -166,6 +168,10 @@ class Daily007AutoCancelTestDatabase {
 
   failNextCursorSave(): void {
     this.failedCursorSaves += 1;
+  }
+
+  failNextSettingsRead(): void {
+    this.failedSettingsReads += 1;
   }
 
   setNow(nowMs: number): void {
@@ -250,6 +256,10 @@ class Daily007AutoCancelTestDatabase {
     let rows: unknown[] = [];
 
     if (normalized === "SELECT settings FROM daily007_v2_settings WHERE id = 1") {
+      if (this.failedSettingsReads > 0) {
+        this.failedSettingsReads -= 1;
+        throw new Error("Injected automatic-cancellation settings read failure.");
+      }
       rows = [{ settings: structuredClone(this.settings) }];
     } else if (
       normalized.startsWith("INSERT INTO daily007_v2_settings (id, settings)") &&
