@@ -263,6 +263,9 @@ test("a deleted deposit keeps its normalized UPI reference reserved", async () =
   const storedReference = originalReference.trim();
   const normalizedReference = `UPI-REF-DELETED-${referenceSuffix}`;
   const duplicateReference = `upi-ref-deleted-${referenceSuffix.toLowerCase()}`;
+  const newReference = `  NEW-UPI-REF-${referenceSuffix.toLowerCase()}  `;
+  const storedNewReference = newReference.trim();
+  const normalizedNewReference = `NEW-UPI-REF-${referenceSuffix}`;
   const affectedUserIds = [fixture.playerId, fixture.retryPlayerId];
   const initialAccounts = await pool.query<{ id: string; wallet_coins: number }>(
     `SELECT id, wallet_coins FROM daily007_v2_users
@@ -285,6 +288,31 @@ test("a deleted deposit keeps its normalized UPI reference reserved", async () =
     const paymentId = deposit.body.id as string;
     assert.ok(paymentId);
 
+    const originalPaymentResult = await pool.query<{
+      id: string;
+      user_id: string;
+      coins: number;
+      amount: number;
+      payer_upi_id: string | null;
+      reference: string;
+      reference_normalized: string;
+      proof_object_path: string | null;
+      status: string;
+      review_reason: string | null;
+      reviewed_by: string | null;
+      created_at: Date;
+      reviewed_at: Date | null;
+    }>(
+      `SELECT id, user_id, coins, amount, payer_upi_id, reference, reference_normalized,
+              proof_object_path, status, review_reason, reviewed_by, created_at, reviewed_at
+         FROM daily007_v2_payments
+        WHERE id = $1`,
+      [paymentId],
+    );
+    assert.equal(originalPaymentResult.rows.length, 1);
+    const originalPayment = originalPaymentResult.rows[0]!;
+    assert.equal(originalPayment.status, "pending");
+
     const deletion = await call(
       origin,
       fixture.adminId,
@@ -294,6 +322,18 @@ test("a deleted deposit keeps its normalized UPI reference reserved", async () =
     assert.equal(deletion.status, 200);
     assert.equal(deletion.body.id, paymentId);
     assert.equal(deletion.body.deleted, true);
+
+    const newDeposit = await call(origin, fixture.playerId, "/payments", "POST", {
+      coins: 80,
+      payerUpiId: "player@upi",
+      txnId: newReference,
+    });
+    assert.equal(newDeposit.status, 201);
+    assert.equal(newDeposit.body.status, "pending");
+    assert.equal(newDeposit.body.txnId, storedNewReference);
+    const newPaymentId = newDeposit.body.id as string;
+    assert.ok(newPaymentId);
+    assert.notEqual(newPaymentId, paymentId);
 
     const duplicate = await call(origin, fixture.retryPlayerId, "/payments", "POST", {
       coins: 80,
@@ -312,15 +352,37 @@ test("a deleted deposit keeps its normalized UPI reference reserved", async () =
     }>(
       `SELECT id, user_id, status, reference, reference_normalized
          FROM daily007_v2_payments
-        WHERE reference_normalized = $1`,
-      [normalizedReference],
+        WHERE reference_normalized = ANY($1::text[])
+        ORDER BY reference_normalized`,
+      [[normalizedReference, normalizedNewReference]],
     );
-    assert.deepEqual(payments.rows, [{
-      id: paymentId,
-      user_id: fixture.playerId,
+    assert.deepEqual(payments.rows, [
+      {
+        id: newPaymentId,
+        user_id: fixture.playerId,
+        status: "pending",
+        reference: storedNewReference,
+        reference_normalized: normalizedNewReference,
+      },
+      {
+        id: paymentId,
+        user_id: fixture.playerId,
+        status: "deleted",
+        reference: storedReference,
+        reference_normalized: normalizedReference,
+      },
+    ]);
+
+    const originalPaymentAfterDelete = await pool.query(
+      `SELECT id, user_id, coins, amount, payer_upi_id, reference, reference_normalized,
+              proof_object_path, status, review_reason, reviewed_by, created_at, reviewed_at
+         FROM daily007_v2_payments
+        WHERE id = $1`,
+      [paymentId],
+    );
+    assert.deepEqual(originalPaymentAfterDelete.rows, [{
+      ...originalPayment,
       status: "deleted",
-      reference: storedReference,
-      reference_normalized: normalizedReference,
     }]);
 
     const finalAccounts = await pool.query<{ id: string; wallet_coins: number }>(
