@@ -8328,8 +8328,9 @@ async function checkAdminFullAdminRoleRefreshRecovery() {
   const userId = "preview-full-admin-recovery";
   const userEmail = "full-admin-recovery@example.invalid";
   const userName = "Full Admin Recovery Preview";
-  const expectedStatus = "User list is current. Full Admin Recovery Preview remains Full Admin.";
-  const accessibleRoleName = `${userName}, Full Admin`;
+  const expectedStatus = "User list is current.";
+  const initialAccessibleRoleName = `${userName}, Full Admin`;
+  const recoveredAccessibleRoleName = `${userName}, Tournament Admin`;
 
   await clickSelector('[data-testid="admin-tab-users"]', "Users tab");
   await waitForCondition(
@@ -8343,13 +8344,13 @@ async function checkAdminFullAdminRoleRefreshRecovery() {
   );
 
   const initialRoleName = await evaluate(`(() => {
-    const expected = ${JSON.stringify(accessibleRoleName)};
+    const expected = ${JSON.stringify(initialAccessibleRoleName)};
     return [...document.querySelectorAll("[aria-label]")]
       .find((node) => node.getAttribute("aria-label") === expected)
       ?.getAttribute("aria-label") ?? null;
   })()`);
   assert(
-    initialRoleName === accessibleRoleName,
+    initialRoleName === initialAccessibleRoleName,
     `The initial Full Admin row should expose its name and role together: ${String(initialRoleName)}.`,
   );
 
@@ -8385,6 +8386,16 @@ async function checkAdminFullAdminRoleRefreshRecovery() {
     Array.isArray(rejectedMutationCalls) && rejectedMutationCalls.length === 0,
     `The rejected role change must not be recorded as a successful mutation: ${JSON.stringify(rejectedMutationCalls)}.`,
   );
+  const changedRole = await evaluate(`(() => {
+    const controls = window.__daily007AdminMutations;
+    if (typeof controls?.changeRecoveryPreviewRole !== "function") return false;
+    controls.changeRecoveryPreviewRole("tournament_admin");
+    return true;
+  })()`);
+  assert(
+    changedRole,
+    "Could not simulate an external role change before the successful user-list recovery.",
+  );
 
   await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await tapSelector(
@@ -8397,7 +8408,7 @@ async function checkAdminFullAdminRoleRefreshRecovery() {
       return toast?.getAttribute("aria-label") === ${JSON.stringify(expectedStatus)} &&
         toast?.getAttribute("aria-live") === "polite";
     })()`,
-    "the polite status confirming the recovered Full Admin list",
+    "the polite status confirming the recovered user list without claiming the old role",
   );
   const toastState = await evaluate(`(() => {
     const toast = document.querySelector('[data-testid="admin-toast"]');
@@ -8410,23 +8421,24 @@ async function checkAdminFullAdminRoleRefreshRecovery() {
   assert(
     toastState?.label === expectedStatus &&
       toastState.live === "polite" &&
-      toastState.text.includes(expectedStatus),
-    `The recovered status must be visible and politely announced without changing the confirmed role: ${JSON.stringify(toastState)}.`,
+      toastState.text.includes(expectedStatus) &&
+      !toastState.text.includes("Full Admin"),
+    `The recovered status must be visible and politely announced without claiming the account remains Full Admin: ${JSON.stringify(toastState)}.`,
   );
   await assertAdminRecordState(
     userEmail,
-    { includes: ["FULL ADMIN"], excludes: ["TOURNAMENT ADMIN", "PLAYER"] },
-    "the Full Admin account after the successful refresh",
+    { includes: ["TOURNAMENT ADMIN"], excludes: ["FULL ADMIN", "PLAYER"] },
+    "the externally changed Tournament Admin account after the successful refresh",
   );
   const recoveredRoleName = await evaluate(`(() => {
-    const expected = ${JSON.stringify(accessibleRoleName)};
+    const expected = ${JSON.stringify(recoveredAccessibleRoleName)};
     return [...document.querySelectorAll("[aria-label]")]
       .find((node) => node.getAttribute("aria-label") === expected)
       ?.getAttribute("aria-label") ?? null;
   })()`);
   assert(
-    recoveredRoleName === accessibleRoleName,
-    `The refreshed row should still announce Full Admin: ${String(recoveredRoleName)}.`,
+    recoveredRoleName === recoveredAccessibleRoleName,
+    `The refreshed row should announce the server-confirmed Tournament Admin role: ${String(recoveredRoleName)}.`,
   );
 }
 
@@ -8835,7 +8847,7 @@ try {
         `Browser errors during Full Admin refresh-recovery checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        "PASS — The isolated Full Admin safeguard rejection and one failed list refresh preserve the FULL ADMIN row; the later successful refresh announces the current list politely.",
+        "PASS — After an external role change during a failed-refresh recovery, the refreshed row shows Tournament Admin and the polite status does not claim Full Admin.",
       );
     } else if (adminActionsOnly) {
       await setViewport(390);

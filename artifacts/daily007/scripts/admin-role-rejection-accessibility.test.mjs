@@ -358,6 +358,11 @@ test('a later successful refresh politely confirms the unchanged Full Admin role
     /refreshedUser\?\.role === 'admin'[\s\S]*?User list is current\. \$\{refreshedUser\.name \|\| pendingRecovery\.userName\} remains Full Admin\./,
     'Only a server-confirmed Full Admin row may be described as remaining Full Admin.',
   );
+  assert.match(
+    loadBranch,
+    /: 'User list is current\.';/,
+    'A refreshed non-admin role must use the generic current-list status.',
+  );
   assert.match(loadBranch, /toast\(status, 'success'\)/);
   assert.match(
     toastSource,
@@ -367,6 +372,32 @@ test('a later successful refresh politely confirms the unchanged Full Admin role
   assert.match(
     usersSource,
     /const roleLabel = u\.role === 'admin'\s*\? 'Full Admin'[\s\S]*?<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/,
-    'The visible row must continue to show FULL ADMIN from the refreshed server role.',
+    'The visible role label must be derived from the refreshed server role.',
+  );
+});
+
+test('recovery with an externally changed role announces only that the list is current', () => {
+  const loadBranch = usersSource.match(
+    /const load = async \(\) => \{([\s\S]*?)\n\s*\};/,
+  )?.[1] ?? '';
+  assert.match(
+    loadBranch,
+    /const refreshedUser = loadedUsers\.find\([\s\S]*?refreshedUser\?\.role === 'admin'[\s\S]*?: 'User list is current\.'/,
+    'Only an admin role in the successful server response may produce the Full Admin recovery claim.',
+  );
+  assert.doesNotMatch(
+    loadBranch.match(/const status = ([\s\S]*?);\s*toast\(status/)?.[1] ?? '',
+    /Full Admin.*\|\|/,
+    'The generic recovery status must not retain a Full Admin name or role claim.',
+  );
+  assert.match(
+    usersSource,
+    /accessibilityLabel=\{`\$\{u\.name\}, \$\{roleLabel\}`\}/,
+    'The refreshed row’s accessible name must include the server-confirmed role.',
+  );
+  assert.match(
+    usersSource,
+    /<Text accessible=\{false\} style=\{st\.role\}>\{roleLabel\.toUpperCase\(\)\}<\/Text>/,
+    'The visible row must render its role label from the refreshed server role.',
   );
 });

@@ -403,6 +403,7 @@ const adminPreviewMutations = {
     adminPreviewMutationCalls.length = 0;
     adminPreviewMutationFailures.clear();
     nextAdminUsersReadError = null;
+    previewFullAdminRecoveryUser.role = "admin";
   },
   failNext: (method: string, message: string) => {
     if (!method.trim() || !message.trim()) {
@@ -415,6 +416,9 @@ const adminPreviewMutations = {
       throw new Error("An isolated Admin preview user-list failure needs an error message.");
     }
     nextAdminUsersReadError = message;
+  },
+  changeRecoveryPreviewRole: (role: "admin" | "tournament_admin" | "user") => {
+    previewFullAdminRecoveryUser.role = role;
   },
 };
 (globalThis as typeof globalThis & {
