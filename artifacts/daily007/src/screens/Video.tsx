@@ -10,6 +10,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import * as Network from 'expo-network';
 import * as Clipboard from 'expo-clipboard';
 import { Feather } from '@expo/vector-icons';
 import WebView from 'react-native-webview';
@@ -49,6 +50,11 @@ import {
   getVideoCatalogRefreshInterval,
   shouldRefreshVideoCatalogOnFocus,
 } from '../lib/videoCatalogRefresh';
+import {
+  createNetworkEventRevision,
+  isUsableNetworkState,
+} from '../lib/focusedRetry';
+import { createFocusedRefreshCoalescer } from '../lib/focusedLatestRequest';
 
 const WATCH_MARK_PERCENT = 75;
 const PLAYING_STATE = 1;
@@ -142,6 +148,8 @@ export default function Video() {
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
+  const [catalogRefreshes] = useState(createFocusedRefreshCoalescer);
+  const networkUsableRef = useRef<boolean | null>(null);
   const videosQuery = useDaily007ListVideos({
     query: {
       queryKey: getDaily007ListVideosQueryKey(),
@@ -209,21 +217,64 @@ export default function Video() {
   useFocusEffect(useCallback(() => {
     if (!isAppActive) return undefined;
     if (!showPlayer) {
+      let active = true;
+      catalogRefreshes.setFocused(true);
+      const refreshCatalogIfFocused = () => {
+        if (!active) return;
+        if (shouldRefreshVideoCatalogOnFocus({
+          isFocused,
+          isAppActive,
+          isPlayerOpen: showPlayer,
+        })) {
+          void videosQuery.refetch();
+        }
+      };
+      const requestCatalogRefresh = () => catalogRefreshes.request(refreshCatalogIfFocused);
+      const updateNetworkState = (
+        networkState: Parameters<typeof isUsableNetworkState>[0],
+        refreshOnReconnect: boolean,
+      ) => {
+        const wasUsable = networkUsableRef.current;
+        const isUsable = isUsableNetworkState(networkState);
+        networkUsableRef.current = isUsable;
+        if (isUsable && wasUsable === false && refreshOnReconnect) {
+          requestCatalogRefresh();
+        }
+      };
+      const networkEventRevision = createNetworkEventRevision();
+      const initialNetworkEventRevision = networkEventRevision.capture();
+      const networkSubscription = Network.addNetworkStateListener((networkState) => {
+        if (!active) return;
+        networkEventRevision.recordEvent();
+        updateNetworkState(networkState, true);
+      });
+      void Network.getNetworkStateAsync().then((networkState) => {
+        if (!active || !networkEventRevision.isCurrent(initialNetworkEventRevision)) return;
+        updateNetworkState(networkState, false);
+      }).catch(() => {
+        if (active && networkEventRevision.isCurrent(initialNetworkEventRevision)) {
+          networkUsableRef.current = false;
+        }
+      });
       if (shouldRefreshVideoCatalogOnFocus({
         isFocused,
         isAppActive,
         isPlayerOpen: showPlayer,
       })) {
-        void videosQuery.refetch();
+        requestCatalogRefresh();
       }
-      return undefined;
+      return () => {
+        active = false;
+        catalogRefreshes.setFocused(false);
+        networkSubscription.remove();
+      };
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       closePlayer();
       return true;
     });
     return () => subscription.remove();
-  }, [closePlayer, isAppActive, isFocused, showPlayer, videosQuery.refetch]));
+  }, [catalogRefreshes, closePlayer, isAppActive, isFocused, showPlayer, videosQuery.refetch]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {

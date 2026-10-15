@@ -20,6 +20,7 @@ import {
   configurePasswordChangePreview,
   configureVideoRewardPreview,
 } from "./mocks/api-client-react";
+import { configurePreviewNetwork } from "./mocks/network";
 
 function JoinFormServerErrorPreview() {
   return (
@@ -97,6 +98,8 @@ const videoRewardPreviewMode = screenName === "VideoUnavailable"
           ? "lateCatalogResponse"
           : screenName === "VideoCatalogPositionRefreshFailure"
             ? "catalogPositionRefreshFailure"
+        : screenName === "VideoConnectivityRecovery"
+          ? "connectivityRecovery"
       : null;
 const Screen = screens[screenName === "VideoUnavailable"
   || screenName === "VideoTransient"
@@ -107,12 +110,14 @@ const Screen = screens[screenName === "VideoUnavailable"
   || screenName === "VideoCatalogRetryPending"
   || screenName === "VideoLateCatalogResponse"
   || screenName === "VideoCatalogPositionRefreshFailure"
+  || screenName === "VideoConnectivityRecovery"
   ? "Video"
   : screenName] || Home;
 
 configurePlayerLargestTextPreview();
 configureWalletFormPreview();
 configureVideoRewardPreview(videoRewardPreviewMode);
+if (screenName === "VideoConnectivityRecovery") configurePreviewNetwork(false);
 configurePasswordChangePreview();
 if (videoRewardPreviewMode) window.__videoRewardPreview = true;
 

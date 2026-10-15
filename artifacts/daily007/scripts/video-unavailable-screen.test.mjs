@@ -1024,8 +1024,13 @@ test("the visible catalog removes a video disabled while it stays open", async (
   );
   assert.match(
     videoSource,
-    /shouldRefreshVideoCatalogOnFocus\(\{[\s\S]*?isPlayerOpen: showPlayer,[\s\S]*?\}\)\)\s*\{\s*void videosQuery\.refetch\(\)/,
+    /const refreshCatalogIfFocused = \(\) => \{\s*if \(!active\) return;\s*if \(shouldRefreshVideoCatalogOnFocus\(\{[\s\S]*?isPlayerOpen: showPlayer,[\s\S]*?\}\)\) \{\s*void videosQuery\.refetch\(\)/,
   );
+  assert.match(videoSource, /catalogRefreshes\.request\(refreshCatalogIfFocused\)/);
+  assert.match(videoSource, /Network\.addNetworkStateListener/);
+  assert.match(videoSource, /Network\.getNetworkStateAsync\(\)/);
+  assert.match(videoSource, /wasUsable === false && refreshOnReconnect/);
+  assert.match(videoSource, /catalogRefreshes\.setFocused\(false\)/);
   assert.match(videoSource, /const videos: VideoItem\[\] = \(videosQuery\.data\?\.videos \?\? \[\]\)/);
   assert.match(videoSource, /filteredVideos\.map\(\(video\) =>/);
   assert.match(videoSource, /<VideoCatalogBackButton[\s\S]*?onPress=\{closePlayer\}/);

@@ -207,6 +207,7 @@ type VideoRewardPreviewMode =
   | "lateCatalogResponse"
   | "catalogPositionRefreshFailure"
   | "catalogRefreshPending"
+  | "connectivityRecovery"
   | "transient"
   | "lateCompletion"
   | "startFailure"
@@ -274,13 +275,16 @@ export function useDaily007ListVideos() {
   const mode = videoRewardPreviewMode;
   const [refreshCount, setRefreshCount] = useState(0);
   const [refreshFailed, setRefreshFailed] = useState(
-    mode === "lateCatalogResponse" || mode === "catalogRefreshPending",
+    mode === "lateCatalogResponse"
+      || mode === "catalogRefreshPending"
+      || mode === "connectivityRecovery",
   );
   const refreshFailureCount = useRef(0);
   const lateCatalogRequestSequenceRef = useRef(0);
   const removesUnavailable = mode === "unavailable"
     || mode === "unavailableRefreshFailure"
-    || mode === "lateCatalogResponse";
+    || mode === "lateCatalogResponse"
+    || mode === "connectivityRecovery";
   const previewVideos = mode === "catalogPositionRefreshFailure"
     ? catalogPositionPreviewVideos
     : rewardPreviewVideos;
@@ -340,6 +344,10 @@ export function useDaily007ListVideos() {
       setRefreshFailed(false);
       setRefreshCount((current) => current + 1);
       return { data: { videos: activeRewardPreviewVideos } };
+    }
+    if (mode === "connectivityRecovery" && calls.listRefetches <= 2) {
+      setRefreshFailed(true);
+      return { error: new Error("Temporary video catalog refresh failure.") };
     }
     if (mode === "catalogPositionRefreshFailure") {
       if (options?.cancelRefetch === true) {

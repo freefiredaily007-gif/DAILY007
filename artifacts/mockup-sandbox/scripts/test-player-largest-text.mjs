@@ -13,6 +13,7 @@ const lateVideoRewardResponseOnly = process.argv.includes("--late-video-reward-r
 const pendingVideoWatchStartOnly = process.argv.includes("--pending-video-watch-start-only");
 const videoCatalogRefreshAnnouncementOnly = process.argv.includes("--video-catalog-refresh-announcement-only");
 const videoCatalogRetryPendingOnly = process.argv.includes("--video-catalog-retry-pending-only");
+const videoCatalogConnectivityOnly = process.argv.includes("--video-catalog-connectivity-only");
 const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty-search-only");
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
 const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
@@ -198,6 +199,7 @@ async function waitForCondition(expression, description) {
 
 async function navigateToScreen(name, readyText, fontScale = 2) {
   const query = new URLSearchParams({ screen: name, fontScale: String(fontScale) });
+  if (name === "VideoConnectivityRecovery") query.set("resume-while-refresh-only", "");
   await cdp("Page.navigate", { url: `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?${query}` });
   await waitForCondition(
     `Boolean(document.querySelector('[data-testid="player-screen"]') && document.body.innerText.includes(${JSON.stringify(readyText)}))`,
@@ -1088,7 +1090,7 @@ async function checkUnavailableVideoRewardFlow() {
 
 async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview video") {
   const unavailableMessage = "This video is no longer available for rewards.";
-  const catalogError = "Could not load videos. Check your connection and try again.";
+  const catalogError = "Could not refresh videos. Showing the last loaded catalog.";
   const matchesOnlyRemovedVideo = searchQuery === "becomes unavailable";
   await navigateToScreen("VideoRefreshFailure", "Tutorial Videos");
   await waitForCondition(
@@ -1171,10 +1173,10 @@ async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview
   assert(
     failedRefresh.errorVisible
       && failedRefresh.reloadVisible
-      && !failedRefresh.unavailableCard
-      && !failedRefresh.activeCard
+      && failedRefresh.unavailableCard
+      && failedRefresh.activeCard
       && failedRefresh.refreshes >= 1,
-    `A failed catalog refresh should show recovery instead of the stale list: ${JSON.stringify(failedRefresh)}`,
+    `A failed catalog refresh should keep the last catalog visible alongside recovery: ${JSON.stringify(failedRefresh)}`,
   );
 
   await clickSelector('[data-testid="video-catalog-reload"]', "retry video catalog refresh");
@@ -1204,8 +1206,8 @@ async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview
   assert(
     repeatedFailure.errorVisible
       && repeatedFailure.reloadVisible
-      && !repeatedFailure.unavailableCard
-      && !repeatedFailure.activeCard
+      && repeatedFailure.unavailableCard
+      && repeatedFailure.activeCard
       && repeatedFailure.refreshes === failedRefresh.refreshes + 1
       && repeatedFailure.errorLiveRegion === "polite"
       && repeatedFailure.freshAnnouncementNode
@@ -1352,7 +1354,7 @@ async function checkVideoCatalogRetryPending() {
 }
 
 async function checkLateVideoCatalogResponseCannotUndoRetry() {
-  const catalogError = "Could not load videos. Check your connection and try again.";
+  const catalogError = "Could not refresh videos. Showing the last loaded catalog.";
   await navigateToScreen("VideoLateCatalogResponse", catalogError);
   await waitForCondition(
     `document.body.innerText.includes(${JSON.stringify(catalogError)})
@@ -1377,8 +1379,8 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
   assert(
     heldReload.errorVisible
       && heldReload.reloadVisible
-      && !heldReload.activeCard
-      && !heldReload.inactiveCard
+      && heldReload.activeCard
+      && heldReload.inactiveCard
       && heldReload.manualRefetches === 1
       && heldReload.heldResponse,
     `The first reload should remain pending while its recovery control is available: ${JSON.stringify(heldReload)}`,
@@ -1452,8 +1454,83 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
   console.log("PASS — a late stale catalog response cannot restore the inactive video, old error, or duplicate recovery announcement.");
 }
 
+async function checkVideoCatalogConnectivityRecovery() {
+  const catalogError = "Could not refresh videos. Showing the last loaded catalog.";
+  await navigateToScreen("VideoConnectivityRecovery", "Tutorial Videos");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && window.__videoRewardPreviewCalls?.listRefetches === 1`,
+    "the initial offline catalog failure",
+  );
+
+  await evaluate(`window.__setPreviewNetworkState?.({
+    isConnected: false,
+    isInternetReachable: false,
+    type: "NONE",
+  })`);
+  await evaluate(`window.__setPreviewNetworkState?.({
+    isConnected: true,
+    isInternetReachable: true,
+    type: "WIFI",
+  })`);
+  await evaluate(`(() => {
+    const controller = window.__daily007PreviewFocusController;
+    controller?.triggerFocusCycle();
+    controller?.triggerFocusCycle();
+  })()`);
+  await waitForCondition(
+    "window.__videoRewardPreviewCalls?.listRefetches >= 2",
+    "the single catalog refresh after connectivity and overlapping focus/resume events",
+  );
+  await delay(450);
+  const failedRecovery = await evaluate(`(() => ({
+    calls: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+    errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+    reloadVisible: Boolean(document.querySelector('[data-testid="video-catalog-reload"]')),
+  }))()`);
+  assert(
+    failedRecovery.calls === 2 && failedRecovery.errorVisible && failedRecovery.reloadVisible,
+    `Connectivity recovery should run once, and a failed refresh should keep manual Reload: ${JSON.stringify(failedRecovery)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-reload"]', "manually retry the failed connectivity refresh");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.listRefetches === 3
+      && !document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))
+      && !document.querySelector('[data-testid="video-catalog-card-unavailable-video"]')`,
+    "the current catalog after manually retrying the failed recovery",
+  );
+
+  await clickSelector('[data-testid="video-catalog-card-still-active-video"]', "open the video player");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-catalog-back\"]'))",
+    "the active video player",
+  );
+  await evaluate(`window.__setPreviewNetworkState?.({
+    isConnected: false,
+    isInternetReachable: false,
+    type: "NONE",
+  })`);
+  await evaluate(`window.__setPreviewNetworkState?.({
+    isConnected: true,
+    isInternetReachable: true,
+    type: "WIFI",
+  })`);
+  await delay(450);
+  const playerState = await evaluate(`({
+    calls: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+    playerOpen: Boolean(document.querySelector('[data-testid="video-catalog-back"]')),
+  })`);
+  assert(
+    playerState.calls === 3 && playerState.playerOpen,
+    `Connectivity changes must not refresh the catalog while the player is open: ${JSON.stringify(playerState)}`,
+  );
+  console.log("PASS — reconnect refreshes once across overlapping focus/resume events, keeps manual retry after failure, recovers the catalog, and stays idle while playing.");
+}
+
 async function checkVideoCatalogPositionSurvivesRefreshError() {
-  const catalogError = "Could not load videos. Check your connection and try again.";
+  const catalogError = "Could not refresh videos. Showing the last loaded catalog.";
   const targetSelector = '[data-testid="video-catalog-card-lower-active-video"]';
   await navigateToScreen("VideoCatalogPositionRefreshFailure", "Tutorial Videos (18)");
   await waitForCondition(
@@ -2195,10 +2272,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2211,6 +2288,9 @@ try {
   }
   if (videoCatalogRetryPendingOnly) {
     await checkVideoCatalogRetryPending();
+  }
+  if (videoCatalogConnectivityOnly) {
+    await checkVideoCatalogConnectivityRecovery();
   }
   if (videoCatalogEmptySearchOnly) {
     await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable");
@@ -2241,6 +2321,7 @@ try {
     || pendingVideoWatchStartOnly
     || videoCatalogRefreshAnnouncementOnly
     || videoCatalogRetryPendingOnly
+    || videoCatalogConnectivityOnly
     || videoCatalogEmptySearchOnly
     || lateVideoCatalogResponseOnly
     || videoCatalogPositionOnly
@@ -2321,6 +2402,8 @@ try {
             ? "PASS — repeated catalog failures are announced without moving focus, and successful recovery is announced."
             : videoCatalogRetryPendingOnly
               ? "PASS — catalog retry progress is announced without moving focus, clears after failure, and is followed by a successful recovery."
+              : videoCatalogConnectivityOnly
+                ? "PASS — connectivity recovery is coalesced with focus and resume, retains manual retry on failure, and does not run in the player."
               : videoCatalogEmptySearchOnly
               ? "PASS — catalog recovery preserves a search with no remaining matches."
               : lateVideoCatalogResponseOnly
