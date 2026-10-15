@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test, { after } from "node:test";
+import express from "express";
+import type { Server } from "node:http";
 import { pool } from "@workspace/db";
+import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
+import { makeToken } from "../src/lib/daily007-session-token";
 import { runDaily007AutoCancellationSweep } from "../src/lib/daily007-tournament-auto-cancel";
 import {
   cancelUnderfilledTournamentAndRefund,
@@ -10,6 +14,9 @@ import {
 
 const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const testDatabasePort = process.env.DAILY007_TEST_POSTGRES_PORT;
+const TEST_AUTH_SECRET = "daily007-cancelled-room-privacy-postgres-test-secret";
+const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
+process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
 if (
   process.env.DAILY007_ISOLATED_POSTGRES_TEST !== "1" ||
@@ -33,8 +40,41 @@ type CancellationFixture = {
 };
 
 after(async () => {
+  if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
+  else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
   await pool.end();
 });
+
+async function withCompatServer(run: (origin: string) => Promise<void>): Promise<void> {
+  const app = express();
+  app.use(express.json());
+  app.use(daily007CompatCoreRouter);
+
+  const server = await new Promise<Server>((resolve, reject) => {
+    const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
+    listeningServer.once("error", reject);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
+async function getMyRegistrations(origin: string, token: string): Promise<{
+  status: number;
+  body: any;
+}> {
+  const response = await fetch(`${origin}/my/registrations`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return { status: response.status, body: await response.json() };
+}
 
 async function createFixture(): Promise<CancellationFixture> {
   const fixture: CancellationFixture = {
@@ -142,6 +182,79 @@ async function cleanupFixture(fixture: CancellationFixture): Promise<void> {
     client.release();
   }
 }
+
+test("cancelled registrations stay visible without retained PostgreSQL room credentials", async () => {
+  const fixture = await createFixture();
+  const registrationId = fixture.registrationIds[0];
+  const playerId = fixture.payerIds[0];
+  const matchId = fixture.matchIds[0];
+  const retainedRoomValues = {
+    roomId: "CANCELLED-FIXTURE-ROOM-ID-DO-NOT-EXPOSE",
+    roomPassword: "CANCELLED-FIXTURE-ROOM-PASSWORD-DO-NOT-EXPOSE",
+    roomTime: "CANCELLED-FIXTURE-ROOM-TIME-DO-NOT-EXPOSE",
+  };
+
+  try {
+    await pool.query(
+      `UPDATE daily007_v2_matches
+          SET status = 'cancelled', enabled = false, room_id = $2, room_password = $3, room_time = $4
+        WHERE id = $1`,
+      [matchId, retainedRoomValues.roomId, retainedRoomValues.roomPassword, retainedRoomValues.roomTime],
+    );
+
+    const storedMatch = await pool.query<{
+      status: string;
+      room_id: string;
+      room_password: string;
+      room_time: string;
+    }>(
+      "SELECT status, room_id, room_password, room_time FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(storedMatch.rows[0], {
+      status: "cancelled",
+      room_id: retainedRoomValues.roomId,
+      room_password: retainedRoomValues.roomPassword,
+      room_time: retainedRoomValues.roomTime,
+    });
+
+    const token = makeToken(playerId, 0);
+    assert.ok(token, "The isolated test should create a valid Daily007 bearer token.");
+
+    await withCompatServer(async (origin) => {
+      const response = await getMyRegistrations(origin, token);
+      assert.equal(response.status, 200);
+      assert.ok(Array.isArray(response.body));
+
+      const registration = response.body.find((entry: { id?: string }) => entry.id === registrationId);
+      assert.ok(registration, "The approved registration should remain in the player's history.");
+      assert.equal(registration.status, "approved");
+      assert.equal(registration.tournament.id, matchId);
+      assert.equal(registration.tournament.name, "Cancellation Concurrency Tournament 1");
+      assert.equal(registration.tournament.status, "cancelled");
+
+      for (const field of ["roomId", "roomPassword", "roomTime"]) {
+        assert.equal(field in registration, false, `${field} must be omitted from the registration response.`);
+        assert.equal(
+          field in registration.tournament,
+          false,
+          `${field} must be omitted from the nested cancelled tournament.`,
+        );
+      }
+
+      const serializedResponse = JSON.stringify(response.body);
+      for (const value of Object.values(retainedRoomValues)) {
+        assert.equal(
+          serializedResponse.includes(value),
+          false,
+          "No retained room credential or time may appear anywhere in the serialized response.",
+        );
+      }
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
 
 async function backendPid(client: Awaited<ReturnType<typeof pool.connect>>): Promise<number> {
   const result = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");

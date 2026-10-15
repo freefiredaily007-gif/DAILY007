@@ -21,13 +21,17 @@ CREATE TABLE daily007_v2_matches (
   capacity integer NOT NULL,
   entry_coins integer NOT NULL DEFAULT 0,
   prize_pool integer NOT NULL DEFAULT 0,
+  rules text NOT NULL DEFAULT '',
   prize_distribution text NOT NULL DEFAULT '',
+  banner text NOT NULL DEFAULT '',
+  image_url text,
   enabled boolean NOT NULL DEFAULT true,
   starts_at timestamptz NOT NULL,
   status text NOT NULL DEFAULT 'open',
   is_full boolean NOT NULL DEFAULT false,
   room_id text,
   room_password text,
+  room_time text NOT NULL DEFAULT '',
   room_published boolean NOT NULL DEFAULT false
 );
 
@@ -41,6 +45,7 @@ CREATE TABLE daily007_v2_registrations (
   team_name text NOT NULL DEFAULT '',
   entry_coins_paid integer NOT NULL,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (match_id, captain_user_id),
   CHECK (entry_coins_paid >= 0),
   CHECK (length(btrim(captain_game_uid)) > 0)
