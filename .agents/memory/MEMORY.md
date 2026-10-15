@@ -80,6 +80,7 @@
 - [Admin payments TalkBack](daily007-admin-payments-talkback.md) — iQOO Neo 10/Android 16 confirmed success announcements without focus shifts or speech interruptions.
 - [Daily007 Admin error announcements](daily007-admin-error-announcements.md) — keep repeated identical errors audible and include the affected row plus a safe retry action.
 - [Daily007 Admin tab TalkBack](daily007-admin-tabs-talkback.md) — user reported role-specific Admin tab selection announcements were good; no exact spoken transcript was provided.
+- [Daily007 notification template previews](daily007-notification-template-previews.md) — React Native Web drops accessibilityHint, so verify native hints from source and preview focus/value behavior separately.
 - [Daily007 participant retry TalkBack](daily007-tournament-participant-talkback.md) — Android 16 TalkBack check passed for unavailable participant totals and successful recovery.
 - [Daily007 rejected deposit TalkBack](daily007-wallet-rejected-deposit-talkback.md) — iQOO Neo 10 / Android 16 confirmed the grouped summary and readable rejected-deposit reason at 1.5× text.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.

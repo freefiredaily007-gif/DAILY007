@@ -207,7 +207,16 @@ export default function AdminNotifications() {
         { t: 'Winner Announcement', b: 'Congratulations to our BOOYAH winner! Please check the announced results and reward status.' },
       ].map((tpl) => (
         <Card key={tpl.t}>
-          <Text style={st.tplT} onPress={() => { setTitle(tpl.t); setBody(tpl.b); }}>{tpl.t} ›</Text>
+          <Pressable
+            testID={`admin-notification-template-${tpl.t.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={`Use ${tpl.t} template`}
+            accessibilityHint={`Prefills the notification title with "${tpl.t}" and the message with: ${tpl.b}`}
+            onPress={() => { setTitle(tpl.t); setBody(tpl.b); }}
+          >
+            <Text style={st.tplT}>{tpl.t} ›</Text>
+          </Pressable>
           <Text style={st.tplB}>{tpl.b}</Text>
         </Card>
       ))}

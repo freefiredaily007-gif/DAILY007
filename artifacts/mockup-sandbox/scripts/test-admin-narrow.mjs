@@ -2381,10 +2381,55 @@ function assertAdminNotificationAccessibilityProps() {
       source.includes("accessibilityLabel={sendAccessibilityLabel}"),
     "The selection count and targeted send action need clear screen-reader announcements.",
   );
+  const templateStart = source.lastIndexOf(
+    "<Pressable",
+    source.indexOf("testID={`admin-notification-template-"),
+  );
+  const templateEnd = source.indexOf("</Pressable>", templateStart);
+  assert(
+    templateStart >= 0 && templateEnd > templateStart,
+    "The notification template button source could not be isolated for its accessibility checks.",
+  );
+  const templateSource = source.slice(templateStart, templateEnd);
+  for (const [prop, description] of [
+    ["accessible", "make each template available as one screen-reader target"],
+    ['accessibilityRole="button"', "expose each template as a button"],
+    ["accessibilityLabel={`Use ${tpl.t} template`}", "name the action and template"],
+    [
+      'accessibilityHint={`Prefills the notification title with "${tpl.t}" and the message with: ${tpl.b}`}',
+      "describe which title and message will be filled",
+    ],
+    [
+      "onPress={() => { setTitle(tpl.t); setBody(tpl.b); }}",
+      "fill both notification fields when activated",
+    ],
+  ]) {
+    assert(
+      templateSource.includes(prop),
+      `Each notification template must ${description}.`,
+    );
+  }
 }
 
 async function checkAdminNotificationsAccessibility() {
   const width = 375;
+  const templates = [
+    {
+      slug: "tournament-announcement",
+      title: "Tournament Announcement",
+      body: "A new tournament is live! Register now — limited slots.",
+    },
+    {
+      slug: "room-published",
+      title: "Room Published",
+      body: "Room ID & password are now visible in My Matches. Join on time!",
+    },
+    {
+      slug: "winner-announcement",
+      title: "Winner Announcement",
+      body: "Congratulations to our BOOYAH winner! Please check the announced results and reward status.",
+    },
+  ];
   const recipients = [
     {
       id: "preview-user-ananya-championship-2026",
@@ -2419,6 +2464,63 @@ async function checkAdminNotificationsAccessibility() {
     "The Admin notification accessibility preview did not apply its Android-sized viewport.",
   );
   await openAdminTab("notifications", "Notifications");
+  await resetAdminMutationCalls();
+  assertAdminNotificationAccessibilityProps();
+  for (const template of templates) {
+    const selector = `[data-testid="admin-notification-template-${template.slug}"]`;
+    const control = await evaluate(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      return {
+        role: element?.getAttribute("role") ?? null,
+        label: element?.getAttribute("aria-label") ?? null,
+        title: element?.textContent.trim() ?? null,
+      };
+    })()`);
+    assert(
+      control.role === "button" &&
+        control.label === `Use ${template.title} template` &&
+        control.title?.includes(template.title),
+      `TalkBack needs a button named for the ${template.title} template: ${JSON.stringify(control)}.`,
+    );
+    const focusedBeforeActivation = await evaluate(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return false;
+      element.focus();
+      if (document.activeElement !== element) return false;
+      element.click();
+      return true;
+    })()`);
+    assert(
+      focusedBeforeActivation,
+      `${template.title} template could not be focused and activated in the isolated preview.`,
+    );
+    await waitForCondition(
+      `document.querySelector('[data-testid="admin-notification-title"]')?.value === ${JSON.stringify(template.title)} &&
+        document.querySelector('[data-testid="admin-notification-body"]')?.value === ${JSON.stringify(template.body)}`,
+      `the ${template.title} template to fill both notification fields`,
+    );
+    const activation = await evaluate(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      return {
+        focusedAfter: document.activeElement === element,
+        title: document.querySelector('[data-testid="admin-notification-title"]')?.value ?? null,
+        body: document.querySelector('[data-testid="admin-notification-body"]')?.value ?? null,
+      };
+    })()`);
+    assert(
+      activation.focusedAfter &&
+        activation.title === template.title &&
+        activation.body === template.body,
+      `Activating the ${template.title} template must fill both fields without moving focus: ${JSON.stringify(activation)}.`,
+    );
+  }
+  const templateMutations = await evaluate(
+    "window.__daily007AdminMutations?.calls ?? []",
+  );
+  assert(
+    Array.isArray(templateMutations) && templateMutations.length === 0,
+    `Activating preview templates must not call an API mutation: ${JSON.stringify(templateMutations)}.`,
+  );
   await clickSelector(
     '[data-testid="notification-type-selected"]',
     "Select Users notification audience",
@@ -9186,7 +9288,7 @@ try {
         `Browser errors during Admin notification accessibility checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        "PASS — Fake notification recipients expose checkbox names and states; each selection change produces one polite count announcement without moving focus, and the send action and completion are labeled.",
+        "PASS — Notification templates are labeled buttons with message-specific hints; preview activation fills both fields without moving focus or calling mutations. Fake recipients expose checkbox names and states, selection changes announce politely, and the send action and completion are labeled.",
       );
     } else if (sameTimeStartOnly) {
       await checkSimultaneousTournamentStarts();
