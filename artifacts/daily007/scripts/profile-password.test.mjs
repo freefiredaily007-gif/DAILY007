@@ -628,6 +628,86 @@ test("wrong-current-password 401 keeps the form and session available for retry"
   }
 });
 
+test("canceling after a rejected password change clears all entries before reopening", async () => {
+  const state = {
+    modalVisible: false,
+    currentPassword: "",
+    newPassword: "",
+    confirmNewPassword: "",
+    passwordError: "",
+  };
+  let mutationCalls = 0;
+  const setters = {
+    setPasswordModalVisible: (value) => { state.modalVisible = value; },
+    setCurrentPassword: (value) => { state.currentPassword = value; },
+    setNewPassword: (value) => { state.newPassword = value; },
+    setConfirmNewPassword: (value) => { state.confirmNewPassword = value; },
+    setPasswordError: (value) => { state.passwordError = value; },
+    setPasswordMessage: () => {},
+  };
+  const openPasswordModal = loadProfileCallback("openPasswordModal", setters);
+  const closePasswordModal = loadProfileCallback("closePasswordModal", {
+    passwordBusy: false,
+    ...setters,
+  });
+  openPasswordModal();
+  state.currentPassword = "synthetic-current-entry";
+  state.newPassword = "synthetic-new-entry";
+  state.confirmNewPassword = state.newPassword;
+
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    currentPassword: state.currentPassword,
+    newPassword: state.newPassword,
+    confirmNewPassword: state.confirmNewPassword,
+    changePassword: async () => {
+      mutationCalls += 1;
+      throw new Error("Mocked password request rejected.");
+    },
+    submitProfilePasswordChange,
+    apiError: () => "That current password does not match.",
+    ...setters,
+  });
+
+  await submitPasswordChange();
+
+  assert.equal(mutationCalls, 1, "The mocked rejected password request should run once.");
+  assert.equal(state.modalVisible, true, "A rejected change should leave the form open until canceled.");
+  assert.equal(state.passwordError, "That current password does not match.");
+  assert.equal(state.currentPassword.length > 0, true);
+  assert.equal(state.newPassword.length > 0, true);
+  assert.equal(state.confirmNewPassword.length > 0, true);
+
+  closePasswordModal();
+
+  assert.equal(state.modalVisible, false, "Cancel should close the rejected form.");
+  assert.equal(state.currentPassword, "", "Cancel should clear the current-password entry.");
+  assert.equal(state.newPassword, "", "Cancel should clear the new-password entry.");
+  assert.equal(state.confirmNewPassword, "", "Cancel should clear the confirmation entry.");
+  assert.equal(state.passwordError, "", "Cancel should clear the rejected-change error.");
+
+  openPasswordModal();
+
+  assert.equal(state.modalVisible, true, "The password form should reopen.");
+  assert.equal(state.currentPassword, "", "The reopened current-password field should be empty.");
+  assert.equal(state.newPassword, "", "The reopened new-password field should be empty.");
+  assert.equal(state.confirmNewPassword, "", "The reopened confirmation field should be empty.");
+  closePasswordModal();
+  assert.equal(mutationCalls, 1, "Canceling and reopening must not send another mutation.");
+
+  for (const field of ["currentPassword", "newPassword", "confirmNewPassword"]) {
+    assert.match(
+      profileSource,
+      new RegExp(`value=\\{${field}\\}`),
+      `The ${field} input should display the state cleared by cancellation.`,
+    );
+  }
+  assert.match(
+    profileSource,
+    /<Btn title="CANCEL" kind="ghost" disabled=\{passwordBusy\} onPress=\{closePasswordModal\} \/>/,
+    "The visible Cancel action should use the tested close handler.",
+  );
+});
+
 test("an expired-token 401 without the wrong-password code still expires the session on password change", async () => {
   let expiredSessionCalls = 0;
   const originalFetch = globalThis.fetch;
