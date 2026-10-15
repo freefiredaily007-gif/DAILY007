@@ -1737,7 +1737,7 @@ test("a later leaderboard payout failure rolls back earlier winners and keeps th
   }
 });
 
-test("a leaderboard finalization failure rolls back every completed rank payout", async () => {
+test("a leaderboard finalization failure rolls back payouts and the pending period can be retried", async () => {
   const adminId = randomUUID();
   const winnerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
   const winnerNames = [
@@ -1749,6 +1749,7 @@ test("a leaderboard finalization failure rolls back every completed rank payout"
   const periodId = randomUUID();
   const failureSequence = "daily007_test_leaderboard_finalize_failure_attempts";
   let approvalPromise: Promise<JsonResponse> | undefined;
+  let retryApprovalPromise: Promise<JsonResponse> | undefined;
 
   try {
     await pool.query(
@@ -1904,8 +1905,140 @@ test("a leaderboard finalization failure rolls back every completed rank payout"
       [`leaderboard-cycle:${periodId}:rank:%`],
     );
     assert.deepEqual(payoutRows.rows, [], "no payout ledger rows may remain after rollback");
+
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_fail_leaderboard_finalization ON daily007_v2_leaderboard_periods",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_leaderboard_finalization()");
+
+    await withServer(async (origin) => {
+      retryApprovalPromise = postJson(
+        origin,
+        `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`,
+        adminId,
+        {},
+      );
+      const retry = await retryApprovalPromise;
+      assert.equal(retry.status, 200, JSON.stringify(retry.body));
+      assert.equal(retry.body.periodId, periodId);
+      assert.equal(retry.body.cycleType, "weekly");
+      assert.equal(retry.body.alreadyApproved, false);
+      assert.equal(retry.body.approvedBy, adminId);
+      assert.deepEqual(
+        (
+          retry.body.payouts as {
+            rank: number;
+            userId: string;
+            name: string;
+            coins: number;
+            balanceAfter: number;
+          }[]
+        ).map(({ rank, userId, name, coins, balanceAfter }) => ({
+          rank,
+          userId,
+          name,
+          coins,
+          balanceAfter,
+        })),
+        [
+          {
+            rank: 1,
+            userId: winnerIds[0],
+            name: winnerNames[0],
+            coins: 40,
+            balanceAfter: 51,
+          },
+          {
+            rank: 2,
+            userId: winnerIds[1],
+            name: winnerNames[1],
+            coins: 20,
+            balanceAfter: 32,
+          },
+          {
+            rank: 3,
+            userId: winnerIds[2],
+            name: winnerNames[2],
+            coins: 10,
+            balanceAfter: 23,
+          },
+        ],
+      );
+    });
+
+    const retriedPeriod = await pool.query<{
+      status: string;
+      approved_by: string | null;
+      approved_at: Date | null;
+      settled_at: Date | null;
+    }>(
+      `SELECT status, approved_by, approved_at, settled_at
+         FROM daily007_v2_leaderboard_periods
+        WHERE id = $1`,
+      [periodId],
+    );
+    assert.equal(retriedPeriod.rows[0]?.status, "finalized");
+    assert.equal(retriedPeriod.rows[0]?.approved_by, adminId);
+    assert.ok(retriedPeriod.rows[0]?.approved_at instanceof Date);
+    assert.ok(retriedPeriod.rows[0]?.settled_at instanceof Date);
+
+    const retriedWinners = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [winnerIds],
+    );
+    assert.deepEqual(
+      new Map(retriedWinners.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [winnerIds[0], 51],
+        [winnerIds[1], 32],
+        [winnerIds[2], 23],
+      ]),
+    );
+
+    const retriedPayoutRows = await pool.query<{
+      rank: number;
+      user_id: string;
+      amount: number;
+      balance_after: number;
+      idempotency_key: string;
+    }>(
+      `SELECT (details->>'rank')::integer AS rank,
+              user_id,
+              amount,
+              balance_after,
+              idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE idempotency_key LIKE $1
+        ORDER BY (details->>'rank')::integer`,
+      [`leaderboard-cycle:${periodId}:rank:%`],
+    );
+    assert.deepEqual(retriedPayoutRows.rows, [
+      {
+        rank: 1,
+        user_id: winnerIds[0],
+        amount: 40,
+        balance_after: 51,
+        idempotency_key: `leaderboard-cycle:${periodId}:rank:1`,
+      },
+      {
+        rank: 2,
+        user_id: winnerIds[1],
+        amount: 20,
+        balance_after: 32,
+        idempotency_key: `leaderboard-cycle:${periodId}:rank:2`,
+      },
+      {
+        rank: 3,
+        user_id: winnerIds[2],
+        amount: 10,
+        balance_after: 23,
+        idempotency_key: `leaderboard-cycle:${periodId}:rank:3`,
+      },
+    ]);
   } finally {
-    if (approvalPromise) await Promise.allSettled([approvalPromise]);
+    await Promise.allSettled(
+      [approvalPromise, retryApprovalPromise].filter(Boolean) as Promise<JsonResponse>[],
+    );
 
     const cleanupErrors: unknown[] = [];
     for (const statement of [
