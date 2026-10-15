@@ -1514,6 +1514,136 @@ test("a suppressed watch-session completion update rolls back a video reward", a
   }
 });
 
+test("a deferred video reward constraint failure at commit rolls back all reward writes", async () => {
+  const fixture = await createFixture();
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
+  const triggerSuffix = randomUUID().replace(/-/g, "");
+  const commitTrigger = `reject_video_reward_commit_${triggerSuffix}`;
+  const commitFunction = `reject_video_reward_commit_function_${triggerSuffix}`;
+  const commitSequence = `reject_video_reward_commit_sequence_${triggerSuffix}`;
+  const ledgerKey = `daily007-video-watch:${fixture.sessionId}`;
+
+  try {
+    await pool.query(`CREATE SEQUENCE ${commitSequence}`);
+    await pool.query(`
+      CREATE FUNCTION ${commitFunction}() RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+            FROM daily007_v2_users
+           WHERE id = NEW.user_id
+             AND wallet_coins = NEW.balance_after
+        ) THEN
+          RAISE EXCEPTION 'video wallet update was not visible to deferred trigger';
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1
+            FROM daily007_v2_video_watch_sessions
+           WHERE id = '${fixture.sessionId}'::uuid
+             AND completed_at IS NOT NULL
+             AND reported_percent = 100
+             AND reward_ledger_id = NEW.id
+        ) THEN
+          RAISE EXCEPTION 'video session update was not visible to deferred trigger';
+        END IF;
+
+        PERFORM nextval('${commitSequence}');
+        RAISE EXCEPTION 'injected deferred video reward commit failure';
+      END;
+      $function$
+    `);
+    await pool.query(`
+      CREATE CONSTRAINT TRIGGER ${commitTrigger}
+      AFTER INSERT ON daily007_v2_wallet_ledger
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW
+      WHEN (
+        NEW.user_id = '${fixture.playerId}'::uuid
+        AND NEW.reason = 'video_watch_reward'
+        AND NEW.idempotency_key = '${ledgerKey}'
+      )
+      EXECUTE FUNCTION ${commitFunction}()
+    `);
+
+    const initialState = await inspectFixture(fixture);
+    const initialSession = await pool.query<{ reported_percent: number }>(
+      "SELECT reported_percent FROM daily007_v2_video_watch_sessions WHERE id = $1",
+      [fixture.sessionId],
+    );
+    assert.equal(initialState.walletCoins, 12);
+    assert.equal(initialState.ledgerCount, 0);
+    assert.equal(initialSession.rows[0]?.reported_percent, 0);
+
+    await withServer(async (origin) => {
+      const response = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        fixture.playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.body.error, "Internal server error.");
+    });
+
+    const triggerEvidence = await pool.query<{ lastValue: string; isCalled: boolean }>(
+      `SELECT last_value::text AS "lastValue", is_called AS "isCalled"
+         FROM ${commitSequence}`,
+    );
+    assert.equal(triggerEvidence.rows[0]?.lastValue, "1");
+    assert.equal(
+      triggerEvidence.rows[0]?.isCalled,
+      true,
+      "the deferred trigger should observe all reward writes before rejecting commit",
+    );
+
+    const state = await inspectFixture(fixture);
+    assert.deepEqual(
+      {
+        walletCoins: state.walletCoins,
+        ledgerCount: state.ledgerCount,
+        ledgerId: state.ledgerId,
+        ledgerAmount: state.ledgerAmount,
+        ledgerBalanceAfter: state.ledgerBalanceAfter,
+        completedAt: state.completedAt,
+        rewardLedgerId: state.rewardLedgerId,
+      },
+      {
+        walletCoins: initialState.walletCoins,
+        ledgerCount: initialState.ledgerCount,
+        ledgerId: initialState.ledgerId,
+        ledgerAmount: initialState.ledgerAmount,
+        ledgerBalanceAfter: initialState.ledgerBalanceAfter,
+        completedAt: initialState.completedAt,
+        rewardLedgerId: initialState.rewardLedgerId,
+      },
+      "a failed commit must restore the original wallet, ledger, and session state",
+    );
+    const session = await pool.query<{ reported_percent: number }>(
+      "SELECT reported_percent FROM daily007_v2_video_watch_sessions WHERE id = $1",
+      [fixture.sessionId],
+    );
+    assert.equal(
+      session.rows[0]?.reported_percent,
+      initialSession.rows[0]?.reported_percent,
+      "a failed commit must restore reported session progress",
+    );
+  } finally {
+    try {
+      await pool.query(
+        `DROP TRIGGER IF EXISTS ${commitTrigger} ON daily007_v2_wallet_ledger`,
+      );
+      await pool.query(`DROP FUNCTION IF EXISTS ${commitFunction}()`);
+      await pool.query(`DROP SEQUENCE IF EXISTS ${commitSequence}`);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
+});
+
 test("overlapping retries create one watch session and reward", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.playerId && fixture.videoId);
