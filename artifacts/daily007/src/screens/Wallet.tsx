@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
 import {
+  walletTransactionAccessibilityLabel,
   walletTransactionAmount,
   walletTransactionDescription,
 } from '../lib/wallet-transaction-display';
@@ -366,6 +367,7 @@ export default function Wallet() {
         renderItem={({ item, index }) => {
           const pos = item.amount > 0;
           const isCancellationRefund = item.reason === 'tournament_cancel_refund';
+          const isMatchPrize = item.reason === 'match_prize';
           const isRejectedDeposit = item.isRequest &&
             item.requestType === 'payment' &&
             item.status === 'rejected';
@@ -388,6 +390,11 @@ export default function Wallet() {
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
           return (
             <Card
+              {...(isMatchPrize ? {
+                accessible: true,
+                accessibilityRole: 'text' as const,
+                accessibilityLabel: walletTransactionAccessibilityLabel(item),
+              } : {})}
               testID={`wallet-transaction-${String(item.id ?? index)}`}
               style={[
                 { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

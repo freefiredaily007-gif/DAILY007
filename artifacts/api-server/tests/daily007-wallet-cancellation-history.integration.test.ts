@@ -30,18 +30,28 @@ const fixture = {
   missingTournamentId: randomUUID(),
   structuredTournamentId: randomUUID(),
   structuredMissingTournamentId: randomUUID(),
+  prizeMatchId: randomUUID(),
+  prizeRegistrationId: randomUUID(),
   malformedTournamentId: "not-a-valid-uuid",
 };
 
 after(async () => {
   try {
     await pool.query(
+      "DELETE FROM daily007_v2_result_awards WHERE registration_id = $1",
+      [fixture.prizeRegistrationId],
+    );
+    await pool.query(
       "DELETE FROM daily007_v2_wallet_ledger WHERE user_id IN ($1, $2)",
       [fixture.playerId, fixture.otherPlayerId],
     );
     await pool.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = $1",
+      [fixture.prizeRegistrationId],
+    );
+    await pool.query(
       "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
-      [[fixture.knownTournamentId, fixture.structuredTournamentId]],
+      [[fixture.knownTournamentId, fixture.structuredTournamentId, fixture.prizeMatchId]],
     );
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id IN ($1, $2)",
@@ -81,20 +91,39 @@ async function seedLegacyRefunds(): Promise<void> {
       ],
     );
     await client.query(
+      `INSERT INTO daily007_v2_matches (id, title)
+       VALUES ($1, 'Victory Royale Cup')`,
+      [fixture.prizeMatchId],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, captain_name, captain_game_uid,
+          entry_coins_paid, status)
+       VALUES ($1, $2, $3, 'Wallet history test player', 'wallet-prize-uid', 0, 'approved')`,
+      [fixture.prizeRegistrationId, fixture.prizeMatchId, fixture.playerId],
+    );
+    await client.query(
+      `INSERT INTO daily007_v2_result_awards
+         (match_id, registration_id, user_id, rank, kills, prize_coins)
+       VALUES ($1, $2, $3, 2, 7, 100)`,
+      [fixture.prizeMatchId, fixture.prizeRegistrationId, fixture.playerId],
+    );
+    await client.query(
       `INSERT INTO daily007_v2_wallet_ledger
-         (user_id, amount, balance_after, reason, match_id, details, created_at)
+         (user_id, amount, balance_after, reason, match_id, registration_id, details, created_at)
        VALUES
-         ($1, 27, 142, 'tournament_cancel_refund', NULL, $2::jsonb, now()),
-         ($1, 19, 115, 'tournament_cancel_refund', NULL, $3::jsonb, now() - interval '1 second'),
-          ($1, 11, 96, 'tournament_cancel_refund', NULL, $4::jsonb, now() - interval '2 seconds'),
-          ($1, 7, 85, 'tournament_cancel_refund', NULL, $5::jsonb, now() - interval '3 seconds'),
-          ($1, 5, 78, 'tournament_cancel_refund', NULL, $6::jsonb, now() - interval '4 seconds'),
-          ($1, 3, 73, 'tournament_cancel_refund', NULL, $7::jsonb, now() - interval '5 seconds'),
-          ($1, 2, 70, 'tournament_cancel_refund', NULL, $8::jsonb, now() - interval '6 seconds'),
-          ($1, 12, 82, 'payment_approved', NULL, NULL, now() - interval '7 seconds'),
-          ($1, 9, 79, 'tournament_cancel_refund', $9, NULL, now() - interval '8 seconds'),
-          ($1, 8, 71, 'tournament_cancel_refund', NULL, $10::jsonb, now() - interval '9 seconds'),
-          ($1, 6, 65, 'tournament_cancel_refund', NULL, $11::jsonb, now() - interval '10 seconds')`,
+         ($1, 100, 142, 'match_prize', $12, $13, NULL, now() + interval '1 second'),
+         ($1, 27, 142, 'tournament_cancel_refund', NULL, NULL, $2::jsonb, now()),
+         ($1, 19, 115, 'tournament_cancel_refund', NULL, NULL, $3::jsonb, now() - interval '1 second'),
+         ($1, 11, 96, 'tournament_cancel_refund', NULL, NULL, $4::jsonb, now() - interval '2 seconds'),
+         ($1, 7, 85, 'tournament_cancel_refund', NULL, NULL, $5::jsonb, now() - interval '3 seconds'),
+         ($1, 5, 78, 'tournament_cancel_refund', NULL, NULL, $6::jsonb, now() - interval '4 seconds'),
+         ($1, 3, 73, 'tournament_cancel_refund', NULL, NULL, $7::jsonb, now() - interval '5 seconds'),
+         ($1, 2, 70, 'tournament_cancel_refund', NULL, NULL, $8::jsonb, now() - interval '6 seconds'),
+         ($1, 12, 82, 'payment_approved', NULL, NULL, NULL, now() - interval '7 seconds'),
+         ($1, 9, 79, 'tournament_cancel_refund', $9, NULL, NULL, now() - interval '8 seconds'),
+         ($1, 8, 71, 'tournament_cancel_refund', NULL, NULL, $10::jsonb, now() - interval '9 seconds'),
+         ($1, 6, 65, 'tournament_cancel_refund', NULL, NULL, $11::jsonb, now() - interval '10 seconds')`,
       [
         fixture.playerId,
         JSON.stringify({ description: `Tournament cancellation refund — ${fixture.knownTournamentId}` }),
@@ -110,6 +139,8 @@ async function seedLegacyRefunds(): Promise<void> {
         fixture.knownTournamentId,
         JSON.stringify({ tournamentId: fixture.structuredTournamentId }),
         JSON.stringify({ tournamentId: fixture.structuredMissingTournamentId }),
+        fixture.prizeMatchId,
+        fixture.prizeRegistrationId,
       ],
     );
     await client.query(
@@ -176,9 +207,31 @@ test("Wallet history keeps refunds readable and excludes another player's non-re
       amount: number;
       reason: string;
       description: string;
+      registrationId?: string;
+      tournamentTitle?: string;
+      placementRank?: number;
+      placementKills?: number;
     }>;
 
     assert.equal(response.status, 200);
+    const prize = body.find(({ reason }) => reason === "match_prize");
+    assert.deepEqual(
+      prize && {
+        description: prize.description,
+        registrationId: prize.registrationId,
+        tournamentTitle: prize.tournamentTitle,
+        placementRank: prize.placementRank,
+        placementKills: prize.placementKills,
+      },
+      {
+        description: "Tournament prize — Victory Royale Cup · 2nd place · 7 kills",
+        registrationId: fixture.prizeRegistrationId,
+        tournamentTitle: "Victory Royale Cup",
+        placementRank: 2,
+        placementKills: 7,
+      },
+      "a prize credit should resolve its title and saved result using both ledger references",
+    );
     assert.deepEqual(
       body.map(({ amount, reason, description }) => ({ amount, reason, description })),
       [

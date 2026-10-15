@@ -233,24 +233,34 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
   const result = await pool.query(
     `SELECT ledger.id, ledger.amount, ledger.balance_after AS "balanceAfter",
             ledger.reason, ledger.details, ledger.created_at AS "createdAt",
-            ledger.match_id AS "matchId", tournament.title AS "tournamentTitle"
+            ledger.match_id AS "matchId", ledger.registration_id AS "registrationId",
+            tournament.title AS "tournamentTitle",
+            award.rank AS "placementRank", award.kills AS "placementKills"
        FROM daily007_v2_wallet_ledger ledger
        LEFT JOIN daily007_v2_matches tournament
-         ON ledger.reason = 'tournament_cancel_refund'
-        AND tournament.id::text = COALESCE(
-          ledger.match_id::text,
-          substring(
-            COALESCE(ledger.details->>'description', '')
-            FROM '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
-          ),
-          NULLIF(ledger.details->>'tournamentId', '')
-        )
+          ON (
+            (ledger.reason = 'tournament_cancel_refund'
+              AND tournament.id::text = COALESCE(
+                ledger.match_id::text,
+                substring(
+                  COALESCE(ledger.details->>'description', '')
+                  FROM '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
+                ),
+                NULLIF(ledger.details->>'tournamentId', '')
+              ))
+            OR (ledger.reason = 'match_prize' AND tournament.id = ledger.match_id)
+          )
+       LEFT JOIN daily007_v2_result_awards award
+         ON ledger.reason = 'match_prize'
+        AND award.match_id = ledger.match_id
+        AND award.registration_id = ledger.registration_id
+        AND award.user_id = ledger.user_id
       WHERE ledger.user_id = $1
       ORDER BY ledger.created_at DESC
       LIMIT 500`, [id],
   );
   res.json(result.rows.map((row: any) => {
-    const { matchId, tournamentTitle, ...transactionRow } = row;
+    const { matchId, registrationId, tournamentTitle, placementRank, placementKills, ...transactionRow } = row;
     const details = row.details && typeof row.details === "object" ? row.details as Record<string, unknown> : {};
     const existingDescription = typeof details.description === "string" && details.description.trim()
       ? details.description.trim()
@@ -278,11 +288,38 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
         : tournamentId
           ? `Entry fee refunded — tournament ${tournamentId} (tournament cancelled)`
           : existingDescription ?? "Entry fee refunded (tournament cancelled)"
+      : row.reason === "match_prize"
+        ? (() => {
+          const rank = Number(placementRank);
+          const rankLabel = Number.isSafeInteger(rank) && rank > 0
+            ? `${rank}${rank % 100 >= 11 && rank % 100 <= 13 ? "th" : rank % 10 === 1 ? "st" : rank % 10 === 2 ? "nd" : rank % 10 === 3 ? "rd" : "th"} place`
+            : null;
+          const kills = Number(placementKills);
+          const killsLabel = placementKills !== null && placementKills !== undefined && Number.isSafeInteger(kills) && kills >= 0
+            ? `${kills} ${kills === 1 ? "kill" : "kills"}`
+            : null;
+          const placement = [rankLabel, killsLabel].filter(Boolean).join(" · ");
+          const tournamentLabel = resolvedTournamentTitle
+            ? resolvedTournamentTitle
+            : tournamentId
+              ? `tournament ${tournamentId}`
+              : null;
+          const context = [tournamentLabel, placement].filter(Boolean).join(" · ");
+          return context
+            ? `Tournament prize — ${context}`
+            : existingDescription ?? "Tournament prize";
+        })()
         : existingDescription ?? (row.reason === "video_watch_reward"
           ? "Video watch reward"
           : String(row.reason).replaceAll("_", " "));
     return {
       ...transactionRow,
+      ...(row.reason === "match_prize" ? {
+        ...(typeof registrationId === "string" ? { registrationId } : {}),
+        ...(resolvedTournamentTitle ? { tournamentTitle: resolvedTournamentTitle } : {}),
+        ...(placementRank !== null && placementRank !== undefined ? { placementRank } : {}),
+        ...(placementKills !== null && placementKills !== undefined ? { placementKills } : {}),
+      } : {}),
       description,
     };
   }));

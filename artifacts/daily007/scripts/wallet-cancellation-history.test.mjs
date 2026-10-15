@@ -70,6 +70,28 @@ test('Wallet displays the tournament name, refund reason, and exact signed amoun
   assert.match(refundRowSource, /testID="wallet-cancellation-refund-row"/);
 });
 
+test('Wallet displays each prize tournament and saved placement in one accessible history item', () => {
+  const prize = {
+    amount: 100,
+    balanceAfter: 242,
+    createdAt: '2030-02-03T10:20:00.000Z',
+    reason: 'match_prize',
+    description: 'Tournament prize — Victory Royale Cup · 2nd place · 7 kills',
+  };
+
+  assert.equal(walletTransactionDescription(prize), prize.description);
+  assert.equal(walletTransactionAmount(prize), '+100');
+  assert.equal(
+    walletTransactionAccessibilityLabel(prize),
+    'Tournament prize — Victory Royale Cup · 2nd place · 7 kills. +100 coins. Date: 2030-02-03 10:20. Balance after: 242 coins.',
+  );
+  assert.match(walletScreenSource, /const isMatchPrize = item\.reason === 'match_prize'/);
+  assert.match(
+    walletScreenSource,
+    /isMatchPrize \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
+  );
+});
+
 test('Wallet displays the ID fallback and keeps a reason label when the API has no description', () => {
   const missingTournamentId = '00000000-0000-4000-8000-000000000082';
   const fallbackEntry = {
