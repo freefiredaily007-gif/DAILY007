@@ -214,6 +214,18 @@ http.defaults.adapter = async (config) => {
         },
       });
     }
+    if (scenario === "profile-link-network-retry" && googleExchangeAttempts === 1) {
+      call.failure = {
+        type: "network",
+        message: "Network Error",
+        code: "ERR_NETWORK",
+      };
+      throw Object.assign(new Error("Network Error"), {
+        config,
+        code: "ERR_NETWORK",
+        request: { url: config.url, method },
+      });
+    }
     if (!storageFailureScenario && !profileLinkScenario && googleExchangeAttempts === 1) {
       call.failure = {
         type: "network",

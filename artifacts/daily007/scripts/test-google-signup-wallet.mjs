@@ -1120,7 +1120,7 @@ try {
     assert.equal(walletLabel, "Available coins: 42", `${label}: Wallet balance did not remain available.`);
   };
 
-  await openProfileScenario("profile-link-success");
+  await openProfileScenario("profile-link-network-retry");
   const beforeLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(beforeLink, "before Google linking");
   await assertWalletBalance("before Google linking");
@@ -1131,7 +1131,55 @@ try {
   );
   await clickSelector('[data-testid="continue-with-google"]', "Connect Google on the real Profile screen");
   await waitForExpression(
-    `document.body.innerText.includes("Google connection confirmed.")`,
+    `document.body.innerText.includes("Could not reach Daily007. Check your connection and try again.")`,
+    "connection guidance after the first Profile Google-link exchange loses its network",
+  );
+  const failedProfileLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(failedProfileLink, "after the failed Profile Google-link exchange");
+  assert.equal(failedProfileLink.currentSession?.googleLinked, false);
+  assert.equal(failedProfileLink.storedSession?.googleLinked, false);
+  assert.equal(failedProfileLink.googleExchangeAttempts, 1);
+  const failedProfileExchange = failedProfileLink.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(failedProfileExchange.length, 1);
+  assert.deepEqual(failedProfileExchange[0].failure, {
+    type: "network",
+    message: "Network Error",
+    code: "ERR_NETWORK",
+  });
+  assert.equal(failedProfileExchange[0].status, undefined);
+  assert.equal(failedProfileExchange[0].authorization, "Bearer mock-clerk-verified-token");
+  assert.equal(failedProfileExchange[0].daily007Token, "mock-password-account-token");
+  const failedProfileView = await evaluate(`(() => ({
+    canRetry: Boolean(document.querySelector('[data-testid="continue-with-google"]')),
+    connected: document.body.innerText.includes("Google connection confirmed."),
+  }))()`);
+  assert.equal(failedProfileView.canRetry, true, "Profile should keep Connect Google available after a transport failure.");
+  assert.equal(failedProfileView.connected, false, "A failed exchange must not show Google as connected.");
+  await assertWalletBalance("after the failed Profile Google-link exchange");
+  const walletAfterFailedProfileLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletAfterFailedProfileLink, "after opening Wallet following the failed Profile link");
+  const walletRequestsAfterFailure = walletAfterFailedProfileLink.calls.filter(
+    (call) => call.method === "GET" && call.path === "/wallet/transactions",
+  );
+  assert.ok(walletRequestsAfterFailure.length > 0, "Wallet should reload after the failed Profile link.");
+  assert.ok(
+    walletRequestsAfterFailure.every(
+      (call) => call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Wallet should continue using the original password-account token after the failed exchange.",
+  );
+  await clickSelector('[data-testid="mock-tab-profile"]', "return to Profile to retry Google linking");
+  await waitForExpression(
+    `document.body.innerText.includes("CONNECT GOOGLE")
+      && Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "Profile's retryable Google-link action",
+  );
+  await clickSelector('[data-testid="continue-with-google"]', "retry Connect Google on the real Profile screen");
+  await waitForExpression(
+    `document.body.innerText.includes("Google connection confirmed.")
+      && !document.querySelector('[data-testid="continue-with-google"]')`,
     "the successful Profile Google-link confirmation",
   );
   await waitForExpression(
@@ -1193,13 +1241,23 @@ try {
   );
   const successfulLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(successfulLink, "after successful Google linking");
+  assert.equal(successfulLink.currentSession?.googleLinked, true);
+  assert.equal(successfulLink.storedSession?.googleLinked, true);
   const successfulExchange = successfulLink.calls.filter(
     (call) => call.method === "POST" && call.path === "/auth/google",
   );
-  assert.equal(successfulExchange.length, 1, "Profile should make one Google-link exchange.");
-  assert.equal(successfulExchange[0].status, 200);
+  assert.equal(successfulExchange.length, 2, "Profile should retry its Google-link exchange once.");
+  assert.deepEqual(successfulExchange[0].failure, {
+    type: "network",
+    message: "Network Error",
+    code: "ERR_NETWORK",
+  });
+  assert.equal(successfulExchange[0].status, undefined);
+  assert.equal(successfulExchange[1].status, 200);
   assert.equal(successfulExchange[0].authorization, "Bearer mock-clerk-verified-token");
+  assert.equal(successfulExchange[1].authorization, "Bearer mock-clerk-verified-token");
   assert.equal(successfulExchange[0].daily007Token, "mock-password-account-token");
+  assert.equal(successfulExchange[1].daily007Token, "mock-password-account-token");
   assert.ok(successfulLink.clerk.events.includes("get-token"));
   await assertWalletBalance("after successful Google linking");
 
@@ -1336,7 +1394,7 @@ try {
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google signup retries, password signup recovery across reload and login, and Profile Google-link success/cancel/error/storage-failure scenarios.",
+    "PASS — Google signup retries, password signup recovery across reload and login, and Profile Google-link network-retry/success/cancel/error/storage-failure scenarios.",
   );
 } finally {
   socket?.close();
