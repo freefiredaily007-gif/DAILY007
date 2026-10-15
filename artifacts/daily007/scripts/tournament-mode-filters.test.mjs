@@ -1086,30 +1086,40 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
 test('focused tournament polling moves server-completed matches and their tab counts', async () => {
   assert.equal(TOURNAMENT_LIST_REFRESH_INTERVAL_MS, 30_000);
   let serverStatus = 'ongoing';
+  let failNextTournamentRequest = false;
+  let tournamentRequests = 0;
   const startsAt = '2026-10-08T12:00:00.000Z';
   const completedAt = '2026-10-08T12:12:00.000Z';
   const api = {
-    tournaments: async () => [
-      {
-        id: 'server-completes',
-        gameMode: 'clash_squad',
-        teamType: 'Duo',
-        status: serverStatus,
-        startsAt,
-        completedAt: serverStatus === 'completed' ? completedAt : null,
-      },
-      {
-        id: 'still-ongoing',
-        gameMode: 'clash_squad',
-        teamType: 'Duo',
-        status: 'ongoing',
-        startsAt,
-      },
-    ],
+    tournaments: async () => {
+      tournamentRequests += 1;
+      if (failNextTournamentRequest) {
+        failNextTournamentRequest = false;
+        throw new Error('Temporary tournament service error');
+      }
+      return [
+        {
+          id: 'server-completes',
+          gameMode: 'clash_squad',
+          teamType: 'Duo',
+          status: serverStatus,
+          startsAt,
+          completedAt: serverStatus === 'completed' ? completedAt : null,
+        },
+        {
+          id: 'still-ongoing',
+          gameMode: 'clash_squad',
+          teamType: 'Duo',
+          status: 'ongoing',
+          startsAt,
+        },
+      ];
+    },
     myRegistrations: async () => [],
   };
   const harness = createTournamentLoadHarness(api, () => Date.parse('2026-10-08T12:20:00.000Z'));
   await harness.load();
+  const lastCompleteItems = harness.state.items;
   const getCounts = () => Object.fromEntries(
     Object.entries(tournamentTabsForRoute(
       harness.state.items,
@@ -1129,7 +1139,10 @@ test('focused tournament polling moves server-completed matches and their tab co
   const stopPolling = startTournamentListRefreshPolling(
     () => {
       refreshCalls += 1;
-      scheduledRefresh = harness.load();
+      scheduledRefresh = (async () => {
+        harness.state.clockNow = Date.parse('2026-10-08T12:20:00.000Z');
+        await harness.load();
+      })();
     },
     () => focused && appState === 'active',
     TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
@@ -1146,10 +1159,38 @@ test('focused tournament polling moves server-completed matches and their tab co
   assert.equal(intervalDelay, TOURNAMENT_LIST_REFRESH_INTERVAL_MS);
   assert.equal(refreshCalls, 0);
   serverStatus = 'completed';
+  failNextTournamentRequest = true;
   intervalCallback();
   await scheduledRefresh;
 
   assert.equal(refreshCalls, 1);
+  assert.equal(tournamentRequests, 2);
+  assert.strictEqual(
+    harness.state.items,
+    lastCompleteItems,
+    'a failed completion poll must preserve the last complete tournament snapshot',
+  );
+  assert.deepEqual(
+    getCounts(),
+    { upcoming: 0, ongoing: 2, completed: 0 },
+    'tab counts must remain based on the last complete snapshot after a failed poll',
+  );
+  assert.equal(harness.state.error, 'Temporary tournament service error');
+
+  focused = false;
+  intervalCallback();
+  focused = true;
+  appState = 'background';
+  intervalCallback();
+  assert.equal(refreshCalls, 1, 'a failed poll must not retry while blurred or backgrounded');
+  assert.equal(tournamentRequests, 2);
+
+  appState = 'active';
+  intervalCallback();
+  await scheduledRefresh;
+
+  assert.equal(refreshCalls, 2);
+  assert.equal(tournamentRequests, 3);
   assert.deepEqual(getCounts(), { upcoming: 0, ongoing: 1, completed: 1 });
   assert.equal(
     harness.state.items.find((tournament) => tournament.id === 'server-completes').status,
@@ -1161,13 +1202,12 @@ test('focused tournament polling moves server-completed matches and their tab co
     startsAt,
     'the start instant stays unchanged when server completion arrives',
   );
-
   focused = false;
   intervalCallback();
   focused = true;
   appState = 'background';
   intervalCallback();
-  assert.equal(refreshCalls, 1, 'blurred or backgrounded lists must not request another server snapshot');
+  assert.equal(refreshCalls, 2, 'blurred or backgrounded lists must not request another server snapshot');
 
   stopPolling();
   assert.deepEqual(clearedIntervals, ['completion-poll']);
