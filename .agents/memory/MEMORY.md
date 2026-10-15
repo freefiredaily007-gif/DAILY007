@@ -83,6 +83,7 @@
 - [Daily007 rejected deposit TalkBack](daily007-wallet-rejected-deposit-talkback.md) — iQOO Neo 10 / Android 16 confirmed the grouped summary and readable rejected-deposit reason at 1.5× text.
 - [Daily007 JSX accessibility source tests](daily007-jsx-accessibility-tests.md) — anchor source assertions on complete Pressable nodes and target mappings; arrows and nested ternaries contain misleading delimiters.
 - [Daily007 query polling tests](daily007-query-polling-tests.md) — Node needs browser globals for polling; keep React Native Web mock refetch identity stable across focus retries.
+- [Extracted screen callback tests](daily007-extracted-screen-callback-tests.md) — Node callback harnesses must inject module constants and explicitly await focus-triggered loads.
 - [Daily007 refresh error test fixtures](daily007-refresh-error-tests.md) — keep controlled mock failures and their visible/accessibility assertions in sync.
 - [Daily007 paired Home refresh lock](daily007-home-poll-lock.md) — Keep tournament and registration reads in-flight until both settle, even if one fails early.
 - [Daily007 Player pull-to-refresh](daily007-player-pull-refresh.md) — native Android pull kept the last good card after failure and replaced it on success; browser test covers callback only.
