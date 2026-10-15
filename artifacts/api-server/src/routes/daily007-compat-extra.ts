@@ -294,12 +294,12 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   if (!isObject(body)) { error(res, 400, "Expected coins and a payment transaction reference."); return; }
   const coins = body.coins;
   const reference = text(body.txnId ?? body.reference, 1, 200);
-  const payerUpiId = body.payerUpiId === undefined ? null : text(body.payerUpiId, 1, 200);
+  const payerUpiId = text(body.payerUpiId, 1, 200);
   if (!integer(coins, 1) || !reference) {
     error(res, 400, "coins must be a positive whole number and txnId/reference must contain 1–200 characters.");
     return;
   }
-  if (body.payerUpiId !== undefined && !payerUpiId) {
+  if (!payerUpiId) {
     error(res, 400, "payerUpiId must contain 1–200 characters.");
     return;
   }

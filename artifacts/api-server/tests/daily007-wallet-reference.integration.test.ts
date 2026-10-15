@@ -25,6 +25,7 @@ if (
 
 const fixture = {
   playerId: randomUUID(),
+  payerUpiValidationPlayerId: randomUUID(),
   retryPlayerId: randomUUID(),
   protectedDepositPlayerId: randomUUID(),
   concurrentApprovalPlayerId: randomUUID(),
@@ -37,6 +38,7 @@ after(async () => {
   try {
     const playerIds = [
       fixture.playerId,
+      fixture.payerUpiValidationPlayerId,
       fixture.retryPlayerId,
       fixture.protectedDepositPlayerId,
       fixture.concurrentApprovalPlayerId,
@@ -61,6 +63,7 @@ before(async () => {
        (id, name, email, password_salt, password_hash, role, wallet_coins)
      VALUES
        ($1, 'UPI Reference Test Player', $4, 'test-salt', 'test-hash', 'user', 700),
+       ($17, 'Payer UPI Validation Player', $18, 'test-salt', 'test-hash', 'user', 250),
        ($2, 'UPI Reference Retry Player', $5, 'test-salt', 'test-hash', 'user', 350),
        ($3, 'UPI Reference Test Admin', $6, 'test-salt', 'test-hash', 'admin', 0),
        ($7, 'UPI Reference Race Player One', $8, 'test-salt', 'test-hash', 'user', 900),
@@ -85,6 +88,8 @@ before(async () => {
       `wallet-reference-admin-${fixture.secondAdminId}@example.test`,
       fixture.concurrentApprovalPlayerId,
       `wallet-reference-approval-race-${fixture.concurrentApprovalPlayerId}@example.test`,
+      fixture.payerUpiValidationPlayerId,
+      `payer-upi-validation-${fixture.payerUpiValidationPlayerId}@example.test`,
     ],
   );
   await pool.query(
@@ -223,6 +228,47 @@ async function waitForBlockedPaymentReviewRequests(blockerPid: number, expectedC
   }
   throw new Error(`Timed out waiting for ${expectedCount} payment approvals to block in PostgreSQL.`);
 }
+
+test("payment requests require a payer UPI ID and save valid values", async () => {
+  const initialPayments = await pool.query<{ count: string }>(
+    "SELECT COUNT(*)::text AS count FROM daily007_v2_payments WHERE user_id = $1",
+    [fixture.payerUpiValidationPlayerId],
+  );
+  assert.equal(initialPayments.rows[0]?.count, "0");
+
+  await withServer(async (origin) => {
+    const baseRequest = { coins: 100, txnId: "payer-upi-validation-reference" };
+    const missing = await call(origin, fixture.payerUpiValidationPlayerId, "/payments", "POST", baseRequest);
+    assert.equal(missing.status, 400);
+    assert.equal(missing.body.error, "payerUpiId must contain 1–200 characters.");
+
+    const blank = await call(origin, fixture.payerUpiValidationPlayerId, "/payments", "POST", {
+      ...baseRequest,
+      payerUpiId: "   ",
+    });
+    assert.equal(blank.status, 400);
+    assert.equal(blank.body.error, "payerUpiId must contain 1–200 characters.");
+
+    const afterRejections = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM daily007_v2_payments WHERE user_id = $1",
+      [fixture.payerUpiValidationPlayerId],
+    );
+    assert.equal(afterRejections.rows[0]?.count, "0");
+
+    const valid = await call(origin, fixture.payerUpiValidationPlayerId, "/payments", "POST", {
+      ...baseRequest,
+      payerUpiId: "payer@upi",
+    });
+    assert.equal(valid.status, 201);
+    assert.equal(valid.body.payerUpiId, "payer@upi");
+
+    const savedPayments = await pool.query<{ payer_upi_id: string | null }>(
+      "SELECT payer_upi_id FROM daily007_v2_payments WHERE user_id = $1",
+      [fixture.payerUpiValidationPlayerId],
+    );
+    assert.deepEqual(savedPayments.rows, [{ payer_upi_id: "payer@upi" }]);
+  });
+});
 
 test("a rejected deposit keeps its normalized UPI reference unique in PostgreSQL", async () => {
   const initialAccount = await pool.query<{ wallet_coins: number }>(
