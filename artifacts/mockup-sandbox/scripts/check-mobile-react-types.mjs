@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const declarationPackages = ["@types/react", "@types/react-dom"];
+const runtimePackages = ["react", "react-dom"];
+const checkedPackages = [...declarationPackages, ...runtimePackages];
 const versionPattern = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
 const ignoredNodeModulesEntries = new Set([".bin", ".cache", ".pnpm"]);
 
@@ -14,7 +16,7 @@ function readInstalledPackage(projectRoot, packageName) {
     if (typeof packageJson.version !== "string") {
       return { error: `has no version in ${packageJsonPath}` };
     }
-    return { version: packageJson.version };
+    return { version: packageJson.version, packageJsonPath };
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { error: `was not found at ${packageJsonPath}` };
@@ -71,7 +73,7 @@ function listInstalledPackages(nodeModulesPath) {
   return packages;
 }
 
-function findNestedReactTypeMismatches(projectRoot, expectedVersions, expectedProjectName) {
+function findNestedReactPackageMismatches(projectRoot, expectedVersions, expectedProjectName) {
   const mismatches = [];
   const visitedNodeModules = new Set();
   const visitedPackages = new Set();
@@ -94,7 +96,7 @@ function findNestedReactTypeMismatches(projectRoot, expectedVersions, expectedPr
     visitedNodeModules.add(realNodeModulesPath);
 
     if (path.resolve(nodeModulesPath) !== directNodeModulesPath) {
-      for (const packageName of declarationPackages) {
+      for (const packageName of checkedPackages) {
         const packageJsonPath = path.join(nodeModulesPath, packageName, "package.json");
         const packageJson = readPackageJson(packageJsonPath);
         if (!packageJson) {
@@ -171,7 +173,7 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
   const sandboxVersions = new Map();
   const mobileVersions = new Map();
 
-  for (const packageName of declarationPackages) {
+  for (const packageName of checkedPackages) {
     const sandboxPackage = readInstalledPackage(sandboxRoot, packageName);
     const mobilePackage = readInstalledPackage(mobileRoot, packageName);
 
@@ -189,13 +191,15 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
     const mobileLine = versionLine(mobilePackage.version);
     if (!sandboxLine || !mobileLine) {
       mismatches.push(
-        `${packageName}: could not parse mockup sandbox ${sandboxPackage.version} or ` +
-          `Daily007 ${mobilePackage.version}`,
+        `${packageName}: could not parse mockup sandbox ${sandboxPackage.version} at ` +
+          `${sandboxPackage.packageJsonPath} or Daily007 ${mobilePackage.version} at ` +
+          `${mobilePackage.packageJsonPath}`,
       );
     } else if (sandboxLine !== mobileLine) {
       mismatches.push(
         `${packageName}: mockup sandbox ${sandboxPackage.version} (line ${sandboxLine}) ` +
-          `does not match Daily007 ${mobilePackage.version} (line ${mobileLine})`,
+          `at ${sandboxPackage.packageJsonPath} does not match Daily007 ` +
+          `${mobilePackage.version} (line ${mobileLine}) at ${mobilePackage.packageJsonPath}`,
       );
     }
   }
@@ -205,11 +209,11 @@ export function findReactTypeMismatches(sandboxRoot, mobileRoot) {
     [mobileRoot, mobileVersions, "Daily007"],
   ]) {
     if (
-      expectedVersions.size === declarationPackages.length &&
+      expectedVersions.size === checkedPackages.length &&
       [...expectedVersions.values()].every((version) => versionLine(version) !== null)
     ) {
       mismatches.push(
-        ...findNestedReactTypeMismatches(projectRoot, expectedVersions, projectName),
+        ...findNestedReactPackageMismatches(projectRoot, expectedVersions, projectName),
       );
     }
   }
@@ -221,16 +225,16 @@ export function checkMobileReactTypes(sandboxRoot, mobileRoot) {
   if (mismatches.length > 0) {
     throw new Error(
       [
-        "React declaration compatibility check failed.",
+        "React package compatibility check failed.",
         ...mismatches.map((mismatch) => `- ${mismatch}`),
-        "Keep the mockup sandbox and Daily007 on matching major.minor lines for both React declaration packages.",
-        "These browser previews typecheck imported Daily007 screens, so mismatched declarations can cause confusing ref errors.",
-        "For a nested entry, align the listed dependency's React type peer context and verify the exact package path shown above.",
+        "Keep the mockup sandbox and Daily007 on matching major.minor lines for React, React DOM, and their declaration packages.",
+        "Duplicate runtime copies can break hooks or renderer behavior; duplicate declarations can cause confusing ref errors.",
+        "For a nested entry, align the listed dependency's React runtime or peer context and verify the exact package path shown above.",
       ].join("\n"),
     );
   }
 
-  return "React declaration versions are compatible with the Daily007 mobile previews.";
+  return "React runtime and declaration versions are compatible with the Daily007 mobile previews.";
 }
 
 function getProjectRoots() {
