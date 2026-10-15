@@ -9,7 +9,7 @@ import compatCoreRouter from "../src/routes/daily007-compat-core";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
 
 const TEST_AUTH_SECRET = "tournament-results-concurrency-tests-only-secret-at-least-32-chars";
-const MAX_SUPPORTED_WALLET_COINS = 2_147_483_647;
+const MAX_SUPPORTED_DATABASE_INT = 2_147_483_647;
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -417,6 +417,22 @@ async function seedExistingPlayerHistory(player: PlayerFixture): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+async function setPlayerStats(
+  player: PlayerFixture,
+  stats: { matches: number; wins: number; kills: number; prize_coins: number },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET
+       matches = EXCLUDED.matches,
+       wins = EXCLUDED.wins,
+       kills = EXCLUDED.kills,
+       prize_coins = EXCLUDED.prize_coins`,
+    [player.userId, stats.matches, stats.wins, stats.kills, stats.prize_coins],
+  );
 }
 
 async function cleanupFixture(fixture: TournamentFixture): Promise<void> {
@@ -1390,7 +1406,7 @@ test("an unrelated unique conflict while writing the prize ledger is not reporte
 test("a prize that exceeds the player's wallet limit leaves tournament settlement state unchanged", async () => {
   const fixture = await createFixture();
   const player = fixture.players[0];
-  const startingBalance = MAX_SUPPORTED_WALLET_COINS - 100;
+  const startingBalance = MAX_SUPPORTED_DATABASE_INT - 100;
   const prizeCoins = 500;
 
   try {
@@ -1434,7 +1450,7 @@ test("a prize that exceeds the player's wallet limit leaves tournament settlemen
 
       assert.equal(response.status, 409);
       assert.equal(response.body.error, "Prize would exceed the supported wallet range.");
-      assert.equal(startingBalance + prizeCoins > MAX_SUPPORTED_WALLET_COINS, true);
+      assert.equal(startingBalance + prizeCoins > MAX_SUPPORTED_DATABASE_INT, true);
     });
 
     const after = await captureSettlementState(fixture, player);
@@ -1443,6 +1459,143 @@ test("a prize that exceeds the player's wallet limit leaves tournament settlemen
       before,
       "a rejected oversized prize must not alter the wallet, award, stats, ledger, or match state",
     );
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("lifetime-stat increments that exceed the database integer limit leave settlement unchanged", async () => {
+  const fixture = await createFixture(4);
+  const distribution = "1st: 500 coins\n2nd: 250 coins\n3rd: 125 coins\n4th: 125 coins";
+
+  try {
+    await pool.query(
+      `UPDATE daily007_v2_matches
+          SET prize_pool = 1000, prize_distribution = $2
+        WHERE id = $1`,
+      [fixture.matchId, distribution],
+    );
+
+    const cases = [
+      {
+        statName: "matches",
+        player: fixture.players[0],
+        rank: 2,
+        kills: 0,
+        stats: { matches: MAX_SUPPORTED_DATABASE_INT, wins: 0, kills: 0, prize_coins: 0 },
+      },
+      {
+        statName: "wins",
+        player: fixture.players[1],
+        rank: 1,
+        kills: 0,
+        stats: { matches: 0, wins: MAX_SUPPORTED_DATABASE_INT, kills: 0, prize_coins: 0 },
+      },
+      {
+        statName: "kills",
+        player: fixture.players[2],
+        rank: 3,
+        kills: 1,
+        stats: { matches: 0, wins: 0, kills: MAX_SUPPORTED_DATABASE_INT, prize_coins: 0 },
+      },
+      {
+        statName: "prize total",
+        player: fixture.players[3],
+        rank: 4,
+        kills: 0,
+        stats: { matches: 0, wins: 0, kills: 0, prize_coins: MAX_SUPPORTED_DATABASE_INT },
+      },
+    ] as const;
+
+    await withServer(async (origin) => {
+      for (const { statName, player, rank, kills, stats } of cases) {
+        assert.ok(player, `a player fixture is required for the ${statName} overflow case`);
+        await setPlayerStats(player, stats);
+        const before = await captureSettlementState(fixture, player);
+        const response = await submitResult(origin, fixture.adminId, fixture.matchId, player, rank, kills);
+
+        assert.equal(response.status, 409, `overflowing ${statName} must be rejected: ${JSON.stringify(response.body)}`);
+        assert.equal(response.body.error, `Player lifetime ${statName} would exceed the supported range.`);
+        assert.deepEqual(
+          await captureSettlementState(fixture, player),
+          before,
+          `rejecting an overflowing ${statName} must preserve the award, wallet, stats, ledger, and match state`,
+        );
+      }
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("lifetime-stat increments that reach the database integer limit are accepted", async () => {
+  const fixture = await createFixture(4);
+  const distribution = "1st: 500 coins\n2nd: 250 coins\n3rd: 125 coins\n4th: 125 coins";
+
+  try {
+    await pool.query(
+      `UPDATE daily007_v2_matches
+          SET prize_pool = 1000, prize_distribution = $2
+        WHERE id = $1`,
+      [fixture.matchId, distribution],
+    );
+
+    const cases = [
+      {
+        statName: "matches",
+        player: fixture.players[0],
+        rank: 2,
+        kills: 0,
+        prizeCoins: 250,
+        stats: { matches: MAX_SUPPORTED_DATABASE_INT - 1, wins: 0, kills: 0, prize_coins: 0 },
+      },
+      {
+        statName: "wins",
+        player: fixture.players[1],
+        rank: 1,
+        kills: 0,
+        prizeCoins: 500,
+        stats: { matches: 0, wins: MAX_SUPPORTED_DATABASE_INT - 1, kills: 0, prize_coins: 0 },
+      },
+      {
+        statName: "kills",
+        player: fixture.players[2],
+        rank: 3,
+        kills: 17,
+        prizeCoins: 125,
+        stats: { matches: 0, wins: 0, kills: MAX_SUPPORTED_DATABASE_INT - 17, prize_coins: 0 },
+      },
+      {
+        statName: "prize total",
+        player: fixture.players[3],
+        rank: 4,
+        kills: 0,
+        prizeCoins: 125,
+        stats: { matches: 0, wins: 0, kills: 0, prize_coins: MAX_SUPPORTED_DATABASE_INT - 125 },
+      },
+    ] as const;
+
+    await withServer(async (origin) => {
+      for (const { statName, player, rank, kills, prizeCoins, stats } of cases) {
+        assert.ok(player, `a player fixture is required for the ${statName} boundary case`);
+        await setPlayerStats(player, stats);
+        const response = await submitResult(origin, fixture.adminId, fixture.matchId, player, rank, kills);
+        assert.equal(response.status, 201, `reaching the ${statName} limit must succeed: ${JSON.stringify(response.body)}`);
+        assert.equal(response.body.prizeCoins, prizeCoins);
+        const finalState = await captureSettlementState(fixture, player);
+        assert.deepEqual(finalState.stats, {
+          matches: stats.matches + 1,
+          wins: stats.wins + (rank === 1 ? 1 : 0),
+          kills: stats.kills + kills,
+          prize_coins: stats.prize_coins + prizeCoins,
+        });
+        assert.equal(
+          finalState.stats?.[statName === "prize total" ? "prize_coins" : statName],
+          MAX_SUPPORTED_DATABASE_INT,
+          `the ${statName} counter should reach the supported maximum`,
+        );
+      }
+    });
   } finally {
     await cleanupFixture(fixture);
   }

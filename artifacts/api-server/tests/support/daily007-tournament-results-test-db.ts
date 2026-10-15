@@ -349,6 +349,11 @@ class MemoryTournamentResultsDatabase {
     } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {
       const user = this.users.get(String(values[0]));
       rows = user ? [{ wallet_coins: user.wallet_coins }] : [];
+    } else if (normalized.startsWith(
+      "SELECT matches, wins, kills, prize_coins FROM daily007_v2_user_stats",
+    )) {
+      const stats = this.stats.get(String(values[0]));
+      rows = stats ? [structuredClone(stats)] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_result_awards")) {
       const [matchId, registrationId, userId, rank, kills, prizeCoins] = values;
       if (this.awards.some((award) => award.registration_id === registrationId)) {

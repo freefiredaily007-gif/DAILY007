@@ -1808,6 +1808,34 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       if (balance === undefined) throw Object.assign(new Error("Player account not found."), { status: 404 });
       const next = balance + prizeCoins;
       if (next > MAX_INT) throw Object.assign(new Error("Prize would exceed the supported wallet range."), { status: 409 });
+      const statsResult = await client.query<{
+        matches: number;
+        wins: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT matches, wins, kills, prize_coins
+           FROM daily007_v2_user_stats
+          WHERE user_id = $1
+          FOR UPDATE`,
+        [row.captain_user_id],
+      );
+      const stats = statsResult.rows[0] ?? { matches: 0, wins: 0, kills: 0, prize_coins: 0 };
+      const statIncrements: Array<[string, number, number]> = [
+        ["matches", stats.matches, 1],
+        ["wins", stats.wins, rank === 1 ? 1 : 0],
+        ["kills", stats.kills, kills],
+        ["prize total", stats.prize_coins, prizeCoins],
+      ];
+      for (const [statName, currentValue, increment] of statIncrements) {
+        const nextValue = currentValue + increment;
+        if (!Number.isSafeInteger(nextValue) || nextValue > MAX_INT) {
+          throw Object.assign(
+            new Error(`Player lifetime ${statName} would exceed the supported range.`),
+            { status: 409 },
+          );
+        }
+      }
       const award = await client.query(
         `INSERT INTO daily007_v2_result_awards (match_id, registration_id, user_id, rank, kills, prize_coins)
          VALUES ($1, $2, $3, $4, $5, $6)
