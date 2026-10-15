@@ -630,6 +630,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         id: string; mode: string; game_mode: string | null; team_type: string | null;
         capacity: number; status: string; entry_coins: number; starts_at: Date; enabled: boolean;
       }>(
+        // Keep this locked fee as the single source for the response, registration, wallet, and ledger.
         "SELECT id, mode, game_mode, team_type, capacity, status, entry_coins, starts_at, enabled FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
         [matchId],
       );

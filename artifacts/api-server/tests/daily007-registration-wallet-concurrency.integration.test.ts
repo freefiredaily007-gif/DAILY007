@@ -115,6 +115,20 @@ async function registerForMatch(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function updateMatchEntryFee(
+  origin: string,
+  userId: string,
+  matchId: string,
+  entryCoins: number,
+): Promise<RegistrationResponse> {
+  const response = await fetch(`${origin}/daily007/v2/admin/matches/${matchId}`, {
+    method: "PATCH",
+    headers: authHeaders(userId),
+    body: JSON.stringify({ entryCoins }),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
 async function requestWithdrawal(
   origin: string,
   userId: string,
@@ -279,6 +293,213 @@ async function waitForBlockedRequests(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Timed out waiting for ${expectedCount} requests to block on the ${lockDescription} row.`);
+}
+
+async function waitForAdvisoryPausedBackend(
+  pauseKey: bigint,
+  pauseHolderPid: number,
+  lockDescription: string,
+  timeoutMs = 5_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blockers: number[] }>(
+      `SELECT activity.pid, pg_blocking_pids(activity.pid) AS blockers
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.wait_event_type = 'Lock'
+          AND $1::integer = ANY(pg_blocking_pids(activity.pid))
+        ORDER BY activity.query_start`,
+      [pauseHolderPid],
+    );
+    if (result.rows.length > 0) {
+      assert.equal(result.rows.length, 1, `Only one request should be waiting at the ${lockDescription} pause (${pauseKey}).`);
+      const paused = result.rows[0]!;
+      assert.ok(
+        paused.blockers.map(Number).includes(pauseHolderPid),
+        `The ${lockDescription} request must be waiting on the test advisory lock.`,
+      );
+      return Number(paused.pid);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for a request to reach the ${lockDescription} pause.`);
+}
+
+async function waitForBackendBlockedBy(
+  blockerPid: number,
+  lockDescription: string,
+  timeoutMs = 5_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number }>(
+      `SELECT activity.pid
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.wait_event_type = 'Lock'
+          AND $1::integer = ANY(pg_blocking_pids(activity.pid))
+        ORDER BY activity.query_start`,
+      [blockerPid],
+    );
+    if (result.rows.length > 0) {
+      assert.equal(result.rows.length, 1, `Only one request should be queued on the ${lockDescription} lock.`);
+      return Number(result.rows[0]!.pid);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for a request to block on the ${lockDescription} lock.`);
+}
+
+async function installEntryFeeRacePause(
+  matchId: string,
+  stage: "admin_update" | "join_insert",
+  pauseKey: bigint,
+): Promise<() => Promise<void>> {
+  const suffix = randomUUID().replace(/-/g, "");
+  const functionName = `daily007_test_pause_fee_race_${suffix}`;
+  const triggerName = `daily007_test_pause_fee_race_${suffix}`;
+  const functionBody = stage === "admin_update"
+    ? `IF NEW.id = '${matchId}'::uuid AND NEW.entry_coins IS DISTINCT FROM OLD.entry_coins THEN
+         PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+       END IF;`
+    : `IF NEW.match_id = '${matchId}'::uuid THEN
+         PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+       END IF;`;
+  const table = stage === "admin_update" ? "daily007_v2_matches" : "daily007_v2_registrations";
+  const event = stage === "admin_update" ? "BEFORE UPDATE OF entry_coins" : "BEFORE INSERT";
+  await pool.query(`
+    CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+    BEGIN
+      ${functionBody}
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  try {
+    await pool.query(`
+      CREATE TRIGGER ${triggerName}
+      ${event} ON ${table}
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+    `);
+  } catch (error) {
+    await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    throw error;
+  }
+  return async () => {
+    await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON ${table}`);
+    await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`);
+  };
+}
+
+async function runEntryFeeChangeRace(lockWinner: "admin" | "join"): Promise<void> {
+  const fixture = await createFixture("solo", {
+    entryCoins: [13, 17],
+    startingWalletCoins: 50,
+  });
+  const matchId = fixture.matchIds[0];
+  const oldFee = fixture.entryCoins[0];
+  const newFee = 17;
+  const expectedPaidFee = lockWinner === "admin" ? newFee : oldFee;
+  const pauseKey = BigInt(`0x${randomUUID().replace(/-/g, "").slice(0, 15)}`);
+  let dropPause: (() => Promise<void>) | undefined;
+  let pauseHolder: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let submissions: Promise<RegistrationResponse>[] = [];
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_users SET role = 'tournament_admin' WHERE id = $1",
+      [fixture.userId],
+    );
+    dropPause = await installEntryFeeRacePause(
+      matchId,
+      lockWinner === "admin" ? "admin_update" : "join_insert",
+      pauseKey,
+    );
+    pauseHolder = await pool.connect();
+    await pauseHolder.query("SELECT pg_advisory_lock($1::bigint)", [pauseKey.toString()]);
+    const pauseHolderPid = await backendPid(pauseHolder);
+
+    await withServer(async (origin) => {
+      let join: Promise<RegistrationResponse>;
+      let feeUpdate: Promise<RegistrationResponse>;
+      let joinPid: number;
+      let updatePid: number;
+      try {
+        if (lockWinner === "admin") {
+          feeUpdate = updateMatchEntryFee(origin, fixture.userId, matchId, newFee);
+          submissions.push(feeUpdate);
+          updatePid = await waitForAdvisoryPausedBackend(
+            pauseKey,
+            pauseHolderPid,
+            "admin fee update",
+          );
+          join = registerForMatch(origin, fixture.userId, matchId, fixture.gameUids[0], null);
+          submissions.push(join);
+          await waitForBackendBlockedBy(
+            updatePid,
+            "match",
+          );
+        } else {
+          join = registerForMatch(origin, fixture.userId, matchId, fixture.gameUids[0], null);
+          submissions.push(join);
+          joinPid = await waitForAdvisoryPausedBackend(
+            pauseKey,
+            pauseHolderPid,
+            "join registration insert",
+          );
+          feeUpdate = updateMatchEntryFee(origin, fixture.userId, matchId, newFee);
+          submissions.push(feeUpdate);
+          await waitForBackendBlockedBy(
+            joinPid,
+            "match",
+          );
+        }
+      } finally {
+        await pauseHolder!.query("SELECT pg_advisory_unlock($1::bigint)", [pauseKey.toString()]);
+      }
+
+      const [joinResponse, feeResponse] = await Promise.all([join!, feeUpdate!]);
+      assert.equal(joinResponse.status, 201, JSON.stringify(joinResponse.body));
+      assert.equal(feeResponse.status, 200, JSON.stringify(feeResponse.body));
+      assert.equal(joinResponse.body.entryCoinsPaid, expectedPaidFee);
+      assert.equal(joinResponse.body.walletCoins, fixture.startingWalletCoins - expectedPaidFee);
+      assert.equal(
+        (feeResponse.body.match as Record<string, unknown>).entryCoins,
+        newFee,
+      );
+
+      const after = await readEntryPaymentState(fixture, matchId);
+      assert.deepEqual(after.wallet, [{
+        wallet_coins: fixture.startingWalletCoins - expectedPaidFee,
+      }]);
+      assert.deepEqual(after.registrations, [{
+        id: joinResponse.body.registrationId,
+        entry_coins_paid: expectedPaidFee,
+        status: "approved",
+      }]);
+      assert.deepEqual(after.ledger, [{
+        registration_id: joinResponse.body.registrationId,
+        amount: -expectedPaidFee,
+        balance_after: fixture.startingWalletCoins - expectedPaidFee,
+        reason: "match_entry",
+      }]);
+      const storedFee = await pool.query<{ entry_coins: number }>(
+        "SELECT entry_coins FROM daily007_v2_matches WHERE id = $1",
+        [matchId],
+      );
+      assert.equal(storedFee.rows[0]?.entry_coins, newFee);
+    });
+  } finally {
+    await pauseHolder?.query("SELECT pg_advisory_unlock($1::bigint)", [pauseKey.toString()]).catch(() => undefined);
+    pauseHolder?.release();
+    await Promise.allSettled(submissions);
+    try {
+      await dropPause?.();
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
 }
 
 async function runAfterAuthenticationBlockRace(
@@ -1325,6 +1546,11 @@ test("concurrent duo joins keep fees and teammate rosters matched to each tourna
 
 test("concurrent squad joins keep every player, position, and fee matched to its tournament", () =>
   runConcurrentWalletRace("squad"));
+
+test("a fee update and valid join use the fee from the match row's lock order", async () => {
+  await runEntryFeeChangeRace("admin");
+  await runEntryFeeChangeRace("join");
+});
 
 test("a 20-coin wallet accepts only the first 13- or 17-coin join in either lock order", async () => {
   await runConcurrentInsufficientBalanceRace(0);

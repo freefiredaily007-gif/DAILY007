@@ -7,4 +7,4 @@ For concurrency tests that pause a transaction inside a trigger, do not rely onl
 
 **Why:** String-based query filters did not consistently identify the waiter/blocker relationship for overlapping leaderboard payouts paused by an advisory lock in a wallet-ledger trigger.
 
-**How to apply:** In isolated PostgreSQL tests, confirm the first transaction reached its trigger pause, capture its PID, and poll `pg_blocking_pids()` for the second transaction before releasing the test lock. Release the lock in an inner `finally` before closing the HTTP server so a failed assertion cannot hang server shutdown.
+**How to apply:** In isolated PostgreSQL tests, identify a transaction paused in a trigger by the PID holding its test advisory lock rather than matching `pg_stat_activity.query`, which may not show the outer statement. Capture the paused transaction's PID, poll `pg_blocking_pids()` for the competing request before releasing the test lock, and release it in an inner `finally` before closing the HTTP server so a failed assertion cannot hang shutdown.
