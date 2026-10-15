@@ -2036,6 +2036,25 @@ test('empty format-filtered lifecycle tabs announce the selected mode and team s
       tournamentListEmptyMessage(false, label, 'CLASH SQUAD', 'duo'),
       `No ${tab} tournaments are available.\nSelected format: Duo Clash Squad.`,
     );
+
+    const modeOnlyTabs = tournamentTabsForRoute(
+      [
+        ...selectedTournaments.filter((tournament) => tournament.lifecycle !== tab),
+        ...otherTournaments.filter((tournament) => tournament.gameMode !== 'clash_squad'),
+      ],
+      { gameMode: 'clash_squad' },
+      lifecycleOf,
+    );
+    assert.deepEqual(
+      modeOnlyTabs[tab],
+      [],
+      `${label} should be empty when a direct game-mode route has no matches for that lifecycle`,
+    );
+    assert.equal(
+      tournamentListEmptyMessage(false, label, 'clash_squad'),
+      `No ${tab} tournaments are available.\nSelected game mode: Clash Squad.`,
+      `${label} should identify the selected game mode without claiming a format was selected`,
+    );
   }
 
   assert.equal(

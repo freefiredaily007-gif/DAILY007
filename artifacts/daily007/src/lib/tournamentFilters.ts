@@ -86,12 +86,15 @@ export function tournamentListEmptyMessage(
   teamType?: string,
 ): string {
   if (hasError) return 'Tournament data is unavailable right now. Pull to refresh and try again.';
-  const scope = [teamType, modeLabel]
-    .map(displayFilterLabel)
-    .filter(Boolean)
-    .join(' ');
+  const formattedMode = displayFilterLabel(modeLabel);
+  const formattedTeamType = displayFilterLabel(teamType);
   const tab = tabLabel.trim().toLowerCase();
-  return scope
-    ? `No ${tab} tournaments are available.\nSelected format: ${scope}.`
-    : `No ${tab} tournaments are available right now.`;
+  if (formattedTeamType) {
+    const scope = [formattedTeamType, formattedMode].filter(Boolean).join(' ');
+    return `No ${tab} tournaments are available.\nSelected format: ${scope}.`;
+  }
+  if (formattedMode) {
+    return `No ${tab} tournaments are available.\nSelected game mode: ${formattedMode}.`;
+  }
+  return `No ${tab} tournaments are available right now.`;
 }
