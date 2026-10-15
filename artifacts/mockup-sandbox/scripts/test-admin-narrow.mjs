@@ -2716,6 +2716,112 @@ async function checkAdminSearchResultsWithKeyboard() {
         `${description}: the simulated keyboard viewport changed during scrolling.`,
       );
     }
+
+    if (screen.tab === "users") {
+      const query = "no-admin-user-will-match";
+      const selector = `[data-testid="${screen.input}"]`;
+      await setInputValue(selector, "");
+      await waitForCondition(
+        `document.body.innerText.includes(${JSON.stringify(longEmail)}) &&
+          document.body.innerText.includes(${JSON.stringify(otherEmail)}) &&
+          document.body.innerText.includes("4 users")`,
+        "the unfiltered Admin Users list before the no-match recovery check",
+      );
+      const baseline = await evaluate(`(() => ({
+        roles: [...document.querySelectorAll(
+          '[aria-label$=", Full Admin"], [aria-label$=", Tournament Admin"], [aria-label$=", Player"]'
+        )].map((element) => element.getAttribute("aria-label")).sort(),
+      }))()`);
+      assert(
+        baseline.roles.length === 4,
+        `The unfiltered Admin Users preview should expose all four account roles: ${JSON.stringify(baseline)}.`,
+      );
+
+      await resetAdminMutationCalls();
+      await setInputValue(selector, query);
+
+      const emptyState = await evaluate(`(() => {
+        const button = document.querySelector('[data-testid="admin-users-clear-search"]');
+        if (!button) return null;
+        button.scrollIntoView({ block: "center", inline: "nearest" });
+        const rect = button.getBoundingClientRect();
+        return {
+          messageVisible: document.body.innerText.includes("No users match this search."),
+          queryValue: document.querySelector(${JSON.stringify(selector)})?.value ?? null,
+          label: button.getAttribute("aria-label"),
+          role: button.getAttribute("role"),
+          disabled: button.getAttribute("aria-disabled") === "true" || button.disabled === true,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        };
+      })()`);
+      assert(emptyState, "Admin Users did not show a visible clear-search control for a no-match query.");
+      assert(
+        emptyState.messageVisible && emptyState.queryValue === query,
+        `Admin Users did not show its no-match message for the active search: ${JSON.stringify(emptyState)}.`,
+      );
+      assert(
+        emptyState.label === "Clear Admin Users search" &&
+          emptyState.role === "button" &&
+          !emptyState.disabled,
+        `The no-match recovery action is not exposed as an enabled, accessible button: ${JSON.stringify(emptyState)}.`,
+      );
+      assert(
+        emptyState.width > 0 &&
+          emptyState.height >= minimumAndroidTouchTarget &&
+          emptyState.left >= -1 &&
+          emptyState.right <= width + 1 &&
+          emptyState.top >= -1 &&
+          emptyState.bottom <= keyboardHeight + 1,
+        `The no-match recovery action is clipped or too small at ${width}×${keyboardHeight} with 1.5× text: ${JSON.stringify(emptyState)}.`,
+      );
+      await assertPageHasNoHorizontalOverflow(
+        width,
+        "Admin Users no-match state with the Android keyboard open at 1.5× text",
+      );
+
+      await tapSelector('[data-testid="admin-users-clear-search"]', "Admin Users clear-search button");
+      await waitForCondition(
+        `document.querySelector(${JSON.stringify(selector)})?.value === "" &&
+          document.body.innerText.includes(${JSON.stringify(longEmail)}) &&
+          document.body.innerText.includes(${JSON.stringify(otherEmail)})`,
+        "the full Admin Users list after clearing the no-match search",
+      );
+      const recovered = await evaluate(`(() => ({
+        queryValue: document.querySelector(${JSON.stringify(selector)})?.value ?? null,
+        userCountVisible: document.body.innerText.includes("4 users"),
+        firstAccountVisible:
+          document.body.innerText.includes(${JSON.stringify(longName)}) &&
+          document.body.innerText.includes(${JSON.stringify(longEmail)}),
+        secondAccountVisible:
+          document.body.innerText.includes("Rohan Free Fire Strategist") &&
+          document.body.innerText.includes(${JSON.stringify(otherEmail)}),
+        roles: [...document.querySelectorAll(
+          '[aria-label$=", Full Admin"], [aria-label$=", Tournament Admin"], [aria-label$=", Player"]'
+        )].map((element) => element.getAttribute("aria-label")).sort(),
+        mutationCalls: window.__daily007AdminMutations?.calls ?? null,
+        viewportHeight: window.innerHeight,
+      }))()`);
+      assert(
+        recovered.queryValue === "" &&
+          recovered.userCountVisible &&
+          recovered.firstAccountVisible &&
+          recovered.secondAccountVisible &&
+          JSON.stringify(recovered.roles) === JSON.stringify(baseline.roles) &&
+          recovered.viewportHeight === keyboardHeight,
+        `Clearing the search did not restore the Admin Users list in the keyboard-open viewport: ${JSON.stringify(recovered)}.`,
+      );
+      assert(
+        Array.isArray(recovered.mutationCalls) && recovered.mutationCalls.length === 0,
+        `Clearing Admin Users search changed account data or permissions: ${JSON.stringify(recovered.mutationCalls)}.`,
+      );
+    }
   }
 }
 
@@ -8277,7 +8383,7 @@ try {
         `Browser errors during Admin search keyboard checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        "PASS — At 375×450 with 1.5× text and a simulated Android keyboard, long fake-name and email searches on Wallet and Users retain the query and keep the matching account and every action reachable by scrolling.",
+        "PASS — At 375×450 with 1.5× text and a simulated Android keyboard, Wallet and Users search results stay reachable, and Admin Users no-match recovery restores all users and roles without mutations.",
       );
     } else if (adminSearchAccessibilityOnly) {
       await checkAdminSearchAccessibility();

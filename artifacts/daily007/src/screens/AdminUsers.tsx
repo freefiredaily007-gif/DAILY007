@@ -228,7 +228,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     : '';
 
   return (
-    <ScreenWrap onRefresh={load}>
+    <ScreenWrap onRefresh={load} keyboardShouldPersistTaps="handled">
       <SectionTitle title="USER MANAGEMENT" sub={`${filtered.length} users`} />
       <Card>
         <Text style={st.accessNote}>Full Admins assign Tournament Admin access directly here. Players cannot submit access requests.</Text>
@@ -249,6 +249,18 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       />
       {users === null ? (
         <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />
+      ) : q.trim() && filtered.length === 0 ? (
+        <Card>
+          <Text style={st.noResults}>No users match this search.</Text>
+          <Text style={st.noResultsHint}>Clear the search to see all users.</Text>
+          <Btn
+            title="CLEAR SEARCH"
+            accessibilityLabel="Clear Admin Users search"
+            accessibilityHint="Shows all users again without changing their account data or permissions."
+            testID="admin-users-clear-search"
+            onPress={() => setQ('')}
+          />
+        </Card>
       ) : filtered.map((u) => {
         const mine = (regs ?? []).filter((g) => g.userId === u.$id);
         const approved = mine.filter((g) => g.status === 'approved').length;
@@ -423,6 +435,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
 const st = StyleSheet.create({
   search: { backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
   accessNote: { color: '#9aa3b2', fontSize: 11, lineHeight: 16, marginBottom: 8 },
+  noResults: { color: '#e6e9ef', fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  noResultsHint: { color: '#9aa3b2', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 12 },
   name: { color: '#e6e9ef', fontWeight: '900', fontSize: 14 },
   role: { color: '#FFC107', fontSize: 9, fontWeight: '900', letterSpacing: 0.8, marginTop: 4 },
   sub: { color: '#5b6478', fontSize: 11, marginTop: 2 },
