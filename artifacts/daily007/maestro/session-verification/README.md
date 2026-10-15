@@ -8,7 +8,7 @@ The Android runner temporarily enables airplane mode and disables Wi-Fi through 
 EXPO_DEV_URL=exp://YOUR_EXPO_HOST:PORT pnpm --filter @workspace/daily007 run test:android-session-verification
 ```
 
-The run seeds the test session online, disables connectivity, reboots Android, and waits for the OS to report a completed boot while confirming airplane mode and Wi-Fi are still disabled. It restores connectivity and opens the Daily007 test route; the route reads the persisted session through the app's AsyncStorage-backed functions and verifies it automatically without a Retry tap. The suite also covers force-stopping Expo Go offline, reconnecting while the paused screen is open, reconnecting while backgrounded and foregrounding the app, and two simulated HTTP 503 responses followed by a successful user retry. **Retry is never tapped** in the automatic recovery flows. The runner restores the previous saved session and the device's original airplane-mode and Wi-Fi settings even when a flow fails.
+The run seeds the test session online, disables connectivity, reboots Android, and waits for the OS to report a completed boot while confirming airplane mode and Wi-Fi are still disabled. It restores connectivity and opens the Daily007 test route; the route reads the persisted session through the app's AsyncStorage-backed functions and verifies it automatically without a Retry tap. The suite also covers force-stopping Expo Go offline, reconnecting while the paused screen is open, reconnecting while backgrounded and foregrounding the app, and multiple reconnect/resume cycles with transient failures between each attempt. **Retry is never tapped** in the automatic recovery flows. The runner restores the previous saved session and the device's original airplane-mode and Wi-Fi settings even when a flow fails.
 
 The Android release verification workflow runs this suite on its Android emulator. For a physical-device spot check, use an Android 16 device with Expo Go, connect the device to the development server, and follow this checklist:
 
@@ -18,7 +18,8 @@ The Android release verification workflow runs this suite on its Android emulato
 2. Restore Wi-Fi without touching Retry. Confirm the fixture says `Verified without tapping Retry`.
 3. Disable Wi-Fi, reboot Android, and confirm airplane mode and Wi-Fi remain disabled after boot. Restore connectivity, open the route, and confirm it verifies without a Retry tap.
 4. Disable Wi-Fi, reopen the route, press Home, restore Wi-Fi while it is backgrounded, then reopen Expo Go. Confirm it verifies without a Retry tap.
-5. Open the `transient` scenario while online. Confirm the session token remains visible after the failed attempts, then tap Retry and confirm verification completes.
-6. Restore the original Wi-Fi and airplane-mode settings when done.
+5. Run the repeated recovery sequence: reconnect once while active, reconnect again while backgrounded and resume, then reconnect a third time while active. Confirm the saved token remains available after the first two attempts and the third automatically verifies.
+6. Open the `transient` scenario while online. Confirm the session token remains visible after the failed attempts, then tap Retry and confirm verification completes.
+7. Restore the original Wi-Fi and airplane-mode settings when done.
 
 If the Android device policy or test runner prevents ADB from toggling Wi-Fi, keep the device steps manual and record which reconnect/resume path was checked; do not treat a run without a confirmed Wi-Fi state change as passing.

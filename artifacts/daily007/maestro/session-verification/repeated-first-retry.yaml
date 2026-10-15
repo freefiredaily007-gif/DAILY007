@@ -1,0 +1,9 @@
+appId: host.exp.exponent
+---
+- extendedWaitUntil:
+    visible: "Verification attempts: 2"
+    timeout: 15000
+- assertVisible:
+    id: session-verification-test-saved-token
+- assertVisible:
+    id: session-verification-test-retry-ready

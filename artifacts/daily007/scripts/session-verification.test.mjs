@@ -1102,6 +1102,117 @@ test("simultaneous reconnect and foreground events share one verification reques
   }
 });
 
+test("repeated reconnect and resume events stay retryable until one verification succeeds", async () => {
+  let networkListener;
+  let appStateListener;
+  let networkState = { isConnected: false, isInternetReachable: false };
+  let activeRequests = 0;
+  let maximumActiveRequests = 0;
+  let verificationCalls = 0;
+  let verificationGate = Promise.resolve();
+  let releaseVerification;
+  const requestSlot = { current: null };
+  const requests = [];
+  const settledResults = [];
+  const network = {
+    addNetworkStateListener(listener) {
+      networkListener = listener;
+      return { remove() {} };
+    },
+    async getNetworkStateAsync() {
+      return networkState;
+    },
+  };
+  const appState = {
+    addEventListener(_event, listener) {
+      appStateListener = listener;
+      return { remove() {} };
+    },
+  };
+  const retry = () => {
+    const request = runSingleFlight(requestSlot, async () => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      verificationCalls += 1;
+      try {
+        const result = await restoreDaily007Session(
+          async () => savedSession,
+          async () => {
+            await verificationGate;
+            if (verificationCalls <= 2) throw responseError(503);
+            return { ...savedSession, name: "Verified after repeated reconnects" };
+          },
+          async () => {},
+        );
+        settledResults.push(result);
+        return result;
+      } finally {
+        activeRequests -= 1;
+      }
+    });
+    requests.push(request);
+    return request;
+  };
+
+  const unsubscribe = subscribeToSessionVerificationRecovery(
+    true,
+    retry,
+    network,
+    appState,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (attempt > 1) {
+      networkState = { isConnected: false, isInternetReachable: false };
+      networkListener(networkState);
+      appStateListener("background");
+      appStateListener("active");
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(requests.length, (attempt - 1) * 2, "Offline and background events must not retry.");
+    }
+
+    const previousRequestCount = requests.length;
+    verificationGate = new Promise((resolve) => {
+      releaseVerification = resolve;
+    });
+    networkState = { isConnected: true, isInternetReachable: true };
+    networkListener(networkState);
+    appStateListener("background");
+    appStateListener("active");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const cycleRequests = requests.slice(previousRequestCount);
+    assert.equal(cycleRequests.length, 2, "Reconnect and resume should both reach the shared retry path.");
+    assert.strictEqual(cycleRequests[0], cycleRequests[1], "Both events should share one in-flight request.");
+    assert.equal(activeRequests, 1);
+    assert.equal(maximumActiveRequests, 1, "Verification requests must never overlap.");
+    assert.equal(verificationCalls, attempt, "Only one API verification should run in each cycle.");
+
+    releaseVerification();
+    const [result] = await Promise.all(cycleRequests);
+    if (attempt < 3) {
+      assert.equal(result.status, "retry", "Transient failures must leave the saved session retryable.");
+      assert.equal(result.session.token, savedSession.token);
+    } else {
+      assert.equal(result.status, "verified");
+      assert.equal(result.session.name, "Verified after repeated reconnects");
+      assert.equal(result.session.token, savedSession.token);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requestSlot.current, null, "The single-flight gate must reset after every settled attempt.");
+    assert.equal(activeRequests, 0);
+    assert.equal(settledResults.length, attempt);
+    assert.equal(settledResults.at(-1).status, result.status);
+  }
+
+  assert.deepEqual(
+    settledResults.map((result) => result.status),
+    ["retry", "retry", "verified"],
+  );
+  unsubscribe();
+});
+
 test("a successful verification refreshes account data while retaining the saved token", async () => {
   const storage = mockStorage();
   const result = await restoreFromMockStorage(storage, async () => ({

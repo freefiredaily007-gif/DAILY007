@@ -194,6 +194,24 @@ try {
   );
   runMaestro("maestro/session-verification/resume-after-reconnect.yaml");
 
+  disableConnectivity();
+  runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go offline for repeated recovery");
+  runMaestro("maestro/session-verification/repeated-start.yaml");
+  restoreConnectivity();
+  runMaestro("maestro/session-verification/repeated-first-retry.yaml");
+  disableConnectivity();
+  runChecked("adb", ["shell", "input", "keyevent", "3"], "Backgrounding Expo Go while recovery is paused");
+  restoreConnectivity();
+  runChecked(
+    "adb",
+    ["shell", "monkey", "-p", "host.exp.exponent", "1"],
+    "Bringing Expo Go back to the foreground for a repeated recovery attempt",
+  );
+  runMaestro("maestro/session-verification/repeated-resume-retry.yaml");
+  disableConnectivity();
+  restoreConnectivity();
+  runMaestro("maestro/session-verification/repeated-verified.yaml");
+
   runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go for transient failure");
   runMaestro("maestro/session-verification/transient-retry.yaml");
 } catch (error) {

@@ -43,7 +43,7 @@ async function restoreSavedSession(): Promise<void> {
   await AsyncStorage.removeItem(SESSION_BACKUP_KEY);
 }
 
-type Scenario = 'seed' | 'cleanup' | 'network' | 'resume' | 'transient';
+type Scenario = 'seed' | 'cleanup' | 'network' | 'resume' | 'transient' | 'repeated';
 
 export default function SessionVerificationNativeTest() {
   if (!__DEV__) return <Redirect href="/" />;
@@ -53,7 +53,8 @@ export default function SessionVerificationNativeTest() {
 function NativeSessionVerificationFixture() {
   const { scenario: requestedScenario } = useLocalSearchParams<{ scenario?: string }>();
   const scenario: Scenario = requestedScenario === 'seed' || requestedScenario === 'cleanup' ||
-      requestedScenario === 'resume' || requestedScenario === 'transient'
+      requestedScenario === 'resume' || requestedScenario === 'transient' ||
+      requestedScenario === 'repeated'
     ? requestedScenario
     : 'network';
   const verificationRequest = useRef<Promise<void> | null>(null);
@@ -84,6 +85,11 @@ function NativeSessionVerificationFixture() {
       throw new Error('Fixture verification waits until the app returns to the foreground.');
     }
     if (scenario === 'transient' && attempt <= 2) {
+      throw Object.assign(new Error('Temporary fixture server error.'), {
+        response: { status: 503 },
+      });
+    }
+    if (scenario === 'repeated' && attempt <= 3) {
       throw Object.assign(new Error('Temporary fixture server error.'), {
         response: { status: 503 },
       });

@@ -17,6 +17,10 @@ const files = await Promise.all([
   readFile(new URL("../maestro/session-verification/background-before-reconnect.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/resume-after-reconnect.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/transient-retry.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/repeated-start.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/repeated-first-retry.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/repeated-resume-retry.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/repeated-verified.yaml", import.meta.url), "utf8"),
   readFile(new URL("../scripts/run-android-session-verification.mjs", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/README.md", import.meta.url), "utf8"),
   readFile(new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url), "utf8"),
@@ -39,6 +43,10 @@ const [
   backgroundBeforeReconnect,
   resumeAfterReconnect,
   transientRetry,
+  repeatedStart,
+  repeatedFirstRetry,
+  repeatedResumeRetry,
+  repeatedVerified,
   runner,
   readme,
   androidWorkflow,
@@ -138,6 +146,26 @@ test("transient verification failure keeps the saved session and Retry available
   assert.match(transientRetry, /id: session-verification-retry/);
   assert.match(transientRetry, /id: session-verification-test-retry-ready/);
   assert.match(transientRetry, /Verified after tapping Retry/);
+});
+
+test("Android repeated reconnect and resume cycles keep retrying the same saved session", () => {
+  assert.match(fixture, /scenario === 'repeated' && attempt <= 3/);
+  assert.match(fixture, /runSingleFlight\(verificationRequest, async \(\) =>/);
+  assert.match(fixture, /subscribeToSessionVerificationRecovery\(/);
+  assert.match(repeatedStart, /scenario=repeated/);
+  assert.match(repeatedStart, /Verification attempts: 1/);
+  assert.match(repeatedFirstRetry, /Verification attempts: 2/);
+  assert.match(repeatedResumeRetry, /Verification attempts: 3/);
+  assert.match(repeatedVerified, /Verification attempts: 4/);
+  assert.match(repeatedVerified, /Verified without tapping Retry/);
+  assert.doesNotMatch(
+    `${repeatedStart}\n${repeatedFirstRetry}\n${repeatedResumeRetry}\n${repeatedVerified}`,
+    /tapOn:[\s\S]*?session-verification-retry/,
+  );
+  assert.match(
+    runner,
+    /repeated-start\.yaml[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-first-retry\.yaml[\s\S]*?disableConnectivity\(\);[\s\S]*?keyevent", "3"[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-resume-retry\.yaml[\s\S]*?disableConnectivity\(\);[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-verified\.yaml/,
+  );
 });
 
 test("Android runner toggles and restores Wi-Fi and is included in the release gate", () => {

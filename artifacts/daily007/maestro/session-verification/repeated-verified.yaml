@@ -1,0 +1,9 @@
+appId: host.exp.exponent
+---
+- extendedWaitUntil:
+    visible:
+      id: session-verification-test-verified
+    timeout: 15000
+- assertVisible: "Verification attempts: 4"
+- assertVisible: "Verified without tapping Retry"
+- assertVisible: "Verified Native Test Player"
