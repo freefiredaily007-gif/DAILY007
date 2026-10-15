@@ -80,7 +80,11 @@ async function startApiProcess(): Promise<ApiProcess> {
   return apiProcess;
 }
 
-async function passwordChange(origin: string, token: string): Promise<{ status: number; retryAfter: string | null }> {
+async function passwordChange(
+  origin: string,
+  token: string,
+  currentPassword = "incorrect-current-password",
+): Promise<{ status: number; retryAfter: string | null }> {
   const response = await fetch(`${origin}/auth/me/password`, {
     method: "PATCH",
     headers: {
@@ -88,7 +92,7 @@ async function passwordChange(origin: string, token: string): Promise<{ status: 
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      currentPassword: "incorrect-current-password",
+      currentPassword,
       newPassword: "replacement-password-for-shared-attempt-test",
     }),
   });
@@ -158,4 +162,66 @@ test("password-change attempt limit survives process restart and is shared by co
     { failures: 1, in_flight: 0 },
   );
   assert.ok(afterExpiry.rows[0]?.expires_at.getTime() > Date.now());
+});
+
+test("exhausting one player's password-change attempts does not block another player", async () => {
+  const firstUserId = randomUUID();
+  const secondUserId = randomUUID();
+  const firstCredentials = await hashPassword("first-player-current-password");
+  const secondPassword = "second-player-current-password";
+  const secondCredentials = await hashPassword(secondPassword);
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES
+       ($1, 'First Attempt-Limit Player', $2, $3, $4),
+       ($5, 'Second Attempt-Limit Player', $6, $7, $8)`,
+    [
+      firstUserId,
+      `password-change-first-${firstUserId}@example.test`,
+      firstCredentials.salt,
+      firstCredentials.hash,
+      secondUserId,
+      `password-change-second-${secondUserId}@example.test`,
+      secondCredentials.salt,
+      secondCredentials.hash,
+    ],
+  );
+
+  const firstToken = makeToken(firstUserId, 0);
+  const secondToken = makeToken(secondUserId, 0);
+  assert.ok(firstToken);
+  assert.ok(secondToken);
+  const api = await startApiProcess();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const result = await passwordChange(api.origin, firstToken);
+    assert.equal(result.status, 401, "each incorrect check should count against the first player's limit");
+  }
+
+  const firstPlayerLockedOut = await passwordChange(api.origin, firstToken);
+  assert.equal(firstPlayerLockedOut.status, 429);
+  assert.ok(Number(firstPlayerLockedOut.retryAfter) > 0);
+
+  const secondPlayerCheck = await passwordChange(api.origin, secondToken, secondPassword);
+  assert.equal(secondPlayerCheck.status, 200, "the second player's correct password check should remain available");
+  assert.equal(secondPlayerCheck.retryAfter, null);
+
+  const attemptRows = await pool.query<{
+    user_id: string;
+    failures: number;
+    in_flight: number;
+  }>(
+    `SELECT user_id, failures, in_flight
+       FROM daily007_password_change_attempts
+      WHERE user_id = ANY($1::uuid[])`,
+    [[firstUserId, secondUserId]],
+  );
+  const attemptsByUser = new Map(attemptRows.rows.map(({ user_id, failures, in_flight }) => [
+    user_id,
+    { failures, in_flight },
+  ]));
+  assert.equal(attemptsByUser.size, 2);
+  assert.deepEqual(attemptsByUser.get(firstUserId), { failures: 5, in_flight: 0 });
+  assert.deepEqual(attemptsByUser.get(secondUserId), { failures: 0, in_flight: 0 });
 });
