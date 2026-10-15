@@ -30,6 +30,7 @@ const tournamentDetailRegistrationFailureOnly = process.argv.includes("--tournam
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
+const adminResultEntryRetryOnly = process.argv.includes("--admin-result-entry-retry-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const refreshReturnOnly = process.argv.includes("--refresh-return-only");
 const refreshCoalescingOnly = process.argv.includes("--refresh-coalescing-only");
@@ -4474,6 +4475,106 @@ async function checkAdminRetryConcurrency() {
   );
 }
 
+async function checkAdminResultEntryRetry() {
+  const tournamentId = "result-entry-retry-active";
+  const panelSelector = `[data-testid="inline-results-entry-${tournamentId}"]`;
+  const openSelector = `[data-testid="finish-tournament-${tournamentId}"]`;
+  const retrySelector = `[data-testid="retry-approved-registrations-${tournamentId}"]`;
+  await waitForCondition(
+    "window.__daily007TournamentResume?.ready === true",
+    "the Result Entry retry preview to initialize",
+  );
+  await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "the Ongoing tournaments tab");
+  await waitForCondition(
+    `document.querySelector('[data-testid="${openSelector.slice(1, -1)}"]') &&
+      document.body.innerText.includes("Other Ongoing Match")`,
+    "both ongoing tournament actions",
+  );
+  await clickSelector(openSelector, "Result Entry for the active tournament");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 1 &&
+      document.body.innerText.includes("Initial approved registrations request failed.") &&
+      document.querySelector('${panelSelector}')`,
+    "the initial approved-registration request to fail while Result Entry stays open",
+  );
+  await assertText(
+    "Approved registrations could not be loaded. Retry here.",
+    "the initial Result Entry retry guidance",
+  );
+  assert(
+    await evaluate(`document.querySelector('${retrySelector}')?.disabled === false`),
+    "The retry control should be enabled after the initial request fails.",
+  );
+
+  await clickSelector(retrySelector, "Retry approved registrations");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 2 &&
+      document.body.innerText.includes("Retrying approved registrations…") &&
+      document.querySelector('${panelSelector}')`,
+    "the retry to remain pending with Result Entry open",
+  );
+  const progressState = await evaluate(`(() => {
+    const button = document.querySelector('${retrySelector}');
+    return {
+      text: button?.textContent?.trim() ?? "",
+      disabled: button?.disabled ?? false,
+      ariaDisabled: button?.getAttribute("aria-disabled"),
+      ariaBusy: button?.getAttribute("aria-busy"),
+    };
+  })()`);
+  assert(
+    progressState.text.includes("RETRYING") &&
+      progressState.disabled &&
+      progressState.ariaDisabled === "true" &&
+      progressState.ariaBusy === "true",
+    `Retry progress must be visible and the control unavailable while loading: ${JSON.stringify(progressState)}.`,
+  );
+  await clickSelector(retrySelector, "the disabled retry control during the pending request");
+  assert(
+    (await evaluate("window.__daily007TournamentResume.getApprovedRegistrationRequests().length")) === 2,
+    "Repeated taps while Retry is pending must not issue another request.",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.releaseApprovedRegistrationRetry()"),
+    "The pending successful approved-registration response should be released.",
+  );
+  await waitForCondition(
+    `document.querySelector('${panelSelector}') &&
+      document.body.innerText.includes("Retry Fixture Player") &&
+      document.body.innerText.includes("RESULT-RETRY-UID")`,
+    "successful approved-player data to render inside the still-open Result Entry panel",
+  );
+
+  await clickSelector(openSelector, "closing the recovered Result Entry panel");
+  await waitForCondition(
+    `!document.querySelector('${panelSelector}')`,
+    "the recovered Result Entry panel to close",
+  );
+  await clickSelector(openSelector, "reopening Result Entry for the same tournament");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 3 &&
+      document.querySelector('${panelSelector}') &&
+      document.body.innerText.includes("Reopened Result Entry request failed.")`,
+    "a later approved-registration request to fail without closing Result Entry",
+  );
+  await clickSelector(retrySelector, "retrying the reopened Result Entry panel");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 4 &&
+      document.querySelector('${panelSelector}') &&
+      document.body.innerText.includes("Second retry request failed.")`,
+    "the later retry to fail while keeping Result Entry available",
+  );
+  const requests = await evaluate("window.__daily007TournamentResume.getApprovedRegistrationRequests()");
+  assert(
+    JSON.stringify(requests) === JSON.stringify(Array(4).fill(tournamentId)),
+    `Approved-registration requests must target only the active tournament: ${JSON.stringify(requests)}.`,
+  );
+  assert(
+    await evaluate(`document.querySelector('${retrySelector}')?.disabled === false`),
+    "The retry control should become available again after the later failure.",
+  );
+}
+
 async function triggerPlayerManualRefresh() {
   await cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await tapSelector(
@@ -8232,6 +8333,8 @@ try {
     ? "admin-narrow-preview.html?admin-full-admin-recovery-only=1&manual-refresh-only=1"
     : istDateSurfacesOnly
     ? "home-carousel-preview.html?ist-date-surfaces=1"
+    : adminResultEntryRetryOnly
+      ? "tournament-resume-preview.html?admin-result-entry-retry-only=1"
     : adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly
     ? "tournament-resume-preview.html?admin-initial-load-failure-only=1"
     : refreshCoalescingOnly
@@ -8330,6 +8433,7 @@ try {
     adminInitialLoadFailureOnly ||
     adminLargeTextInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
+    adminResultEntryRetryOnly ||
     refreshReturnOnly ||
     refreshCoalescingOnly ||
     manualRefreshOnly ||
@@ -8361,13 +8465,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8391,6 +8495,8 @@ try {
          ? "Home carousel"
         : singleHomeCardOnly
           ? "Single-card Home carousel activation"
+        : adminResultEntryRetryOnly
+          ? "Admin Result Entry approved-player retry"
         : adminTournamentHomeRefreshOnly
           ? "Admin tournament creation and Home scheduled refresh"
         : adminTournamentEmptyFilterOnly
@@ -8509,6 +8615,13 @@ try {
         `Browser errors during Admin Retry concurrency checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Repeated taps while an Admin Retry is pending do not duplicate requests; failure re-enables the control for recovery.");
+    } else if (adminResultEntryRetryOnly) {
+      await checkAdminResultEntryRetry();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin Result Entry retry checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Result Entry stays open through failed and successful approved-player retries; requests are scoped and duplicate taps do not duplicate work.");
     } else if (tournamentDetailRegistrationFailureOnly) {
       await checkTournamentDetailRegistrationFailure();
       assert(

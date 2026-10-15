@@ -34,7 +34,7 @@
     "test:join-form": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/join-form.test.mjs",
     "test:login-retry-after": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/login-retry-after.test.mjs",
     "test:session-refresh-persistence": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/session-refresh-persistence.test.mjs",
-    "test:admin-tournament-results-accessibility": "node --test scripts/admin-tournament-results-accessibility.test.mjs",
+    "test:admin-tournament-results-accessibility": "node --test scripts/admin-tournament-results-accessibility.test.mjs && pnpm --filter @workspace/mockup-sandbox run test:admin-tournament-results-retry",
     "test:admin-coin-adjustment-concurrency": "node --test scripts/admin-coin-adjustment-concurrency.test.mjs",
     "test:admin-payment-actions-concurrency": "node --test scripts/admin-payment-actions-concurrency.test.mjs",
     "test:admin-action-failure-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-action-failure-accessibility.test.mjs",

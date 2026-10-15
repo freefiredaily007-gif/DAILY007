@@ -53,6 +53,7 @@ const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial
 const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
 const tournamentDetailRegistrationFailureOnly = new URLSearchParams(location.search).has("detail-registration-failure-only");
 const adminInitialLoadFailureOnly = new URLSearchParams(location.search).has("admin-initial-load-failure-only");
+const adminResultEntryRetryOnly = new URLSearchParams(location.search).has("admin-result-entry-retry-only");
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const scheduledStartGapMs = 3_000;
 const boundaryCase = new URLSearchParams(location.search).get("boundary") || "month-end";
@@ -190,7 +191,50 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       scheduledTournament("resume-boundary-later", laterScheduledTournamentName, laterScheduledStartMs),
     );
   }
-  apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
+  let approvedRegistrationRequests = [];
+  let releaseApprovedRegistrationRetry = () => false;
+  if (adminResultEntryRetryOnly) {
+    const startedAt = fakeNow - 60 * 60 * 1000;
+    apiMocks.previewTournaments.splice(
+      0,
+      apiMocks.previewTournaments.length,
+      {
+        ...scheduledTournament("result-entry-retry-active", "Retry Result Entry Active Match", startedAt),
+        status: "ongoing",
+      },
+      {
+        ...scheduledTournament("result-entry-retry-other", "Other Ongoing Match", startedAt),
+        status: "ongoing",
+      },
+    );
+    apiMocks.Api.adminApprovedRegs = async (tournamentId) => {
+      approvedRegistrationRequests.push(String(tournamentId));
+      const requestIndex = approvedRegistrationRequests.length - 1;
+      if (requestIndex === 1) {
+        return new Promise((resolve) => {
+          releaseApprovedRegistrationRetry = () => {
+            resolve([{
+              id: "result-entry-retry-registration",
+              tournamentId: "result-entry-retry-active",
+              status: "approved",
+              playerName: "Retry Fixture Player",
+              gameUid: "RESULT-RETRY-UID",
+            }]);
+            return true;
+          };
+        });
+      }
+      const errors = [
+        "Initial approved registrations request failed.",
+        "",
+        "Reopened Result Entry request failed.",
+        "Second retry request failed.",
+      ];
+      throw new Error(errors[requestIndex] || "Unexpected approved registrations request.");
+    };
+  } else {
+    apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length, ...scheduledTournaments);
+  }
   if (registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly) {
     apiMocks.configureMyRegistrationPreview([
       {
@@ -238,6 +282,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getTournamentDetailReadCount: apiMocks.getTournamentDetailReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
+    getApprovedRegistrationRequests: () => [...approvedRegistrationRequests],
+    releaseApprovedRegistrationRetry: () => releaseApprovedRegistrationRetry(),
     getLoadAnnouncementEvents: () => loadAnnouncementEvents.map((event) => ({ ...event })),
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
     getVisibleText: () => {
@@ -344,7 +390,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     showAdmin: renderAdmin,
   };
 
-  if (adminInitialLoadFailureOnly) renderAdmin();
+  if (adminInitialLoadFailureOnly || adminResultEntryRetryOnly) renderAdmin();
   else if (tournamentDetailRegistrationFailureOnly) {
     globalThis.__previewRouteParams = { id: "resume-boundary" };
     root.render(React.createElement(TDetail));
