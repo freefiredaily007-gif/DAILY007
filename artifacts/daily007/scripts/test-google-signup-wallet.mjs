@@ -1306,7 +1306,7 @@ try {
   assert.equal(failedView, false, "A failed link must not show a successful connection.");
   await assertWalletBalance("after the failed Google-link exchange");
 
-  await openProfileScenario("profile-link-storage-failure");
+  await openProfileScenario("profile-link-storage-restart");
   const beforeLinkStorageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(beforeLinkStorageFailure, "before the Google-link session-storage failure");
   const storageMetricsBeforeLink = beforeLinkStorageFailure.storageWriteMetrics;
@@ -1358,6 +1358,54 @@ try {
     "Wallet requests must keep using the original password-account bearer token.",
   );
 
+  const callCountBeforeFreshBoot = walletAfterLinkStorageFailure.calls.length;
+  await cdp("Page.reload", { ignoreCache: true });
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))
+        && state.currentSession?.id === "mock-password-player"
+        && state.currentSession?.token === "mock-password-account-token"
+        && state.calls.slice(${callCountBeforeFreshBoot}).some((call) =>
+          call.method === "GET"
+          && call.path === "/auth/me"
+          && call.authorization === "Bearer mock-password-account-token");
+    })()`,
+    "a fresh app boot restoring the persisted password session after the failed Google-link write",
+  );
+  const freshBootSession = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(freshBootSession, "after restoring the password session in a fresh app lifecycle");
+  const freshBootProfileRequests = freshBootSession.calls.slice(callCountBeforeFreshBoot).filter(
+    (call) => call.method === "GET" && call.path === "/auth/me",
+  );
+  assert.ok(freshBootProfileRequests.length > 0, "Fresh startup should verify the saved profile.");
+  assert.ok(
+    freshBootProfileRequests.every(
+      (call) => call.status === 200
+        && call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Fresh startup profile requests must succeed with the original password-account bearer token.",
+  );
+  assert.equal(
+    freshBootSession.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "Restoring after the server-side link must not submit the Google link again.",
+  );
+  await assertWalletBalance("after reopening Daily007 following the failed Google-link session write");
+  const walletAfterFreshBoot = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletAfterFreshBoot, "after opening Wallet in the fresh app lifecycle");
+  const freshBootWalletRequests = walletAfterFreshBoot.calls.slice(callCountBeforeFreshBoot).filter(
+    (call) => call.method === "GET" && call.path === "/wallet/transactions",
+  );
+  assert.ok(freshBootWalletRequests.length > 0, "Wallet should load after restoring the saved password session.");
+  assert.ok(
+    freshBootWalletRequests.every(
+      (call) => call.status === 200
+        && call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Fresh Wallet requests must succeed with the original password-account bearer token.",
+  );
+
   await clickSelector('[data-testid="mock-tab-profile"]', "return to Profile after the successful server link");
   await waitForExpression(
     `document.body.innerText.includes("Google connection confirmed.")
@@ -1394,7 +1442,7 @@ try {
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google signup retries, password signup recovery across reload and login, and Profile Google-link network-retry/success/cancel/error/storage-failure scenarios.",
+    "PASS — Google signup retries, password signup recovery across reload and login, and Profile Google-link network-retry/success/cancel/error/storage-failure/restart scenarios.",
   );
 } finally {
   socket?.close();

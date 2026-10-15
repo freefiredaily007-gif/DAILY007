@@ -42,8 +42,11 @@ const scenario = new URLSearchParams(window.location.search).get("scenario");
 const storageFailureScenario = scenario === "storage-write-failure";
 const passwordSignupStorageFailureScenario = scenario === "password-signup-storage-failure";
 const passwordSignupRestartScenario = scenario === "password-signup-restart";
+const profileLinkStorageRestartScenario = scenario === "profile-link-storage-restart";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
 const restartScenarioMarkerKey = "daily007-test-password-signup-scenario";
+const profileLinkRestartBackendStorageKey = "daily007-test-profile-link-backend";
+const profileLinkRestartScenarioMarkerKey = "daily007-test-profile-link-scenario";
 let passwordSignupRestartFirstLoad = false;
 if (passwordSignupRestartScenario) {
   passwordSignupRestartFirstLoad =
@@ -53,15 +56,33 @@ if (passwordSignupRestartScenario) {
     window.localStorage.removeItem(restartBackendStorageKey);
   }
 }
+let profileLinkStorageRestartFirstLoad = false;
+if (profileLinkStorageRestartScenario) {
+  profileLinkStorageRestartFirstLoad =
+    window.sessionStorage.getItem(profileLinkRestartScenarioMarkerKey) !== scenario;
+  if (profileLinkStorageRestartFirstLoad) {
+    window.sessionStorage.setItem(profileLinkRestartScenarioMarkerKey, scenario);
+    window.localStorage.removeItem(profileLinkRestartBackendStorageKey);
+  }
+}
 const savedRestartBackendState = passwordSignupRestartScenario
   ? JSON.parse(window.localStorage.getItem(restartBackendStorageKey) ?? "{}")
   : {};
+const savedProfileLinkRestartBackendState = profileLinkStorageRestartScenario
+  ? JSON.parse(window.localStorage.getItem(profileLinkRestartBackendStorageKey) ?? "{}")
+  : {};
 const heldGoogleExchangeScenario = scenario === "double-tap" || scenario === "login-conflict";
 const profileLinkScenario = scenario?.startsWith("profile-link-") ?? false;
-const calls = passwordSignupRestartScenario ? (savedRestartBackendState.calls ?? []) : [];
+const calls = passwordSignupRestartScenario
+  ? (savedRestartBackendState.calls ?? [])
+  : profileLinkStorageRestartScenario
+    ? (savedProfileLinkRestartBackendState.calls ?? [])
+    : [];
 const unexpectedRequests = passwordSignupRestartScenario
   ? (savedRestartBackendState.unexpectedRequests ?? [])
-  : [];
+  : profileLinkStorageRestartScenario
+    ? (savedProfileLinkRestartBackendState.unexpectedRequests ?? [])
+    : [];
 const pendingGoogleExchangeResolvers = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
@@ -70,9 +91,18 @@ let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
 let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 0;
 let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
 let passwordSignupLoginCredentialMatched = savedRestartBackendState.passwordSignupLoginCredentialMatched ?? false;
-let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked";
+let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked"
+  || (profileLinkStorageRestartScenario && Boolean(savedProfileLinkRestartBackendState.googleLinked));
 
 function persistRestartBackendState() {
+  if (profileLinkStorageRestartScenario) {
+    window.localStorage.setItem(profileLinkRestartBackendStorageKey, JSON.stringify({
+      calls,
+      unexpectedRequests,
+      googleLinked: googleLinkedForPasswordAccount,
+    }));
+    return;
+  }
   if (!passwordSignupRestartScenario) return;
   window.localStorage.setItem(restartBackendStorageKey, JSON.stringify({
     calls,
@@ -245,6 +275,7 @@ http.defaults.adapter = async (config) => {
       : { ...ACCOUNT, token: DAILY007_TOKEN });
   }
   if (method === "GET" && path === "/auth/me") {
+    call.status = 200;
     const account = passwordSignupStorageFailureScenario || passwordSignupRestartScenario
       ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
@@ -256,6 +287,7 @@ http.defaults.adapter = async (config) => {
     return respond(config, { stats: { matches: 0, wins: 0, kills: 0, prizeCoins: 0 } });
   }
   if (method === "GET" && path === "/wallet/transactions") {
+    call.status = 200;
     return respond(config, profileLinkScenario
       ? [{
         id: "mock-password-account-wallet-row",
@@ -274,7 +306,9 @@ http.defaults.adapter = async (config) => {
         createdAt: "2026-10-05T10:00:00.000Z",
       }]);
   }
-  if (method === "GET" && path === "/my/payments") return respond(config, []);
+  if (method === "GET" && path === "/my/payments") {
+    return respond(config, { items: [], nextCursor: null });
+  }
   if (method === "GET" && path === "/my/withdrawals") return respond(config, []);
   if (method === "GET" && path === "/settings") {
     return respond(config, {
@@ -299,11 +333,18 @@ http.defaults.adapter = async (config) => {
   });
 };
 
-storage.clear();
+if (profileLinkStorageRestartScenario) {
+  storage.enablePersistentMode();
+  storage.clear({ preservePersistent: !profileLinkStorageRestartFirstLoad });
+} else {
+  storage.clear();
+}
 if (storageFailureScenario) storage.failNextSessionWrite();
 if (passwordSignupStorageFailureScenario) storage.failSessionWrites(2);
 if (passwordSignupRestartScenario && passwordSignupRestartFirstLoad) storage.failNextSessionWrite();
-if (profileLinkScenario) storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
+if (profileLinkScenario && (!profileLinkStorageRestartScenario || profileLinkStorageRestartFirstLoad)) {
+  storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
+}
 resetClerkMock({
   startResultType: scenario === "profile-link-cancel" ? "dismiss" : null,
 });
