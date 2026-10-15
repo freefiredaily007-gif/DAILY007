@@ -273,23 +273,31 @@ function renderSessionStartRetry(sessionStartRetryAvailable, sessionStartRetryPe
 }
 
 function renderCoinClaimRetry(retrySession) {
+  return createCoinClaimRetry(retrySession, () => {}).markup;
+}
+
+function createCoinClaimRetry(retrySession, claimViewReward, rewardPending = false) {
+  let onPress = null;
   const element = evaluateJsxConditional(findJsxConditional("retrySession"), {
     React,
     retrySession,
-    Pressable: ({ accessibilityLabel, children, testID }) => React.createElement(
-      "button",
-      { "aria-label": accessibilityLabel, "data-testid": testID },
-      children,
-    ),
+    Pressable: ({ accessibilityLabel, children, onPress: pressHandler, testID }) => {
+      onPress = pressHandler;
+      return React.createElement(
+        "button",
+        { "aria-label": accessibilityLabel, "data-testid": testID },
+        children,
+      );
+    },
     Text: createTestText,
     Feather: () => null,
     styles: { retryButton: {}, externalButtonText: {} },
     colors: { primary: "#0000ff" },
-    rewardPending: false,
-    claimViewReward() {},
+    rewardPending,
+    claimViewReward,
   });
 
-  return renderToStaticMarkup(element);
+  return { markup: renderToStaticMarkup(element), onPress };
 }
 
 function waitFor(predicate, message) {
@@ -307,6 +315,66 @@ function waitFor(predicate, message) {
     poll();
   });
 }
+
+test("retrying a failed coin claim resubmits the same video session and playback percentage", async () => {
+  const apiError = loadApiErrorHelper();
+  const playbackCycleRef = { current: 1 };
+  const claimRequests = [];
+  let retrySession = null;
+  let rewardError = "";
+  let rewardMessage = "";
+  let rewardPending = false;
+  let refreshCalls = 0;
+  const claimViewReward = loadScreenCallback("claimViewReward", {
+    playbackCycleRef,
+    setRewardPending: (value) => { rewardPending = value; },
+    setRewardError: (value) => { rewardError = value; },
+    completeVideoWatch: ({ data }) => {
+      claimRequests.push(data);
+      if (claimRequests.length === 1) {
+        return Promise.reject(new Error("Temporary ledger save failure"));
+      }
+      return Promise.resolve({ message: "1 coin added to your wallet.", rewarded: true });
+    },
+    setRewardMessage: (value) => { rewardMessage = value; },
+    setRetrySession: (value) => { retrySession = value; },
+    refresh: async () => { refreshCalls += 1; },
+    apiError,
+    VIDEO_UNAVAILABLE_FOR_REWARDS: "This video is unavailable.",
+  });
+
+  await claimViewReward("original-video-session", 82.5);
+  assert.equal(rewardError, "Temporary ledger save failure");
+  assert.deepEqual(retrySession, {
+    sessionId: "original-video-session",
+    percent: 82.5,
+  });
+  assert.equal(rewardPending, false);
+
+  const retryControl = createCoinClaimRetry(retrySession, claimViewReward, rewardPending);
+  assert.match(retryControl.markup, /data-testid="video-retry-claim"/);
+  assert.equal(typeof retryControl.onPress, "function");
+  retryControl.onPress();
+
+  await waitFor(
+    () => claimRequests.length === 2 && rewardMessage !== "",
+    "The retry action should submit the claim again and show its success message.",
+  );
+  assert.deepEqual(claimRequests, [
+    { sessionId: "original-video-session", percentWatched: 82.5 },
+    { sessionId: "original-video-session", percentWatched: 82.5 },
+  ]);
+  assert.equal(rewardMessage, "1 coin added to your wallet.");
+  assert.equal(rewardError, "");
+  assert.equal(retrySession, null, "A successful claim should clear the retry session.");
+  assert.equal(rewardPending, false);
+  assert.equal(refreshCalls, 1);
+  assert.equal(
+    renderCoinClaimRetry(retrySession),
+    "",
+    "The coin-claim retry control should disappear after success.",
+  );
+});
 
 test("a failed start can retry the same attempt without counting the failed wait or changing replay identity", async () => {
   const unavailableMessage = "This video is unavailable.";
