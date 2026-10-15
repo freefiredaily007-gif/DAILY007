@@ -7,6 +7,7 @@ let sessionWriteAttempts = 0;
 let rejectedSessionWrites = 0;
 let holdNextSessionWrite = false;
 let heldSessionWriteResolver: (() => void) | null = null;
+let heldSessionWriteRejecter: ((error: Error) => void) | null = null;
 
 export const storage = {
   async getItem(key: string) {
@@ -23,10 +24,12 @@ export const storage = {
       }
       if (holdNextSessionWrite) {
         holdNextSessionWrite = false;
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((resolve, reject) => {
           heldSessionWriteResolver = resolve;
+          heldSessionWriteRejecter = reject;
         });
         heldSessionWriteResolver = null;
+        heldSessionWriteRejecter = null;
       }
     }
     entries.set(key, value);
@@ -43,6 +46,7 @@ export const storage = {
   clear(options: { preservePersistent?: boolean } = {}) {
     heldSessionWriteResolver?.();
     heldSessionWriteResolver = null;
+    heldSessionWriteRejecter = null;
     entries.clear();
     if (!options.preservePersistent) {
       for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
@@ -71,7 +75,17 @@ export const storage = {
     if (!heldSessionWriteResolver) return false;
     const resolve = heldSessionWriteResolver;
     heldSessionWriteResolver = null;
+    heldSessionWriteRejecter = null;
     resolve();
+    return true;
+  },
+  rejectHeldSessionWrite() {
+    if (!heldSessionWriteRejecter) return false;
+    const reject = heldSessionWriteRejecter;
+    heldSessionWriteResolver = null;
+    heldSessionWriteRejecter = null;
+    rejectedSessionWrites += 1;
+    reject(new Error("Mock AsyncStorage rejected setItem."));
     return true;
   },
   hasHeldSessionWrite() {

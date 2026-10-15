@@ -387,6 +387,9 @@ window.__daily007GoogleSignupWalletTest = {
   releaseHeldSessionWrite() {
     return storage.releaseHeldSessionWrite();
   },
+  rejectHeldSessionWrite() {
+    return storage.rejectHeldSessionWrite();
+  },
 };
 
 createRoot(document.getElementById("root")).render(<App />);

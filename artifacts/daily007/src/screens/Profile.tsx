@@ -277,11 +277,11 @@ export default function Profile() {
                 await refresh();
               }}
             />
-            {!!googleConnectError && <Text style={s.statsError}>{googleConnectError}</Text>}
           </>
         ) : (
           <Text testID="profile-google-status-loading" style={s.connected}>Checking Google connection…</Text>
         )}
+        {!!googleConnectError && <Text style={s.statsError}>{googleConnectError}</Text>}
       </Card>
 
       <SectionTitle accent={C.gold}>SECURITY</SectionTitle>

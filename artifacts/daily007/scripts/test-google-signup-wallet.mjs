@@ -1420,6 +1420,85 @@ try {
   assert.equal(linkedAfterNavigation.currentSession?.coins, 42);
   assert.equal(linkedAfterNavigation.currentSession?.token, "mock-password-account-token");
 
+  await openProfileScenario("profile-link-storage-delayed-failure");
+  const beforeDelayedStorageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(beforeDelayedStorageFailure, "before delayed Google-link storage failure");
+  const delayedWriteMetricsBefore = beforeDelayedStorageFailure.storageWriteMetrics;
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.holdNextSessionWrite()"),
+    true,
+    "The isolated storage mock should hold the refreshed-session write.",
+  );
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "Connect Google before holding the refreshed-session write",
+  );
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return state.heldSessionWrite
+        && state.calls.some((call) => call.method === "POST"
+          && call.path === "/auth/google" && call.status === 200);
+    })()`,
+    "the successful Google exchange waiting for the delayed session write",
+  );
+  const delayedWritePending = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(delayedWritePending, "while the Google-link session write is pending");
+  assert.equal(
+    delayedWritePending.storageWriteMetrics.sessionWriteAttempts,
+    delayedWriteMetricsBefore.sessionWriteAttempts + 1,
+  );
+  assert.equal(
+    delayedWritePending.storageWriteMetrics.rejectedSessionWrites,
+    delayedWriteMetricsBefore.rejectedSessionWrites,
+    "The storage write must still be pending before switching tabs.",
+  );
+
+  const walletCallStart = delayedWritePending.calls.length;
+  await assertWalletBalance("while Google-link session persistence is pending");
+  const walletBeforeDelayedRejection = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletBeforeDelayedRejection, "while Wallet is open and the session write is pending");
+  assert.equal(walletBeforeDelayedRejection.heldSessionWrite, true);
+  const walletCallsDuringWrite = walletBeforeDelayedRejection.calls.slice(walletCallStart).filter(
+    (call) => call.method === "GET" && call.path === "/wallet/transactions",
+  );
+  assert.ok(walletCallsDuringWrite.length > 0, "Wallet should load while the Google-link save is pending.");
+  assert.ok(
+    walletCallsDuringWrite.every(
+      (call) => call.status === 200 && call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Wallet requests during the pending write must succeed with the original password-account token.",
+  );
+
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.rejectHeldSessionWrite()"),
+    true,
+    "The delayed AsyncStorage write should reject after Wallet has loaded.",
+  );
+  await clickSelector('[data-testid="mock-tab-profile"]', "return to Profile after the delayed write rejects");
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the recoverable storage message after returning to Profile",
+  );
+  const delayedStorageFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(delayedStorageFailure, "after returning to Profile from Wallet");
+  assert.equal(delayedStorageFailure.heldSessionWrite, false);
+  assert.equal(
+    delayedStorageFailure.storageWriteMetrics.rejectedSessionWrites,
+    delayedWriteMetricsBefore.rejectedSessionWrites + 1,
+  );
+  assert.equal(
+    delayedStorageFailure.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "The delayed storage error must not retry the completed Google-link exchange.",
+  );
+  assert.equal(
+    delayedStorageFailure.calls.find((call) => call.method === "POST" && call.path === "/auth/google")?.status,
+    200,
+  );
+  assert.deepEqual(delayedStorageFailure.clerk.events, ["start-sso", "set-active", "get-token", "get-token"]);
+  assert.equal(delayedStorageFailure.unexpectedRequests.length, 0);
+
   await openProfileScenario("profile-link-already-linked");
   const alreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(alreadyLinked, "after restoring an already-linked Google account");
