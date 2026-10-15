@@ -23,6 +23,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [regs, setRegs] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const coinAdjustmentsInFlight = useRef(new Set<string>());
   const [roleChangeTarget, setRoleChangeTarget] = useState<any | null>(null);
   const [deleteWarningTarget, setDeleteWarningTarget] = useState<any | null>(null);
   const [deleteEmailTarget, setDeleteEmailTarget] = useState<any | null>(null);
@@ -80,8 +81,10 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
       : `Make ${u.name} a Tournament Admin`;
 
   const submitAdjustment = async (adjustment: CoinAdjustment) => {
-    if (busy === adjustment.user.$id) return;
-    setBusy(adjustment.user.$id);
+    const userId = String(adjustment.user.$id);
+    if (coinAdjustmentsInFlight.current.has(userId) || busy === userId) return;
+    coinAdjustmentsInFlight.current.add(userId);
+    setBusy(userId);
     try {
       await Api.adminAdjustCoins(
         adjustment.user.$id,
@@ -102,6 +105,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         'error',
       );
     } finally {
+      coinAdjustmentsInFlight.current.delete(userId);
       setBusy(null);
     }
   };

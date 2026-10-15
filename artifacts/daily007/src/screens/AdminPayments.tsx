@@ -19,6 +19,7 @@ function withdrawalPayoutStatusLabel(status: AdminWithdrawal['payoutStatus'] | u
 export default function AdminPayments() {
   const [tab, setTab] = useState<(typeof TABS)[number]>('pending');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const requestMutationsInFlight = useRef(new Set<string>());
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const okMsgTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,10 +74,13 @@ export default function AdminPayments() {
   const list = (all ?? []).filter((x) => x.status === tab);
 
   const act = async (id: string, kind: string, action: 'approve' | 'reject', userName: string) => {
+    const requestKey = `${kind}:${id}`;
+    if (requestMutationsInFlight.current.has(requestKey)) return;
     if (action === 'reject') {
       setRejectTarget({ id, kind, userName });
       return;
     }
+    requestMutationsInFlight.current.add(requestKey);
     setErr(''); clearOkMsgTimeout(); setOkMsg(''); setBusyId(id);
     try {
       if (kind === 'withdrawal') await Api.adminWithdrawalAction(id, action);
@@ -93,13 +97,19 @@ export default function AdminPayments() {
         `The request remains in this list. Check its status, then activate ${actionLabel} for ${userName || 'this player'} to retry.`,
       );
     }
-    finally { setBusyId(null); }
+    finally {
+      requestMutationsInFlight.current.delete(requestKey);
+      setBusyId(null);
+    }
   };
 
   const reject = async (reason: string) => {
     const target = rejectTarget;
     if (!target) return;
     if (!reason.trim()) { setErr('A rejection reason is required.'); return; }
+    const requestKey = `${target.kind}:${target.id}`;
+    if (requestMutationsInFlight.current.has(requestKey)) return;
+    requestMutationsInFlight.current.add(requestKey);
     setRejectBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
     try {
       if (target.kind === 'withdrawal') await Api.adminWithdrawalAction(target.id, 'reject', reason.trim());
@@ -115,7 +125,10 @@ export default function AdminPayments() {
         `The request remains in this list. Check its status, then activate REJECT for ${target.userName || 'this player'} to retry.`,
       );
     }
-    finally { setRejectBusy(false); }
+    finally {
+      requestMutationsInFlight.current.delete(requestKey);
+      setRejectBusy(false);
+    }
   };
 
   const showProof = async (id: string) => {
@@ -136,6 +149,9 @@ export default function AdminPayments() {
   const markPaid = async () => {
     const targetId = payoutTarget;
     if (!targetId) return;
+    const requestKey = `withdrawal:${targetId}`;
+    if (requestMutationsInFlight.current.has(requestKey)) return;
+    requestMutationsInFlight.current.add(requestKey);
     const request = all?.find((item) => item.kind === 'withdrawal' && item.id === targetId);
     setPayoutBusy(true); setErr(''); clearOkMsgTimeout(); setOkMsg('');
     try {
@@ -158,7 +174,10 @@ export default function AdminPayments() {
         `The withdrawal remains in this list. Check its payout status before activating RECORD MANUAL PAYOUT SENT again.`,
       );
     }
-    finally { setPayoutBusy(false); }
+    finally {
+      requestMutationsInFlight.current.delete(requestKey);
+      setPayoutBusy(false);
+    }
   };
 
   return (

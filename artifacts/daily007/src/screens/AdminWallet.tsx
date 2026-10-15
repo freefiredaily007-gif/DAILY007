@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
@@ -22,6 +22,7 @@ export default function AdminWallet() {
   const [txns, setTxns] = useState<any[] | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const coinAdjustmentsInFlight = useRef(new Set<string>());
   const [prompt, setPrompt] = useState<{ u: any; sign: 1 | -1 } | null>(null);
   const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
@@ -47,8 +48,10 @@ export default function AdminWallet() {
   };
 
   const submitAdjustment = async (adjustment: CoinAdjustment) => {
-    if (busy === adjustment.user.$id) return;
-    setBusy(adjustment.user.$id);
+    const userId = String(adjustment.user.$id);
+    if (coinAdjustmentsInFlight.current.has(userId) || busy === userId) return;
+    coinAdjustmentsInFlight.current.add(userId);
+    setBusy(userId);
     try {
       await Api.adminAdjustCoins(
         adjustment.user.$id,
@@ -69,6 +72,7 @@ export default function AdminWallet() {
         'error',
       );
     } finally {
+      coinAdjustmentsInFlight.current.delete(userId);
       setBusy(null);
     }
   };
