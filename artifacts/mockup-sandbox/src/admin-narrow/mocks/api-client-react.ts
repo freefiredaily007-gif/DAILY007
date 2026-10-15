@@ -182,6 +182,24 @@ const rewardPreviewVideos = [
     url: "https://www.youtube.com/watch?v=preview-active-video",
   },
 ];
+const delayedStartAcrossVideosPreviewVideos = [
+  {
+    id: "delayed-start-video-a",
+    title: "Delayed Start Preview Video A",
+    topic: "Pending session race",
+    youtubeId: "preview-delayed-start-a",
+    url: "https://www.youtube.com/watch?v=preview-delayed-start-a",
+    active: true,
+  },
+  {
+    id: "delayed-start-video-b",
+    title: "Delayed Start Preview Video B",
+    topic: "Pending session race",
+    youtubeId: "preview-delayed-start-b",
+    url: "https://www.youtube.com/watch?v=preview-delayed-start-b",
+    active: true,
+  },
+];
 const activeRewardPreviewVideos = rewardPreviewVideos.filter((video) => video.id !== "unavailable-video");
 const catalogPositionPreviewVideos = Array.from({ length: 18 }, (_, index) => {
   const number = String(index + 1).padStart(2, "0");
@@ -212,6 +230,7 @@ type VideoRewardPreviewMode =
   | "lateCompletion"
   | "startFailure"
   | "delayedStart"
+  | "delayedStartAcrossVideos"
   | null;
 type VideoRewardPreviewCalls = {
   starts: unknown[];
@@ -287,7 +306,9 @@ export function useDaily007ListVideos() {
     || mode === "connectivityRecovery";
   const previewVideos = mode === "catalogPositionRefreshFailure"
     ? catalogPositionPreviewVideos
-    : rewardPreviewVideos;
+    : mode === "delayedStartAcrossVideos"
+      ? delayedStartAcrossVideosPreviewVideos
+      : rewardPreviewVideos;
   const videos = mode
     ? removesUnavailable && refreshCount > 0
       ? activeRewardPreviewVideos
@@ -409,7 +430,11 @@ export function useDaily007StartVideoWatch() {
           throw new Error("The video watch session could not be created.");
         }
         const sessionId = `preview-video-watch-session-${calls.starts.length}`;
-        if (videoRewardPreviewMode === "delayedStart" && calls.starts.length === 1) {
+        if (
+          (videoRewardPreviewMode === "delayedStart"
+            || videoRewardPreviewMode === "delayedStartAcrossVideos")
+          && calls.starts.length === 1
+        ) {
           await new Promise<void>((resolve) => {
             const preview = globalThis as typeof globalThis & {
               __resolvePendingVideoWatchStart?: () => void;

@@ -2182,6 +2182,109 @@ async function checkRepeatedProgressWhileVideoWatchStartPending() {
   console.log("PASS — repeated progress during a pending start creates one session, and completion uses that session.");
 }
 
+async function checkDelayedVideoWatchStartAcrossVideos() {
+  await navigateToScreen("VideoDelayedStartAcrossVideos", "Tutorial Videos");
+  await clickSelector(
+    '[data-testid="video-catalog-card-delayed-start-video-a"]',
+    "first video for the cross-video delayed-start test",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "first video's playback simulator",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector(
+    '[data-testid="video-preview-start-playback"]',
+    "start video A while holding its session response",
+  );
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 1
+      && typeof window.__resolvePendingVideoWatchStart === "function"`,
+    "video A's pending watch-session request",
+  );
+
+  await clickSelector('[data-testid="video-catalog-back"]', "return to the catalog with video A pending");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-catalog-card-delayed-start-video-b\"]'))",
+    "video B in the catalog",
+  );
+  await clickSelector(
+    '[data-testid="video-catalog-card-delayed-start-video-b"]',
+    "open video B before video A's session response",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video B's playback simulator",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector(
+    '[data-testid="video-preview-start-playback"]',
+    "start video B with its own watch session",
+  );
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 2
+      && window.__videoRewardPreviewCalls?.sessions.length === 1`,
+    "video B's watch-session response",
+  );
+  const videoBStarted = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts ?? [],
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+  }))()`);
+  assert(
+    videoBStarted.starts[0]?.data?.videoId === "delayed-start-video-a"
+      && videoBStarted.starts[1]?.data?.videoId === "delayed-start-video-b"
+      && videoBStarted.sessions[0] === "preview-video-watch-session-2",
+    `Video B must have its own session before A's response arrives: ${JSON.stringify(videoBStarted)}`,
+  );
+
+  await evaluate("window.__resolvePendingVideoWatchStart?.()");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.sessions.length === 2
+      && typeof window.__resolvePendingVideoWatchStart !== "function"`,
+    "video A's late watch-session response",
+  );
+  const afterLateVideoA = await evaluate(`(() => ({
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+    videoBStillOpen: document.body.innerText.includes("Delayed Start Preview Video B"),
+  }))()`);
+  assert(
+    afterLateVideoA.sessions[0] === "preview-video-watch-session-2"
+      && afterLateVideoA.sessions[1] === "preview-video-watch-session-1"
+      && afterLateVideoA.completions.length === 0
+      && afterLateVideoA.videoBStillOpen,
+    `Video A's late response must leave video B open and must not start a completion: ${JSON.stringify(afterLateVideoA)}`,
+  );
+
+  await clickSelector('[data-testid="video-preview-finish-playback"]', "complete video B after video A's late response");
+  await waitForCondition(
+    `document.body.innerText.includes("1 coin added to your wallet.")
+      && window.__videoRewardPreviewCalls?.completions.length === 1`,
+    "video B's reward completion",
+  );
+  const completedVideoB = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts ?? [],
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+  }))()`);
+  assert(
+    completedVideoB.starts.length === 2
+      && completedVideoB.sessions.includes("preview-video-watch-session-1")
+      && completedVideoB.sessions.includes("preview-video-watch-session-2")
+      && completedVideoB.completions.length === 1
+      && completedVideoB.completions[0]?.data?.sessionId === "preview-video-watch-session-2"
+      && completedVideoB.completions[0]?.data?.percentWatched >= 75,
+    `Video B's completion must use only its own session after A resolves late: ${JSON.stringify(completedVideoB)}`,
+  );
+  console.log("PASS — video A's late start response cannot replace video B's session or reward video B with A's session.");
+}
+
 async function checkProfilePasswordConflictRetry() {
   const conflictMessage = "The password changed in another session. Sign in again and retry.";
   const successMessage = "Password changed. Other sessions stay active until the next sign-in.";
@@ -2338,6 +2441,7 @@ try {
   if (pendingVideoWatchStartOnly) {
     await checkDelayedVideoWatchStart();
     await checkRepeatedProgressWhileVideoWatchStartPending();
+    await checkDelayedVideoWatchStartAcrossVideos();
   }
   if (videoCatalogRefreshAnnouncementOnly) {
     await checkUnavailableVideoCatalogRefreshFailure();
@@ -2410,6 +2514,7 @@ try {
       await checkTransientVideoRewardRetry();
       await checkDelayedVideoWatchStart();
       await checkRepeatedProgressWhileVideoWatchStartPending();
+      await checkDelayedVideoWatchStartAcrossVideos();
     }
 
     await navigateToScreen("Home", "GAME MODES");
@@ -2459,7 +2564,7 @@ try {
       : lateVideoRewardResponseOnly
         ? "PASS — late video completion responses cannot affect the next playback, and its own retry still works."
         : pendingVideoWatchStartOnly
-          ? "PASS — repeated progress during a pending video start creates one session, and completion uses it."
+          ? "PASS — pending video starts are isolated across playback sessions, and completion uses each playback's own session."
           : videoCatalogRefreshAnnouncementOnly
             ? "PASS — repeated catalog failures are announced without moving focus, and successful recovery is announced."
             : videoCatalogRetryPendingOnly
