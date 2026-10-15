@@ -34,6 +34,7 @@ const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
 const refreshReturnOnly = process.argv.includes("--refresh-return-only");
 const refreshCoalescingOnly = process.argv.includes("--refresh-coalescing-only");
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
+const singleHomeCardOnly = process.argv.includes("--home-carousel-single-card-only");
 const homeStartTransitionOnly = process.argv.includes("--home-start-transition-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
 const homeDisabledTournamentRefreshOnly = process.argv.includes("--home-disabled-tournament-refresh-only");
@@ -5714,8 +5715,30 @@ async function checkSingleHomeCarouselCard(width) {
     `${description} announced a page change despite having only one match.`,
   );
   await assertHomeCarouselAccessibility(cards, 0, `${description} with TalkBack enabled`);
+  const beforeActivation = await readHomeCarouselState();
+  assert(
+    beforeActivation?.scrollLeft === 0 &&
+      beforeActivation.cards[0]?.id === "starting-soon" &&
+      beforeActivation.cards[0]?.label?.includes("Position 1 of 1"),
+    `${description} changed the selected card or its position label before activation: ${JSON.stringify(beforeActivation)}.`,
+  );
+  const navigationsBeforeActivation = await evaluate("globalThis.__previewNavigations ?? []");
+  assert(
+    navigationsBeforeActivation.length === 0,
+    `${description} navigated before the one-card button was activated.`,
+  );
+  await assertHomeCarouselCardOpens(
+    "starting-soon",
+    `${description} TalkBack button`,
+  );
+  const navigationsAfterActivation = await evaluate("globalThis.__previewNavigations ?? []");
+  assert(
+    JSON.stringify(navigationsAfterActivation) ===
+      JSON.stringify([["TDetail", { id: "starting-soon" }]]),
+    `${description} should open the matching tournament details exactly once.`,
+  );
   console.log(
-    `PASS — ${description}: accessible name includes 1 of 1, one focus stop, no page indicator, and no auto-advance.`,
+    `PASS — ${description}: accessible name includes 1 of 1, one focus stop, no page indicator or auto-advance, and activation opens its matching details.`,
   );
 }
 
@@ -8235,6 +8258,8 @@ try {
         ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
     : homeStartTransitionOnly
       ? "home-carousel-preview.html?home-start-selection=1"
+      : singleHomeCardOnly
+        ? "home-carousel-preview.html?single-card=1"
       : homeCarouselOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
@@ -8313,6 +8338,7 @@ try {
     sameTimeStartOnly ||
     istDateSurfacesOnly ||
     homeCarouselOnly ||
+    singleHomeCardOnly ||
     homeStartTransitionOnly ||
     homeRetryOnly ||
     homeDisabledTournamentRefreshOnly ||
@@ -8335,13 +8361,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8363,6 +8389,8 @@ try {
             ? "Home scheduled-start carousel selection"
          : homeCarouselOnly
          ? "Home carousel"
+        : singleHomeCardOnly
+          ? "Single-card Home carousel activation"
         : adminTournamentHomeRefreshOnly
           ? "Admin tournament creation and Home scheduled refresh"
         : adminTournamentEmptyFilterOnly
@@ -8706,6 +8734,14 @@ try {
       assert(
         newBrowserErrors.length === 0,
         `New browser errors during Home retry recovery checks: ${newBrowserErrors.join(" | ")}`,
+      );
+    } else if (singleHomeCardOnly) {
+      const knownHomePreviewErrors = new Set(browserErrors);
+      await checkSingleHomeCarouselCard(390);
+      const newBrowserErrors = browserErrors.filter((error) => !knownHomePreviewErrors.has(error));
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during one-card Home activation checks: ${newBrowserErrors.join(" | ")}`,
       );
     } else if (homeCarouselOnly) {
       let homePreviewErrorBaseline;

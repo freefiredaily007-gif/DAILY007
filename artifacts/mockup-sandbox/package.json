@@ -37,6 +37,7 @@
     "test:admin-search-accessibility": "node scripts/test-admin-narrow.mjs --admin-search-accessibility-only",
     "test:admin-tournament-create-save": "node scripts/test-admin-narrow.mjs --admin-tournament-create-save-only",
     "test:admin-tournament-empty-filter": "node scripts/test-admin-narrow.mjs --admin-tournament-empty-filter-only",
+    "test:home-carousel-single-card": "node scripts/test-admin-narrow.mjs --home-carousel-single-card-only",
     "test:admin-tournament-home-refresh": "node scripts/test-admin-narrow.mjs --admin-tournament-home-refresh-only",
     "test:admin-tournament-edit-save": "node scripts/test-admin-narrow.mjs --admin-tournament-edit-save-only",
     "test:tournament-refresh-return": "node scripts/test-admin-narrow.mjs --refresh-return-only",
