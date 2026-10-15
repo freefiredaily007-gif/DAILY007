@@ -745,6 +745,23 @@ test("concurrent first-place submissions serialize on the real tournament row lo
         prize_coins: 500,
       }], "exactly one first-place award must be stored");
 
+      const rejectedAward = await pool.query(
+        "SELECT registration_id FROM daily007_v2_result_awards WHERE registration_id = $1",
+        [fixture.players[losingIndex].registrationId],
+      );
+      assert.deepEqual(rejectedAward.rows, [], "the rejected player's result must not be saved");
+
+      const standings = await publicStandings(origin, fixture.matchId);
+      assert.equal(standings.status, 200);
+      assert.equal(standings.body.status, "finalized");
+      assert.deepEqual(standings.body.entries, [{
+        rank: 1,
+        kills: winningIndex === 0 ? 4 : 9,
+        prizeCoins: 500,
+        gameName: `TestGame${winningIndex + 1}`,
+        teamName: null,
+      }], "public standings must expose only the accepted winner");
+
       const wallets = await pool.query<{ id: string; wallet_coins: number }>(
         "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
         [fixture.players.map((player) => player.userId)],
