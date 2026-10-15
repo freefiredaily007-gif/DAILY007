@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -29,6 +30,37 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
+function setupWebPwa() {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+
+  const head = document.head;
+  if (!head.querySelector('link[rel="manifest"]')) {
+    const manifestLink = document.createElement('link');
+    manifestLink.rel = 'manifest';
+    manifestLink.href = '/manifest.json';
+    head.appendChild(manifestLink);
+  }
+  if (!head.querySelector('meta[name="theme-color"]')) {
+    const themeColor = document.createElement('meta');
+    themeColor.name = 'theme-color';
+    themeColor.content = '#070a12';
+    head.appendChild(themeColor);
+  }
+  if (!head.querySelector('link[rel="apple-touch-icon"]')) {
+    const touchIcon = document.createElement('link');
+    touchIcon.rel = 'apple-touch-icon';
+    touchIcon.href = '/icons/icon-192.png';
+    head.appendChild(touchIcon);
+  }
+  if ('serviceWorker' in navigator) {
+    void navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .catch((error) => {
+        console.error('Daily007 service worker registration failed', error);
+      });
+  }
+}
+
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -51,6 +83,10 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+
+  useEffect(() => {
+    setupWebPwa();
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
