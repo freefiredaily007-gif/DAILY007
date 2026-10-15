@@ -88,6 +88,33 @@ function restoreConnectivity() {
   setWifiEnabled(true);
 }
 
+function rebootWhileOfflineAndWaitForBoot() {
+  runChecked("adb", ["reboot"], "Rebooting Android while connectivity is disabled");
+  runChecked(
+    "adb",
+    ["wait-for-device"],
+    "Waiting for Android to reconnect after reboot",
+    { timeout: 180_000 },
+  );
+
+  let lastBootState = "";
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    const bootState = run("adb", ["shell", "getprop", "sys.boot_completed"]);
+    if (bootState.status === 0 && bootState.stdout?.trim() === "1") {
+      lastBootState = "Android reported boot complete";
+      if (readAirplaneModeState() === "1" && readWifiState() === "0") {
+        console.log("Android finished rebooting with airplane mode on and Wi-Fi disabled.");
+        return;
+      }
+      lastBootState = "Android booted, but its offline network settings did not persist";
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+  }
+  throw new Error(
+    `Android did not finish rebooting offline within 180 seconds (${lastBootState || "boot is still incomplete"}).`,
+  );
+}
+
 function runMaestro(flowPath) {
   console.log(`Running Android flow ${flowPath}.`);
   const args = ["test"];
@@ -136,6 +163,11 @@ try {
   restoreConnectivity();
   sessionSeedAttempted = true;
   runMaestro("maestro/session-verification/seed-saved-session.yaml");
+
+  disableConnectivity();
+  rebootWhileOfflineAndWaitForBoot();
+  restoreConnectivity();
+  runMaestro("maestro/session-verification/reboot-restored.yaml");
 
   disableConnectivity();
   runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go offline");

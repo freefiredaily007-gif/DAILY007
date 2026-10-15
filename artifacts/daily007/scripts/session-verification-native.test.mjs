@@ -11,6 +11,7 @@ const files = await Promise.all([
   readFile(new URL("../maestro/session-verification/network-reconnect.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/network-restored.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/network-restart-restored.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/session-verification/reboot-restored.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/seed-saved-session.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/restore-saved-session.yaml", import.meta.url), "utf8"),
   readFile(new URL("../maestro/session-verification/background-before-reconnect.yaml", import.meta.url), "utf8"),
@@ -32,6 +33,7 @@ const [
   networkReconnect,
   networkRestored,
   networkRestartRestored,
+  rebootRestored,
   seedSavedSession,
   restoreSavedSession,
   backgroundBeforeReconnect,
@@ -106,6 +108,24 @@ test("Android restart flow seeds and restores the real persisted Daily007 sessio
   assert.match(networkReconnect, /session-verification-test\?scenario=network/);
   assert.match(networkRestored, /Verified without tapping Retry/);
   assert.match(readme, /AsyncStorage-backed session functions/);
+});
+
+test("Android full reboot restores the persisted session without a Retry tap", () => {
+  assert.match(runner, /function rebootWhileOfflineAndWaitForBoot\(\)/);
+  assert.match(runner, /"adb", \["reboot"\]/);
+  assert.match(runner, /"adb",\s*\["wait-for-device"\]/);
+  assert.match(runner, /getprop", "sys\.boot_completed/);
+  assert.match(runner, /readAirplaneModeState\(\) === "1" && readWifiState\(\) === "0"/);
+  assert.match(
+    runner,
+    /seed-saved-session\.yaml"\);[\s\S]*?disableConnectivity\(\);[\s\S]*?rebootWhileOfflineAndWaitForBoot\(\);[\s\S]*?restoreConnectivity\(\);[\s\S]*?reboot-restored\.yaml/,
+  );
+  assert.match(rebootRestored, /session-verification-test\?scenario=network/);
+  assert.match(rebootRestored, /Saved session automatically verified/);
+  assert.match(rebootRestored, /Verified without tapping Retry/);
+  assert.doesNotMatch(rebootRestored, /tapOn:[\s\S]*?session-verification-retry/);
+  assert.match(readme, /reboots Android/);
+  assert.match(readme, /remain disabled/);
 });
 
 test("transient verification failure keeps the saved session and Retry available", () => {

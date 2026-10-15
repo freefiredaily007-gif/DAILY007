@@ -1,0 +1,13 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/session-verification-test?scenario=network
+- extendedWaitUntil:
+    visible:
+      id: session-verification-test-verified
+    timeout: 30000
+- assertVisible: "Saved session automatically verified"
+- assertVisible: "Verified without tapping Retry"
+- assertVisible: "Verified Native Test Player"
+- assertNotVisible:
+    id: session-verification-retry
