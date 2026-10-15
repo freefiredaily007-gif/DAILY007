@@ -384,6 +384,63 @@ test("a pending recovery request cannot replace a Google link added by a newer s
   });
 });
 
+test("a distinct Full Admin can reject a stale recovery request without changing the newer Google link", async () => {
+  recoveryTestDb.reset();
+  const player = recoveryTestDb.seedUser({
+    id: PLAYER_ID,
+    name: "Player Recovery",
+    email: "player@example.test",
+    status: "active",
+  });
+  recoveryTestDb.seedUser({
+    id: REVIEWER_ID,
+    name: "Full Admin Reviewer",
+    email: "reviewer@example.test",
+    role: "admin",
+    status: "active",
+  });
+  resetMockGoogleUser(verifiedGoogleUser(PLAYER_CLERK_ID, "player@example.test"));
+
+  await withRecoveryServer(async (origin) => {
+    const submitted = await postJson(
+      origin,
+      "/auth/google/recovery-request",
+      {},
+      clerkHeaders(PLAYER_CLERK_ID),
+    );
+    assert.equal(submitted.status, 202);
+    const request = recoveryRecordForUser(PLAYER_ID);
+    assert.ok(request, "the original Google identity should have a pending request");
+    assert.equal(request.google_clerk_user_id, PLAYER_CLERK_ID);
+
+    recoveryTestDb.linkUserToGoogle(PLAYER_ID, NEWER_PLAYER_CLERK_ID);
+    const reviewerToken = makeToken(REVIEWER_ID);
+    assert.ok(reviewerToken);
+    assert.notEqual(REVIEWER_ID, request.user_id);
+
+    const rejected = await postJson(
+      origin,
+      `/admin/account-recovery-requests/${request.id}/reject`,
+      { reviewNote: "Confirmed this request is for the previous Google identity." },
+      { authorization: `Bearer ${reviewerToken}` },
+    );
+
+    assert.equal(rejected.status, 200);
+    assert.deepEqual(rejected.body, { id: request.id, status: "rejected" });
+    assert.equal(player.clerk_user_id, NEWER_PLAYER_CLERK_ID,
+      "rejecting the stale request must retain the Google link added by the newer sign-in");
+    assert.equal(request.google_clerk_user_id, PLAYER_CLERK_ID,
+      "the reviewed record must continue to identify the stale requested Google identity");
+    assert.equal(request.status, "rejected");
+    assert.ok(request.reviewed_at instanceof Date);
+    assert.equal(request.reviewed_by, REVIEWER_ID);
+    assert.equal(request.review_note, "Confirmed this request is for the previous Google identity.");
+    assert.equal(request.review_method, "full_admin");
+    assert.equal(getMockGoogleUserLookupCount(), 1,
+      "rejecting a stale request must not re-verify or link its Google identity");
+  });
+});
+
 test("a pending recovery request cannot link an account blocked after the request was submitted", async () => {
   recoveryTestDb.reset();
   const player = recoveryTestDb.seedUser({
