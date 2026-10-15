@@ -267,7 +267,10 @@ test('Wallet shows fallback and accessible rejection reasons for legacy API reco
   );
 
   assert.match(walletScreenSource, /data=\{txns\}/);
-  assert.match(walletScreenSource, /setTxns\(merged\)/);
+  assert.match(
+    walletScreenSource,
+    /setHistory\(\{ userId: requestedUserId, items: merged, cursor: nextCursor \}\)/,
+  );
   assert.match(
     walletScreenSource,
     /const merged = \[\.\.\.pendingPays, \.\.\.pendingWds, \.\.\.data\]/,

@@ -60,6 +60,7 @@
     "test:google-signup-wallet": "node scripts/test-google-signup-wallet.mjs",
     "test:withdrawal-upi-copy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/withdrawal-upi-copy.test.mjs",
     "test:wallet-cancellation-history": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-cancellation-history.test.mjs",
+    "test:wallet-account-isolation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-account-isolation.test.mjs",
     "test:android-wallet-cancellation-refund-large-text": "node scripts/run-android-wallet-cancellation-refund-large-text.mjs",
     "test:wallet-video-reward-history": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-video-reward-history.test.mjs",
     "test:wallet-recharge-retry": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-recharge-retry.test.mjs",

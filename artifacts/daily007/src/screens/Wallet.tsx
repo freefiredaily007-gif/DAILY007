@@ -1,5 +1,5 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, useWindowDimensions } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect } from '@react-navigation/native';
@@ -17,6 +17,10 @@ import { WalletCancellationRefundRow } from '../components/WalletCancellationRef
 import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
+import {
+  emptyWalletHistoryState,
+  walletHistoryForUser,
+} from '../lib/wallet-history-state';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 const DEFAULT_MIN_WITHDRAW = 100;
@@ -78,10 +82,15 @@ export default function Wallet() {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const { user, refresh } = useApp();
-  const [txns, setTxns] = useState<any[]>([]);
+  const walletUserId = user?.id ?? user?.$id ?? null;
+  const activeWalletUserId = useRef<string | null>(walletUserId);
+  activeWalletUserId.current = walletUserId;
+  const [history, setHistory] = useState(() => emptyWalletHistoryState<any>(walletUserId));
+  const currentUserHistory = walletHistoryForUser(history, walletUserId);
+  const txns = currentUserHistory.items;
   const [loading, setLoading] = useState(true);
   const [loadingMorePayments, setLoadingMorePayments] = useState(false);
-  const [paymentHistoryCursor, setPaymentHistoryCursor] = useState<string | null>(null);
+  const paymentHistoryCursor = currentUserHistory.cursor;
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [rechargeNotice, setRechargeNotice] = useState('');
@@ -111,9 +120,26 @@ export default function Wallet() {
   const [proof, setProof] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const historyLoadVersion = useRef(0);
 
+  useEffect(() => {
+    historyLoadVersion.current += 1;
+    setHistory(emptyWalletHistoryState(walletUserId));
+    setLoading(Boolean(walletUserId));
+    setLoadingMorePayments(false);
+    setError('');
+  }, [walletUserId]);
+
   const load = useCallback(async () => {
+    const requestedUserId = walletUserId;
     const loadVersion = ++historyLoadVersion.current;
     setLoadingMorePayments(false);
+    if (!requestedUserId) {
+      setHistory(emptyWalletHistoryState(null));
+      setLoading(false);
+      return;
+    }
+    const requestIsCurrent = () =>
+      loadVersion === historyLoadVersion.current &&
+      activeWalletUserId.current === requestedUserId;
     try {
       setError('');
       setLoading(true);
@@ -124,12 +150,12 @@ export default function Wallet() {
         Api.myWithdrawals(),
         Api.settings(),
       ]);
-      if (loadVersion !== historyLoadVersion.current) return;
+      if (!requestIsCurrent()) return;
       const pays = paymentPage?.items;
       if (!Array.isArray(data) || !Array.isArray(pays) || !Array.isArray(wds)) {
         throw new Error('The wallet server returned an invalid response.');
       }
-      setPaymentHistoryCursor(typeof paymentPage.nextCursor === 'string' ? paymentPage.nextCursor : null);
+      const nextCursor = typeof paymentPage.nextCursor === 'string' ? paymentPage.nextCursor : null;
       const config = settings?.settings ?? settings ?? {};
       setPaymentUpi(String(config?.upiId ?? config?.upi_id ?? '').trim());
       setPaymentQr(String(config?.upiQrUrl ?? '').trim());
@@ -175,25 +201,29 @@ export default function Wallet() {
         }));
       const merged = [...pendingPays, ...pendingWds, ...data]
         .sort((left, right) => Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? '')));
-      setTxns(merged);
+      setHistory({ userId: requestedUserId, items: merged, cursor: nextCursor });
     } catch (e) {
-      if (loadVersion === historyLoadVersion.current) setError(apiError(e));
+      if (requestIsCurrent()) setError(apiError(e));
     } finally {
-      if (loadVersion === historyLoadVersion.current) setLoading(false);
+      if (requestIsCurrent()) setLoading(false);
     }
-  }, [refresh]);
+  }, [refresh, walletUserId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const loadMorePayments = useCallback(async () => {
     const cursor = paymentHistoryCursor;
-    if (!cursor || loadingMorePayments) return;
+    const requestedUserId = walletUserId;
+    if (!requestedUserId || !cursor || loadingMorePayments) return;
     const loadVersion = historyLoadVersion.current;
+    const requestIsCurrent = () =>
+      loadVersion === historyLoadVersion.current &&
+      activeWalletUserId.current === requestedUserId;
     setLoadingMorePayments(true);
     setError('');
     try {
       const page = await Api.myPaymentsPage(cursor);
-      if (loadVersion !== historyLoadVersion.current) return;
+      if (!requestIsCurrent()) return;
       if (!Array.isArray(page?.items)) throw new Error('The wallet server returned an invalid payment-history page.');
       const olderRequests = page.items
         .filter((payment: any) => payment.status !== 'deleted')
@@ -209,15 +239,21 @@ export default function Wallet() {
           isRequest: true,
           requestType: 'payment',
         }));
-      setTxns((previous) => [...previous, ...olderRequests]
-        .sort((left, right) => Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? ''))));
-      setPaymentHistoryCursor(typeof page.nextCursor === 'string' ? page.nextCursor : null);
+      setHistory((previous) => {
+        const ownedHistory = walletHistoryForUser(previous, requestedUserId);
+        return {
+          userId: requestedUserId,
+          items: [...ownedHistory.items, ...olderRequests]
+            .sort((left, right) => Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? ''))),
+          cursor: typeof page.nextCursor === 'string' ? page.nextCursor : null,
+        };
+      });
     } catch (e) {
-      if (loadVersion === historyLoadVersion.current) setError(apiError(e));
+      if (requestIsCurrent()) setError(apiError(e));
     } finally {
-      if (loadVersion === historyLoadVersion.current) setLoadingMorePayments(false);
+      if (requestIsCurrent()) setLoadingMorePayments(false);
     }
-  }, [loadingMorePayments, paymentHistoryCursor]);
+  }, [loadingMorePayments, paymentHistoryCursor, walletUserId]);
 
   const openSheet = (t: 'add' | 'withdraw') => {
     if (t === 'add' && (!rechargeEnabled || !paymentUpi || !paymentQr)) {
