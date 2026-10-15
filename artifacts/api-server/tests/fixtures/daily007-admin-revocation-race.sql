@@ -77,13 +77,22 @@ CREATE TABLE daily007_v2_wallet_ledger (
 );
 
 CREATE TABLE daily007_v2_matches (
-  id uuid PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
+  mode text NOT NULL DEFAULT 'solo',
+  game_mode text NOT NULL DEFAULT 'battle_royale',
+  team_type text NOT NULL DEFAULT 'solo',
+  capacity integer NOT NULL DEFAULT 48,
+  entry_coins integer NOT NULL DEFAULT 0,
   prize_pool integer NOT NULL DEFAULT 0,
   prize_distribution text NOT NULL DEFAULT '',
   starts_at timestamptz NOT NULL,
   status text NOT NULL DEFAULT 'active',
-  enabled boolean NOT NULL DEFAULT true
+  enabled boolean NOT NULL DEFAULT true,
+  is_full boolean NOT NULL DEFAULT false,
+  room_id text,
+  room_password text,
+  room_published boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE daily007_v2_registrations (

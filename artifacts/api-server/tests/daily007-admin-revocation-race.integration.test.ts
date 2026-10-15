@@ -8,6 +8,7 @@ import { makeToken } from "../src/lib/daily007-session-token";
 import daily007AccountRecoveryRouter from "../src/routes/daily007-account-recovery";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
 import daily007LeaderboardRouter from "../src/routes/daily007-leaderboards";
+import daily007V2Router from "../src/routes/daily007-v2";
 
 const TEST_AUTH_SECRET = "daily007-admin-revocation-race-test-secret-at-least-32-chars";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
@@ -39,6 +40,7 @@ after(async () => {
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
   app.use(express.json());
+  app.use(daily007V2Router);
   app.use(compatExtraRouter);
   app.use(daily007LeaderboardRouter);
   app.use(daily007AccountRecoveryRouter);
@@ -83,6 +85,20 @@ async function patchJson(
 ): Promise<JsonResponse> {
   const response = await fetch(`${origin}${path}`, {
     method: "PATCH",
+    headers: authHeaders(userId),
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function putJson(
+  origin: string,
+  path: string,
+  userId: string,
+  body: Record<string, unknown>,
+): Promise<JsonResponse> {
+  const response = await fetch(`${origin}${path}`, {
+    method: "PUT",
     headers: authHeaders(userId),
     body: JSON.stringify(body),
   });
@@ -204,6 +220,56 @@ async function seedFinancialReadRaceFixture(
     [withdrawalId, playerId, withdrawalAccount],
   );
   return { email, payerUpiId, withdrawalAccount };
+}
+
+async function seedTournamentWriteRaceFixture(
+  tournamentAdminId: string,
+  fullAdminId: string,
+  matchId: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, role, wallet_coins)
+     VALUES
+       ($1, 'Tournament Write Admin', $2, 'test-salt', 'test-hash', 'tournament_admin', 0),
+       ($3, 'Tournament Write Revoker', $4, 'test-salt', 'test-hash', 'admin', 0)`,
+    [
+      tournamentAdminId,
+      `tournament-write-${tournamentAdminId}@example.test`,
+      fullAdminId,
+      `tournament-revoker-${fullAdminId}@example.test`,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_matches
+       (id, title, starts_at, entry_coins, room_id, room_password)
+     VALUES ($1, 'Original tournament', now() + interval '2 days', 5, 'original-room', 'original-password')`,
+    [matchId],
+  );
+}
+
+function startTournamentWriteRequests(
+  origin: string,
+  tournamentAdminId: string,
+  matchId: string,
+): Promise<JsonResponse>[] {
+  const createdStartsAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+  return [
+    postJson(origin, "/daily007/v2/admin/matches", tournamentAdminId, {
+      title: "Race-created tournament",
+      gameMode: "battle_royale",
+      teamType: "solo",
+      startsAt: createdStartsAt,
+      entryCoins: 4,
+    }),
+    patchJson(origin, `/daily007/v2/admin/matches/${matchId}`, tournamentAdminId, {
+      entryCoins: 73,
+    }),
+    putJson(origin, `/daily007/v2/admin/matches/${matchId}/room`, tournamentAdminId, {
+      roomId: "updated-room",
+      roomPassword: "updated-password",
+    }),
+  ];
 }
 
 async function waitForBlockedQuery(fragment: string, description: string, timeoutMs = 5_000): Promise<void> {
@@ -2800,5 +2866,227 @@ test("financial reads already under the admin role gate finish before demotion",
     );
     if (privateObjectDir === undefined) delete process.env.PRIVATE_OBJECT_DIR;
     else process.env.PRIVATE_OBJECT_DIR = privateObjectDir;
+  }
+});
+
+test("tournament writes already under the shared role gate finish before access is revoked", async () => {
+  const tournamentAdminId = randomUUID();
+  const fullAdminId = randomUUID();
+  const matchId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let tableLockHeld = false;
+  let writePromises: Promise<JsonResponse>[] = [];
+  let demotionPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await seedTournamentWriteRaceFixture(tournamentAdminId, fullAdminId, matchId);
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query("LOCK TABLE daily007_v2_matches IN ACCESS EXCLUSIVE MODE");
+    tableLockHeld = true;
+
+    await withServer(async (origin) => {
+      writePromises = startTournamentWriteRequests(origin, tournamentAdminId, matchId);
+      await Promise.all([
+        waitForBlockedQuery(
+          "INSERT INTO daily007_v2_matches",
+          "the authorized match creation after its role check",
+        ),
+        waitForBlockedQuery(
+          "SET entry_coins = COALESCE",
+          "the authorized match update after its role check",
+        ),
+        waitForBlockedQuery(
+          "SET room_id = $2",
+          "the authorized room save after its role check",
+        ),
+      ]);
+
+      demotionPromise = patchJson(
+        origin,
+        `/admin/users/${tournamentAdminId}/role`,
+        fullAdminId,
+        { role: "user" },
+      );
+      await waitForQueryBlockedBy(
+        "SELECT pg_advisory_xact_lock(740073)",
+        "SET entry_coins = COALESCE",
+        "the role revocation to wait for the authorized tournament writes",
+      );
+
+      await blocker!.query("COMMIT");
+      tableLockHeld = false;
+      const [created, updated, roomSaved, demotion] = await Promise.all([
+        ...writePromises,
+        demotionPromise,
+      ]);
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      assert.equal(updated.status, 200, JSON.stringify(updated.body));
+      assert.equal(roomSaved.status, 200, JSON.stringify(roomSaved.body));
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+    });
+
+    const matches = await pool.query<{
+      id: string;
+      entry_coins: number;
+      room_id: string | null;
+      room_password: string | null;
+      room_published: boolean;
+    }>(
+      `SELECT id, entry_coins, room_id, room_password, room_published
+         FROM daily007_v2_matches
+        WHERE id = $1 OR title = 'Race-created tournament'`,
+      [matchId],
+    );
+    assert.equal(matches.rows.length, 2);
+    const existing = matches.rows.find((row) => row.id === matchId);
+    const created = matches.rows.find((row) => row.id !== matchId);
+    assert.deepEqual(existing, {
+      id: matchId,
+      entry_coins: 73,
+      room_id: "updated-room",
+      room_password: "updated-password",
+      room_published: true,
+    });
+    assert.ok(created);
+    assert.equal(created.entry_coins, 4);
+
+    const actor = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [tournamentAdminId],
+    );
+    assert.equal(actor.rows[0]?.role, "user");
+  } finally {
+    if (blocker) {
+      if (tableLockHeld) await blocker.query("ROLLBACK").catch(() => undefined);
+      blocker.release();
+    }
+    await Promise.allSettled([...writePromises, demotionPromise].filter(Boolean) as Promise<unknown>[]);
+    await pool.query(
+      "DELETE FROM daily007_v2_matches WHERE id = $1 OR title = 'Race-created tournament'",
+      [matchId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[tournamentAdminId, fullAdminId]],
+    );
+  }
+});
+
+test("tournament writes queued behind access revocation are denied without changing the match", async () => {
+  const tournamentAdminId = randomUUID();
+  const fullAdminId = randomUUID();
+  const matchId = randomUUID();
+  const pauseKey = 740084n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let writePromises: Promise<JsonResponse>[] = [];
+  let demotionPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await seedTournamentWriteRaceFixture(tournamentAdminId, fullAdminId, matchId);
+    await pool.query("CREATE TABLE daily007_test_paused_tournament_demotions (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_paused_tournament_demotions (id) VALUES ($1)",
+      [tournamentAdminId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_tournament_demotion() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.role = 'tournament_admin'
+           AND NEW.role = 'user'
+           AND EXISTS (
+             SELECT 1 FROM daily007_test_paused_tournament_demotions WHERE id = NEW.id
+           ) THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_tournament_demotion
+      BEFORE UPDATE OF role ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_tournament_demotion()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    const beforeMatch = await pool.query(
+      `SELECT id, title, entry_coins, room_id, room_password, room_published
+         FROM daily007_v2_matches WHERE id = $1`,
+      [matchId],
+    );
+    const beforeCount = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM daily007_v2_matches",
+    );
+
+    await withServer(async (origin) => {
+      demotionPromise = patchJson(
+        origin,
+        `/admin/users/${tournamentAdminId}/role`,
+        fullAdminId,
+        { role: "user" },
+      );
+      const roleUpdate = "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role";
+      await waitForBlockedQuery(
+        roleUpdate,
+        "the demotion to pause after acquiring the exclusive role gate",
+      );
+
+      writePromises = startTournamentWriteRequests(origin, tournamentAdminId, matchId);
+      await waitForBlockedQueryCountBy(
+        "SELECT pg_advisory_xact_lock_shared(740073)",
+        roleUpdate,
+        writePromises.length,
+        "all stale tournament writes to queue behind the demotion",
+      );
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      pauseLockHeld = false;
+      const [demotion, ...writes] = await Promise.all([demotionPromise, ...writePromises]);
+      assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+      assert.deepEqual(writes.map((write) => write.status), [403, 403, 403]);
+      for (const write of writes) {
+        assert.deepEqual(write.body, { error: "Tournament administrator access is required." });
+      }
+    });
+
+    const afterMatch = await pool.query(
+      `SELECT id, title, entry_coins, room_id, room_password, room_published
+         FROM daily007_v2_matches WHERE id = $1`,
+      [matchId],
+    );
+    const afterCount = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM daily007_v2_matches",
+    );
+    assert.deepEqual(afterMatch.rows, beforeMatch.rows);
+    assert.equal(afterCount.rows[0]?.count, beforeCount.rows[0]?.count);
+
+    const actor = await pool.query<{ role: string }>(
+      "SELECT role FROM daily007_v2_users WHERE id = $1",
+      [tournamentAdminId],
+    );
+    assert.equal(actor.rows[0]?.role, "user");
+  } finally {
+    if (blocker) {
+      if (pauseLockHeld) {
+        await blocker.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`).catch(() => undefined);
+      }
+      blocker.release();
+    }
+    await Promise.allSettled([...writePromises, demotionPromise].filter(Boolean) as Promise<unknown>[]);
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_tournament_demotion ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_tournament_demotion()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_tournament_demotions");
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [matchId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[tournamentAdminId, fullAdminId]],
+    );
   }
 });

@@ -13,7 +13,7 @@ description: Lock-order observations for integration tests that exercise API req
 
 **Why:** A reconstructed one-line fragment did not match the permanent-delete query, causing the lock-order test to time out despite the request being queued.
 
-**How to apply:** Match a distinctive contiguous phrase such as the table name and verify the blocker PID separately with `pg_blocking_pids`.
+**How to apply:** Inspect the live `pg_stat_activity.query` when a wait times out, then match a distinctive contiguous phrase and verify the blocker PID separately with `pg_blocking_pids`. Do not normalize across line breaks when forming the matcher.
 
 For duplicate-delivery races, hold the target session row, wait until the first request is blocked on it, then issue the second request and verify PostgreSQL reports it queued behind the first before releasing the blocker. Assert both responses and the final wallet, ledger, and session pointer.
 

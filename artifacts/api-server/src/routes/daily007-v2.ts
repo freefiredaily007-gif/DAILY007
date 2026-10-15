@@ -484,15 +484,29 @@ router.post("/daily007/v2/admin/matches", authenticate, async (req, res): Promis
     fail(res, 400, "Provide a title, supported game mode and team type, future startsAt timestamp, and nonnegative 32-bit integer entryCoins.");
     return;
   }
-  const result = await pool.query(
-    `INSERT INTO daily007_v2_matches (title, mode, game_mode, team_type, capacity, starts_at, entry_coins)
-     SELECT $1, $2, $3, $4, $5, $6, $7
-       WHERE $6::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
-     RETURNING id, title, mode, game_mode AS "gameMode", team_type AS "teamType",
-               capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
-    [title, configuredMode.storageMode, configuredMode.gameMode, configuredMode.teamType,
-      configuredMode.capacity, startsAt, entryCoins],
-  );
+  let result;
+  try {
+    result = await withDaily007RoleTransaction(
+      req.daily007Account!.id,
+      "tournament_admin",
+      (client) => client.query(
+        `INSERT INTO daily007_v2_matches (title, mode, game_mode, team_type, capacity, starts_at, entry_coins)
+         SELECT $1, $2, $3, $4, $5, $6, $7
+           WHERE $6::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
+         RETURNING id, title, mode, game_mode AS "gameMode", team_type AS "teamType",
+                   capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
+        [title, configuredMode.storageMode, configuredMode.gameMode, configuredMode.teamType,
+          configuredMode.capacity, startsAt, entryCoins],
+      ),
+    );
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status) {
+      fail(res, status, (error as Error).message);
+      return;
+    }
+    throw error;
+  }
   if (!result.rows[0]) {
     fail(res, 400, "startsAt must be in the future when the match is created.");
     return;
@@ -530,21 +544,41 @@ router.patch("/daily007/v2/admin/matches/:id", authenticate, async (req, res): P
     fail(res, 400, "Provide entryCoins as a nonnegative 32-bit integer and/or startsAt as a valid future ISO timestamp.");
     return;
   }
-  const result = await pool.query(
-    `UPDATE daily007_v2_matches
-        SET entry_coins = COALESCE($2, entry_coins),
-            starts_at = COALESCE($3, starts_at)
-      WHERE id = $1 AND COALESCE($3::timestamptz, starts_at) > clock_timestamp() + interval '5 hours 30 minutes'
-     RETURNING id, title, mode, capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
-    [id, hasEntryCoins ? body.entryCoins : null, startsAt],
-  );
-  if (!result.rows[0]) {
-    const exists = await pool.query("SELECT 1 FROM daily007_v2_matches WHERE id = $1", [id]);
-    fail(res, exists.rows[0] ? 400 : 404,
-      exists.rows[0] ? "startsAt must be in the future when the match is updated." : "Match not found.");
+  let result;
+  try {
+    result = await withDaily007RoleTransaction(
+      req.daily007Account!.id,
+      "tournament_admin",
+      async (client) => {
+        const updated = await client.query(
+          `UPDATE daily007_v2_matches
+              SET entry_coins = COALESCE($2, entry_coins),
+                  starts_at = COALESCE($3, starts_at)
+            WHERE id = $1 AND COALESCE($3::timestamptz, starts_at) > clock_timestamp() + interval '5 hours 30 minutes'
+           RETURNING id, title, mode, capacity, entry_coins AS "entryCoins", starts_at AS "startsAt", status, is_full AS "isFull"`,
+          [id, hasEntryCoins ? body.entryCoins : null, startsAt],
+        );
+        if (!updated.rows[0]) {
+          const exists = await client.query("SELECT 1 FROM daily007_v2_matches WHERE id = $1", [id]);
+          return { match: null, exists: Boolean(exists.rows[0]) };
+        }
+        return { match: updated.rows[0], exists: true };
+      },
+    );
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status) {
+      fail(res, status, (error as Error).message);
+      return;
+    }
+    throw error;
+  }
+  if (!result.match) {
+    fail(res, result.exists ? 400 : 404,
+      result.exists ? "startsAt must be in the future when the match is updated." : "Match not found.");
     return;
   }
-  const match = result.rows[0] as Record<string, unknown>;
+  const match = result.match as Record<string, unknown>;
   res.json({
     match: {
       ...match,
@@ -903,18 +937,39 @@ router.put("/daily007/v2/admin/matches/:id/room", authenticate, async (req, res)
     fail(res, 400, "roomId and roomPassword must each contain 1–200 characters.");
     return;
   }
-  const result = await pool.query(
-    `UPDATE daily007_v2_matches
-        SET room_id = $2, room_password = $3, room_published = true
-      WHERE id = $1 AND status <> 'cancelled'
-      RETURNING id, room_published AS published`,
-    [id, body.roomId.trim(), body.roomPassword.trim()],
-  );
-  if (!result.rows[0]) {
+  const roomId = body.roomId.trim();
+  const roomPassword = body.roomPassword.trim();
+  let result;
+  try {
+    result = await withDaily007RoleTransaction(
+      req.daily007Account!.id,
+      "tournament_admin",
+      async (client) => {
+        const updated = await client.query(
+          `UPDATE daily007_v2_matches
+              SET room_id = $2, room_password = $3, room_published = true
+            WHERE id = $1 AND status <> 'cancelled'
+            RETURNING id, room_published AS published`,
+          [id, roomId, roomPassword],
+        );
+        if (updated.rows[0]) return { match: updated.rows[0], exists: true };
+        const exists = await client.query("SELECT 1 FROM daily007_v2_matches WHERE id = $1", [id]);
+        return { match: null, exists: Boolean(exists.rows[0]) };
+      },
+    );
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status) {
+      fail(res, status, (error as Error).message);
+      return;
+    }
+    throw error;
+  }
+  if (!result.match) {
     fail(res, 404, "Match not found or cancelled.");
     return;
   }
-  res.json({ match: result.rows[0] });
+  res.json({ match: result.match });
 });
 
 router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Promise<void> => {
