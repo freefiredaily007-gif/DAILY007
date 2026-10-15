@@ -80,7 +80,7 @@ async function call(
   origin: string,
   actorId: string,
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   body?: Record<string, unknown>,
 ): Promise<JsonResult> {
   const token = makeToken(actorId, 0);
@@ -166,6 +166,44 @@ test("an Admin-created tournament appears in the enabled public list with its sa
     ]) {
       assert.equal(listed[field], created.body[field], `The public list should preserve ${field}.`);
     }
+  });
+});
+
+test("an Admin-closed tournament disappears from the enabled public list but remains in Admin history", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+
+    const beforeClose = await callPublic(origin, "/tournaments?enabled=true");
+    assert.equal(beforeClose.status, 200);
+    assert.ok(
+      beforeClose.body.some((tournament: any) => tournament.id === TEST_MATCH_ID),
+      "The upcoming tournament should be in the enabled public list before Admin closes it.",
+    );
+
+    const closed = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}`,
+      "DELETE",
+    );
+    assert.equal(closed.status, 200);
+    assert.equal(closed.body.data.enabled, false);
+    assert.equal(closed.body.data.deleted, false);
+    assert.equal(closed.body.data.closed, true);
+
+    const enabledList = await callPublic(origin, "/tournaments?enabled=true");
+    assert.equal(enabledList.status, 200);
+    assert.ok(
+      !enabledList.body.some((tournament: any) => tournament.id === TEST_MATCH_ID),
+      "The closed tournament must not remain in the enabled public list.",
+    );
+
+    const adminList = await callPublic(origin, "/tournaments");
+    const retained = adminList.body.find((tournament: any) => tournament.id === TEST_MATCH_ID);
+    assert.ok(retained, "Admin history should retain a tournament that has registrations.");
+    assert.equal(retained.enabled, false);
   });
 });
 

@@ -277,6 +277,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     },
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
+    getPublicEnabledTournamentIds: async () =>
+      (await apiMocks.Api.tournaments("?enabled=true")).map((tournament) => String(tournament.id)),
+    closeTournamentAsAdmin: (id) => apiMocks.Api.deleteTournament(id),
     getTournamentStartFieldPresence: () =>
       apiMocks.previewTournaments.map((tournament) => Object.prototype.hasOwnProperty.call(tournament, "startsAt")),
     setRegistrations: apiMocks.setHomeCarouselRegistrationPreview,

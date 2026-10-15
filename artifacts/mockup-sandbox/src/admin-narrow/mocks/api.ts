@@ -677,7 +677,7 @@ export const Api = {
     if (!tournament) throw new Error(`Preview tournament ${id} was not found.`);
     return { ...tournament };
   },
-  tournaments: async () => {
+  tournaments: async (query: string | boolean = "") => {
     tournamentReadCount += 1;
     if (nextTournamentReadError !== null) {
       const error = nextTournamentReadError;
@@ -698,7 +698,9 @@ export const Api = {
         : playerLargestTextPreview
           ? largestTextTournaments
           : previewTournaments;
-    return tournaments.map((tournament) => ({ ...tournament }));
+    const enabledOnly = query === true || String(query).includes("enabled=true");
+    return (enabledOnly ? tournaments.filter((tournament) => tournament.enabled) : tournaments)
+      .map((tournament) => ({ ...tournament }));
   },
   myRegistrations: async () => {
     myRegistrationReadCount += 1;
@@ -801,7 +803,19 @@ export const Api = {
     adminPreviewMutationCalls.push({ method: "createTournament", payload: { ...payload } });
     return { ...createdTournament };
   },
-  deleteTournament: async () => ({}),
+  deleteTournament: async (id: string) => {
+    const tournamentIndex = previewTournaments.findIndex((item) => String(item.id) === String(id));
+    if (tournamentIndex < 0) throw new Error(`Preview tournament ${id} was not found.`);
+    const tournament = previewTournaments[tournamentIndex];
+    adminPreviewMutationCalls.push({ method: "deleteTournament", id });
+    if (Number(tournament.filledSlots ?? 0) > 0 ||
+      previewAdminRegistrations.some((registration) => String(registration.tournamentId) === String(id))) {
+      tournament.enabled = false;
+      return { deleted: false, closed: true, enabled: false };
+    }
+    previewTournaments.splice(tournamentIndex, 1);
+    return { deleted: true };
+  },
   adminAdjustCoins: async (userId: string, amount: number, reason: string) => {
     throwIfAdminPreviewMutationFails("adminAdjustCoins");
     if (!Number.isSafeInteger(amount) || amount === 0) {

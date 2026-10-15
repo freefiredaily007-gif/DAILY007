@@ -310,7 +310,8 @@ class MemoryTournamentResultsDatabase {
     } else if (normalized.startsWith(
       "SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at",
     )) {
-      rows = values.length === 0 || values[0] === this.match.id
+      rows = (values.length === 0 || values[0] === this.match.id) &&
+        (!normalized.includes("m.enabled = true") || this.match.enabled)
         ? [{
           ...structuredClone(this.match),
           has_started: false,
@@ -385,6 +386,13 @@ class MemoryTournamentResultsDatabase {
         balanceAfter: Number(values[2]),
         reason: "match_prize",
       });
+    } else if (normalized.startsWith("SELECT EXISTS (SELECT 1 FROM daily007_v2_registrations WHERE match_id = $1)")) {
+      const matchId = String(values[0]);
+      rows = [{
+        has_registrations: this.registrations.some((registration) => registration.match_id === matchId),
+        has_wallet_history: false,
+        has_awards: this.awards.some((award) => award.match_id === matchId),
+      }];
     } else if (normalized.startsWith("UPDATE daily007_v2_matches SET enabled = false")) {
       if (this.failNextMatchFinalization) {
         this.failNextMatchFinalization = false;

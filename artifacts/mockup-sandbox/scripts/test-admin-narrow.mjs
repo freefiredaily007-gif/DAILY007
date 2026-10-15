@@ -36,6 +36,7 @@ const refreshCoalescingOnly = process.argv.includes("--refresh-coalescing-only")
 const homeCarouselOnly = process.argv.includes("--home-carousel-only");
 const homeStartTransitionOnly = process.argv.includes("--home-start-transition-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
+const homeDisabledTournamentRefreshOnly = process.argv.includes("--home-disabled-tournament-refresh-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
 const keyboardFormsOnly = process.argv.includes("--keyboard-forms-only");
@@ -7706,6 +7707,86 @@ async function checkAdminTournamentCreationAppearsOnHomeRefresh() {
   );
 }
 
+async function checkDisabledTournamentDisappearsAfterHomeRefresh() {
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest?.ready === true &&
+      document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length === 3 &&
+      window.__daily007HomeCarouselTest.getHomePollCount() === 1`,
+    "Home to show all three enabled tournaments and install its scheduled poll",
+  );
+
+  const beforeClose = await readHomeCarouselState();
+  assert(beforeClose, "The initial Home carousel should be available.");
+  assert(
+    beforeClose.cards.some((card) => card.id === "later-one"),
+    "The upcoming tournament should initially be visible on Home.",
+  );
+  const enabledBefore = await evaluate(
+    "window.__daily007HomeCarouselTest.getPublicEnabledTournamentIds()",
+  );
+  assert(
+    Array.isArray(enabledBefore) && enabledBefore.includes("later-one"),
+    `The public enabled list should include the upcoming tournament before Admin closes it: ${JSON.stringify(enabledBefore)}.`,
+  );
+
+  await evaluate("window.__daily007AdminMutations.reset()");
+  const closeResult = await evaluate(
+    'window.__daily007HomeCarouselTest.closeTournamentAsAdmin("later-one")',
+  );
+  assert(
+    closeResult?.enabled === false &&
+      closeResult.closed === true &&
+      closeResult.deleted === false,
+    `Admin should close the populated tournament without deleting its history: ${JSON.stringify(closeResult)}.`,
+  );
+  const mutationCalls = await evaluate("window.__daily007AdminMutations.calls");
+  assert(
+    mutationCalls.length === 1 &&
+      mutationCalls[0].method === "deleteTournament" &&
+      mutationCalls[0].id === "later-one",
+    `The isolated Admin mock should record one close request for the target tournament: ${JSON.stringify(mutationCalls)}.`,
+  );
+  const enabledAfter = await evaluate(
+    "window.__daily007HomeCarouselTest.getPublicEnabledTournamentIds()",
+  );
+  assert(
+    Array.isArray(enabledAfter) &&
+      !enabledAfter.includes("later-one") &&
+      enabledAfter.includes("starting-soon") &&
+      enabledAfter.includes("later-two"),
+    `The enabled public list should omit only the closed tournament: ${JSON.stringify(enabledAfter)}.`,
+  );
+
+  const readsBeforeRefresh = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    await evaluate("Boolean(document.querySelector('[data-testid=\"home-upcoming-card-later-one\"]'))"),
+    "Home should retain its current card until the scheduled refresh runs.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "Home's normal scheduled poll should still be active.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${readsBeforeRefresh.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${readsBeforeRefresh.registrations + 1} &&
+      !document.querySelector('[data-testid="home-upcoming-card-later-one"]') &&
+      Boolean(document.querySelector('[data-testid="home-upcoming-card-starting-soon"]')) &&
+      Boolean(document.querySelector('[data-testid="home-upcoming-card-later-two"]'))`,
+    "Home's scheduled refresh to remove only the disabled tournament",
+  );
+
+  const afterRefresh = await readHomeCarouselState();
+  assert(afterRefresh, "The refreshed Home carousel should remain available.");
+  const remainingCardIds = afterRefresh.cards.map((card) => card.id);
+  assert(
+    JSON.stringify(remainingCardIds) === JSON.stringify(["starting-soon", "later-two"]),
+    `The scheduled refresh should keep the other carousel cards intact: ${JSON.stringify(afterRefresh.cards)}.`,
+  );
+}
+
 async function checkAdminTournamentEditSaveAtLargeText() {
   await setViewport(320, 1.5);
   assert(
@@ -8125,7 +8206,7 @@ try {
         ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
     : homeStartTransitionOnly
       ? "home-carousel-preview.html?home-start-selection=1"
-      : homeCarouselOnly || homeRetryOnly
+      : homeCarouselOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
         ? "keyboard-forms-preview.html"
@@ -8205,6 +8286,7 @@ try {
     homeCarouselOnly ||
     homeStartTransitionOnly ||
     homeRetryOnly ||
+    homeDisabledTournamentRefreshOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
     adminNotificationKeyboardOnly ||
@@ -8224,13 +8306,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
+        : homeCarouselOnly || homeStartTransitionOnly || homeRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8575,6 +8657,15 @@ try {
         browserErrors.length === 0,
         `Browser errors during Home scheduled-start carousel selection checks: ${browserErrors.join(" | ")}`,
       );
+    } else if (homeDisabledTournamentRefreshOnly) {
+      const errorBaseline = new Set(browserErrors);
+      await checkDisabledTournamentDisappearsAfterHomeRefresh();
+      const newBrowserErrors = browserErrors.filter((error) => !errorBaseline.has(error));
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during disabled-tournament Home refresh checks: ${newBrowserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Admin closes the populated tournament, the enabled public list excludes it, and Home's scheduled poll removes only its card.");
     } else if (homeRetryOnly) {
       await waitForCondition(
         "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
