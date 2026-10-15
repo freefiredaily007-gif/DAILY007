@@ -29,6 +29,7 @@ import {
 } from '../src/lib/roomCredentialTiming.ts';
 import { fetchTournamentDetailSnapshot } from '../src/lib/tournament-detail-refresh.ts';
 import {
+  createTournamentRefreshSingleFlight,
   getTournamentLifecycleState,
   MAX_COMPLETED_TOURNAMENTS,
   MAX_TIMEOUT_MS,
@@ -497,7 +498,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*connectivityRefreshes\.setFocused\(true\);[\s\S]*?const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);[\s\S]*?if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*active = false;\s*listFocused\.current = false;\s*connectivityRefreshes\.setFocused\(false\);[\s\S]*?stopCompletionPolling\(\);\s*networkSubscription\.remove\(\);\s*\};\s*\}, \[connectivityRefreshes, load\]\)\)/,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*connectivityRefreshes\.setFocused\(true\);[\s\S]*?const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);[\s\S]*?if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*active = false;\s*listFocused\.current = false;\s*connectivityRefreshes\.setFocused\(false\);[\s\S]*?stopCompletionPolling\(\);\s*networkSubscription\.remove\(\);\s*\};\s*\}, \[completionRefresh, connectivityRefreshes, load\]\)\)/,
   );
   assert.match(tournamentsSource, /Network\.addNetworkStateListener/);
   assert.match(tournamentsSource, /Network\.getNetworkStateAsync\(\)/);
@@ -1211,6 +1212,113 @@ test('focused tournament polling moves server-completed matches and their tab co
 
   stopPolling();
   assert.deepEqual(clearedIntervals, ['completion-poll']);
+});
+
+test('a slow tournament poll stays single-flight while manual refresh supersedes its response', async () => {
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+  };
+  const requests = [];
+  const api = {
+    tournaments: () => {
+      const request = deferred();
+      requests.push({ tournaments: request });
+      return request.promise;
+    },
+    myRegistrations: () => {
+      const request = deferred();
+      requests.at(-1).registrations = request;
+      return request.promise;
+    },
+  };
+  const harness = createTournamentLoadHarness(api);
+  let intervalCallback;
+  let pendingPoll;
+  const completionRefresh = createTournamentRefreshSingleFlight();
+  const stopPolling = startTournamentListRefreshPolling(
+    () => {
+      pendingPoll = completionRefresh.run(() => harness.load('scheduled'));
+      return pendingPoll;
+    },
+    () => true,
+    TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+    {
+      setInterval: (callback) => {
+        intervalCallback = callback;
+        return 'slow-completion-poll';
+      },
+      clearInterval: () => {},
+    },
+  );
+
+  intervalCallback();
+  await Promise.resolve();
+  assert.equal(requests.length, 1, 'the first poll should start one paired data request');
+
+  intervalCallback();
+  await Promise.resolve();
+  assert.equal(requests.length, 1, 'an elapsed poll interval must not duplicate a pending poll');
+
+  const manualRefresh = harness.load('manual');
+  await Promise.resolve();
+  assert.equal(requests.length, 2, 'pull-to-refresh should start a fresh request while the poll is pending');
+  requests[1].tournaments.resolve([{ id: 'newer-result', status: 'ongoing' }]);
+  requests[1].registrations.resolve([]);
+  await manualRefresh;
+  assert.deepEqual(harness.state.items.map(({ id }) => id), ['newer-result']);
+
+  intervalCallback();
+  await Promise.resolve();
+  assert.equal(
+    requests.length,
+    2,
+    'the periodic lock must remain held while the original poll is pending, even after manual refresh finishes',
+  );
+
+  stopPolling();
+  let restartedIntervalCallback;
+  const stopRestartedPolling = startTournamentListRefreshPolling(
+    () => {
+      pendingPoll = completionRefresh.run(() => harness.load('scheduled'));
+      return pendingPoll;
+    },
+    () => true,
+    TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+    {
+      setInterval: (callback) => {
+        restartedIntervalCallback = callback;
+        return 'restarted-completion-poll';
+      },
+      clearInterval: () => {},
+    },
+  );
+  restartedIntervalCallback();
+  await Promise.resolve();
+  assert.equal(
+    requests.length,
+    2,
+    'recreating the poll timer must not release the screen-wide lock for an unfinished poll',
+  );
+
+  requests[0].tournaments.resolve([{ id: 'older-result', status: 'ongoing' }]);
+  requests[0].registrations.resolve([]);
+  await pendingPoll;
+  assert.deepEqual(
+    harness.state.items.map(({ id }) => id),
+    ['newer-result'],
+    'the superseded poll response must not replace rows returned by the manual refresh',
+  );
+
+  restartedIntervalCallback();
+  await Promise.resolve();
+  assert.equal(requests.length, 3, 'a later poll can start after the previous periodic request settles');
+  requests[2].tournaments.resolve([{ id: 'latest-result', status: 'ongoing' }]);
+  requests[2].registrations.resolve([]);
+  await pendingPoll;
+
+  stopRestartedPolling();
 });
 
 test('scheduled lifecycle boundaries do not refresh the list while blurred or backgrounded', () => {

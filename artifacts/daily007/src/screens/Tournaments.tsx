@@ -30,6 +30,7 @@ import {
 import { createFocusedRefreshCoalescer } from '../lib/focusedLatestRequest';
 import {
   compareTournamentStartTime,
+  createTournamentRefreshSingleFlight,
   getTournamentLifecycleState,
   MAX_COMPLETED_TOURNAMENTS,
   MAX_TIMEOUT_MS,
@@ -66,6 +67,7 @@ export default function Tournaments() {
   const [playerRefreshAnnouncementVersion, setPlayerRefreshAnnouncementVersion] = useState(0);
   const [clockNow, setClockNow] = useState(Date.now());
   const [connectivityRefreshes] = useState(createFocusedRefreshCoalescer);
+  const [completionRefresh] = useState(createTournamentRefreshSingleFlight);
   const appState = useRef(AppState.currentState);
   const listFocused = useRef(false);
   const announcedTournamentStarts = useRef(new Set<string>());
@@ -156,7 +158,7 @@ export default function Tournaments() {
 
   const load = useCallback((trigger: TournamentLoadTrigger = 'focus') => {
     const pending = activeLoad.current;
-    if (pending && trigger !== 'focus') return pending;
+    if (pending && trigger !== 'focus' && trigger !== 'manual') return pending;
 
     const promise = loadLatest();
     activeLoad.current = promise;
@@ -200,7 +202,7 @@ export default function Tournaments() {
     const stopCompletionPolling = startTournamentListRefreshPolling(
       () => {
         setClockNow(Date.now());
-        void load('scheduled');
+        return completionRefresh.run(() => load('scheduled'));
       },
       () => listFocused.current && AppState.currentState === 'active',
       TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
@@ -238,7 +240,7 @@ export default function Tournaments() {
       stopCompletionPolling();
       networkSubscription.remove();
     };
-  }, [connectivityRefreshes, load]));
+  }, [completionRefresh, connectivityRefreshes, load]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {

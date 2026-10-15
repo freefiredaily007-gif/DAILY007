@@ -36,6 +36,29 @@ export function createHomeRefreshSingleFlight<T>() {
   };
 }
 
+export function createTournamentRefreshSingleFlight() {
+  let inFlight: Promise<void> | null = null;
+  return {
+    run(refresh: () => Promise<void>): Promise<void> {
+      if (inFlight) return inFlight;
+
+      let refreshPromise: Promise<void>;
+      try {
+        refreshPromise = Promise.resolve(refresh());
+      } catch (error) {
+        refreshPromise = Promise.reject(error);
+      }
+
+      let trackedPromise: Promise<void>;
+      trackedPromise = refreshPromise.finally(() => {
+        if (inFlight === trackedPromise) inFlight = null;
+      });
+      inFlight = trackedPromise;
+      return trackedPromise;
+    },
+  };
+}
+
 export function formatHomeRefreshTimestamp(value: number): string {
   if (!Number.isFinite(value)) return 'unknown time';
   const formatted = new Intl.DateTimeFormat('en-IN', {
@@ -57,13 +80,30 @@ export function shouldRefreshHomeTournaments(appState: string): boolean {
 type TournamentRefreshTimers = Pick<typeof globalThis, 'setInterval' | 'clearInterval'>;
 
 export function startTournamentListRefreshPolling(
-  refresh: () => void,
+  refresh: () => void | Promise<void>,
   canRefresh: () => boolean,
   intervalMs = TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
   timers: TournamentRefreshTimers = globalThis,
 ): () => void {
+  let refreshInFlight = false;
+  const finishRefresh = () => {
+    refreshInFlight = false;
+  };
   const interval = timers.setInterval(() => {
-    if (canRefresh()) refresh();
+    if (!canRefresh() || refreshInFlight) return;
+
+    refreshInFlight = true;
+    try {
+      const result = refresh();
+      if (result && typeof result.then === 'function') {
+        void Promise.resolve(result).then(finishRefresh, finishRefresh);
+      } else {
+        finishRefresh();
+      }
+    } catch (error) {
+      finishRefresh();
+      throw error;
+    }
   }, intervalMs);
   return () => timers.clearInterval(interval);
 }
