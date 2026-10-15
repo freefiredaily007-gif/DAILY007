@@ -39,6 +39,7 @@ function RootLayoutNav() {
       <Stack.Screen name="video-link-recovery-test" />
       <Stack.Screen name="google-recovery-accessibility-test" />
       <Stack.Screen name="withdrawal-upi-copy-test" />
+      <Stack.Screen name="wallet-cancellation-refund-voiceover-test" />
     </Stack>
   );
 }

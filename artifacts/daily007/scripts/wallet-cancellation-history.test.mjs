@@ -67,7 +67,7 @@ test('Wallet displays the tournament name, refund reason, and exact signed amoun
     refundRowSource,
     /accessibilityLabel=\{walletTransactionAccessibilityLabel\(item\)\}/,
   );
-  assert.match(refundRowSource, /testID="wallet-cancellation-refund-row"/);
+  assert.match(refundRowSource, /testID = 'wallet-cancellation-refund-row'/);
 });
 
 test('Wallet displays each prize tournament and saved placement in one accessible history item', () => {
@@ -155,15 +155,49 @@ test('Android checks every refund detail at 1.5× text and restores the original
   );
 });
 
-test('iOS VoiceOver flow finds one refund item with every transaction detail exactly once', () => {
+test('iOS VoiceOver flow exposes adjacent refunds as distinct, complete accessibility items', () => {
+  const firstRefundLabel = walletTransactionAccessibilityLabel({
+    amount: 27,
+    balanceAfter: 155,
+    createdAt: '2030-02-03T10:20:00.000Z',
+    reason: 'tournament_cancel_refund',
+    description: 'Entry fee refunded — Legacy Clash Cup (tournament cancelled)',
+  });
+  const secondRefundLabel = walletTransactionAccessibilityLabel({
+    amount: 41,
+    balanceAfter: 196,
+    createdAt: '2030-02-03T10:21:00.000Z',
+    reason: 'tournament_cancel_refund',
+    description: 'Entry fee refunded — Desert Duel Cup (tournament cancelled)',
+  });
+  assert.equal(
+    firstRefundLabel,
+    'Entry fee refunded — Legacy Clash Cup (tournament cancelled). +27 coins credited. Date: 2030-02-03 10:20. Balance after: 155 coins.',
+  );
+  assert.equal(
+    secondRefundLabel,
+    'Entry fee refunded — Desert Duel Cup (tournament cancelled). +41 coins credited. Date: 2030-02-03 10:21. Balance after: 196 coins.',
+  );
+  assert.doesNotMatch(firstRefundLabel, /Desert Duel|41 coins|10:21|196 coins/);
+  assert.doesNotMatch(secondRefundLabel, /Legacy Clash|27 coins|10:20|155 coins/);
   assert.match(iosMaestroFlow, /appId: host\.exp\.Exponent/);
-  assert.match(iosMaestroFlow, /wallet-cancellation-refund-test/);
-  assert.match(iosMaestroFlow, /id: wallet-cancellation-refund-row/);
+  assert.match(iosMaestroFlow, /wallet-cancellation-refund-voiceover-test/);
+  assert.match(nativeTestSource, /VOICEOVER_FIXTURES\.map/);
+  assert.match(nativeTestSource, /wallet-cancellation-refund-row-legacy-clash/);
+  assert.match(nativeTestSource, /wallet-cancellation-refund-row-desert-duel/);
+  assert.match(iosMaestroFlow, /id: wallet-cancellation-refund-row-legacy-clash/);
   assert.match(
     iosMaestroFlow,
     /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./,
   );
-  assert.match(iosMaestroFlow, /Refund details appear once in the row label/);
+  assert.match(iosMaestroFlow, /id: wallet-cancellation-refund-row-desert-duel/);
+  assert.match(
+    iosMaestroFlow,
+    /Entry fee refunded — Desert Duel Cup \(tournament cancelled\)\. \+41 coins credited\. Date: 2030-02-03 10:21\. Balance after: 196 coins\./,
+  );
+  assert.match(iosMaestroFlow, /Two adjacent cancellation refunds/);
+  assert.match(refundRowSource, /testID = 'wallet-cancellation-refund-row'/);
+  assert.match(refundRowSource, /accessibilityLabel=\{walletTransactionAccessibilityLabel\(item\)\}/);
   assert.equal(
     packageSource.scripts['test:ios-wallet-cancellation-refund'],
     'maestro test maestro/wallet-cancellation-refund/voiceover-ios.yaml',

@@ -41,6 +41,39 @@ export default function WalletCancellationRefundNativeTest() {
   return <CancellationRefundFixture />;
 }
 
+export function WalletCancellationRefundVoiceOverNativeTest() {
+  if (!__DEV__) return <Redirect href="/" />;
+  return (
+    <View style={styles.screen}>
+      <Text testID="wallet-cancellation-refund-voiceover-fixture-banner" style={styles.text}>
+        Two adjacent cancellation refunds · local fixture
+      </Text>
+      {VOICEOVER_FIXTURES.map(({ testID, ...item }) => (
+        <WalletCancellationRefundRow key={testID} item={item} testID={testID} />
+      ))}
+    </View>
+  );
+}
+
+const VOICEOVER_FIXTURES = [
+  {
+    testID: 'wallet-cancellation-refund-row-legacy-clash',
+    amount: 27,
+    balanceAfter: 155,
+    createdAt: '2030-02-03T10:20:00.000Z',
+    reason: 'tournament_cancel_refund',
+    description: 'Entry fee refunded — Legacy Clash Cup (tournament cancelled)',
+  },
+  {
+    testID: 'wallet-cancellation-refund-row-desert-duel',
+    amount: 41,
+    balanceAfter: 196,
+    createdAt: '2030-02-03T10:21:00.000Z',
+    reason: 'tournament_cancel_refund',
+    description: 'Entry fee refunded — Desert Duel Cup (tournament cancelled)',
+  },
+] as const;
+
 function CancellationRefundFixture() {
   const { fontScale } = useWindowDimensions();
   const [contentHeight, setContentHeight] = useState<number | null>(null);

@@ -27,11 +27,13 @@ type CancellationRefundItem = {
 
 export function WalletCancellationRefundRow({
   item,
+  testID = 'wallet-cancellation-refund-row',
   onContentLayout,
   onDetailLayout,
   onDetailTextLayout,
 }: {
   item: CancellationRefundItem;
+  testID?: string;
   onContentLayout?: (height: number) => void;
   onDetailLayout?: (detail: RefundDetail, layout: { y: number; height: number; width: number }) => void;
   onDetailTextLayout?: (detail: RefundDetail, lines: RefundTextLine[]) => void;
@@ -67,7 +69,7 @@ export function WalletCancellationRefundRow({
       accessible
       accessibilityRole="text"
       accessibilityLabel={walletTransactionAccessibilityLabel(item)}
-      testID="wallet-cancellation-refund-row"
+      testID={testID}
       style={[styles.card, largeText && styles.cardLarge]}
     >
       <View

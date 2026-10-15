@@ -1,13 +1,16 @@
 appId: host.exp.Exponent
 ---
 - openLink:
-    link: ${EXPO_DEV_URL}/--/wallet-cancellation-refund-test
+    link: ${EXPO_DEV_URL}/--/wallet-cancellation-refund-voiceover-test
 - extendedWaitUntil:
     visible:
-      id: wallet-cancellation-refund-fixture-banner
+      id: wallet-cancellation-refund-voiceover-fixture-banner
     timeout: 15000
 - assertVisible:
-    id: wallet-cancellation-refund-row
+    id: wallet-cancellation-refund-row-legacy-clash
     text: "Entry fee refunded — Legacy Clash Cup (tournament cancelled). +27 coins credited. Date: 2030-02-03 10:20. Balance after: 155 coins."
 - assertVisible:
-    text: "Refund details appear once in the row label"
+    id: wallet-cancellation-refund-row-desert-duel
+    text: "Entry fee refunded — Desert Duel Cup (tournament cancelled). +41 coins credited. Date: 2030-02-03 10:21. Balance after: 196 coins."
+- assertVisible:
+    text: "Two adjacent cancellation refunds · local fixture"

@@ -20,10 +20,10 @@ The runner records and restores the original Android font scale, including when 
 
 ## iOS VoiceOver accessibility element
 
-Run the iOS flow on macOS with an iPhone simulator or connected iPhone, Maestro, Expo Go, and access to the Expo development server:
+Run the iOS flow on macOS with an iPhone simulator or connected iPhone, Maestro, Expo Go, and access to the Expo development server. Enable VoiceOver on the target device before running it:
 
 ```sh
 EXPO_DEV_URL=exp://YOUR_EXPO_HOST:PORT pnpm --filter @workspace/daily007 run test:ios-wallet-cancellation-refund
 ```
 
-The iOS flow checks the single native refund row's accessible label for the full summary and verifies the fixture confirms each detail appears once. Maestro checks the accessibility element and label; it does not listen to VoiceOver audio.
+The iOS flow renders two adjacent cancellation refunds with different tournaments, amounts, dates, and resulting balances. It asserts that each has its own native accessibility element and that each element exposes only its own complete summary. Maestro inspects the accessibility tree; it does not listen to VoiceOver audio. While VoiceOver is enabled, swipe through both refund rows and confirm each stop speaks only that refund's details.
