@@ -805,6 +805,164 @@ test("a failed start can retry the same attempt without counting the failed wait
   assert.notEqual(startRequests[2].attemptId, startRequests[1].attemptId);
 });
 
+test("a late start response from an ended playback cannot replace the replay session or progress", async () => {
+  const currentSessionRef = { current: null };
+  const startingSessionRef = { current: false };
+  const sessionStartFailedRef = { current: false };
+  const playbackCycleRef = { current: 1 };
+  const appLifecycleCycleRef = { current: 0 };
+  const appIsActiveRef = { current: true };
+  const progressPercentRef = { current: 0 };
+  const watchedSecondBucketsRef = { current: new Set() };
+  const startAttemptIdRef = { current: null };
+  const startRequestRef = { current: null };
+  const latestPlaybackTimeRef = { current: null };
+  const lastSampleRef = { current: null };
+  const progressWrites = [];
+  const rewardErrors = [];
+  const startRequests = [];
+  const startResolvers = [];
+  let generatedAttempt = 0;
+  const setSessionStartRetryAvailable = () => {};
+  const setSessionStartRetryPending = () => {};
+  const startVideoWatchSession = loadScreenCallback("startVideoWatchSession", {
+    startingSessionRef,
+    sessionStartFailedRef,
+    setRewardError: (value) => rewardErrors.push(value),
+    appLifecycleCycleRef,
+    startVideoWatch: ({ data }) => {
+      startRequests.push(data);
+      return new Promise((resolve, reject) => {
+        startResolvers.push({ resolve, reject });
+      });
+    },
+    playbackCycleRef,
+    currentSessionRef,
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
+    appIsActiveRef,
+    latestPlaybackTimeRef,
+    lastSampleRef,
+    apiError: loadApiErrorHelper(),
+  });
+  const finishCurrentPlayback = loadScreenCallback("finishCurrentPlayback", {
+    currentSessionRef,
+    startAttemptIdRef,
+    startRequestRef,
+    latestPlaybackTimeRef,
+    playbackCycleRef,
+    startingSessionRef,
+    sessionStartFailedRef,
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
+    lastSampleRef,
+    progressPercentRef,
+    setRewardError: (value) => rewardErrors.push(value),
+    WATCH_MARK_PERCENT: 75,
+    claimViewReward() {},
+  });
+  const handlePlayerMessage = loadScreenCallback("handlePlayerMessage", {
+    showPlayer: true,
+    selectedVideo: { id: "test-video" },
+    ENDED_STATE: 0,
+    PLAYING_STATE: 1,
+    finishCurrentPlayback,
+    setPlayerReady() {},
+    setPlayerFailed() {},
+    appIsActiveRef,
+    currentSessionRef,
+    lastSampleRef,
+    latestPlaybackTimeRef,
+    startingSessionRef,
+    sessionStartFailedRef,
+    playbackCycleRef,
+    watchedSecondBucketsRef,
+    progressPercentRef,
+    setProgressPercent: (value) => progressWrites.push(value),
+    setRewardMessage() {},
+    setRewardError: (value) => rewardErrors.push(value),
+    appLifecycleCycleRef,
+    startAttemptIdRef,
+    startRequestRef,
+    createVideoWatchAttemptId: () => `attempt-${++generatedAttempt}`,
+    startVideoWatchSession,
+    getCreditedVideoWatchSeconds: (previous, currentTime) =>
+      previous && currentTime > previous.currentTime ? [currentTime] : [],
+    setRetrySession() {},
+    setSessionStartRetryAvailable,
+    setSessionStartRetryPending,
+  });
+
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 1,
+    duration: 60,
+    playing: true,
+  });
+  assert.equal(startingSessionRef.current, true);
+  assert.equal(startResolvers.length, 1);
+  assert.equal(startRequests[0].attemptId, "attempt-1");
+
+  handlePlayerMessage({ type: "state", state: 0 });
+  assert.equal(playbackCycleRef.current, 2, "Ending the first playback should invalidate its pending response.");
+  assert.equal(startingSessionRef.current, false);
+  assert.equal(startAttemptIdRef.current, null);
+  assert.equal(startRequestRef.current, null);
+
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 5,
+    duration: 60,
+    playing: true,
+  });
+  assert.equal(startResolvers.length, 2);
+  assert.equal(startRequests[1].attemptId, "attempt-2");
+  assert.notEqual(startRequests[1].attemptId, startRequests[0].attemptId);
+  assert.equal(startingSessionRef.current, true);
+
+  startResolvers[0].resolve({ sessionId: "old-playback-session" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    currentSessionRef.current,
+    null,
+    "The earlier response must not attach its session to the active replay.",
+  );
+  assert.equal(startingSessionRef.current, true, "The replay's own start request must remain pending.");
+  assert.equal(startAttemptIdRef.current, "attempt-2");
+  assert.equal(latestPlaybackTimeRef.current, 5);
+  assert.equal(progressPercentRef.current, 0);
+
+  startResolvers[1].resolve({ sessionId: "replay-session" });
+  await waitFor(
+    () => currentSessionRef.current === "replay-session",
+    "The replay response should establish its own session.",
+  );
+  assert.equal(startingSessionRef.current, false);
+  assert.equal(currentSessionRef.current, "replay-session");
+  assert.equal(progressPercentRef.current, 0, "The replay should start with a clean progress baseline.");
+
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 6,
+    duration: 60,
+    playing: true,
+  });
+  handlePlayerMessage({
+    type: "progress",
+    currentTime: 7,
+    duration: 60,
+    playing: true,
+  });
+  assert.equal(currentSessionRef.current, "replay-session");
+  assert.equal(progressPercentRef.current, 3, "Only seconds watched during the replay should count.");
+  assert.deepEqual(progressWrites, [0, 0, 1, 3]);
+  assert.ok(
+    rewardErrors.every((message) => message === ""),
+    "The stale response must not surface an error in the replay.",
+  );
+  assert.equal(startRequests.length, 2, "The stale response must not trigger a third session request.");
+});
+
 test("the visible catalog removes a video disabled while it stays open", async () => {
   assert.equal(VIDEO_CATALOG_REFRESH_INTERVAL_MS, 60_000);
   assert.equal(
