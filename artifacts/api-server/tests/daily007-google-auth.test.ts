@@ -2132,20 +2132,41 @@ test("a logged-out Google identity cannot claim a password account or access its
 
 test("logout clears the Daily007 session even if Clerk sign-out fails", async () => {
   const calls: string[] = [];
+  let daily007Session: { token: string } | null = { token: "active-session" };
+  let sessionWasClearedBeforeClerkSignOut = false;
   const clerkSignOutFailed = await logoutDaily007(
-    async () => { calls.push("clerk"); throw new Error("simulated Clerk sign-out failure"); },
-    () => { calls.push("daily007-session"); },
+    async () => {
+      calls.push("clerk");
+      sessionWasClearedBeforeClerkSignOut = daily007Session === null;
+      throw new Error("simulated Clerk sign-out failure");
+    },
+    () => {
+      calls.push("daily007-session");
+      daily007Session = null;
+    },
   );
   assert.equal(clerkSignOutFailed, true);
   assert.deepEqual(calls, ["daily007-session", "clerk"]);
+  assert.equal(sessionWasClearedBeforeClerkSignOut, true);
+  assert.equal(daily007Session, null, "Clerk failure must not restore the Daily007 session.");
 
   calls.length = 0;
+  daily007Session = { token: "active-session" };
+  sessionWasClearedBeforeClerkSignOut = false;
   const success = await logoutDaily007(
-    async () => { calls.push("clerk"); },
-    () => { calls.push("daily007-session"); },
+    async () => {
+      calls.push("clerk");
+      sessionWasClearedBeforeClerkSignOut = daily007Session === null;
+    },
+    () => {
+      calls.push("daily007-session");
+      daily007Session = null;
+    },
   );
   assert.equal(success, false);
   assert.deepEqual(calls, ["daily007-session", "clerk"]);
+  assert.equal(sessionWasClearedBeforeClerkSignOut, true);
+  assert.equal(daily007Session, null);
 });
 
 test("blocked Google-linked Daily007 accounts are denied sign-in", async () => {
