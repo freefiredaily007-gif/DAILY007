@@ -556,6 +556,7 @@ async function waitForCondition(expression, description) {
   const state = await evaluate(`(() => ({
     body: document.body.innerText.slice(0, 1200),
     reads: window.__daily007TournamentResume?.getTournamentReadCount?.() ?? null,
+    approvedRegistrationRequests: window.__daily007TournamentResume?.getApprovedRegistrationRequests?.() ?? null,
   }))()`).catch((error) => ({ evaluationError: String(error) }));
   throw new Error(`${description} did not occur: ${JSON.stringify(state)}`);
 }
@@ -4486,20 +4487,25 @@ async function checkAdminResultEntryRetry() {
   );
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "the Ongoing tournaments tab");
   await waitForCondition(
-    `document.querySelector('[data-testid="${openSelector.slice(1, -1)}"]') &&
+    `document.querySelector(${JSON.stringify(openSelector)}) &&
       document.body.innerText.includes("Other Ongoing Match")`,
     "both ongoing tournament actions",
   );
   await clickSelector(openSelector, "Result Entry for the active tournament");
   await waitForCondition(
-    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 1 &&
-      document.body.innerText.includes("Initial approved registrations request failed.") &&
-      document.querySelector('${panelSelector}')`,
+    "window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 1",
     "the initial approved-registration request to fail while Result Entry stays open",
   );
-  await assertText(
-    "Approved registrations could not be loaded. Retry here.",
-    "the initial Result Entry retry guidance",
+  const initialFailureState = await evaluate(`(() => ({
+    panelOpen: Boolean(document.querySelector(${JSON.stringify(panelSelector)})),
+    errorVisible: document.body.innerText.includes("Initial approved registrations request failed."),
+    guidanceVisible: document.body.innerText.includes("Approved registrations could not be loaded. Retry here. If the problem continues, close and reopen this panel."),
+    retryVisible: Boolean(document.querySelector(${JSON.stringify(retrySelector)})),
+  }))()`);
+  assert(
+    initialFailureState.panelOpen && initialFailureState.errorVisible &&
+      initialFailureState.guidanceVisible && initialFailureState.retryVisible,
+    `Opening Result Entry should show the failed request and retry control without closing the panel: ${JSON.stringify(initialFailureState)}.`,
   );
   assert(
     await evaluate(`document.querySelector('${retrySelector}')?.disabled === false`),
