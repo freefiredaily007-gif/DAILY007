@@ -46,7 +46,7 @@
     "test:leaderboard-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/leaderboard-accessibility.test.mjs",
     "test:leaderboard-native-text-scale": "node --test scripts/leaderboard-native-text-scale.test.mjs",
     "test:admin-leaderboard-prize-schedule": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-leaderboard-prize-schedule.test.mjs",
-    "test:home-tournament-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/home-tournament-refresh.test.mjs && pnpm --filter @workspace/mockup-sandbox run test:home-initial-retry",
+    "test:home-tournament-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/home-tournament-refresh.test.mjs && pnpm --filter @workspace/mockup-sandbox run test:home-initial-retry && pnpm --filter @workspace/mockup-sandbox run test:home-refresh-overlap",
     "test:tournament-participant-retry": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-participant-retry.test.mjs",
     "test:tournament-winner-details": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-winner-details.test.mjs",
     "test:tournament-card-artwork": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-card-artwork.test.mjs",

@@ -204,6 +204,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   }
 
   const { AccessibilityInfo } = await import("react-native");
+  const { AppState } = await import("react-native");
   AccessibilityInfo.isScreenReaderEnabled = () => Promise.resolve(fakeScreenReaderEnabled);
   AccessibilityInfo.addEventListener = (eventName, listener) => {
     if (eventName !== "screenReaderChanged") return { remove() {} };
@@ -212,6 +213,15 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   };
   AccessibilityInfo.announceForAccessibility = (announcement) => {
     accessibilityAnnouncements.push(announcement);
+  };
+  const homeAppStateListeners = new Set();
+  AppState.addEventListener = (eventName, listener) => {
+    if (eventName !== "change") return { remove() {} };
+    homeAppStateListeners.add(listener);
+    return { remove: () => homeAppStateListeners.delete(listener) };
+  };
+  const setHomeAppState = (nextState) => {
+    for (const listener of homeAppStateListeners) listener(nextState);
   };
 
   const [homeModule, lifecycleModule] = await Promise.all([
@@ -286,6 +296,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       homePoll.callback();
       return true;
     },
+    setHomeAppState,
     getTournamentReadCount: apiMocks.getTournamentReadCount,
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     getPublicEnabledTournamentIds: async () =>
@@ -312,6 +323,10 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
     releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
+    deferNextTournamentRead: apiMocks.deferNextTournamentRead,
+    resolveDeferredTournamentRead: () =>
+      apiMocks.resolveDeferredTournamentRead(apiMocks.previewTournaments),
+    failDeferredTournamentRead: apiMocks.failDeferredTournamentRead,
     setTournamentOrder: (ids) => {
       if (!Array.isArray(ids) || ids.length !== apiMocks.previewTournaments.length) return false;
       const tournamentsById = new Map(

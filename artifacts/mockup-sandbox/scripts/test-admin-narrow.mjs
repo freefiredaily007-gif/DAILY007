@@ -39,6 +39,7 @@ const singleHomeCardOnly = process.argv.includes("--home-carousel-single-card-on
 const homeStartTransitionOnly = process.argv.includes("--home-start-transition-only");
 const homeRetryOnly = process.argv.includes("--home-retry-only");
 const homeInitialRetryOnly = process.argv.includes("--home-initial-retry-only");
+const homeRefreshOverlapOnly = process.argv.includes("--home-refresh-overlap-only");
 const homeDisabledTournamentRefreshOnly = process.argv.includes("--home-disabled-tournament-refresh-only");
 const istDateSurfacesOnly = process.argv.includes("--ist-date-surfaces-only");
 const manualRefreshLargeTextOnly = process.argv.includes("--manual-refresh-large-text-only");
@@ -6372,6 +6373,114 @@ async function checkHomeRetryRecovery() {
   console.log("PASS — Home's visible retry starts one paired refresh, preserves cached joined cards while pending, applies successful updates, and retains cards and warning after a later failure.");
 }
 
+async function checkHomeRefreshOverlap() {
+  await setViewport(390, 1, "home-carousel-preview.html?manual-refresh-only=1");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest?.ready === true && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length === 3",
+    "Home's initial cards and manual refresh control",
+  );
+  const initialCounts = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(initialCounts.tournaments === 1 && initialCounts.registrations === 1, "Home must begin with one initial request pair.");
+
+  await evaluate("window.__daily007HomeCarouselTest.deferNextTournamentRead()");
+  await evaluate("window.__daily007HomeCarouselTest.deferNextRegistrationRead()");
+  await tapSelector('[data-testid="player-refresh-control-test-action"]', "Home's manual refresh control");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${initialCounts.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${initialCounts.registrations + 1}`,
+    "the held manual request pair",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "Home's periodic refresh callback should be available during the manual refresh.",
+  );
+  await evaluate(`(() => {
+    const test = window.__daily007HomeCarouselTest;
+    test.setHomeAppState("background");
+    test.setHomeAppState("active");
+  })()`);
+  await delay(100);
+  const heldCounts = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    heldCounts.tournaments === initialCounts.tournaments + 1 &&
+      heldCounts.registrations === initialCounts.registrations + 1,
+    `Manual, periodic, and resume triggers must share one in-flight API pair: ${JSON.stringify(heldCounts)}.`,
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.resolveDeferredTournamentRead()"),
+    "The held tournament request should resolve.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
+    "The held registration request should resolve.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${initialCounts.tournaments + 2} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${initialCounts.registrations + 2} &&
+      !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
+    "one queued resume refresh to run after the manual request settles",
+  );
+
+  const beforeFailedPoll = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.deferNextTournamentRead()");
+  await evaluate("window.__daily007HomeCarouselTest.deferNextRegistrationRead()");
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "A later periodic refresh should be available for the failure case.",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${beforeFailedPoll.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${beforeFailedPoll.registrations + 1}`,
+    "the held periodic request pair for the failure case",
+  );
+  await tapSelector('[data-testid="player-refresh-control-test-action"]', "manual refresh during the held poll");
+  await evaluate(`(() => {
+    const test = window.__daily007HomeCarouselTest;
+    test.setHomeAppState("background");
+    test.setHomeAppState("active");
+  })()`);
+  await delay(100);
+  const failedPairCounts = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    failedPairCounts.tournaments === beforeFailedPoll.tournaments + 1 &&
+      failedPairCounts.registrations === beforeFailedPoll.registrations + 1,
+    `Overlapping triggers during the held poll must not duplicate its requests: ${JSON.stringify(failedPairCounts)}.`,
+  );
+  assert(
+    await evaluate(`window.__daily007HomeCarouselTest.failDeferredTournamentRead("Held Home tournament request failed")`),
+    "The held tournament request should reject for the failure case.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
+    "The paired registration request should settle despite its partner failing.",
+  );
+  await waitForCondition(
+    `document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText.includes("Held Home tournament request failed")`,
+    "Home to show the paired refresh failure while retaining its cards",
+  );
+
+  await tapSelector('[data-testid="player-refresh-control-test-action"]', "Home refresh after a failed pair");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${beforeFailedPoll.tournaments + 2} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${beforeFailedPoll.registrations + 2} &&
+      !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
+    "a later manual refresh to run and recover after the failed pair",
+  );
+  console.log("PASS — Manual, periodic, and resume triggers share one held request pair, queue at most one resume refresh, and refresh again after a failed pair.");
+}
+
 async function checkHomeInitialLoadRetry() {
   const scenarios = [
     {
@@ -8478,11 +8587,13 @@ try {
         ? "admin-narrow-preview.html?admin-tournament-empty-filter=1"
     : homeStartTransitionOnly
       ? "home-carousel-preview.html?home-start-selection=1"
+      : homeRefreshOverlapOnly
+        ? "home-carousel-preview.html?manual-refresh-only=1"
       : homeInitialRetryOnly
         ? "home-carousel-preview.html?home-initial-retry=tournament"
       : singleHomeCardOnly
         ? "home-carousel-preview.html?single-card=1"
-      : homeCarouselOnly || homeRetryOnly || homeInitialRetryOnly || homeDisabledTournamentRefreshOnly
+      : homeCarouselOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeDisabledTournamentRefreshOnly
       ? "home-carousel-preview.html"
       : keyboardFormsOnly
         ? "keyboard-forms-preview.html"
@@ -8565,6 +8676,7 @@ try {
     homeStartTransitionOnly ||
     homeRetryOnly ||
     homeInitialRetryOnly ||
+    homeRefreshOverlapOnly ||
     homeDisabledTournamentRefreshOnly ||
     keyboardFormsOnly ||
     adminKeyboardFormsOnly ||
@@ -8585,13 +8697,13 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -8611,6 +8723,8 @@ try {
          ? "Home retry recovery"
          : homeInitialRetryOnly
          ? "Home initial-load retry recovery"
+         : homeRefreshOverlapOnly
+         ? "Home refresh overlap recovery"
           : homeStartTransitionOnly
             ? "Home scheduled-start carousel selection"
          : homeCarouselOnly
@@ -8958,6 +9072,14 @@ try {
         `New browser errors during disabled-tournament Home refresh checks: ${newBrowserErrors.join(" | ")}`,
       );
       console.log("PASS — Admin closes the populated tournament, the enabled public list excludes it, and Home's scheduled poll removes only its card.");
+    } else if (homeRefreshOverlapOnly) {
+      const knownHomePreviewErrors = new Set(browserErrors);
+      await checkHomeRefreshOverlap();
+      const newBrowserErrors = browserErrors.filter((error) => !knownHomePreviewErrors.has(error));
+      assert(
+        newBrowserErrors.length === 0,
+        `New browser errors during Home refresh overlap checks: ${newBrowserErrors.join(" | ")}`,
+      );
     } else if (homeInitialRetryOnly) {
       const knownHomePreviewErrors = new Set(browserErrors);
       await checkHomeInitialLoadRetry();
