@@ -28,6 +28,8 @@ const fixture = {
   payerUpiValidationPlayerId: randomUUID(),
   retryPlayerId: randomUUID(),
   protectedDepositPlayerId: randomUUID(),
+  approvedReferencePlayerId: randomUUID(),
+  approvedReferenceRetryPlayerId: randomUUID(),
   concurrentApprovalPlayerId: randomUUID(),
   racePlayerIds: [randomUUID(), randomUUID()] as const,
   adminId: randomUUID(),
@@ -41,6 +43,8 @@ after(async () => {
       fixture.payerUpiValidationPlayerId,
       fixture.retryPlayerId,
       fixture.protectedDepositPlayerId,
+      fixture.approvedReferencePlayerId,
+      fixture.approvedReferenceRetryPlayerId,
       fixture.concurrentApprovalPlayerId,
       ...fixture.racePlayerIds,
     ];
@@ -70,7 +74,9 @@ before(async () => {
        ($9, 'UPI Reference Race Player Two', $10, 'test-salt', 'test-hash', 'user', 450),
        ($11, 'UPI Reference Protected Deposit Player', $12, 'test-salt', 'test-hash', 'user', 500),
        ($13, 'UPI Reference Second Admin', $14, 'test-salt', 'test-hash', 'admin', 0),
-       ($15, 'UPI Reference Concurrent Approval Player', $16, 'test-salt', 'test-hash', 'user', 1100)`,
+       ($15, 'UPI Reference Concurrent Approval Player', $16, 'test-salt', 'test-hash', 'user', 1100),
+       ($19, 'Approved Reference Player', $20, 'test-salt', 'test-hash', 'user', 500),
+       ($21, 'Approved Reference Retry Player', $22, 'test-salt', 'test-hash', 'user', 350)`,
     [
       fixture.playerId,
       fixture.retryPlayerId,
@@ -90,6 +96,10 @@ before(async () => {
       `wallet-reference-approval-race-${fixture.concurrentApprovalPlayerId}@example.test`,
       fixture.payerUpiValidationPlayerId,
       `payer-upi-validation-${fixture.payerUpiValidationPlayerId}@example.test`,
+      fixture.approvedReferencePlayerId,
+      `approved-reference-${fixture.approvedReferencePlayerId}@example.test`,
+      fixture.approvedReferenceRetryPlayerId,
+      `approved-reference-retry-${fixture.approvedReferenceRetryPlayerId}@example.test`,
     ],
   );
   await pool.query(
@@ -342,6 +352,150 @@ test("a rejected deposit keeps its normalized UPI reference unique in PostgreSQL
     );
     assert.deepEqual(finalAccount.rows, initialAccount.rows);
     assert.deepEqual(finalLedger.rows, initialLedger.rows);
+  });
+});
+
+test("an approved deposit keeps its case- and Unicode-normalized UPI reference globally unique", async () => {
+  const originalReference = `  ＡＰＰＲＯＶＥＤ-ＵＰＩ-${randomUUID().replace(/-/g, "").toUpperCase()}  `;
+  const storedReference = originalReference.trim();
+  const normalizedReference = originalReference.normalize("NFKC").trim().toLocaleUpperCase("en-US");
+  const retryReference = normalizedReference.toLocaleLowerCase("en-US");
+  const originalPlayerId = fixture.approvedReferencePlayerId;
+  const retryPlayerId = fixture.approvedReferenceRetryPlayerId;
+  const coins = 125;
+  const initialAccounts = await pool.query<{ id: string; wallet_coins: number }>(
+    `SELECT id, wallet_coins
+       FROM daily007_v2_users
+      WHERE id = ANY($1::uuid[])
+      ORDER BY id`,
+    [[originalPlayerId, retryPlayerId]],
+  );
+  const initialRetryLedger = await pool.query(
+    `SELECT id, amount, balance_after, reason
+       FROM daily007_v2_wallet_ledger
+      WHERE user_id = $1
+      ORDER BY created_at, id`,
+    [retryPlayerId],
+  );
+  const originalStartingBalance = initialAccounts.rows.find(
+    (account) => account.id === originalPlayerId,
+  )?.wallet_coins;
+  const retryStartingBalance = initialAccounts.rows.find(
+    (account) => account.id === retryPlayerId,
+  )?.wallet_coins;
+  assert.equal(originalStartingBalance, 500);
+  assert.equal(retryStartingBalance, 350);
+  assert.deepEqual(initialRetryLedger.rows, []);
+
+  await withServer(async (origin) => {
+    const deposit = await call(origin, originalPlayerId, "/payments", "POST", {
+      coins,
+      payerUpiId: "approved-player@upi",
+      txnId: originalReference,
+    });
+    assert.equal(deposit.status, 201);
+    const paymentId = deposit.body.id as string;
+    assert.ok(paymentId);
+
+    const approval = await call(
+      origin,
+      fixture.adminId,
+      `/admin/payments/${paymentId}/approve`,
+      "POST",
+    );
+    assert.equal(approval.status, 200);
+    assert.equal(approval.body.status, "approved");
+
+    const approvedState = await pool.query<{
+      id: string;
+      user_id: string;
+      status: string;
+      reference: string;
+      reference_normalized: string;
+    }>(
+      `SELECT id, user_id, status, reference, reference_normalized
+         FROM daily007_v2_payments
+        WHERE reference_normalized = $1`,
+      [normalizedReference],
+    );
+    assert.deepEqual(approvedState.rows, [{
+      id: paymentId,
+      user_id: originalPlayerId,
+      status: "approved",
+      reference: storedReference,
+      reference_normalized: normalizedReference,
+    }]);
+
+    const retry = await call(origin, retryPlayerId, "/payments", "POST", {
+      coins,
+      payerUpiId: "retry-player@upi",
+      txnId: retryReference,
+    });
+    assert.equal(retry.status, 409);
+    assert.equal(retry.body.error, "This payment reference has already been submitted.");
+
+    const finalPayments = await pool.query<{
+      id: string;
+      user_id: string;
+      status: string;
+      reference: string;
+      reference_normalized: string;
+    }>(
+      `SELECT id, user_id, status, reference, reference_normalized
+         FROM daily007_v2_payments
+        WHERE reference_normalized = $1`,
+      [normalizedReference],
+    );
+    assert.deepEqual(
+      finalPayments.rows,
+      approvedState.rows,
+      "A cross-account retry must leave the one approved payment unchanged.",
+    );
+
+    const finalAccounts = await pool.query<{ id: string; wallet_coins: number }>(
+      `SELECT id, wallet_coins
+         FROM daily007_v2_users
+        WHERE id = ANY($1::uuid[])
+        ORDER BY id`,
+      [[originalPlayerId, retryPlayerId]],
+    );
+    const finalOriginalBalance = finalAccounts.rows.find(
+      (account) => account.id === originalPlayerId,
+    )?.wallet_coins;
+    const finalRetryBalance = finalAccounts.rows.find(
+      (account) => account.id === retryPlayerId,
+    )?.wallet_coins;
+    assert.equal(finalOriginalBalance, originalStartingBalance! + coins);
+    assert.equal(finalRetryBalance, retryStartingBalance);
+
+    const finalRetryLedger = await pool.query(
+      `SELECT id, amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1
+        ORDER BY created_at, id`,
+      [retryPlayerId],
+    );
+    assert.deepEqual(
+      finalRetryLedger.rows,
+      initialRetryLedger.rows,
+      "The rejected duplicate must not change the retry player's ledger.",
+    );
+    const originalApprovalLedger = await pool.query<{
+      amount: number;
+      balance_after: number;
+      reason: string;
+    }>(
+      `SELECT amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND reason = 'payment_approved'
+        ORDER BY created_at, id`,
+      [originalPlayerId],
+    );
+    assert.deepEqual(originalApprovalLedger.rows, [{
+      amount: coins,
+      balance_after: originalStartingBalance! + coins,
+      reason: "payment_approved",
+    }]);
   });
 });
 
