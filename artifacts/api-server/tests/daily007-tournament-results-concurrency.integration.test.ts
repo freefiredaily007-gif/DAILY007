@@ -1848,6 +1848,152 @@ test("Admin result recovery excludes a saved placement after its tournament is c
   }
 });
 
+test("duplicate-placement audit reports complete historical groups without changing settlement data", async () => {
+  const fixture = await createFixture(3);
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_result_awards
+         (match_id, registration_id, user_id, rank, kills, prize_coins)
+       VALUES ($1, $2, $3, 2, 7, 500),
+              ($1, $4, $5, 2, 5, 250),
+              ($1, $6, $7, 3, 2, 100)`,
+      [
+        fixture.matchId,
+        fixture.players[0].registrationId,
+        fixture.players[0].userId,
+        fixture.players[1].registrationId,
+        fixture.players[1].userId,
+        fixture.players[2].registrationId,
+        fixture.players[2].userId,
+      ],
+    );
+    await pool.query(
+      "UPDATE daily007_v2_matches SET status = 'cancelled', enabled = false WHERE id = $1",
+      [fixture.matchId],
+    );
+
+    const captureStoredState = async () => {
+      const [awards, users, stats, ledger] = await Promise.all([
+        pool.query(
+          `SELECT id, match_id, registration_id, user_id, rank, kills, prize_coins
+             FROM daily007_v2_result_awards
+            WHERE match_id = $1
+            ORDER BY registration_id`,
+          [fixture.matchId],
+        ),
+        pool.query(
+          `SELECT id, wallet_coins
+             FROM daily007_v2_users
+            WHERE id = ANY($1::uuid[])
+            ORDER BY id`,
+          [fixture.players.map((player) => player.userId)],
+        ),
+        pool.query(
+          `SELECT user_id, matches, wins, kills, prize_coins
+             FROM daily007_v2_user_stats
+            WHERE user_id = ANY($1::uuid[])
+            ORDER BY user_id`,
+          [fixture.players.map((player) => player.userId)],
+        ),
+        pool.query(
+          `SELECT user_id, amount, balance_after, reason, match_id, registration_id
+             FROM daily007_v2_wallet_ledger
+            WHERE match_id = $1
+            ORDER BY registration_id`,
+          [fixture.matchId],
+        ),
+      ]);
+      return { awards: awards.rows, users: users.rows, stats: stats.rows, ledger: ledger.rows };
+    };
+    const before = await captureStoredState();
+
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/admin/results/duplicate-placements`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json() as {
+        success: boolean;
+        data: Array<{
+          tournamentId: string;
+          tournamentName: string;
+          startsAt: string;
+          tournamentStatus: string;
+          prizePool: number;
+          prizeDistribution: string;
+          rank: number;
+          registrationCount: number;
+          totalPrizeCoins: string;
+          awards: Array<{
+            awardId: string;
+            registrationId: string;
+            userId: string;
+            playerName: string;
+            gameName: string;
+            kills: number;
+            prizeCoins: number;
+            createdAt: string;
+          }>;
+        }>;
+        correctionGuidance: string;
+      };
+
+      assert.equal(body.success, true);
+      assert.equal(body.data.length, 1, "only duplicate tournament/rank groups should be reported");
+      const [group] = body.data;
+      assert.ok(group);
+      assert.deepEqual({
+        tournamentId: group.tournamentId,
+        tournamentName: group.tournamentName,
+        tournamentStatus: group.tournamentStatus,
+        rank: group.rank,
+        registrationCount: group.registrationCount,
+        totalPrizeCoins: group.totalPrizeCoins,
+      }, {
+        tournamentId: fixture.matchId,
+        tournamentName: "Isolated result race",
+        tournamentStatus: "cancelled",
+        rank: 2,
+        registrationCount: 2,
+        totalPrizeCoins: "750",
+      });
+      assert.ok(Number.isFinite(Date.parse(group.startsAt)));
+      assert.equal(group.prizePool, 875);
+      assert.match(group.prizeDistribution, /2nd: 250 coins/);
+      const listedAwards = group.awards.map((award) => ({
+          registrationId: award.registrationId,
+          userId: award.userId,
+          playerName: award.playerName,
+          gameName: award.gameName,
+          kills: award.kills,
+          prizeCoins: award.prizeCoins,
+        })).sort((first, second) => first.registrationId.localeCompare(second.registrationId));
+      const expectedAwards = fixture.players.slice(0, 2).map((player, index) => ({
+        registrationId: player.registrationId,
+        userId: player.userId,
+        playerName: `Test Player ${index + 1}`,
+        gameName: `TestGame${index + 1}`,
+        kills: index === 0 ? 7 : 5,
+        prizeCoins: index === 0 ? 500 : 250,
+      })).sort((first, second) => first.registrationId.localeCompare(second.registrationId));
+      assert.deepEqual(listedAwards, expectedAwards);
+      assert.ok(group.awards.every((award) => award.awardId && Date.parse(award.createdAt)));
+      assert.match(body.correctionGuidance, /does not change results or player balances/i);
+      assert.match(body.correctionGuidance, /one transaction/i);
+
+      const denied = await fetch(`${origin}/admin/results/duplicate-placements`, {
+        headers: authHeaders(fixture.players[0].userId),
+      });
+      assert.equal(denied.status, 403, "regular players must not access the Admin audit");
+    });
+
+    assert.deepEqual(await captureStoredState(), before, "the audit must leave awards, balances, stats, and ledger unchanged");
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("public results stay draft when a cancelled tournament retains a winner award", async () => {
   const userId = randomUUID();
   const matchId = randomUUID();

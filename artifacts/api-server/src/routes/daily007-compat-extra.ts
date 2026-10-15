@@ -1705,6 +1705,77 @@ function configuredPrizeForRank(prizePool: number, prizeDistribution: string, ra
   return rank === 1 ? prizePool : 0;
 }
 
+router.get("/admin/results/duplicate-placements", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const result = await pool.query<{
+    tournamentId: string;
+    tournamentName: string;
+    startsAt: Date | string;
+    tournamentStatus: string;
+    prizePool: number;
+    prizeDistribution: string;
+    rank: number;
+    registrationCount: number;
+    totalPrizeCoins: string;
+    awards: Array<{
+      awardId: string;
+      registrationId: string;
+      userId: string;
+      playerName: string;
+      gameName: string;
+      teamName: string | null;
+      kills: number;
+      prizeCoins: number;
+      createdAt: string;
+    }>;
+  }>(
+    `WITH duplicate_placements AS (
+       SELECT match_id, rank, count(*)::int AS registration_count
+         FROM daily007_v2_result_awards
+        GROUP BY match_id, rank
+       HAVING count(*) > 1
+     )
+     SELECT m.id AS "tournamentId", m.title AS "tournamentName",
+            m.starts_at AS "startsAt", m.status AS "tournamentStatus",
+            m.prize_pool AS "prizePool", m.prize_distribution AS "prizeDistribution",
+            duplicate.rank, duplicate.registration_count AS "registrationCount",
+            sum(award.prize_coins)::text AS "totalPrizeCoins",
+            jsonb_agg(
+              jsonb_build_object(
+                'awardId', award.id,
+                'registrationId', award.registration_id,
+                'userId', award.user_id,
+                'playerName', registration.captain_name,
+                'gameName', registration.captain_game_name,
+                'teamName', registration.team_name,
+                'kills', award.kills,
+                'prizeCoins', award.prize_coins,
+                'createdAt', award.created_at
+              )
+              ORDER BY award.created_at ASC, award.id ASC
+            ) AS awards
+       FROM duplicate_placements duplicate
+       JOIN daily007_v2_matches m ON m.id = duplicate.match_id
+       JOIN daily007_v2_result_awards award
+         ON award.match_id = duplicate.match_id AND award.rank = duplicate.rank
+       JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
+      GROUP BY m.id, duplicate.rank, duplicate.registration_count
+      ORDER BY m.starts_at DESC, duplicate.rank ASC, m.id ASC`,
+  );
+
+  res.json({
+    success: true,
+    data: result.rows.map((row) => ({
+      ...row,
+      startsAt: row.startsAt instanceof Date ? row.startsAt.toISOString() : new Date(row.startsAt).toISOString(),
+      // Keep the exact total as text; PostgreSQL sums can exceed JavaScript's safe integer range.
+      totalPrizeCoins: String(row.totalPrizeCoins),
+    })),
+    correctionGuidance:
+      "This audit does not change results or player balances. Verify each placement against the original tournament records and prize rules before deciding whether to preserve or correct it. If a correction is approved, reconcile the award, wallet, lifetime stats, and prize ledger together in one transaction; preserve an auditable ledger trail with compensating entries rather than deleting payout history.",
+  });
+});
+
 router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   const includeUnfinalized = req.query.includeUnfinalized === "true";
