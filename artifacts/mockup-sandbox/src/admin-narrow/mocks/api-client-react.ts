@@ -206,6 +206,7 @@ type VideoRewardPreviewMode =
   | "unavailableRefreshFailure"
   | "lateCatalogResponse"
   | "catalogPositionRefreshFailure"
+  | "catalogRefreshPending"
   | "transient"
   | "lateCompletion"
   | "startFailure"
@@ -250,6 +251,7 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
     __resolvePendingVideoWatchStart?: () => void;
     __rejectPendingVideoRewardCompletion?: () => void;
     __resolveHeldVideoCatalogRefetch?: () => void;
+    __finishHeldVideoCatalogRefetch?: (succeed: boolean) => void;
   };
   preview.__videoRewardPreviewCalls = {
     starts: [],
@@ -263,6 +265,7 @@ export function configureVideoRewardPreview(mode: VideoRewardPreviewMode) {
   preview.__resolvePendingVideoWatchStart = undefined;
   preview.__rejectPendingVideoRewardCompletion = undefined;
   preview.__resolveHeldVideoCatalogRefetch = undefined;
+  preview.__finishHeldVideoCatalogRefetch = undefined;
 }
 
 export const getDaily007ListVideosQueryKey = () => ["isolated-preview", "videos"];
@@ -270,7 +273,9 @@ export const getDaily007ListVideosQueryKey = () => ["isolated-preview", "videos"
 export function useDaily007ListVideos() {
   const mode = videoRewardPreviewMode;
   const [refreshCount, setRefreshCount] = useState(0);
-  const [refreshFailed, setRefreshFailed] = useState(mode === "lateCatalogResponse");
+  const [refreshFailed, setRefreshFailed] = useState(
+    mode === "lateCatalogResponse" || mode === "catalogRefreshPending",
+  );
   const refreshFailureCount = useRef(0);
   const lateCatalogRequestSequenceRef = useRef(0);
   const removesUnavailable = mode === "unavailable"
@@ -288,6 +293,27 @@ export function useDaily007ListVideos() {
     const calls = getVideoRewardPreviewCalls();
     calls.listRefetches += 1;
     calls.catalogRefetchCancelOptions.push(options?.cancelRefetch ?? false);
+    if (mode === "catalogRefreshPending") {
+      if (options?.cancelRefetch !== true) {
+        return { error: new Error("Temporary video catalog refresh failure.") };
+      }
+      return new Promise((resolve) => {
+        const preview = globalThis as typeof globalThis & {
+          __finishHeldVideoCatalogRefetch?: (succeed: boolean) => void;
+        };
+        preview.__finishHeldVideoCatalogRefetch = (succeed) => {
+          preview.__finishHeldVideoCatalogRefetch = undefined;
+          if (succeed) {
+            setRefreshFailed(false);
+            setRefreshCount((current) => current + 1);
+            resolve({ data: { videos: activeRewardPreviewVideos } });
+          } else {
+            setRefreshFailed(true);
+            resolve({ error: new Error("Temporary video catalog refresh failure.") });
+          }
+        };
+      });
+    }
     if (mode === "lateCatalogResponse") {
       if (options?.cancelRefetch !== true) {
         return { error: new Error("Temporary video catalog refresh failure.") };

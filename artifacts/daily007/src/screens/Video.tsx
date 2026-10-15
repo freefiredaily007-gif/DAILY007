@@ -176,6 +176,7 @@ export default function Video() {
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogErrorAnnouncementVersion, setCatalogErrorAnnouncementVersion] = useState(0);
   const [catalogRecoveryAnnouncementVersion, setCatalogRecoveryAnnouncementVersion] = useState(0);
+  const [catalogReloadPending, setCatalogReloadPending] = useState(false);
   const playbackCycleRef = useRef(0);
   const catalogReloadRequestSequenceRef = useRef(0);
   const catalogScrollRef = useRef<ScrollView | null>(null);
@@ -184,13 +185,20 @@ export default function Video() {
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
   const reloadVideoCatalog = useCallback(async () => {
     const requestSequence = ++catalogReloadRequestSequenceRef.current;
-    const result = await videosQuery.refetch({ cancelRefetch: true });
-    if (requestSequence !== catalogReloadRequestSequenceRef.current) return;
-    if (result.error) {
-      setCatalogErrorAnnouncementVersion((version) => version + 1);
-      return;
+    setCatalogReloadPending(true);
+    try {
+      const result = await videosQuery.refetch({ cancelRefetch: true });
+      if (requestSequence !== catalogReloadRequestSequenceRef.current) return;
+      if (result.error) {
+        setCatalogErrorAnnouncementVersion((version) => version + 1);
+        return;
+      }
+      setCatalogRecoveryAnnouncementVersion((version) => version + 1);
+    } finally {
+      if (requestSequence === catalogReloadRequestSequenceRef.current) {
+        setCatalogReloadPending(false);
+      }
     }
-    setCatalogRecoveryAnnouncementVersion((version) => version + 1);
   }, [videosQuery.refetch]);
   const closePlayer = useCallback(() => {
     playbackCycleRef.current += 1;
@@ -900,24 +908,43 @@ export default function Video() {
               <Text style={styles.errorText}>Loading videos…</Text>
             </View>
           ) : null}
-          {videosQuery.isError ? (
+          {videosQuery.isError || catalogReloadPending ? (
             <View style={styles.errorCard}>
-              <Feather name="alert-circle" size={18} color={colors.destructive} />
-              <Text
-                key={`video-catalog-error-${catalogErrorAnnouncementVersion}`}
-                accessibilityLiveRegion="polite"
-                testID="video-catalog-error-message"
-                style={styles.errorText}
-              >
-                {hasLoadedCatalog
-                  ? 'Could not refresh videos. Showing the last loaded catalog.'
-                  : 'Could not load videos. Check your connection and try again.'}
-              </Text>
+              {videosQuery.isError ? (
+                <Feather name="alert-circle" size={18} color={colors.destructive} />
+              ) : null}
+              <View style={styles.catalogErrorContent}>
+                {videosQuery.isError ? (
+                  <Text
+                    key={`video-catalog-error-${catalogErrorAnnouncementVersion}`}
+                    accessibilityLiveRegion="polite"
+                    testID="video-catalog-error-message"
+                    style={styles.errorText}
+                  >
+                    {hasLoadedCatalog
+                      ? 'Could not refresh videos. Showing the last loaded catalog.'
+                      : 'Could not load videos. Check your connection and try again.'}
+                  </Text>
+                ) : null}
+                {catalogReloadPending ? (
+                  <View style={styles.catalogReloadProgress}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text
+                      accessibilityLiveRegion="polite"
+                      testID="video-catalog-reload-progress"
+                      style={styles.catalogReloadProgressText}
+                    >
+                      Reloading videos…
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
               <Pressable
                 testID="video-catalog-reload"
                 onPress={() => { void reloadVideoCatalog(); }}
                 accessibilityRole="button"
                 accessibilityLabel="Reload videos"
+                accessibilityState={{ busy: catalogReloadPending }}
               >
                 <Feather name="refresh-cw" size={18} color={colors.primary} />
               </Pressable>
@@ -1122,7 +1149,21 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       padding: 12,
       marginTop: 10,
     },
+    catalogErrorContent: { flex: 1, minWidth: 0, gap: 6 },
     errorText: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, flex: 1 },
+    catalogReloadProgress: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      minWidth: 0,
+    },
+    catalogReloadProgressText: {
+      color: colors.primary,
+      fontSize: 12,
+      lineHeight: 18,
+      flex: 1,
+      flexShrink: 1,
+    },
     catalogRecoveryText: {
       color: colors.primary,
       fontSize: 12,

@@ -12,6 +12,7 @@ const videoStartFailureOnly = process.argv.includes("--video-start-failure-only"
 const lateVideoRewardResponseOnly = process.argv.includes("--late-video-reward-response-only");
 const pendingVideoWatchStartOnly = process.argv.includes("--pending-video-watch-start-only");
 const videoCatalogRefreshAnnouncementOnly = process.argv.includes("--video-catalog-refresh-announcement-only");
+const videoCatalogRetryPendingOnly = process.argv.includes("--video-catalog-retry-pending-only");
 const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty-search-only");
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
 const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
@@ -1262,6 +1263,94 @@ async function checkUnavailableVideoCatalogRefreshFailure(searchQuery = "Preview
     : "PASS — catalog failures are announced again without moving reload focus, and recovery is announced after success.");
 }
 
+async function checkVideoCatalogRetryPending() {
+  const catalogError = "Could not refresh videos. Showing the last loaded catalog.";
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width: 320,
+    height: 820,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await navigateToScreen("VideoCatalogRetryPending", "Tutorial Videos", 2);
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))`,
+    "the initial video catalog error and reload action",
+  );
+
+  const pendingReload = await evaluate(`(() => {
+    const reload = document.querySelector('[data-testid="video-catalog-reload"]');
+    reload?.focus();
+    reload?.click();
+    return {
+      focused: document.activeElement === reload,
+      count: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+    };
+  })()`);
+  assert(
+    pendingReload.focused && pendingReload.count >= 1,
+    `The retry should begin from the focused reload action: ${JSON.stringify(pendingReload)}`,
+  );
+  await waitForCondition(
+    `typeof window.__finishHeldVideoCatalogRefetch === "function"
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload-progress"]'))`,
+    "the catalog retry progress announcement while the request is held",
+  );
+  const pendingState = await evaluate(`(() => {
+    const reload = document.querySelector('[data-testid="video-catalog-reload"]');
+    const progress = document.querySelector('[data-testid="video-catalog-reload-progress"]');
+    const rect = progress?.getBoundingClientRect();
+    return {
+      progress: progress?.textContent?.trim() ?? null,
+      progressLiveRegion: progress?.getAttribute("aria-live") ?? null,
+      focusedOnReload: document.activeElement === reload,
+      errorStillVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
+      progressBounds: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null,
+      viewportWidth: document.documentElement.clientWidth,
+    };
+  })()`);
+  assert(
+    pendingState.progress === "Reloading videos…"
+      && pendingState.progressLiveRegion === "polite"
+      && pendingState.focusedOnReload
+      && pendingState.errorStillVisible
+      && pendingState.progressBounds?.left >= 0
+      && pendingState.progressBounds?.right <= pendingState.viewportWidth + 1,
+    `Pending retry feedback should be announced, fit at large text, and leave focus on Reload: ${JSON.stringify(pendingState)}`,
+  );
+
+  await evaluate("window.__finishHeldVideoCatalogRefetch(false)");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && !document.querySelector('[data-testid="video-catalog-reload-progress"]')`,
+    "the catalog error and retry action after a failed attempt",
+  );
+  const retryAfterFailure = await evaluate(`(() => ({
+    reloadVisible: Boolean(document.querySelector('[data-testid="video-catalog-reload"]')),
+    focusStayedOnReload: document.activeElement === document.querySelector('[data-testid="video-catalog-reload"]'),
+    progressCleared: !document.querySelector('[data-testid="video-catalog-reload-progress"]'),
+  }))()`);
+  assert(
+    retryAfterFailure.reloadVisible && retryAfterFailure.focusStayedOnReload && retryAfterFailure.progressCleared,
+    `A failed retry should restore a focused reload action and clear pending feedback: ${JSON.stringify(retryAfterFailure)}`,
+  );
+
+  await clickSelector('[data-testid="video-catalog-reload"]', "retry after a failed catalog reload");
+  await waitForCondition(
+    "typeof window.__finishHeldVideoCatalogRefetch === 'function' && Boolean(document.querySelector('[data-testid=\"video-catalog-reload-progress\"]'))",
+    "pending progress during the successful catalog retry",
+  );
+  await evaluate("window.__finishHeldVideoCatalogRefetch(true)");
+  await waitForCondition(
+    `!document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && !document.querySelector('[data-testid="video-catalog-reload-progress"]')
+      && Boolean(document.querySelector('[data-testid="video-catalog-recovered-announcement"]'))
+      && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))`,
+    "the refreshed catalog after the successful retry",
+  );
+  console.log("PASS — catalog retry progress is polite, remains readable at 2× text without moving focus, clears after failure, and the retry recovers.");
+}
+
 async function checkLateVideoCatalogResponseCannotUndoRetry() {
   const catalogError = "Could not load videos. Check your connection and try again.";
   await navigateToScreen("VideoLateCatalogResponse", catalogError);
@@ -2106,10 +2195,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2119,6 +2208,9 @@ try {
   }
   if (videoCatalogRefreshAnnouncementOnly) {
     await checkUnavailableVideoCatalogRefreshFailure();
+  }
+  if (videoCatalogRetryPendingOnly) {
+    await checkVideoCatalogRetryPending();
   }
   if (videoCatalogEmptySearchOnly) {
     await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable");
@@ -2148,6 +2240,7 @@ try {
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
     || videoCatalogRefreshAnnouncementOnly
+    || videoCatalogRetryPendingOnly
     || videoCatalogEmptySearchOnly
     || lateVideoCatalogResponseOnly
     || videoCatalogPositionOnly
@@ -2226,7 +2319,9 @@ try {
           ? "PASS — repeated progress during a pending video start creates one session, and completion uses it."
           : videoCatalogRefreshAnnouncementOnly
             ? "PASS — repeated catalog failures are announced without moving focus, and successful recovery is announced."
-            : videoCatalogEmptySearchOnly
+            : videoCatalogRetryPendingOnly
+              ? "PASS — catalog retry progress is announced without moving focus, clears after failure, and is followed by a successful recovery."
+              : videoCatalogEmptySearchOnly
               ? "PASS — catalog recovery preserves a search with no remaining matches."
               : lateVideoCatalogResponseOnly
                 ? "PASS — a late catalog response cannot undo a newer successful retry."
