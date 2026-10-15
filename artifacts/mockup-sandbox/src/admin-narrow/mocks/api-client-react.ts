@@ -430,11 +430,14 @@ export function useDaily007StartVideoWatch() {
           throw new Error("The video watch session could not be created.");
         }
         const sessionId = `preview-video-watch-session-${calls.starts.length}`;
-        if (
-          (videoRewardPreviewMode === "delayedStart"
+        const shouldHoldStart =
+          ((videoRewardPreviewMode === "delayedStart"
             || videoRewardPreviewMode === "delayedStartAcrossVideos")
-          && calls.starts.length === 1
-        ) {
+            && calls.starts.length === 1)
+          || (videoRewardPreviewMode === "startFailure"
+            && videoWatchStartFailures === 1
+            && calls.starts.length === 2);
+        if (shouldHoldStart) {
           await new Promise<void>((resolve) => {
             const preview = globalThis as typeof globalThis & {
               __resolvePendingVideoWatchStart?: () => void;

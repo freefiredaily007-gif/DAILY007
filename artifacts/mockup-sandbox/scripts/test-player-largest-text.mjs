@@ -1916,6 +1916,8 @@ async function checkVideoWatchStartFailure() {
     sessions: window.__videoRewardPreviewCalls?.sessions.length ?? 0,
     completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
     retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
+    retrySessionStart: document.querySelector('[data-testid="video-retry-session-start"]') !== null,
+    playerOpen: document.querySelector('[data-testid="video-preview-finish-playback"]') !== null,
     liveRegion: document.querySelector('[data-testid="video-watch-error-message"]')?.getAttribute('aria-live') ?? null,
     liveRegionCount: document.querySelectorAll('[data-testid="video-watch-error-message"][aria-live="polite"]').length,
     errorFocused: (() => {
@@ -1933,7 +1935,9 @@ async function checkVideoWatchStartFailure() {
       && failedStart.firstStart?.data?.videoId === "still-active-video"
       && failedStart.sessions === 0
       && failedStart.completions === 0
-      && !failedStart.retryClaim,
+      && !failedStart.retryClaim
+      && failedStart.retrySessionStart
+      && failedStart.playerOpen,
     `A failed session start must show its error without a session, completion, or claim retry: ${JSON.stringify(failedStart)}`,
   );
   assert(
@@ -1945,59 +1949,87 @@ async function checkVideoWatchStartFailure() {
     `The session-start error should announce politely without moving or trapping focus: ${JSON.stringify(failedStart)}`,
   );
 
-  await clickSelector('[data-testid="video-preview-finish-playback"]', "finish playback without a watch session");
-  const endedPlayback = await evaluate(`(() => ({
-    errorVisible: document.body.innerText.includes(${JSON.stringify(startFailureMessage)}),
-    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
-    retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
-  }))()`);
-  assert(
-    endedPlayback.errorVisible && endedPlayback.completions === 0 && !endedPlayback.retryClaim,
-    `Finishing unverified playback must not offer a completion or claim retry: ${JSON.stringify(endedPlayback)}`,
-  );
-
-  await clickSelector('[data-testid="video-catalog-back"]', "return to the video catalog after start failure");
-  await waitForCondition(
-    "Boolean(document.querySelector('[data-testid=\"video-catalog-card-still-active-video\"]'))",
-    "active video card after returning to the catalog",
-  );
   await clickSelector(
-    '[data-testid="video-catalog-card-still-active-video"]',
-    "restart the active video from the catalog",
+    '[data-testid="video-retry-session-start"]',
+    "retry the failed session start without leaving the player",
   );
-  await waitForCondition(
-    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
-    "fresh video playback simulator",
-  );
-  await evaluate(`(() => {
-    window.__daily007VideoNow = performance.timeOrigin + performance.now();
-    Date.now = () => window.__daily007VideoNow;
-  })()`);
-  await clickSelector('[data-testid="video-preview-start-playback"]', "fresh playback start");
   await waitForCondition(
     `window.__videoRewardPreviewCalls?.starts.length === 2
-      && window.__videoRewardPreviewCalls?.sessions.length === 1`,
-    "fresh server watch session after returning to the catalog",
+      && typeof window.__resolvePendingVideoWatchStart === "function"
+      && document.body.innerText.includes("RETRYING SESSION…")`,
+    "the in-player session-start retry while its server request is pending",
   );
 
-  const restartedPlayback = await evaluate(`(() => ({
+  const pendingRetry = await evaluate(`(() => {
+    const retry = document.querySelector('[data-testid="video-retry-session-start"]');
+    retry?.click();
+    const sendProgress = window.__sendVideoRewardPreviewProgress;
+    if (typeof sendProgress !== "function") {
+      throw new Error("The preview progress sender is unavailable.");
+    }
+    for (const currentTime of [0.25, 0.5, 0.75]) {
+      window.__daily007VideoNow += 1_000;
+      sendProgress(currentTime, 8);
+    }
+    return {
+      starts: window.__videoRewardPreviewCalls?.starts ?? [],
+      sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+      completions: window.__videoRewardPreviewCalls?.completions ?? [],
+      retryPending: document.body.innerText.includes("RETRYING SESSION…"),
+      retryDisabled: Boolean(retry?.disabled),
+      playerOpen: Boolean(document.querySelector('[data-testid="video-preview-finish-playback"]')),
+      errorVisible: document.body.innerText.includes(${JSON.stringify(startFailureMessage)}),
+    };
+  })()`);
+  assert(
+    pendingRetry.starts.length === 2
+      && pendingRetry.starts[0]?.data?.videoId === "still-active-video"
+      && pendingRetry.starts[1]?.data?.videoId === "still-active-video"
+      && pendingRetry.starts[1]?.data?.attemptId === pendingRetry.starts[0]?.data?.attemptId
+      && pendingRetry.sessions.length === 0
+      && pendingRetry.completions.length === 0
+      && pendingRetry.retryPending
+      && pendingRetry.retryDisabled
+      && pendingRetry.playerOpen
+      && !pendingRetry.errorVisible,
+    `The in-player retry should remain the only pending request while progress arrives: ${JSON.stringify(pendingRetry)}`,
+  );
+
+  await evaluate("window.__resolvePendingVideoWatchStart?.()");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.sessions.length === 1
+      && typeof window.__resolvePendingVideoWatchStart !== "function"
+      && !document.querySelector('[data-testid="video-retry-session-start"]')`,
+    "the retry's returned watch session",
+  );
+  await clickSelector(
+    '[data-testid="video-preview-finish-playback"]',
+    "complete playback using the session returned by its retry",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes("1 coin added to your wallet.")
+      && window.__videoRewardPreviewCalls?.completions.length === 1`,
+    "successful completion with the retried watch session",
+  );
+  const retriedPlayback = await evaluate(`(() => ({
     starts: window.__videoRewardPreviewCalls?.starts ?? [],
     sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
-    completions: window.__videoRewardPreviewCalls?.completions.length ?? 0,
-    errorVisible: document.body.innerText.includes(${JSON.stringify(startFailureMessage)}),
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+    retrySessionStart: document.querySelector('[data-testid="video-retry-session-start"]') !== null,
     retryClaim: document.querySelector('[data-testid="video-retry-claim"]') !== null,
   }))()`);
   assert(
-    restartedPlayback.starts.length === 2
-      && restartedPlayback.starts[1]?.data?.videoId === "still-active-video"
-      && restartedPlayback.sessions.length === 1
-      && restartedPlayback.sessions[0] === "preview-video-watch-session-2"
-      && restartedPlayback.completions === 0
-      && !restartedPlayback.errorVisible
-      && !restartedPlayback.retryClaim,
-    `Returning to the catalog should allow a fresh session without reusing the failed attempt: ${JSON.stringify(restartedPlayback)}`,
+    retriedPlayback.starts.length === 2
+      && retriedPlayback.sessions.length === 1
+      && retriedPlayback.sessions[0] === "preview-video-watch-session-2"
+      && retriedPlayback.completions.length === 1
+      && retriedPlayback.completions[0]?.data?.sessionId === retriedPlayback.sessions[0]
+      && retriedPlayback.completions[0]?.data?.percentWatched >= 75
+      && !retriedPlayback.retrySessionStart
+      && !retriedPlayback.retryClaim,
+    `Completion must use the single session returned by the in-player retry: ${JSON.stringify(retriedPlayback)}`,
   );
-  console.log("PASS — failed watch-session creation offers no reward claim and allows a fresh start.");
+  console.log("PASS — failed watch-session starts can retry in-player; pending progress creates no duplicate request, and completion uses the retry session.");
 }
 
 async function checkDelayedVideoWatchStart() {
