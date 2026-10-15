@@ -607,6 +607,78 @@ test("players see only their own pending withdrawal and payout details", async (
   });
 });
 
+test("players see only their own withdrawal after another request is rejected", async () => {
+  walletTestDb.reset();
+
+  await withServer(async (origin) => {
+    const firstCreated = await call(origin, TEST_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "first-player@upi",
+    });
+    const secondCreated = await call(origin, TEST_SECOND_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 250,
+      method: "bank",
+      account: "second-player-account-9876",
+    });
+
+    assert.equal(firstCreated.status, 201);
+    assert.equal(secondCreated.status, 201);
+    const firstWithdrawalId = firstCreated.body.id as string;
+    const secondWithdrawalId = secondCreated.body.id as string;
+    const reviewReason = "Payout account could not be verified.";
+
+    const rejected = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/admin/withdrawals/${firstWithdrawalId}/reject`,
+      "POST",
+      { reason: reviewReason },
+    );
+    assert.equal(rejected.status, 200);
+
+    const firstHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
+    const secondHistory = await call(origin, TEST_SECOND_PLAYER_ID, "/my/withdrawals", "GET");
+    const firstWithdrawal = firstHistory.body[0];
+    const secondWithdrawal = secondHistory.body[0];
+
+    assert.equal(firstHistory.status, 200);
+    assert.deepEqual(firstHistory.body, [{
+      id: firstWithdrawalId,
+      coins: 150,
+      method: "upi",
+      account: "first-player@upi",
+      status: "rejected",
+      payoutStatus: "not_paid",
+      reviewReason,
+      createdAt: walletTestDb.withdrawals.get(firstWithdrawalId)?.created_at.toISOString(),
+      reviewedAt: walletTestDb.withdrawals.get(firstWithdrawalId)?.reviewed_at?.toISOString(),
+    }]);
+    assert.equal(secondHistory.status, 200);
+    assert.deepEqual(secondHistory.body, [{
+      id: secondWithdrawalId,
+      coins: 250,
+      method: "bank",
+      account: "second-player-account-9876",
+      status: "pending",
+      payoutStatus: "not_paid",
+      reviewReason: null,
+      createdAt: walletTestDb.withdrawals.get(secondWithdrawalId)?.created_at.toISOString(),
+      reviewedAt: null,
+    }]);
+    assert.equal(JSON.stringify(firstHistory.body).includes(secondWithdrawalId), false);
+    assert.equal(JSON.stringify(firstHistory.body).includes("second-player-account-9876"), false);
+    assert.equal(JSON.stringify(firstHistory.body).includes(reviewReason), true);
+    assert.equal(JSON.stringify(secondHistory.body).includes(firstWithdrawalId), false);
+    assert.equal(JSON.stringify(secondHistory.body).includes("first-player@upi"), false);
+    assert.equal(JSON.stringify(secondHistory.body).includes(reviewReason), false);
+    assert.equal(firstWithdrawal.account, "first-player@upi");
+    assert.equal(firstWithdrawal.status, "rejected");
+    assert.equal(secondWithdrawal.account, "second-player-account-9876");
+    assert.equal(secondWithdrawal.status, "pending");
+  });
+});
+
 test("approved withdrawals stay manual and recording a payout is idempotent", async () => {
   walletTestDb.reset();
 
