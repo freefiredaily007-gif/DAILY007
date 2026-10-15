@@ -1848,6 +1848,46 @@ test("Admin result recovery excludes a saved placement after its tournament is c
   }
 });
 
+test("result submissions for a cancelled tournament leave settlement data unchanged", async () => {
+  const fixture = await createFixture();
+  const approvedPlayer = fixture.players[0];
+
+  try {
+    const cancelled = await pool.query<{ status: string; enabled: boolean }>(
+      `UPDATE daily007_v2_matches
+          SET status = 'cancelled', enabled = false
+        WHERE id = $1
+        RETURNING status, enabled`,
+      [fixture.matchId],
+    );
+    assert.deepEqual(cancelled.rows, [{ status: "cancelled", enabled: false }]);
+
+    await withServer(async (origin) => {
+      const before = await captureSettlementState(fixture, approvedPlayer);
+      assert.deepEqual(before.match, { enabled: false, status: "cancelled" });
+
+      const result = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        approvedPlayer,
+        1,
+        7,
+      );
+
+      assert.equal(result.status, 409);
+      assert.equal(result.body.error, "Results cannot be published for a cancelled tournament.");
+      assert.deepEqual(
+        await captureSettlementState(fixture, approvedPlayer),
+        before,
+        "the rejected request must not create an award, change the wallet or stats, or write a ledger credit",
+      );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("duplicate-placement audit reports complete historical groups without changing settlement data", async () => {
   const fixture = await createFixture(3);
 
