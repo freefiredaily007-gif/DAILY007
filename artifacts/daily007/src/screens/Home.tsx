@@ -375,6 +375,16 @@ export default function Home() {
           <Text style={s.viewAll}>VIEW ALL →</Text>
         </Pressable>
       </View>
+      {!loading && !loadError && lastSuccessfulRefreshAt !== null && (
+        <View testID="home-last-updated" style={s.homeLastUpdatedRow}>
+          <Text
+            style={s.homeLastUpdated}
+            accessibilityLabel={`Tournament and registration data last updated ${formatHomeRefreshTimestamp(lastSuccessfulRefreshAt)}`}
+          >
+            Last updated {formatHomeRefreshTimestamp(lastSuccessfulRefreshAt)}
+          </Text>
+        </View>
+      )}
       {!loading && upcomingItems.length > 0 && Boolean(loadError) && (
         <View testID="home-upcoming-refresh-error" style={s.upcomingRefreshNotice}>
           <Msg
@@ -698,6 +708,8 @@ const s = StyleSheet.create({
   secRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 14, marginBottom: 8 },
   secRowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
   viewAllPressableLarge: { alignSelf: 'flex-end' },
+  homeLastUpdatedRow: { paddingHorizontal: 16, marginTop: -3, marginBottom: 8 },
+  homeLastUpdated: { color: C.sub, fontSize: 10, letterSpacing: 0.35 },
   upcomingRefreshNotice: { marginHorizontal: 16, marginBottom: 8 },
   upcomingRetryButton: {
     alignSelf: 'flex-start', minHeight: 44, marginTop: 8, paddingHorizontal: 14,

@@ -147,6 +147,29 @@ test("Home shows successful refresh times in IST", () => {
     formatHomeRefreshTimestamp(Date.parse("2026-10-09T10:00:00.000Z")),
     "09 Oct 2026, 03:30 pm IST",
   );
+
+  const healthyTimestamp = homeSource.match(
+    /\{!loading && !loadError && lastSuccessfulRefreshAt !== null && \([\s\S]*?testID="home-last-updated"[\s\S]*?\n\s*\)\}/,
+  )?.[0];
+  assert.ok(
+    healthyTimestamp,
+    "Home must show the last successful paired refresh time when its data is healthy.",
+  );
+  assert.match(
+    healthyTimestamp,
+    /Last updated \{formatHomeRefreshTimestamp\(lastSuccessfulRefreshAt\)\}/,
+    "The healthy timestamp must use the same IST formatter as the stale-data warning.",
+  );
+  assert.match(
+    healthyTimestamp,
+    /accessibilityLabel=\{`Tournament and registration data last updated \$\{formatHomeRefreshTimestamp\(lastSuccessfulRefreshAt\)\}`\}/,
+    "Screen readers must identify what the timestamp describes.",
+  );
+  assert.doesNotMatch(
+    healthyTimestamp,
+    /api\.(?:tournaments|myRegistrations)\(/,
+    "Showing the timestamp must not add API calls.",
+  );
 });
 
 test("out-of-order Home refreshes keep the newest paired snapshot and successful update time", async () => {
