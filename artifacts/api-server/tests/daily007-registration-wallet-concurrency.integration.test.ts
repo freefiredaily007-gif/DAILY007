@@ -1344,3 +1344,91 @@ test("a full tournament retry returns the saved team entry without charging agai
 
 test("a disabled tournament retry returns the saved team entry without charging again", () =>
   runClosedTeamRetry("disabled"));
+
+test("a player can retry the same tournament after an insufficient-balance rejection", async () => {
+  const fixture = await createFixture("solo", {
+    entryCoins: [13, 17],
+    startingWalletCoins: 0,
+  });
+  try {
+    const matchId = fixture.matchIds[0];
+    await withServer(async (origin) => {
+      const rejected = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        null,
+      );
+      assert.equal(rejected.status, 409, JSON.stringify(rejected.body));
+      assert.deepEqual(rejected.body, {
+        error: "Insufficient wallet balance: this entry costs 13 coins.",
+        code: "INSUFFICIENT_BALANCE",
+      });
+      assert.deepEqual(await readEntryPaymentState(fixture, matchId), {
+        wallet: [{ wallet_coins: 0 }],
+        registrations: [],
+        roster: [],
+        ledger: [],
+      }, "the rejected join must leave no persisted registration, roster, or debit");
+
+      await pool.query(
+        "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+        [fixture.userId, fixture.entryCoins[0]],
+      );
+
+      const retried = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        null,
+      );
+      assert.equal(retried.status, 201, JSON.stringify(retried.body));
+      assert.equal(retried.body.alreadyRegistered, false);
+      assert.equal(retried.body.status, "approved");
+      assert.equal(retried.body.entryCoinsPaid, fixture.entryCoins[0]);
+      assert.equal(retried.body.walletCoins, 0);
+
+      const registrationId = retried.body.registrationId;
+      assert.equal(typeof registrationId, "string");
+      assert.deepEqual(await readEntryPaymentState(fixture, matchId), {
+        wallet: [{ wallet_coins: 0 }],
+        registrations: [{
+          id: registrationId,
+          entry_coins_paid: fixture.entryCoins[0],
+          status: "approved",
+        }],
+        roster: [],
+        ledger: [{
+          registration_id: registrationId,
+          amount: -fixture.entryCoins[0],
+          balance_after: 0,
+          reason: "match_entry",
+        }],
+      }, "the retry must create one approved entry and one debit linked to it");
+
+      const linkedLedger = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT match_id, registration_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1 AND match_id = $2`,
+        [fixture.userId, matchId],
+      );
+      assert.deepEqual(linkedLedger.rows, [{
+        match_id: matchId,
+        registration_id: registrationId,
+        amount: -fixture.entryCoins[0],
+        balance_after: 0,
+        reason: "match_entry",
+      }]);
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
