@@ -115,12 +115,16 @@ test("TalkBack gets retry guidance and outcome announcements without disabling t
   assert.match(errorBranch, /preserveAccessibilityFocusWhileLoading/);
   assert.match(errorBranch, /accessibilityState=\{\{ busy: participantsQuery\.isFetching \}\}/);
   assert.match(errorBranch, /testID="participants-retry"/);
-  assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.'/);
+  assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.', focusVersion\)/);
   assert.match(
     detailSource,
-    /`Participant list updated\. Joined \$\{teamTournament \? 'teams' : 'players'\}: \$\{result\.data\.participants\.length\}\.`/,
+    /announceParticipantsRetry\([\s\S]*?result\.data\.participants\.length[\s\S]*?focusVersion/,
   );
-  assert.match(detailSource, /Retry failed\. The participant list is still unavailable\. You can retry again\./);
+  assert.match(
+    detailSource,
+    /Retry failed\. The participant list is still unavailable\. You can retry again\.[\s\S]*?focusVersion/,
+  );
+  assert.match(detailSource, /const focusVersion = participantsRetryFocusVersion\.current;/);
   assert.match(detailSource, /result\.isSuccess/);
   assert.match(
     detailSource,
@@ -149,15 +153,72 @@ test("VoiceOver gets explicit participant retry guidance and start, success, and
   assert.match(detailSource, /import \{[^}]*AccessibilityInfo[^}]*Platform[^}]*\} from 'react-native';/);
   assert.match(
     detailSource,
-    /const announceParticipantsRetry = \(message: string\) => \{\s*setParticipantsRetryAnnouncement\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+    /const announceParticipantsRetry = \(message: string, focusVersion: number\) => \{\s*if \([\s\S]*?participantsScreenFocusedRef\.current[\s\S]*?participantsRetryFocusVersion\.current !== focusVersion[\s\S]*?\) return;\s*setParticipantsRetryAnnouncement\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
   );
-  assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.'/);
+  assert.match(detailSource, /useFocusEffect\([\s\S]*?participantsScreenFocusedRef\.current = true;[\s\S]*?return \(\) => \{[\s\S]*?participantsScreenFocusedRef\.current = false;[\s\S]*?participantsRetryFocusVersion\.current \+= 1;[\s\S]*?setParticipantsRetryAnnouncement\(''\)/);
+  assert.match(detailSource, /announceParticipantsRetry\('Retrying participant list\.', focusVersion\)/);
   assert.match(detailSource, /announceParticipantsRetry\(\s*result\.isSuccess\s*\?/);
   assert.match(detailSource, /announceParticipantsRetry\(\s*'Retry failed\. The participant list is still unavailable\. You can retry again\.'/);
   assert.match(errorBranch ?? "", /accessibilityLabel="Participant list couldn’t be loaded\. Try again here or pull down to retry\."/);
   assert.match(errorBranch ?? "", /accessibilityLabel="Retry participant list"/);
   assert.match(errorBranch ?? "", /accessibilityHint="Loads the latest list of joined players and teams\."/);
   assert.match(errorBranch ?? "", /preserveAccessibilityFocusWhileLoading/);
+});
+
+test("participant retry speaks only for the focus session that started the request", () => {
+  const announcementBody = detailSource.match(
+    /const announceParticipantsRetry = \(message: string, focusVersion: number\) => \{([\s\S]*?)\n  \};/,
+  )?.[1];
+  assert.ok(announcementBody, "The retry announcer should guard against stale focus sessions.");
+  const setStatus = [];
+  const spoken = [];
+  const announce = new Function(
+    "message",
+    "focusVersion",
+    "participantsScreenFocusedRef",
+    "participantsRetryFocusVersion",
+    "setParticipantsRetryAnnouncement",
+    "Platform",
+    "AccessibilityInfo",
+    announcementBody,
+  );
+  const focused = { current: true };
+  const focusVersion = { current: 7 };
+  const speakIfCurrent = (message, version) => announce(
+    message,
+    version,
+    focused,
+    focusVersion,
+    (value) => setStatus.push(value),
+    { OS: "ios" },
+    { announceForAccessibility: (value) => spoken.push(value) },
+  );
+
+  speakIfCurrent("Retrying participant list.", 7);
+  speakIfCurrent("Participant list updated. Joined players: 2.", 7);
+  assert.deepEqual(setStatus, [
+    "Retrying participant list.",
+    "Participant list updated. Joined players: 2.",
+  ]);
+  assert.deepEqual(spoken, setStatus,
+    "The focused iOS screen should announce retry progress and its completed result.");
+
+  focused.current = false;
+  focusVersion.current += 1;
+  speakIfCurrent("Participant list updated. Joined players: 3.", 7);
+  speakIfCurrent("Retry failed. The participant list is still unavailable.", 7);
+  assert.equal(setStatus.length, 2, "A completion after leaving must not update retry status.");
+  assert.equal(spoken.length, 2, "A completion after leaving must not interrupt the active screen.");
+
+  focused.current = true;
+  focusVersion.current += 1;
+  speakIfCurrent("Participant list updated. Joined players: 3.", 7);
+  assert.equal(setStatus.length, 2, "Returning must not replay a result from the earlier focus session.");
+  assert.equal(spoken.length, 2);
+
+  speakIfCurrent("Retrying participant list.", focusVersion.current);
+  assert.equal(setStatus.length, 3, "A fresh retry after returning should still announce normally.");
+  assert.equal(spoken.length, 3);
 });
 
 test("VoiceOver identifies the participant heading as unavailable or states the recovered count", () => {

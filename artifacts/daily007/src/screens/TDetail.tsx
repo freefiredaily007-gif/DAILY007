@@ -7,7 +7,7 @@ import {
   useGetTournamentResults,
 } from '@workspace/api-client-react';
 import { ReadableText as Text } from '../components/typography';
-import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../lib/api';
 import { C, Btn, Card, Chip, Input, KV, Msg, Badge, SectionTitle, GCard, fmtDate, fmtTime12, statusOf } from '../components/ui';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
@@ -49,6 +49,8 @@ export default function TDetail() {
   const [participantsRetryAnnouncement, setParticipantsRetryAnnouncement] = useState('');
   const [roomDetailsAvailabilityAnnouncement, setRoomDetailsAvailabilityAnnouncement] = useState('');
   const retryParticipantsInFlight = useRef(false);
+  const participantsScreenFocusedRef = useRef(false);
+  const participantsRetryFocusVersion = useRef(0);
   const detailLoadInFlight = useRef(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
@@ -78,6 +80,19 @@ export default function TDetail() {
       t?.myRegistration?.roomId,
       t?.myRegistration?.roomPassword,
     );
+
+  useFocusEffect(
+    useCallback(() => {
+      participantsScreenFocusedRef.current = true;
+      participantsRetryFocusVersion.current += 1;
+      setParticipantsRetryAnnouncement('');
+      return () => {
+        participantsScreenFocusedRef.current = false;
+        participantsRetryFocusVersion.current += 1;
+        setParticipantsRetryAnnouncement('');
+      };
+    }, [tournamentId]),
+  );
 
   useEffect(() => {
     if (!isFocused || !claimRoomDetailsAvailabilityAnnouncement(tournamentId, roomCredentialsAvailable)) {
@@ -121,25 +136,32 @@ export default function TDetail() {
   const retryParticipants = async () => {
     if (retryParticipantsInFlight.current || participantsQuery.isFetching) return;
     retryParticipantsInFlight.current = true;
+    const focusVersion = participantsRetryFocusVersion.current;
     setRetryingParticipants(true);
-    announceParticipantsRetry('Retrying participant list.');
+    announceParticipantsRetry('Retrying participant list.', focusVersion);
     try {
       const result = await participantsQuery.refetch();
       announceParticipantsRetry(
         result.isSuccess
           ? `Participant list updated. Joined ${teamTournament ? 'teams' : 'players'}: ${result.data.participants.length}.`
           : 'Retry failed. The participant list is still unavailable. You can retry again.',
+        focusVersion,
       );
     } catch {
       announceParticipantsRetry(
         'Retry failed. The participant list is still unavailable. You can retry again.',
+        focusVersion,
       );
     } finally {
       retryParticipantsInFlight.current = false;
       setRetryingParticipants(false);
     }
   };
-  const announceParticipantsRetry = (message: string) => {
+  const announceParticipantsRetry = (message: string, focusVersion: number) => {
+    if (
+      !participantsScreenFocusedRef.current ||
+      participantsRetryFocusVersion.current !== focusVersion
+    ) return;
     setParticipantsRetryAnnouncement(message);
     if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
   };
