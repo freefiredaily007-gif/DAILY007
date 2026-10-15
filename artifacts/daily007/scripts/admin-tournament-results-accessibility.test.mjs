@@ -97,18 +97,58 @@ test('iOS VoiceOver announces new tournament, room, and result errors without mo
 
 test('iOS VoiceOver announces Results validation and API errors without moving focus', () => {
   const announcementEffect = resultsSource.match(
-    /useEffect\(\(\) => \{\s*if \(Platform\.OS !== 'ios'\) return;[\s\S]*?\}, \[err, listLoadError\]\);/,
+    /useEffect\(\(\) => \{\s*if \(Platform\.OS !== 'ios'\) return;[\s\S]*?\}, \[err, listLoadError, regLoadError\]\);/,
   )?.[0];
 
   assert.ok(announcementEffect, 'Admin Results errors must be announced on iOS.');
   assert.match(announcementEffect, /\['result', err\]/);
   assert.match(announcementEffect, /\['tournament-list', listLoadError\]/);
+  assert.match(announcementEffect, /\['approved-registrations', regLoadError\]/);
   assert.match(announcementEffect, /message !== announcedErrors\.current\[key\]/);
   assert.match(announcementEffect, /AccessibilityInfo\.announceForAccessibilityWithOptions/);
   assert.match(announcementEffect, /queue: true/);
   assert.doesNotMatch(announcementEffect, /setAccessibilityFocus|\.focus\(/);
   assert.match(resultsSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/);
   assert.match(resultsSource, /<Msg kind="err" text=\{listLoadError\} accessibilityLiveRegion="polite" \/>/);
+});
+
+test('the standalone Results screen separates a successful empty registration list from a retryable failure', () => {
+  const loaderStart = resultsSource.indexOf('const loadApprovedRegistrations = useCallback(async');
+  const loaderEnd = resultsSource.indexOf('\n  }, []);', loaderStart);
+  const loader = resultsSource.slice(loaderStart, loaderEnd);
+  assert.ok(loaderStart >= 0 && loaderEnd > loaderStart, 'Approved registrations must have a dedicated loader.');
+  assert.match(loader, /await Api\.adminApprovedRegs\(t\.id\)/);
+  assert.match(loader, /setRegs\(approved\)/);
+  assert.match(loader, /catch \(e: any\)[\s\S]*setRegLoadError\(apiError\(e\)\)[\s\S]*setHasRegLoadFailed\(true\)/);
+  assert.doesNotMatch(loader, /setRegs\(\[\]\)/, 'A failed request must not be rendered as a successful empty response.');
+
+  const stateStart = resultsSource.indexOf('{regs === null ? hasRegLoadFailed');
+  const stateEnd = resultsSource.indexOf('<View style={{ flexDirection:', stateStart);
+  const registrationState = resultsSource.slice(stateStart, stateEnd);
+  assert.ok(stateStart >= 0 && stateEnd > stateStart);
+  assert.match(registrationState, /Approved registrations could not be loaded:/);
+  assert.match(registrationState, /Retrying approved registrations…/);
+  assert.match(registrationState, /accessibilityLiveRegion="polite"/);
+  assert.match(registrationState, /title=\{regsLoading \? 'RETRYING…' : 'RETRY APPROVED PLAYERS'\}/);
+  assert.match(registrationState, /accessibilityLabel="Retry approved registrations"/);
+  assert.match(registrationState, /accessibilityState=\{\{ disabled: regsLoading, busy: regsLoading \}\}/);
+  assert.match(registrationState, /preserveAccessibilityFocusWhileLoading/);
+  assert.match(registrationState, /testID=\{`retry-approved-registrations-\$\{sel\.id\}`\}/);
+  assert.match(registrationState, /onPress=\{retryApprovedRegistrations\}/);
+  assert.match(registrationState, /title="NO APPROVED PLAYERS"/);
+  assert.match(registrationState, /text="No approved registrations are available for this tournament\."/);
+  assert.match(registrationState, /accessibilityLabel="No approved registrations are available for this tournament\."/);
+  assert.match(registrationState, /accessibilityLiveRegion="polite"/);
+  assert.match(
+    registrationState,
+    /regs === null \? hasRegLoadFailed \?[\s\S]*Approved registrations could not be loaded[\s\S]*:\s*<Loading[\s\S]*:\s*regs\.length === 0 \? \([\s\S]*<Empty/,
+    'The retryable error renders only for an unsuccessful request, while the empty state requires loaded registration data.',
+  );
+
+  assert.match(
+    resultsSource,
+    /const retryApprovedRegistrations = \(\) => \{\s*if \(!sel \|\| regsLoading\) return;[\s\S]*void loadApprovedRegistrations\(sel, currentRequest\);/,
+  );
 });
 
 test('approved-player load failures use one polite retry announcement without moving focus', () => {

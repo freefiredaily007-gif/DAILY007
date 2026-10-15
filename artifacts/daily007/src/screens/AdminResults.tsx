@@ -22,6 +22,9 @@ export default function AdminResults({
   const [listStatusMessage, setListStatusMessage] = useState('');
   const [sel, setSel] = useState<Tournament | null>(null);
   const [regs, setRegs] = useState<AdminRegistration[] | null>(null);
+  const [regsLoading, setRegsLoading] = useState(false);
+  const [regLoadError, setRegLoadError] = useState('');
+  const [hasRegLoadFailed, setHasRegLoadFailed] = useState(false);
   const requestId = useRef(0);
   const listRequestId = useRef(0);
   const [regId, setRegId] = useState('');
@@ -39,6 +42,7 @@ export default function AdminResults({
     const messages = [
       ['result', err],
       ['tournament-list', listLoadError],
+      ['approved-registrations', regLoadError],
     ] as const;
     for (const [key, message] of messages) {
       if (message && message !== announcedErrors.current[key]) {
@@ -49,7 +53,7 @@ export default function AdminResults({
       }
       announcedErrors.current[key] = message;
     }
-  }, [err, listLoadError]);
+  }, [err, listLoadError, regLoadError]);
 
   const loadTournaments = useCallback(async (isRetry = false) => {
     const currentRequest = ++listRequestId.current;
@@ -98,20 +102,37 @@ export default function AdminResults({
     return () => clearTimeout(timer);
   }, [list, clockNow]);
 
+  const loadApprovedRegistrations = useCallback(async (t: Tournament, currentRequest: number) => {
+    setRegs(null);
+    setRegLoadError('');
+    setRegsLoading(true);
+    try {
+      const approved = await Api.adminApprovedRegs(t.id);
+      if (requestId.current === currentRequest) {
+        setRegs(approved);
+        setHasRegLoadFailed(false);
+      }
+    } catch (e: any) {
+      if (requestId.current === currentRequest) {
+        setRegLoadError(apiError(e));
+        setHasRegLoadFailed(true);
+      }
+    } finally {
+      if (requestId.current === currentRequest) setRegsLoading(false);
+    }
+  }, []);
+
   const open = useCallback(async (t: Tournament) => {
     if (!['ongoing', 'completed'].includes(getTournamentLifecycleState(t, Date.now()))) {
       setErr('Results can only be entered after the tournament starts.');
       return;
     }
     const currentRequest = ++requestId.current;
-    setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegId(''); setRank('1'); setKills('');
-    try {
-      const approved = await Api.adminApprovedRegs(t.id);
-      if (requestId.current === currentRequest) setRegs(approved);
-    } catch (e: any) {
-      if (requestId.current === currentRequest) { setErr(apiError(e)); setRegs([]); }
-    }
-  }, []);
+    setSel(t); setErr(''); setOkMsg(''); setRegs(null); setRegLoadError('');
+    setRegsLoading(true); setHasRegLoadFailed(false);
+    setRegId(''); setRank('1'); setKills('');
+    await loadApprovedRegistrations(t, currentRequest);
+  }, [loadApprovedRegistrations]);
 
   useEffect(() => {
     if (!initialTournamentId || !list || initialTournamentHandled.current) return;
@@ -122,7 +143,17 @@ export default function AdminResults({
     onInitialTournamentHandled?.();
   }, [initialTournamentId, list, onInitialTournamentHandled, open]);
 
-  const back = () => { requestId.current++; setSel(null); setRegs(null); setRegId(''); };
+  const retryApprovedRegistrations = () => {
+    if (!sel || regsLoading) return;
+    const currentRequest = ++requestId.current;
+    void loadApprovedRegistrations(sel, currentRequest);
+  };
+
+  const back = () => {
+    requestId.current++;
+    setSel(null); setRegs(null); setRegLoadError(''); setRegsLoading(false);
+    setHasRegLoadFailed(false); setRegId('');
+  };
 
   const publish = async () => {
     if (!sel) return;
@@ -213,7 +244,32 @@ export default function AdminResults({
         <Card>
           <Text onPress={back} style={{ color: C.neon, fontWeight: '900', marginBottom: 8 }}>← BACK</Text>
           <Text style={st.tName}>{sel.name}</Text>
-          {!regs ? <Loading /> : regs.length === 0 ? <Empty text="No approved registrations." /> : (
+          {regs === null ? hasRegLoadFailed ? (
+            <View>
+              <Text accessibilityLiveRegion="polite" style={st.regLoadError}>
+                {regLoadError
+                  ? `Approved registrations could not be loaded: ${regLoadError} Retry here.`
+                  : 'Retrying approved registrations…'}
+              </Text>
+              <Btn
+                title={regsLoading ? 'RETRYING…' : 'RETRY APPROVED PLAYERS'}
+                accessibilityLabel="Retry approved registrations"
+                accessibilityHint={`Loads approved registrations for ${sel.name}.`}
+                accessibilityState={{ disabled: regsLoading, busy: regsLoading }}
+                loading={regsLoading}
+                preserveAccessibilityFocusWhileLoading
+                testID={`retry-approved-registrations-${sel.id}`}
+                onPress={retryApprovedRegistrations}
+              />
+            </View>
+          ) : <Loading accessibilityLabel="Loading approved registrations" /> : regs.length === 0 ? (
+            <Empty
+              title="NO APPROVED PLAYERS"
+              text="No approved registrations are available for this tournament."
+              accessibilityLabel="No approved registrations are available for this tournament."
+              accessibilityLiveRegion="polite"
+            />
+          ) : (
             <View style={{ marginBottom: 10 }}>
               <Text style={st.lbl}>SELECT PLAYER</Text>
               {regs.map((r) => {
@@ -274,6 +330,7 @@ const st = StyleSheet.create({
   },
   playerOptionSelect: { flex: 1, minWidth: 0, justifyContent: 'center' },
   playerOptionUid: { color: C.sub, fontSize: 10, fontWeight: '700', marginTop: 3 },
+  regLoadError: { color: C.red, fontSize: 13, fontWeight: '700', marginBottom: 10 },
   inrNote: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   prizeBox: { backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 5 },
   prizeValue: { color: C.gold, fontWeight: '900', fontSize: 17 },
