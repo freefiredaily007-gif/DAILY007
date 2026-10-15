@@ -39,6 +39,10 @@ const packageSource = JSON.parse(await readFile(
   new URL('../package.json', import.meta.url),
   'utf8',
 ));
+const androidWorkflow = await readFile(
+  new URL('../../../.github/workflows/android-release-verification.yml', import.meta.url),
+  'utf8',
+);
 
 test('Wallet displays the tournament name, refund reason, and exact signed amount', () => {
   const entry = {
@@ -146,12 +150,20 @@ test('Android checks every refund detail at 1.5× text and restores the original
   assert.match(largeTextMaestroFlow, /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./);
   assert.match(largeTextMaestroFlow, /Every refund detail is visible without clipping or overlap at 1\.5×/);
   assert.match(largeTextAndroidRunner, /settings', 'put', 'system', 'font_scale', '1\.5'/);
+  assert.match(largeTextAndroidRunner, /wm', 'size'/);
+  assert.match(largeTextAndroidRunner, /320 \* Number\(density\[1\]\) \/ 160/);
+  assert.match(largeTextAndroidRunner, /wm', 'size', 'reset'/);
+  assert.match(largeTextAndroidRunner, /Restored Android screen size/);
   assert.match(largeTextAndroidRunner, /font_scale',\s*originalFontScale/);
   assert.match(largeTextAndroidRunner, /finally\s*\{/);
   assert.match(largeTextAndroidRunner, /maestro', \['test', 'maestro\/wallet-cancellation-refund\/large-text\.yaml'\]/);
   assert.equal(
     packageSource.scripts['test:android-wallet-cancellation-refund-large-text'],
     'node scripts/run-android-wallet-cancellation-refund-large-text.mjs',
+  );
+  assert.match(
+    androidWorkflow,
+    /run_maestro_suite wallet-cancellation-narrow-large-text test:android-wallet-cancellation-refund-large-text/,
   );
 });
 

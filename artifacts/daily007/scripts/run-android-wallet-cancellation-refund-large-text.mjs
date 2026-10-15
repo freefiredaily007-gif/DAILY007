@@ -24,6 +24,8 @@ function runChecked(command, args, description, options = {}) {
 
 let originalFontScale;
 let fontScaleChangeAttempted = false;
+let originalScreenSizeOverride;
+let screenSizeChangeAttempted = false;
 
 try {
   const devicesOutput = runChecked('adb', ['devices', '-l'], 'Listing Android devices');
@@ -39,6 +41,50 @@ try {
   const expoGo = runChecked('adb', ['shell', 'pm', 'path', 'host.exp.exponent'], 'Checking Expo Go installation');
   if (!expoGo.startsWith('package:')) {
     throw new Error('Expo Go is not installed on the connected Android device or emulator.');
+  }
+
+  const originalScreenSize = runChecked(
+    'adb',
+    ['shell', 'wm', 'size'],
+    'Reading the current Android screen size',
+  );
+  const physicalSize = originalScreenSize.match(/Physical size:\s*(\d+)x(\d+)/);
+  const overrideSize = originalScreenSize.match(/Override size:\s*(\d+)x(\d+)/);
+  const currentSize = overrideSize ?? physicalSize;
+  if (!currentSize) {
+    throw new Error(`Android returned an invalid screen size: ${originalScreenSize || '(empty)'}`);
+  }
+  originalScreenSizeOverride = overrideSize ? `${overrideSize[1]}x${overrideSize[2]}` : null;
+
+  const originalDensity = runChecked(
+    'adb',
+    ['shell', 'wm', 'density'],
+    'Reading the current Android display density',
+  );
+  const density = originalDensity.match(/Override density:\s*(\d+)/) ??
+    originalDensity.match(/Physical density:\s*(\d+)/);
+  if (!density || Number(density[1]) <= 0) {
+    throw new Error(`Android returned an invalid display density: ${originalDensity || '(empty)'}`);
+  }
+
+  const targetWidthPx = Math.round(320 * Number(density[1]) / 160);
+  const targetHeightPx = Math.round(
+    Number(currentSize[2]) * targetWidthPx / Number(currentSize[1]),
+  );
+  const narrowSize = `${targetWidthPx}x${targetHeightPx}`;
+  screenSizeChangeAttempted = true;
+  runChecked(
+    'adb',
+    ['shell', 'wm', 'size', narrowSize],
+    'Setting Android screen width to 320dp',
+  );
+  const appliedSize = runChecked(
+    'adb',
+    ['shell', 'wm', 'size'],
+    'Verifying the narrow Android screen size',
+  );
+  if (!appliedSize.includes(`Override size: ${narrowSize}`)) {
+    throw new Error(`Android did not apply the narrow screen size ${narrowSize}.`);
   }
 
   originalFontScale = runChecked(
@@ -83,6 +129,21 @@ try {
   console.error(`Android cancellation-refund large-text test failed: ${error.message}`);
   process.exitCode = 1;
 } finally {
+  if (originalScreenSizeOverride !== undefined && screenSizeChangeAttempted) {
+    const restore = originalScreenSizeOverride
+      ? run('adb', ['shell', 'wm', 'size', originalScreenSizeOverride])
+      : run('adb', ['shell', 'wm', 'size', 'reset']);
+    if (restore.error || restore.status !== 0) {
+      const detail = restore.error?.message || restore.stderr?.trim() || 'unknown ADB error';
+      console.error(
+        `Could not restore the original Android screen size${originalScreenSizeOverride ? ` ${originalScreenSizeOverride}` : ''} (${detail}).`,
+      );
+      process.exitCode = 1;
+    } else {
+      console.log('Restored Android screen size.');
+    }
+  }
+
   if (originalFontScale && fontScaleChangeAttempted) {
     const restore = run('adb', [
       'shell',

@@ -16,7 +16,7 @@ To verify the complete refund row at 1.5× Android system text size, run:
 EXPO_DEV_URL=exp://YOUR_EXPO_HOST:PORT pnpm --filter @workspace/daily007 run test:android-wallet-cancellation-refund-large-text
 ```
 
-The runner records and restores the original Android font scale, including when the Maestro check fails. The flow checks the complete row label and a native layout check for all four visible details: tournament and cancellation reason, date, post-refund balance, and positive amount. It also verifies the details do not overlap or extend beyond their text or card bounds.
+The large-text runner narrows the Android display to 320dp wide, sets system text to 1.5×, and restores both the original display size and font scale even when the Maestro check fails. The flow checks the complete row label and a native layout check for all four visible details: tournament and cancellation reason, date, post-refund balance, and positive amount. It also verifies the details do not overlap or extend beyond their text or card bounds.
 
 ## iOS VoiceOver accessibility element
 
