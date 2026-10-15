@@ -1633,6 +1633,100 @@ test("Admin result recovery excludes a saved placement after its tournament is c
   }
 });
 
+test("public results stay draft when a cancelled tournament retains a winner award", async () => {
+  const userId = randomUUID();
+  const matchId = randomUUID();
+  const registrationId = randomUUID();
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO daily007_v2_users
+           (id, name, email, password_salt, password_hash)
+         VALUES ($1, 'Cancelled Results Player', $2, 'test-salt', 'test-hash')`,
+        [userId, `cancelled-results-${userId}@example.test`],
+      );
+      await client.query(
+        `INSERT INTO daily007_v2_matches
+           (id, title, mode, game_mode, team_type, capacity, starts_at)
+         VALUES ($1, 'Cancelled results fixture', 'solo', 'battle_royale',
+                 'solo', 48, now() - interval '1 hour')`,
+        [matchId],
+      );
+      await client.query(
+        `INSERT INTO daily007_v2_registrations
+           (id, match_id, captain_user_id, captain_name, captain_game_name,
+            captain_game_uid, entry_coins_paid, status)
+         VALUES ($1, $2, $3, 'Cancelled Results Player', 'CancelledWinner',
+                 $4, 0, 'approved')`,
+        [registrationId, matchId, userId, `uid-${registrationId}`],
+      );
+      await client.query(
+        `INSERT INTO daily007_v2_result_awards
+           (match_id, registration_id, user_id, rank, kills, prize_coins)
+         VALUES ($1, $2, $3, 1, 12, 500)`,
+        [matchId, registrationId, userId],
+      );
+      const cancelled = await client.query<{ status: string; enabled: boolean }>(
+        `UPDATE daily007_v2_matches
+            SET status = 'cancelled', enabled = false
+          WHERE id = $1
+          RETURNING status, enabled`,
+        [matchId],
+      );
+      assert.deepEqual(cancelled.rows, [{ status: "cancelled", enabled: false }]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    await withServer(async (origin) => {
+      const savedWinner = await pool.query<{ registration_id: string; rank: number }>(
+        `SELECT registration_id, rank
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1`,
+        [matchId],
+      );
+      assert.deepEqual(savedWinner.rows, [{ registration_id: registrationId, rank: 1 }]);
+
+      const standings = await publicStandings(origin, matchId);
+      assert.equal(standings.status, 200);
+      assert.equal(standings.body.status, "draft");
+      assert.deepEqual(
+        standings.body.entries,
+        [],
+        "a cancelled tournament's retained winner award must not appear as finalized results",
+      );
+    });
+  } finally {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "DELETE FROM daily007_v2_result_awards WHERE match_id = $1 AND registration_id = $2",
+        [matchId, registrationId],
+      );
+      await client.query(
+        "DELETE FROM daily007_v2_registrations WHERE id = $1 AND match_id = $2",
+        [registrationId, matchId],
+      );
+      await client.query("DELETE FROM daily007_v2_matches WHERE id = $1", [matchId]);
+      await client.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+});
+
 test("Admin recovery returns reverse-inserted unfinalized placements in ascending rank order", async () => {
   const fixture = await createFixture(3);
   const rankTwo = fixture.players[1];
