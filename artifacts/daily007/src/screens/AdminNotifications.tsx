@@ -34,6 +34,7 @@ export default function AdminNotifications() {
   const [selectionAnnouncement, setSelectionAnnouncement] = useState<{ sequence: number; text: string } | null>(null);
   const selectionAnnouncementSequence = useRef(0);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   const loadUsers = async () => {
     setUsersLoading(true);
@@ -51,12 +52,13 @@ export default function AdminNotifications() {
   };
 
   const send = async () => {
-    if (busy) return;
+    if (busyRef.current) return;
     if (!title.trim() || !body.trim()) return toast('Title and message required', 'error');
     if (type === 'selected') {
       if (usersLoading || !users || usersError) return toast('Wait for users to load before sending', 'error');
       if (!selected.length) return toast('Select at least one user', 'error');
     }
+    busyRef.current = true;
     setBusy(true);
     try {
       await Api.adminSendNotification({
@@ -69,7 +71,10 @@ export default function AdminNotifications() {
       setSelected([]);
       setSelectionAnnouncement(null);
     } catch (e) { toast(errMessage(e), 'error'); }
-    finally { setBusy(false); }
+    finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   };
 
   const visibleUsers = (users ?? []).filter((u) =>

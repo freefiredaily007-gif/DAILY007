@@ -383,6 +383,11 @@ type AdminPreviewRejectedMutationResult = {
 };
 const adminPreviewMutationCalls: AdminPreviewMutationCall[] = [];
 const adminPreviewMutationFailures = new Map<string, string>();
+let deferredAdminNotificationSend: {
+  promise: Promise<void>;
+  resolve: () => void;
+  claimed: boolean;
+} | null = null;
 function snapshotAdminPreviewFixtures() {
   return JSON.parse(JSON.stringify({
     registrations: previewAdminRegistrations,
@@ -402,8 +407,29 @@ const adminPreviewMutations = {
   reset: () => {
     adminPreviewMutationCalls.length = 0;
     adminPreviewMutationFailures.clear();
+    if (deferredAdminNotificationSend) {
+      deferredAdminNotificationSend.resolve();
+      deferredAdminNotificationSend = null;
+    }
     nextAdminUsersReadError = null;
     previewFullAdminRecoveryUser.role = "admin";
+  },
+  holdNextNotificationSend: () => {
+    if (deferredAdminNotificationSend) {
+      throw new Error("An isolated Admin notification send is already being held.");
+    }
+    let resolve!: () => void;
+    const promise = new Promise<void>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    deferredAdminNotificationSend = { promise, resolve, claimed: false };
+  },
+  releaseHeldNotificationSend: () => {
+    const deferred = deferredAdminNotificationSend;
+    if (!deferred?.claimed) return false;
+    deferredAdminNotificationSend = null;
+    deferred.resolve();
+    return true;
   },
   failNext: (method: string, message: string) => {
     if (!method.trim() || !message.trim()) {
@@ -896,6 +922,11 @@ export const Api = {
         ...(Array.isArray(payload.userIds) ? { userIds: [...payload.userIds] } : {}),
       },
     });
+    const deferred = deferredAdminNotificationSend;
+    if (deferred) {
+      deferred.claimed = true;
+      await deferred.promise;
+    }
     return {};
   },
   adminSetUser: async (id: string, payload: Record<string, unknown>) => {

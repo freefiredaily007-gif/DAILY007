@@ -2577,22 +2577,80 @@ async function checkAdminNotificationsAccessibility() {
     "This notification is sent only to the isolated preview recipient.",
   );
   await resetAdminMutationCalls();
-  await clickSelector(
-    '[data-testid="admin-notification-send"]',
-    "Send notification to the selected fake recipient",
-  );
-  await assertAdminMutation({
-    method: "adminSendNotification",
-    payload: {
-      title: "Accessibility preview update",
-      body: "This notification is sent only to the isolated preview recipient.",
-      type: "selected",
-      userIds: [firstRecipientId],
-    },
-  }, "Accessible selected-recipient notification");
+  const holdConfigured = await evaluate(`(() => {
+    const tracker = window.__daily007AdminMutations;
+    if (!tracker?.holdNextNotificationSend) return false;
+    tracker.holdNextNotificationSend();
+    return true;
+  })()`);
+  assert(holdConfigured, "The isolated preview could not hold a targeted notification send.");
+  try {
+    await clickSelector(
+      '[data-testid="admin-notification-send"]',
+      "Send notification to the selected fake recipient",
+    );
+    await assertAdminMutation({
+      method: "adminSendNotification",
+      payload: {
+        title: "Accessibility preview update",
+        body: "This notification is sent only to the isolated preview recipient.",
+        type: "selected",
+        userIds: [firstRecipientId],
+      },
+    }, "Accessible selected-recipient notification");
+    await delay(60);
+    const pendingAction = await evaluate(`(() => {
+      const action = document.querySelector('[data-testid="admin-notification-send"]');
+      return {
+        disabled: action?.disabled ?? null,
+        progress: Boolean(action?.querySelector('[role="progressbar"]')),
+      };
+    })()`);
+    assert(
+      pendingAction.disabled === true && pendingAction.progress,
+      `The targeted notification action must remain disabled and busy while its request is pending: ${JSON.stringify(pendingAction)}.`,
+    );
+    await clickSelector(
+      '[data-testid="admin-notification-send"]',
+      "Tap the busy targeted notification action a second time",
+    );
+    const pendingState = await evaluate(`(() => {
+      const action = document.querySelector('[data-testid="admin-notification-send"]');
+      return {
+        calls: window.__daily007AdminMutations?.calls ?? null,
+        disabled: action?.disabled ?? null,
+        progress: Boolean(action?.querySelector('[role="progressbar"]')),
+      };
+    })()`);
+    assert(
+      Array.isArray(pendingState.calls) &&
+        pendingState.calls.length === 1 &&
+        pendingState.calls[0].method === "adminSendNotification" &&
+        pendingState.disabled === true &&
+        pendingState.progress,
+      `A second tap must not duplicate the targeted send or clear its busy state before completion: ${JSON.stringify(pendingState)}.`,
+    );
+    const released = await evaluate(
+      "window.__daily007AdminMutations?.releaseHeldNotificationSend?.() ?? false",
+    );
+    assert(released, "The isolated targeted notification request was not released.");
+  } finally {
+    await evaluate("window.__daily007AdminMutations?.releaseHeldNotificationSend?.()");
+  }
   await waitForCondition(
     `Boolean(document.querySelector('[aria-live="polite"][aria-label="Notification sent"]'))`,
     "polite notification-sent completion feedback",
+  );
+  const completedAction = await evaluate(`(() => {
+    const action = document.querySelector('[data-testid="admin-notification-send"]');
+    return {
+      disabled: action?.disabled ?? null,
+      progress: Boolean(action?.querySelector('[role="progressbar"]')),
+    };
+  })()`);
+  assert(
+    completedAction.disabled === false && !completedAction.progress,
+    `The targeted notification action must clear its busy state after completion: ${JSON.stringify(completedAction)}.`,
   );
   const completion = await evaluate(`(() => {
     const toast = document.querySelector('[aria-live="polite"][aria-label="Notification sent"]');
