@@ -17,9 +17,10 @@ import {
 } from '../src/lib/tournamentFilters.ts';
 import { createLatestRequestGuard } from '../src/lib/latestRequestGuard.ts';
 import {
+  getNextRoomCredentialRefreshAtMs,
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
-  ROOM_CREDENTIAL_REVEAL_LEAD_MS,
+  ROOM_CREDENTIAL_PENDING_REFRESH_INTERVAL_MS,
 } from '../src/lib/roomCredentialTiming.ts';
 import { fetchTournamentDetailSnapshot } from '../src/lib/tournament-detail-refresh.ts';
 import {
@@ -173,35 +174,43 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     initialLoadFailed: { current: false },
     refreshingRequest: { current: false },
     failedManualRefresh: { current: false },
+    activeLoad: { current: null },
   };
+  const loadScope = {
+    useCallback: (callback) => callback,
+    api,
+    apiError: (error) => error instanceof Error ? error.message : String(error),
+    loadRequests: refs.loadRequests,
+    hasLoadedList: refs.hasLoadedList,
+    initialLoadFailed: refs.initialLoadFailed,
+    refreshingRequest: refs.refreshingRequest,
+    failedManualRefresh: refs.failedManualRefresh,
+    activeLoad: refs.activeLoad,
+    setItems: (nextItems) => {
+      state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
+    },
+    setError: (error) => { state.error = error; },
+    setRegistrationError: (error) => { state.registrationError = error; },
+    setLoading: (loading) => { state.loading = loading; },
+    setClockNow: (clockNow) => { state.clockNow = clockNow; },
+    setPlayerLoadAnnouncement: (announcement) => { state.playerLoadAnnouncement = announcement; },
+    setPlayerRefreshAnnouncementVersion: (update) => {
+      state.playerRefreshAnnouncementVersion = typeof update === 'function'
+        ? update(state.playerRefreshAnnouncementVersion)
+        : update;
+    },
+    setTab: (selectedTab) => { screen.selectedTab = selectedTab; },
+    Date: { now },
+  };
+  const loadLatest = evaluateTypeScriptExpression(
+    findVariableInitializer(tournamentsSourceFile, 'loadLatest'),
+    tournamentsSourceFile,
+    loadScope,
+  );
   const load = evaluateTypeScriptExpression(
     findVariableInitializer(tournamentsSourceFile, 'load'),
     tournamentsSourceFile,
-    {
-      useCallback: (callback) => callback,
-      api,
-      apiError: (error) => error instanceof Error ? error.message : String(error),
-      loadRequests: refs.loadRequests,
-      hasLoadedList: refs.hasLoadedList,
-      initialLoadFailed: refs.initialLoadFailed,
-      refreshingRequest: refs.refreshingRequest,
-      failedManualRefresh: refs.failedManualRefresh,
-      setItems: (nextItems) => {
-        state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
-      },
-      setError: (error) => { state.error = error; },
-      setRegistrationError: (error) => { state.registrationError = error; },
-      setLoading: (loading) => { state.loading = loading; },
-      setClockNow: (clockNow) => { state.clockNow = clockNow; },
-      setPlayerLoadAnnouncement: (announcement) => { state.playerLoadAnnouncement = announcement; },
-      setPlayerRefreshAnnouncementVersion: (update) => {
-        state.playerRefreshAnnouncementVersion = typeof update === 'function'
-          ? update(state.playerRefreshAnnouncementVersion)
-          : update;
-      },
-      setTab: (selectedTab) => { screen.selectedTab = selectedTab; },
-      Date: { now },
-    },
+    { ...loadScope, loadLatest },
   );
   return { load, refs, screen, state };
 }
@@ -437,7 +446,7 @@ test('the tournament screen applies both route mode and team type filters', () =
 });
 
 test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data', () => {
-  const loadStart = tournamentsSource.indexOf('const load = useCallback(async () => {');
+  const loadStart = tournamentsSource.indexOf('const loadLatest = useCallback(async () => {');
   const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
   assert.ok(loadStart >= 0 && loadEnd > loadStart, 'the tournament loader should be present');
   assert.doesNotMatch(
@@ -447,19 +456,19 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);\s*if \(AppState\.currentState === 'active'\) void load\(\);\s*return \(\) => \{\s*listFocused\.current = false;\s*stopCompletionPolling\(\);\s*\};\s*\}, \[load\]\)\)/,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);\s*if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*listFocused\.current = false;\s*stopCompletionPolling\(\);\s*\};\s*\}, \[load\]\)\)/,
   );
   assert.match(
     tournamentsSource,
-    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp && listFocused\.current\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\(\);\s*\}/,
+    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp && listFocused\.current\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\('resume'\);\s*\}/,
   );
   assert.match(
     tournamentsSource,
-    /if \(nextTransition <= now && listFocused\.current && AppState\.currentState === 'active'\) \{[\s\S]*?setClockNow\(now\);\s*void load\(\);\s*\}/,
+    /if \(nextTransition <= now && listFocused\.current && AppState\.currentState === 'active'\) \{[\s\S]*?setClockNow\(now\);\s*void load\('scheduled'\);\s*\}/,
   );
   assert.match(
     tournamentsSource,
-    /const onRefresh = async \(\) => \{\s*if \(refreshingRequest\.current\) return;\s*refreshingRequest\.current = true;\s*setRefreshing\(true\);\s*try \{\s*await load\(\);\s*\} finally \{\s*refreshingRequest\.current = false;\s*setRefreshing\(false\);\s*\}\s*\};/,
+    /const onRefresh = async \(\) => \{\s*if \(refreshingRequest\.current\) return;\s*refreshingRequest\.current = true;\s*setRefreshing\(true\);\s*try \{\s*await load\('manual'\);\s*\} finally \{\s*refreshingRequest\.current = false;\s*setRefreshing\(false\);\s*\}\s*\};/,
   );
   assert.match(
     tournamentsSource,
@@ -773,7 +782,7 @@ test('a mode-filtered refresh updates tab accessibility labels and retains selec
   const tabControl = tournamentsSource.match(/<Pressable\s+key=\{value\}[\s\S]*?<\/Pressable>/)?.[0];
   assert.ok(tabControl, 'the lifecycle tab button should be present');
   assert.doesNotMatch(tabControl, /accessibilityLiveRegion/);
-  const loadStart = tournamentsSource.indexOf('const load = useCallback(async () => {');
+  const loadStart = tournamentsSource.indexOf('const loadLatest = useCallback(async () => {');
   const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
   const loadSource = tournamentsSource.slice(loadStart, loadEnd);
   assert.doesNotMatch(
@@ -808,6 +817,7 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
     AppState: { currentState: 'active' },
     lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, clockNow),
     getRoomCredentialSchedule,
+    getNextRoomCredentialRefreshAtMs,
     MAX_TIMEOUT_MS,
     Platform: { OS: 'web' },
     takeTournamentStartAnnouncement,
@@ -971,6 +981,7 @@ test('scheduled lifecycle boundaries do not refresh the list while blurred or ba
       AppState: { currentState: scenario.appState },
       lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, clockNow),
       getRoomCredentialSchedule,
+      getNextRoomCredentialRefreshAtMs,
       MAX_TIMEOUT_MS,
       Platform: { OS: 'web' },
       takeTournamentStartAnnouncement,
@@ -1071,7 +1082,7 @@ test('an approved room refresh reveals credentials at T-5 without changing the s
 
   assert.match(
     tournamentsSource,
-    /const releaseTransition = String\(tournament\.myRegistration\?\.status \?\? ''\)\.toLowerCase\(\) === 'approved'\s*\?\s*\[schedule\.releaseAtMs\]\s*:\s*\[\]/,
+    /getNextRoomCredentialRefreshAtMs\(\s*schedule\.startsAtMs,\s*schedule\.releaseAtMs,\s*tournament\.myRegistration\?\.status,\s*now,\s*\)/,
   );
   assert.match(tournamentsSource, /now=\{clockNow\}/);
   assert.match(roomCredentialsPanelSource, /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\)/);
@@ -1087,6 +1098,7 @@ test('an approved room refresh reveals credentials at T-5 without changing the s
     AppState: { currentState: 'active' },
     lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
     getRoomCredentialSchedule,
+    getNextRoomCredentialRefreshAtMs,
     MAX_TIMEOUT_MS,
     Platform: { OS: 'web' },
     takeTournamentStartAnnouncement,
@@ -1163,11 +1175,12 @@ test('an approved room refresh reveals credentials at T-5 without changing the s
   assert.deepEqual(clearedTimers, [timers[0]]);
 });
 
-test('a pending registration does not schedule a credential refresh before tournament start', async () => {
+test('a registration approved after T-5 receives credentials through a scheduled retry', async () => {
   const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
   const schedule = getRoomCredentialSchedule(new Date(startAtMs).toISOString());
   assert.ok(schedule);
   let fakeNow = schedule.releaseAtMs - 1_000;
+  let registrationStatus = 'pending';
   const harness = createTournamentLoadHarness({
     tournaments: async () => [{
       id: 'pending-room',
@@ -1178,10 +1191,14 @@ test('a pending registration does not schedule a credential refresh before tourn
     }],
     myRegistrations: async () => [{
       tournamentId: 'pending-room',
-      status: 'pending',
+      status: registrationStatus,
       roomPublished: true,
-      roomId: null,
-      roomPassword: null,
+      roomId: registrationStatus === 'approved' && fakeNow >= schedule.releaseAtMs
+        ? 'ROOM-LATE-APPROVAL'
+        : null,
+      roomPassword: registrationStatus === 'approved' && fakeNow >= schedule.releaseAtMs
+        ? 'PASS-LATE-APPROVAL'
+        : null,
     }],
   }, () => fakeNow);
   await harness.load();
@@ -1195,13 +1212,15 @@ test('a pending registration does not schedule a credential refresh before tourn
 
   const timers = [];
   const clearedTimers = [];
-  let refreshCalls = 0;
+  let scheduledRefreshCalls = 0;
+  let scheduledRefresh = Promise.resolve();
   const lifecycleEffect = loadLifecycleRefreshEffect({
     items: harness.state.items,
     listFocused: { current: true },
     AppState: { currentState: 'active' },
     lifecycleOf: (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
     getRoomCredentialSchedule,
+    getNextRoomCredentialRefreshAtMs,
     MAX_TIMEOUT_MS,
     Platform: { OS: 'web' },
     takeTournamentStartAnnouncement,
@@ -1215,19 +1234,59 @@ test('a pending registration does not schedule a credential refresh before tourn
     clearTimeout: (timer) => clearedTimers.push(timer),
     setClockNow: (value) => { harness.state.clockNow = value; },
     setStartAnnouncement() {},
-    load: () => { refreshCalls += 1; },
+    load: () => {
+      scheduledRefreshCalls += 1;
+      scheduledRefresh = harness.load();
+      return scheduledRefresh;
+    },
   });
 
-  const cleanup = lifecycleEffect();
+  const cleanupBeforeRelease = lifecycleEffect();
   assert.equal(timers.length, 1);
+  assert.equal(timers[0].delayMs, 1_020, 'pending entries should refresh at the T-5 threshold');
+  fakeNow = schedule.releaseAtMs + 20;
+  timers[0].callback();
+  await scheduledRefresh;
+  assert.equal(scheduledRefreshCalls, 1);
+
+  const stillPending = harness.state.items[0].myRegistration;
+  assert.equal(stillPending.status, 'pending');
   assert.equal(
-    timers[0].delayMs,
-    ROOM_CREDENTIAL_REVEAL_LEAD_MS + 1_020,
-    'a pending registration should wait until the scheduled match start, not T-5',
+    hasServerAuthorizedRoomCredentials(stillPending.roomId, stillPending.roomPassword),
+    false,
+    'the T-5 refresh must not provide credentials while the registration is pending',
   );
-  assert.equal(refreshCalls, 0);
-  cleanup();
-  assert.deepEqual(clearedTimers, [timers[0]]);
+
+  cleanupBeforeRelease();
+  const cleanupAfterRelease = lifecycleEffect();
+  assert.equal(timers.length, 2);
+  assert.equal(
+    timers[1].delayMs,
+    ROOM_CREDENTIAL_PENDING_REFRESH_INTERVAL_MS + 20,
+    'a pending registration past T-5 should be checked again without waiting until match start',
+  );
+
+  registrationStatus = 'approved';
+  fakeNow += ROOM_CREDENTIAL_PENDING_REFRESH_INTERVAL_MS;
+  timers[1].callback();
+  await scheduledRefresh;
+  assert.equal(scheduledRefreshCalls, 2);
+  assert.deepEqual(
+    {
+      status: harness.state.items[0].myRegistration.status,
+      roomId: harness.state.items[0].myRegistration.roomId,
+      roomPassword: harness.state.items[0].myRegistration.roomPassword,
+    },
+    {
+      status: 'approved',
+      roomId: 'ROOM-LATE-APPROVAL',
+      roomPassword: 'PASS-LATE-APPROVAL',
+    },
+    'the scheduled retry should reveal credentials after the server reports approval',
+  );
+
+  cleanupAfterRelease();
+  assert.deepEqual(clearedTimers, [timers[0], timers[1]]);
 });
 
 test('a slower earlier load cannot replace newer rows or tab counts', async () => {

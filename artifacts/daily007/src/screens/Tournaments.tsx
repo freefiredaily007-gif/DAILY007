@@ -16,7 +16,10 @@ import { api } from '../lib/api';
 import { C, Loading, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
-import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+import {
+  getNextRoomCredentialRefreshAtMs,
+  getRoomCredentialSchedule,
+} from '../lib/roomCredentialTiming';
 import { tournamentListEmptyMessage, tournamentTabsForRoute } from '../lib/tournamentFilters';
 import { createLatestRequestGuard } from '../lib/latestRequestGuard';
 import {
@@ -212,9 +215,13 @@ export default function Tournaments() {
     const transitions = items.flatMap((tournament) => {
       const schedule = getRoomCredentialSchedule(tournament.startsAt);
       if (!schedule) return [];
-      const releaseTransition = String(tournament.myRegistration?.status ?? '').toLowerCase() === 'approved'
-        ? [schedule.releaseAtMs]
-        : [];
+      const roomRefreshAt = getNextRoomCredentialRefreshAtMs(
+        schedule.startsAtMs,
+        schedule.releaseAtMs,
+        tournament.myRegistration?.status,
+        now,
+      );
+      const releaseTransition = roomRefreshAt === null ? [] : [roomRefreshAt];
       return [...releaseTransition, schedule.startsAtMs];
     });
     const nextTransition = transitions

@@ -1,4 +1,5 @@
 export const ROOM_CREDENTIAL_REVEAL_LEAD_MS = 5 * 60 * 1000;
+export const ROOM_CREDENTIAL_PENDING_REFRESH_INTERVAL_MS = 30 * 1000;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -28,6 +29,29 @@ export function getRoomCredentialReleaseDelayMs(
   if (!Number.isFinite(releaseAtMs) || !Number.isFinite(serverNowMs)) return null;
   const delayMs = releaseAtMs - serverNowMs;
   return delayMs > 0 ? delayMs : null;
+}
+
+export function getNextRoomCredentialRefreshAtMs(
+  startsAtMs: number,
+  releaseAtMs: number,
+  registrationStatus: unknown,
+  nowMs: number,
+): number | null {
+  if (
+    !Number.isFinite(startsAtMs) ||
+    !Number.isFinite(releaseAtMs) ||
+    !Number.isFinite(nowMs) ||
+    startsAtMs <= nowMs
+  ) {
+    return null;
+  }
+
+  const status = String(registrationStatus ?? '').toLowerCase();
+  if (status !== 'approved' && status !== 'pending') return null;
+  if (releaseAtMs > nowMs) return releaseAtMs;
+  if (status !== 'pending') return null;
+
+  return Math.min(nowMs + ROOM_CREDENTIAL_PENDING_REFRESH_INTERVAL_MS, startsAtMs);
 }
 
 function time24(timestamp: number): string {
