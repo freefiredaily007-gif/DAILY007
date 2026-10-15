@@ -160,6 +160,77 @@ function loadVideoUnavailableErrorAnnouncement() {
   )(React, createTestView, createTestText, () => null);
 }
 
+function loadVideoEmbedFailureRecovery(onPressCapture) {
+  const declaration = findFunctionDeclaration(
+    videoAccessibilityControlsSourceFile,
+    "VideoEmbedFailureRecovery",
+  );
+  const source = declaration
+    .getText(videoAccessibilityControlsSourceFile)
+    .replace(/^export\s+/, "");
+  const javascript = ts.transpileModule(
+    `const __component = (${source});`,
+    {
+      compilerOptions: {
+        jsx: ts.JsxEmit.React,
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  function createTestPressable({
+    children,
+    accessibilityHint,
+    accessibilityLabel,
+    accessibilityRole,
+    accessibilityState,
+    disabled,
+    onPress,
+    testID,
+  }) {
+    onPressCapture.current = onPress;
+    return React.createElement(
+      "button",
+      {
+        "aria-description": accessibilityHint,
+        "aria-label": accessibilityLabel,
+        "aria-busy": accessibilityState?.busy,
+        disabled,
+        role: accessibilityRole,
+        "data-testid": testID,
+      },
+      children,
+    );
+  }
+
+  return new Function(
+    "React",
+    "View",
+    "Text",
+    "Pressable",
+    "Feather",
+    "StyleSheet",
+    "useColors",
+    `${javascript}\nreturn __component;`,
+  )(
+    React,
+    createTestView,
+    createTestText,
+    createTestPressable,
+    () => null,
+    { create: (styles) => styles },
+    () => ({
+      card: "#fff",
+      border: "#ddd",
+      radius: 8,
+      mutedForeground: "#555",
+      destructive: "#c00",
+      primary: "#06c",
+    }),
+  );
+}
+
 function findJsxConditional(conditionText) {
   let conditional = null;
 
@@ -438,6 +509,38 @@ test("a permanently unavailable video clears its saved retry reference", async (
   assert.equal(persistedRetry, null);
   assert.equal(clearCalls, 1);
   assert.equal(rewardError, "This video is no longer available for rewards.");
+});
+
+test("an embed failure announces once and exposes an actionable YouTube recovery button", () => {
+  const onPressCapture = { current: null };
+  const EmbedFailureRecovery = loadVideoEmbedFailureRecovery(onPressCapture);
+  let activated = false;
+  const markup = renderToStaticMarkup(
+    React.createElement(EmbedFailureRecovery, {
+      busy: false,
+      onOpenYouTube: () => { activated = true; },
+    }),
+  );
+
+  assert.match(markup, /data-testid="video-embed-failure-message"/);
+  assert.match(markup, /This video could not be embedded\. Open it on YouTube instead\./);
+  assert.match(markup, /role="text"/);
+  assert.match(markup, /aria-live="polite"/);
+  assert.equal(
+    markup.match(/aria-live="polite"/g)?.length ?? 0,
+    1,
+    "The embed-failure message should have exactly one polite announcement target.",
+  );
+  assert.match(markup, /<button[^>]*aria-label="Open on YouTube"[^>]*role="button"/);
+  assert.match(markup, /aria-description="Opens this video in YouTube\."/);
+  assert.match(markup, /data-testid="video-open-youtube-recovery"/);
+  assert.equal(typeof onPressCapture.current, "function");
+  onPressCapture.current();
+  assert.equal(activated, true, "The recovery button should invoke the YouTube action.");
+  assert.match(
+    videoSource,
+    /playerFailed && !externalLinkError \? \([\s\S]*?<VideoEmbedFailureRecovery[\s\S]*?onOpenYouTube=\{\(\) => \{ void openOnYouTube\(\); \}\}/,
+  );
 });
 
 test("a failed start can retry the same attempt without counting the failed wait or changing replay identity", async () => {
@@ -778,7 +881,8 @@ test("the visible catalog removes a video disabled while it stays open", async (
   );
   assert.equal(
     videoAccessibilityControlsSource.match(/accessibilityLiveRegion/g)?.length ?? 0,
-    1,
+    2,
+    "Each video failure component should provide only its own single live-region target.",
   );
   assert.match(nativeTestSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
   assert.match(nativeTestSource, /VideoUnavailableErrorAnnouncement/);

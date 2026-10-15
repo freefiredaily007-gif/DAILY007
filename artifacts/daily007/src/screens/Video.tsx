@@ -17,6 +17,7 @@ import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
   VideoCatalogBackButton,
+  VideoEmbedFailureRecovery,
   VideoUnavailableErrorAnnouncement,
 } from '../components/VideoAccessibilityControls';
 import { VideoLinkRecovery } from '../components/VideoLinkRecovery';
@@ -744,10 +745,10 @@ export default function Video() {
           </View>
 
           {playerFailed && !externalLinkError ? (
-            <View style={styles.errorCard}>
-              <Feather name="alert-circle" size={18} color={colors.destructive} />
-              <Text style={styles.errorText}>This video could not be embedded. Open it on YouTube instead.</Text>
-            </View>
+            <VideoEmbedFailureRecovery
+              busy={externalLinkAction === 'youtube'}
+              onOpenYouTube={() => { void openOnYouTube(); }}
+            />
           ) : null}
           {externalLinkError ? (
             <VideoLinkRecovery
