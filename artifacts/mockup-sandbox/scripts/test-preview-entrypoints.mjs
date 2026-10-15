@@ -227,7 +227,7 @@ async function evaluate(expression) {
 async function startChromium(profilePath) {
   const port = await getFreePort();
   activeChromium = spawn(
-    "chromium",
+    process.env.CHROMIUM_PATH || "chromium",
     [
       "--headless=new",
       "--no-sandbox",

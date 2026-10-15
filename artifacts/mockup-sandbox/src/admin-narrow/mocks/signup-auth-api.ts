@@ -35,6 +35,17 @@ export function setSession(): never {
   throw new SessionPersistenceError();
 }
 
+export function captureSessionRevision(): number {
+  return 0;
+}
+
+export async function setSessionForAuthAttempt(
+  _user: unknown,
+  _expectedRevision: number,
+): Promise<boolean> {
+  return false;
+}
+
 export function getSignupCallCount(): number {
   return signupCalls.length;
 }

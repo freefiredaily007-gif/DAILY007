@@ -19,6 +19,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  preview-entrypoints:
+    name: Daily007 browser preview smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Chromium
+        id: chromium
+        uses: browser-actions/setup-chrome@v1
+        with:
+          install-dependencies: true
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Daily007 preview smoke test
+        env:
+          CHROMIUM_PATH: ${{ steps.chromium.outputs.chrome-path }}
+        run: pnpm --filter @workspace/mockup-sandbox run test:preview-entrypoints
+
   tournament-join-recovery:
     name: Tournament join recovery (Android emulator)
     runs-on: ubuntu-latest

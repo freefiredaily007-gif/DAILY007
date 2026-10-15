@@ -330,6 +330,20 @@ function setPreviewRequestStatus<T extends { id: string; status: string }>(
 }
 
 const empty = async () => [];
+type PreviewSessionIdentity = {
+  revision: number;
+  accountId?: string;
+  token: string;
+};
+
+export function captureSessionIdentity(): PreviewSessionIdentity | null {
+  return null;
+}
+
+export function isSessionIdentityCurrent(_identity: PreviewSessionIdentity): boolean {
+  return false;
+}
+
 let tournamentReadCount = 0;
 let tournamentDetailReadCount = 0;
 let nextTournamentReadError: string | null = null;
