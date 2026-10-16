@@ -2898,115 +2898,7 @@ test("the real player recovers its catalog when a selected video is deleted befo
   }
 });
 
-test("a permanent deletion waiting on one video does not block a reward for another video", async () => {
-  const fixture = await createFixture();
-  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
-  const adminId = fixture.adminId;
-  const playerId = fixture.playerId;
-  const rewardVideoId = fixture.videoId;
-  const deleteVideoResult = await pool.query<{ id: string }>(
-    `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
-     VALUES ('Independent delete video', 'Concurrency', $1, $2)
-     RETURNING id`,
-    [randomUUID().replace(/-/g, "").slice(0, 11), adminId],
-  );
-  const deleteVideoId = deleteVideoResult.rows[0]?.id;
-  assert.ok(deleteVideoId, "the unrelated video should be created");
-  fixture.additionalVideoIds.push(deleteVideoId);
-
-  let videoBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
-  const inFlight: Promise<unknown>[] = [];
-  try {
-    await withServer(async (origin) => {
-      videoBlocker = await pool.connect();
-      await videoBlocker.query("BEGIN");
-      await videoBlocker.query(
-        "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
-        [deleteVideoId],
-      );
-      const blockerPid = await backendPid(videoBlocker);
-
-      const deletion = sendPermanentDelete(origin, deleteVideoId, adminId);
-      inFlight.push(deletion);
-      const deletePid = await waitForBlockedBackend(
-        "FROM daily007_v2_videos",
-        [blockerPid],
-      );
-
-      const completion = sendJson(
-        origin,
-        "/videos/watch/complete",
-        playerId,
-        "POST",
-        { sessionId: fixture.sessionId, percentWatched: 100 },
-      );
-      inFlight.push(completion);
-      let completionTimeout: ReturnType<typeof setTimeout> | undefined;
-      let completionResponse: JsonResponse;
-      try {
-        completionResponse = await Promise.race([
-          completion,
-          new Promise<never>((_resolve, reject) => {
-            completionTimeout = setTimeout(
-              () => reject(new Error("A reward for an unrelated video waited on permanent deletion.")),
-              5_000,
-            );
-          }),
-        ]);
-      } finally {
-        if (completionTimeout) clearTimeout(completionTimeout);
-      }
-
-      assert.equal(completionResponse.status, 200);
-      assert.equal(completionResponse.body.rewarded, true);
-      assert.equal(completionResponse.body.coins, 1);
-      assert.equal(completionResponse.body.walletCoins, 13);
-      assert.equal(typeof completionResponse.body.transactionId, "string");
-
-      const stillBlockedDeletePid = await waitForBlockedBackend(
-        "FROM daily007_v2_videos",
-        [blockerPid],
-      );
-      assert.equal(stillBlockedDeletePid, deletePid);
-
-      await videoBlocker.query("COMMIT");
-      videoBlocker.release();
-      videoBlocker = null;
-
-      const deleteResponse = await deletion;
-      assert.equal(deleteResponse.status, 204);
-      assert.deepEqual(deleteResponse.body, {});
-    }, async () => {
-      if (videoBlocker) {
-        await videoBlocker.query("ROLLBACK").catch(() => undefined);
-        videoBlocker.release();
-        videoBlocker = null;
-      }
-      await Promise.allSettled(inFlight);
-    });
-
-    const [state, deletedVideo] = await Promise.all([
-      inspectFixture(fixture),
-      pool.query("SELECT id FROM daily007_v2_videos WHERE id = $1", [deleteVideoId]),
-    ]);
-    assert.equal(state.active, true, "the rewarded video should remain active");
-    assert.equal(state.walletCoins, 13);
-    assert.equal(state.ledgerCount, 1);
-    assert.ok(state.completedAt);
-    assert.equal(state.rewardLedgerId, state.ledgerId);
-    assert.equal(state.ledgerAmount, 1);
-    assert.equal(state.ledgerBalanceAfter, 13);
-    assert.equal(deletedVideo.rows.length, 0, "the unrelated video should be deleted");
-  } finally {
-    if (videoBlocker) {
-      await videoBlocker.query("ROLLBACK").catch(() => undefined);
-      videoBlocker.release();
-    }
-    await cleanupFixture(fixture);
-  }
-});
-
-test("a permanent deletion waiting on one video does not block playback of another video", async () => {
+test("a permanent deletion waiting on one video does not block another video's reward completion", async () => {
   const fixture = await createFixture({ includeInitialSession: false });
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
   const adminId = fixture.adminId;
@@ -3069,6 +2961,42 @@ test("a permanent deletion waiting on one video does not block playback of anoth
       assert.equal(startResponse.status, 201);
       assert.equal(typeof startResponse.body.sessionId, "string");
       fixture.sessionId = startResponse.body.sessionId as string;
+
+      await pool.query(
+        `UPDATE daily007_v2_video_watch_sessions
+            SET started_at = now() - interval '30 seconds'
+          WHERE id = $1`,
+        [fixture.sessionId],
+      );
+      const completion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        playerId,
+        "POST",
+        { sessionId: fixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(completion);
+      let completionTimeout: ReturnType<typeof setTimeout> | undefined;
+      let completionResponse: JsonResponse;
+      try {
+        completionResponse = await Promise.race([
+          completion,
+          new Promise<never>((_resolve, reject) => {
+            completionTimeout = setTimeout(
+              () => reject(new Error("Reward completion waited on permanent deletion of another video.")),
+              5_000,
+            );
+          }),
+        ]);
+      } finally {
+        if (completionTimeout) clearTimeout(completionTimeout);
+      }
+      assert.equal(completionResponse.status, 200);
+      assert.equal(completionResponse.body.rewarded, true);
+      assert.equal(completionResponse.body.coins, 1);
+      assert.equal(completionResponse.body.walletCoins, 13);
+      assert.equal(typeof completionResponse.body.transactionId, "string");
+
       const stillBlockedDeletePid = await waitForBlockedBackend(
         "FROM daily007_v2_videos",
         [blockerPid],
@@ -3100,10 +3028,42 @@ test("a permanent deletion waiting on one video does not block playback of anoth
         "SELECT id, active FROM daily007_v2_videos WHERE id = $1",
         [otherVideoId],
       ),
-      pool.query<{ id: string; user_id: string; video_id: string; start_attempt_id: string }>(
-        `SELECT id, user_id, video_id, start_attempt_id
-           FROM daily007_v2_video_watch_sessions
-          WHERE user_id = $1 AND start_attempt_id = $2`,
+      pool.query<{
+        id: string;
+        userId: string;
+        videoId: string;
+        startAttemptId: string;
+        reportedPercent: number;
+        completedAt: Date | null;
+        rewardLedgerId: string | null;
+        walletCoins: number;
+        ledgerId: string | null;
+        ledgerAmount: number | null;
+        ledgerBalanceAfter: number | null;
+        ledgerReason: string | null;
+        idempotencyKey: string | null;
+        ledgerDetails: Record<string, unknown> | null;
+      }>(
+        `SELECT session.id,
+                session.user_id AS "userId",
+                session.video_id AS "videoId",
+                session.start_attempt_id AS "startAttemptId",
+                session.reported_percent AS "reportedPercent",
+                session.completed_at AS "completedAt",
+                session.reward_ledger_id::text AS "rewardLedgerId",
+                player.wallet_coins AS "walletCoins",
+                ledger.id::text AS "ledgerId",
+                ledger.amount AS "ledgerAmount",
+                ledger.balance_after AS "ledgerBalanceAfter",
+                ledger.reason AS "ledgerReason",
+                ledger.idempotency_key AS "idempotencyKey",
+                ledger.details AS "ledgerDetails"
+           FROM daily007_v2_video_watch_sessions session
+           JOIN daily007_v2_users player ON player.id = session.user_id
+           LEFT JOIN daily007_v2_wallet_ledger ledger
+             ON ledger.user_id = session.user_id
+            AND ledger.idempotency_key = 'daily007-video-watch:' || session.id::text
+          WHERE session.user_id = $1 AND session.start_attempt_id = $2`,
         [playerId, attemptId],
       ),
     ]);
@@ -3112,9 +3072,26 @@ test("a permanent deletion waiting on one video does not block playback of anoth
     assert.equal(otherVideo.rows[0]?.active, true);
     assert.equal(session.rows.length, 1, "the unrelated playback session should persist");
     assert.equal(session.rows[0]?.id, fixture.sessionId);
-    assert.equal(session.rows[0]?.user_id, playerId);
-    assert.equal(session.rows[0]?.video_id, otherVideoId);
-    assert.equal(session.rows[0]?.start_attempt_id, attemptId);
+    assert.equal(session.rows[0]?.userId, playerId);
+    assert.equal(session.rows[0]?.videoId, otherVideoId);
+    assert.equal(session.rows[0]?.startAttemptId, attemptId);
+    assert.equal(session.rows[0]?.reportedPercent, 100);
+    assert.ok(session.rows[0]?.completedAt, "the unrelated watch session should complete");
+    assert.equal(session.rows[0]?.walletCoins, 13);
+    assert.ok(session.rows[0]?.ledgerId, "the reward should have one ledger entry");
+    assert.equal(session.rows[0]?.rewardLedgerId, session.rows[0]?.ledgerId);
+    assert.equal(session.rows[0]?.ledgerAmount, 1);
+    assert.equal(session.rows[0]?.ledgerBalanceAfter, 13);
+    assert.equal(session.rows[0]?.ledgerReason, "video_watch_reward");
+    assert.equal(
+      session.rows[0]?.idempotencyKey,
+      `daily007-video-watch:${fixture.sessionId}`,
+    );
+    assert.deepEqual(session.rows[0]?.ledgerDetails, {
+      videoId: otherVideoId,
+      sessionId: fixture.sessionId,
+      reportedPercent: 100,
+    });
   } finally {
     if (videoBlocker) {
       await videoBlocker.query("ROLLBACK").catch(() => undefined);

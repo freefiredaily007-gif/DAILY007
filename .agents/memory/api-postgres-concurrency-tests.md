@@ -21,6 +21,12 @@ For duplicate-delivery races, hold the target session row, wait until the first 
 
 **How to apply:** Use `pg_blocking_pids` to establish the first/second wait relationship, release the blocker only after both requests are queued, and verify the loser returns the existing ledger entry without adding another one.
 
+**Rule:** An isolated PostgreSQL fixture used by an API route test must include every referenced column and joined relation in the route's query, including optional `LEFT JOIN`s exercised by follow-on requests.
+
+**Why:** A video-reward race test passed its reward writes but then failed reading Wallet history because the minimal schema omitted the history query's registration field and awards relation.
+
+**How to apply:** Trace every endpoint called by the integration test through its SQL, and model empty joined tables as well as rows directly mutated by the scenario.
+
 For idempotent create races, gate the first matching insert with a test-only trigger and transaction-scoped advisory lock; let a second request commit the unique-key row before releasing the first.
 
 **Why:** This deterministically exercises `INSERT ... ON CONFLICT DO NOTHING` for overlapping start requests and proves the blocked request reuses the committed row.
