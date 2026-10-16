@@ -177,6 +177,86 @@ test("Tournament Admins cannot list, review, or pay payment and withdrawal reque
   });
 });
 
+test("Full Admins can list payment and withdrawal requests", async () => {
+  walletTestDb.reset();
+
+  await withServer(async (origin) => {
+    const payment = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
+      coins: 120,
+      payerUpiId: "player@upi",
+      txnId: "full-admin-payment-queue-test",
+    });
+    const withdrawal = await call(origin, TEST_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "player@upi",
+    });
+    assert.equal(payment.status, 201);
+    assert.equal(withdrawal.status, 201);
+
+    const [payments, withdrawals] = await Promise.all([
+      call(origin, TEST_ADMIN_ID, "/admin/payments", "GET"),
+      call(origin, TEST_ADMIN_ID, "/admin/withdrawals", "GET"),
+    ]);
+
+    assert.equal(payments.status, 200);
+    assert.ok(Array.isArray(payments.body));
+    assert.deepEqual(
+      payments.body.map((request: any) => ({
+        id: request.id,
+        userId: request.userId,
+        userName: request.userName,
+        email: request.email,
+        coins: request.coins,
+        amount: request.amount,
+        txnId: request.txnId,
+        status: request.status,
+        payerUpiId: request.payerUpiId,
+        proofAvailable: request.proofAvailable,
+      })),
+      [{
+        id: payment.body.id,
+        userId: TEST_PLAYER_ID,
+        userName: "Test Player",
+        email: "player@example.test",
+        coins: 120,
+        amount: 300,
+        txnId: "full-admin-payment-queue-test",
+        status: "pending",
+        payerUpiId: "player@upi",
+        proofAvailable: false,
+      }],
+    );
+
+    assert.equal(withdrawals.status, 200);
+    assert.ok(Array.isArray(withdrawals.body));
+    assert.deepEqual(
+      withdrawals.body.map((request: any) => ({
+        id: request.id,
+        userId: request.userId,
+        userName: request.userName,
+        email: request.email,
+        coins: request.coins,
+        method: request.method,
+        account: request.account,
+        status: request.status,
+        payoutStatus: request.payoutStatus,
+      })),
+      [{
+        id: withdrawal.body.id,
+        userId: TEST_PLAYER_ID,
+        userName: "Test Player",
+        email: "player@example.test",
+        coins: 150,
+        method: "upi",
+        account: "player@upi",
+        status: "pending",
+        payoutStatus: "not_paid",
+      }],
+    );
+  });
+});
+
 test("pending deposits do not change coins and approval credits the configured amount once", async () => {
   walletTestDb.reset({ settings: { coinToMoneyRate: "2.5" } });
 

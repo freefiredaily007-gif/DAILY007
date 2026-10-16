@@ -299,6 +299,56 @@ class MemoryWalletDatabase {
       rows = user ? [{ wallet_coins: user.wallet_coins }] : [];
     } else if (normalized.startsWith("SELECT r.id, r.referrer_user_id")) {
       rows = [];
+    } else if (normalized.startsWith(
+      'SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email',
+    )) {
+      rows = [...this.payments.values()]
+        .filter((payment) => payment.status !== "deleted")
+        .sort((left, right) => right.created_at.getTime() - left.created_at.getTime())
+        .slice(0, 500)
+        .flatMap((payment) => {
+          const user = this.users.get(payment.user_id);
+          return user ? [{
+            id: payment.id,
+            userId: payment.user_id,
+            userName: user.name,
+            email: user.email,
+            coins: payment.coins,
+            amount: payment.amount,
+            reference: payment.reference,
+            txnId: payment.reference,
+            status: payment.status,
+            payerUpiId: payment.payer_upi_id,
+            proofAvailable: payment.proof_object_path !== null,
+            reviewReason: payment.review_reason,
+            createdAt: payment.created_at,
+            reviewedAt: payment.reviewed_at,
+          }] : [];
+        });
+    } else if (normalized.startsWith(
+      'SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email',
+    )) {
+      rows = [...this.withdrawals.values()]
+        .filter((withdrawal) => withdrawal.status !== "deleted")
+        .sort((left, right) => right.created_at.getTime() - left.created_at.getTime())
+        .slice(0, 500)
+        .flatMap((withdrawal) => {
+          const user = this.users.get(withdrawal.user_id);
+          return user ? [{
+            id: withdrawal.id,
+            userId: withdrawal.user_id,
+            userName: user.name,
+            email: user.email,
+            coins: withdrawal.coins,
+            method: withdrawal.method,
+            account: withdrawal.account,
+            status: withdrawal.status,
+            payoutStatus: withdrawal.payout_status,
+            reviewReason: withdrawal.review_reason,
+            createdAt: withdrawal.created_at,
+            reviewedAt: withdrawal.reviewed_at,
+          }] : [];
+        });
     } else if (normalized.startsWith("SELECT * FROM daily007_v2_payments WHERE id = $1")) {
       const payment = this.payments.get(userId);
       rows = payment ? [structuredClone(payment)] : [];
