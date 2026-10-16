@@ -710,6 +710,100 @@ test("a committed video disable wins the PostgreSQL completion race without rewa
   }
 });
 
+test("hiding a rewarded video preserves its PostgreSQL watch session and ledger link", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const attemptId = randomUUID();
+  fixture.sessionId = randomUUID();
+  const idempotencyKey = `daily007-video-watch:${fixture.sessionId}`;
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_users SET wallet_coins = 13 WHERE id = $1",
+      [fixture.playerId],
+    );
+    const ledger = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, idempotency_key, details)
+       VALUES ($1, 1, 13, 'video_watch_reward', $2, $3::jsonb)
+       RETURNING id`,
+      [
+        fixture.playerId,
+        idempotencyKey,
+        JSON.stringify({ videoId: fixture.videoId }),
+      ],
+    );
+    const ledgerId = ledger.rows[0]?.id;
+    assert.ok(ledgerId, "the reward ledger row should be created");
+
+    const session = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_video_watch_sessions
+         (id, user_id, video_id, duration_seconds, start_attempt_id, reported_percent,
+          started_at, completed_at, reward_ledger_id)
+       VALUES ($1, $2, $3, 37, $4, 100, '2026-06-01T12:00:00Z',
+               '2026-06-01T12:00:37Z', $5)
+       RETURNING id`,
+      [fixture.sessionId, fixture.playerId, fixture.videoId, attemptId, ledgerId],
+    );
+    assert.equal(session.rows[0]?.id, fixture.sessionId);
+
+    const [sessionBefore, ledgerBefore] = await Promise.all([
+      pool.query(
+        "SELECT * FROM daily007_v2_video_watch_sessions WHERE id = $1",
+        [fixture.sessionId],
+      ),
+      pool.query(
+        "SELECT * FROM daily007_v2_wallet_ledger WHERE id = $1",
+        [ledgerId],
+      ),
+    ]);
+    assert.equal(sessionBefore.rows.length, 1);
+    assert.equal(ledgerBefore.rows.length, 1);
+    assert.equal(sessionBefore.rows[0]?.reward_ledger_id, ledgerId);
+
+    await withServer(async (origin) => {
+      const hidden = await sendJson(
+        origin,
+        `/admin/videos/${fixture.videoId}/active`,
+        fixture.adminId!,
+        "PATCH",
+        { active: false },
+      );
+      assert.equal(hidden.status, 200);
+      assert.equal(hidden.body.active, false);
+
+      const [sessionAfter, ledgerAfter, catalog] = await Promise.all([
+        pool.query(
+          "SELECT * FROM daily007_v2_video_watch_sessions WHERE id = $1",
+          [fixture.sessionId],
+        ),
+        pool.query(
+          "SELECT * FROM daily007_v2_wallet_ledger WHERE id = $1",
+          [ledgerId],
+        ),
+        getVideoCatalog(origin),
+      ]);
+      assert.deepEqual(
+        sessionAfter.rows,
+        sessionBefore.rows,
+        "hiding a video must leave every persisted watch-session field unchanged",
+      );
+      assert.deepEqual(
+        ledgerAfter.rows,
+        ledgerBefore.rows,
+        "hiding a video must leave the linked reward-ledger row unchanged",
+      );
+      assert.equal(sessionAfter.rows[0]?.reward_ledger_id, ledgerId);
+      assert.ok(
+        !catalog.some((video) => video.id === fixture.videoId),
+        "the hidden video must be excluded from the player catalog",
+      );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("a completion holding the PostgreSQL video lock rewards once before video deactivation", async () => {
   const fixture = await createFixture();
   assert.ok(fixture.adminId && fixture.playerId && fixture.videoId && fixture.sessionId);
