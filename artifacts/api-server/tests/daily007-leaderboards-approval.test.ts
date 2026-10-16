@@ -107,16 +107,24 @@ async function callRewardsWithAuthorization(
   return { status: response.status, body: await response.json() };
 }
 
-function tokenExpiredAt(userId: string, expiresAtSeconds: number): string {
+function signedToken(
+  userId: string,
+  sessionVersion: number,
+  expiresAtSeconds: number,
+): string {
   const payload = Buffer.from(JSON.stringify({
     sub: userId,
-    sv: 0,
+    sv: sessionVersion,
     exp: expiresAtSeconds,
   })).toString("base64url");
   const signature = createHmac("sha256", TEST_AUTH_SECRET)
     .update(payload)
     .digest("base64url");
   return `${payload}.${signature}`;
+}
+
+function tokenExpiredAt(userId: string, expiresAtSeconds: number): string {
+  return signedToken(userId, 0, expiresAtSeconds);
 }
 
 function period(
@@ -1377,9 +1385,12 @@ test("Tournament Admin cannot read Full Admin leaderboard reward settings or cha
   }
 });
 
-test("signed-out requests cannot read leaderboard rewards or cycle metadata", async () => {
+test("requests without a current session cannot read leaderboard rewards or cycle metadata", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());
+  const admin = daily007LeaderboardTestDb.users.get(TEST_FULL_ADMIN_ID);
+  assert.ok(admin);
+  admin.auth_version += 1;
   const captureFixture = () => structuredClone({
     users: daily007LeaderboardTestDb.users,
     matches: daily007LeaderboardTestDb.matches,
@@ -1398,20 +1409,49 @@ test("signed-out requests cannot read leaderboard rewards or cycle metadata", as
     TEST_FULL_ADMIN_ID,
     Math.floor(Date.now() / 1000) - 1,
   );
-  const rejectedRequests: { label: string; authorization?: string }[] = [
-    { label: "missing bearer token" },
-    { label: "invalid bearer token", authorization: "Bearer not-a-valid-token" },
-    { label: "expired bearer token", authorization: `Bearer ${expiredToken}` },
+  const replacedSessionToken = signedToken(
+    TEST_FULL_ADMIN_ID,
+    admin.auth_version - 1,
+    Math.floor(Date.now() / 1000) + 60,
+  );
+  const rejectedRequests: {
+    label: string;
+    authorization?: string;
+    expectedBody?: { error: string };
+  }[] = [
+    {
+      label: "missing bearer token",
+      expectedBody: { error: "A valid Daily007 v2 bearer token is required." },
+    },
+    {
+      label: "invalid bearer token",
+      authorization: "Bearer not-a-valid-token",
+      expectedBody: { error: "A valid Daily007 v2 bearer token is required." },
+    },
+    {
+      label: "expired bearer token",
+      authorization: `Bearer ${expiredToken}`,
+      expectedBody: { error: "A valid Daily007 v2 bearer token is required." },
+    },
+    {
+      label: "token from a replaced sign-in",
+      authorization: `Bearer ${replacedSessionToken}`,
+      expectedBody: {
+        error: "This Daily007 session was replaced by a newer sign-in. Sign in again.",
+      },
+    },
   ];
 
   try {
     await withServer(async (origin) => {
-      for (const { label, authorization } of rejectedRequests) {
+      for (const { label, authorization, expectedBody } of rejectedRequests) {
         const response = await callRewardsWithAuthorization(origin, authorization);
         assert.equal(response.status, 401, `${label} should receive Unauthorized`);
-        assert.deepEqual(response.body, {
-          error: "A valid Daily007 v2 bearer token is required.",
-        }, `${label} must not receive schedules or cycle metadata`);
+        assert.deepEqual(
+          response.body,
+          expectedBody,
+          `${label} must not receive schedules or cycle metadata`,
+        );
         assert.deepEqual(
           captureFixture(),
           originalFixture,
