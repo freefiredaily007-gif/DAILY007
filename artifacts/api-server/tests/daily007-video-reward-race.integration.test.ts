@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import express from "express";
 import test from "node:test";
+import ts from "typescript";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
 import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
@@ -36,6 +39,53 @@ type JsonResponse = {
   status: number;
   body: Record<string, unknown>;
 };
+
+const videoScreenSource = readFileSync(
+  path.resolve(process.cwd(), "../daily007/src/screens/Video.tsx"),
+  "utf8",
+);
+const videoScreenSourceFile = ts.createSourceFile(
+  "Video.tsx",
+  videoScreenSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+
+function loadVideoScreenCallback(
+  callbackName: string,
+  scope: Record<string, unknown>,
+): (...args: any[]) => any {
+  let declaration: ts.VariableDeclaration | null = null;
+  function visit(node: ts.Node): void {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === callbackName
+    ) {
+      declaration = node;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(videoScreenSourceFile);
+  assert.ok(declaration?.initializer && ts.isCallExpression(declaration.initializer));
+  assert.equal(declaration.initializer.expression.getText(videoScreenSourceFile), "useCallback");
+  const callback = declaration.initializer.arguments[0];
+  assert.ok(ts.isArrowFunction(callback));
+  const javascript = ts.transpileModule(
+    `const __callback = (${callback.getText(videoScreenSourceFile)});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __callback;`,
+  )(...Object.values(scope)) as (...args: any[]) => any;
+}
 
 async function withServer(
   run: (origin: string) => Promise<void>,
@@ -91,6 +141,29 @@ async function sendJson(
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function getVideoCatalog(origin: string): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch(`${origin}/videos`);
+  assert.equal(response.status, 200);
+  const body = await response.json() as { videos?: Array<Record<string, unknown>> };
+  assert.ok(Array.isArray(body.videos), "the player catalog endpoint should return videos");
+  return body.videos;
+}
+
+function waitFor(
+  predicate: () => boolean,
+  message: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + 1_000;
+    const poll = () => {
+      if (predicate()) resolve();
+      else if (Date.now() > deadline) reject(new Error(message));
+      else setTimeout(poll, 5);
+    };
+    poll();
+  });
 }
 
 test("retrying a video start after its committed response is lost reuses the session", async () => {
@@ -2582,6 +2655,245 @@ test("a playback-start request returns not found after a permanent delete commit
       await videoBlocker.query("ROLLBACK").catch(() => undefined);
       videoBlocker.release();
     }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("the real player recovers its catalog when a selected video is deleted before playback starts", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const videoId = fixture.videoId;
+  const playerId = fixture.playerId;
+  const adminId = fixture.adminId;
+  const attemptId = randomUUID();
+  const unrelatedVideo = await pool.query<{ id: string }>(
+    `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
+     VALUES ('Unrelated catalog video', 'Recovery', $1, $2)
+     RETURNING id`,
+    [randomUUID().replace(/-/g, "").slice(0, 11), adminId],
+  );
+  const unrelatedVideoId = unrelatedVideo.rows[0]?.id;
+  assert.ok(unrelatedVideoId);
+  fixture.additionalVideoIds.push(unrelatedVideoId);
+
+  const unrelatedBefore = await snapshotUnrelatedVideoState(videoId);
+  const startAttemptIdRef = { current: null as string | null };
+  const startRequestRef = { current: null as {
+    videoId: string;
+    durationSeconds: number;
+    attemptId: string;
+  } | null };
+  const playbackCycleRef = { current: 1 };
+  const startingSessionRef = { current: false };
+  const sessionStartFailedRef = { current: false };
+  const sessionStartRetryAvailable = { current: false };
+  const sessionStartRetryPending = { current: false };
+  const currentSessionRef = { current: null as string | null };
+  const lastSampleRef = { current: null as unknown };
+  const latestPlaybackTimeRef = { current: null as number | null };
+  const appIsActiveRef = { current: true };
+  const watchedSecondBucketsRef = { current: new Set<number>() };
+  const progressPercentRef = { current: 0 };
+  const rewardErrors: string[] = [];
+  const progressWrites: number[] = [];
+  const startResponses: JsonResponse[] = [];
+  let generatedAttemptId = 0;
+
+  try {
+    await withServer(async (origin) => {
+      const initialCatalog = await getVideoCatalog(origin);
+      const selectedVideo = initialCatalog.find((video) => video.id === videoId);
+      assert.ok(selectedVideo, "the player should select the video from its loaded catalog");
+      assert.ok(
+        initialCatalog.some((video) => video.id === unrelatedVideoId),
+        "the initial catalog should also contain the unrelated video",
+      );
+
+      const deletion = await sendPermanentDelete(origin, videoId, adminId);
+      assert.equal(deletion.status, 204, "the selected video deletion should commit first");
+
+      const setSessionStartRetryAvailable = (value: boolean) => {
+        sessionStartRetryAvailable.current = value;
+      };
+      const setSessionStartRetryPending = (value: boolean) => {
+        sessionStartRetryPending.current = value;
+      };
+      const startVideoWatchSession = loadVideoScreenCallback(
+        "startVideoWatchSession",
+        {
+          startingSessionRef,
+          sessionStartFailedRef,
+          setRewardError: (value: string) => rewardErrors.push(value),
+          appLifecycleCycleRef: { current: 0 },
+          startVideoWatch: async ({ data }: {
+            data: { videoId: string; durationSeconds: number; attemptId: string };
+          }) => {
+            const response = await sendJson(
+              origin,
+              "/videos/watch/start",
+              playerId,
+              "POST",
+              data,
+            );
+            startResponses.push(response);
+            if (response.status < 200 || response.status >= 300) {
+              throw {
+                response: { status: response.status, data: response.body },
+                message: `Request failed with status code ${response.status}`,
+              };
+            }
+            return response.body;
+          },
+          playbackCycleRef,
+          currentSessionRef,
+          setSessionStartRetryAvailable,
+          setSessionStartRetryPending,
+          appIsActiveRef,
+          latestPlaybackTimeRef,
+          lastSampleRef,
+          apiError: (error: any) =>
+            error?.response?.data?.error ?? error?.message ?? "Network error.",
+        },
+      );
+      const handlePlayerMessage = loadVideoScreenCallback("handlePlayerMessage", {
+        showPlayer: true,
+        selectedVideo,
+        ENDED_STATE: 0,
+        PLAYING_STATE: 1,
+        finishCurrentPlayback() {},
+        setPlayerReady() {},
+        setPlayerFailed() {},
+        appIsActiveRef,
+        currentSessionRef,
+        lastSampleRef,
+        latestPlaybackTimeRef,
+        startingSessionRef,
+        sessionStartFailedRef,
+        playbackCycleRef,
+        watchedSecondBucketsRef,
+        progressPercentRef,
+        setProgressPercent: (value: number) => progressWrites.push(value),
+        setRewardMessage() {},
+        setRewardError: (value: string) => rewardErrors.push(value),
+        appLifecycleCycleRef: { current: 0 },
+        startAttemptIdRef,
+        startRequestRef,
+        createVideoWatchAttemptId: () => attemptId || `attempt-${++generatedAttemptId}`,
+        startVideoWatchSession,
+        getCreditedVideoWatchSeconds: () => [],
+        setRetrySession() {},
+        setSessionStartRetryAvailable,
+        setSessionStartRetryPending,
+      });
+
+      assert.match(
+        videoScreenSource,
+        /<VideoCatalogBackButton[\s\S]*?onPress=\{closePlayer\}/,
+        "the player's Back to videos control should invoke the real close handler",
+      );
+      assert.match(
+        videoScreenSource,
+        /<VideoUnavailableErrorAnnouncement[\s\S]*?message=\{rewardError\}[\s\S]*?announce=\{sessionStartFailedRef\.current\}/,
+        "the player should render and announce the session-start error state",
+      );
+      assert.match(
+        videoScreenSource,
+        /sessionStartRetryAvailable \|\| sessionStartRetryPending/,
+        "the session-start retry control should follow the 404-specific retry state",
+      );
+      handlePlayerMessage({
+        type: "progress",
+        currentTime: 1,
+        duration: 30,
+        playing: true,
+      });
+      await waitFor(
+        () => sessionStartFailedRef.current,
+        "the actual player callback should receive the API's deleted-video response",
+      );
+
+      assert.equal(startResponses.length, 1, "the selected playback should make one start request");
+      assert.equal(startResponses[0]?.status, 404);
+      assert.equal(startResponses[0]?.body.error, "This video is unavailable.");
+      assert.deepEqual(startRequestRef.current, {
+        videoId,
+        durationSeconds: 30,
+        attemptId,
+      });
+      assert.equal(rewardErrors.at(-1), "This video is no longer available.");
+      assert.equal(sessionStartRetryAvailable.current, false);
+      assert.equal(sessionStartRetryPending.current, false);
+      assert.equal(startingSessionRef.current, false);
+      assert.equal(currentSessionRef.current, null);
+      assert.deepEqual(progressWrites, [0], "a failed start must not accrue watch progress");
+
+      const closePlayer = loadVideoScreenCallback("closePlayer", {
+        playbackCycleRef,
+        setShowPlayer(value: boolean) {
+          assert.equal(value, false);
+        },
+        setSelectedVideoId(value: string | null) {
+          assert.equal(value, null);
+        },
+      });
+      closePlayer();
+
+      let refreshedCatalog: Array<Record<string, unknown>> = [];
+      let recoveryAnnouncementVersion = 0;
+      let reloadPending = false;
+      const reloadVideoCatalog = loadVideoScreenCallback("reloadVideoCatalog", {
+        catalogReloadRequestSequenceRef: { current: 0 },
+        videosQuery: {
+          refetch: async ({ cancelRefetch }: { cancelRefetch: boolean }) => {
+            assert.equal(cancelRefetch, true);
+            refreshedCatalog = await getVideoCatalog(origin);
+            return { error: null };
+          },
+        },
+        setCatalogReloadPending(value: boolean) {
+          reloadPending = value;
+        },
+        setCatalogErrorAnnouncementVersion() {},
+        setCatalogRecoveryAnnouncementVersion(value: (version: number) => number) {
+          recoveryAnnouncementVersion = value(recoveryAnnouncementVersion);
+        },
+      });
+      await reloadVideoCatalog();
+      assert.equal(reloadPending, false);
+      assert.equal(recoveryAnnouncementVersion, 1);
+      assert.equal(
+        refreshedCatalog.some((video) => video.id === videoId),
+        false,
+        "the catalog shown after returning should omit the deleted video",
+      );
+      assert.ok(
+        refreshedCatalog.some((video) => video.id === unrelatedVideoId),
+        "the refreshed catalog should retain unrelated videos",
+      );
+    });
+
+    assert.equal(
+      sessionStartFailedRef.current,
+      true,
+      "the player should retain the unavailable state after the failed start",
+    );
+    const [deletedVideo, attemptSessions] = await Promise.all([
+      pool.query("SELECT id FROM daily007_v2_videos WHERE id = $1", [videoId]),
+      pool.query(
+        `SELECT id
+           FROM daily007_v2_video_watch_sessions
+          WHERE user_id = $1 AND start_attempt_id = $2`,
+        [playerId, attemptId],
+      ),
+    ]);
+    assert.equal(deletedVideo.rows.length, 0);
+    assert.equal(attemptSessions.rows.length, 0, "the rejected start must not create a session");
+    assert.deepEqual(
+      await snapshotUnrelatedVideoState(videoId),
+      unrelatedBefore,
+      "the deletion and failed start must leave unrelated catalog and history rows unchanged",
+    );
+  } finally {
     await cleanupFixture(fixture);
   }
 });
