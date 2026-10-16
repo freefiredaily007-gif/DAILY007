@@ -128,7 +128,7 @@ test("six-digit leaderboard prizes persist across a fresh API server instance", 
   }
 });
 
-test("a monthly active-period snapshot failure rolls back weekly and monthly prizes in PostgreSQL", async () => {
+test("a monthly reward-settings failure rolls back earlier weekly writes and all period snapshots in PostgreSQL", async () => {
   const adminId = randomUUID();
   const playerId = randomUUID();
   const weeklyPeriodId = randomUUID();
@@ -207,35 +207,32 @@ test("a monthly active-period snapshot failure rolls back weekly and monthly pri
     );
 
     await pool.query(`
-      CREATE SEQUENCE daily007_test_leaderboard_snapshot_failure_marker;
-      CREATE FUNCTION daily007_test_fail_monthly_active_snapshot() RETURNS trigger
+      CREATE SEQUENCE daily007_test_leaderboard_monthly_settings_failure_marker;
+      CREATE FUNCTION daily007_test_fail_monthly_reward_setting() RETURNS trigger
       LANGUAGE plpgsql AS $$
       BEGIN
-        IF NEW.cycle_type = 'monthly' AND NEW.status = 'active' THEN
+        IF NEW.cycle_type = 'monthly' AND NEW.first_place_coins = 801 THEN
           IF (SELECT first_place_coins FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type = 'weekly') <> 701
              OR (SELECT second_place_coins FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type = 'weekly') <> 702
              OR (SELECT third_place_coins FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type = 'weekly') <> 703
-             OR (SELECT first_place_coins FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type = 'monthly') <> 801
-             OR (SELECT second_place_coins FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type = 'monthly') <> 802
-             OR (SELECT third_place_coins FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type = 'monthly') <> 803
              OR (SELECT payout_configuration
                    FROM daily007_v2_leaderboard_periods
                   WHERE id = '${weeklyPeriodId}'::uuid)
                 IS DISTINCT FROM '[{"rank":1,"coins":701},{"rank":2,"coins":702},{"rank":3,"coins":703}]'::jsonb
           THEN
-            RAISE EXCEPTION 'monthly snapshot failure ran before earlier reward writes';
+             RAISE EXCEPTION 'monthly settings failure ran before weekly reward and snapshot writes';
           END IF;
 
-          PERFORM nextval('daily007_test_leaderboard_snapshot_failure_marker');
-          RAISE EXCEPTION 'injected monthly active-period snapshot failure';
+          PERFORM nextval('daily007_test_leaderboard_monthly_settings_failure_marker');
+          RAISE EXCEPTION 'injected monthly reward-settings failure';
         END IF;
         RETURN NEW;
       END
       $$;
-      CREATE TRIGGER daily007_test_fail_monthly_active_snapshot
-        BEFORE UPDATE OF payout_configuration ON daily007_v2_leaderboard_periods
+      CREATE TRIGGER daily007_test_fail_monthly_reward_setting
+        BEFORE INSERT OR UPDATE ON daily007_v2_leaderboard_reward_settings
         FOR EACH ROW
-        EXECUTE FUNCTION daily007_test_fail_monthly_active_snapshot();
+        EXECUTE FUNCTION daily007_test_fail_monthly_reward_setting();
     `);
 
     await withServer(async (origin) => {
@@ -259,12 +256,12 @@ test("a monthly active-period snapshot failure rolls back weekly and monthly pri
       assert.equal(failedSave.status, 500);
 
       const marker = await pool.query<{ last_value: string; is_called: boolean }>(
-        "SELECT last_value, is_called FROM daily007_test_leaderboard_snapshot_failure_marker",
+        "SELECT last_value, is_called FROM daily007_test_leaderboard_monthly_settings_failure_marker",
       );
       assert.deepEqual(
         marker.rows[0],
         { last_value: "1", is_called: true },
-        "the failure trigger must run after both setting writes and the weekly snapshot update",
+        "the failure trigger must run on the monthly settings write after the weekly setting and snapshot writes",
       );
 
       const settings = await pool.query<{
@@ -346,9 +343,9 @@ test("a monthly active-period snapshot failure rolls back weekly and monthly pri
       assert.deepEqual(playerView.monthly.rewards, originalRewards.monthly);
     });
   } finally {
-    await pool.query("DROP TRIGGER IF EXISTS daily007_test_fail_monthly_active_snapshot ON daily007_v2_leaderboard_periods");
-    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_monthly_active_snapshot()");
-    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_leaderboard_snapshot_failure_marker");
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_fail_monthly_reward_setting ON daily007_v2_leaderboard_reward_settings");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_monthly_reward_setting()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_leaderboard_monthly_settings_failure_marker");
     await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [matchId]);
     await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [matchId]);
     await pool.query("DELETE FROM daily007_v2_leaderboard_periods WHERE id IN ($1, $2)", [weeklyPeriodId, monthlyPeriodId]);
