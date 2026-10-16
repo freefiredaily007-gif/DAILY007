@@ -213,7 +213,12 @@ export default function AdminLeaderboards() {
       setDirtyCycles((previous) => ({ ...previous, [cycleType]: false }));
       toast(`${cycleType} leaderboard rewards saved for this cycle.`, "success");
     } catch (cause) {
-      setError(apiError(cause));
+      const reason = apiError(cause).replace(/[.!?]+$/, "");
+      const message =
+        `Could not save ${cycleType} leaderboard rewards: ${reason}. ` +
+        `Your entered amounts are still here; retry SAVE ${cycleType.toUpperCase()} REWARDS.`;
+      setError(message);
+      toast(message, "error");
     }
   };
 

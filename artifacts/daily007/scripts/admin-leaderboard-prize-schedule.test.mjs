@@ -39,6 +39,7 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
   let refIndex = 0;
   let effectIndex = 0;
   const saveCalls = [];
+  const toastCalls = [];
   let failedSaveAttempts = failSaveAttempts;
 
   const React = {
@@ -148,9 +149,9 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
     Loading: componentType(),
     ScreenWrap: componentType(),
     SectionTitle: componentType(),
-    useToast: () => () => {},
+    useToast: () => (message, kind) => toastCalls.push({ message, kind }),
     Input: inputType,
-    apiError: String,
+    apiError: (cause) => cause instanceof Error ? cause.message : String(cause),
     setInterval: () => 0,
   };
 
@@ -168,7 +169,7 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
     return AdminLeaderboards();
   }
 
-  return { render, inputType, buttonType, textType, serverSchedules, saveCalls };
+  return { render, inputType, buttonType, textType, serverSchedules, saveCalls, toastCalls };
 }
 
 function descendants(node, found = []) {
@@ -189,6 +190,11 @@ function inputValues(app) {
   return Object.fromEntries(
     formInputs(app).map((input) => [input.props.accessibilityLabel, input.props.value]),
   );
+}
+
+async function pressAndSettle(button) {
+  await button.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 const initialSchedules = {
@@ -248,7 +254,7 @@ test("Full Admin form saves distinct six-digit prizes and displays them again af
     );
     assert.ok(saveButton, `The ${cycle} reward save action should be rendered.`);
     assert.equal(saveButton.props.disabled, false);
-    await saveButton.props.onPress();
+    await pressAndSettle(saveButton);
     assert.deepEqual(persistedSchedules[cycle], sixDigitSchedules[cycle]);
     assert.deepEqual(inputValues(app), expectedInputValues);
   }
@@ -307,9 +313,15 @@ test("Full Admin keeps six-digit prize entries after a failed save and retries t
   const failedAttempt = findWeeklySaveButton();
   assert.ok(failedAttempt);
   assert.equal(failedAttempt.props.disabled, false);
-  await failedAttempt.props.onPress();
+  await pressAndSettle(failedAttempt);
 
   assert.deepEqual(app.saveCalls, [weeklyPayload]);
+  assert.deepEqual(app.toastCalls, [{
+    message:
+      "Could not save weekly leaderboard rewards: Prize settings could not be saved. " +
+      "Your entered amounts are still here; retry SAVE WEEKLY REWARDS.",
+    kind: "error",
+  }], "the failed prize save should create one actionable screen-reader toast");
   assert.deepEqual(inputValues(app), expectedInputValues);
   const visibleError = descendants(app.render()).find(
     (element) =>
@@ -323,9 +335,18 @@ test("Full Admin keeps six-digit prize entries after a failed save and retries t
   const retry = findWeeklySaveButton();
   assert.ok(retry);
   assert.equal(retry.props.disabled, false);
-  await retry.props.onPress();
+  await pressAndSettle(retry);
 
   assert.deepEqual(app.saveCalls, [weeklyPayload, weeklyPayload]);
+  assert.equal(app.toastCalls.length, 2, "the failed save and retry should each announce one outcome");
+  assert.equal(app.toastCalls[0].kind, "error");
+  assert.equal(
+    app.toastCalls[0].message,
+    "Could not save weekly leaderboard rewards: Prize settings could not be saved. " +
+      "Your entered amounts are still here; retry SAVE WEEKLY REWARDS.",
+  );
+  assert.equal(app.toastCalls[1].kind, "success");
+  assert.equal(app.toastCalls[1].message, "weekly leaderboard rewards saved for this cycle.");
   assert.deepEqual(persistedSchedules.weekly, sixDigitSchedules.weekly);
   assert.deepEqual(persistedSchedules.monthly, initialSchedules.monthly);
   assert.deepEqual(

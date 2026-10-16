@@ -11,6 +11,7 @@ const [toastSource, regsSource, paymentsSource, walletSource, usersSource] = awa
 ]);
 
 test('repeated Admin error toasts remain assertive TalkBack alerts', () => {
+  assert.match(toastSource, /if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(msg\)/);
   assert.match(toastSource, /accessibilityLabel=\{toast\.msg\}/);
   assert.match(toastSource, /accessibilityRole=\{Platform\.OS !== 'ios' && toast\.kind === 'err' \? 'alert' : undefined\}/);
   assert.match(toastSource, /accessibilityLiveRegion=\{Platform\.OS === 'ios'/);
