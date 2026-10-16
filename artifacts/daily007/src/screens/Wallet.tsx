@@ -1,6 +1,17 @@
 // Wallet — balance, add coins (manual input + UPI payment), withdraw coins (min 100), transaction history
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Image, FlatList, StyleSheet, RefreshControl, Modal, Pressable, useWindowDimensions } from 'react-native';
+import {
+  AccessibilityInfo,
+  Platform,
+  View,
+  Image,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+  Modal,
+  Pressable,
+  useWindowDimensions,
+} from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
@@ -93,6 +104,8 @@ export default function Wallet() {
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const transactionHistoryCursor = currentUserHistory.transactionCursor;
   const paymentHistoryCursor = currentUserHistory.paymentCursor;
+  const [historyLoadError, setHistoryLoadError] = useState('');
+  const [historyRetryStatus, setHistoryRetryStatus] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [rechargeNotice, setRechargeNotice] = useState('');
@@ -127,6 +140,8 @@ export default function Wallet() {
     setHistory(emptyWalletHistoryState(walletUserId));
     setLoading(Boolean(walletUserId));
     setLoadingMoreHistory(false);
+    setHistoryLoadError('');
+    setHistoryRetryStatus('');
     setError('');
   }, [walletUserId]);
 
@@ -137,7 +152,7 @@ export default function Wallet() {
     if (!requestedUserId) {
       setHistory(emptyWalletHistoryState(null));
       setLoading(false);
-      return;
+      return null;
     }
     const requestIsCurrent = () =>
       loadVersion === historyLoadVersion.current &&
@@ -152,7 +167,7 @@ export default function Wallet() {
         Api.myWithdrawals(),
         Api.settings(),
       ]);
-      if (!requestIsCurrent()) return;
+      if (!requestIsCurrent()) return null;
       const data = transactionPage?.items;
       const pays = paymentPage?.items;
       if (!Array.isArray(data) || !Array.isArray(pays) || !Array.isArray(wds)) {
@@ -211,14 +226,47 @@ export default function Wallet() {
         transactionCursor: nextTransactionCursor,
         paymentCursor: nextPaymentCursor,
       });
+      setHistoryLoadError('');
+      return true;
     } catch (e) {
-      if (requestIsCurrent()) setError(apiError(e));
+      if (requestIsCurrent()) {
+        setHistoryLoadError(apiError(e));
+        return false;
+      }
+      return null;
     } finally {
       if (requestIsCurrent()) setLoading(false);
     }
   }, [refresh, walletUserId]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const refreshHistory = useCallback(() => {
+    setHistoryRetryStatus('');
+    load();
+  }, [load]);
+
+  useFocusEffect(useCallback(() => { refreshHistory(); }, [refreshHistory]));
+
+  const announceHistoryRetryStatus = useCallback((message: string) => {
+    setHistoryRetryStatus(message);
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+        queue: true,
+        priority: 'low',
+      });
+    }
+  }, []);
+
+  const retryHistory = useCallback(async () => {
+    const requestedUserId = walletUserId;
+    announceHistoryRetryStatus('Retrying transaction history.');
+    const result = await load();
+    if (activeWalletUserId.current !== requestedUserId || result === null) return;
+    if (result) {
+      announceHistoryRetryStatus('Transaction history updated.');
+    } else {
+      announceHistoryRetryStatus('Transaction history could not be loaded. Use Retry transaction history to try again.');
+    }
+  }, [announceHistoryRetryStatus, load, walletUserId]);
 
   const loadMoreHistory = useCallback(async () => {
     const transactionCursor = transactionHistoryCursor;
@@ -384,7 +432,7 @@ export default function Wallet() {
       <FlatList
         data={txns}
         keyExtractor={(t, i) => String(t.id ?? i)}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={C.neon} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshHistory} tintColor={C.neon} />}
         contentContainerStyle={{ padding: 14, gap: 12 }}
         ListHeaderComponent={
           <>
@@ -414,9 +462,48 @@ export default function Wallet() {
             <Msg kind="ok" text={ok} />
             <Msg kind="err" text={error} />
             <SectionTitle>TRANSACTIONS</SectionTitle>
+            {!!historyLoadError && (
+              <View style={s.historyRetry}>
+                <Msg
+                  kind="err"
+                  text={historyLoadError}
+                  testID="wallet-history-error"
+                  accessibilityLabel={historyLoadError}
+                  accessibilityLiveRegion={
+                    Platform.OS === 'ios' || historyRetryStatus
+                      ? undefined
+                      : 'assertive'
+                  }
+                />
+                <Btn
+                  title={loading ? 'RETRYING HISTORY…' : 'RETRY TRANSACTION HISTORY'}
+                  testID="wallet-history-retry"
+                  accessibilityLabel={loading ? 'Retrying transaction history' : 'Retry transaction history'}
+                  accessibilityHint="Loads your latest wallet transaction history."
+                  onPress={retryHistory}
+                  loading={loading}
+                  disabled={loading}
+                />
+              </View>
+            )}
+            {!!historyRetryStatus && (
+              <Text
+                accessibilityLiveRegion={Platform.OS === 'ios' ? undefined : 'polite'}
+                testID="wallet-history-retry-status"
+                style={s.historyRetryStatus}
+              >
+                {historyRetryStatus}
+              </Text>
+            )}
           </>
         }
-        ListEmptyComponent={loading ? <Loading /> : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />}
+        ListEmptyComponent={
+          loading
+            ? <Loading accessibilityLabel="Loading transaction history" />
+            : historyLoadError
+              ? null
+              : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />
+        }
         ListFooterComponent={transactionHistoryCursor || paymentHistoryCursor ? (
           <View style={{ paddingTop: 8 }}>
             <Btn
@@ -684,6 +771,8 @@ const s = StyleSheet.create({
   txTitleLarge: { width: '100%', maxWidth: '100%', flexShrink: 1 },
   txDate: { color: C.dim, fontSize: 11, marginTop: 3 },
   txAmount: { fontWeight: '900', fontSize: 16 },
+  historyRetry: { gap: 8 },
+  historyRetryStatus: { color: C.sub, fontSize: 12, lineHeight: 18 },
   modalBg: { flex: 1, backgroundColor: '#000a', justifyContent: 'flex-end' },
   modalBgLarge: { paddingBottom: 12 },
   modal: { backgroundColor: C.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, maxHeight: '85%' },
