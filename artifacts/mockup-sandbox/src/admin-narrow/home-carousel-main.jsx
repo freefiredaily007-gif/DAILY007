@@ -31,13 +31,20 @@ const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
 const requestedScreen = previewParams.get("screen") ?? "Home";
 const dateSurfaceDateOnly = dateSurfaceScenario === "date-only";
-const dateSurfaceDate = dateSurfaceScenario === "positive-offset" ? "2029-12-31" : "2030-01-01";
-const dateSurfaceStartAt = dateSurfaceScenario === "positive-offset"
-  ? "2029-12-31T17:00:00.000Z"
-  : dateSurfaceDateOnly
-    ? new Date(`${dateSurfaceDate}T00:00:00`).toISOString()
-    : "2029-12-31T18:45:00.000Z";
-const dateSurfaceTime = dateSurfaceDateOnly ? "12:15 AM" : null;
+const dateSurfaceFormatterTimestamp = dateSurfaceScenario.startsWith("timestamp-");
+const dateSurfaceDate = dateSurfaceFormatterTimestamp
+  ? previewParams.get("ist-date-value") ?? ""
+  : dateSurfaceScenario === "positive-offset"
+    ? "2029-12-31"
+    : "2030-01-01";
+const dateSurfaceStartAt = dateSurfaceFormatterTimestamp
+  ? dateSurfaceDate
+  : dateSurfaceScenario === "positive-offset"
+    ? "2029-12-31T17:00:00.000Z"
+    : dateSurfaceDateOnly
+      ? new Date(`${dateSurfaceDate}T00:00:00`).toISOString()
+      : "2029-12-31T18:45:00.000Z";
+const dateSurfaceTime = dateSurfaceDateOnly || dateSurfaceFormatterTimestamp ? "12:15 AM" : null;
 const scheduledStartMs = dateSurfacePreview
   ? Date.parse(dateSurfaceStartAt)
   : Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
@@ -116,9 +123,13 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     }
     const shiftedStart = new Date(scheduledStartMs + 5.5 * 60 * 60 * 1000);
     const previewSchedule = {
-      date: dateSurfaceDateOnly ? dateSurfaceDate : shiftedStart.toISOString().slice(0, 10),
+      date: dateSurfaceDateOnly || dateSurfaceFormatterTimestamp
+        ? dateSurfaceDate
+        : shiftedStart.toISOString().slice(0, 10),
       time: dateSurfaceTime ?? istTime(scheduledStartMs),
-      ...(dateSurfaceDateOnly ? {} : { startsAt: asIstTimestamp(scheduledStartMs) }),
+      ...(dateSurfaceDateOnly || dateSurfaceFormatterTimestamp
+        ? {}
+        : { startsAt: asIstTimestamp(scheduledStartMs) }),
     };
     const configuredSchedule = apiMocks.configureIstDateSurfacePreview(previewSchedule);
     globalThis.__previewRouteParams = { id: "ist-date-boundary" };

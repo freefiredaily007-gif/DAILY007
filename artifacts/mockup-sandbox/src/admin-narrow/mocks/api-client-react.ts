@@ -702,3 +702,18 @@ export function useGetTournamentResults(_tournamentId: string, _options?: unknow
     refetch: refetchPreviewTournamentResults,
   };
 }
+
+export const getDaily007V2GetSquadSlotsQueryKey = (tournamentId: string) =>
+  ["preview-squad-slots", tournamentId] as const;
+
+export function useDaily007V2GetSquadSlots(_tournamentId: string, _options?: unknown) {
+  return noQuery({ slots: [] });
+}
+
+export function useDaily007V2JoinSquadSlot() {
+  return noMutation();
+}
+
+export function useDaily007V2RemoveSquadMember() {
+  return noMutation();
+}

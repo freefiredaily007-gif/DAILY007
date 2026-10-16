@@ -8561,6 +8561,11 @@ let vitePort;
 async function checkIstDateSurfaces(port) {
   const surfaces = ["Home", "MyMatches", "TDetail"];
   const phases = ["before", "after"];
+  const currentIstYear = Number(new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+  }).format(new Date()));
+  const timestampAtIstNewYear = (utcYear) => `${utcYear}-12-31T18:45:00.000Z`;
   const scenarios = [
     {
       id: "new-year",
@@ -8568,6 +8573,24 @@ async function checkIstDateSurfaces(port) {
       date: "01 JAN 2030",
       homeDate: "01 JAN",
       time: "12:15 AM IST",
+    },
+    {
+      id: "timestamp-current-ist-year",
+      surfaces: ["MyMatches", "TDetail"],
+      timezoneIds: ["America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"],
+      date: "01 JAN",
+      homeDate: "01 JAN",
+      time: "12:15 AM IST",
+      dateValue: timestampAtIstNewYear(currentIstYear - 1),
+    },
+    {
+      id: "timestamp-next-ist-year",
+      surfaces: ["MyMatches", "TDetail"],
+      timezoneIds: ["America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"],
+      date: `01 JAN ${currentIstYear + 1}`,
+      homeDate: "01 JAN",
+      time: "12:15 AM IST",
+      dateValue: timestampAtIstNewYear(currentIstYear),
     },
     {
       id: "positive-offset",
@@ -8587,6 +8610,8 @@ async function checkIstDateSurfaces(port) {
 
   for (const scenario of scenarios) {
     const dateOnlyScenario = scenario.id === "date-only";
+    const noStartInstantScenario = dateOnlyScenario || scenario.id.startsWith("timestamp-");
+    const scenarioSurfaces = scenario.surfaces ?? surfaces;
     const timezoneStates = new Map();
     for (const timezoneId of scenario.timezoneIds) {
       await cdp("Emulation.setTimezoneOverride", { timezoneId });
@@ -8600,13 +8625,14 @@ async function checkIstDateSurfaces(port) {
         const states = new Map();
         phaseStates.set(phase, states);
 
-        for (const screen of surfaces) {
+        for (const screen of scenarioSurfaces) {
           const params = new URLSearchParams({
             "ist-date-surfaces": "1",
             "ist-date-phase": phase,
             "ist-date-scenario": scenario.id,
             screen,
           });
+          if (scenario.dateValue) params.set("ist-date-value", scenario.dateValue);
           await cdp("Page.navigate", {
             url: `http://127.0.0.1:${port}/home-carousel-preview.html?${params}`,
           });
@@ -8615,7 +8641,7 @@ async function checkIstDateSurfaces(port) {
               `${timezoneCondition} && window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("MY MATCHES")`,
               `My Matches to mount in ${timezoneId}`,
             );
-            if (phase === "after" && !dateOnlyScenario) {
+            if (phase === "after" && !noStartInstantScenario) {
               await evaluate(`document.querySelector('[data-testid="my-matches-tab-ongoing"]')?.click()`);
             }
           }
@@ -8624,12 +8650,12 @@ async function checkIstDateSurfaces(port) {
               ? `window.__daily007HomeCarouselTest?.ready === true && document.querySelector('[data-testid="home-upcoming-card-starting-soon"]')?.innerText.includes(${JSON.stringify(scenario.homeDate)})`
               : `window.__daily007HomeCarouselTest?.ready === true && !document.querySelector('[data-testid="home-upcoming-card-starting-soon"]') && document.body.innerText.includes("Later Tournament One")`
             : screen === "MyMatches"
-              ? phase === "before" || dateOnlyScenario
+              ? phase === "before" || noStartInstantScenario
                 ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("CONFIRMED")`
                 : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("CONFIRMED")`
               : phase === "before"
                 ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("UPCOMING")`
-                : dateOnlyScenario
+                : noStartInstantScenario
                   ? `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("UPCOMING")`
                   : `window.__daily007IstDateSurfacePreview?.ready === true && document.body.innerText.includes("SCHEDULED START: ${scenario.date}") && document.body.innerText.includes("ONGOING") && !document.body.innerText.includes("UPCOMING")`;
           await waitForCondition(
@@ -8666,16 +8692,16 @@ async function checkIstDateSurfaces(port) {
               (timezoneId === "Asia/Kolkata" && ["Asia/Kolkata", "Asia/Calcutta"].includes(state?.timezone)),
             `${screen} must be checked in the requested browser timezone.`,
           );
-          const expectedLifecycle = phase === "before" || dateOnlyScenario ? "upcoming" : "ongoing";
+          const expectedLifecycle = phase === "before" || noStartInstantScenario ? "upcoming" : "ongoing";
           assert(
             state?.lifecycle === expectedLifecycle,
-            `${screen} must classify the tournament as ${expectedLifecycle} ${dateOnlyScenario ? "because no start instant is available" : phase === "before" ? "before" : "after the same start instant"} in ${timezoneId}.`,
+            `${screen} must classify the tournament as ${expectedLifecycle} ${noStartInstantScenario ? "because no start instant is available" : phase === "before" ? "before" : "after the same start instant"} in ${timezoneId}.`,
           );
-          if (dateOnlyScenario) {
+          if (noStartInstantScenario) {
             const hasStartsAt = screen === "Home"
               ? await evaluate("window.__daily007HomeCarouselTest.getTournamentStartFieldPresence().some(Boolean)")
               : await evaluate("window.__daily007IstDateSurfacePreview?.hasStartsAt");
-            assert(hasStartsAt === false, `${screen} date-only fixture unexpectedly included startsAt.`);
+            assert(hasStartsAt === false, `${screen} no-start fixture unexpectedly included startsAt.`);
           }
           const dateIsCorrect = screen === "Home"
             ? phase === "after"
@@ -8695,7 +8721,7 @@ async function checkIstDateSurfaces(port) {
     if (scenario.timezoneIds.length > 1) {
       const referenceTimezone = scenario.timezoneIds[0];
       for (const phase of phases) {
-        for (const screen of surfaces) {
+        for (const screen of scenarioSurfaces) {
           for (const timezoneId of scenario.timezoneIds.slice(1)) {
             assert(
               timezoneStates.get(referenceTimezone)?.get(phase)?.get(screen) ===
