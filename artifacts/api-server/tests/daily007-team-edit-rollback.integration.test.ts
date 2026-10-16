@@ -27,6 +27,8 @@ if (
 const FAILURE_SEQUENCE = "daily007_team_edit_roster_insert_attempts";
 const FAILURE_FUNCTION = "daily007_fail_team_edit_roster_insert";
 const FAILURE_TRIGGER = "daily007_fail_team_edit_roster_insert";
+const FAILURE_GATE_LOCK_KEY = "1095001001";
+const QUEUED_EDIT_GATE_LOCK_KEY = "1095001002";
 const ENTRY_COINS = 7;
 const STARTING_WALLET_COINS = 100;
 
@@ -163,7 +165,7 @@ async function createFixture(): Promise<TeamEditFixture> {
     await client.query(
       `INSERT INTO daily007_v2_matches
          (id, title, mode, game_mode, team_type, capacity, entry_coins, starts_at, status, is_full)
-       VALUES ($1, 'Team Edit Rollback Test', 'squad', 'battle_royale', 'squad',
+       VALUES ($1, 'Team Edit Rollback Test', 'clash', 'clash_squad', 'squad',
                12, $2, now() + interval '2 days', 'open', false)`,
       [fixture.matchId, ENTRY_COINS],
     );
@@ -331,7 +333,11 @@ async function installRosterInsertFailure(): Promise<void> {
     AS $function$
     BEGIN
       PERFORM nextval('${FAILURE_SEQUENCE}');
-      IF NEW.position = 2 THEN
+      IF NEW.position = 1 AND NEW.member_name = 'Queued Save North' THEN
+        PERFORM pg_advisory_xact_lock(${QUEUED_EDIT_GATE_LOCK_KEY}::bigint);
+      END IF;
+      IF NEW.position = 2 AND NEW.member_name IN ('Updated Mate East', 'Failed First East') THEN
+        PERFORM pg_advisory_xact_lock(${FAILURE_GATE_LOCK_KEY}::bigint);
         RAISE EXCEPTION 'injected team edit failure at replacement roster position 2';
       END IF;
       RETURN NEW;
@@ -550,6 +556,135 @@ test("concurrent PostgreSQL team edits keep captain and teammate details from on
     if (blockerTransactionOpen && blocker) await blocker.query("ROLLBACK");
     await Promise.allSettled(edits);
     blocker?.release();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a queued team edit succeeds cleanly after the first roster replacement fails", async () => {
+  const fixture = await createFixture();
+  let registrationId: string | undefined;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  const edits: Promise<RegistrationResponse>[] = [];
+  try {
+    await withServer(async (origin) => {
+      const registered = await registerTeam(origin, fixture);
+      assert.equal(
+        registered.status,
+        201,
+        `expected the original Squad registration to succeed: ${JSON.stringify(registered.body)}`,
+      );
+      assert.equal(typeof registered.body.registrationId, "string");
+      registrationId = registered.body.registrationId as string;
+      const initial = await snapshot(fixture, registrationId);
+      assert.equal(initial.profile?.name, fixture.profileName);
+      assert.equal(initial.profile?.wallet_coins, STARTING_WALLET_COINS - ENTRY_COINS);
+      assert.equal(initial.registration?.captain_name, fixture.profileName);
+      assert.equal(initial.registration?.entry_coins_paid, ENTRY_COINS);
+      assert.equal(initial.roster.length, 3);
+      assert.equal(initial.ledger.length, 1);
+      assert.equal(initial.ledger[0]?.amount, -ENTRY_COINS);
+
+      const failedEdit: TeamEditPayload = {
+        captainGameName: "Failed First Captain",
+        captainGameUid: `ff-${randomUUID()}`,
+        teamName: "Failed First Squad",
+        teammates: [
+          { name: "Failed First North", uid: `ff-${randomUUID()}` },
+          { name: "Failed First East", uid: `ff-${randomUUID()}` },
+          { name: "Failed First West", uid: `ff-${randomUUID()}` },
+        ],
+      };
+      const queuedEdit: TeamEditPayload = {
+        captainGameName: "Queued Save Captain",
+        captainGameUid: `ff-${randomUUID()}`,
+        teamName: "Queued Save Squad",
+        teammates: [
+          { name: "Queued Save North", uid: `ff-${randomUUID()}` },
+          { name: "Queued Save East", uid: `ff-${randomUUID()}` },
+          { name: "Queued Save West", uid: `ff-${randomUUID()}` },
+        ],
+      };
+
+      await installRosterInsertFailure();
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the gate backend PID");
+      const blockerPid = blocker.processID;
+      await blocker.query("SELECT pg_advisory_lock($1::bigint)", [FAILURE_GATE_LOCK_KEY]);
+      await blocker.query("SELECT pg_advisory_lock($1::bigint)", [QUEUED_EDIT_GATE_LOCK_KEY]);
+
+      edits.push(editTeam(origin, fixture.playerId, registrationId, failedEdit));
+      const failedWaiterPid = await waitForBlockedRequest(
+        "INSERT INTO daily007_v2_roster",
+        blockerPid,
+        "the first edit's injected roster failure",
+      );
+
+      edits.push(editTeam(origin, fixture.playerId, registrationId, queuedEdit));
+      await waitForBlockedRequest(
+        "FROM daily007_v2_matches m",
+        failedWaiterPid,
+        "the queued edit's match-row lock behind the failing edit",
+      );
+
+      const failureGateReleased = await blocker.query<{ released: boolean }>(
+        "SELECT pg_advisory_unlock($1::bigint) AS released",
+        [FAILURE_GATE_LOCK_KEY],
+      );
+      assert.equal(failureGateReleased.rows[0]?.released, true);
+
+      const failedResult = await edits[0];
+      assert.equal(failedResult.status, 500);
+      assert.match(
+        String(failedResult.body.detail),
+        /injected team edit failure at replacement roster position 2/,
+      );
+      const queuedWaiterPid = await waitForBlockedRequest(
+        "INSERT INTO daily007_v2_roster",
+        blockerPid,
+        "the queued edit after the first edit rolls back",
+      );
+      assert.notEqual(queuedWaiterPid, failedWaiterPid);
+
+      const afterFailure = await snapshot(fixture, registrationId);
+      assert.deepEqual(
+        afterFailure,
+        initial,
+        "the failed edit must leave the original team and all related account/payment state intact before the queued save commits",
+      );
+
+      const queuedGateReleased = await blocker.query<{ released: boolean }>(
+        "SELECT pg_advisory_unlock($1::bigint) AS released",
+        [QUEUED_EDIT_GATE_LOCK_KEY],
+      );
+      assert.equal(queuedGateReleased.rows[0]?.released, true);
+      const queuedResult = await edits[1];
+      assert.equal(
+        queuedResult.status,
+        200,
+        `the queued valid team edit should succeed: ${JSON.stringify(queuedResult.body)}`,
+      );
+
+      const afterQueuedEdit = await snapshot(fixture, registrationId);
+      assert.equal(afterQueuedEdit.registration?.captain_game_name, queuedEdit.captainGameName);
+      assert.equal(afterQueuedEdit.registration?.captain_game_uid, queuedEdit.captainGameUid);
+      assert.equal(afterQueuedEdit.registration?.team_name, queuedEdit.teamName);
+      assert.deepEqual(
+        afterQueuedEdit.roster.map((member) => ({ name: member.member_name, uid: member.member_uid })),
+        queuedEdit.teammates,
+      );
+      assert.equal(afterQueuedEdit.profile?.name, fixture.profileName);
+      assert.equal(afterQueuedEdit.profile?.wallet_coins, initial.profile?.wallet_coins);
+      assert.equal(afterQueuedEdit.registration?.captain_name, fixture.profileName);
+      assert.equal(afterQueuedEdit.registration?.entry_coins_paid, initial.registration?.entry_coins_paid);
+      assert.deepEqual(afterQueuedEdit.ledger, initial.ledger);
+    });
+  } finally {
+    if (blocker) {
+      await blocker.query("SELECT pg_advisory_unlock_all()");
+      blocker.release();
+    }
+    await Promise.allSettled(edits);
+    await removeRosterInsertFailure();
     await cleanupFixture(fixture);
   }
 });
