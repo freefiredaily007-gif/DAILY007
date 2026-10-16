@@ -26,6 +26,7 @@ if (
 const fixture = {
   playerId: randomUUID(),
   otherPlayerId: randomUUID(),
+  unauthenticatedPlayerId: randomUUID(),
   knownTournamentId: randomUUID(),
   missingTournamentId: randomUUID(),
   structuredTournamentId: randomUUID(),
@@ -46,6 +47,10 @@ after(async () => {
       [fixture.playerId, fixture.otherPlayerId],
     );
     await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.unauthenticatedPlayerId],
+    );
+    await pool.query(
       "DELETE FROM daily007_v2_registrations WHERE id = $1",
       [fixture.prizeRegistrationId],
     );
@@ -56,6 +61,10 @@ after(async () => {
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id IN ($1, $2)",
       [fixture.playerId, fixture.otherPlayerId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = $1",
+      [fixture.unauthenticatedPlayerId],
     );
   } finally {
     if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
@@ -193,6 +202,65 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
     });
   }
 }
+
+test("Wallet history rejects missing and invalid sessions without returning seeded ledger entries", async () => {
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, wallet_coins)
+       VALUES ($1, 'Unauthenticated Wallet history player', $2, 'test-salt', 'test-hash', 42)`,
+      [fixture.unauthenticatedPlayerId, `wallet-history-unauth-${fixture.unauthenticatedPlayerId}@example.test`],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, details)
+       VALUES ($1, 42, 42, 'test_credit', $2::jsonb)`,
+      [
+        fixture.unauthenticatedPlayerId,
+        JSON.stringify({ description: "Private seeded Wallet history entry" }),
+      ],
+    );
+
+    const seededEntries = await pool.query(
+      "SELECT id FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.unauthenticatedPlayerId],
+    );
+    assert.equal(seededEntries.rows.length, 1, "the isolated database must contain a ledger row to protect");
+
+    await withServer(async (origin) => {
+      for (const request of [
+        { label: "missing session", headers: undefined },
+        { label: "invalid session", headers: { authorization: "Bearer invalid-wallet-history-token" } },
+      ]) {
+        const response = await fetch(`${origin}/wallet/transactions`, {
+          headers: request.headers,
+        });
+        const body: unknown = await response.json();
+
+        assert.equal(response.status, 401, `${request.label} must be rejected`);
+        assert.equal(
+          Array.isArray(body),
+          false,
+          `${request.label} must not receive a Wallet ledger entry array`,
+        );
+        assert.equal(
+          JSON.stringify(body).includes("Private seeded Wallet history entry"),
+          false,
+          `${request.label} must not receive the seeded ledger entry`,
+        );
+      }
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.unauthenticatedPlayerId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = $1",
+      [fixture.unauthenticatedPlayerId],
+    );
+  }
+});
 
 test("Wallet history keeps refunds readable and excludes another player's non-refund ledger entries", async () => {
   await seedLegacyRefunds();
