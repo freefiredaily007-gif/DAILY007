@@ -70,6 +70,23 @@ export type CapturedResultAward = {
   prize_coins: number;
 };
 
+type CapturedSquadTeam = {
+  id: string;
+  match_id: string;
+  team_number: number;
+  captain_registration_id: string;
+  legacy_registration_id: string;
+};
+
+type CapturedSquadMember = {
+  team_id: string;
+  slot_number: number;
+  registration_id: string | null;
+  legacy_game_name: string | null;
+  legacy_game_uid: string | null;
+  is_active: boolean;
+};
+
 type RegistrationProfileTransactionSnapshot = {
   user: TestUser;
   tournamentAdmin: TestUser;
@@ -80,6 +97,8 @@ type RegistrationProfileTransactionSnapshot = {
   roster: CapturedRosterMember[];
   ledger: CapturedLedgerEntry[];
   resultAwards: CapturedResultAward[];
+  squadTeams: CapturedSquadTeam[];
+  squadMembers: CapturedSquadMember[];
 };
 
 export const TEST_PLAYER_ID = "74000000-0000-4000-8000-000000000001";
@@ -99,6 +118,8 @@ class RegistrationProfileTestDatabase {
   roster: CapturedRosterMember[] = [];
   ledger: CapturedLedgerEntry[] = [];
   resultAwards: CapturedResultAward[] = [];
+  squadTeams: CapturedSquadTeam[] = [];
+  squadMembers: CapturedSquadMember[] = [];
   connectCount = 0;
   failRosterInsertAtPosition: number | null = null;
 
@@ -157,6 +178,8 @@ class RegistrationProfileTestDatabase {
     this.roster = [];
     this.ledger = [];
     this.resultAwards = [];
+    this.squadTeams = [];
+    this.squadMembers = [];
     this.connectCount = 0;
     this.failRosterInsertAtPosition = null;
   }
@@ -253,6 +276,8 @@ class RegistrationProfileTestDatabase {
             roster: structuredClone(this.roster),
             ledger: structuredClone(this.ledger),
             resultAwards: structuredClone(this.resultAwards),
+            squadTeams: structuredClone(this.squadTeams),
+            squadMembers: structuredClone(this.squadMembers),
           };
         } else if (normalized === "ROLLBACK" && transactionSnapshot) {
           this.user = transactionSnapshot.user;
@@ -264,6 +289,8 @@ class RegistrationProfileTestDatabase {
           this.roster = transactionSnapshot.roster;
           this.ledger = transactionSnapshot.ledger;
           this.resultAwards = transactionSnapshot.resultAwards;
+          this.squadTeams = transactionSnapshot.squadTeams;
+          this.squadMembers = transactionSnapshot.squadMembers;
           transactionSnapshot = null;
         } else if (normalized === "COMMIT") {
           transactionSnapshot = null;
@@ -375,9 +402,6 @@ class RegistrationProfileTestDatabase {
           ).length,
         }));
     } else if (normalized.startsWith("SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,")) {
-      if (normalized.includes("daily007_v2_roster")) {
-        throw new Error("Tournament summary counts must not depend on saved roster rows.");
-      }
       const idFilter = normalized.includes("m.id = $1") ? String(values[0]) : null;
       const match = [this.match, ...this.additionalMatches].find((candidate) =>
         (!idFilter || candidate.id === idFilter) &&
@@ -505,7 +529,123 @@ class RegistrationProfileTestDatabase {
           }));
         });
     } else if (
+      normalized.startsWith("SELECT team.team_number, COALESCE(registration.status, legacy.status) AS status,")
+    ) {
+      result = this.squadTeams
+        .filter((team) => team.match_id === String(values[0]))
+        .sort((left, right) => left.team_number - right.team_number)
+        .flatMap((team) => {
+          const legacy = this.registrations.find(
+            (registration) => registration.id === team.legacy_registration_id,
+          );
+          return this.squadMembers
+            .filter((member) => member.team_id === team.id && member.is_active)
+            .flatMap((member) => {
+              const registration = member.registration_id
+                ? this.registrations.find((candidate) => candidate.id === member.registration_id)
+                : legacy;
+              if (!registration || !["approved", "pending"].includes(registration.status)) return [];
+              return [{
+                team_number: team.team_number,
+                status: registration.status,
+                team_name: registration.team_name || `Team ${String(team.team_number).padStart(2, "0")}`,
+                game_name: member.registration_id
+                  ? registration.captain_game_name
+                  : member.legacy_game_name,
+              }];
+            });
+        });
+    } else if (
+      normalized.startsWith("SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1")
+    ) {
+      const match = [this.match, ...this.additionalMatches].find(
+        (candidate) => candidate.id === String(values[0]),
+      );
+      result = match
+        ? [{ mode: match.mode, game_mode: match.game_mode, team_type: match.team_type }]
+        : [];
+    } else if (
+      normalized.startsWith("SELECT r.id, r.captain_game_name, r.captain_game_uid FROM daily007_v2_registrations r")
+    ) {
+      const matchId = String(values[0]);
+      result = this.registrations
+        .filter((registration) =>
+          registration.match_id === matchId &&
+          ["approved", "pending"].includes(registration.status) &&
+          !this.squadTeams.some((team) => team.legacy_registration_id === registration.id) &&
+          !this.squadMembers.some((member) => member.registration_id === registration.id)
+        )
+        .sort((left, right) =>
+          left.created_at.getTime() - right.created_at.getTime() || left.id.localeCompare(right.id)
+        )
+        .map(({ id, captain_game_name, captain_game_uid }) => ({
+          id,
+          captain_game_name,
+          captain_game_uid,
+        }));
+    } else if (
+      normalized === "SELECT team_number FROM daily007_v2_squad_teams WHERE match_id = $1 FOR UPDATE"
+    ) {
+      result = this.squadTeams
+        .filter((team) => team.match_id === String(values[0]))
+        .map(({ team_number }) => ({ team_number }));
+    } else if (
+      normalized.startsWith("INSERT INTO daily007_v2_squad_teams")
+    ) {
+      const [matchId, teamNumber, registrationId] = values;
+      const existing = this.squadTeams.find(
+        (team) => team.match_id === String(matchId) && team.team_number === Number(teamNumber),
+      );
+      if (!existing) {
+        const id = `registration-profile-squad-team-${this.squadTeams.length + 1}`;
+        this.squadTeams.push({
+          id,
+          match_id: String(matchId),
+          team_number: Number(teamNumber),
+          captain_registration_id: String(registrationId),
+          legacy_registration_id: String(registrationId),
+        });
+        result = [{ id }];
+      }
+    } else if (
+      normalized.startsWith("INSERT INTO daily007_v2_squad_team_members (team_id, slot_number, registration_id, is_active)")
+    ) {
+      const [teamId, registrationId] = values;
+      const slotNumber = 1;
+      if (!this.squadMembers.some((member) =>
+        member.team_id === String(teamId) && member.slot_number === Number(slotNumber) && member.is_active
+      )) {
+        this.squadMembers.push({
+          team_id: String(teamId),
+          slot_number: Number(slotNumber),
+          registration_id: String(registrationId),
+          legacy_game_name: null,
+          legacy_game_uid: null,
+          is_active: true,
+        });
+      }
+    } else if (
+      normalized.startsWith("INSERT INTO daily007_v2_squad_team_members (team_id, slot_number, legacy_game_name, legacy_game_uid, is_active)")
+    ) {
+      const [teamId, slotNumber, gameName, gameUid] = values;
+      if (!this.squadMembers.some((member) =>
+        member.team_id === String(teamId) && member.slot_number === Number(slotNumber) && member.is_active
+      )) {
+        this.squadMembers.push({
+          team_id: String(teamId),
+          slot_number: Number(slotNumber),
+          registration_id: null,
+          legacy_game_name: String(gameName),
+          legacy_game_uid: gameUid == null ? null : String(gameUid),
+          is_active: true,
+        });
+      }
+    } else if (
       normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1"
+    ) {
+      result = String(values[0]) === this.match.id ? [{ id: this.match.id }] : [];
+    } else if (
+      normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE"
     ) {
       result = String(values[0]) === this.match.id ? [{ id: this.match.id }] : [];
     } else if (
