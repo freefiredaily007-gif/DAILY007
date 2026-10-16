@@ -323,24 +323,29 @@ async function assertFormValues(expectedValues, stage) {
   );
 }
 
-async function checkFieldValidationErrors(width) {
-  const expectedErrors = [
+async function checkFieldValidationErrors(width, missingTeammateIndexes = [0, 1, 2]) {
+  const allExpectedErrors = [
     {
+      index: 0,
       selector: inputValueSelectors[3],
       error: '[data-testid="join-form-error-teammate-name-1"]',
       message: "Teammate 1 Free Fire in-game name is required.",
     },
     {
+      index: 1,
       selector: inputValueSelectors[5],
       error: '[data-testid="join-form-error-teammate-name-2"]',
       message: "Teammate 2 Free Fire in-game name is required.",
     },
     {
+      index: 2,
       selector: inputValueSelectors[7],
       error: '[data-testid="join-form-error-teammate-name-3"]',
       message: "Teammate 3 Free Fire in-game name is required.",
     },
   ];
+  const expectedErrors = allExpectedErrors.filter(({ index }) =>
+    missingTeammateIndexes.includes(index));
   const errors = await evaluate(`(() => {
     const root = document.querySelector('[data-testid="player-screen"]');
     const expected = ${JSON.stringify(expectedErrors)};
@@ -397,6 +402,16 @@ async function checkFieldValidationErrors(width) {
         && !item.clipped
       ),
     `A teammate validation message is missing, unreadable, clipped, or detached from its field at ${width}px: ${JSON.stringify(errors)}`,
+  );
+  const clearedErrorsRemainHidden = await evaluate(`(() => {
+    const selectors = ${JSON.stringify(allExpectedErrors
+      .filter(({ index }) => !missingTeammateIndexes.includes(index))
+      .map(({ error }) => error))};
+    return selectors.every((selector) => !document.querySelector(selector));
+  })()`);
+  assert(
+    clearedErrorsRemainHidden,
+    `A corrected teammate still shows a stale name error at ${width}px.`,
   );
   return errors;
 }
@@ -529,23 +544,27 @@ async function runAtWidth(width) {
   );
   const validationErrors = await checkFieldValidationErrors(width);
   await assertFormValues(incompleteValues, "after local teammate validation");
+  incompleteValues[3] = "Corrected Teammate 1";
+  await setInputValue(inputValueSelectors[3], incompleteValues[3], "corrected teammate 1 name");
+  const remainingValidationErrors = await checkFieldValidationErrors(width, [1, 2]);
+  await assertFormValues(incompleteValues, "after correcting only teammate 1");
   const joinAfterValidation = await checkReachable(
     '[data-testid="join-form-submit"]',
-    "Join action after incomplete teammate validation",
+    "Join action after correcting one teammate name",
     width,
   );
   const cancelAfterValidation = await checkReachable(
     '[data-testid="join-form-cancel"]',
-    "Cancel action after incomplete teammate validation",
+    "Cancel action after correcting one teammate name",
     width,
   );
-  await assertFormValues(incompleteValues, "after reaching Join and Cancel following validation");
+  await assertFormValues(incompleteValues, "after reaching Join and Cancel following teammate correction");
   await evaluate(`document.querySelector('[data-testid="join-form-cancel"]').click()`);
-  await waitForCondition("window.__joinFormCancelCount === 2", "Cancel after incomplete teammate validation");
-  await assertFormValues(incompleteValues, "after Cancel following local validation");
+  await waitForCondition("window.__joinFormCancelCount === 2", "Cancel after correcting one teammate name");
+  await assertFormValues(incompleteValues, "after Cancel following teammate correction");
 
   console.log(
-    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, all editable fields focusable and visible with the simulated keyboard open, Join/Cancel reachable before and after validation, and all ${validationErrors.length} teammate errors visible beside their fields (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}; validation ${joinAfterValidation.scrollTop}/${cancelAfterValidation.scrollTop}).`,
+    `PASS — Squad registration at ${width}px and 2× Android text scale; ${layout.fields.length} fields, all editable fields focusable and visible with the simulated keyboard open, Join/Cancel reachable before and after validation, all ${validationErrors.length} teammate errors visible beside their fields, and correcting one name clears only its error while preserving the other ${remainingValidationErrors.length} errors and all form values (open scrollTop ${teammate.scrollTop}/${join.scrollTop}/${cancel.scrollTop}; dismissed ${joinDismissed.scrollTop}/${cancelDismissed.scrollTop}; validation ${joinAfterValidation.scrollTop}/${cancelAfterValidation.scrollTop}).`,
   );
 }
 
