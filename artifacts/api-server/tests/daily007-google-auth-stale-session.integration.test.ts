@@ -10,6 +10,7 @@ import daily007GoogleAuthRouter from "../src/routes/daily007-google-auth";
 import daily007V2Router from "../src/routes/daily007-v2";
 import {
   resetMockGoogleUser,
+  updateMockGoogleUser,
   type User as MockGoogleUser,
 } from "./support/daily007-google-auth-clerk-mock";
 
@@ -286,6 +287,146 @@ test("a replaced Daily007 session cannot link Google or create referral rewards 
         walletAfter.history.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
         [{ amount: 10, balanceAfter: 10, reason: "Welcome Signup Bonus" }],
       );
+    });
+  } finally {
+    if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
+
+test("a changed verified Google email cannot alter its linked password account or rewards in PostgreSQL", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const referrerId = randomUUID();
+  const referralCode = randomUUID().replaceAll("-", "").slice(0, 5).toUpperCase();
+  let accountId: string | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Postgres Referral Owner', $2, 'test-salt', 'test-hash')`,
+      [referrerId, `referrer-${referrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [referrerId, referralCode],
+    );
+
+    await withServer(async (origin) => {
+      const registration = await postJson(origin, "/daily007/v2/auth/register", {
+        name: "Google Link Player",
+        email: ACCOUNT_EMAIL,
+        password: ACCOUNT_PASSWORD,
+        referralCode,
+      });
+      assert.equal(registration.status, 201, "password account should be created with referral attribution");
+      accountId = String((registration.body.account as Record<string, unknown>).id);
+      const passwordToken = String(registration.body.token);
+
+      const linkAttempt = await postJson(origin, "/auth/google", { referralCode }, {
+        authorization: "Bearer mocked-clerk-session",
+        "x-mock-clerk-user-id": GOOGLE_CLERK_USER_ID,
+        "X-Daily007-Token": passwordToken,
+      });
+      assert.equal(linkAttempt.status, 200, "the matching verified Google identity should link to the password account");
+      assert.equal(linkAttempt.body.googleLinked, true);
+      assert.equal(linkAttempt.body.id, accountId);
+
+      const beforeAccount = await pool.query(
+        `SELECT id, name, email, password_salt, password_hash, auth_version,
+                clerk_user_id, wallet_coins, status, role
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.equal(beforeAccount.rows.length, 1);
+      assert.equal(beforeAccount.rows[0]?.clerk_user_id, GOOGLE_CLERK_USER_ID);
+      const beforeReferrer = await pool.query(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [referrerId],
+      );
+      const beforeReferrals = await pool.query(
+        `SELECT id, referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY id`,
+      );
+      const beforeLedger = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details, created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY created_at, id`,
+        [[accountId, referrerId]],
+      );
+      const walletBefore = await readWalletHistory(origin, passwordToken);
+      assert.equal(walletBefore.status, 200, "the linked password session should read Wallet history");
+      assert.ok(beforeReferrals.rows.some((row) => row.referred_user_id === accountId),
+        "the password signup should have persisted its referral attribution");
+      assert.ok(beforeLedger.rows.some((row) => row.user_id === accountId),
+        "the password signup should have persisted wallet history");
+
+      updateMockGoogleUser({
+        ...(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser),
+        emailAddresses: [{
+          emailAddress: "changed-google-email@example.test",
+          verification: { status: "verified" },
+        }],
+        externalAccounts: [{
+          provider: "google",
+          emailAddress: "changed-google-email@example.test",
+          firstName: "Google",
+          lastName: "Postgres",
+          verification: { status: "verified" },
+        }],
+      });
+
+      const rejectedSignIn = await postJson(origin, "/auth/google", { referralCode }, {
+        authorization: "Bearer mocked-clerk-session",
+        "x-mock-clerk-user-id": GOOGLE_CLERK_USER_ID,
+      });
+      assert.equal(rejectedSignIn.status, 409, "the changed verified email should be rejected without a Daily007 token");
+      assert.match(String(rejectedSignIn.body.error), /linked Google email no longer matches/i);
+
+      const afterAccount = await pool.query(
+        `SELECT id, name, email, password_salt, password_hash, auth_version,
+                clerk_user_id, wallet_coins, status, role
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(afterAccount.rows, beforeAccount.rows, "the existing account, link, and balance must remain unchanged");
+      const linkedIdentity = await pool.query<{ id: string }>(
+        "SELECT id FROM daily007_v2_users WHERE clerk_user_id = $1",
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(linkedIdentity.rows, [{ id: accountId }], "the Google link must remain on the original account");
+      const afterReferrer = await pool.query(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [referrerId],
+      );
+      assert.deepEqual(afterReferrer.rows, beforeReferrer.rows, "the rejected sign-in must not change referral rewards");
+      const afterReferrals = await pool.query(
+        `SELECT id, referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY id`,
+      );
+      assert.deepEqual(afterReferrals.rows, beforeReferrals.rows, "the rejected sign-in must not alter referrals");
+      const afterLedger = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details, created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY created_at, id`,
+        [[accountId, referrerId]],
+      );
+      assert.deepEqual(afterLedger.rows, beforeLedger.rows, "the rejected sign-in must not alter persisted wallet history");
+
+      const walletAfter = await readWalletHistory(origin, passwordToken);
+      assert.equal(walletAfter.status, 200, "the existing password session should remain usable after rejection");
+      assert.deepEqual(walletAfter.history, walletBefore.history, "the rejected sign-in must not change Wallet history");
     });
   } finally {
     if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
