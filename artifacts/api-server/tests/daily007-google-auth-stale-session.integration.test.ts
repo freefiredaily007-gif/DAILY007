@@ -141,6 +141,35 @@ async function login(origin: string, clientIp: string): Promise<string> {
   return String(response.body.token);
 }
 
+async function waitForQueryBlockedBy(
+  monitor: NonNullable<Awaited<ReturnType<typeof pool.connect>>>,
+  queryFragment: string,
+  blockerPids: number[],
+  description: string,
+  timeoutMs = 5_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await monitor.query("SELECT pg_stat_clear_snapshot()");
+    const result = await monitor.query<{ pid: number }>(
+      `SELECT waiting.pid
+         FROM pg_stat_activity AS waiting
+         CROSS JOIN LATERAL unnest(pg_blocking_pids(waiting.pid)) AS blockers(blocker_pid)
+        WHERE waiting.pid <> pg_backend_pid()
+          AND waiting.wait_event_type = 'Lock'
+          AND waiting.query ILIKE $1
+          AND blockers.blocker_pid = ANY($2::integer[])
+        ORDER BY waiting.query_start
+        LIMIT 1`,
+      [`%${queryFragment}%`, blockerPids],
+    );
+    const waitingPid = result.rows[0]?.pid;
+    if (waitingPid !== undefined) return waitingPid;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
+}
+
 async function readWalletHistory(origin: string, token: string): Promise<{
   status: number;
   history: WalletEntry[];
@@ -259,6 +288,164 @@ test("a replaced Daily007 session cannot link Google or create referral rewards 
       );
     });
   } finally {
+    if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
+
+test("Google linking waits for a newer password sign-in and rejects its replaced session in PostgreSQL", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const referrerId = randomUUID();
+  let accountId: string | undefined;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let transactionOpen = false;
+  let signInPromise: Promise<JsonResult> | undefined;
+  let linkPromise: Promise<JsonResult> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Postgres Referral Owner', $2, 'test-salt', 'test-hash')`,
+      [referrerId, `referrer-${referrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [referrerId, REFERRAL_CODE],
+    );
+
+    await withServer(async (origin) => {
+      const registration = await postJson(origin, "/daily007/v2/auth/register", {
+        name: "Google Link Player",
+        email: ACCOUNT_EMAIL,
+        password: ACCOUNT_PASSWORD,
+      });
+      assert.equal(registration.status, 201, "password account should be created");
+      accountId = String((registration.body.account as Record<string, unknown>).id);
+
+      const oldToken = await login(origin, "198.51.100.4");
+      const beforeAccount = await pool.query<AccountSnapshot>(
+        `SELECT auth_version, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.equal(beforeAccount.rows.length, 1);
+      assert.equal(beforeAccount.rows[0]?.clerk_user_id, null);
+      const beforeLedger = await pool.query<LedgerSnapshot>(
+        `SELECT amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at, id`,
+        [accountId],
+      );
+      const beforeReferrals = await pool.query<ReferralSnapshot>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY referred_user_id`,
+      );
+      const beforeReferrer = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [referrerId],
+      );
+
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the lock-holder backend PID");
+      await blocker.query("BEGIN");
+      transactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [accountId],
+      );
+      const blockerPid = blocker.processID!;
+
+      signInPromise = postJson(origin, "/daily007/v2/auth/login", {
+        email: ACCOUNT_EMAIL,
+        password: ACCOUNT_PASSWORD,
+      }, { "x-forwarded-for": "198.51.100.5" });
+      const signInPid = await waitForQueryBlockedBy(
+        blocker,
+        "SET auth_version = auth_version + 1",
+        [blockerPid],
+        "password sign-in session-version update",
+      );
+
+      linkPromise = postJson(origin, "/auth/google", { referralCode: REFERRAL_CODE }, {
+        authorization: "Bearer mocked-clerk-session",
+        "x-mock-clerk-user-id": GOOGLE_CLERK_USER_ID,
+        "X-Daily007-Token": oldToken,
+      });
+      await waitForQueryBlockedBy(
+        blocker,
+        "FROM daily007_v2_users WHERE email = $1 FOR UPDATE",
+        [blockerPid, signInPid],
+        "Google-link account lookup",
+      );
+
+      await blocker.query("COMMIT");
+      transactionOpen = false;
+      const [signIn, linkAttempt] = await Promise.all([signInPromise, linkPromise]);
+      assert.equal(signIn.status, 200, "the queued password sign-in should succeed");
+      assert.equal(typeof signIn.body.token, "string", "the newer password session should receive a token");
+      assert.equal(linkAttempt.status, 401, "Google linking with the replaced session must be rejected");
+      assert.match(String(linkAttempt.body.error), /session was replaced/i);
+
+      const newToken = String(signIn.body.token);
+      assert.notEqual(newToken, oldToken, "password sign-in should issue a replacement token");
+      const afterAccount = await pool.query<AccountSnapshot>(
+        `SELECT auth_version, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(
+        afterAccount.rows,
+        [{
+          ...beforeAccount.rows[0],
+          auth_version: Number(beforeAccount.rows[0]!.auth_version) + 1,
+        }],
+        "only the successful password sign-in should advance the session version",
+      );
+      const linkedIdentity = await pool.query<{ id: string }>(
+        "SELECT id FROM daily007_v2_users WHERE clerk_user_id = $1",
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(linkedIdentity.rows, [], "the rejected Google identity must remain unlinked");
+
+      const afterReferrals = await pool.query<ReferralSnapshot>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY referred_user_id`,
+      );
+      assert.deepEqual(afterReferrals.rows, beforeReferrals.rows, "the rejected link must not create a referral");
+      const afterLedger = await pool.query<LedgerSnapshot>(
+        `SELECT amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at, id`,
+        [accountId],
+      );
+      assert.deepEqual(afterLedger.rows, beforeLedger.rows, "the rejected link must not change wallet rewards");
+      const afterReferrer = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [referrerId],
+      );
+      assert.deepEqual(afterReferrer.rows, beforeReferrer.rows, "the rejected link must not reward the referrer");
+
+      const oldWallet = await readWalletHistory(origin, oldToken);
+      assert.equal(oldWallet.status, 401, "the earlier password session must be replaced");
+      const newWallet = await readWalletHistory(origin, newToken);
+      assert.equal(newWallet.status, 200, "the committed password session should remain usable");
+    });
+  } finally {
+    if (transactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      transactionOpen = false;
+    }
+    if (signInPromise) await signInPromise.catch(() => undefined);
+    if (linkPromise) await linkPromise.catch(() => undefined);
+    blocker?.release();
     if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
     resetMockGoogleUser();
