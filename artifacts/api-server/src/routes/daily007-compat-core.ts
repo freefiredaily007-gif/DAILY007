@@ -132,7 +132,10 @@ type RegistrationRow = {
   title?: string; prize_pool?: number; rules?: string; banner?: string; image_url?: string | null; prize_distribution?: string;
   enabled?: boolean; is_full?: boolean; room_id?: string | null; room_password?: string | null;
   room_time?: string; room_published?: boolean; registered_count?: number;
+  registered_player_count?: number;
   match_has_winner?: boolean; match_has_started?: boolean;
+  squad_team_number?: number | null; squad_slot_number?: number | null;
+  squad_is_captain?: boolean | null;
   result_rank?: number | null; result_kills?: number | null; result_prize_coins?: number | null;
   match_results?: {
     rank: number; kills: number; prizeCoins: number; playerName: string; gameName: string; teamName: string;
@@ -919,11 +922,42 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                   ON result_registration.id = published.registration_id
                 WHERE published.match_id = m.id AND m.status <> 'cancelled') AS match_results,
             award.rank AS result_rank, award.kills AS result_kills, award.prize_coins AS result_prize_coins,
-            (SELECT count(*)::integer FROM daily007_v2_registrations active
-              WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) AS registered_count
+             CASE WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
+                       (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+               (SELECT count(DISTINCT COALESCE(team.id::text, active.id::text))::integer
+                  FROM daily007_v2_registrations active
+                  LEFT JOIN daily007_v2_squad_team_members member
+                    ON member.registration_id = active.id AND member.is_active = true
+                  LEFT JOIN daily007_v2_squad_teams team ON team.id = member.team_id
+                 WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
+             ELSE (SELECT count(*)::integer FROM daily007_v2_registrations active
+                    WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
+             END AS registered_count,
+             CASE WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
+                       (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+               (SELECT COALESCE(sum(
+                         CASE WHEN EXISTS (
+                           SELECT 1 FROM daily007_v2_squad_team_members member
+                            WHERE member.registration_id = active.id AND member.is_active = true
+                         ) THEN 1 ELSE 1 + (
+                           SELECT count(*) FROM daily007_v2_roster roster
+                            WHERE roster.registration_id = active.id
+                         ) END
+                       ), 0)::integer
+                  FROM daily007_v2_registrations active
+                 WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
+             ELSE (SELECT count(*)::integer FROM daily007_v2_registrations active
+                    WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) *
+                  CASE WHEN m.team_type = 'duo' THEN 2
+                       WHEN m.team_type = 'squad' OR m.mode IN ('squad', 'clash') THEN 4
+                       ELSE 1 END
+             END AS registered_player_count
        FROM daily007_v2_registrations r JOIN daily007_v2_matches m ON m.id = r.match_id
         LEFT JOIN daily007_v2_result_awards award
           ON award.registration_id = r.id AND m.status <> 'cancelled'
+        LEFT JOIN daily007_v2_squad_team_members squad_member
+          ON squad_member.registration_id = r.id
+        LEFT JOIN daily007_v2_squad_teams squad_team ON squad_team.id = squad_member.team_id
        WHERE r.captain_user_id = $1
       ORDER BY r.created_at DESC`,
     [account.id],
@@ -942,16 +976,24 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       prize_pool: row.prize_pool!, capacity: row.capacity!, starts_at: row.starts_at!,
       status: row.match_status!,
        has_started: row.match_has_started, has_winner: row.match_has_winner,
-      registered_count: row.registered_count!, is_full: row.is_full!, rules: row.rules!,
+       registered_count: row.registered_count!,
+       registered_player_count: row.registered_player_count!,
+       is_full: row.is_full!, rules: row.rules!,
        banner: row.banner!, image_url: row.image_url ?? null, prize_distribution: row.prize_distribution!, enabled: row.enabled!,
       room_id: row.room_id!, room_password: row.room_password!, room_time: row.room_time!,
       room_published: roomPrepared,
     } as MatchRow, expose);
     const roster = await getRoster(row.id);
     return {
-      id: row.id, tournamentId: row.match_id, status: row.status,
+       id: row.id, tournamentId: row.match_id, status: row.status,
       playerName: row.captain_name, captainGameName: row.captain_game_name,
       gameUid: row.captain_game_uid, teamName: row.team_name,
+       teamNumber: row.squad_team_number ?? null,
+       slotNumber: row.squad_slot_number ?? null,
+       isSquadCaptain: legacyTournamentMode(row.mode ?? "solo", row.game_mode, row.team_type).gameMode === "battle_royale" &&
+         legacyTournamentMode(row.mode ?? "solo", row.game_mode, row.team_type).teamType === "squad"
+         ? row.squad_is_captain ?? false
+         : true,
       teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",
       entryCoins: row.entry_coins_paid, createdAt: new Date(row.created_at).toISOString(),
       result: row.result_rank === null || row.result_rank === undefined
@@ -981,10 +1023,14 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
   if (!requireTournamentAdmin(req, res)) return;
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
-            r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode, m.game_mode, m.team_type
+            r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode, m.game_mode, m.team_type,
+            squad_team.team_number AS squad_team_number, squad_member.slot_number AS squad_slot_number,
+            (squad_team.captain_registration_id = r.id) AS squad_is_captain
        FROM daily007_v2_registrations r
        JOIN daily007_v2_users u ON u.id = r.captain_user_id
        JOIN daily007_v2_matches m ON m.id = r.match_id
+       LEFT JOIN daily007_v2_squad_team_members squad_member ON squad_member.registration_id = r.id
+       LEFT JOIN daily007_v2_squad_teams squad_team ON squad_team.id = squad_member.team_id
       ORDER BY r.created_at DESC`,
   );
   const data = await Promise.all(result.rows.map(async (row) => {
@@ -998,6 +1044,11 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
       status: row.status, playerName: row.captain_name, captainGameName: row.captain_game_name,
       gameUid: row.captain_game_uid,
       teamName: row.team_name, teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",
+       teamNumber: row.squad_team_number ?? null,
+       slotNumber: row.squad_slot_number ?? null,
+       isSquadCaptain: mode.gameMode === "battle_royale" && mode.teamType === "squad"
+         ? row.squad_is_captain ?? false
+         : true,
       entryCoins: row.entry_coins_paid, createdAt: new Date(row.created_at).toISOString(),
       userId: row.captain_user_id, userName: row.name, email: row.email,
     };
@@ -1112,6 +1163,9 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     }
 
     const mode = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+    if (mode.gameMode === "battle_royale" && mode.teamType === "squad") {
+      return { kind: "individualSquad" as const };
+    }
     const parsed = parseTeamEditPayload(req.body as Record<string, unknown>, mode.teamSize);
     if (!parsed.payload) return { kind: "invalid" as const, error: parsed.error || "Team details are invalid." };
     const { captainGameName, captainGameUid, teamName, teammates } = parsed.payload;
@@ -1163,6 +1217,9 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
   if (outcome.kind === "missing") return fail(res, 404, "Registration not found.");
   if (outcome.kind === "blocked") return fail(res, 403, "This account is blocked.");
   if (outcome.kind === "locked") return fail(res, 409, "Team editing is locked 30 minutes before the tournament starts.");
+  if (outcome.kind === "individualSquad") {
+    return fail(res, 409, "Battle Royale Squad members manage their own slots. Captains can remove teammates from the Squad detail page.");
+  }
   if (outcome.kind === "invalid") return fail(res, 400, outcome.error);
   if (outcome.kind === "duplicate") return fail(res, 409, "A player game UID is already registered for this tournament.");
   res.json({ success: true, data: { registrationId, status: outcome.status, updated: true } });

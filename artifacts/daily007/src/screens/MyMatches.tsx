@@ -236,8 +236,10 @@ export default function MyMatches() {
             const roomReady = status === 'approved' && !cancelled &&
               hasServerAuthorizedRoomCredentials(roomId, roomPassword);
             const registrationActive = ['approved', 'pending'].includes(status);
+            const isIndividualSquad = String(t.mode ?? '').toLowerCase().includes('battle royale') &&
+              String(t.teamType ?? '').toLowerCase() === 'squad';
             const editEligible = registrationActive && t.enabled !== false && lifecycle === 'upcoming';
-            const canEditTeam = editEligible && canEditRegistrationTeam(t, status, clockNow);
+            const canEditTeam = !isIndividualSquad && editEligible && canEditRegistrationTeam(t, status, clockNow);
             const editCutoff = getTeamEditCutoff(startsAt);
             const teamEditLocked = editEligible && editCutoff !== null && clockNow >= editCutoff;
             const result = cancelled
@@ -264,7 +266,16 @@ export default function MyMatches() {
                 <Text style={s.meta}>SCHEDULED START: {schedule?.date ?? fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(schedule?.startTime24 ?? t.time)} IST</Text></Text>
                 {cancelled ? <Text style={s.meta}>Any entry fee paid was refunded to the paying account.</Text> : null}
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
-                {canEditTeam ? (
+                {isIndividualSquad && !cancelled ? (
+                  <Btn
+                    title="VIEW SQUAD"
+                    kind="ghost"
+                    small
+                    accessibilityLabel={`View Squad slots for ${t.name ?? 'this tournament'}`}
+                    onPress={() => navigation.navigate('TDetail', { id: t.id ?? item.tournamentId })}
+                    style={{ marginTop: 10 }}
+                  />
+                ) : canEditTeam ? (
                   <Btn
                     title="EDIT TEAM"
                     kind="ghost"

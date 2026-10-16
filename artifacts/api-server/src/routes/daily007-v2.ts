@@ -636,9 +636,10 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         [matchId, account.id],
       );
       const prior = priorResult.rows[0];
-      const closed = !match.enabled || match.status === "cancelled" || match.has_result ||
+      const lifecycleClosed = ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status);
+      const closed = !match.enabled || lifecycleClosed || match.has_result ||
         !match.registration_open || occupancy.filledPlayers >= 48;
-      const canEdit = match.enabled && match.status !== "cancelled" &&
+      const canEdit = match.enabled && !lifecycleClosed &&
         !match.has_result && match.edit_open;
       const rows = await client.query<{
         team_number: number; captain_registration_id: string | null; legacy_registration_id: string | null;
@@ -788,7 +789,7 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
           status: 409, code: REGISTRATION_CONFLICT_CODES.alreadyRegistered,
         });
       }
-      if (!match.enabled || match.status === "cancelled") {
+      if (!match.enabled || ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status)) {
         throw Object.assign(new Error("This tournament is not accepting registrations."), {
           status: 409, code: REGISTRATION_CONFLICT_CODES.tournamentDisabled,
         });
@@ -831,7 +832,7 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
       );
       if (existingTeam.rows[0]?.legacy_registration_id) {
         throw Object.assign(new Error("Existing whole-team registrations cannot accept individual slot joins."), {
-          status: 409, code: REGISTRATION_CONFLICT_CODES.matchFull,
+          status: 409,
         });
       }
       if (existingTeam.rows[0]) {
@@ -854,7 +855,7 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
       );
       if (slotResult.rows[0]) {
         throw Object.assign(new Error("That player slot was just taken. Refresh the team list and choose an open slot."), {
-          status: 409, code: REGISTRATION_CONFLICT_CODES.matchFull,
+          status: 409,
         });
       }
       const captainName = cleanName(account.name, "captainName");
@@ -891,12 +892,12 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
       const newBalance = Number(user.wallet_coins) - Number(match.entry_coins);
       if (Number(match.entry_coins) > 0) {
         await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [account.id, newBalance]);
+        await client.query(
+          `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason, match_id, registration_id)
+           VALUES ($1, $2, $3, 'match_entry', $4, $5)`,
+          [account.id, -Number(match.entry_coins), newBalance, matchId, registrationId],
+        );
       }
-      await client.query(
-        `INSERT INTO daily007_v2_wallet_ledger (user_id, amount, balance_after, reason, match_id, registration_id)
-         VALUES ($1, $2, $3, 'match_entry', $4, $5)`,
-        [account.id, -Number(match.entry_coins), newBalance, matchId, registrationId],
-      );
       const updated = await getSquadOccupancy(client, matchId);
       const full = updated.filledPlayers >= 48;
       await client.query(
@@ -977,7 +978,8 @@ router.delete(
         if (team.legacy_registration_id) {
           throw Object.assign(new Error("Existing whole-team registrations cannot be edited through Squad slots."), { status: 409 });
         }
-        if (!match.enabled || match.status === "cancelled" || match.has_result || !match.edit_open) {
+        if (!match.enabled || ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status) ||
+            match.has_result || !match.edit_open) {
           throw Object.assign(new Error("Teammates can only be removed before the registration cutoff, 30 minutes before the match."), { status: 409 });
         }
         const memberResult = await client.query<{ id: string; registration_id: string | null }>(
@@ -1071,6 +1073,11 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
       const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+      if (modeConfig.gameMode === "battle_royale" && modeConfig.teamType === "squad") {
+        throw Object.assign(new Error("Battle Royale Squad uses individually selectable player slots. Choose a team and slot before joining."), {
+          status: 409,
+        });
+      }
 
       const userResult = await client.query<{ wallet_coins: number; status: string }>(
         "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",

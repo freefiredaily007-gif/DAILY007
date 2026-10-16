@@ -616,9 +616,9 @@ async function waitForBlockedResultRequests(
          FROM pg_stat_activity activity
         WHERE activity.pid <> pg_backend_pid()
           AND activity.wait_event_type = 'Lock'
-          AND activity.query LIKE $1
+          AND activity.query LIKE '%FROM daily007_v2_matches%'
+          AND activity.query LIKE '%FOR UPDATE%'
         ORDER BY activity.query_start`,
-      ["%FOR UPDATE OF r, m%"],
     );
     if (result.rows.length >= expectedCount) {
       assert.equal(

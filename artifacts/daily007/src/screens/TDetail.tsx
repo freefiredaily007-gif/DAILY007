@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, Pressable } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
   getGetTournamentResultsQueryKey,
+  getDaily007V2GetSquadSlotsQueryKey,
+  useDaily007V2GetSquadSlots,
+  useDaily007V2JoinSquadSlot,
+  useDaily007V2RemoveSquadMember,
   useGetTournamentParticipants,
   useGetTournamentResults,
 } from '@workspace/api-client-react';
@@ -31,6 +35,244 @@ import {
 const claimRoomDetailsAvailabilityAnnouncement =
   createRoomCredentialAvailabilityAnnouncementTracker();
 
+function SquadSlotsPanel({
+  tournamentId,
+  entryCoins,
+  walletCoins,
+  onGoWallet,
+  onJoined,
+  onRefetchAvailable,
+}: {
+  tournamentId: string;
+  entryCoins: number;
+  walletCoins: number;
+  onGoWallet: () => void;
+  onJoined: () => Promise<void>;
+  onRefetchAvailable: (refetch: (() => Promise<unknown>) | null) => void;
+}) {
+  const [selected, setSelected] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
+  const [gameName, setGameName] = useState('');
+  const [gameUid, setGameUid] = useState('');
+  const [pendingRemoval, setPendingRemoval] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
+  const [busyKey, setBusyKey] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const slotsQuery = useDaily007V2GetSquadSlots(tournamentId, {
+    query: {
+      queryKey: getDaily007V2GetSquadSlotsQueryKey(tournamentId),
+      enabled: Boolean(tournamentId),
+      refetchOnMount: 'always',
+      retry: 1,
+    },
+  });
+  const joinMutation = useDaily007V2JoinSquadSlot();
+  const removeMutation = useDaily007V2RemoveSquadMember();
+  const slots = slotsQuery.data;
+
+  useEffect(() => {
+    const refetchSlots = () => slotsQuery.refetch();
+    onRefetchAvailable(refetchSlots);
+    return () => onRefetchAvailable(null);
+  }, [onRefetchAvailable, slotsQuery.refetch]);
+
+  const join = async () => {
+    if (!selected || busyKey) return;
+    setError('');
+    setMessage('');
+    setBusyKey(`join-${selected.teamNumber}-${selected.slotNumber}`);
+    try {
+      const result = await joinMutation.mutateAsync({
+        id: tournamentId,
+        data: {
+          teamNumber: selected.teamNumber,
+          slotNumber: selected.slotNumber,
+          gameName: gameName.trim(),
+          gameUid: gameUid.trim(),
+        },
+      });
+      setSelected(null);
+      setGameName('');
+      setGameUid('');
+      setMessage(
+        result.entryCoinsPaid > 0
+          ? `Slot confirmed. ${result.entryCoinsPaid} coins were deducted from your wallet.`
+          : 'Slot confirmed. No coins were deducted.',
+      );
+      await Promise.all([slotsQuery.refetch(), onJoined()]);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Could not join this slot. Refresh and try again.');
+      void slotsQuery.refetch();
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const remove = async () => {
+    if (!pendingRemoval || busyKey) return;
+    const target = pendingRemoval;
+    setError('');
+    setMessage('');
+    setBusyKey(`remove-${target.teamNumber}-${target.slotNumber}`);
+    try {
+      const result = await removeMutation.mutateAsync({
+        id: tournamentId,
+        teamNumber: target.teamNumber,
+        slotNumber: target.slotNumber,
+      });
+      setPendingRemoval(null);
+      setMessage(result.message);
+      await Promise.all([slotsQuery.refetch(), onJoined()]);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Could not remove this player.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  if (slotsQuery.isLoading && !slots) {
+    return <Card><ActivityIndicator color={C.neon} /><Text style={s.participantsHint}>Loading Squad slots…</Text></Card>;
+  }
+  if (slotsQuery.isError || !slots) {
+    return (
+      <Card>
+        <Text style={s.participantsHint}>Squad slots couldn’t be loaded. Try again before joining.</Text>
+        <Btn title="RETRY SQUAD SLOTS" kind="ghost" onPress={() => { void slotsQuery.refetch(); }}
+          loading={slotsQuery.isFetching} style={{ marginTop: 10 }} testID="squad-slots-retry" />
+      </Card>
+    );
+  }
+
+  const selectedSlot = selected
+    ? slots.teams.find((team) => team.teamNumber === selected.teamNumber)
+        ?.slots.find((slot) => slot.slotNumber === selected.slotNumber)
+    : undefined;
+  const canAfford = walletCoins >= entryCoins;
+  return (
+    <View>
+      <Card style={{ marginBottom: 10 }}>
+        <Text style={s.squadCapacity}>
+          {slots.filledPlayers}/48 PLAYERS · {slots.filledTeams}/12 TEAMS
+        </Text>
+        <Text style={s.squadNotice}>
+          Join with your own account and wallet; each player pays the entry fee separately. A captain’s removal does not refund the removed player’s fee.
+        </Text>
+      </Card>
+      {!!error && <Msg kind="err" text={error} accessibilityLiveRegion="assertive" />}
+      {!!message && <Msg kind="ok" text={message} accessibilityLiveRegion="polite" />}
+      {slots.teams.map((team) => (
+        <Card key={team.teamNumber} style={{ marginBottom: 9 }}>
+          <Text style={s.squadTeamHeading}>
+            TEAM {String(team.teamNumber).padStart(2, '0')}
+            {team.captainGameName ? ` · CAPTAIN ${team.captainGameName}` : ''}
+            {team.legacy ? ' · EXISTING TEAM' : ''}
+          </Text>
+          {team.slots.map((slot) => {
+            const isSelected = selected?.teamNumber === team.teamNumber && selected.slotNumber === slot.slotNumber;
+            const removalPending = pendingRemoval?.teamNumber === team.teamNumber &&
+              pendingRemoval.slotNumber === slot.slotNumber;
+            return (
+              <View key={slot.slotNumber} style={s.squadSlotRow}>
+                <Pressable
+                  onPress={() => {
+                    if (slot.canJoin) {
+                      setSelected({ teamNumber: team.teamNumber, slotNumber: slot.slotNumber });
+                      setError('');
+                      setMessage('');
+                    }
+                  }}
+                  disabled={!slot.canJoin || Boolean(busyKey)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Team ${team.teamNumber}, slot ${slot.slotNumber}, ${slot.occupied ? slot.gameName || 'occupied' : 'open'}${slot.isCaptain ? ', captain' : ''}${slot.canJoin ? ', available to join' : ''}`}
+                  accessibilityState={{ disabled: !slot.canJoin, selected: isSelected }}
+                  testID={`squad-slot-${team.teamNumber}-${slot.slotNumber}`}
+                  style={[
+                    s.squadSlot,
+                    slot.occupied && s.squadSlotOccupied,
+                    isSelected && s.squadSlotSelected,
+                    !slot.occupied && !slot.canJoin && s.squadSlotUnavailable,
+                  ]}
+                >
+                  <Text style={s.squadSlotLabel}>
+                    SLOT {slot.slotNumber}{slot.isCaptain ? ' · CAPTAIN' : ''}
+                  </Text>
+                  <Text style={slot.occupied ? s.squadSlotName : s.squadSlotOpen}>
+                    {slot.occupied ? slot.gameName || 'Registered player' : 'OPEN · SELECT'}
+                  </Text>
+                </Pressable>
+                {slot.canRemove ? (
+                  <View style={s.squadRemoveWrap}>
+                    {removalPending ? (
+                      <View style={s.squadConfirmRow}>
+                        <Text style={s.squadConfirmText}>No refund</Text>
+                        <Btn title="CANCEL" kind="ghost" small
+                          onPress={() => setPendingRemoval(null)} testID={`squad-remove-cancel-${team.teamNumber}-${slot.slotNumber}`} />
+                        <Btn title="REMOVE" kind="danger" small loading={busyKey === `remove-${team.teamNumber}-${slot.slotNumber}`}
+                          onPress={() => { void remove(); }} testID={`squad-remove-confirm-${team.teamNumber}-${slot.slotNumber}`} />
+                      </View>
+                    ) : (
+                      <Btn title="REMOVE PLAYER" kind="danger" small
+                        disabled={Boolean(busyKey) || slots.registrationClosed}
+                        accessibilityHint="Removes this teammate from your team. The entry fee will not be refunded."
+                        onPress={() => setPendingRemoval({ teamNumber: team.teamNumber, slotNumber: slot.slotNumber })}
+                        testID={`squad-remove-${team.teamNumber}-${slot.slotNumber}`} />
+                    )}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </Card>
+      ))}
+      {selected && selectedSlot?.canJoin ? (
+        <Card style={{ marginTop: 4 }}>
+          <Text style={s.squadTeamHeading}>
+            JOIN TEAM {String(selected.teamNumber).padStart(2, '0')} · SLOT {selected.slotNumber}
+          </Text>
+          <Text style={s.squadNotice}>Entry fee: {entryCoins} coins · Your wallet: {walletCoins} coins</Text>
+          <Input
+            value={gameName}
+            onChangeText={setGameName}
+            placeholder="Your Free Fire name"
+            accessibilityLabel="Your Free Fire name"
+            autoCapitalize="none"
+            maxLength={100}
+            testID="squad-game-name"
+          />
+          <Input
+            value={gameUid}
+            onChangeText={setGameUid}
+            placeholder="Your Free Fire UID"
+            accessibilityLabel="Your Free Fire UID"
+            keyboardType="number-pad"
+            maxLength={128}
+            style={{ marginTop: 8 }}
+            testID="squad-game-uid"
+          />
+          {!canAfford ? (
+            <View style={{ marginTop: 10 }}>
+              <Text style={s.squadInsufficient}>Not enough coins for this player’s entry fee.</Text>
+              <Btn title="GO TO WALLET" kind="gold" onPress={onGoWallet} style={{ marginTop: 8 }} />
+            </View>
+          ) : (
+            <Btn
+              title={`CONFIRM & PAY ${entryCoins} COINS`}
+              onPress={() => { void join(); }}
+              loading={busyKey.startsWith('join-')}
+              disabled={!gameName.trim() || !gameUid.trim() || Boolean(busyKey) || slots.registrationClosed}
+              accessibilityHint="Pays the entry fee from your wallet and confirms your player slot."
+              style={{ marginTop: 10 }}
+              testID="squad-join-confirm"
+            />
+          )}
+        </Card>
+      ) : null}
+      {slots.registrationClosed ? (
+        <Text style={s.squadClosed}>Registration is closed. Open slots can no longer be joined.</Text>
+      ) : null}
+    </View>
+  );
+}
+
 export default function TDetail() {
   const nav: any = useNavigation();
   const route: any = useRoute();
@@ -52,6 +294,7 @@ export default function TDetail() {
   const participantsScreenFocusedRef = useRef(false);
   const participantsRetryFocusVersion = useRef(0);
   const detailLoadInFlight = useRef(false);
+  const squadSlotsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
@@ -118,13 +361,26 @@ export default function TDetail() {
       setLoading(false);
     }
   }, [id]);
-  const refreshAll = useCallback(async () => {
+  const refreshNonSquadData = useCallback(async () => {
     await Promise.all([
       load(),
       participantsQuery.refetch(),
       resultsQuery.refetch(),
     ]);
   }, [load, participantsQuery.refetch, resultsQuery.refetch]);
+  const refreshAll = useCallback(async () => {
+    const refreshes: Promise<unknown>[] = [
+      load(),
+      participantsQuery.refetch(),
+      resultsQuery.refetch(),
+    ];
+    const refreshSquadSlots = squadSlotsRefetchRef.current?.();
+    if (refreshSquadSlots) refreshes.push(refreshSquadSlots);
+    await Promise.all(refreshes);
+  }, [load, participantsQuery.refetch, resultsQuery.refetch]);
+  const registerSquadSlotsRefetch = useCallback((refetch: (() => Promise<unknown>) | null) => {
+    squadSlotsRefetchRef.current = refetch;
+  }, []);
   const retryRegistrationStatus = async () => {
     setRetryingRegistrationStatus(true);
     try {
@@ -219,6 +475,7 @@ export default function TDetail() {
   const joined = registrationStatusKnown && Boolean(t.joined);
   const teamType = String(t.teamType || '').toLowerCase();
   const mode = String(t.mode || '').toLowerCase();
+  const individualSquad = teamType === 'squad' && (mode.includes('battle royale') || mode === 'battle_royale');
   const teamTournament = Number(t.teamSize ?? 1) > 1;
   const participants = participantsQuery.data?.participants ?? [];
   const participantListUnavailable = participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching);
@@ -228,6 +485,8 @@ export default function TDetail() {
     : `Joined ${teamTournament ? 'teams' : 'players'}: ${participants.length}.`;
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
+  const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * Number(t.teamSize ?? 1));
+  const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * Number(t.teamSize ?? 1));
   const tournamentStatus = isCompleted ? 'completed' : String(t.status || '').toLowerCase();
   const winnerState = resolveTournamentWinnerState(
     resultsQuery.isLoading ||
@@ -239,7 +498,9 @@ export default function TDetail() {
   const winnerGameName = winner?.gameName?.trim() ?? '';
   const winnerTeamName = winner?.teamName?.trim() ?? '';
   const winnerName = winnerTeamName || winnerGameName || 'Winner';
-  const full = st.key === 'full' || tournamentStatus === 'setup_needed' || (totalSlots > 0 && filledSlots >= totalSlots);
+  const full = tournamentStatus === 'setup_needed' ||
+    (individualSquad ? filledPlayers >= totalPlayers :
+      st.key === 'full' || (totalSlots > 0 && filledSlots >= totalSlots));
   const schedule = getRoomCredentialSchedule(t.startsAt);
   const registrationStatus = String(t.myRegistration?.status ?? '').toLowerCase();
   const canViewRoomDetails = registrationStatus === 'approved' && tournamentStatus !== 'cancelled';
@@ -285,12 +546,14 @@ export default function TDetail() {
           <Text style={s.statSub}>{inr(t.prizePool)}</Text>
         </View>
         <View style={s.stat}>
-          <Text style={s.statK}>{t.slotUnit === 'player' ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
-          <Text style={[s.statV, { color: C.blue }]}>{filledSlots}/{totalSlots}</Text>
+           <Text style={s.statK}>{individualSquad || t.slotUnit === 'player' ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
+           <Text style={[s.statV, { color: C.blue }]}>{individualSquad ? `${filledPlayers}/${totalPlayers}` : `${filledSlots}/${totalSlots}`}</Text>
           <Text style={s.statSub}>
-            {t.slotUnit === 'player'
+             {individualSquad
+               ? `${t.filledSlots ?? 0}/${t.totalSlots ?? 12} teams formed`
+               : t.slotUnit === 'player'
               ? `${filledSlots}/${totalSlots} players`
-              : `${t.filledPlayerSlots ?? filledSlots * (t.teamSize ?? 1)}/${t.totalPlayerSlots ?? totalSlots * (t.teamSize ?? 1)} players`}
+               : `${filledPlayers}/${totalPlayers} players`}
           </Text>
         </View>
       </View>
@@ -305,6 +568,20 @@ export default function TDetail() {
         <KV k="Version" v={t.version || '—'} />
         {!!t.rules && <Text style={s.rules}>{t.rules}</Text>}
       </Card>
+
+      {individualSquad ? (
+        <>
+          <SectionTitle accent={C.orange}>SQUAD TEAM SLOTS</SectionTitle>
+          <SquadSlotsPanel
+            tournamentId={tournamentId}
+            entryCoins={Number(t.entryCoins ?? 0)}
+            walletCoins={Number(user?.coins ?? 0)}
+            onGoWallet={() => nav.navigate('Wallet')}
+            onJoined={refreshNonSquadData}
+            onRefetchAvailable={registerSquadSlotsRefetch}
+          />
+        </>
+      ) : null}
 
       <SectionTitle
         accent={C.orange}
@@ -484,7 +761,7 @@ export default function TDetail() {
       <Msg kind="ok" text={msg} />
 
       <View style={{ marginTop: 16 }}>
-        {!registrationStatusKnown ? (
+        {individualSquad ? null : !registrationStatusKnown ? (
           <Card testID="tournament-entry-status-unknown">
             <Text
               accessible
@@ -575,4 +852,23 @@ const s = StyleSheet.create({
   winnerPrizeAmount: { color: C.green, fontSize: 13, fontWeight: '900' },
   winnerPrizeLabel: { color: C.dim, fontSize: 8, fontWeight: '900', letterSpacing: 0.7, marginTop: 3 },
   winnerPrizeValue: { color: C.text, fontSize: 10, fontWeight: '800', marginTop: 2 },
+  squadCapacity: { color: C.blue, fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
+  squadNotice: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 6 },
+  squadTeamHeading: { color: C.text, fontSize: 12, fontWeight: '900', letterSpacing: 0.7, marginBottom: 7 },
+  squadSlotRow: { marginTop: 5 },
+  squadSlot: {
+    minHeight: 54, borderWidth: 1, borderColor: C.border, borderRadius: 10,
+    backgroundColor: C.bg2, paddingHorizontal: 10, paddingVertical: 8, justifyContent: 'center',
+  },
+  squadSlotOccupied: { borderColor: C.border, backgroundColor: C.bg },
+  squadSlotSelected: { borderColor: C.neon, backgroundColor: C.neon + '18' },
+  squadSlotUnavailable: { opacity: 0.6 },
+  squadSlotLabel: { color: C.dim, fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
+  squadSlotName: { color: C.text, fontSize: 12, fontWeight: '800', marginTop: 2 },
+  squadSlotOpen: { color: C.green, fontSize: 11, fontWeight: '900', marginTop: 2 },
+  squadRemoveWrap: { marginTop: 5, alignItems: 'flex-end' },
+  squadConfirmRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  squadConfirmText: { color: C.gold, fontSize: 10, fontWeight: '900', flex: 1 },
+  squadInsufficient: { color: C.red, fontSize: 12, fontWeight: '800' },
+  squadClosed: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 6 },
 });

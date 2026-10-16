@@ -33,13 +33,20 @@ function fmtDate(d?: string) {
   return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase();
 }
 function statusOf(t: any, now: number) {
-  const filled = Number(t.filledSlots ?? t.filled ?? 0);
-  const total = Number(t.totalSlots ?? (String(t.mode || '').toLowerCase().includes('clash') ? 2 : String(t.teamType || '').toLowerCase() === 'squad' ? 12 : 48));
+  const mode = String(t.mode ?? t.gameMode ?? '').toLowerCase();
+  const individualSquad = String(t.teamType || '').toLowerCase() === 'squad' &&
+    (mode.includes('battle royale') || mode === 'battle_royale');
+  const filled = Number(individualSquad
+    ? t.filledPlayerSlots ?? Number(t.filledSlots ?? t.filled ?? 0) * 4
+    : t.filledSlots ?? t.filled ?? 0);
+  const total = Number(individualSquad
+    ? t.totalPlayerSlots ?? Number(t.totalSlots ?? 12) * 4
+    : t.totalSlots ?? (String(t.mode || '').toLowerCase().includes('clash') ? 2 : String(t.teamType || '').toLowerCase() === 'squad' ? 12 : 48));
   const status = String(t.status ?? '').toLowerCase();
   const lifecycle = getTournamentLifecycleState(t, now);
   if (lifecycle === 'ongoing') return { key: 'ONGOING', color: C.red };
   if (lifecycle === 'completed' || lifecycle === 'closed') return { key: 'COMPLETED', color: C.dim };
-  if (status === 'full' || status === 'setup_needed' || (total > 0 && filled >= total)) return { key: 'FULL', color: C.orange };
+  if (status === 'setup_needed' || ((status === 'full' || total > 0) && filled >= total)) return { key: 'FULL', color: C.orange };
   return { key: 'UPCOMING', color: C.green };
 }
 function tournamentModeFallback(t: any): number {
@@ -471,8 +478,15 @@ export default function Home() {
             contentContainerStyle={{ paddingHorizontal: 0 }}
             decelerationRate="fast">
         {upcomingItems.slice(0, 8).map((t, index) => {
-              const filled = t.filledSlots ?? t.filled ?? 0;
-              const total = t.totalSlots ?? tournamentModeFallback(t);
+              const isIndividualSquad = String(t.teamType ?? '').toLowerCase() === 'squad' &&
+                (String(t.mode ?? t.gameMode ?? '').toLowerCase().includes('battle royale') ||
+                  String(t.mode ?? t.gameMode ?? '').toLowerCase() === 'battle_royale');
+              const filled = isIndividualSquad
+                ? t.filledPlayerSlots ?? Number(t.filledSlots ?? t.filled ?? 0) * 4
+                : t.filledSlots ?? t.filled ?? 0;
+              const total = isIndividualSquad
+                ? t.totalPlayerSlots ?? Number(t.totalSlots ?? tournamentModeFallback(t)) * 4
+                : t.totalSlots ?? tournamentModeFallback(t);
               const stt = statusOf(t, clockNow);
               const ongoing = stt.key === 'ONGOING';
               const formatPresentation = getTournamentFormatPresentation(t);

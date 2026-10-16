@@ -34,6 +34,7 @@ import {
   ensureDaily007ReferralCode,
 } from "../lib/daily007-referrals";
 import { createDaily007ReferralLinks } from "../lib/daily007-referral-links";
+import { ensureLegacySquadTeams } from "../lib/daily007-squad-slots";
 import {
   reviewYoutubeSubscribeClaim,
   submitYoutubeSubscribeClaim,
@@ -1888,6 +1889,18 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
   const kills = body.kills as number;
   try {
     const result = await roleTransaction(req, "tournament_admin", async (client) => {
+      const matchFormat = await client.query<{
+        mode: string; game_mode: string | null; team_type: string | null;
+      }>(
+        "SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [tournamentId],
+      );
+      const format = matchFormat.rows[0];
+      if (!format) throw Object.assign(new Error("Tournament was not found."), { status: 404 });
+      const isBattleRoyaleSquad = format.mode === "squad" &&
+        (format.game_mode === null ||
+          (format.game_mode === "battle_royale" && format.team_type === "squad"));
+      if (isBattleRoyaleSquad) await ensureLegacySquadTeams(client, tournamentId);
       const registration = await client.query<{
         id: string; match_id: string; captain_user_id: string; prize_pool: number; prize_distribution: string;
         has_started: boolean; match_status: string;
@@ -1898,10 +1911,31 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
            FROM daily007_v2_registrations r
            JOIN daily007_v2_matches m ON m.id = r.match_id
           WHERE r.id = $1 AND m.id = $2 AND r.status = 'approved'
-          FOR UPDATE OF r, m`, [registrationId, tournamentId],
+          FOR UPDATE OF r`, [registrationId, tournamentId],
       );
       const row = registration.rows[0];
       if (!row || row.match_id !== tournamentId) throw Object.assign(new Error("Registration was not found for this tournament/match."), { status: 404 });
+      let squadTeamId: string | null = null;
+      if (isBattleRoyaleSquad) {
+        const membership = await client.query<{
+          team_id: string; captain_registration_id: string | null; is_active: boolean;
+        }>(
+          `SELECT member.team_id, team.captain_registration_id, member.is_active
+             FROM daily007_v2_squad_team_members member
+             JOIN daily007_v2_squad_teams team ON team.id = member.team_id
+            WHERE member.registration_id = $1
+            LIMIT 1`,
+          [row.id],
+        );
+        const member = membership.rows[0];
+        if (!member || member.is_active !== true) {
+          throw Object.assign(new Error("This player no longer occupies an active Squad slot."), { status: 409 });
+        }
+        if (member.captain_registration_id !== row.id) {
+          throw Object.assign(new Error("Publish Squad results from the team captain’s registration."), { status: 409 });
+        }
+        squadTeamId = member.team_id;
+      }
       if (row.match_status === "cancelled") {
         throw Object.assign(new Error("Results cannot be published for a cancelled tournament."), { status: 409 });
       }
@@ -1922,6 +1956,20 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
           throw Object.assign(new Error("A winner has already been declared for this tournament."), { status: 409 });
         }
         throw Object.assign(new Error("This placement has already been awarded for this tournament."), { status: 409 });
+      }
+      if (isBattleRoyaleSquad && squadTeamId) {
+        const previousTeamAward = await client.query<{ registration_id: string }>(
+          `SELECT award.registration_id
+             FROM daily007_v2_result_awards award
+             JOIN daily007_v2_squad_team_members awarded_member
+               ON awarded_member.registration_id = award.registration_id
+            WHERE award.match_id = $1 AND awarded_member.team_id = $2
+            LIMIT 1`,
+          [row.match_id, squadTeamId],
+        );
+        if (previousTeamAward.rows[0]) {
+          throw Object.assign(new Error("A result has already been published for this Squad team."), { status: 409 });
+        }
       }
       const prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
       const account = await client.query<{ wallet_coins: number }>(

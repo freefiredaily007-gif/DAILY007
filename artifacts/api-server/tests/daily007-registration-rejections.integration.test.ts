@@ -311,7 +311,8 @@ async function waitForBlockedRejectionRequests(
          FROM pg_stat_activity AS waiting
         WHERE waiting.pid <> pg_backend_pid()
           AND waiting.wait_event_type = 'Lock'
-          AND waiting.query ILIKE '%SELECT capacity, mode, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE%'
+           AND waiting.query ILIKE '%FROM daily007_v2_matches%'
+           AND waiting.query ILIKE '%FOR UPDATE%'
         ORDER BY waiting.query_start`,
     );
     const waiters = result.rows.slice(0, expectedCount);

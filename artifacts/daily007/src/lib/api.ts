@@ -49,6 +49,8 @@ export type Tournament = {
 export type AdminRegistration = {
   id: string; tournamentId: string; status: string;
   playerName: string; teamName?: string; gameUid?: string;
+  gameMode?: string; teamType?: string;
+  teamNumber?: number | null; slotNumber?: number | null; isSquadCaptain?: boolean;
 };
 
 export type AccountRecoveryRequest = {
@@ -511,7 +513,8 @@ export const Api = {
     const registrations: unknown = await unwrap(http.get('/admin/registrations'));
     if (!Array.isArray(registrations)) throw new Error('Invalid registrations response.');
     return registrations.filter((r): r is AdminRegistration =>
-      r != null && r.tournamentId === tid && r.status === 'approved');
+      r != null && r.tournamentId === tid && r.status === 'approved' &&
+      !(r.gameMode === 'battle_royale' && r.teamType === 'Squad' && r.isSquadCaptain !== true));
   },
   adminPublishResult: (b: object) => unwrap(http.post('/admin/results', b)),
   adminAdjustCoins: (id: string, coinsDelta: number, note: string, requestId: string) =>

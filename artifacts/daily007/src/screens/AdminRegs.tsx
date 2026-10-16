@@ -6,7 +6,7 @@ import * as Sharing from 'expo-sharing';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 
-const TABS = ['pending', 'approved', 'rejected'] as const;
+const TABS = ['pending', 'approved', 'rejected', 'removed'] as const;
 
 export default function AdminRegs() {
   const [tab, setTab] = useState<(typeof TABS)[number]>('pending');
@@ -215,7 +215,15 @@ export default function AdminRegs() {
           <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
           <Text style={st.sub}>In-game name: {r.captainGameName || '—'} · UID: {r.gameUid || r.captainGameUid || '—'}</Text>
           <Text style={st.sub}>{r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
+          {r.teamNumber && r.slotNumber ? (
+            <Text style={st.sub}>
+              Team {String(r.teamNumber).padStart(2, '0')} · Slot {r.slotNumber}{r.isSquadCaptain ? ' · Captain' : ''}
+            </Text>
+          ) : null}
           <Text style={st.sub}>Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
+          {tab === 'removed' ? (
+            <Text style={st.sub}>Removed by the captain; the entry fee was not refunded.</Text>
+          ) : null}
           {r.teamMembers && r.teamMembers !== '[]' && (
             <Text style={st.sub}>ROSTER{'\n'}{rosterText(r.teamMembers)}</Text>
           )}
@@ -226,7 +234,7 @@ export default function AdminRegs() {
                 <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Reject registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'reject', r.playerName)} /></View>
               </>
             )}
-            {tab !== 'pending' && (
+            {tab !== 'pending' && tab !== 'removed' && (
               <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Delete registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => del(r.id, r.playerName)} /></View>
             )}
           </View>

@@ -447,9 +447,18 @@ export function statusOf(t: any): { key: string; label: string; color: string } 
   const st = String(t?.status || 'upcoming').toLowerCase();
   if (st === 'live' || st === 'ongoing') return { key: 'ongoing', label: 'ONGOING', color: C.neon };
   if (st === 'completed' || st === 'cancelled') return { key: 'completed', label: st.toUpperCase(), color: C.dim };
-  const filled = Number(t?.filledSlots ?? t?.filled ?? 0);
-  const total = Number(t?.totalSlots ?? 0);
-  if (st === 'full' || st === 'setup_needed' || (total > 0 && filled >= total)) return { key: 'full', label: 'FULL', color: C.orange };
+  const mode = String(t?.mode ?? t?.gameMode ?? '').toLowerCase();
+  const isIndividualSquad = String(t?.teamType ?? '').toLowerCase() === 'squad' &&
+    (mode.includes('battle royale') || mode === 'battle_royale');
+  const filled = Number(isIndividualSquad
+    ? t?.filledPlayerSlots ?? Number(t?.filledSlots ?? t?.filled ?? 0) * 4
+    : t?.filledSlots ?? t?.filled ?? 0);
+  const total = Number(isIndividualSquad
+    ? t?.totalPlayerSlots ?? Number(t?.totalSlots ?? 12) * 4
+    : t?.totalSlots ?? 0);
+  if (st === 'setup_needed' || ((st === 'full' || total > 0) && filled >= total)) {
+    return { key: 'full', label: 'FULL', color: C.orange };
+  }
   return { key: 'upcoming', label: 'UPCOMING', color: C.green };
 }
 
@@ -475,9 +484,14 @@ export function MatchCard({
   const imageSource = customImageUrl && failedImageUrl !== customImageUrl
     ? { uri: customImageUrl }
     : formatPresentation.image;
-  const slotUnit = t?.slotUnit === 'player' ? 'players' : 'teams';
   const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
+  const mode = String(t?.mode ?? t?.gameMode ?? '').toLowerCase();
+  const isIndividualSquad = String(t?.teamType ?? '').toLowerCase() === 'squad' &&
+    (mode.includes('battle royale') || mode === 'battle_royale');
+  const slotUnit = isIndividualSquad ? 'players' : t?.slotUnit === 'player' ? 'players' : 'teams';
+  const displayedFilled = isIndividualSquad ? filledPlayers : filled;
+  const displayedTotal = isIndividualSquad ? totalPlayers : total;
   const { format, showFormatBanner, showBattleRoyalePoster } = formatPresentation;
   const usesArtCard = showFormatBanner || showBattleRoyalePoster;
   const statusUnknown = t?.joinedStatusUnknown === true;
@@ -555,7 +569,7 @@ export function MatchCard({
             📅 {fmtDate(t?.date)}{t?.time ? ' • ' : ''}
             {t?.time ? <Text style={mc.metaTime}>{fmtTime12(t.time)} IST</Text> : null}
           </Text>
-          <Text style={[mc.meta, largeText && mc.metaLarge]}>{filled}/{total} {slotUnit}</Text>
+          <Text style={[mc.meta, largeText && mc.metaLarge]}>{displayedFilled}/{displayedTotal} {slotUnit}</Text>
         </View>
         <View style={[mc.statRow, largeText && mc.statRowLarge]}>
           <View style={[mc.stat, largeText && mc.statLarge]}>
@@ -568,7 +582,7 @@ export function MatchCard({
           </View>
           <View style={[mc.stat, largeText && mc.statLarge]}>
             <Text style={mc.statK}>{slotUnit.toUpperCase()}</Text>
-            <Text style={[mc.statV, { color: C.blue }]}>{filled}/{total}</Text>
+            <Text style={[mc.statV, { color: C.blue }]}>{displayedFilled}/{displayedTotal}</Text>
             <Text style={{ color: C.dim, fontSize: 9, marginTop: 2 }}>{filledPlayers}/{totalPlayers} players</Text>
           </View>
         </View>

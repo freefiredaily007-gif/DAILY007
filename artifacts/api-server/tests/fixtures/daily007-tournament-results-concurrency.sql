@@ -119,3 +119,48 @@ CREATE TABLE daily007_v2_wallet_ledger (
   idempotency_key text UNIQUE,
   details jsonb
 );
+
+CREATE TABLE daily007_v2_squad_teams (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
+  team_number integer NOT NULL CHECK (team_number BETWEEN 1 AND 12),
+  captain_registration_id uuid REFERENCES daily007_v2_registrations(id) ON DELETE SET NULL,
+  legacy_registration_id uuid REFERENCES daily007_v2_registrations(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (match_id, team_number)
+);
+CREATE UNIQUE INDEX daily007_v2_squad_team_captain_unique
+  ON daily007_v2_squad_teams(captain_registration_id)
+  WHERE captain_registration_id IS NOT NULL;
+CREATE UNIQUE INDEX daily007_v2_squad_team_legacy_registration_unique
+  ON daily007_v2_squad_teams(legacy_registration_id)
+  WHERE legacy_registration_id IS NOT NULL;
+
+CREATE TABLE daily007_v2_squad_team_members (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id uuid NOT NULL REFERENCES daily007_v2_squad_teams(id) ON DELETE CASCADE,
+  slot_number integer NOT NULL CHECK (slot_number BETWEEN 1 AND 4),
+  registration_id uuid REFERENCES daily007_v2_registrations(id) ON DELETE CASCADE,
+  legacy_game_name text,
+  legacy_game_uid text,
+  is_active boolean NOT NULL DEFAULT true,
+  removed_at timestamptz,
+  removed_by_user_id uuid REFERENCES daily007_v2_users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (
+    (registration_id IS NOT NULL AND legacy_game_name IS NULL AND legacy_game_uid IS NULL)
+    OR (registration_id IS NULL AND legacy_game_name IS NOT NULL
+      AND length(btrim(legacy_game_name)) > 0
+      AND (legacy_game_uid IS NULL OR length(btrim(legacy_game_uid)) > 0))
+  ),
+  CHECK (
+    (is_active = true AND removed_at IS NULL)
+    OR (is_active = false AND removed_at IS NOT NULL)
+  )
+);
+CREATE UNIQUE INDEX daily007_v2_squad_team_member_active_slot_unique
+  ON daily007_v2_squad_team_members(team_id, slot_number)
+  WHERE is_active = true;
+CREATE UNIQUE INDEX daily007_v2_squad_team_member_registration_unique
+  ON daily007_v2_squad_team_members(registration_id)
+  WHERE registration_id IS NOT NULL;
