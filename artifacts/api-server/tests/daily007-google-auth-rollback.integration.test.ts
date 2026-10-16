@@ -188,6 +188,143 @@ async function resetReferralRewardFailureTrigger(
   `);
 }
 
+test("Google signup cannot take over a password account with the verified email", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const passwordUserId = randomUUID();
+  const referrerId = randomUUID();
+  const passwordReferralCode = "PASS1";
+
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, referral_code, wallet_coins, auth_version)
+     VALUES ($1, 'Existing Password Owner', $2, 'existing-salt', 'existing-hash', $3, 37, 4)`,
+    [passwordUserId, GOOGLE_EMAIL, passwordReferralCode],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Existing Referrer', $2, 'referrer-salt', 'referrer-hash')`,
+    [referrerId, `referrer-${referrerId}@example.test`],
+  );
+  await pool.query(
+    "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+    [passwordUserId, passwordReferralCode],
+  );
+  await pool.query(
+    "INSERT INTO daily007_v2_referral_short_codes (user_id, code) VALUES ($1, $2)",
+    [referrerId, REFERRAL_CODE],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_referrals (referrer_user_id, referred_user_id, code)
+     VALUES ($1, $2, $3)`,
+    [referrerId, passwordUserId, REFERRAL_CODE],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_wallet_ledger
+       (user_id, amount, balance_after, reason, idempotency_key)
+     VALUES ($1, 37, 37, 'Existing Wallet Balance', $2)`,
+    [passwordUserId, `test-password-wallet:${passwordUserId}`],
+  );
+
+  try {
+    await withServer(async (origin) => {
+      const accountBefore = await pool.query(
+        `SELECT id, name, email, password_salt, password_hash, referral_code,
+                wallet_coins, auth_version, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [passwordUserId],
+      );
+      const referralsBefore = await pool.query(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY referred_user_id`,
+      );
+      const referralCodesBefore = await pool.query(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_codes
+          ORDER BY user_id`,
+      );
+      const shortCodesBefore = await pool.query(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          ORDER BY user_id`,
+      );
+      const walletBefore = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details
+           FROM daily007_v2_wallet_ledger
+          ORDER BY id`,
+      );
+
+      const rejected = await googleSignIn(origin);
+      assert.equal(rejected.status, 409);
+      assert.match(String(rejected.body.error), /already uses this email.*sign in with your password/i);
+
+      const accountAfter = await pool.query(
+        `SELECT id, name, email, password_salt, password_hash, referral_code,
+                wallet_coins, auth_version, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [passwordUserId],
+      );
+      assert.deepEqual(accountAfter.rows, accountBefore.rows,
+        "the existing password account and its session version must remain unchanged");
+
+      const googleIdentity = await pool.query(
+        `SELECT id, email, clerk_user_id
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(googleIdentity.rows, [],
+        "the rejected signup must not attach the Google identity to any account");
+
+      const accountCount = await pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM daily007_v2_users",
+      );
+      assert.equal(accountCount.rows[0]?.count, 2,
+        "the rejected signup must not create a second account for the verified email");
+
+      const referralsAfter = await pool.query(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY referred_user_id`,
+      );
+      assert.deepEqual(referralsAfter.rows, referralsBefore.rows,
+        "the rejected signup must not change existing referrals or create a new one");
+
+      const referralCodesAfter = await pool.query(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_codes
+          ORDER BY user_id`,
+      );
+      assert.deepEqual(referralCodesAfter.rows, referralCodesBefore.rows,
+        "the rejected signup must not change existing referral codes");
+
+      const shortCodesAfter = await pool.query(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          ORDER BY user_id`,
+      );
+      assert.deepEqual(shortCodesAfter.rows, shortCodesBefore.rows,
+        "the rejected signup must not create or change short referral codes");
+
+      const walletAfter = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details
+           FROM daily007_v2_wallet_ledger
+          ORDER BY id`,
+      );
+      assert.deepEqual(walletAfter.rows, walletBefore.rows,
+        "the rejected signup must leave the wallet ledger unchanged");
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[passwordUserId, referrerId]],
+    );
+    resetMockGoogleUser();
+  }
+});
+
 test("a rejected legacy-style referral code rolls back Google signup before a valid-code retry", async () => {
   await pool.query(
     "DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger",
