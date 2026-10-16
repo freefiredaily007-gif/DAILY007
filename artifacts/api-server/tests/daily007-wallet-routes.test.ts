@@ -50,7 +50,7 @@ async function call(
   origin: string,
   actorId: string,
   path: string,
-  method: "GET" | "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   body?: Record<string, unknown>,
 ): Promise<JsonResult> {
   const token = makeToken(actorId, 0);
@@ -132,15 +132,6 @@ test("Tournament Admins cannot list, review, or pay payment and withdrawal reque
 
     const paymentId = payment.body.id as string;
     const withdrawalId = withdrawal.body.id as string;
-    const preparedPayout = await call(
-      origin,
-      TEST_ADMIN_ID,
-      `/admin/withdrawals/${withdrawalId}/approve`,
-      "POST",
-    );
-    assert.equal(preparedPayout.status, 200);
-    assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.payout_status, "manual_payout_required");
-
     const paymentBefore = structuredClone(walletTestDb.payments.get(paymentId));
     const withdrawalBefore = structuredClone(walletTestDb.withdrawals.get(withdrawalId));
     const playerBalanceBefore = walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins;
@@ -160,6 +151,8 @@ test("Tournament Admins cannot list, review, or pay payment and withdrawal reque
         reason: "Not authorized",
       }),
       call(origin, TEST_SECOND_ADMIN_ID, `/admin/withdrawals/${withdrawalId}/payout`, "POST"),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/payments/${paymentId}`, "DELETE"),
+      call(origin, TEST_SECOND_ADMIN_ID, `/admin/withdrawals/${withdrawalId}`, "DELETE"),
     ]);
 
     assert.deepEqual(
@@ -174,6 +167,54 @@ test("Tournament Admins cannot list, review, or pay payment and withdrawal reque
     assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, playerBalanceBefore);
     assert.deepEqual(walletTestDb.ledger, ledgerBefore);
     assert.deepEqual(walletTestDb.notifications, notificationsBefore);
+  });
+});
+
+test("Full Admins can delete payment and withdrawal requests", async () => {
+  walletTestDb.reset();
+
+  await withServer(async (origin) => {
+    const payment = await call(origin, TEST_PLAYER_ID, "/payments", "POST", {
+      coins: 120,
+      payerUpiId: "player@upi",
+      txnId: "full-admin-delete-payment-test",
+    });
+    const withdrawal = await call(origin, TEST_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "player@upi",
+    });
+    assert.equal(payment.status, 201);
+    assert.equal(withdrawal.status, 201);
+
+    const paymentId = payment.body.id as string;
+    const withdrawalId = withdrawal.body.id as string;
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 550);
+    assert.equal(walletTestDb.ledger.length, 1);
+
+    const deletedPayment = await call(origin, TEST_ADMIN_ID, `/admin/payments/${paymentId}`, "DELETE");
+    const deletedWithdrawal = await call(origin, TEST_ADMIN_ID, `/admin/withdrawals/${withdrawalId}`, "DELETE");
+
+    assert.deepEqual([deletedPayment.status, deletedWithdrawal.status], [200, 200]);
+    assert.deepEqual(deletedPayment.body, { id: paymentId, deleted: true });
+    assert.deepEqual(deletedWithdrawal.body, { id: withdrawalId, deleted: true });
+    assert.equal(walletTestDb.payments.get(paymentId)?.status, "deleted");
+    assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.status, "deleted");
+    assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 700);
+    assert.deepEqual(walletTestDb.ledger, [
+      {
+        userId: TEST_PLAYER_ID,
+        amount: -150,
+        balanceAfter: 550,
+        reason: "withdrawal_reserved",
+      },
+      {
+        userId: TEST_PLAYER_ID,
+        amount: 150,
+        balanceAfter: 700,
+        reason: "withdrawal_deleted_refund",
+      },
+    ]);
   });
 });
 

@@ -435,6 +435,15 @@ class MemoryWalletDatabase {
     } else if (normalized.startsWith("UPDATE daily007_v2_users SET wallet_coins")) {
       const user = this.users.get(userId);
       if (user) user.wallet_coins = Number(values[1]);
+    } else if (
+      normalized === "UPDATE daily007_v2_payments SET status = 'deleted' WHERE id = $1" ||
+      normalized === "UPDATE daily007_v2_withdrawals SET status = 'deleted' WHERE id = $1"
+    ) {
+      const table = normalized.includes("daily007_v2_payments")
+        ? this.payments
+        : this.withdrawals;
+      const request = table.get(userId);
+      if (request) request.status = "deleted";
     } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
       this.ledger.push({
         userId,
