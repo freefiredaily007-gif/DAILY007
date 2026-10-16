@@ -15,6 +15,12 @@ import {
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 
 type Member = { name: string; uid: string };
+type TeamEditSnapshot = {
+  captainGameName: string;
+  captainGameUid: string;
+  teamName: string;
+  teammates: Member[];
+};
 
 function initialMembers(registration: any, teamSize: number): Member[] {
   let roster: any[] = [];
@@ -31,6 +37,29 @@ function initialMembers(registration: any, teamSize: number): Member[] {
       uid: String(member.uid ?? (index === 0 ? registration?.gameUid : '') ?? ''),
     };
   });
+}
+
+function initialTeamSnapshot(registration: any, teamSize: number): TeamEditSnapshot {
+  const roster = initialMembers(registration, teamSize);
+  return {
+    captainGameName: roster[0]?.name ?? '',
+    captainGameUid: roster[0]?.uid ?? '',
+    teamName: String(registration?.teamName ?? ''),
+    teammates: roster.slice(1),
+  };
+}
+
+function isTeamEditSnapshot(value: unknown): value is TeamEditSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  return typeof snapshot.captainGameName === 'string' &&
+    typeof snapshot.captainGameUid === 'string' &&
+    typeof snapshot.teamName === 'string' &&
+    Array.isArray(snapshot.teammates) &&
+    snapshot.teammates.every((member) =>
+      member !== null && typeof member === 'object' && !Array.isArray(member) &&
+      typeof (member as Record<string, unknown>).name === 'string' &&
+      typeof (member as Record<string, unknown>).uid === 'string');
 }
 
 export default function JoinForm({ tournament: t, user, registration, onCancel, onSubmit }: {
@@ -60,6 +89,9 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<JoinFormField, string>>>({});
   const [fullCapacityFailure, setFullCapacityFailure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [expectedTeam, setExpectedTeam] = useState<TeamEditSnapshot>(() =>
+    initialTeamSnapshot(registration, teamSize));
+  const [staleTeam, setStaleTeam] = useState<TeamEditSnapshot | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const editCutoff = getTeamEditCutoff(t.startsAt);
   const editLocked = editing && (editCutoff === null || clockNow >= editCutoff);
@@ -73,6 +105,8 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     setCaptainGameUid(roster[0]?.uid || user.gameUid || '');
     setMembers(roster.slice(1));
     setTeamName(String(registration?.teamName ?? ''));
+    setExpectedTeam(initialTeamSnapshot(registration, teamSize));
+    setStaleTeam(null);
     setErr('');
     setFieldErrors({});
     setFullCapacityFailure(false);
@@ -138,13 +172,14 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
     }
     setBusy(true);
     try {
-      await onSubmit(buildJoinFormPayload({
+      const payload = buildJoinFormPayload({
         captainProfileName,
         captainGameName: captainGameName.trim(),
         captainGameUid: captainGameUid.trim(),
         teamName,
         members,
-      }));
+      });
+      await onSubmit(editing ? { ...payload, expectedTeam } : payload);
     } catch (e: any) {
       const responseData = e?.response?.data;
       const serverFieldErrors = getRegistrationServerFieldErrors(responseData, {
@@ -153,10 +188,20 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
       });
       if (Object.keys(serverFieldErrors).length > 0) setFieldErrors(serverFieldErrors);
       const message = responseData?.error || responseData?.message || e?.message || 'Registration could not be confirmed. Please try again.';
-      announceError(getJoinFormSubmissionErrorMessage(message, {
-        editing,
-        outcomeUnknown: e?.isAxiosError === true && !e?.response,
-      }));
+      if (
+        editing &&
+        e?.response?.status === 409 &&
+        responseData?.code === 'STALE_TEAM_EDIT' &&
+        isTeamEditSnapshot(responseData?.latestTeam)
+      ) {
+        setStaleTeam(responseData.latestTeam);
+        announceError('This team was updated elsewhere. Review the latest saved team below. Your form values are still here.');
+      } else {
+        announceError(getJoinFormSubmissionErrorMessage(message, {
+          editing,
+          outcomeUnknown: e?.isAxiosError === true && !e?.response,
+        }));
+      }
       setFullCapacityFailure(isFullMatchRejection(e));
     } finally { setBusy(false); }
   };
@@ -317,6 +362,33 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         ))}
       </Card>
 
+      {editing && staleTeam && (
+        <Card style={{ marginTop: 12 }} testID="join-form-stale-team">
+          <Text style={st.capacityLabel}>LATEST SAVED TEAM</Text>
+          <Text style={st.staleTeamDetail}>Captain: {staleTeam.captainGameName} · UID {staleTeam.captainGameUid}</Text>
+          {staleTeam.teamName ? (
+            <Text style={st.staleTeamDetail}>Team: {staleTeam.teamName}</Text>
+          ) : null}
+          {staleTeam.teammates.map((member, index) => (
+            <Text key={index} style={st.staleTeamDetail}>
+              Teammate {index + 1}: {member.name}{member.uid ? ` · UID ${member.uid}` : ''}
+            </Text>
+          ))}
+          <Text style={st.sub}>Your current form values have not changed. Review these saved details before continuing.</Text>
+          <Btn
+            title="KEEP MY EDITS AND CONTINUE"
+            kind="ghost"
+            onPress={() => {
+              setExpectedTeam(staleTeam);
+              setStaleTeam(null);
+              announceError('Your form values are unchanged. Save again to replace the latest saved team.');
+            }}
+            testID="join-form-keep-edits"
+            style={{ marginTop: 10 }}
+          />
+        </Card>
+      )}
+
       <Msg
         key={errorAnnouncementId}
         kind="err"
@@ -355,4 +427,5 @@ const st = StyleSheet.create({
   legacyNote: { color: C.dim, fontSize: 11, lineHeight: 16, marginBottom: 6 },
   pLabel: { color: C.orange, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: 6, marginTop: 8 },
   fieldError: { color: C.red, fontSize: 12, lineHeight: 17, marginTop: -2, marginBottom: 8 },
+  staleTeamDetail: { color: C.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
 });

@@ -10,6 +10,7 @@ import {
 } from "../src/lib/joinFormValidation.ts";
 
 const requests = [];
+const teamEditRequests = [];
 const mockedHttp = {
   defaults: { headers: { common: {} } },
   interceptors: { response: { use() {} } },
@@ -22,8 +23,14 @@ const mockedHttp = {
       data: { success: true, data: { registrationId: "test-registration" } },
     });
   },
-  patch() {
-    assert.fail("JoinForm registration should not issue a PATCH request.");
+  patch(path, body) {
+    teamEditRequests.push({ path, body });
+    return Promise.resolve({
+      data: {
+        success: true,
+        data: { registrationId: "test-registration", status: "approved", updated: true },
+      },
+    });
   },
 };
 
@@ -188,7 +195,7 @@ test("the profile name is read-only and game, team, and teammate details have se
 
   assert.match(
     joinFormSource,
-    /await onSubmit\(buildJoinFormPayload\(\{\s*captainProfileName,\s*captainGameName:\s*captainGameName\.trim\(\),\s*captainGameUid:\s*captainGameUid\.trim\(\),\s*teamName,\s*members,\s*\}\)\)/,
+    /const payload = buildJoinFormPayload\(\{\s*captainProfileName,\s*captainGameName:\s*captainGameName\.trim\(\),\s*captainGameUid:\s*captainGameUid\.trim\(\),\s*teamName,\s*members,\s*\}\);[\s\S]*?await onSubmit\(editing \? \{ \.\.\.payload, expectedTeam \} : payload\)/,
   );
 });
 
@@ -460,6 +467,21 @@ test("a failed team edit explains that saved details are unchanged and attempted
   assert.match(joinFormSource, /onPress=\{onCancel\}[\s\S]*?testID="join-form-cancel"/);
 });
 
+test("a stale team edit shows the latest saved team and keeps the current form values for an explicit retry", () => {
+  assert.match(joinFormSource, /responseData\?\.code === 'STALE_TEAM_EDIT'/);
+  assert.match(joinFormSource, /setStaleTeam\(responseData\.latestTeam\)/);
+  assert.match(joinFormSource, /Your form values are still here/);
+  assert.match(joinFormSource, /testID="join-form-stale-team"/);
+  assert.match(joinFormSource, /LATEST SAVED TEAM/);
+  assert.match(joinFormSource, /title="KEEP MY EDITS AND CONTINUE"/);
+  assert.match(joinFormSource, /setExpectedTeam\(staleTeam\);[\s\S]*?setStaleTeam\(null\);[\s\S]*?Save again to replace the latest saved team/);
+  assert.match(joinFormSource, /value=\{captainGameName\}/);
+  assert.match(joinFormSource, /value=\{captainGameUid\}/);
+  assert.match(joinFormSource, /value=\{teamName\}/);
+  assert.match(joinFormSource, /value=\{member\.name\}/);
+  assert.match(joinFormSource, /editing \? \{ \.\.\.payload, expectedTeam \} : payload/);
+});
+
 test("optional teammate UIDs may be blank, while duplicate UIDs identify both conflicting fields", () => {
   assert.equal(validateJoinForm(validJoinForm({
     members: [
@@ -648,6 +670,37 @@ test("JoinForm values remain distinct in the submitted form and registration API
         { name: "First Teammate", uid: "teammate-uid-202" },
         { name: "Second Teammate" },
       ],
+    },
+  }]);
+});
+
+test("team-edit requests include the saved snapshot used for stale-edit detection", async () => {
+  teamEditRequests.length = 0;
+  const expectedTeam = {
+    captainGameName: "Saved Captain",
+    captainGameUid: "captain-uid-101",
+    teamName: "Saved Squad",
+    teammates: [{ name: "Saved Teammate", uid: "teammate-uid-202" }],
+  };
+  await Api.updateRegistrationTeam("registration-test", {
+    captainGameName: "Edited Captain",
+    gameUid: "captain-uid-303",
+    teamName: "Edited Squad",
+    teamMembers: JSON.stringify([
+      { name: "Edited Captain", uid: "captain-uid-303" },
+      { name: "Edited Teammate", uid: "teammate-uid-404" },
+    ]),
+    expectedTeam,
+  });
+
+  assert.deepEqual(teamEditRequests, [{
+    path: "/my/registrations/registration-test/team",
+    body: {
+      captainGameName: "Edited Captain",
+      captainGameUid: "captain-uid-303",
+      teamName: "Edited Squad",
+      teammates: [{ name: "Edited Teammate", uid: "teammate-uid-404" }],
+      expectedTeam,
     },
   }]);
 });

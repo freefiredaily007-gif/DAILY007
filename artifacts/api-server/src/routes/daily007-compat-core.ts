@@ -1063,11 +1063,17 @@ type TeamEditPayload = {
   teamName: string;
   teammates: EditableTeammate[];
 };
+type TeamEditSnapshot = {
+  captainGameName: string;
+  captainGameUid: string;
+  teamName: string;
+  teammates: { name: string; uid: string }[];
+};
 
 export function parseTeamEditPayload(body: Record<string, unknown>, teamSize: number): {
   payload?: TeamEditPayload; error?: string;
 } {
-  const allowed = ["captainGameName", "captainGameUid", "teamName", "teammates"];
+  const allowed = ["captainGameName", "captainGameUid", "teamName", "teammates", "expectedTeam"];
   if (Object.keys(body).some((key) => !allowed.includes(key))) {
     return { error: "Only game name, game UID, team name, and teammate details can be changed." };
   }
@@ -1101,6 +1107,38 @@ export function parseTeamEditPayload(body: Record<string, unknown>, teamSize: nu
     return { error: "Each player in the registration must have a different game UID." };
   }
   return { payload: { captainGameName, captainGameUid, teamName, teammates } };
+}
+
+function parseExpectedTeamSnapshot(value: unknown, teamSize: number): TeamEditSnapshot | null {
+  if (!record(value) ||
+      typeof value.captainGameName !== "string" ||
+      typeof value.captainGameUid !== "string" ||
+      typeof value.teamName !== "string" ||
+      !Array.isArray(value.teammates) ||
+      value.teammates.length !== teamSize - 1) {
+    return null;
+  }
+  const teammates: TeamEditSnapshot["teammates"] = [];
+  for (const raw of value.teammates) {
+    if (!record(raw) || typeof raw.name !== "string" || typeof raw.uid !== "string") return null;
+    teammates.push({ name: raw.name, uid: raw.uid });
+  }
+  return {
+    captainGameName: value.captainGameName,
+    captainGameUid: value.captainGameUid,
+    teamName: value.teamName,
+    teammates,
+  };
+}
+
+function sameTeamEditSnapshot(left: TeamEditSnapshot, right: TeamEditSnapshot): boolean {
+  return left.captainGameName === right.captainGameName &&
+    left.captainGameUid === right.captainGameUid &&
+    left.teamName === right.teamName &&
+    left.teammates.length === right.teammates.length &&
+    left.teammates.every((member, index) =>
+      member.name === right.teammates[index]?.name &&
+      member.uid === right.teammates[index]?.uid);
 }
 
 router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promise<void> => {
@@ -1140,8 +1178,10 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     if (!accountResult.rows[0]) return { kind: "missing" as const };
     if (accountResult.rows[0].status === "blocked") return { kind: "blocked" as const };
 
-    const registrationResult = await client.query<{ id: string; status: string }>(
-      `SELECT id, status FROM daily007_v2_registrations
+    const registrationResult = await client.query<{
+      id: string; status: string; captain_game_name: string; captain_game_uid: string; team_name: string;
+    }>(
+      `SELECT id, status, captain_game_name, captain_game_uid, team_name FROM daily007_v2_registrations
         WHERE id = $1 AND match_id = $2 AND captain_user_id = $3
         FOR UPDATE`,
       [registrationId, match.id, account.id],
@@ -1168,7 +1208,31 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     }
     const parsed = parseTeamEditPayload(req.body as Record<string, unknown>, mode.teamSize);
     if (!parsed.payload) return { kind: "invalid" as const, error: parsed.error || "Team details are invalid." };
+    const expectedTeam = parseExpectedTeamSnapshot(req.body.expectedTeam, mode.teamSize);
+    if (!expectedTeam) {
+      return {
+        kind: "invalid" as const,
+        error: "This app cannot confirm the saved team version. Update Daily007 before editing this team.",
+      };
+    }
     const { captainGameName, captainGameUid, teamName, teammates } = parsed.payload;
+    const currentRoster = await client.query<{ member_name: string; member_uid: string | null }>(
+      `SELECT member_name, member_uid FROM daily007_v2_roster
+        WHERE registration_id = $1 ORDER BY position`,
+      [registrationId],
+    );
+    const latestTeam: TeamEditSnapshot = {
+      captainGameName: registration.captain_game_name,
+      captainGameUid: registration.captain_game_uid,
+      teamName: registration.team_name,
+      teammates: Array.from({ length: mode.teamSize - 1 }, (_, index) => {
+        const member = currentRoster.rows[index];
+        return { name: member?.member_name ?? "", uid: member?.member_uid ?? "" };
+      }),
+    };
+    if (!sameTeamEditSnapshot(expectedTeam, latestTeam)) {
+      return { kind: "stale" as const, latestTeam };
+    }
     const submittedUids = [captainGameUid, ...teammates.flatMap((member) => member.uid ? [member.uid] : [])]
       .map((uid) => uid.toLowerCase());
     const duplicate = await client.query<{ id: string }>(
@@ -1222,6 +1286,14 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
   }
   if (outcome.kind === "invalid") return fail(res, 400, outcome.error);
   if (outcome.kind === "duplicate") return fail(res, 409, "A player game UID is already registered for this tournament.");
+  if (outcome.kind === "stale") {
+    res.status(409).json({
+      error: "This team was updated elsewhere. Review the latest saved team before choosing how to continue.",
+      code: "STALE_TEAM_EDIT",
+      latestTeam: outcome.latestTeam,
+    });
+    return;
+  }
   res.json({ success: true, data: { registrationId, status: outcome.status, updated: true } });
 });
 

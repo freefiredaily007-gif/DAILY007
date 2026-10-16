@@ -438,7 +438,18 @@ export const Api = {
     }));
   },
   updateRegistrationTeam: (registrationId: string, b: object) => {
-    const payload = b as { captainGameName?: string; gameUid?: string; teamName?: string; teamMembers?: string };
+    const payload = b as {
+      captainGameName?: string;
+      gameUid?: string;
+      teamName?: string;
+      teamMembers?: string;
+      expectedTeam?: {
+        captainGameName: string;
+        captainGameUid: string;
+        teamName: string;
+        teammates: { name: string; uid: string }[];
+      };
+    };
     let members: { name?: string; uid?: string }[] = [];
     try {
       members = payload.teamMembers ? JSON.parse(payload.teamMembers) : [];
@@ -455,6 +466,7 @@ export const Api = {
         name: String(member.name ?? '').trim(),
         ...(String(member.uid ?? '').trim() ? { uid: String(member.uid).trim() } : {}),
       })),
+      expectedTeam: payload.expectedTeam,
     }));
   },
   // wallet

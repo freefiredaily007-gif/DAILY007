@@ -54,6 +54,8 @@ type RegistrationResponse = {
   body: Record<string, unknown>;
 };
 
+const teamEditSnapshots = new Map<string, TeamEditPayload>();
+
 type DatabaseSnapshot = {
   profile: { id: string; name: string; wallet_coins: number } | undefined;
   registration: {
@@ -223,7 +225,16 @@ async function registerTeam(
       }),
     },
   );
-  return { status: response.status, body: await response.json() as Record<string, unknown> };
+  const result = { status: response.status, body: await response.json() as Record<string, unknown> };
+  if (result.status === 201 && typeof result.body.registrationId === "string") {
+    teamEditSnapshots.set(result.body.registrationId, {
+      captainGameName: fixture.captainGameName,
+      captainGameUid: fixture.captainGameUid,
+      teamName: fixture.teamName,
+      teammates: fixture.teammates,
+    });
+  }
+  return result;
 }
 
 async function editTeam(
@@ -240,16 +251,34 @@ async function editTeam(
       { name: "Updated Mate West", uid: `ff-${randomUUID()}` },
     ],
   },
+  omitExpectedTeam = false,
 ): Promise<RegistrationResponse> {
+  const expectedTeam = teamEditSnapshots.get(registrationId);
+  assert.ok(expectedTeam, "The registration's saved team must be known before editing.");
+  const attemptedTeam = payload ?? {
+    captainGameName: "Updated Fire Captain",
+    captainGameUid: `ff-${randomUUID()}`,
+    teamName: "Updated Fire Squad",
+    teammates: [
+      { name: "Updated Mate North", uid: `ff-${randomUUID()}` },
+      { name: "Updated Mate East", uid: `ff-${randomUUID()}` },
+      { name: "Updated Mate West", uid: `ff-${randomUUID()}` },
+    ],
+  };
   const response = await fetch(`${origin}/my/registrations/${registrationId}/team`, {
     method: "PATCH",
     headers: authHeaders(playerId),
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...attemptedTeam,
+      ...(omitExpectedTeam ? {} : { expectedTeam }),
+    }),
   });
-  return {
+  const result = {
     status: response.status,
     body: await response.json().catch(() => ({})) as Record<string, unknown>,
   };
+  if (result.status === 200) teamEditSnapshots.set(registrationId, attemptedTeam);
+  return result;
 }
 
 async function waitForBlockedRequest(
@@ -524,9 +553,16 @@ test("concurrent PostgreSQL team edits keep captain and teammate details from on
       const results = await Promise.all(edits);
       assert.deepEqual(
         results.map((result) => result.status),
-        [200, 200],
-        `both valid team edits should succeed: ${JSON.stringify(results.map((result) => result.body))}`,
+        [200, 409],
+        `the first edit should save and the stale edit should require review: ${JSON.stringify(results.map((result) => result.body))}`,
       );
+      assert.equal(results[1]?.body.code, "STALE_TEAM_EDIT");
+      assert.deepEqual(results[1]?.body.latestTeam, {
+        captainGameName: firstEdit.captainGameName,
+        captainGameUid: firstEdit.captainGameUid,
+        teamName: firstEdit.teamName,
+        teammates: firstEdit.teammates,
+      });
 
       const after = await snapshot(fixture, registrationId);
       const savedTeam = {
@@ -541,10 +577,10 @@ test("concurrent PostgreSQL team edits keep captain and teammate details from on
         teamName: edit.teamName,
         teammates: edit.teammates,
       });
-      assert.ok(
-        JSON.stringify(savedTeam) === JSON.stringify(asSavedShape(firstEdit)) ||
-          JSON.stringify(savedTeam) === JSON.stringify(asSavedShape(secondEdit)),
-        `fresh reads must contain one complete edit, not mixed captain and teammate details: ${JSON.stringify(savedTeam)}`,
+      assert.deepEqual(
+        savedTeam,
+        asSavedShape(firstEdit),
+        `the stale second edit must not replace the first complete edit: ${JSON.stringify(savedTeam)}`,
       );
       assert.equal(after.profile?.name, fixture.profileName);
       assert.equal(after.profile?.wallet_coins, STARTING_WALLET_COINS - ENTRY_COINS);
@@ -556,6 +592,30 @@ test("concurrent PostgreSQL team edits keep captain and teammate details from on
     if (blockerTransactionOpen && blocker) await blocker.query("ROLLBACK");
     await Promise.allSettled(edits);
     blocker?.release();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a team edit without its saved snapshot is rejected without changing the roster", async () => {
+  const fixture = await createFixture();
+  let registrationId: string | undefined;
+  try {
+    await withServer(async (origin) => {
+      const registered = await registerTeam(origin, fixture);
+      assert.equal(registered.status, 201);
+      assert.equal(typeof registered.body.registrationId, "string");
+      registrationId = registered.body.registrationId as string;
+      const before = await snapshot(fixture, registrationId);
+
+      const rejected = await editTeam(origin, fixture.playerId, registrationId, undefined, true);
+      assert.equal(rejected.status, 400);
+      assert.match(
+        String(rejected.body.error),
+        /Update Daily007 before editing this team/,
+      );
+      assert.deepEqual(await snapshot(fixture, registrationId), before);
+    });
+  } finally {
     await cleanupFixture(fixture);
   }
 });
