@@ -32,8 +32,8 @@ const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year"
 const requestedScreen = previewParams.get("screen") ?? "Home";
 const dateSurfaceDateOnly = dateSurfaceScenario === "date-only";
 const dateSurfaceFormatterTimestamp = dateSurfaceScenario.startsWith("timestamp-");
-const dateSurfaceDate = dateSurfaceFormatterTimestamp
-  ? previewParams.get("ist-date-value") ?? ""
+const dateSurfaceDate = dateSurfaceFormatterTimestamp || dateSurfaceDateOnly
+  ? previewParams.get("ist-date-value") ?? (dateSurfaceDateOnly ? "2030-01-01" : "")
   : dateSurfaceScenario === "positive-offset"
     ? "2029-12-31"
     : "2030-01-01";

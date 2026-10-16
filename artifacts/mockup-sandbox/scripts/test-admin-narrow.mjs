@@ -8584,6 +8584,15 @@ async function checkIstDateSurfaces(port) {
       dateValue: timestampAtIstNewYear(currentIstYear - 1),
     },
     {
+      id: "timestamp-previous-ist-year",
+      surfaces: ["MyMatches", "TDetail"],
+      timezoneIds: ["America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"],
+      date: `01 JAN ${currentIstYear - 1}`,
+      homeDate: "01 JAN",
+      time: "12:15 AM IST",
+      dateValue: timestampAtIstNewYear(currentIstYear - 2),
+    },
+    {
       id: "timestamp-next-ist-year",
       surfaces: ["MyMatches", "TDetail"],
       timezoneIds: ["America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"],
@@ -8602,9 +8611,10 @@ async function checkIstDateSurfaces(port) {
     {
       id: "date-only",
       timezoneIds: ["America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"],
-      date: "01 JAN 2030",
+      date: `01 JAN ${currentIstYear + 1}`,
       homeDate: "01 JAN",
       time: "12:15 AM IST",
+      dateValue: `${currentIstYear + 1}-01-01`,
     },
   ];
 
@@ -9351,7 +9361,7 @@ try {
         newBrowserErrors.length === 0,
         `New browser errors during IST date surface checks: ${newBrowserErrors.join(" | ")}`,
       );
-      console.log("PASS — Home, My Matches, and tournament details preserve dates across Los Angeles, Kolkata, and Pacific/Kiritimati; date-only tournaments stay Upcoming across local midnight.");
+      console.log("PASS — IST dates stay identical across Los Angeles, Kolkata, and Pacific/Kiritimati; New Year timestamps include the IST year only when it differs from the current IST year.");
     } else if (keyboardFormsOnly) {
       await checkWalletAndProfileKeyboard();
       assert(browserErrors.length === 0, `Browser errors during keyboard form checks: ${browserErrors.join(" | ")}`);
