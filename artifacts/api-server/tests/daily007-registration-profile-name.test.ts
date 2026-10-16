@@ -42,6 +42,14 @@ const FORMULA_TEAMMATE_NAMES = [
   "=HYPERLINK(\"https://example.test\", \"mate\")",
   "+5+6",
 ] as const;
+const FULLWIDTH_FORMULA_PROFILE_NAME = "＝HYPERLINK(\"https://example.test\", \"captain\")";
+const FULLWIDTH_FORMULA_CAPTAIN_GAME_NAME = "＋SUM(1,2)";
+const FULLWIDTH_FORMULA_TEAM_NAME = "－1+2";
+const FULLWIDTH_FORMULA_TEAMMATE_NAMES = [
+  "＠SUM(3,4)",
+  "＝HYPERLINK(\"https://example.test\", \"mate\")",
+  "＋5+6",
+] as const;
 const FORMULA_CAPTAIN_GAME_UID = "=CAPTAIN-UID";
 const FORMULA_CAPTAIN_EMAIL = "+captain@example.test";
 const FORMULA_TEAMMATE_GAME_UIDS = [
@@ -1245,6 +1253,59 @@ test("admin registration CSV apostrophe-guards formula-like captain, team, and t
           values[index],
           `'${formulaValue}`,
           `${column} should retain the apostrophe guard before its formula marker`,
+        );
+      }
+    });
+  } finally {
+    registrationProfileTestDb.reset();
+  }
+});
+
+test("admin registration CSV apostrophe-guards full-width formula starters in names", async () => {
+  registrationProfileTestDb.reset();
+  try {
+    registrationProfileTestDb.addOtherRegistration("approved");
+    const registration = registrationProfileTestDb.registrations[0];
+    assert.ok(registration);
+    registration.captain_name = FULLWIDTH_FORMULA_PROFILE_NAME;
+    registration.captain_game_name = FULLWIDTH_FORMULA_CAPTAIN_GAME_NAME;
+    registration.team_name = FULLWIDTH_FORMULA_TEAM_NAME;
+    registrationProfileTestDb.roster.forEach((member, index) => {
+      member.member_name = FULLWIDTH_FORMULA_TEAMMATE_NAMES[index];
+    });
+
+    await withServer(async (origin) => {
+      const adminToken = makeToken(TEST_TOURNAMENT_ADMIN_ID, 0);
+      assert.ok(adminToken);
+      const csvResponse = await getWithToken(
+        origin,
+        `/daily007/v2/admin/matches/${TEST_MATCH_ID}/registrations.csv`,
+        adminToken,
+      );
+      assert.equal(csvResponse.status, 200);
+
+      const records = parseCsvDocument(await csvResponse.text());
+      assert.equal(records.length, 2);
+      const [headers, values] = records;
+      assert.ok(headers);
+      assert.ok(values);
+      assert.equal(values.length, headers.length);
+
+      const expectedFormulaCells: Record<string, string> = {
+        captain_profile_name: FULLWIDTH_FORMULA_PROFILE_NAME,
+        captain_game_name: FULLWIDTH_FORMULA_CAPTAIN_GAME_NAME,
+        team_name: FULLWIDTH_FORMULA_TEAM_NAME,
+        teammate_1_name: FULLWIDTH_FORMULA_TEAMMATE_NAMES[0],
+        teammate_2_name: FULLWIDTH_FORMULA_TEAMMATE_NAMES[1],
+        teammate_3_name: FULLWIDTH_FORMULA_TEAMMATE_NAMES[2],
+      };
+      for (const [column, formulaValue] of Object.entries(expectedFormulaCells)) {
+        const index = headers.indexOf(column);
+        assert.notEqual(index, -1, `CSV header should include ${column}`);
+        assert.equal(
+          values[index],
+          `'${formulaValue}`,
+          `${column} should preserve the exact full-width formula prefix after the apostrophe`,
         );
       }
     });

@@ -40,3 +40,9 @@ Keep isolated PostgreSQL fixtures faithful to production defaults for columns th
 **Why:** An API path may rely on a database-generated value such as a registration ID; a missing fixture default can produce a generic 500 after the lock behavior itself is correct.
 
 **How to apply:** Compare each route insert with the fixture schema and production defaults, including generated IDs and constraints used by the operation.
+
+When a fixture helper returns seeded rows for later edits, verify whether it returns live objects or clones; mutate the stored rows that route queries read.
+
+**Why:** Editing a returned snapshot can leave the fixture unchanged, causing route assertions to inspect stale values.
+
+**How to apply:** After seeding, update the in-memory fixture collections directly unless the helper documents live-object semantics.
