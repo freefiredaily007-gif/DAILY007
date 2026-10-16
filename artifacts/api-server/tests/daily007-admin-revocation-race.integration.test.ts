@@ -502,6 +502,139 @@ test("an in-flight admin mutation commits before demotion, and later mutations a
   }
 });
 
+test("concurrent Full Admin wallet adjustments preserve both changes and ledger balances", async () => {
+  const firstAdminId = randomUUID();
+  const secondAdminId = randomUUID();
+  const targetId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let transactionHeld = false;
+  let firstAdjustmentPromise: Promise<JsonResponse> | undefined;
+  let secondAdjustmentPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'First Wallet Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Second Wallet Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Concurrent Wallet Target', $6, 'test-salt', 'test-hash', 'user', 100)`,
+      [
+        firstAdminId,
+        `concurrent-wallet-admin-${firstAdminId}@example.test`,
+        secondAdminId,
+        `concurrent-wallet-admin-${secondAdminId}@example.test`,
+        targetId,
+        `concurrent-wallet-target-${targetId}@example.test`,
+      ],
+    );
+
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    transactionHeld = true;
+    await blocker.query(
+      "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+      [targetId],
+    );
+
+    await withServer(async (origin) => {
+      try {
+        firstAdjustmentPromise = patchJson(origin, `/admin/users/${targetId}`, firstAdminId, {
+          coinsDelta: 17,
+          reason: "first concurrent adjustment",
+          requestId: randomUUID(),
+        });
+        secondAdjustmentPromise = patchJson(origin, `/admin/users/${targetId}`, secondAdminId, {
+          coinsDelta: 29,
+          reason: "second concurrent adjustment",
+          requestId: randomUUID(),
+        });
+
+        await waitForBlockedQueryCountBy(
+          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "daily007_v2_users",
+          2,
+          "both admin adjustments to queue on the player's wallet row",
+        );
+
+        await blocker!.query("COMMIT");
+        transactionHeld = false;
+
+        const [firstAdjustment, secondAdjustment] = await Promise.all([
+          firstAdjustmentPromise,
+          secondAdjustmentPromise,
+        ]);
+        assert.equal(firstAdjustment.status, 200, JSON.stringify(firstAdjustment.body));
+        assert.equal(secondAdjustment.status, 200, JSON.stringify(secondAdjustment.body));
+
+        const entries = await pool.query<{
+          amount: number;
+          balance_after: number;
+          reason: string;
+        }>(
+          `SELECT amount, balance_after, reason
+             FROM daily007_v2_wallet_ledger
+            WHERE user_id = $1
+            ORDER BY balance_after`,
+          [targetId],
+        );
+        assert.equal(entries.rows.length, 2);
+        assert.deepEqual(
+          entries.rows.map(({ amount, balance_after, reason }) => ({
+            amount,
+            balance_after,
+            reason,
+          })),
+          entries.rows[0]?.amount === 17
+            ? [
+                { amount: 17, balance_after: 117, reason: "admin_adjustment:first concurrent adjustment" },
+                { amount: 29, balance_after: 146, reason: "admin_adjustment:second concurrent adjustment" },
+              ]
+            : [
+                { amount: 29, balance_after: 129, reason: "admin_adjustment:second concurrent adjustment" },
+                { amount: 17, balance_after: 146, reason: "admin_adjustment:first concurrent adjustment" },
+              ],
+        );
+        assert.equal(firstAdjustment.body.coins, entries.rows.find(
+          ({ reason }) => reason === "admin_adjustment:first concurrent adjustment",
+        )?.balance_after);
+        assert.equal(secondAdjustment.body.coins, entries.rows.find(
+          ({ reason }) => reason === "admin_adjustment:second concurrent adjustment",
+        )?.balance_after);
+      } finally {
+        if (transactionHeld) {
+          await blocker!.query("ROLLBACK").catch(() => undefined);
+          transactionHeld = false;
+        }
+      }
+    });
+
+    const target = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [targetId],
+    );
+    assert.equal(target.rows[0]?.wallet_coins, 146);
+  } finally {
+    if (transactionHeld && blocker) {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      transactionHeld = false;
+    }
+    blocker?.release();
+    if (firstAdjustmentPromise || secondAdjustmentPromise) {
+      await Promise.allSettled(
+        [firstAdjustmentPromise, secondAdjustmentPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [targetId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[firstAdminId, secondAdminId, targetId]],
+    );
+  }
+});
+
 test("a retry after a lost admin coin-adjustment response does not repeat the credit", async () => {
   const actorId = randomUUID();
   const targetId = randomUUID();
