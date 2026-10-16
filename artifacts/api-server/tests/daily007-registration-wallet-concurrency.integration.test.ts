@@ -534,6 +534,37 @@ async function runAfterAuthenticationBlockRace(
   }
 }
 
+function pauseNextTransactionConnectionAfterAuthentication() {
+  let signalReached!: () => void;
+  let releaseConnection!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    signalReached = resolve;
+  });
+  const connectionGate = new Promise<void>((resolve) => {
+    releaseConnection = resolve;
+  });
+  const originalConnect = pool.connect;
+  const boundOriginalConnect = originalConnect.bind(pool);
+  let paused = false;
+
+  pool.connect = ((...args: unknown[]) => {
+    if (!paused && args.length === 0) {
+      paused = true;
+      signalReached();
+      return connectionGate.then(() => boundOriginalConnect());
+    }
+    return Reflect.apply(boundOriginalConnect, undefined, args);
+  }) as unknown as typeof pool.connect;
+
+  return {
+    reached,
+    release: releaseConnection,
+    restore: () => {
+      pool.connect = originalConnect;
+    },
+  };
+}
+
 async function readBlockedRaceState(fixture: WalletRaceFixture, matchId: string) {
   const [account, registrations, roster, ledger] = await Promise.all([
     pool.query<{ status: string; wallet_coins: number }>(
@@ -600,6 +631,101 @@ test("a registration authenticated before an account block cannot commit afterwa
         ...before,
         account: [{ status: "blocked", wallet_coins: fixture.startingWalletCoins }],
       });
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a blocked retry cannot return an existing registration after authentication", async () => {
+  const fixture = await createFixture("duo");
+  try {
+    await withServer(async (origin) => {
+      const matchId = fixture.matchIds[0];
+      const initialTeam = {
+        teamName: fixture.teamNames[0],
+        teammates: fixture.teammates[0],
+      };
+      const created = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        initialTeam,
+      );
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      assert.equal(created.body.alreadyRegistered, false);
+
+      const before = await readBlockedRaceState(fixture, matchId);
+      assert.equal(before.account[0]?.status, "active");
+      assert.equal(before.registrations.length, 1);
+      assert.equal(before.registrations[0]?.id, created.body.registrationId);
+      assert.equal(before.roster.length, fixture.teammates[0].length);
+      assert.equal(before.ledger.length, 1);
+
+      const blocker = await pool.connect();
+      let blockTransactionOpen = false;
+      let retry: Promise<RegistrationResponse> | undefined;
+      const connectionPause = pauseNextTransactionConnectionAfterAuthentication();
+      try {
+        await blocker.query("BEGIN");
+        blockTransactionOpen = true;
+        const blockUpdate = await blocker.query(
+          "UPDATE daily007_v2_users SET status = 'blocked' WHERE id = $1",
+          [fixture.userId],
+        );
+        assert.equal(blockUpdate.rowCount, 1);
+
+        retry = registerForMatch(
+          origin,
+          fixture.userId,
+          matchId,
+          fixture.gameUids[1],
+          {
+            teamName: fixture.teamNames[1],
+            teammates: fixture.teammates[1],
+          },
+          "Changed Retry Captain",
+        );
+
+        let gateTimeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            connectionPause.reached,
+            new Promise<never>((_resolve, reject) => {
+              gateTimeout = setTimeout(
+                () => reject(new Error("The retry did not pass authentication and reach the pre-transaction pause.")),
+                5_000,
+              );
+            }),
+          ]);
+        } finally {
+          if (gateTimeout) clearTimeout(gateTimeout);
+        }
+
+        // Authentication observed the prior active status. Commit the block
+        // before allowing the retry to acquire its transaction connection.
+        await blocker.query("COMMIT");
+        blockTransactionOpen = false;
+        connectionPause.release();
+
+        const response = await retry;
+        assert.equal(response.status, 403, JSON.stringify(response.body));
+        assert.deepEqual(response.body, { error: "This account is blocked." });
+        assert.deepEqual(await readBlockedRaceState(fixture, matchId), {
+          ...before,
+          account: [{
+            status: "blocked",
+            wallet_coins: fixture.startingWalletCoins - fixture.entryCoins[0],
+          }],
+        }, "the retry must not change the existing registration, roster, wallet, or ledger");
+      } finally {
+        if (blockTransactionOpen) await blocker.query("ROLLBACK");
+        connectionPause.release();
+        connectionPause.restore();
+        if (retry) await Promise.allSettled([retry]);
+        blocker.release();
+      }
     });
   } finally {
     await cleanupFixture(fixture);
