@@ -413,6 +413,29 @@ test('the standalone Results screen shows an accessible empty state only after a
   );
 });
 
+test('upcoming Results actions explain when result entry becomes available without changing other actions', () => {
+  const action = resultsSource.match(
+    /<Btn\s+title=\{lifecycle === 'completed' \? 'ADD PLACEMENT →' : lifecycle === 'ongoing' \? 'ADD RESULT →' : 'WAIT FOR START'\}[\s\S]*?onPress=\{\(\) => open\(t\)\}\s*\/>/,
+  )?.[0];
+
+  assert.ok(action, 'Each tournament must keep its existing result action.');
+  assert.match(
+    action,
+    /accessibilityHint=\{lifecycle === 'upcoming' \? 'Results can be entered after the scheduled start\.' : undefined\}/,
+    'TalkBack should explain why result entry is unavailable for an upcoming tournament.',
+  );
+  assert.match(
+    action,
+    /disabled=\{lifecycle !== 'ongoing' && lifecycle !== 'completed'\}/,
+    'Only ongoing and completed tournament actions should remain enabled.',
+  );
+  assert.match(
+    action,
+    /title=\{lifecycle === 'completed' \? 'ADD PLACEMENT →' : lifecycle === 'ongoing' \? 'ADD RESULT →' : 'WAIT FOR START'\}/,
+    'Ongoing, completed, and upcoming action labels should remain unchanged.',
+  );
+});
+
 test('the shared Msg forwards live-region semantics without replacing its existing text styling', () => {
   assert.match(uiSource, /accessibilityLiveRegion\?: 'none' \| 'polite' \| 'assertive';/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);

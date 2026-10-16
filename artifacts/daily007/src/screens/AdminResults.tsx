@@ -234,6 +234,7 @@ export default function AdminResults({
                 title={lifecycle === 'completed' ? 'ADD PLACEMENT →' : lifecycle === 'ongoing' ? 'ADD RESULT →' : 'WAIT FOR START'}
                 small
                 kind="ghost"
+                accessibilityHint={lifecycle === 'upcoming' ? 'Results can be entered after the scheduled start.' : undefined}
                 disabled={lifecycle !== 'ongoing' && lifecycle !== 'completed'}
                 onPress={() => open(t)}
               />
