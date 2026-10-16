@@ -1,0 +1,178 @@
+DAILY007 — COMPLETE BATTLE ROYALE SQUAD JOIN SYSTEM REDESIGN
+
+Act as a senior full-stack developer. Modify my existing Free Fire Daily007 tournament application. Replace the current Battle Royale Squad Registration system with a proper 48-player slot system containing 12 independent teams of 4 players each.
+
+IMPORTANT: Update the existing application, backend, database, APIs, and UI. Do not create a separate demo page, mockup, or duplicate application. Preserve the existing authentication, wallet, coin balance, tournament management, admin panel, and other tournament modes.
+
+1. TOURNAMENT STRUCTURE
+
+- Total capacity: 48 individual players.
+- Total teams: 12.
+- Each team has exactly 4 player slots.
+- Display 12 separate team cards.
+- Each team card contains 4 clearly visible player slots.
+- Display overall availability: "00/48 Players Joined" and "00/12 Teams Full".
+- Every player can join independently using their own account and wallet coins.
+- Remove the old captain-pays-once-for-the-whole-team registration logic.
+- Do not require a user to register all 4 players together.
+
+2. PLAYER JOIN SYSTEM
+
+Every authenticated user can select any available slot in any team and join individually.
+
+When a player selects an empty slot:
+
+1. Display the tournament entry fee in coins.
+2. Show the selected team number and slot number.
+3. Ask for confirmation before deducting coins.
+4. Verify wallet balance on the server.
+5. Deduct the entry fee from that player's wallet only.
+6. Record the transaction in the wallet ledger.
+7. Assign the player to the selected slot atomically.
+8. Refresh the team card and available player count.
+
+Example: If the entry fee is 10 coins, four different players can independently join Team 1 by paying 10 coins each. The team receives four players, and each player's wallet is charged only 10 coins.
+
+If the entry fee is zero, joining must not deduct coins.
+
+Prevent duplicate registrations, double charges, concurrent slot conflicts, and joining when the tournament is full or closed. If registration fails, ensure the player is not charged. Use database transactions or equivalent reliable atomic operations.
+
+3. TEAM CAPTAIN SYSTEM
+
+- The first player who successfully joins an empty team automatically becomes that team's Captain.
+- Display a clear "CAPTAIN" badge beside their name.
+- The Captain occupies one of the four player slots.
+- The other three players can join the remaining available slots independently.
+- A team must never have more than one active Captain.
+- Store captain status in the database, not just in the UI.
+
+The Captain must be able to remove a teammate from their own team before the tournament registration lock time.
+
+When the Captain selects a teammate's Remove option:
+
+1. Display a confirmation dialog.
+2. Verify on the server that the requester is the current Captain of that team.
+3. Verify that the tournament registration is still open.
+4. Remove only the selected teammate from that team.
+5. Release the player's slot for another player.
+6. Update the team count and available slots immediately.
+
+IMPORTANT: The Captain cannot remove themselves using the teammate removal action. The Captain cannot remove players from another team. Regular teammates cannot remove other players.
+
+Removing a teammate must NOT automatically refund coins. Keep the entry fee charged unless the existing, explicitly configured tournament refund policy requires otherwise. Clearly communicate the policy before removal.
+
+If the Captain leaves voluntarily or their registration is cancelled, transfer Captain status to an eligible remaining teammate automatically. If no teammates remain, the next player who joins becomes Captain.
+
+4. TEAM UI DESIGN
+
+Replace the existing full-team registration form with a modern, mobile-friendly team selection screen.
+
+Example layout:
+
+BATTLE ROYALE — SQUAD
+
+Entry Fee: 10 Coins per Player
+
+Players Joined: 17/48
+Teams Full: 3/12
+Available Slots: 31/48
+
+TEAM 01 — 3/4 PLAYERS
+
+- Player 1 — CAPTAIN — Mahavir — Remove (Captain only)
+- Player 2 — Rahul — Remove (Captain only)
+- Player 3 — Available Slot — JOIN
+- Player 4 — Available Slot — JOIN
+
+TEAM 02 — 2/4 PLAYERS
+
+- Player 1 — CAPTAIN — Available username
+- Player 2 — Available username
+- Player 3 — Available Slot — JOIN
+- Player 4 — Available Slot — JOIN
+
+Repeat the same design for all 12 teams.
+
+Show occupied slots with the player's in-game name and UID when appropriate. Show empty slots with a Join button. Show Full when all four slots are occupied.
+
+Only the Captain should see Remove controls for eligible teammates. Each player should see the appropriate Join or Already Joined status.
+
+Use the existing Daily007 dark gaming theme with attractive yellow and blue accents. Make the layout responsive for Android mobile screens.
+
+5. DATABASE AND BACKEND
+
+Inspect the current database schema before making changes.
+
+Implement or migrate the data model to support:
+
+- Tournament ID
+- Team ID and team number
+- Player account ID
+- Player Free Fire in-game name
+- Player Free Fire UID
+- Slot number (1–4)
+- Captain status
+- Registration status
+- Entry fee charged
+- Wallet transaction reference
+- Registration timestamp
+- Removal/cancellation status and audit history
+
+Enforce unique constraints so:
+
+- A player cannot register more than once in the same tournament.
+- A team cannot have more than four active players.
+- A team has no more than one active Captain.
+- A slot cannot contain two active players.
+- Each tournament cannot exceed 48 active players in Squad mode.
+
+Use the existing database and backend architecture. Add migrations safely without deleting existing users, wallet balances, transaction history, tournaments, or results.
+
+6. SECURITY AND COIN SAFETY
+
+All wallet deductions, slot allocation, captain permissions, and teammate removals must be validated on the backend.
+
+Never trust the frontend for wallet balances, coin prices, captain identity, player counts, or slot availability.
+
+Use atomic wallet transactions, idempotency protection, and appropriate database locking or unique constraints to prevent race conditions and duplicate deductions.
+
+Do not allow negative wallet balances. Record all deductions and relevant actions in an auditable transaction ledger.
+
+If two users attempt to claim the same slot simultaneously, only one request may succeed and only the successful player may be charged.
+
+7. ADMIN PANEL
+
+Preserve the existing admin panel and allow administrators to:
+
+- View all 12 teams and their four slots.
+- View player usernames, Free Fire names, UIDs, and Captain status.
+- View each player's entry fee and transaction reference.
+- Monitor occupied and available slots in real time.
+- Manage registration status using existing permissions.
+- View removal and cancellation audit logs.
+
+Do not let ordinary users bypass admin permissions.
+
+8. TESTING AND ACCEPTANCE CRITERIA
+
+Test all of the following before declaring the work complete:
+
+1. Twelve teams and 48 individual slots display correctly.
+2. Four separate users can independently join the same team.
+3. Each user pays their own entry fee separately.
+4. The first player joining an empty team becomes Captain.
+5. The Captain can remove a teammate before registration closes.
+6. Removed players' slots become available again.
+7. Teammates cannot remove the Captain or other teammates.
+8. Users cannot remove players from another team.
+9. No team can contain more than four active players.
+10. No tournament can contain more than 48 active Squad players.
+11. Simultaneous join requests cannot create duplicate slots or charges.
+12. Insufficient wallet balance prevents joining.
+13. Failed registration never leaves an unintended coin deduction.
+14. Existing wallet balances, transaction history, tournaments, and other game modes continue working.
+15. Existing admin controls and tournament results continue working.
+
+After implementation, report the database changes, backend/API changes, UI changes, and test results. Fix any errors before declaring completion.
+
+Do not merely provide instructions or sample code. Implement this in the existing Daily007 project and verify the complete join-and-remove workflow end to end.
