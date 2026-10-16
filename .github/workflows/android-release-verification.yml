@@ -150,6 +150,7 @@ jobs:
         run: mkdir -p android-emulator-diagnostics
 
       - name: Run Maestro flows on Android emulator
+        id: emulator_api_35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -161,7 +162,12 @@ jobs:
           # The action executes each input line in a new sh process.
           script: bash .github/scripts/android-emulator-verification.sh 35
 
+      - name: Capture Android 35 setup failure diagnostics
+        if: ${{ failure() && steps.emulator_api_35.outcome == 'failure' }}
+        run: bash .github/scripts/android-emulator-setup-diagnostics.sh 35 5554
+
       - name: Run JoinForm accessibility labels on Android 16 (API 36)
+        id: emulator_api_36
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
@@ -171,6 +177,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: bash .github/scripts/android-emulator-verification.sh 36
+
+      - name: Capture Android 36 setup failure diagnostics
+        if: ${{ failure() && steps.emulator_api_36.outcome == 'failure' }}
+        run: bash .github/scripts/android-emulator-setup-diagnostics.sh 36 5554
 
       - name: Upload Android emulator diagnostics
         if: always()

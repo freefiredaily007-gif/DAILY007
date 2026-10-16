@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,6 +8,7 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "../..");
 const workflow = await readFile(join(root, ".github/workflows/android-release-verification.yml"), "utf8");
 const commands = [...workflow.matchAll(/^ {10}script:\s*(.+)$/gm)].map((match) => match[1]);
+const setupDiagnosticsScript = join(root, ".github/scripts/android-emulator-setup-diagnostics.sh");
 
 test("each emulator action invokes one persistent Bash process, not independent input lines", () => {
   assert.deepEqual(commands, [
@@ -15,6 +16,101 @@ test("each emulator action invokes one persistent Bash process, not independent 
     "bash .github/scripts/android-emulator-verification.sh 36",
   ]);
   assert.match(workflow, /name: Upload Android emulator diagnostics\s+if: always\(\)/);
+  assert.match(workflow, /id: emulator_api_35[\s\S]*?Capture Android 35 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_35\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 35 5554/);
+  assert.match(workflow, /id: emulator_api_36[\s\S]*?Capture Android 36 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_36\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 36 5554/);
+});
+
+async function runSetupDiagnostics(api, testScriptStarted = false) {
+  const dir = await mkdtemp(join(tmpdir(), "daily007-emulator-setup-"));
+  const bin = join(dir, "bin");
+  const workspace = join(dir, "workspace");
+  const diagnostics = join(workspace, "android-emulator-diagnostics");
+  await mkdir(bin);
+  await mkdir(diagnostics, { recursive: true });
+  if (testScriptStarted) {
+    const marker = api === 36
+      ? join(diagnostics, "api-36", "runner-started.txt")
+      : join(diagnostics, "runner-started.txt");
+    await mkdir(join(marker, ".."), { recursive: true });
+    await writeFile(marker, "runner reached the test script\n");
+  }
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    GITHUB_WORKSPACE: workspace,
+    ANDROID_HOME: dir,
+  };
+  const stubs = {
+    emulator: `#!/usr/bin/env bash
+if [ "$1" = "-version" ]; then echo 'Android emulator version 35.1'; else echo 'test-avd'; fi
+`,
+    sdkmanager: `#!/usr/bin/env bash
+printf 'emulator;35.1\\nplatform-tools;35.0\\nplatforms;android-${api}\\nsystem-images;android-${api};google_apis;x86_64\\n'
+`,
+    adb: `#!/usr/bin/env bash
+case "$*" in
+  *logcat*) printf 'Authorization: Bearer sentinel-bearer\\npassword=sentinel-password\\n' ;;
+  *get-state*) echo device ;;
+  *getprop*) printf '1\\n${api}\\n' ;;
+  *) echo 'List of devices attached' ;;
+esac
+`,
+  };
+  for (const [name, content] of Object.entries(stubs)) {
+    await writeFile(join(bin, name), content, { mode: 0o755 });
+  }
+  try {
+    const result = spawnSync("bash", [setupDiagnosticsScript, String(api), "5554"], {
+      cwd: root, env, encoding: "utf8",
+    });
+    assert.ifError(result.error);
+    const setupDir = join(diagnostics, `api-${api}-setup`);
+    const fileNames = await readdir(setupDir).catch(() => []);
+    const diagnosticFiles = Object.fromEntries(await Promise.all(fileNames.map(async (file) => [
+      file, await readFile(join(setupDir, file), "utf8"),
+    ])));
+    return {
+      ...result,
+      diagnostics,
+      diagnosticFiles,
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("setup diagnostics capture boot evidence and redact credentials before artifact output", async () => {
+  const result = await runSetupDiagnostics(35);
+  assert.equal(result.status, 0, result.stderr);
+  const logcat = result.diagnosticFiles["emulator-boot-logcat.txt"];
+  assert.match(logcat, /Authorization: .*REDACTED/);
+  assert.match(logcat, /password=\[REDACTED\]/);
+  const files = Object.keys(result.diagnosticFiles);
+  assert.ok(files.includes("emulator-state.txt"));
+  assert.ok(files.includes("emulator-boot-properties.txt"));
+  assert.ok(files.includes("sdk-packages.txt"));
+  for (const file of files) {
+    const content = result.diagnosticFiles[file];
+    assert.doesNotMatch(content, /sentinel-(?:bearer|password)/);
+    assert.doesNotMatch(content, /\.raw(?:\n|$)/);
+  }
+  const context = result.diagnosticFiles["setup-context.txt"];
+  assert.match(context, /original emulator action error remains in the workflow log/);
+});
+
+test("API 36 setup failure diagnostics stay isolated to API 36", async () => {
+  const result = await runSetupDiagnostics(36);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.diagnosticFiles["emulator-boot-logcat.txt"]);
+  assert.match(result.diagnosticFiles["setup-context.txt"], /api_level=36/);
+  assert.deepEqual(Object.keys(result.diagnosticFiles).filter((file) => /api-35/.test(file)), []);
+});
+
+test("setup diagnostics are not created after the test script has started", async () => {
+  const result = await runSetupDiagnostics(36, true);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /test script started; skipping setup-only diagnostics/);
+  assert.deepEqual(result.diagnosticFiles, {});
 });
 
 async function run(api, failStage = "") {
