@@ -82,22 +82,65 @@ test("room credentials stay hidden until the five-minute refresh supplies approv
   assert.match(panelSource, /label="Room ID"[\s\S]*?label="Password"/);
 });
 
-test("room availability is announced once without exposing credentials", () => {
+test("room availability and credential replacements are announced without exposing values", () => {
   const claimAnnouncement = createRoomCredentialAvailabilityAnnouncementTracker();
-  assert.equal(claimAnnouncement("match-1", false), false);
-  assert.equal(claimAnnouncement("match-1", true), true);
-  assert.equal(claimAnnouncement("match-1", true), false, "unchanged polling must not repeat it");
-  assert.equal(claimAnnouncement("match-1", true), false, "screen re-entry must not repeat it");
-  assert.equal(claimAnnouncement("match-2", true), true, "each match can announce once");
+  assert.equal(claimAnnouncement("match-1", false, null, null), null);
+  assert.equal(
+    claimAnnouncement("match-1", false, "FAKE-ROOM-999", "FAKE-PASS-999"),
+    null,
+    "unavailable credentials must not be observed or announced",
+  );
+  assert.equal(claimAnnouncement("match-1", true, null, null), null);
+  assert.equal(
+    claimAnnouncement("match-1", true, "FAKE-ROOM-101", "FAKE-PASS-101"),
+    "available",
+  );
+  assert.equal(
+    claimAnnouncement("match-1", true, "FAKE-ROOM-101", "FAKE-PASS-101"),
+    null,
+    "unchanged polling and screen re-entry must not repeat an announcement",
+  );
+  assert.equal(claimAnnouncement("match-1", false, null, null), null);
+  assert.equal(
+    claimAnnouncement("match-1", true, "FAKE-ROOM-101", "FAKE-PASS-101"),
+    null,
+    "temporarily unavailable credentials must not reset the last authorized values",
+  );
+  assert.equal(
+    claimAnnouncement("match-1", true, "FAKE-ROOM-202", "FAKE-PASS-101"),
+    "updated",
+    "a changed Room ID must be announced once",
+  );
+  assert.equal(
+    claimAnnouncement("match-1", true, "FAKE-ROOM-202", "FAKE-PASS-101"),
+    null,
+    "the same replacement must not be announced again on later polls",
+  );
+  assert.equal(
+    claimAnnouncement("match-1", true, "FAKE-ROOM-202", "FAKE-PASS-202"),
+    "updated",
+    "a changed password must also be announced",
+  );
+  assert.equal(
+    claimAnnouncement("match-2", true, "FAKE-ROOM-303", "FAKE-PASS-303"),
+    "available",
+    "each tournament announces its first release independently",
+  );
 
-  assert.match(detailSource, /claimRoomDetailsAvailabilityAnnouncement\(tournamentId, roomCredentialsAvailable\)/);
-  assert.match(detailSource, /const announcement = 'Room details are now available\.'/);
+  assert.match(
+    detailSource,
+    /claimRoomDetailsAvailabilityAnnouncement\(\s*tournamentId,\s*roomCredentialsAvailable,\s*roomId,\s*roomPassword,?\s*\)/,
+  );
+  assert.match(detailSource, /'Room details are now available\.'/);
+  assert.match(detailSource, /'Room details have been updated\.'/);
+  assert.match(detailSource, /\[isFocused, tournamentId, roomCredentialsAvailable, roomId, roomPassword\]/);
   assert.match(detailSource, /Platform\.OS === 'ios'.*AccessibilityInfo\.announceForAccessibility\(announcement\)/);
   assert.match(detailSource, /accessibilityLiveRegion="polite"/);
+  assert.match(detailSource, /key=\{roomDetailsAnnouncementVersion\}/);
   assert.doesNotMatch(
     detailSource,
     /announcement\s*=\s*`[^`]*(?:roomId|roomPassword|Room ID|Password)/,
-    "the automatic announcement must never interpolate a credential",
+    "automatic announcements must never interpolate a credential",
   );
 });
 

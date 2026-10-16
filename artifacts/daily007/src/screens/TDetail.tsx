@@ -372,7 +372,8 @@ export default function TDetail() {
   const [retryingRegistrationStatus, setRetryingRegistrationStatus] = useState(false);
   const [retryingParticipants, setRetryingParticipants] = useState(false);
   const [participantsRetryAnnouncement, setParticipantsRetryAnnouncement] = useState('');
-  const [roomDetailsAvailabilityAnnouncement, setRoomDetailsAvailabilityAnnouncement] = useState('');
+  const [roomDetailsAnnouncement, setRoomDetailsAnnouncement] = useState('');
+  const [roomDetailsAnnouncementVersion, setRoomDetailsAnnouncementVersion] = useState<number>(0);
   const retryParticipantsInFlight = useRef(false);
   const participantsScreenFocusedRef = useRef(false);
   const participantsRetryFocusVersion = useRef(0);
@@ -406,6 +407,8 @@ export default function TDetail() {
       t?.myRegistration?.roomId,
       t?.myRegistration?.roomPassword,
     );
+  const roomId = t?.myRegistration?.roomId;
+  const roomPassword = t?.myRegistration?.roomPassword;
 
   useFocusEffect(
     useCallback(() => {
@@ -421,13 +424,21 @@ export default function TDetail() {
   );
 
   useEffect(() => {
-    if (!isFocused || !claimRoomDetailsAvailabilityAnnouncement(tournamentId, roomCredentialsAvailable)) {
-      return;
-    }
-    const announcement = 'Room details are now available.';
-    setRoomDetailsAvailabilityAnnouncement(announcement);
+    if (!isFocused) return;
+    const announcementKind = claimRoomDetailsAvailabilityAnnouncement(
+      tournamentId,
+      roomCredentialsAvailable,
+      roomId,
+      roomPassword,
+    );
+    if (!announcementKind) return;
+    const announcement = announcementKind === 'available'
+      ? 'Room details are now available.'
+      : 'Room details have been updated.';
+    setRoomDetailsAnnouncement(announcement);
+    setRoomDetailsAnnouncementVersion((version) => version + 1);
     if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(announcement);
-  }, [isFocused, tournamentId, roomCredentialsAvailable]);
+  }, [isFocused, tournamentId, roomCredentialsAvailable, roomId, roomPassword]);
 
   const load = useCallback(async () => {
     if (!id) { setLoading(false); return; }
@@ -823,15 +834,16 @@ export default function TDetail() {
 
       {canViewRoomDetails ? (
         <>
-          {roomDetailsAvailabilityAnnouncement ? (
+          {roomDetailsAnnouncement ? (
             <Text
+              key={roomDetailsAnnouncementVersion}
               accessible
               accessibilityRole="text"
               accessibilityLiveRegion="polite"
-              testID="room-details-availability-announcement"
+              testID="room-details-announcement"
               style={s.participantsRetryStatus}
             >
-              {roomDetailsAvailabilityAnnouncement}
+              {roomDetailsAnnouncement}
             </Text>
           ) : null}
           <RoomCredentialsPanel
