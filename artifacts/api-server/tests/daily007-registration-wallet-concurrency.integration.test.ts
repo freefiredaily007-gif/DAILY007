@@ -155,6 +155,31 @@ async function editTeam(
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
+
+async function blockAccount(
+  origin: string,
+  adminId: string,
+  targetId: string,
+): Promise<RegistrationResponse> {
+  const response = await fetch(`${origin}/admin/users/${targetId}`, {
+    method: "PATCH",
+    headers: authHeaders(adminId),
+    body: JSON.stringify({ status: "blocked" }),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
+async function createFullAdminActor(): Promise<string> {
+  const adminId = randomUUID();
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, role, wallet_coins)
+     VALUES ($1, 'Registration Race Admin', $2, 'test-salt', 'test-hash', 'admin', 0)`,
+    [adminId, `admin-${adminId}@example.test`],
+  );
+  return adminId;
+}
+
 async function createFixture(
   teamType: "solo" | "duo" | "squad",
   options: { entryCoins?: [number, number]; startingWalletCoins?: number } = {},
@@ -351,6 +376,45 @@ async function waitForBackendBlockedBy(
   throw new Error(`Timed out waiting for a request to block on the ${lockDescription} lock.`);
 }
 
+async function installAccountActionPause(
+  action: "registration" | "team_edit",
+  targetId: string,
+  pauseKey: bigint,
+): Promise<() => Promise<void>> {
+  const suffix = randomUUID().replace(/-/g, "");
+  const functionName = `daily007_test_pause_account_action_${suffix}`;
+  const triggerName = `daily007_test_pause_account_action_${suffix}`;
+  const event = action === "registration"
+    ? "BEFORE INSERT"
+    : "BEFORE UPDATE OF captain_game_name, captain_game_uid, team_name";
+  const targetExpression = action === "registration" ? "NEW.match_id" : "NEW.id";
+
+  await pool.query(`
+    CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+    BEGIN
+      IF ${targetExpression} = '${targetId}'::uuid THEN
+        PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  try {
+    await pool.query(`
+      CREATE TRIGGER ${triggerName}
+      ${event} ON daily007_v2_registrations
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+    `);
+  } catch (error) {
+    await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    throw error;
+  }
+  return async () => {
+    await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON daily007_v2_registrations`);
+    await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`);
+  };
+}
+
 async function installEntryFeeRacePause(
   matchId: string,
   stage: "admin_update" | "join_insert",
@@ -531,6 +595,66 @@ async function runAfterAuthenticationBlockRace(
     if (transactionOpen) await blocker.query("ROLLBACK");
     blocker.release();
     if (submission) await Promise.allSettled([submission]);
+  }
+}
+
+async function runAccountBlockAfterPlayerActionLockRace(
+  origin: string,
+  fixture: WalletRaceFixture,
+  adminId: string,
+  action: "registration" | "team_edit",
+  targetId: string,
+  request: () => Promise<RegistrationResponse>,
+): Promise<{ playerAction: RegistrationResponse; accountBlock: RegistrationResponse }> {
+  const pauseKey = BigInt(`0x${randomUUID().replace(/-/g, "").slice(0, 15)}`);
+  let dropPause: (() => Promise<void>) | undefined;
+  let pauseHolder: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let playerAction: Promise<RegistrationResponse> | undefined;
+  let accountBlock: Promise<RegistrationResponse> | undefined;
+
+  try {
+    dropPause = await installAccountActionPause(action, targetId, pauseKey);
+    pauseHolder = await pool.connect();
+    await pauseHolder.query("SELECT pg_advisory_lock($1::bigint)", [pauseKey.toString()]);
+    const pauseHolderPid = await backendPid(pauseHolder);
+
+    playerAction = request();
+    const playerActionPid = await waitForAdvisoryPausedBackend(
+      pauseKey,
+      pauseHolderPid,
+      `the ${action} after its account lock`,
+    );
+    accountBlock = blockAccount(origin, adminId, fixture.userId);
+    const blockBackendPid = await waitForBackendBlockedBy(playerActionPid, "the account block");
+    const blockedQuery = await pool.query<{ query: string; blockers: number[] }>(
+      `SELECT query, pg_blocking_pids(pid) AS blockers
+         FROM pg_stat_activity
+        WHERE pid = $1`,
+      [blockBackendPid],
+    );
+    assert.equal(blockedQuery.rows.length, 1);
+    assert.match(
+      blockedQuery.rows[0]!.query,
+      /SELECT wallet_coins FROM daily007_v2_users WHERE id = \$1 FOR UPDATE/i,
+      "the block must be waiting for the target account row lock",
+    );
+    assert.ok(
+      blockedQuery.rows[0]!.blockers.map(Number).includes(playerActionPid),
+      "PostgreSQL must report the player action as blocking the account update",
+    );
+
+    await pauseHolder.query("SELECT pg_advisory_unlock($1::bigint)", [pauseKey.toString()]);
+    const [playerActionResponse, accountBlockResponse] = await Promise.all([playerAction, accountBlock]);
+    return { playerAction: playerActionResponse, accountBlock: accountBlockResponse };
+  } finally {
+    await pauseHolder?.query("SELECT pg_advisory_unlock($1::bigint)", [pauseKey.toString()]).catch(() => undefined);
+    await Promise.allSettled(
+      [playerAction, accountBlock].filter(
+        (request): request is Promise<RegistrationResponse> => request !== undefined,
+      ),
+    );
+    pauseHolder?.release();
+    await dropPause?.();
   }
 }
 
@@ -770,6 +894,158 @@ test("a team edit authenticated before an account block cannot change the roster
     });
   } finally {
     await cleanupFixture(fixture);
+  }
+});
+
+test("an account block waits for a registration that already holds the account lock", async () => {
+  const fixture = await createFixture("duo");
+  let adminId: string | undefined;
+  try {
+    adminId = await createFullAdminActor();
+    await withServer(async (origin) => {
+      const matchId = fixture.matchIds[0];
+      assert.deepEqual(await readBlockedRaceState(fixture, matchId), {
+        account: [{ status: "active", wallet_coins: fixture.startingWalletCoins }],
+        registrations: [],
+        roster: [],
+        ledger: [],
+      });
+
+      const { playerAction, accountBlock } = await runAccountBlockAfterPlayerActionLockRace(
+        origin,
+        fixture,
+        adminId!,
+        "registration",
+        matchId,
+        () => registerForMatch(
+          origin,
+          fixture.userId,
+          matchId,
+          fixture.gameUids[0],
+          { teamName: fixture.teamNames[0], teammates: fixture.teammates[0] },
+        ),
+      );
+      assert.equal(playerAction.status, 201, JSON.stringify(playerAction.body));
+      assert.equal(accountBlock.status, 200, JSON.stringify(accountBlock.body));
+      assert.equal(accountBlock.body.status, "blocked");
+
+      const registrationId = String(playerAction.body.registrationId);
+      const balanceAfterEntry = fixture.startingWalletCoins - fixture.entryCoins[0];
+      const teammate = fixture.teammates[0][0]!;
+      assert.deepEqual(await readBlockedRaceState(fixture, matchId), {
+        account: [{ status: "blocked", wallet_coins: balanceAfterEntry }],
+        registrations: [{
+          id: registrationId,
+          match_id: matchId,
+          captain_user_id: fixture.userId,
+          captain_name: "Wallet Race Player",
+          captain_game_name: "Concurrent Test Player",
+          captain_game_uid: fixture.gameUids[0],
+          team_name: fixture.teamNames[0],
+          entry_coins_paid: fixture.entryCoins[0],
+          status: "approved",
+        }],
+        roster: [{
+          registration_id: registrationId,
+          position: 1,
+          member_uid: teammate.uid,
+          member_name: teammate.name,
+        }],
+        ledger: [{
+          match_id: matchId,
+          registration_id: registrationId,
+          amount: -fixture.entryCoins[0],
+          balance_after: balanceAfterEntry,
+          reason: "match_entry",
+        }],
+      }, "the registration must finish consistently before the block commits");
+    });
+  } finally {
+    try {
+      await cleanupFixture(fixture);
+    } finally {
+      if (adminId) {
+        await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
+      }
+    }
+  }
+});
+
+test("an account block waits for a team edit that already holds the account lock", async () => {
+  const fixture = await createFixture("duo");
+  let adminId: string | undefined;
+  try {
+    adminId = await createFullAdminActor();
+    await withServer(async (origin) => {
+      const matchId = fixture.matchIds[0];
+      const initial = await registerForMatch(
+        origin,
+        fixture.userId,
+        matchId,
+        fixture.gameUids[0],
+        { teamName: fixture.teamNames[0], teammates: fixture.teammates[0] },
+      );
+      assert.equal(initial.status, 201, JSON.stringify(initial.body));
+      const registrationId = String(initial.body.registrationId);
+      const before = await readBlockedRaceState(fixture, matchId);
+      assert.equal(before.registrations.length, 1);
+      assert.equal(before.roster.length, 1);
+      assert.equal(before.ledger.length, 1);
+
+      const changedTeammate = { name: "Committed Teammate", uid: `ff-${randomUUID()}` };
+      const edit = {
+        captainGameName: "Committed Captain",
+        captainGameUid: `ff-${randomUUID()}`,
+        teamName: "Committed Before Account Block",
+        teammates: [changedTeammate],
+        expectedTeam: {
+          captainGameName: "Concurrent Test Player",
+          captainGameUid: fixture.gameUids[0],
+          teamName: fixture.teamNames[0],
+          teammates: fixture.teammates[0].map(({ name, uid }) => ({ name, uid })),
+        },
+      };
+      const { playerAction, accountBlock } = await runAccountBlockAfterPlayerActionLockRace(
+        origin,
+        fixture,
+        adminId!,
+        "team_edit",
+        registrationId,
+        () => editTeam(origin, fixture.userId, registrationId, edit),
+      );
+      assert.equal(playerAction.status, 200, JSON.stringify(playerAction.body));
+      assert.equal(
+        (playerAction.body.data as Record<string, unknown> | undefined)?.updated,
+        true,
+      );
+      assert.equal(accountBlock.status, 200, JSON.stringify(accountBlock.body));
+      assert.equal(accountBlock.body.status, "blocked");
+
+      assert.deepEqual(await readBlockedRaceState(fixture, matchId), {
+        ...before,
+        account: [{ ...before.account[0]!, status: "blocked" }],
+        registrations: [{
+          ...before.registrations[0]!,
+          captain_game_name: edit.captainGameName,
+          captain_game_uid: edit.captainGameUid,
+          team_name: edit.teamName,
+        }],
+        roster: [{
+          registration_id: registrationId,
+          position: 1,
+          member_uid: changedTeammate.uid,
+          member_name: changedTeammate.name,
+        }],
+      }, "the team edit must finish without changing the saved wallet or ledger before the block commits");
+    });
+  } finally {
+    try {
+      await cleanupFixture(fixture);
+    } finally {
+      if (adminId) {
+        await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
+      }
+    }
   }
 });
 
