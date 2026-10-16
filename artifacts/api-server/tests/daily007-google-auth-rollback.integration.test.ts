@@ -5,6 +5,7 @@ import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import type { User } from "@clerk/express";
+import { makeToken } from "../src/lib/daily007-session-token";
 import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 import daily007GoogleAuthRouter from "../src/routes/daily007-google-auth";
 import daily007V2Router from "../src/routes/daily007-v2";
@@ -119,6 +120,7 @@ async function googleSignIn(
   origin: string,
   clerkUserId = GOOGLE_CLERK_USER_ID,
   referralCode: string | null = REFERRAL_CODE,
+  daily007Token?: string,
 ): Promise<JsonResult> {
   const response = await fetch(`${origin}/auth/google`, {
     method: "POST",
@@ -126,6 +128,7 @@ async function googleSignIn(
       authorization: "Bearer mocked-clerk-session",
       "content-type": "application/json",
       "x-mock-clerk-user-id": clerkUserId,
+      ...(daily007Token ? { "x-daily007-token": daily007Token } : {}),
     },
     body: JSON.stringify({ referralCode }),
   });
@@ -157,6 +160,145 @@ async function waitForBlockedBackend(
   }
   throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
 }
+
+test("Google linking preserves a password account and its PostgreSQL Wallet history", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const accountId = randomUUID();
+  const firstLedgerId = randomUUID();
+  const secondLedgerId = randomUUID();
+  const localSessionVersion = 4;
+
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, wallet_coins, auth_version)
+     VALUES ($1, 'Existing Wallet Owner', $2, 'existing-salt', 'existing-hash', 37, $3)`,
+    [accountId, GOOGLE_EMAIL, localSessionVersion],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_wallet_ledger
+       (id, user_id, amount, balance_after, reason, idempotency_key, details, created_at)
+     VALUES
+       ($1, $3, 50, 50, 'Wallet Top-up', $4, '{"description":"Original top-up"}', '2026-01-15T10:00:00.000Z'),
+       ($2, $3, -13, 37, 'Match Entry', $5, '{"description":"Original match entry"}', '2026-02-20T12:30:00.000Z')`,
+    [
+      firstLedgerId,
+      secondLedgerId,
+      accountId,
+      `test-wallet-top-up:${accountId}`,
+      `test-match-entry:${accountId}`,
+    ],
+  );
+  const localToken = makeToken(accountId, localSessionVersion);
+  assert.ok(localToken, "the test account should receive a valid Daily007 session token");
+
+  try {
+    await withServer(async (origin) => {
+      const accountBefore = await pool.query(
+        `SELECT id, name, email, password_salt, password_hash, wallet_coins,
+                auth_version, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      const ledgerBefore = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details,
+                created_at::text AS created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at ASC, id ASC`,
+        [accountId],
+      );
+      const walletBeforeResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${localToken}` },
+      });
+      assert.equal(walletBeforeResponse.status, 200,
+        "the seeded Daily007 session should read the original Wallet history");
+      const walletBefore = await walletBeforeResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletBefore.map(({ id, amount, balanceAfter, reason, details, description }) => ({
+          id,
+          amount,
+          balanceAfter,
+          reason,
+          details,
+          description,
+        })),
+        [
+          {
+            id: secondLedgerId,
+            amount: -13,
+            balanceAfter: 37,
+            reason: "Match Entry",
+            details: { description: "Original match entry" },
+            description: "Original match entry",
+          },
+          {
+            id: firstLedgerId,
+            amount: 50,
+            balanceAfter: 50,
+            reason: "Wallet Top-up",
+            details: { description: "Original top-up" },
+            description: "Original top-up",
+          },
+        ],
+        "the starting Wallet history should contain both seeded entries in reverse chronological order",
+      );
+
+      const linked = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, null, localToken);
+      assert.equal(linked.status, 200, "a valid password-account session should authorize Google linking");
+      assert.equal(linked.body.id, accountId, "linking must return the existing Daily007 account");
+      assert.equal(linked.body.email, GOOGLE_EMAIL);
+      assert.equal(linked.body.coins, 37, "linking must preserve the account's wallet balance");
+      assert.equal(linked.body.googleLinked, true);
+      assert.equal(linked.body.token, localToken, "linking must preserve the existing Daily007 session");
+
+      const accountAfter = await pool.query(
+        `SELECT id, name, email, password_salt, password_hash, wallet_coins,
+                auth_version, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(accountAfter.rows, [{
+        ...accountBefore.rows[0],
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+      }], "only the Google identity should be added to the original account");
+
+      const linkedIdentity = await pool.query(
+        `SELECT id, clerk_user_id
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(linkedIdentity.rows, [{
+        id: accountId,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+      }], "the verified Google identity must be linked to exactly one account");
+
+      const ledgerAfter = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details,
+                created_at::text AS created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at ASC, id ASC`,
+        [accountId],
+      );
+      assert.deepEqual(ledgerAfter.rows, ledgerBefore.rows,
+        "Google linking must not insert, delete, or alter any wallet-ledger entry");
+
+      const walletAfterResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${localToken}` },
+      });
+      assert.equal(walletAfterResponse.status, 200);
+      const walletAfter = await walletAfterResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(walletAfter, walletBefore,
+        "the authenticated Wallet history response must remain unchanged");
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
+    resetMockGoogleUser();
+  }
+});
 
 async function resetReferralRewardFailureTrigger(
   failedReason: "Referral Signup Bonus" | "Welcome Signup Bonus" = "Referral Signup Bonus",
