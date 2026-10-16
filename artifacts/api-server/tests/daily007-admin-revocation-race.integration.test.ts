@@ -3127,6 +3127,165 @@ test("a blocked admin cannot complete a role change queued behind the block", as
   }
 });
 
+test("a role change queued behind a rolled-back admin block succeeds", async () => {
+  const blockerAdminId = randomUUID();
+  const actingAdminId = randomUUID();
+  const roleTargetId = randomUUID();
+  const pauseKey = 740087n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let blockPromise: Promise<JsonResponse> | undefined;
+  let roleChangePromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Block Rollback Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Role Change Actor After Rollback', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Role Change Target After Rollback', $6, 'test-salt', 'test-hash', 'user', 0)`,
+      [
+        blockerAdminId,
+        `rollback-block-admin-${blockerAdminId}@example.test`,
+        actingAdminId,
+        `rollback-block-actor-${actingAdminId}@example.test`,
+        roleTargetId,
+        `rollback-block-target-${roleTargetId}@example.test`,
+      ],
+    );
+    await pool.query("CREATE TABLE daily007_test_failed_admin_blocks (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_failed_admin_blocks (id) VALUES ($1)",
+      [actingAdminId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_fail_admin_block() RETURNS trigger AS $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM daily007_test_failed_admin_blocks
+           WHERE id = NEW.id
+        )
+           AND NEW.status = 'blocked'
+           AND OLD.status IS DISTINCT FROM NEW.status THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+          RAISE EXCEPTION 'Injected failure while blocking the acting administrator';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_fail_admin_block
+      BEFORE UPDATE ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_admin_block()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        blockPromise = patchJson(
+          origin,
+          `/admin/users/${actingAdminId}`,
+          blockerAdminId,
+          { status: "blocked" },
+        );
+        const blockUpdate = "UPDATE daily007_v2_users SET status = COALESCE($2, status)";
+        await waitForBlockedQuery(
+          blockUpdate,
+          "the failing block update after it acquired its transaction locks",
+        );
+
+        roleChangePromise = patchJson(
+          origin,
+          `/admin/users/${roleTargetId}/role`,
+          actingAdminId,
+          { role: "tournament_admin" },
+        );
+        await waitForQueryBlockedBy(
+          "SELECT pg_advisory_xact_lock(740073)",
+          blockUpdate,
+          "the acting admin's valid role change to queue behind the failing block",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+        pauseLockHeld = false;
+        const [block, roleChange] = await Promise.all([blockPromise, roleChangePromise]);
+        assert.equal(block.status, 500, JSON.stringify(block.body));
+        assert.equal(roleChange.status, 200, JSON.stringify(roleChange.body));
+        assert.equal(roleChange.body.role, "tournament_admin");
+      } finally {
+        if (pauseLockHeld) {
+          await blocker!
+            .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+            .catch(() => undefined);
+          pauseLockHeld = false;
+        }
+      }
+    });
+
+    const accounts = await pool.query<{
+      id: string;
+      status: string;
+      role: string;
+    }>(
+      "SELECT id, status, role FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[blockerAdminId, actingAdminId, roleTargetId]],
+    );
+    assert.deepEqual(
+      new Map(accounts.rows.map(({ id, status, role }) => [id, { status, role }])),
+      new Map([
+        [blockerAdminId, { status: "active", role: "admin" }],
+        [actingAdminId, { status: "active", role: "admin" }],
+        [roleTargetId, { status: "active", role: "tournament_admin" }],
+      ]),
+    );
+  } finally {
+    if (blocker) {
+      if (pauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (blockPromise || roleChangePromise) {
+      await Promise.allSettled(
+        [blockPromise, roleChangePromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+
+    const cleanupStatements = [
+      "DROP TRIGGER IF EXISTS daily007_test_fail_admin_block ON daily007_v2_users",
+      "DROP FUNCTION IF EXISTS daily007_test_fail_admin_block()",
+      "DROP TABLE IF EXISTS daily007_test_failed_admin_blocks",
+    ];
+    const cleanupErrors: unknown[] = [];
+    for (const statement of cleanupStatements) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    try {
+      await pool.query(
+        "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+        [[blockerAdminId, actingAdminId, roleTargetId]],
+      );
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Failed to clean up the rolled-back admin block fixture.");
+    }
+  }
+});
+
 test("a demoted Full Admin cannot complete a role change queued behind the demotion", async () => {
   const actorId = randomUUID();
   const demoterId = randomUUID();
