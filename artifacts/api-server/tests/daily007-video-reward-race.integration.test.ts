@@ -301,6 +301,19 @@ async function sendPermanentDelete(
   };
 }
 
+async function getAdminVideoCatalog(
+  origin: string,
+  adminId: string,
+): Promise<JsonResponse> {
+  const response = await fetch(`${origin}/admin/videos`, {
+    headers: authHeaders(adminId),
+  });
+  return {
+    status: response.status,
+    body: await response.json() as Record<string, unknown>,
+  };
+}
+
 async function createFixture(
   options: { includeInitialSession?: boolean } = {},
 ): Promise<TestFixture> {
@@ -3096,6 +3109,154 @@ test("a permanent deletion waiting on one video does not block another video's r
     if (videoBlocker) {
       await videoBlocker.query("ROLLBACK").catch(() => undefined);
       videoBlocker.release();
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("deleting the last managed video keeps the legacy featured video out of the admin catalog", async () => {
+  const fixture = await createFixture({ includeInitialSession: false });
+  assert.ok(fixture.adminId && fixture.playerId && fixture.videoId);
+  const adminId = fixture.adminId;
+  const playerId = fixture.playerId;
+  const videoId = fixture.videoId;
+  let settingsCaptured = false;
+  let hadSettingsBeforeTest = false;
+  let originalSettings: Record<string, unknown> | null = null;
+
+  try {
+    const previousSettings = await pool.query<{ settings: Record<string, unknown> }>(
+      "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+    );
+    hadSettingsBeforeTest = previousSettings.rows.length > 0;
+    originalSettings = previousSettings.rows[0]?.settings ?? null;
+    settingsCaptured = true;
+
+    const settingsBeforeRequestValue = {
+      __daily007VideoCatalogSeeded: false,
+      __testVideoCatalogSetting: "preserve",
+    };
+    await pool.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings`,
+      [JSON.stringify(settingsBeforeRequestValue)],
+    );
+
+    const [initialVideos, initialWatchHistory] = await Promise.all([
+      pool.query("SELECT * FROM daily007_v2_videos ORDER BY id"),
+      pool.query("SELECT * FROM daily007_v2_video_watch_sessions ORDER BY id"),
+    ]);
+    assert.deepEqual(
+      initialVideos.rows.map((video) => video.id),
+      [videoId],
+      "the target should be the only managed video before deletion",
+    );
+    assert.deepEqual(initialWatchHistory.rows, [], "the deletable video should have no watch history");
+
+    await withServer(async (origin) => {
+      const deletion = await sendPermanentDelete(origin, videoId, adminId);
+      assert.equal(deletion.status, 204, "the final managed video should be permanently deleted");
+
+      const [deletedVideo, settingsAfterDelete, videosAfterDelete, historyAfterDelete] =
+        await Promise.all([
+          pool.query("SELECT id FROM daily007_v2_videos WHERE id = $1", [videoId]),
+          pool.query<{ settings: Record<string, unknown> }>(
+            "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+          ),
+          pool.query("SELECT * FROM daily007_v2_videos ORDER BY id"),
+          pool.query("SELECT * FROM daily007_v2_video_watch_sessions ORDER BY id"),
+        ]);
+      assert.deepEqual(deletedVideo.rows, [], "the requested video should be absent");
+      assert.deepEqual(videosAfterDelete.rows, [], "deletion should leave the managed catalog empty");
+      assert.deepEqual(
+        historyAfterDelete.rows,
+        initialWatchHistory.rows,
+        "deletion should not change watch history",
+      );
+      assert.deepEqual(
+        settingsAfterDelete.rows[0]?.settings,
+        { ...settingsBeforeRequestValue, __daily007VideoCatalogSeeded: true },
+        "deletion should set the marker without replacing unrelated settings",
+      );
+
+      const emptyCatalog = await getAdminVideoCatalog(origin, adminId);
+      assert.equal(emptyCatalog.status, 200);
+      assert.deepEqual(
+        emptyCatalog.body.videos,
+        [],
+        "the admin catalog should remain empty instead of restoring the legacy featured video",
+      );
+      const [featuredVideo, catalogAfterRead, settingsAfterRead] = await Promise.all([
+        pool.query(
+          "SELECT id FROM daily007_v2_videos WHERE youtube_id = 'opKbUpusuTc'",
+        ),
+        pool.query("SELECT * FROM daily007_v2_videos ORDER BY id"),
+        pool.query<{ settings: Record<string, unknown> }>(
+          "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+        ),
+      ]);
+      assert.deepEqual(featuredVideo.rows, [], "the legacy featured video must not be reseeded");
+      assert.deepEqual(catalogAfterRead.rows, [], "the catalog read should not create a video");
+      assert.deepEqual(
+        settingsAfterRead.rows[0]?.settings,
+        { ...settingsBeforeRequestValue, __daily007VideoCatalogSeeded: true },
+        "the catalog read should preserve the marker and unrelated settings",
+      );
+
+      const unrelatedVideoResult = await pool.query<{ id: string }>(
+        `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
+         VALUES ('Unrelated catalog video', 'Preservation', $1, $2)
+         RETURNING id`,
+        [randomUUID().replace(/-/g, "").slice(0, 11), adminId],
+      );
+      const unrelatedVideoId = unrelatedVideoResult.rows[0]?.id;
+      assert.ok(unrelatedVideoId, "the unrelated video should be created");
+      fixture.additionalVideoIds.push(unrelatedVideoId);
+      const unrelatedSessionResult = await pool.query<{ id: string }>(
+        `INSERT INTO daily007_v2_video_watch_sessions
+           (user_id, video_id, duration_seconds, start_attempt_id)
+         VALUES ($1, $2, 30, $3)
+         RETURNING id`,
+        [playerId, unrelatedVideoId, randomUUID()],
+      );
+      const unrelatedSessionId = unrelatedSessionResult.rows[0]?.id;
+      assert.ok(unrelatedSessionId, "the unrelated watch history should be created");
+      fixture.additionalSessionIds.push(unrelatedSessionId);
+
+      const unrelatedBeforeRead = await snapshotUnrelatedVideoState(videoId);
+      const catalogWithUnrelatedVideo = await getAdminVideoCatalog(origin, adminId);
+      assert.equal(catalogWithUnrelatedVideo.status, 200);
+      const catalogVideos = catalogWithUnrelatedVideo.body.videos as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        catalogVideos.map((video) => video.id),
+        [unrelatedVideoId],
+        "the admin catalog should show the unrelated video but not the legacy featured video",
+      );
+      assert.deepEqual(
+        await snapshotUnrelatedVideoState(videoId),
+        unrelatedBeforeRead,
+        "a later catalog read should leave unrelated videos and watch history unchanged",
+      );
+      const finalSettings = await pool.query<{ settings: Record<string, unknown> }>(
+        "SELECT settings FROM daily007_v2_settings WHERE id = 1",
+      );
+      assert.deepEqual(
+        finalSettings.rows[0]?.settings,
+        { ...settingsBeforeRequestValue, __daily007VideoCatalogSeeded: true },
+        "later catalog reads should preserve unrelated settings",
+      );
+    });
+  } finally {
+    if (settingsCaptured) {
+      if (hadSettingsBeforeTest) {
+        await pool.query(
+          "UPDATE daily007_v2_settings SET settings = $1::jsonb WHERE id = 1",
+          [JSON.stringify(originalSettings ?? {})],
+        );
+      } else {
+        await pool.query("DELETE FROM daily007_v2_settings WHERE id = 1");
+      }
     }
     await cleanupFixture(fixture);
   }
