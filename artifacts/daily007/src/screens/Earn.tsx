@@ -5,6 +5,7 @@ import {
   AccessibilityInfo,
   Alert,
   Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -95,19 +96,19 @@ export default function Earn() {
       (content) => Share.share(content),
       (message) => {
         setActionError(message);
-        AccessibilityInfo.announceForAccessibility(message);
+        if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
       },
     );
   };
 
   const showReferralOpenFallback = (message: string) => {
     setActionError(message);
-    AccessibilityInfo.announceForAccessibility(message);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
   };
 
   const showReferralCopyFallback = (message: string) => {
     setActionError(message);
-    AccessibilityInfo.announceForAccessibility(message);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
   };
 
   const openReferralLink = async () => {
@@ -199,7 +200,11 @@ export default function Earn() {
       {!!referralsQuery.error && (
         <Text style={s.error}>{`Referral data unavailable: ${apiError(referralsQuery.error)}`}</Text>
       )}
-      {!!actionError && <Text style={s.error}>{actionError}</Text>}
+      {!!actionError && (
+        <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={s.error}>
+          {actionError}
+        </Text>
+      )}
       {!!youtubeTaskQuery.error && (
         <Text style={s.error}>{`YouTube task unavailable: ${apiError(youtubeTaskQuery.error)}`}</Text>
       )}
@@ -379,6 +384,8 @@ export default function Earn() {
             ) : null}
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Share invite link"
+              accessibilityHint="Opens sharing options for your referral code and invite link."
               testID="referral-share-invite"
               onPress={shareInvite}
               style={s.shareButton}

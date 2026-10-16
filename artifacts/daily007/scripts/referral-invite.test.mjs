@@ -92,7 +92,7 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
   assert.doesNotMatch(inviteHelperSource, /\b(fetch|axios|useDaily007GetMyReferrals)\b/);
   assert.match(
     earnSource,
-    /const showReferralOpenFallback = \(message: string\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+    /const showReferralOpenFallback = \(message: string\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
   );
   assert.match(
     earnSource,
@@ -100,7 +100,10 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
   );
   assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
   assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
-  assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(
+    earnSource,
+    /\{!!actionError && \(\s*<Text accessibilityRole="text" accessibilityLiveRegion="polite" style=\{s\.error\}>\s*\{actionError\}\s*<\/Text>\s*\)\}/,
+  );
   assert.equal(
     fallbackMessages[0],
     "Could not open the invite link. Copy or share it and open it in a browser.",
@@ -215,7 +218,7 @@ test("Earn shares the same server-provided HTTPS referral link and query code", 
   assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
   assert.match(
     earnSource,
-    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
   );
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
@@ -275,7 +278,7 @@ test("a failed referral-link clipboard write shows Earn's share-button fallback 
   );
   assert.match(
     earnSource,
-    /const showReferralCopyFallback = \(message: string\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+    /const showReferralCopyFallback = \(message: string\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
   );
   assert.match(earnSource, /testID="referral-simulate-link-copy-failure"/);
   assert.match(
@@ -287,7 +290,10 @@ test("a failed referral-link clipboard write shows Earn's share-button fallback 
     earnSource,
     /copyReferralLinkToClipboardWithFallback\(\s*dashboard\.referralLink,\s*__DEV__ && simulateReferralLinkCopyFailure[\s\S]*?: Clipboard\.setStringAsync,\s*showReferralCopyFallback/,
   );
-  assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(
+    earnSource,
+    /\{!!actionError && \(\s*<Text accessibilityRole="text" accessibilityLiveRegion="polite" style=\{s\.error\}>\s*\{actionError\}\s*<\/Text>\s*\)\}/,
+  );
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
 
@@ -337,7 +343,10 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.deepEqual(accessibilityAnnouncements, [
     "Could not copy the referral code. Use Share Invite instead.",
   ]);
-  assert.match(earnSource, /\{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(
+    earnSource,
+    /\{!!actionError && \(\s*<Text accessibilityRole="text" accessibilityLiveRegion="polite" style=\{s\.error\}>\s*\{actionError\}\s*<\/Text>\s*\)\}/,
+  );
   assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
   assert.match(
     earnSource,
@@ -410,6 +419,8 @@ test("a failed referral-code clipboard write preserves Earn's working share fall
   assert.ok(dashboardSectionStart >= 0 && dashboardSectionStart < shareButtonStart);
   assert.ok(shareButtonEnd > shareButtonStart);
   assert.match(shareButtonSource, /onPress=\{shareInvite\}/);
+  assert.match(shareButtonSource, /accessibilityLabel="Share invite link"/);
+  assert.match(shareButtonSource, /accessibilityHint="Opens sharing options for your referral code and invite link\."/);
   assert.match(shareButtonSource, /SHARE INVITE LINK/);
   assert.doesNotMatch(shareButtonSource, /actionError|copied/);
   assert.equal(networkRequests.mock.callCount(), 0);
@@ -477,6 +488,7 @@ test("Earn announces copy-code recovery once for every rejected share and stays 
         return { action: "sharedAction" };
       },
     },
+    Platform: { OS: "ios" },
     shareReferralInviteWithFallback,
     setActionError: (message) => {
       errors.push(message);
@@ -532,10 +544,13 @@ test("Earn announces copy-code recovery once for every rejected share and stays 
   assert.equal(networkRequests.mock.callCount(), 0);
   assert.match(
     earnSource,
-    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
   );
   assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
-  assert.match(earnSource, /{!!actionError && <Text style=\{s\.error\}>\{actionError\}<\/Text>\}/);
+  assert.match(
+    earnSource,
+    /\{!!actionError && \(\s*<Text accessibilityRole="text" accessibilityLiveRegion="polite" style=\{s\.error\}>\s*\{actionError\}\s*<\/Text>\s*\)\}/,
+  );
   assert.match(earnSource, /testID="referral-copy-code"[\s\S]*?onPress=\{copyCode\}/);
 });
 

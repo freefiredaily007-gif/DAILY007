@@ -48,4 +48,4 @@ appId: host.exp.exponent
 - assertVisible:
     id: referral-copy-code
 - assertVisible:
-    text: SHARE INVITE LINK
+    id: referral-share-invite

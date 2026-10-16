@@ -8,4 +8,4 @@ Before running, sign in to Daily007 in Expo Go on one Android device or emulator
 EXPO_DEV_URL=exp://YOUR_EXPO_HOST:PORT pnpm --filter @workspace/daily007 run test:android-referral-invite
 ```
 
-Use an English-language Android device so Maestro can identify the native “Sharing link” chooser heading. The test uses the real Earn screen, referral data, React Native Share API, and Android chooser; only the clipboard rejection is simulated. This development-only simulation is absent from production builds.
+Use an English-language Android device so Maestro can identify the native “Sharing link” chooser heading. Enable TalkBack before running the flow: after the copy failure, confirm it announces “Could not copy the referral code. Use Share Invite instead.”, then swipe to and activate “Share invite link.” After dismissing the chooser, confirm Earn remains usable. The test uses the real Earn screen, referral data, React Native Share API, and Android chooser; only the clipboard rejection is simulated. This development-only simulation is absent from production builds.
