@@ -1326,6 +1326,104 @@ test("referral short-code failure rolls back a Google signup and Clerk identity 
   }
 });
 
+test("a same-identity sign-in waiting on a failed referral short-code write succeeds after rollback", async () => {
+  signupTestDb.reset();
+  signupTestDb.synchronizeNextAdvisoryLockQueries(2);
+  signupTestDb.failNextReferralShortCodeInsert();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signIns = await Promise.all([1, 2].map(async () => {
+        const response = await fetch(`${origin}/auth/google`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer mocked-clerk-session",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        const text = await response.text();
+        return {
+          status: response.status,
+          body: response.status === 201 ? JSON.parse(text) as Record<string, unknown> : null,
+        };
+      }));
+
+      assert.deepEqual(
+        signIns.map(({ status }) => status).sort((left, right) => left - right),
+        [201, 500],
+        "one signup should fail at short-code storage and its waiting request should recover",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.equal(
+        signupTestDb.advisoryLockWaitCount,
+        1,
+        "both sign-ins should contend on the same provider-identity lock",
+      );
+      assert.equal(
+        signupTestDb.activeAdvisoryLockCount,
+        0,
+        "the failed transaction and recovered waiter must leave no lock behind",
+      );
+      assert.deepEqual(signupTestDb.referralCodeInsertFailureContext, {
+        accountExists: true,
+        legacyCodeExists: true,
+        shortCodeExists: false,
+      }, "the injected short-code failure should occur after account and legacy-code writes");
+
+      const failedSignIn = signIns.find(({ status }) => status === 500);
+      const recoveredSignIn = signIns.find(({ status }) => status === 201);
+      assert.ok(failedSignIn);
+      assert.ok(recoveredSignIn?.body);
+      assert.equal(recoveredSignIn.body.coins, 10);
+      assert.equal(typeof recoveredSignIn.body.token, "string");
+
+      const linkedAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(linkedAccounts.length, 1, "rollback and retry should leave one linked account");
+      assert.equal(signupTestDb.users.size, 2, "only the seeded referrer and one Google account should remain");
+      const account = linkedAccounts[0];
+      assert.ok(account);
+      assert.equal(account.id, recoveredSignIn.body.id);
+      assert.equal(account.email, "google-signup@example.test");
+      assert.equal(account.wallet_coins, 10);
+      assert.equal(signupTestDb.shortCodesByUser.size, 2);
+      assert.equal(signupTestDb.shortCodeOwners.size, 2);
+      assert.equal(signupTestDb.legacyCodeOwners.size, 2);
+      const remainingUserIds = [...signupTestDb.users.keys()].sort();
+      assert.deepEqual([...signupTestDb.shortCodesByUser.keys()].sort(), remainingUserIds);
+      assert.deepEqual([...signupTestDb.shortCodeOwners.values()].sort(), remainingUserIds);
+      assert.deepEqual([...signupTestDb.legacyCodeOwners.values()].sort(), remainingUserIds);
+      assert.equal(
+        [...signupTestDb.legacyCodeOwners.values()].filter((userId) => userId === account.id).length,
+        1,
+        "rollback must remove the failed signup's legacy code before the waiter creates one",
+      );
+      assert.deepEqual(signupTestDb.referrals, [], "an un-referred signup must not create a referral");
+      assert.deepEqual(
+        signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          user_id: account.id,
+          amount: 10,
+          balance_after: 10,
+          reason: "Welcome Signup Bonus",
+        }],
+        "the recovered account must receive exactly one 10-coin welcome reward",
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("lowercase five-letter referral code with surrounding whitespace gives one 10-coin reward", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
