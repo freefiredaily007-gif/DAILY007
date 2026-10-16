@@ -981,6 +981,98 @@ test("a same-identity sign-in waiting on a failed welcome reward succeeds after 
   }
 });
 
+test("a same-identity sign-in waiting on a failed session-version update succeeds after rollback", async () => {
+  signupTestDb.reset();
+  signupTestDb.synchronizeNextAdvisoryLockQueries(2);
+  signupTestDb.failNextAuthVersionUpdate();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const signIns = await Promise.all([1, 2].map(async () => {
+        const response = await fetch(`${origin}/auth/google`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer mocked-clerk-session",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        const text = await response.text();
+        return {
+          status: response.status,
+          body: response.status === 201 ? JSON.parse(text) as Record<string, unknown> : null,
+        };
+      }));
+
+      assert.deepEqual(
+        signIns.map(({ status }) => status).sort((left, right) => left - right),
+        [201, 500],
+        "the session-version failure should roll back so the waiting request can create the account",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.equal(signupTestDb.advisoryLockWaitCount, 1);
+      assert.equal(
+        signupTestDb.activeAdvisoryLockCount,
+        0,
+        "the failed transaction must release its identity lock so the waiter can finish",
+      );
+      assert.deepEqual(
+        signupTestDb.authVersionUpdateFailureContext,
+        {
+          accountExists: true,
+          walletCoins: 10,
+          welcomeRewardCount: 1,
+        },
+        "the injected failure should happen after signup and its welcome reward are written",
+      );
+
+      const failedSignIn = signIns.find(({ status }) => status === 500);
+      const recoveredSignIn = signIns.find(({ status }) => status === 201);
+      assert.ok(failedSignIn);
+      assert.equal(failedSignIn.body, null);
+      assert.ok(recoveredSignIn);
+      assert.equal(recoveredSignIn.body.coins, 10);
+      assert.equal(typeof recoveredSignIn.body.token, "string");
+
+      const linkedAccounts = [...signupTestDb.users.values()].filter(
+        (user) => user.clerk_user_id === GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(linkedAccounts.length, 1);
+      assert.equal(signupTestDb.users.size, 2, "only the seeded user and one Google account should remain");
+      const account = linkedAccounts[0];
+      assert.ok(account);
+      assert.equal(account.id, recoveredSignIn.body.id);
+      assert.equal(account.email, "google-signup@example.test");
+      assert.equal(account.wallet_coins, 10);
+      assert.equal(account.auth_version, 1);
+      assert.equal(signupTestDb.shortCodesByUser.size, 2);
+      assert.equal(signupTestDb.shortCodeOwners.size, 2);
+      assert.equal(signupTestDb.legacyCodeOwners.size, 2);
+      assert.deepEqual(signupTestDb.referrals, []);
+      assert.deepEqual(
+        signupTestDb.ledger.map(({ user_id, amount, balance_after, reason }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          user_id: account.id,
+          amount: 10,
+          balance_after: 10,
+          reason: "Welcome Signup Bonus",
+        }],
+        "rollback and retry must leave exactly one complete welcome reward",
+      );
+
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("a failed referral reward rollback preserves another identity's completed Google signup", async () => {
   signupTestDb.reset();
   signupTestDb.synchronizeNextAdvisoryLockQueries(2);

@@ -95,6 +95,11 @@ class MemorySignupDatabase {
     shortCodeExists: boolean;
     walletCoins: number | null;
   } | null = null;
+  authVersionUpdateFailureContext: {
+    accountExists: boolean;
+    walletCoins: number | null;
+    welcomeRewardCount: number;
+  } | null = null;
   referralCodeInsertFailureContext: {
     accountExists: boolean;
     legacyCodeExists: boolean;
@@ -114,6 +119,7 @@ class MemorySignupDatabase {
   private shouldFailNextWelcomeSignupRewardLedgerWrite = false;
   private shouldFailNextReferralSignupRewardLedgerWrite = false;
   private shouldFailNextReferralShortCodeInsert = false;
+  private shouldFailNextAuthVersionUpdate = false;
 
   reset(): void {
     this.advisoryLockBarrier?.release();
@@ -144,10 +150,12 @@ class MemorySignupDatabase {
     this.referralSignupRewardLedgerFailureContext = null;
     this.failedReferralSignupRewardUserId = null;
     this.welcomeSignupRewardLedgerFailureContext = null;
+    this.authVersionUpdateFailureContext = null;
     this.referralCodeInsertFailureContext = null;
     this.shouldFailNextWelcomeSignupRewardLedgerWrite = false;
     this.shouldFailNextReferralSignupRewardLedgerWrite = false;
     this.shouldFailNextReferralShortCodeInsert = false;
+    this.shouldFailNextAuthVersionUpdate = false;
     this.nextUserId = 2;
     this.nextLedgerId = 1;
     this.nextReferralId = 1;
@@ -212,6 +220,11 @@ class MemorySignupDatabase {
     };
     this.authVersionUpdatePause = pause;
     return { reached, release: () => pause.release() };
+  }
+
+  failNextAuthVersionUpdate(): void {
+    this.authVersionUpdateFailureContext = null;
+    this.shouldFailNextAuthVersionUpdate = true;
   }
 
   failNextReferralSignupRewardLedgerWrite(): void {
@@ -632,6 +645,17 @@ class MemorySignupDatabase {
         await pause.resume;
       }
       const user = this.users.get(first);
+      if (this.shouldFailNextAuthVersionUpdate) {
+        this.shouldFailNextAuthVersionUpdate = false;
+        this.authVersionUpdateFailureContext = {
+          accountExists: Boolean(user),
+          walletCoins: user?.wallet_coins ?? null,
+          welcomeRewardCount: this.ledger.filter(
+            (entry) => entry.user_id === first && entry.reason === "Welcome Signup Bonus",
+          ).length,
+        };
+        throw new Error("Simulated session-version update failure.");
+      }
       const statusGuarded = /\bAND\s+status\s*=\s*'active'/i.test(normalized);
       if (user && (!statusGuarded || user.status === "active")) {
         const previousAuthVersion = user.auth_version;
