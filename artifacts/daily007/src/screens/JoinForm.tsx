@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Alert, Platform, View, StyleSheet } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import type { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
@@ -13,6 +13,7 @@ import {
   type JoinFormField,
 } from '../lib/joinFormValidation';
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
+import { requestTeamEditCancel } from '../lib/teamEditCancel';
 
 type Member = { name: string; uid: string };
 type TeamEditSnapshot = {
@@ -92,6 +93,13 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const [expectedTeam, setExpectedTeam] = useState<TeamEditSnapshot>(() =>
     initialTeamSnapshot(registration, teamSize));
   const [staleTeam, setStaleTeam] = useState<TeamEditSnapshot | null>(null);
+  const originalTeam = initialTeamSnapshot(registration, teamSize);
+  const hasUnsavedTeamChanges = editing && JSON.stringify({
+    captainGameName,
+    captainGameUid,
+    teamName,
+    teammates: members,
+  }) !== JSON.stringify(originalTeam);
   const [clockNow, setClockNow] = useState(Date.now());
   const editCutoff = getTeamEditCutoff(t.startsAt);
   const editLocked = editing && (editCutoff === null || clockNow >= editCutoff);
@@ -121,6 +129,26 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
   const setMember = (i: number, field: keyof Member, v: string) => {
     setMembers((m) => m.map((x, j) => (j === i ? { ...x, [field]: v } : x)));
   };
+
+  const cancel = () => requestTeamEditCancel(
+    hasUnsavedTeamChanges,
+    onCancel,
+    ({ keepEditing, discard }) => {
+      if (Platform.OS === 'web') {
+        if (globalThis.confirm('Discard team changes? Your unsaved edits will be lost.')) discard();
+        else keepEditing();
+        return;
+      }
+      Alert.alert(
+        'Discard team changes?',
+        'Your unsaved edits will be lost.',
+        [
+          { text: 'Keep editing', style: 'cancel', onPress: keepEditing },
+          { text: 'Discard', style: 'destructive', onPress: discard },
+        ],
+      );
+    },
+  );
 
   const clearFieldValidation = (field: JoinFormField) => {
     if (!fieldErrors[field]) return;
@@ -243,7 +271,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
       keyboardShouldPersistTaps="handled"
       bottomOffset={72}
     >
-      <Text onPress={onCancel} style={st.back}>← BACK</Text>
+      <Text onPress={cancel} style={st.back}>← BACK</Text>
       <Text style={st.h}>{editing ? `EDIT TEAM · ${teamType.toUpperCase()}` : title}</Text>
       <Text style={st.sub}>
         {editing
@@ -408,7 +436,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         <Btn
           title="CANCEL"
           kind="ghost"
-          onPress={onCancel}
+          onPress={cancel}
           style={{ marginTop: 9 }}
           testID="join-form-cancel"
         />

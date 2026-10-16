@@ -8,6 +8,7 @@ import {
   getRegistrationServerFieldErrors,
   validateJoinForm,
 } from "../src/lib/joinFormValidation.ts";
+import { requestTeamEditCancel } from "../src/lib/teamEditCancel.ts";
 
 const requests = [];
 const teamEditRequests = [];
@@ -464,7 +465,35 @@ test("a failed team edit explains that saved details are unchanged and attempted
   assert.match(joinFormSource, /value=\{teamName\}/);
   assert.match(joinFormSource, /value=\{captainGameName\}/);
   assert.match(joinFormSource, /onPress=\{submit\}[\s\S]*?loading=\{busy\}[\s\S]*?disabled=\{isUnavailable\}/);
-  assert.match(joinFormSource, /onPress=\{onCancel\}[\s\S]*?testID="join-form-cancel"/);
+  assert.match(joinFormSource, /<Text onPress=\{cancel\} style=\{st\.back\}>← BACK<\/Text>/);
+  assert.match(joinFormSource, /onPress=\{cancel\}[\s\S]*?testID="join-form-cancel"/);
+});
+
+test("team edit cancellation exits immediately when unchanged and keeps or discards edited values by choice", () => {
+  let cancelCount = 0;
+  let confirmationActions;
+  const onCancel = () => { cancelCount += 1; };
+  const showConfirmation = (actions) => { confirmationActions = actions; };
+
+  requestTeamEditCancel(false, onCancel, showConfirmation);
+  assert.equal(cancelCount, 1, "An unchanged team edit should close immediately.");
+  assert.equal(confirmationActions, undefined, "An unchanged team edit should not show a prompt.");
+
+  requestTeamEditCancel(true, onCancel, showConfirmation);
+  assert.equal(cancelCount, 1, "Edited values should remain open until the player chooses.");
+  assert.equal(typeof confirmationActions.keepEditing, "function");
+  assert.equal(typeof confirmationActions.discard, "function");
+
+  confirmationActions.keepEditing();
+  assert.equal(cancelCount, 1, "Keep editing must retain the form instead of leaving.");
+  confirmationActions.discard();
+  assert.equal(cancelCount, 2, "Discard must return to the previous screen.");
+
+  assert.match(joinFormSource, /const hasUnsavedTeamChanges = editing && JSON\.stringify\(\{[\s\S]*?captainGameName,[\s\S]*?captainGameUid,[\s\S]*?teamName,[\s\S]*?teammates: members,[\s\S]*?\}\) !== JSON\.stringify\(originalTeam\)/);
+  assert.match(joinFormSource, /'Discard team changes\?'/);
+  assert.match(joinFormSource, /Platform\.OS === 'web'[\s\S]*?globalThis\.confirm\([\s\S]*?discard\(\)[\s\S]*?keepEditing\(\)/);
+  assert.match(joinFormSource, /text: 'Keep editing', style: 'cancel', onPress: keepEditing/);
+  assert.match(joinFormSource, /text: 'Discard', style: 'destructive', onPress: discard/);
 });
 
 test("a stale team edit shows the latest saved team and keeps the current form values for an explicit retry", () => {
