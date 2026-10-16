@@ -2586,6 +2586,206 @@ test("a Tournament Admin result queued behind a block is rejected without publis
   }
 });
 
+test("a Tournament Admin result queued behind a failed block proceeds and awards consistently", async () => {
+  const tournamentAdminId = randomUUID();
+  const blockerAdminId = randomUUID();
+  const playerId = randomUUID();
+  const tournamentId = randomUUID();
+  const registrationId = randomUUID();
+  const blockPauseKey = 740086n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockPauseLockHeld = false;
+  let blockPromise: Promise<JsonResponse> | undefined;
+  let resultPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Tournament Admin with Failed Block', $2, 'test-salt', 'test-hash', 'tournament_admin', 0),
+         ($3, 'Full Admin with Failed Block', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Player for Failed Block Result', $6, 'test-salt', 'test-hash', 'user', 5)`,
+      [
+        tournamentAdminId,
+        `tournament-admin-failed-block-${tournamentAdminId}@example.test`,
+        blockerAdminId,
+        `full-admin-failed-block-${blockerAdminId}@example.test`,
+        playerId,
+        `player-failed-block-result-${playerId}@example.test`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, prize_pool, prize_distribution, starts_at, status, enabled)
+       VALUES ($1, 'Queued Result Failed Block', 50, '1: 50', now() - interval '1 day', 'active', true)`,
+      [tournamentId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations (id, match_id, captain_user_id, status)
+       VALUES ($1, $2, $3, 'approved')`,
+      [registrationId, tournamentId, playerId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_fail_tournament_admin_block() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.id = '${tournamentAdminId}'::uuid
+           AND NEW.status = 'blocked'
+           AND OLD.status IS DISTINCT FROM NEW.status THEN
+          PERFORM pg_advisory_xact_lock(${blockPauseKey}::bigint);
+          RAISE EXCEPTION 'Injected failure while blocking Tournament Admin';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_fail_tournament_admin_block
+      BEFORE UPDATE ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_fail_tournament_admin_block()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${blockPauseKey}::bigint)`);
+    blockPauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        blockPromise = patchJson(
+          origin,
+          `/admin/users/${tournamentAdminId}`,
+          blockerAdminId,
+          { status: "blocked" },
+        );
+        await waitForBlockedQuery(
+          "UPDATE daily007_v2_users SET status = COALESCE",
+          "the failing block update to hold the Tournament Admin row lock",
+        );
+
+        resultPromise = postJson(origin, "/admin/results", tournamentAdminId, {
+          tournamentId,
+          registrationId,
+          rank: 1,
+          kills: 2,
+        });
+        await waitForQueryBlockedBy(
+          "SELECT pg_advisory_xact_lock_shared(740073)",
+          "UPDATE daily007_v2_users SET status = COALESCE",
+          "the tournament result write to queue behind the failing block",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${blockPauseKey}::bigint)`);
+        blockPauseLockHeld = false;
+        const [blocked, result] = await Promise.all([blockPromise, resultPromise]);
+        assert.equal(blocked.status, 500, JSON.stringify(blocked.body));
+        assert.equal(result.status, 201, JSON.stringify(result.body));
+        assert.equal(result.body.registrationId, registrationId);
+        assert.equal(result.body.userId, playerId);
+        assert.equal(result.body.prizeCoins, 50);
+        assert.equal(result.body.walletCoins, 55);
+      } finally {
+        if (blockPauseLockHeld) {
+          await blocker!
+            .query(`SELECT pg_advisory_unlock(${blockPauseKey}::bigint)`)
+            .catch(() => undefined);
+          blockPauseLockHeld = false;
+        }
+      }
+    });
+
+    const admin = await pool.query<{ status: string; role: string }>(
+      "SELECT status, role FROM daily007_v2_users WHERE id = $1",
+      [tournamentAdminId],
+    );
+    const match = await pool.query<{ status: string; enabled: boolean }>(
+      "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+      [tournamentId],
+    );
+    const player = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [playerId],
+    );
+    const awards = await pool.query<{
+      registration_id: string;
+      user_id: string;
+      rank: number;
+      kills: number;
+      prize_coins: number;
+    }>(
+      `SELECT registration_id, user_id, rank, kills, prize_coins
+         FROM daily007_v2_result_awards
+        WHERE match_id = $1`,
+      [tournamentId],
+    );
+    const stats = await pool.query<{
+      matches: number;
+      wins: number;
+      kills: number;
+      prize_coins: number;
+    }>(
+      "SELECT matches, wins, kills, prize_coins FROM daily007_v2_user_stats WHERE user_id = $1",
+      [playerId],
+    );
+    const ledger = await pool.query<{
+      amount: number;
+      balance_after: number;
+      reason: string;
+      match_id: string;
+      registration_id: string;
+    }>(
+      `SELECT amount, balance_after, reason, match_id, registration_id
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1`,
+      [tournamentId],
+    );
+    assert.deepEqual(admin.rows, [{ status: "active", role: "tournament_admin" }]);
+    assert.deepEqual(match.rows, [{ status: "active", enabled: false }]);
+    assert.equal(player.rows[0]?.wallet_coins, 55);
+    assert.deepEqual(awards.rows, [{
+      registration_id: registrationId,
+      user_id: playerId,
+      rank: 1,
+      kills: 2,
+      prize_coins: 50,
+    }]);
+    assert.deepEqual(stats.rows, [{ matches: 1, wins: 1, kills: 2, prize_coins: 50 }]);
+    assert.deepEqual(ledger.rows, [{
+      amount: 50,
+      balance_after: 55,
+      reason: "match_prize",
+      match_id: tournamentId,
+      registration_id: registrationId,
+    }]);
+  } finally {
+    if (blocker) {
+      if (blockPauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${blockPauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (blockPromise || resultPromise) {
+      await Promise.allSettled(
+        [blockPromise, resultPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_fail_tournament_admin_block ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_tournament_admin_block()");
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [tournamentId]);
+    await pool.query("DELETE FROM daily007_v2_user_stats WHERE user_id = $1", [playerId]);
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE match_id = $1", [tournamentId]);
+    await pool.query("DELETE FROM daily007_v2_registrations WHERE id = $1", [registrationId]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [tournamentId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[tournamentAdminId, blockerAdminId, playerId]],
+    );
+  }
+});
+
 test("a Tournament Admin result queued behind role demotion is rejected without awarding", async () => {
   const tournamentAdminId = randomUUID();
   const fullAdminId = randomUUID();
