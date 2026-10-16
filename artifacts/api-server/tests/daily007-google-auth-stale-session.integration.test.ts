@@ -264,3 +264,144 @@ test("a replaced Daily007 session cannot link Google or create referral rewards 
     resetMockGoogleUser();
   }
 });
+
+test("a PostgreSQL failure after Google linking keeps the password account and session unchanged", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  let accountId: string | undefined;
+
+  try {
+    await withServer(async (origin) => {
+      const registration = await postJson(origin, "/daily007/v2/auth/register", {
+        name: "Google Link Player",
+        email: ACCOUNT_EMAIL,
+        password: ACCOUNT_PASSWORD,
+      });
+      assert.equal(registration.status, 201, "password account should be created");
+      accountId = String((registration.body.account as Record<string, unknown>).id);
+
+      const passwordToken = await login(origin, "198.51.100.3");
+      const beforeAccount = await pool.query<{
+        id: string;
+        auth_version: number;
+        clerk_user_id: string | null;
+        wallet_coins: number;
+        password_salt: string;
+        password_hash: string;
+      }>(
+        `SELECT id, auth_version, clerk_user_id, wallet_coins, password_salt, password_hash
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.equal(beforeAccount.rows.length, 1);
+      assert.equal(beforeAccount.rows[0]?.clerk_user_id, null);
+      const beforeLedger = await pool.query<{
+        id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string | null;
+      }>(
+        `SELECT id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at, id`,
+        [accountId],
+      );
+      const walletBefore = await readWalletHistory(origin, passwordToken);
+      assert.equal(walletBefore.status, 200, "the password session should work before linking");
+
+      await pool.query("DROP TRIGGER IF EXISTS daily007_test_fail_google_link_after_update ON daily007_v2_users");
+      await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_google_link_after_update()");
+      await pool.query("DROP SEQUENCE IF EXISTS daily007_test_google_link_failure_seq");
+      await pool.query("CREATE SEQUENCE daily007_test_google_link_failure_seq START 1");
+      await pool.query(`
+        CREATE FUNCTION daily007_test_fail_google_link_after_update()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+          IF OLD.clerk_user_id IS NULL
+             AND NEW.clerk_user_id = '${GOOGLE_CLERK_USER_ID}' THEN
+            PERFORM nextval('daily007_test_google_link_failure_seq');
+            RAISE EXCEPTION 'Injected failure after Google account link update';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+      `);
+      await pool.query(`
+        CREATE TRIGGER daily007_test_fail_google_link_after_update
+        AFTER UPDATE OF clerk_user_id ON daily007_v2_users
+        FOR EACH ROW
+        EXECUTE FUNCTION daily007_test_fail_google_link_after_update()
+      `);
+
+      const linkAttempt = await postJson(origin, "/auth/google", { referralCode: null }, {
+        authorization: "Bearer mocked-clerk-session",
+        "x-mock-clerk-user-id": GOOGLE_CLERK_USER_ID,
+        "X-Daily007-Token": passwordToken,
+      });
+      assert.equal(linkAttempt.status, 500, "the injected post-link PostgreSQL failure should reject linking");
+
+      const failureAttempts = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_google_link_failure_seq",
+      );
+      assert.equal(failureAttempts.rows[0]?.last_value, "1",
+        "the injected failure must run after the Google identity was assigned in the transaction");
+
+      const afterAccount = await pool.query<{
+        id: string;
+        auth_version: number;
+        clerk_user_id: string | null;
+        wallet_coins: number;
+        password_salt: string;
+        password_hash: string;
+      }>(
+        `SELECT id, auth_version, clerk_user_id, wallet_coins, password_salt, password_hash
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(
+        afterAccount.rows,
+        beforeAccount.rows,
+        "the failed transaction must restore the unlinked account and its original session version",
+      );
+      const linkedIdentity = await pool.query<{ id: string }>(
+        "SELECT id FROM daily007_v2_users WHERE clerk_user_id = $1",
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(linkedIdentity.rows, [], "the failed link must not reserve the Google identity");
+
+      const afterLedger = await pool.query<{
+        id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string | null;
+      }>(
+        `SELECT id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at, id`,
+        [accountId],
+      );
+      assert.deepEqual(afterLedger.rows, beforeLedger.rows, "the failed link must leave wallet ledger data unchanged");
+
+      const walletAfter = await readWalletHistory(origin, passwordToken);
+      assert.equal(walletAfter.status, 200, "the pre-link password session must still authorize Wallet");
+      assert.deepEqual(
+        walletAfter.history,
+        walletBefore.history,
+        "the failed link must leave the existing password session's Wallet history unchanged",
+      );
+    });
+  } finally {
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_fail_google_link_after_update ON daily007_v2_users");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_google_link_after_update()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_google_link_failure_seq");
+    if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
+    resetMockGoogleUser();
+  }
+});

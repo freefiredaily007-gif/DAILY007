@@ -50,6 +50,14 @@ CREATE TABLE daily007_v2_matches (
   title text NOT NULL
 );
 
+CREATE TABLE daily007_v2_result_awards (
+  match_id uuid NOT NULL,
+  registration_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  rank integer NOT NULL,
+  kills integer NOT NULL
+);
+
 CREATE TABLE daily007_login_rate_limits (
   client_ip_hash text PRIMARY KEY,
   attempts integer NOT NULL CHECK (attempts >= 1),
