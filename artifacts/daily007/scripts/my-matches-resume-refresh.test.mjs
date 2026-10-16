@@ -339,6 +339,93 @@ test("connectivity bursts coalesce during delayed loads and stay focused", async
   assert.equal(requestCount, 2);
 });
 
+test("a stalled registration request gets one bounded recovery without an overlap storm", async () => {
+  const scheduler = createFakeScheduler();
+  const refreshes = createFocusedRefreshCoalescer({
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  }, 250, 1_000);
+  const gate = createFocusedLatestRequestGate();
+  const firstResponse = deferred();
+  const recoveryResponse = deferred();
+  let requestCount = 0;
+  let activeRequests = 0;
+  let maximumActiveRequests = 0;
+  const visibleResults = [];
+  gate.setFocused(true);
+  refreshes.setFocused(true);
+
+  const refresh = () => gate.run(
+    () => {
+      requestCount += 1;
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      if (requestCount === 1) return firstResponse.promise.finally(() => { activeRequests -= 1; });
+      if (requestCount === 2) return recoveryResponse.promise.finally(() => { activeRequests -= 1; });
+      return new Promise(() => {});
+    },
+    () => {},
+    (result) => {
+      if (result.ok) visibleResults.push(result.value);
+    },
+  );
+
+  refreshes.request(refresh);
+  assert.equal(scheduler.runNext(), true);
+  assert.equal(requestCount, 1);
+
+  refreshes.request(refresh);
+  assert.equal(scheduler.runNext(), true);
+  assert.deepEqual(scheduler.delays, [1_000], "a queued connectivity refresh gets a bounded wait");
+  assert.equal(scheduler.runNext(), true);
+  assert.equal(requestCount, 2, "one recovery starts even though the first request never settles");
+  assert.equal(maximumActiveRequests, 2);
+
+  for (let index = 0; index < 10; index += 1) refreshes.request(refresh);
+  assert.deepEqual(scheduler.delays, [250]);
+  assert.equal(scheduler.runNext(), true);
+  assert.equal(requestCount, 2, "further connectivity bursts cannot start a third overlapping request");
+  assert.equal(maximumActiveRequests, 2);
+  refreshes.cancelPending();
+
+  recoveryResponse.resolve("recovered");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(visibleResults, ["recovered"]);
+
+  firstResponse.resolve("stale");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(visibleResults, ["recovered"], "the late older response cannot replace the recovery result");
+  assert.equal(requestCount, 2);
+  gate.setFocused(false);
+  refreshes.setFocused(false);
+});
+
+test("blur cancels a queued recovery for a request that never settles", () => {
+  const scheduler = createFakeScheduler();
+  const refreshes = createFocusedRefreshCoalescer({
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  }, 250, 1_000);
+  const neverSettles = new Promise(() => {});
+  let requestCount = 0;
+  const refresh = () => {
+    requestCount += 1;
+    return neverSettles;
+  };
+
+  refreshes.setFocused(true);
+  refreshes.request(refresh);
+  assert.equal(scheduler.runNext(), true);
+  refreshes.request(refresh);
+  assert.equal(scheduler.runNext(), true);
+  assert.deepEqual(scheduler.delays, [1_000]);
+
+  refreshes.setFocused(false);
+  assert.deepEqual(scheduler.delays, [], "blur clears the bounded recovery timer and queued refresh");
+  assert.equal(scheduler.runNext(), false);
+  assert.equal(requestCount, 1);
+});
+
 test("an old focused request cannot block a new session's connectivity refresh", async () => {
   const scheduler = createFakeScheduler();
   const refreshes = createFocusedRefreshCoalescer({
