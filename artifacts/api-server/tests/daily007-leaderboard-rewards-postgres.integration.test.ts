@@ -545,3 +545,245 @@ test("overlapping weekly and monthly prize saves stay serialized through active-
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
   }
 });
+
+test("monthly approval pays its saved prize snapshot after current rewards change in PostgreSQL", async () => {
+  const adminId = randomUUID();
+  const firstPlayerId = randomUUID();
+  const secondPlayerId = randomUUID();
+  const thirdPlayerId = randomUUID();
+  const monthlyPeriodId = randomUUID();
+  const token = makeToken(adminId, 0);
+  assert.ok(token);
+
+  const savedMonthlyRewards = [
+    { rank: 1, coins: 25 },
+    { rank: 2, coins: 0 },
+    { rank: 3, coins: 5 },
+  ];
+  const updatedCurrentRewards = {
+    weekly: { firstPlaceCoins: 701, secondPlaceCoins: 702, thirdPlaceCoins: 703 },
+    monthly: { firstPlaceCoins: 801, secondPlaceCoins: 802, thirdPlaceCoins: 803 },
+  };
+  const approvedAt = new Date();
+  const startsAt = new Date(approvedAt.getTime() - 31 * 86_400_000);
+  const endsAt = new Date(approvedAt.getTime() - 60_000);
+  const standings = [
+    { rank: 1, userId: firstPlayerId, name: "Snapshot First", points: 900, earnings: 900, wins: 4, kills: 15, matches: 6 },
+    { rank: 2, userId: secondPlayerId, name: "Snapshot Second", points: 500, earnings: 500, wins: 2, kills: 10, matches: 5 },
+    { rank: 3, userId: thirdPlayerId, name: "Snapshot Third", points: 350, earnings: 350, wins: 1, kills: 8, matches: 4 },
+  ];
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, role, wallet_coins, status, auth_version)
+       VALUES
+         ($1, 'Leaderboard Snapshot Admin', $2, 'admin', 0, 'active', 0),
+         ($3, 'Snapshot First', $4, 'user', 100, 'active', 0),
+         ($5, 'Snapshot Second', $6, 'user', 100, 'active', 0),
+         ($7, 'Snapshot Third', $8, 'user', 100, 'active', 0)`,
+      [
+        adminId,
+        `leaderboard-snapshot-admin-${adminId}@example.test`,
+        firstPlayerId,
+        `leaderboard-snapshot-first-${firstPlayerId}@example.test`,
+        secondPlayerId,
+        `leaderboard-snapshot-second-${secondPlayerId}@example.test`,
+        thirdPlayerId,
+        `leaderboard-snapshot-third-${thirdPlayerId}@example.test`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_reward_settings
+         (cycle_type, first_place_coins, second_place_coins, third_place_coins, updated_by)
+       VALUES
+         ('weekly', 50, 40, 30, $1),
+         ('monthly', 90, 60, 30, $1)`,
+      [adminId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES ($1, 'monthly', $2, $3, 'pending_approval', $4::jsonb, $5::jsonb)`,
+      [
+        monthlyPeriodId,
+        startsAt,
+        endsAt,
+        JSON.stringify(standings),
+        JSON.stringify(savedMonthlyRewards),
+      ],
+    );
+
+    await withServer(async (origin) => {
+      const saveResponse = await fetch(`${origin}/daily007/v2/admin/leaderboards/rewards`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(updatedCurrentRewards),
+      });
+      assert.equal(saveResponse.status, 200);
+
+      const currentSettings = await pool.query<{
+        cycle_type: string;
+        first_place_coins: number;
+        second_place_coins: number;
+        third_place_coins: number;
+      }>(
+        `SELECT cycle_type, first_place_coins, second_place_coins, third_place_coins
+           FROM daily007_v2_leaderboard_reward_settings
+          ORDER BY cycle_type`,
+      );
+      assert.deepEqual(currentSettings.rows, [
+        {
+          cycle_type: "monthly",
+          first_place_coins: 801,
+          second_place_coins: 802,
+          third_place_coins: 803,
+        },
+        {
+          cycle_type: "weekly",
+          first_place_coins: 701,
+          second_place_coins: 702,
+          third_place_coins: 703,
+        },
+      ]);
+
+      const approvalResponse = await fetch(
+        `${origin}/daily007/v2/admin/leaderboards/periods/${monthlyPeriodId}/approve`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+        },
+      );
+      assert.equal(approvalResponse.status, 200);
+      const approval = await approvalResponse.json() as {
+        cycleType: string;
+        rewards: { rank: number; coins: number }[];
+        payouts: {
+          rank: number;
+          userId: string;
+          coins: number;
+          balanceAfter: number;
+        }[];
+      };
+      assert.equal(approval.cycleType, "monthly");
+      assert.deepEqual(approval.rewards, savedMonthlyRewards);
+      assert.deepEqual(
+        approval.payouts.map(({ rank, userId, coins, balanceAfter }) => ({
+          rank,
+          userId,
+          coins,
+          balanceAfter,
+        })),
+        [
+          { rank: 1, userId: firstPlayerId, coins: 25, balanceAfter: 125 },
+          { rank: 3, userId: thirdPlayerId, coins: 5, balanceAfter: 105 },
+        ],
+      );
+
+      const wallets = await pool.query<{
+        id: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id`,
+        [[firstPlayerId, secondPlayerId, thirdPlayerId]],
+      );
+      assert.deepEqual(
+        new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+        new Map([
+          [firstPlayerId, 125],
+          [secondPlayerId, 100],
+          [thirdPlayerId, 105],
+        ]),
+      );
+
+      const ledger = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+        details: Record<string, unknown>;
+      }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key, details
+           FROM daily007_v2_wallet_ledger
+          ORDER BY idempotency_key`,
+      );
+      assert.deepEqual(
+        ledger.rows.map(({ user_id, amount, balance_after, reason, idempotency_key, details }) => ({
+          user_id,
+          amount,
+          balance_after,
+          reason,
+          idempotency_key,
+          details,
+        })),
+        [
+          {
+            user_id: firstPlayerId,
+            amount: 25,
+            balance_after: 125,
+            reason: "Monthly Leaderboard Rank #1 Reward",
+            idempotency_key: `leaderboard-cycle:${monthlyPeriodId}:rank:1`,
+            details: {
+              description: "Monthly Leaderboard Rank #1 Reward",
+              periodId: monthlyPeriodId,
+              cycleType: "monthly",
+              rank: 1,
+              points: 900,
+            },
+          },
+          {
+            user_id: thirdPlayerId,
+            amount: 5,
+            balance_after: 105,
+            reason: "Monthly Leaderboard Rank #3 Reward",
+            idempotency_key: `leaderboard-cycle:${monthlyPeriodId}:rank:3`,
+            details: {
+              description: "Monthly Leaderboard Rank #3 Reward",
+              periodId: monthlyPeriodId,
+              cycleType: "monthly",
+              rank: 3,
+              points: 350,
+            },
+          },
+        ],
+      );
+
+      const savedPeriod = await pool.query<{
+        status: string;
+        payout_configuration: unknown;
+      }>(
+        `SELECT status, payout_configuration
+           FROM daily007_v2_leaderboard_periods
+          WHERE id = $1`,
+        [monthlyPeriodId],
+      );
+      assert.deepEqual(savedPeriod.rows[0], {
+        status: "finalized",
+        payout_configuration: savedMonthlyRewards,
+      });
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
+      [[firstPlayerId, secondPlayerId, thirdPlayerId]],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_leaderboard_periods WHERE id = $1",
+      [monthlyPeriodId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_leaderboard_reward_settings WHERE cycle_type IN ('weekly', 'monthly')",
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[adminId, firstPlayerId, secondPlayerId, thirdPlayerId]],
+    );
+  }
+});

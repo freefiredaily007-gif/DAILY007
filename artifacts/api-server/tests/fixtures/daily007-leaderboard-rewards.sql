@@ -36,6 +36,16 @@ CREATE TABLE daily007_v2_leaderboard_periods (
   UNIQUE (cycle_type, starts_at)
 );
 
+CREATE TABLE daily007_v2_wallet_ledger (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  amount integer NOT NULL,
+  balance_after integer NOT NULL CHECK (balance_after >= 0),
+  reason text NOT NULL,
+  idempotency_key text UNIQUE,
+  details jsonb
+);
+
 CREATE TABLE daily007_v2_matches (
   id uuid PRIMARY KEY,
   starts_at timestamptz NOT NULL
