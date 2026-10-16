@@ -45,6 +45,8 @@ type LedgerEntry = {
   amount: number;
   balanceAfter: number;
   reason: string;
+  id?: string;
+  createdAt?: Date;
 };
 
 type Notification = {
@@ -174,6 +176,23 @@ class MemoryWalletDatabase {
         reviewed_by: null,
         created_at: new Date(createdAt),
         reviewed_at: null,
+      });
+    }
+  }
+
+  seedWalletHistory(entries: Array<{
+    id: string;
+    userId: string;
+    createdAt: Date;
+  }>): void {
+    for (const { id, userId, createdAt } of entries) {
+      this.ledger.push({
+        id,
+        userId,
+        amount: 1,
+        balanceAfter: 1,
+        reason: "test_reward",
+        createdAt: new Date(createdAt),
       });
     }
   }
@@ -374,6 +393,42 @@ class MemoryWalletDatabase {
         reason: normalized.match(/'([^']+)'/)?.[1] ?? "",
       });
       rows = [{ id: `ledger-${this.ledger.length}` }];
+    } else if (normalized.startsWith("SELECT ledger.id, ledger.amount, ledger.balance_after AS \"balanceAfter\"")) {
+      let history = this.ledger
+        .filter((item) => item.userId === userId && item.id && item.createdAt)
+        .map((item) => ({
+          id: item.id!,
+          amount: item.amount,
+          balanceAfter: item.balanceAfter,
+          reason: item.reason,
+          details: {},
+          createdAt: item.createdAt!,
+          cursorCreatedAt: item.createdAt!.toISOString(),
+          matchId: null,
+          registrationId: null,
+          tournamentTitle: null,
+          placementRank: null,
+          placementKills: null,
+        }));
+      if (normalized.includes("(ledger.created_at, ledger.id) < ($2::timestamptz, $3::uuid)")) {
+        const cursorTime = Date.parse(String(values[1]));
+        const cursorId = String(values[2]);
+        history = history.filter((item) =>
+          item.createdAt.getTime() < cursorTime ||
+          (item.createdAt.getTime() === cursorTime && item.id < cursorId),
+        );
+      }
+      history.sort((left, right) =>
+        right.createdAt.getTime() - left.createdAt.getTime() || right.id.localeCompare(left.id),
+      );
+      const limit = normalized.match(/\bLIMIT\s+(\d+|\$\d+)\b/i);
+      if (limit) {
+        const limitValue = limit[1].startsWith("$")
+          ? Number(values[Number(limit[1].slice(1)) - 1])
+          : Number(limit[1]);
+        history = history.slice(0, limitValue);
+      }
+      rows = history;
     } else if (
       normalized.startsWith("UPDATE daily007_v2_payments SET status = $2") ||
       normalized.startsWith("UPDATE daily007_v2_withdrawals SET status = $2")

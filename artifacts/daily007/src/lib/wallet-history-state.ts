@@ -1,11 +1,12 @@
 export type WalletHistoryState<T> = {
   userId: string | null;
   items: T[];
-  cursor: string | null;
+  transactionCursor: string | null;
+  paymentCursor: string | null;
 };
 
 export function emptyWalletHistoryState<T>(userId: string | null): WalletHistoryState<T> {
-  return { userId, items: [], cursor: null };
+  return { userId, items: [], transactionCursor: null, paymentCursor: null };
 }
 
 export function walletHistoryForUser<T>(

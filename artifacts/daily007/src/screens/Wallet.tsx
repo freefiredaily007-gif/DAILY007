@@ -90,8 +90,9 @@ export default function Wallet() {
   const currentUserHistory = walletHistoryForUser(history, walletUserId);
   const txns = currentUserHistory.items;
   const [loading, setLoading] = useState(true);
-  const [loadingMorePayments, setLoadingMorePayments] = useState(false);
-  const paymentHistoryCursor = currentUserHistory.cursor;
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const transactionHistoryCursor = currentUserHistory.transactionCursor;
+  const paymentHistoryCursor = currentUserHistory.paymentCursor;
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [rechargeNotice, setRechargeNotice] = useState('');
@@ -125,14 +126,14 @@ export default function Wallet() {
     historyLoadVersion.current += 1;
     setHistory(emptyWalletHistoryState(walletUserId));
     setLoading(Boolean(walletUserId));
-    setLoadingMorePayments(false);
+    setLoadingMoreHistory(false);
     setError('');
   }, [walletUserId]);
 
   const load = useCallback(async () => {
     const requestedUserId = walletUserId;
     const loadVersion = ++historyLoadVersion.current;
-    setLoadingMorePayments(false);
+    setLoadingMoreHistory(false);
     if (!requestedUserId) {
       setHistory(emptyWalletHistoryState(null));
       setLoading(false);
@@ -144,19 +145,21 @@ export default function Wallet() {
     try {
       setError('');
       setLoading(true);
-      const [, data, paymentPage, wds, settings] = await Promise.all([
+      const [, transactionPage, paymentPage, wds, settings] = await Promise.all([
         refresh(),
-        Api.transactions(),
+        Api.transactionsPage(),
         Api.myPaymentsPage(),
         Api.myWithdrawals(),
         Api.settings(),
       ]);
       if (!requestIsCurrent()) return;
+      const data = transactionPage?.items;
       const pays = paymentPage?.items;
       if (!Array.isArray(data) || !Array.isArray(pays) || !Array.isArray(wds)) {
         throw new Error('The wallet server returned an invalid response.');
       }
-      const nextCursor = typeof paymentPage.nextCursor === 'string' ? paymentPage.nextCursor : null;
+      const nextTransactionCursor = typeof transactionPage.nextCursor === 'string' ? transactionPage.nextCursor : null;
+      const nextPaymentCursor = typeof paymentPage.nextCursor === 'string' ? paymentPage.nextCursor : null;
       const config = settings?.settings ?? settings ?? {};
       setPaymentUpi(String(config?.upiId ?? config?.upi_id ?? '').trim());
       setPaymentQr(String(config?.upiQrUrl ?? '').trim());
@@ -202,7 +205,12 @@ export default function Wallet() {
         }));
       const merged = [...pendingPays, ...pendingWds, ...data]
         .sort((left, right) => Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? '')));
-      setHistory({ userId: requestedUserId, items: merged, cursor: nextCursor });
+      setHistory({
+        userId: requestedUserId,
+        items: merged,
+        transactionCursor: nextTransactionCursor,
+        paymentCursor: nextPaymentCursor,
+      });
     } catch (e) {
       if (requestIsCurrent()) setError(apiError(e));
     } finally {
@@ -212,21 +220,37 @@ export default function Wallet() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const loadMorePayments = useCallback(async () => {
-    const cursor = paymentHistoryCursor;
+  const loadMoreHistory = useCallback(async () => {
+    const transactionCursor = transactionHistoryCursor;
+    const paymentCursor = paymentHistoryCursor;
     const requestedUserId = walletUserId;
-    if (!requestedUserId || !cursor || loadingMorePayments) return;
+    if (!requestedUserId || (!transactionCursor && !paymentCursor) || loadingMoreHistory) return;
     const loadVersion = historyLoadVersion.current;
     const requestIsCurrent = () =>
       loadVersion === historyLoadVersion.current &&
       activeWalletUserId.current === requestedUserId;
-    setLoadingMorePayments(true);
+    setLoadingMoreHistory(true);
     setError('');
     try {
-      const page = await Api.myPaymentsPage(cursor);
+      const [transactionPage, paymentPage] = await Promise.all([
+        transactionCursor ? Api.transactionsPage(transactionCursor) : Promise.resolve(null),
+        paymentCursor ? Api.myPaymentsPage(paymentCursor) : Promise.resolve(null),
+      ]);
       if (!requestIsCurrent()) return;
-      if (!Array.isArray(page?.items)) throw new Error('The wallet server returned an invalid payment-history page.');
-      const olderRequests = page.items
+      if (transactionPage && !Array.isArray(transactionPage.items)) {
+        throw new Error('The wallet server returned an invalid transaction-history page.');
+      }
+      if (paymentPage && !Array.isArray(paymentPage.items)) {
+        throw new Error('The wallet server returned an invalid payment-history page.');
+      }
+      const nextTransactionCursor = typeof transactionPage?.nextCursor === 'string' ? transactionPage.nextCursor : null;
+      const nextPaymentCursor = typeof paymentPage?.nextCursor === 'string' ? paymentPage.nextCursor : null;
+      if ((transactionCursor && nextTransactionCursor === transactionCursor) ||
+          (paymentCursor && nextPaymentCursor === paymentCursor)) {
+        throw new Error('The wallet server repeated a history cursor.');
+      }
+      const olderTransactions = transactionPage?.items ?? [];
+      const olderRequests = (paymentPage?.items ?? [])
         .filter((payment: any) => payment.status !== 'deleted')
         .map((payment: any) => ({
           id: 'pay-' + payment.id,
@@ -242,19 +266,23 @@ export default function Wallet() {
         }));
       setHistory((previous) => {
         const ownedHistory = walletHistoryForUser(previous, requestedUserId);
+        const mergedItems = [...ownedHistory.items, ...olderTransactions, ...olderRequests];
+        const uniqueItems = mergedItems.filter((item, index) =>
+          mergedItems.findIndex((candidate) => candidate.id === item.id) === index);
         return {
           userId: requestedUserId,
-          items: [...ownedHistory.items, ...olderRequests]
+          items: uniqueItems
             .sort((left, right) => Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? ''))),
-          cursor: typeof page.nextCursor === 'string' ? page.nextCursor : null,
+          transactionCursor: nextTransactionCursor,
+          paymentCursor: nextPaymentCursor,
         };
       });
     } catch (e) {
       if (requestIsCurrent()) setError(apiError(e));
     } finally {
-      if (requestIsCurrent()) setLoadingMorePayments(false);
+      if (requestIsCurrent()) setLoadingMoreHistory(false);
     }
-  }, [loadingMorePayments, paymentHistoryCursor, walletUserId]);
+  }, [loadingMoreHistory, paymentHistoryCursor, transactionHistoryCursor, walletUserId]);
 
   const openSheet = (t: 'add' | 'withdraw') => {
     if (t === 'add' && (!rechargeEnabled || !paymentUpi || !paymentQr)) {
@@ -389,15 +417,15 @@ export default function Wallet() {
           </>
         }
         ListEmptyComponent={loading ? <Loading /> : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />}
-        ListFooterComponent={paymentHistoryCursor ? (
+        ListFooterComponent={transactionHistoryCursor || paymentHistoryCursor ? (
           <View style={{ paddingTop: 8 }}>
             <Btn
-              title="LOAD OLDER PAYMENT REQUESTS"
-              testID="wallet-load-older-payments"
+              title="LOAD OLDER TRANSACTIONS"
+              testID="wallet-load-older-transactions"
               kind="ghost"
-              onPress={loadMorePayments}
-              loading={loadingMorePayments}
-              disabled={loadingMorePayments || loading}
+              onPress={loadMoreHistory}
+              loading={loadingMoreHistory}
+              disabled={loadingMoreHistory || loading}
             />
           </View>
         ) : null}

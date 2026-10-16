@@ -459,6 +459,9 @@ export const Api = {
   },
   // wallet
   transactions: () => unwrap(http.get('/wallet/transactions')),
+  transactionsPage: (cursor?: string) => unwrap(http.get('/wallet/transactions', {
+    params: { paginated: 'true', ...(cursor ? { cursor } : {}) },
+  })),
   // payments
   createPayment: (b: {
     coins: number;

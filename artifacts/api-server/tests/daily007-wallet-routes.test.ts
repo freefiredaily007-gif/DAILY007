@@ -462,6 +462,66 @@ test("payment history pagination returns older pages in order and remains scoped
   });
 });
 
+test("wallet transaction pagination keeps equal-timestamp rows stable across pages and scoped to the player", async () => {
+  walletTestDb.reset();
+  const createdAt = new Date(Date.UTC(2026, 5, 1, 12));
+  const playerEntries = Array.from({ length: 205 }, (_, index) => ({
+    id: `50000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    userId: TEST_PLAYER_ID,
+    createdAt,
+  }));
+  const otherPlayerEntries = [{
+    id: "60000000-0000-4000-8000-000000000001",
+    userId: TEST_SECOND_PLAYER_ID,
+    createdAt: new Date(Date.UTC(2027, 0, 1)),
+  }];
+  walletTestDb.seedWalletHistory([...playerEntries, ...otherPlayerEntries]);
+  const expectedIds = playerEntries.slice(-200).reverse().map(({ id }) => id);
+
+  await withServer(async (origin) => {
+    const legacy = await call(origin, TEST_PLAYER_ID, "/wallet/transactions", "GET");
+    assert.equal(legacy.status, 200);
+    assert.equal(legacy.body.length, 205);
+    assert.deepEqual(legacy.body.slice(0, 5).map((entry: { id: string }) => entry.id), expectedIds.slice(0, 5));
+    assert.equal(legacy.body[0].description, "test reward");
+
+    const first = await call(origin, TEST_PLAYER_ID, "/wallet/transactions?paginated=true", "GET");
+    assert.equal(first.status, 200);
+    assert.equal(first.body.items.length, 200);
+    assert.ok(first.body.nextCursor);
+    assert.deepEqual(first.body.items.map((entry: { id: string }) => entry.id), expectedIds);
+    assert.ok(first.body.items.every((entry: { id: string }) =>
+      walletTestDb.ledger.some((ledger) => ledger.id === entry.id && ledger.userId === TEST_PLAYER_ID),
+    ));
+
+    const second = await call(
+      origin,
+      TEST_PLAYER_ID,
+      `/wallet/transactions?paginated=true&cursor=${encodeURIComponent(first.body.nextCursor)}`,
+      "GET",
+    );
+    assert.equal(second.status, 200);
+    assert.equal(second.body.items.length, 5);
+    assert.equal(second.body.nextCursor, null);
+    assert.deepEqual(
+      second.body.items.map((entry: { id: string }) => entry.id),
+      playerEntries.slice(0, 5).reverse().map(({ id }) => id),
+    );
+    assert.equal(
+      JSON.stringify([...first.body.items, ...second.body.items]).includes(otherPlayerEntries[0].id),
+      false,
+    );
+
+    const invalid = await call(
+      origin,
+      TEST_PLAYER_ID,
+      "/wallet/transactions?paginated=true&cursor=not-a-cursor",
+      "GET",
+    );
+    assert.equal(invalid.status, 400);
+  });
+});
+
 test("deposit display prefers the stored rupee amount over a changed conversion rate", () => {
   assert.equal(depositAmountInr(120, 300, 1), "₹300");
   assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");

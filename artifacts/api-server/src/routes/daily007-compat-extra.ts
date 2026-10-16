@@ -94,11 +94,30 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 function error(res: Response, status: number, message: string) { res.status(status).json({ error: message }); }
 function validId(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
 const PAYMENT_HISTORY_PAGE_SIZE = 200;
+const WALLET_TRANSACTION_PAGE_SIZE = 200;
 type PaymentHistoryCursor = { createdAt: string; id: string };
 function encodePaymentHistoryCursor(cursor: PaymentHistoryCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 function decodePaymentHistoryCursor(value: unknown): PaymentHistoryCursor | null {
+  if (
+    typeof value !== "string" ||
+    value.length > 512 ||
+    !/^[A-Za-z0-9_-]+$/.test(value)
+  ) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!isObject(parsed) || typeof parsed.createdAt !== "string" ||
+      !Number.isFinite(Date.parse(parsed.createdAt)) || !validId(parsed.id)) return null;
+    return { createdAt: parsed.createdAt, id: parsed.id };
+  } catch {
+    return null;
+  }
+}
+function encodeWalletTransactionCursor(cursor: PaymentHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+function decodeWalletTransactionCursor(value: unknown): PaymentHistoryCursor | null {
   if (
     typeof value !== "string" ||
     value.length > 512 ||
@@ -245,9 +264,21 @@ router.post("/wallet/uploads/request-url", authenticate, async (req, res): Promi
 
 router.get("/wallet/transactions", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
-  const result = await pool.query(
-    `SELECT ledger.id, ledger.amount, ledger.balance_after AS "balanceAfter",
+  const paginated = req.query.paginated === "true" || req.query.cursor !== undefined;
+  if (req.query.paginated !== undefined && req.query.paginated !== "true") {
+    error(res, 400, "Wallet transaction pagination must be true when requested."); return;
+  }
+  const cursorValue = req.query.cursor;
+  if (cursorValue !== undefined && typeof cursorValue !== "string") {
+    error(res, 400, "Wallet transaction cursor is invalid."); return;
+  }
+  const cursor = cursorValue === undefined ? null : decodeWalletTransactionCursor(cursorValue);
+  if (cursorValue !== undefined && !cursor) {
+    error(res, 400, "Wallet transaction cursor is invalid."); return;
+  }
+  const select = `SELECT ledger.id, ledger.amount, ledger.balance_after AS "balanceAfter",
             ledger.reason, ledger.details, ledger.created_at AS "createdAt",
+            ledger.created_at::text AS "cursorCreatedAt",
             ledger.match_id AS "matchId", ledger.registration_id AS "registrationId",
             tournament.title AS "tournamentTitle",
             award.rank AS "placementRank", award.kills AS "placementKills"
@@ -269,13 +300,39 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
          ON ledger.reason = 'match_prize'
         AND award.match_id = ledger.match_id
         AND award.registration_id = ledger.registration_id
-        AND award.user_id = ledger.user_id
-      WHERE ledger.user_id = $1
-      ORDER BY ledger.created_at DESC
-      LIMIT 500`, [id],
-  );
-  res.json(result.rows.map((row: any) => {
+        AND award.user_id = ledger.user_id`;
+  const result = paginated
+    ? cursor
+      ? await pool.query(
+        `${select}
+          WHERE ledger.user_id = $1
+            AND (ledger.created_at, ledger.id) < ($2::timestamptz, $3::uuid)
+          ORDER BY ledger.created_at DESC, ledger.id DESC
+          LIMIT $4`,
+        [id, cursor.createdAt, cursor.id, WALLET_TRANSACTION_PAGE_SIZE + 1],
+      )
+      : await pool.query(
+        `${select}
+          WHERE ledger.user_id = $1
+          ORDER BY ledger.created_at DESC, ledger.id DESC
+          LIMIT $2`,
+        [id, WALLET_TRANSACTION_PAGE_SIZE + 1],
+      )
+    : await pool.query(
+      `${select}
+        WHERE ledger.user_id = $1
+        ORDER BY ledger.created_at DESC, ledger.id DESC
+        LIMIT 500`,
+      [id],
+    );
+  const hasMore = paginated && result.rows.length > WALLET_TRANSACTION_PAGE_SIZE;
+  const pageRows = paginated ? result.rows.slice(0, WALLET_TRANSACTION_PAGE_SIZE) : result.rows;
+  const lastRow = pageRows[pageRows.length - 1] as
+    | { id: string; cursorCreatedAt?: string }
+    | undefined;
+  const items = pageRows.map((row: any) => {
     const { matchId, registrationId, tournamentTitle, placementRank, placementKills, ...transactionRow } = row;
+    delete transactionRow.cursorCreatedAt;
     const details = row.details && typeof row.details === "object" ? row.details as Record<string, unknown> : {};
     const existingDescription = typeof details.description === "string" && details.description.trim()
       ? details.description.trim()
@@ -338,7 +395,13 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
       } : {}),
       description,
     };
-  }));
+  });
+  res.json(paginated ? {
+    items,
+    nextCursor: hasMore && lastRow?.cursorCreatedAt
+      ? encodeWalletTransactionCursor({ createdAt: lastRow.cursorCreatedAt, id: lastRow.id })
+      : null,
+  } : items);
 });
 
 router.post("/payments", authenticate, async (req, res): Promise<void> => {
