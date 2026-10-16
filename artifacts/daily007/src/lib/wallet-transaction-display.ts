@@ -4,8 +4,35 @@ type WalletTransactionDisplayItem = {
   createdAt?: unknown;
   description?: unknown;
   details?: unknown;
+  isRequest?: unknown;
   reason?: unknown;
+  requestType?: unknown;
 };
+
+export type WalletTransactionFilter = "all" | "deposits" | "withdrawals" | "refunds";
+
+const WALLET_REFUND_REASONS = new Set([
+  "registration_refund",
+  "tournament_cancel_refund",
+  "withdrawal_rejected_refund",
+  "withdrawal_deleted_refund",
+]);
+
+export function walletTransactionMatchesFilter(
+  item: WalletTransactionDisplayItem,
+  filter: WalletTransactionFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "deposits") {
+    return (item.isRequest === true && item.requestType === "payment") ||
+      item.reason === "payment_approved";
+  }
+  if (filter === "withdrawals") {
+    return (item.isRequest === true && item.requestType === "withdrawal") ||
+      item.reason === "withdrawal_reserved";
+  }
+  return typeof item.reason === "string" && WALLET_REFUND_REASONS.has(item.reason);
+}
 
 function leaderboardRewardDescription(item: WalletTransactionDisplayItem): string | null {
   const details = item.details && typeof item.details === "object"

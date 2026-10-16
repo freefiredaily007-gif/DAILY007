@@ -23,6 +23,8 @@ import {
   walletTransactionAmount,
   walletTransactionDescription,
   walletTransactionIsLeaderboardReward,
+  walletTransactionMatchesFilter,
+  type WalletTransactionFilter,
 } from '../lib/wallet-transaction-display';
 import { WalletRejectedDepositRow } from '../components/WalletRejectedDepositRow';
 import { WalletCancellationRefundRow } from '../components/WalletCancellationRefundRow';
@@ -38,6 +40,12 @@ import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScr
 const DEFAULT_MIN_WITHDRAW = 100;
 const DEFAULT_MAX_WITHDRAW = 5000;
 const DUPLICATE_PAYMENT_REFERENCE_ERROR = 'This payment reference has already been submitted.';
+const WALLET_HISTORY_FILTERS: { value: WalletTransactionFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'deposits', label: 'Deposits' },
+  { value: 'withdrawals', label: 'Withdrawals' },
+  { value: 'refunds', label: 'Refunds' },
+];
 
 function normalizeWalletPaymentReference(reference: unknown): string {
   return typeof reference === 'string'
@@ -100,6 +108,10 @@ export default function Wallet() {
   const [history, setHistory] = useState(() => emptyWalletHistoryState<any>(walletUserId));
   const currentUserHistory = walletHistoryForUser(history, walletUserId);
   const txns = currentUserHistory.items;
+  const [historyFilter, setHistoryFilter] = useState<WalletTransactionFilter>('all');
+  const visibleTxns = txns.filter((item) => walletTransactionMatchesFilter(item, historyFilter));
+  const selectedHistoryFilterLabel = WALLET_HISTORY_FILTERS
+    .find((filter) => filter.value === historyFilter)?.label ?? 'All';
   const [loading, setLoading] = useState(true);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const transactionHistoryCursor = currentUserHistory.transactionCursor;
@@ -138,6 +150,7 @@ export default function Wallet() {
   useEffect(() => {
     historyLoadVersion.current += 1;
     setHistory(emptyWalletHistoryState(walletUserId));
+    setHistoryFilter('all');
     setLoading(Boolean(walletUserId));
     setLoadingMoreHistory(false);
     setHistoryLoadError('');
@@ -430,7 +443,7 @@ export default function Wallet() {
   return (
     <View style={s.wrap}>
       <FlatList
-        data={txns}
+        data={visibleTxns}
         keyExtractor={(t, i) => String(t.id ?? i)}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshHistory} tintColor={C.neon} />}
         contentContainerStyle={{ padding: 14, gap: 12 }}
@@ -462,6 +475,17 @@ export default function Wallet() {
             <Msg kind="ok" text={ok} />
             <Msg kind="err" text={error} />
             <SectionTitle>TRANSACTIONS</SectionTitle>
+            <Text style={s.filterLabel}>FILTER BY TYPE</Text>
+            <View style={s.historyFilters}>
+              {WALLET_HISTORY_FILTERS.map((filter) => (
+                <PressableHistoryFilter
+                  key={filter.value}
+                  filter={filter}
+                  active={historyFilter === filter.value}
+                  onPress={() => setHistoryFilter(filter.value)}
+                />
+              ))}
+            </View>
             {!!historyLoadError && (
               <View style={s.historyRetry}>
                 <Msg
@@ -502,7 +526,23 @@ export default function Wallet() {
             ? <Loading accessibilityLabel="Loading transaction history" />
             : historyLoadError
               ? null
-              : <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />
+              : historyFilter === 'all'
+                ? <Empty icon="🧾" text="No transactions yet. Add coins or join a tournament!" />
+                : (
+                  <View testID="wallet-history-empty-state">
+                    <Empty
+                      icon="🧾"
+                      title="NO MATCHING TRANSACTIONS"
+                      text={transactionHistoryCursor || paymentHistoryCursor
+                        ? `No ${selectedHistoryFilterLabel.toLowerCase()} in the transactions loaded so far. Load older transactions to keep searching.`
+                        : `No ${selectedHistoryFilterLabel.toLowerCase()} found.`}
+                      accessibilityLabel={transactionHistoryCursor || paymentHistoryCursor
+                        ? `No ${selectedHistoryFilterLabel.toLowerCase()} in the transactions loaded so far. Load older transactions to keep searching.`
+                        : `No ${selectedHistoryFilterLabel.toLowerCase()} found.`}
+                      accessibilityLiveRegion="polite"
+                    />
+                  </View>
+                )
         }
         ListFooterComponent={transactionHistoryCursor || paymentHistoryCursor ? (
           <View style={{ paddingTop: 8 }}>
@@ -741,6 +781,31 @@ export default function Wallet() {
   );
 }
 
+function PressableHistoryFilter({
+  filter,
+  active,
+  onPress,
+}: {
+  filter: { value: WalletTransactionFilter; label: string };
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      testID={`wallet-history-filter-${filter.value}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${filter.label} transactions`}
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[s.historyFilter, active && s.historyFilterActive]}
+    >
+      <Text style={[s.historyFilterText, active && s.historyFilterTextActive]}>
+        {filter.label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function PressableTab({ label, active, onPress, testID }: { label: string; active: boolean; onPress: () => void; testID?: string }) {
   return (
     <Pressable testID={testID} onPress={onPress} style={[s.tab, active && s.tabActive]}>
@@ -771,6 +836,16 @@ const s = StyleSheet.create({
   txTitleLarge: { width: '100%', maxWidth: '100%', flexShrink: 1 },
   txDate: { color: C.dim, fontSize: 11, marginTop: 3 },
   txAmount: { fontWeight: '900', fontSize: 16 },
+  filterLabel: { color: C.dim, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginTop: -4 },
+  historyFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 2 },
+  historyFilter: {
+    flexGrow: 1, flexBasis: '20%', minWidth: 72, alignItems: 'center',
+    borderWidth: 1, borderColor: C.line, borderRadius: 10, backgroundColor: C.bg2,
+    paddingHorizontal: 8, paddingVertical: 9,
+  },
+  historyFilterActive: { borderColor: C.gold, backgroundColor: C.gold + '22' },
+  historyFilterText: { color: C.sub, fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  historyFilterTextActive: { color: C.gold },
   historyRetry: { gap: 8 },
   historyRetryStatus: { color: C.sub, fontSize: 12, lineHeight: 18 },
   modalBg: { flex: 1, backgroundColor: '#000a', justifyContent: 'flex-end' },
