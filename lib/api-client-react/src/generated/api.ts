@@ -75,6 +75,10 @@ import type {
   Daily007V2RegisterMatch409,
   Daily007V2RegistrationBody,
   Daily007V2SetRoomBody,
+  Daily007V2SquadJoinBody,
+  Daily007V2SquadJoinResponse,
+  Daily007V2SquadRemovalResponse,
+  Daily007V2SquadSlotsResponse,
   Daily007V2UpdateMatchBody,
   Daily007Video,
   Daily007VideoList,
@@ -2289,6 +2293,253 @@ export const useDaily007V2SetRoom = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007V2SetRoomMutationOptions(options));
+    }
+
+export const getDaily007V2GetSquadSlotsUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/matches/${id}/squad-slots`
+}
+
+/**
+ * Requires authentication. Returns public Free Fire names and slot state; UIDs, account IDs, profile names, and contact details remain private. Only the captain sees removable member registration IDs.
+ * @summary Get the individually selectable Squad team slots
+ */
+export const daily007V2GetSquadSlots = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2SquadSlotsResponse> => {
+
+  return customFetch<Daily007V2SquadSlotsResponse>(getDaily007V2GetSquadSlotsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007V2GetSquadSlotsQueryKey = (id: string,) => {
+    return [
+    `/api/daily007/v2/matches/${id}/squad-slots`
+    ] as const;
+    }
+
+
+export const getDaily007V2GetSquadSlotsQueryOptions = <TData = Awaited<ReturnType<typeof daily007V2GetSquadSlots>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007V2GetSquadSlots>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007V2GetSquadSlotsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007V2GetSquadSlots>>> = ({ signal }) => daily007V2GetSquadSlots(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007V2GetSquadSlots>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007V2GetSquadSlotsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007V2GetSquadSlots>>>
+export type Daily007V2GetSquadSlotsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the individually selectable Squad team slots
+ */
+
+export function useDaily007V2GetSquadSlots<TData = Awaited<ReturnType<typeof daily007V2GetSquadSlots>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007V2GetSquadSlots>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007V2GetSquadSlotsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007V2JoinSquadSlotUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/matches/${id}/squad-join`
+}
+
+/**
+ * Assigns the authenticated player to one team and slot, charging only that player's wallet. A retry returns the saved receipt without a second charge. The first player in an empty team becomes its captain.
+ * @summary Join one open Squad player slot with the authenticated account
+ */
+export const daily007V2JoinSquadSlot = async (id: string,
+    daily007V2SquadJoinBody: Daily007V2SquadJoinBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2SquadJoinResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007V2SquadJoinResponse>(getDaily007V2JoinSquadSlotUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007V2SquadJoinBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007V2JoinSquadSlotMutationKey = () => ['daily007V2JoinSquadSlot'] as const;
+
+export const getDaily007V2JoinSquadSlotMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>, TError,Daily007V2JoinSquadSlotMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>, TError,Daily007V2JoinSquadSlotMutationVariables, TContext> => {
+
+const mutationKey = getDaily007V2JoinSquadSlotMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>, Daily007V2JoinSquadSlotMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007V2JoinSquadSlot(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007V2JoinSquadSlotMutationResult = NonNullable<Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>>
+    export type Daily007V2JoinSquadSlotMutationBody = BodyType<Daily007V2SquadJoinBody>
+    export type Daily007V2JoinSquadSlotMutationError = ErrorType<void>
+    export type Daily007V2JoinSquadSlotMutationVariables = {id: string;data: BodyType<Daily007V2SquadJoinBody>}
+
+    /**
+ * @summary Join one open Squad player slot with the authenticated account
+ */
+export const useDaily007V2JoinSquadSlot = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>, TError,Daily007V2JoinSquadSlotMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>,
+        TError,
+        Daily007V2JoinSquadSlotMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007V2JoinSquadSlotMutationOptions(options));
+    }
+
+export const getDaily007V2RemoveSquadMemberUrl = (id: string,
+    teamNumber: number,
+    slotNumber: number,) => {
+
+
+
+
+  return `/api/daily007/v2/matches/${id}/squad-slots/${teamNumber}/${slotNumber}`
+}
+
+/**
+ * Only the captain can remove another active member of their own non-legacy team, before registration closes. The removed player's paid entry fee is not refunded; the audit and wallet ledger entries remain intact. If a captain is removed by an administrator, captaincy transfers to the next active member.
+ * @summary Remove an eligible teammate from the captain's team
+ */
+export const daily007V2RemoveSquadMember = async (id: string,
+    teamNumber: number,
+    slotNumber: number, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2SquadRemovalResponse> => {
+
+  return customFetch<Daily007V2SquadRemovalResponse>(getDaily007V2RemoveSquadMemberUrl(id,teamNumber,slotNumber),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007V2RemoveSquadMemberMutationKey = () => ['daily007V2RemoveSquadMember'] as const;
+
+export const getDaily007V2RemoveSquadMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2RemoveSquadMember>>, TError,Daily007V2RemoveSquadMemberMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007V2RemoveSquadMember>>, TError,Daily007V2RemoveSquadMemberMutationVariables, TContext> => {
+
+const mutationKey = getDaily007V2RemoveSquadMemberMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007V2RemoveSquadMember>>, Daily007V2RemoveSquadMemberMutationVariables> = (props) => {
+          const {id,teamNumber,slotNumber} = props ?? {};
+
+          return  daily007V2RemoveSquadMember(id,teamNumber,slotNumber,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007V2RemoveSquadMemberMutationResult = NonNullable<Awaited<ReturnType<typeof daily007V2RemoveSquadMember>>>
+
+    export type Daily007V2RemoveSquadMemberMutationError = ErrorType<void>
+    export type Daily007V2RemoveSquadMemberMutationVariables = {id: string;teamNumber: number;slotNumber: number}
+
+    /**
+ * @summary Remove an eligible teammate from the captain's team
+ */
+export const useDaily007V2RemoveSquadMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2RemoveSquadMember>>, TError,Daily007V2RemoveSquadMemberMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007V2RemoveSquadMember>>,
+        TError,
+        Daily007V2RemoveSquadMemberMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007V2RemoveSquadMemberMutationOptions(options));
     }
 
 export const getDaily007V2GetRoomUrl = (id: string,) => {

@@ -1,4 +1,8 @@
 import { pool } from "@workspace/db";
+import {
+  ensureLegacySquadTeams,
+  getSquadOccupancy,
+} from "./daily007-squad-slots";
 
 export type CancellationSqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
@@ -92,12 +96,13 @@ export async function cancelUnderfilledTournamentTransaction(
       title: string;
       mode: string;
       game_mode: string | null;
+      team_type: string | null;
       status: string;
       capacity: number;
       has_started: boolean;
       has_winner: boolean;
     }>(
-      `SELECT m.id, m.title, m.mode, m.game_mode, m.status, m.capacity,
+      `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.status, m.capacity,
               m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
               EXISTS (
                 SELECT 1 FROM daily007_v2_result_awards award
@@ -114,13 +119,25 @@ export async function cancelUnderfilledTournamentTransaction(
       throw new TournamentCancellationError("Tournament not found.", 404);
     }
 
-    const countResult = await client.query<{ filled_slots: number }>(
-      `SELECT count(*)::integer AS filled_slots
-         FROM daily007_v2_registrations
-        WHERE match_id = $1 AND status IN ('approved', 'pending')`,
-      [matchId],
-    );
-    const filledSlots = Number(countResult.rows[0]?.filled_slots ?? 0);
+    const isBattleRoyaleSquad = match.mode === "squad" &&
+      (match.game_mode === null ||
+        (match.game_mode === "battle_royale" && match.team_type === "squad"));
+    let filledSlots: number;
+    let capacity = Number(match.capacity);
+    if (isBattleRoyaleSquad) {
+      await ensureLegacySquadTeams(client, matchId);
+      const occupancy = await getSquadOccupancy(client, matchId);
+      filledSlots = occupancy.filledPlayers;
+      capacity *= 4;
+    } else {
+      const countResult = await client.query<{ filled_slots: number }>(
+        `SELECT count(*)::integer AS filled_slots
+           FROM daily007_v2_registrations
+          WHERE match_id = $1 AND status IN ('approved', 'pending')`,
+        [matchId],
+      );
+      filledSlots = Number(countResult.rows[0]?.filled_slots ?? 0);
+    }
     const state: CancellationState = {
       gameMode: match.game_mode,
       storageMode: match.mode,
@@ -128,7 +145,7 @@ export async function cancelUnderfilledTournamentTransaction(
       hasStarted: match.has_started,
       hasWinner: match.has_winner,
       filledSlots,
-      capacity: Number(match.capacity),
+      capacity,
     };
 
     if (automaticOnly && !shouldAutomaticallyCancelTournament(state)) return null;
@@ -142,7 +159,7 @@ export async function cancelUnderfilledTournamentTransaction(
     }>(
       `SELECT id, captain_user_id, entry_coins_paid
          FROM daily007_v2_registrations
-        WHERE match_id = $1 AND status IN ('approved', 'pending')
+        WHERE match_id = $1 AND status IN ('approved', 'pending', 'removed')
         ORDER BY captain_user_id, id
         FOR UPDATE`,
       [matchId],

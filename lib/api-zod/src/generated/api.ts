@@ -850,6 +850,143 @@ export const Daily007V2SetRoomResponse = zod.unknown()
 
 
 /**
+ * Requires authentication. Returns public Free Fire names and slot state; UIDs, account IDs, profile names, and contact details remain private. Only the captain sees removable member registration IDs.
+ * @summary Get the individually selectable Squad team slots
+ */
+export const Daily007V2GetSquadSlotsParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007V2GetSquadSlotsResponseFilledTeamsMin = 0;
+export const daily007V2GetSquadSlotsResponseFilledTeamsMax = 12;
+
+export const daily007V2GetSquadSlotsResponseFilledPlayersMin = 0;
+export const daily007V2GetSquadSlotsResponseFilledPlayersMax = 48;
+
+export const daily007V2GetSquadSlotsResponseTeamsItemTeamNumberMax = 12;
+
+export const daily007V2GetSquadSlotsResponseTeamsItemSlotsItemSlotNumberMax = 4;
+
+export const daily007V2GetSquadSlotsResponseTeamsItemSlotsMin = 4;
+export const daily007V2GetSquadSlotsResponseTeamsItemSlotsMax = 4;
+
+export const daily007V2GetSquadSlotsResponseTeamsMin = 12;
+export const daily007V2GetSquadSlotsResponseTeamsMax = 12;
+
+
+
+export const Daily007V2GetSquadSlotsResponse = zod.object({
+  "tournamentId": zod.string().uuid(),
+  "teamSize": zod.literal(4),
+  "capacity": zod.literal(12),
+  "filledTeams": zod.number().int().min(daily007V2GetSquadSlotsResponseFilledTeamsMin).max(daily007V2GetSquadSlotsResponseFilledTeamsMax),
+  "filledPlayers": zod.number().int().min(daily007V2GetSquadSlotsResponseFilledPlayersMin).max(daily007V2GetSquadSlotsResponseFilledPlayersMax),
+  "registrationClosed": zod.boolean(),
+  "alreadyRegistered": zod.boolean(),
+  "myTeamNumber": zod.number().int().nullable(),
+  "mySlotNumber": zod.number().int().nullable(),
+  "teams": zod.array(zod.object({
+  "teamNumber": zod.number().int().min(1).max(daily007V2GetSquadSlotsResponseTeamsItemTeamNumberMax),
+  "legacy": zod.boolean(),
+  "captainGameName": zod.string().nullable(),
+  "slots": zod.array(zod.object({
+  "slotNumber": zod.number().int().min(1).max(daily007V2GetSquadSlotsResponseTeamsItemSlotsItemSlotNumberMax),
+  "occupied": zod.boolean(),
+  "gameName": zod.string().nullable(),
+  "isCaptain": zod.boolean(),
+  "canJoin": zod.boolean(),
+  "canRemove": zod.boolean(),
+  "registrationId": zod.string().uuid().nullable()
+})).min(daily007V2GetSquadSlotsResponseTeamsItemSlotsMin).max(daily007V2GetSquadSlotsResponseTeamsItemSlotsMax)
+})).min(daily007V2GetSquadSlotsResponseTeamsMin).max(daily007V2GetSquadSlotsResponseTeamsMax)
+})
+
+
+/**
+ * Assigns the authenticated player to one team and slot, charging only that player's wallet. A retry returns the saved receipt without a second charge. The first player in an empty team becomes its captain.
+ * @summary Join one open Squad player slot with the authenticated account
+ */
+export const Daily007V2JoinSquadSlotParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007V2JoinSquadSlotBodyTeamNumberMax = 12;
+
+export const daily007V2JoinSquadSlotBodySlotNumberMax = 4;
+
+export const daily007V2JoinSquadSlotBodyGameNameMax = 100;
+
+export const daily007V2JoinSquadSlotBodyGameUidMax = 128;
+
+
+
+export const Daily007V2JoinSquadSlotBody = zod.object({
+  "teamNumber": zod.number().int().min(1).max(daily007V2JoinSquadSlotBodyTeamNumberMax),
+  "slotNumber": zod.number().int().min(1).max(daily007V2JoinSquadSlotBodySlotNumberMax),
+  "gameName": zod.string().min(1).max(daily007V2JoinSquadSlotBodyGameNameMax),
+  "gameUid": zod.string().min(1).max(daily007V2JoinSquadSlotBodyGameUidMax)
+})
+
+export const daily007V2JoinSquadSlotResponseTeamNumberMax = 12;
+
+export const daily007V2JoinSquadSlotResponseSlotNumberMax = 4;
+
+export const daily007V2JoinSquadSlotResponseEntryCoinsPaidMin = 0;
+
+export const daily007V2JoinSquadSlotResponseWalletCoinsMin = 0;
+
+export const daily007V2JoinSquadSlotResponseFilledTeamsMin = 0;
+export const daily007V2JoinSquadSlotResponseFilledTeamsMax = 12;
+
+export const daily007V2JoinSquadSlotResponseFilledPlayersMin = 0;
+export const daily007V2JoinSquadSlotResponseFilledPlayersMax = 48;
+
+
+
+export const Daily007V2JoinSquadSlotResponse = zod.object({
+  "registrationId": zod.string().uuid(),
+  "teamNumber": zod.number().int().min(1).max(daily007V2JoinSquadSlotResponseTeamNumberMax),
+  "slotNumber": zod.number().int().min(1).max(daily007V2JoinSquadSlotResponseSlotNumberMax),
+  "isCaptain": zod.boolean(),
+  "entryCoinsPaid": zod.number().int().min(daily007V2JoinSquadSlotResponseEntryCoinsPaidMin),
+  "walletCoins": zod.number().int().min(daily007V2JoinSquadSlotResponseWalletCoinsMin),
+  "filledTeams": zod.number().int().min(daily007V2JoinSquadSlotResponseFilledTeamsMin).max(daily007V2JoinSquadSlotResponseFilledTeamsMax),
+  "filledPlayers": zod.number().int().min(daily007V2JoinSquadSlotResponseFilledPlayersMin).max(daily007V2JoinSquadSlotResponseFilledPlayersMax),
+  "alreadyRegistered": zod.boolean()
+})
+
+
+/**
+ * Only the captain can remove another active member of their own non-legacy team, before registration closes. The removed player's paid entry fee is not refunded; the audit and wallet ledger entries remain intact. If a captain is removed by an administrator, captaincy transfers to the next active member.
+ * @summary Remove an eligible teammate from the captain's team
+ */
+export const daily007V2RemoveSquadMemberPathTeamNumberMax = 12;
+
+export const daily007V2RemoveSquadMemberPathSlotNumberMax = 4;
+
+
+
+export const Daily007V2RemoveSquadMemberParams = zod.object({
+  "id": zod.coerce.string().uuid(),
+  "teamNumber": zod.coerce.number().int().min(1).max(daily007V2RemoveSquadMemberPathTeamNumberMax),
+  "slotNumber": zod.coerce.number().int().min(1).max(daily007V2RemoveSquadMemberPathSlotNumberMax)
+})
+
+export const daily007V2RemoveSquadMemberResponseTeamNumberMax = 12;
+
+export const daily007V2RemoveSquadMemberResponseSlotNumberMax = 4;
+
+
+
+export const Daily007V2RemoveSquadMemberResponse = zod.object({
+  "teamNumber": zod.number().int().min(1).max(daily007V2RemoveSquadMemberResponseTeamNumberMax),
+  "slotNumber": zod.number().int().min(1).max(daily007V2RemoveSquadMemberResponseSlotNumberMax),
+  "refunded": zod.literal(false),
+  "message": zod.string()
+})
+
+
+/**
  * Approved registrants only. Credentials are unavailable before five minutes prior to the scheduled start and are never returned for cancelled matches.
  * @summary Get scheduled room credentials
  */

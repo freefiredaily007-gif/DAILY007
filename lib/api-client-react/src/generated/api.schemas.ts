@@ -139,6 +139,133 @@ export interface TournamentParticipantsResponse {
   participants: TournamentParticipant[];
 }
 
+export interface Daily007V2SquadJoinBody {
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 4
+     */
+  slotNumber: number;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  gameName: string;
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  gameUid: string;
+}
+
+export interface Daily007V2SquadSlot {
+  /**
+     * @minimum 1
+     * @maximum 4
+     */
+  slotNumber: number;
+  occupied: boolean;
+  /** @nullable */
+  gameName: string | null;
+  isCaptain: boolean;
+  canJoin: boolean;
+  canRemove: boolean;
+  /** @nullable */
+  registrationId: string | null;
+}
+
+export interface Daily007V2SquadTeam {
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  legacy: boolean;
+  /** @nullable */
+  captainGameName: string | null;
+  /**
+     * @minItems 4
+     * @maxItems 4
+     */
+  slots: Daily007V2SquadSlot[];
+}
+
+export interface Daily007V2SquadSlotsResponse {
+  tournamentId: string;
+  teamSize: 4;
+  capacity: 12;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  filledTeams: number;
+  /**
+     * @minimum 0
+     * @maximum 48
+     */
+  filledPlayers: number;
+  registrationClosed: boolean;
+  alreadyRegistered: boolean;
+  /** @nullable */
+  myTeamNumber: number | null;
+  /** @nullable */
+  mySlotNumber: number | null;
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  teams: Daily007V2SquadTeam[];
+}
+
+export interface Daily007V2SquadJoinResponse {
+  registrationId: string;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 4
+     */
+  slotNumber: number;
+  isCaptain: boolean;
+  /** @minimum 0 */
+  entryCoinsPaid: number;
+  /** @minimum 0 */
+  walletCoins: number;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  filledTeams: number;
+  /**
+     * @minimum 0
+     * @maximum 48
+     */
+  filledPlayers: number;
+  alreadyRegistered: boolean;
+}
+
+export interface Daily007V2SquadRemovalResponse {
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 4
+     */
+  slotNumber: number;
+  refunded: false;
+  message: string;
+}
+
 export type TournamentSlotsResponseMode = typeof TournamentSlotsResponseMode[keyof typeof TournamentSlotsResponseMode];
 
 

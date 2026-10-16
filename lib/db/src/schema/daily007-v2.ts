@@ -165,7 +165,7 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
 }, (table) => [
   unique("daily007_v2_registration_once_per_account").on(table.matchId, table.captainUserId),
   check("daily007_v2_registration_paid_nonnegative", sql`${table.entryCoinsPaid} >= 0`),
-  check("daily007_v2_registration_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  check("daily007_v2_registration_status_valid_v2", sql`${table.status} IN ('pending', 'approved', 'rejected', 'removed')`),
   check("daily007_v2_registration_game_uid_nonempty", sql`length(btrim(${table.captainGameUid})) > 0`),
   index("daily007_v2_registrations_match_idx").on(table.matchId),
 ]);
@@ -180,6 +180,56 @@ export const daily007RosterTable = pgTable("daily007_v2_roster", {
   unique("daily007_v2_roster_position_unique").on(table.registrationId, table.position),
   check("daily007_v2_roster_position_valid", sql`${table.position} BETWEEN 1 AND 3`),
   check("daily007_v2_roster_member_uid_nonempty", sql`${table.memberUid} IS NULL OR length(btrim(${table.memberUid})) > 0`),
+]);
+
+export const daily007SquadTeamsTable = pgTable("daily007_v2_squad_teams", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id, { onDelete: "cascade" }),
+  teamNumber: integer("team_number").notNull(),
+  captainRegistrationId: uuid("captain_registration_id")
+    .references(() => daily007RegistrationsTable.id, { onDelete: "set null" }),
+  legacyRegistrationId: uuid("legacy_registration_id")
+    .references(() => daily007RegistrationsTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("daily007_v2_squad_team_number_unique").on(table.matchId, table.teamNumber),
+  uniqueIndex("daily007_v2_squad_team_captain_unique").on(table.captainRegistrationId)
+    .where(sql`${table.captainRegistrationId} IS NOT NULL`),
+  uniqueIndex("daily007_v2_squad_team_legacy_registration_unique").on(table.legacyRegistrationId)
+    .where(sql`${table.legacyRegistrationId} IS NOT NULL`),
+  check("daily007_v2_squad_team_number_valid", sql`${table.teamNumber} BETWEEN 1 AND 12`),
+]);
+
+export const daily007SquadTeamMembersTable = pgTable("daily007_v2_squad_team_members", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: uuid("team_id").notNull().references(() => daily007SquadTeamsTable.id, { onDelete: "cascade" }),
+  slotNumber: integer("slot_number").notNull(),
+  registrationId: uuid("registration_id").references(() => daily007RegistrationsTable.id, { onDelete: "cascade" }),
+  legacyGameName: text("legacy_game_name"),
+  legacyGameUid: text("legacy_game_uid"),
+  isActive: boolean("is_active").notNull().default(true),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+  removedByUserId: uuid("removed_by_user_id").references(() => daily007UsersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("daily007_v2_squad_team_member_active_slot_unique")
+    .on(table.teamId, table.slotNumber)
+    .where(sql`${table.isActive} = true`),
+  uniqueIndex("daily007_v2_squad_team_member_registration_unique")
+    .on(table.registrationId)
+    .where(sql`${table.registrationId} IS NOT NULL`),
+  check("daily007_v2_squad_team_member_slot_valid", sql`${table.slotNumber} BETWEEN 1 AND 4`),
+  check("daily007_v2_squad_team_member_identity_valid", sql`
+    (${table.registrationId} IS NOT NULL AND ${table.legacyGameName} IS NULL AND ${table.legacyGameUid} IS NULL)
+    OR
+    (${table.registrationId} IS NULL AND ${table.legacyGameName} IS NOT NULL
+      AND length(btrim(${table.legacyGameName})) > 0
+      AND (${table.legacyGameUid} IS NULL OR length(btrim(${table.legacyGameUid})) > 0))
+  `),
+  check("daily007_v2_squad_team_member_removed_state_valid", sql`
+    (${table.isActive} = true AND ${table.removedAt} IS NULL)
+    OR (${table.isActive} = false AND ${table.removedAt} IS NOT NULL)
+  `),
 ]);
 
 export const daily007WalletLedgerTable = pgTable("daily007_v2_wallet_ledger", {

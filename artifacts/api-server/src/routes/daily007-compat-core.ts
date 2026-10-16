@@ -17,6 +17,11 @@ import {
   tournamentCancellationError,
 } from "../lib/daily007-tournament-cancellation";
 import {
+  deactivateSquadRegistration,
+  ensureLegacySquadTeams,
+  getSquadOccupancy,
+} from "../lib/daily007-squad-slots";
+import {
   authenticate,
   getDaily007GoogleLinkStatus,
   hashPassword,
@@ -114,6 +119,7 @@ type MatchRow = {
   completed_at?: Date | string | null;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
   registered_count: number;
+  registered_player_count?: number;
 };
 type RegistrationRow = {
   id: string; match_id: string; captain_user_id: string; captain_name: string;
@@ -263,7 +269,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     enabled: row.enabled,
     status: effectiveTournamentStatus(row),
     filledSlots,
-    filledPlayerSlots: filledSlots * mode.teamSize,
+    filledPlayerSlots: Number(row.registered_player_count ?? filledSlots * mode.teamSize),
     availableSlots: Math.max(0, row.capacity - filledSlots),
     capacityLabel: tournamentModeCapacityLabel({ ...mode, capacity: row.capacity }),
     ...(includeRoomCredentials
@@ -293,7 +299,36 @@ async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]>
              (SELECT max(result_award.created_at)
                 FROM daily007_v2_result_awards result_award
                WHERE result_award.match_id = m.id AND result_award.rank = 1) AS completed_at,
-            count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS registered_count
+             CASE
+               WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
+                    (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+                 (SELECT count(DISTINCT COALESCE(team.id::text, active.id::text))::integer
+                    FROM daily007_v2_registrations active
+                    LEFT JOIN daily007_v2_squad_team_members member
+                      ON member.registration_id = active.id AND member.is_active = true
+                    LEFT JOIN daily007_v2_squad_teams team ON team.id = member.team_id
+                   WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
+               ELSE count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer
+             END AS registered_count,
+             CASE
+               WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
+                    (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+                 (SELECT COALESCE(sum(
+                           CASE WHEN EXISTS (
+                             SELECT 1 FROM daily007_v2_squad_team_members member
+                              WHERE member.registration_id = active.id AND member.is_active = true
+                           ) THEN 1 ELSE 1 + (
+                             SELECT count(*) FROM daily007_v2_roster roster
+                              WHERE roster.registration_id = active.id
+                           ) END
+                         ), 0)::integer
+                    FROM daily007_v2_registrations active
+                   WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
+               ELSE count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer *
+                    CASE WHEN m.team_type = 'duo' THEN 2
+                         WHEN m.team_type = 'squad' OR m.mode IN ('squad', 'clash') THEN 4
+                         ELSE 1 END
+             END AS registered_player_count
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id
       ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
@@ -566,6 +601,63 @@ type PublicTournamentParticipant = {
 };
 
 async function getPublicTournamentParticipants(tournamentId: string): Promise<PublicTournamentParticipant[]> {
+  const matchMode = await pool.query<{
+    mode: string; game_mode: string | null; team_type: string | null;
+  }>(
+    "SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1",
+    [tournamentId],
+  );
+  const currentMode = matchMode.rows[0];
+  const resolvedMode = currentMode
+    ? legacyTournamentMode(currentMode.mode, currentMode.game_mode, currentMode.team_type)
+    : null;
+  if (resolvedMode?.gameMode === "battle_royale" && resolvedMode.teamType === "squad") {
+    await transaction(async (client) => {
+      await client.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [tournamentId]);
+      await ensureLegacySquadTeams(client, tournamentId);
+    });
+    const squadRows = await pool.query<{
+      team_number: number; status: "approved" | "pending"; team_name: string;
+      game_name: string | null;
+    }>(
+      `SELECT team.team_number,
+              COALESCE(registration.status, legacy.status) AS status,
+              COALESCE(NULLIF(BTRIM(legacy.team_name), ''),
+                       'Team ' || LPAD(team.team_number::text, 2, '0')) AS team_name,
+              COALESCE(registration.captain_game_name, member.legacy_game_name) AS game_name
+         FROM daily007_v2_squad_teams team
+         JOIN daily007_v2_squad_team_members member
+           ON member.team_id = team.id AND member.is_active = true
+         LEFT JOIN daily007_v2_registrations registration
+           ON registration.id = member.registration_id
+         LEFT JOIN daily007_v2_registrations legacy
+           ON legacy.id = team.legacy_registration_id
+        WHERE team.match_id = $1
+          AND (
+            registration.status IN ('approved', 'pending')
+            OR (member.registration_id IS NULL AND legacy.status IN ('approved', 'pending'))
+          )
+        ORDER BY team.team_number,
+                 CASE WHEN member.registration_id = team.captain_registration_id THEN 0 ELSE 1 END,
+                 member.slot_number`,
+      [tournamentId],
+    );
+    const byTeam = new Map<number, PublicTournamentParticipant>();
+    for (const row of squadRows.rows) {
+      let team = byTeam.get(Number(row.team_number));
+      if (!team) {
+        team = {
+          teamName: row.team_name,
+          players: [],
+          status: row.status,
+        };
+        byTeam.set(Number(row.team_number), team);
+      }
+      const gameName = row.game_name?.trim();
+      if (gameName) team.players.push(gameName);
+    }
+    return [...byTeam.values()];
+  }
   const result = await pool.query<{
     registration_id: string;
     status: "approved" | "pending";
@@ -1091,16 +1183,24 @@ async function transaction<T>(work: (client: SqlClient) => Promise<T>): Promise<
   }
 }
 
-async function rejectRegistration(registrationId: string): Promise<"done" | "missing" | "cancelled"> {
+async function rejectRegistration(registrationId: string): Promise<"done" | "missing" | "cancelled" | "removed"> {
   return transaction(async (client) => {
     const ref = await client.query<{ match_id: string }>(
       "SELECT match_id FROM daily007_v2_registrations WHERE id = $1", [registrationId],
     );
     if (!ref.rows[0]) return "missing";
-    const match = await client.query<{ capacity: number; mode: string; status: string }>(
-      "SELECT capacity, mode, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [ref.rows[0].match_id],
+    const match = await client.query<{
+      capacity: number; mode: string; game_mode: string | null; team_type: string | null; status: string;
+    }>(
+      "SELECT capacity, mode, game_mode, team_type, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+      [ref.rows[0].match_id],
     );
     if (match.rows[0]?.status === "cancelled") return "cancelled";
+    const mode = match.rows[0]
+      ? legacyTournamentMode(match.rows[0].mode, match.rows[0].game_mode, match.rows[0].team_type)
+      : null;
+    const isIndividualSquad = mode?.gameMode === "battle_royale" && mode.teamType === "squad";
+    if (isIndividualSquad) await ensureLegacySquadTeams(client, ref.rows[0].match_id);
     const result = await client.query<{
       id: string; match_id: string; captain_user_id: string; entry_coins_paid: number; status: string;
     }>(
@@ -1110,6 +1210,7 @@ async function rejectRegistration(registrationId: string): Promise<"done" | "mis
     const registration = result.rows[0];
     if (!registration) return "missing";
     if (registration.status === "rejected") return "done";
+    if (registration.status === "removed") return "removed";
     if (registration.entry_coins_paid > 0) {
       const user = await client.query<{ wallet_coins: number }>(
         "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [registration.captain_user_id],
@@ -1125,12 +1226,25 @@ async function rejectRegistration(registrationId: string): Promise<"done" | "mis
       );
     }
     await client.query("UPDATE daily007_v2_registrations SET status = 'rejected' WHERE id = $1", [registration.id]);
+    if (isIndividualSquad) {
+      await deactivateSquadRegistration(client, registration.id);
+    }
     if (match.rows[0]) {
-      const count = await client.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
-        [registration.match_id],
-      );
-      const capacityState = matchCapacityState(match.rows[0].mode, Number(count.rows[0].count), match.rows[0].capacity);
+      let capacityState: ReturnType<typeof matchCapacityState>;
+      if (isIndividualSquad) {
+        const occupancy = await getSquadOccupancy(client, registration.match_id);
+        capacityState = matchCapacityState(
+          match.rows[0].mode,
+          occupancy.filledPlayers,
+          Number(match.rows[0].capacity) * 4,
+        );
+      } else {
+        const count = await client.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
+          [registration.match_id],
+        );
+        capacityState = matchCapacityState(match.rows[0].mode, Number(count.rows[0].count), match.rows[0].capacity);
+      }
       await client.query(
         "UPDATE daily007_v2_matches SET is_full = $2, status = $3 WHERE id = $1",
         [registration.match_id, capacityState.isFull, capacityState.status],
@@ -1146,8 +1260,11 @@ async function approveRegistration(registrationId: string): Promise<"approved" |
       "SELECT match_id FROM daily007_v2_registrations WHERE id = $1", [registrationId],
     );
     if (!ref.rows[0]) return "missing";
-    const matchResult = await client.query<{ capacity: number; mode: string; status: string }>(
-      "SELECT capacity, mode, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [ref.rows[0].match_id],
+    const matchResult = await client.query<{
+      capacity: number; mode: string; game_mode: string | null; team_type: string | null; status: string;
+    }>(
+      "SELECT capacity, mode, game_mode, team_type, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+      [ref.rows[0].match_id],
     );
     const match = matchResult.rows[0];
     if (!match) return "missing";
@@ -1158,12 +1275,24 @@ async function approveRegistration(registrationId: string): Promise<"approved" |
     const registration = registrationResult.rows[0];
     if (!registration) return "missing";
     if (registration.status === "rejected") return "rejected";
-    const count = await client.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
-      [ref.rows[0].match_id],
-    );
-    const activeCount = Number(count.rows[0].count);
-    const capacityState = matchCapacityState(match.mode, activeCount, match.capacity);
+    const mode = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+    const individualSquad = mode.gameMode === "battle_royale" && mode.teamType === "squad";
+    let activeCount: number;
+    let capacity: number;
+    if (individualSquad) {
+      await ensureLegacySquadTeams(client, ref.rows[0].match_id);
+      const occupancy = await getSquadOccupancy(client, ref.rows[0].match_id);
+      activeCount = occupancy.filledPlayers;
+      capacity = Number(match.capacity) * 4;
+    } else {
+      const count = await client.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM daily007_v2_registrations WHERE match_id = $1 AND status IN ('approved', 'pending')",
+        [ref.rows[0].match_id],
+      );
+      activeCount = Number(count.rows[0].count);
+      capacity = Number(match.capacity);
+    }
+    const capacityState = matchCapacityState(match.mode, activeCount, capacity);
     if (registration.status === "approved") {
       await client.query(
         "UPDATE daily007_v2_matches SET is_full = $2, status = $3 WHERE id = $1",
@@ -1201,6 +1330,7 @@ router.post("/admin/registrations/:id/:action", authenticate, async (req, res): 
   const rejected = await rejectRegistration(id);
   if (rejected === "missing") return fail(res, 404, "Registration not found.");
   if (rejected === "cancelled") return fail(res, 409, "Registrations cannot be changed after a tournament is cancelled.");
+  if (rejected === "removed") return fail(res, 409, "This Squad player was already removed. No refund was issued.");
   res.json({ success: true, data: { id, status: "rejected", refunded: true } });
 });
 
@@ -1211,6 +1341,7 @@ router.delete("/admin/registrations/:id", authenticate, async (req, res): Promis
   const rejected = await rejectRegistration(id);
   if (rejected === "missing") return fail(res, 404, "Registration not found.");
   if (rejected === "cancelled") return fail(res, 409, "Registrations cannot be changed after a tournament is cancelled.");
+  if (rejected === "removed") return fail(res, 409, "This Squad player was already removed. No refund was issued.");
   res.json({ success: true, data: { id, status: "rejected", deleted: false } });
 });
 

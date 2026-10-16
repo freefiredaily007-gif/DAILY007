@@ -515,6 +515,70 @@ paths:
         "400": { description: Invalid room credentials }
         "403": { description: Tournament administrator required }
         "404": { description: Match not found }
+  /daily007/v2/matches/{id}/squad-slots:
+    get:
+      operationId: daily007V2GetSquadSlots
+      summary: Get the individually selectable Squad team slots
+      description: Requires authentication. Returns public Free Fire names and slot state; UIDs, account IDs, profile names, and contact details remain private. Only the captain sees removable member registration IDs.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Twelve teams with four player slots each
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007V2SquadSlotsResponse" }
+        "401": { description: Authentication required }
+        "404": { description: Match not found }
+        "409": { description: Match is not a Battle Royale Squad tournament }
+  /daily007/v2/matches/{id}/squad-join:
+    post:
+      operationId: daily007V2JoinSquadSlot
+      summary: Join one open Squad player slot with the authenticated account
+      description: Assigns the authenticated player to one team and slot, charging only that player's wallet. A retry returns the saved receipt without a second charge. The first player in an empty team becomes its captain.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007V2SquadJoinBody" }
+      responses:
+        "201":
+          description: Player assigned and individual entry fee processed atomically
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007V2SquadJoinResponse" }
+        "200":
+          description: Existing slot registration receipt returned without a second debit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007V2SquadJoinResponse" }
+        "400": { description: "Invalid team, slot, or Free Fire identity" }
+        "401": { description: Authentication required }
+        "409": { description: "Slot unavailable, registration closed, duplicate identity, or insufficient balance" }
+  /daily007/v2/matches/{id}/squad-slots/{teamNumber}/{slotNumber}:
+    delete:
+      operationId: daily007V2RemoveSquadMember
+      summary: Remove an eligible teammate from the captain's team
+      description: Only the captain can remove another active member of their own non-legacy team, before registration closes. The removed player's paid entry fee is not refunded; the audit and wallet ledger entries remain intact. If a captain is removed by an administrator, captaincy transfers to the next active member.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: teamNumber, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 12 } }
+        - { name: slotNumber, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 4 } }
+      responses:
+        "200":
+          description: Teammate removed and slot reopened without refund
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007V2SquadRemovalResponse" }
+        "401": { description: Authentication required }
+        "403": { description: Only the team's captain may remove an eligible teammate }
+        "404": { description: Team or player slot not found }
+        "409": { description: "Match closed, captain cannot remove themselves, or legacy team cannot be edited" }
   /daily007/v2/matches/{id}/room:
     get:
       operationId: daily007V2GetRoom
@@ -1209,6 +1273,77 @@ components:
           type: array
           items: { $ref: "#/components/schemas/TournamentParticipant" }
       required: [tournamentId, participants]
+    Daily007V2SquadJoinBody:
+      type: object
+      additionalProperties: false
+      properties:
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        slotNumber: { type: integer, minimum: 1, maximum: 4 }
+        gameName: { type: string, minLength: 1, maxLength: 100 }
+        gameUid: { type: string, minLength: 1, maxLength: 128 }
+      required: [teamNumber, slotNumber, gameName, gameUid]
+    Daily007V2SquadSlot:
+      type: object
+      properties:
+        slotNumber: { type: integer, minimum: 1, maximum: 4 }
+        occupied: { type: boolean }
+        gameName: { type: ["string", "null"] }
+        isCaptain: { type: boolean }
+        canJoin: { type: boolean }
+        canRemove: { type: boolean }
+        registrationId: { type: ["string", "null"], format: uuid }
+      required: [slotNumber, occupied, gameName, isCaptain, canJoin, canRemove, registrationId]
+    Daily007V2SquadTeam:
+      type: object
+      properties:
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        legacy: { type: boolean }
+        captainGameName: { type: ["string", "null"] }
+        slots:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items: { $ref: "#/components/schemas/Daily007V2SquadSlot" }
+      required: [teamNumber, legacy, captainGameName, slots]
+    Daily007V2SquadSlotsResponse:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid }
+        teamSize: { type: integer, const: 4 }
+        capacity: { type: integer, const: 12 }
+        filledTeams: { type: integer, minimum: 0, maximum: 12 }
+        filledPlayers: { type: integer, minimum: 0, maximum: 48 }
+        registrationClosed: { type: boolean }
+        alreadyRegistered: { type: boolean }
+        myTeamNumber: { type: ["integer", "null"] }
+        mySlotNumber: { type: ["integer", "null"] }
+        teams:
+          type: array
+          minItems: 12
+          maxItems: 12
+          items: { $ref: "#/components/schemas/Daily007V2SquadTeam" }
+      required: [tournamentId, teamSize, capacity, filledTeams, filledPlayers, registrationClosed, alreadyRegistered, myTeamNumber, mySlotNumber, teams]
+    Daily007V2SquadJoinResponse:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid }
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        slotNumber: { type: integer, minimum: 1, maximum: 4 }
+        isCaptain: { type: boolean }
+        entryCoinsPaid: { type: integer, minimum: 0 }
+        walletCoins: { type: integer, minimum: 0 }
+        filledTeams: { type: integer, minimum: 0, maximum: 12 }
+        filledPlayers: { type: integer, minimum: 0, maximum: 48 }
+        alreadyRegistered: { type: boolean }
+      required: [registrationId, teamNumber, slotNumber, isCaptain, entryCoinsPaid, walletCoins, filledTeams, filledPlayers, alreadyRegistered]
+    Daily007V2SquadRemovalResponse:
+      type: object
+      properties:
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        slotNumber: { type: integer, minimum: 1, maximum: 4 }
+        refunded: { type: boolean, const: false }
+        message: { type: string }
+      required: [teamNumber, slotNumber, refunded, message]
     TournamentSlotsResponse:
       type: object
       properties:
