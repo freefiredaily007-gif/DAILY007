@@ -50,6 +50,14 @@ CREATE TABLE daily007_v2_matches (
   title text NOT NULL
 );
 
+CREATE TABLE daily007_v2_result_awards (
+  match_id uuid NOT NULL,
+  registration_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  rank integer NOT NULL,
+  kills integer NOT NULL
+);
+
 CREATE SEQUENCE daily007_test_referral_reward_failure_seq START 1;
 
 CREATE FUNCTION daily007_test_fail_first_referral_reward()

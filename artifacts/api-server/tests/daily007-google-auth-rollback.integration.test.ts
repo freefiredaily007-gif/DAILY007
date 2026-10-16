@@ -118,7 +118,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
 async function googleSignIn(
   origin: string,
   clerkUserId = GOOGLE_CLERK_USER_ID,
-  referralCode = REFERRAL_CODE,
+  referralCode: string | null = REFERRAL_CODE,
 ): Promise<JsonResult> {
   const response = await fetch(`${origin}/auth/google`, {
     method: "POST",
@@ -158,7 +158,9 @@ async function waitForBlockedBackend(
   throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
 }
 
-async function resetReferralRewardFailureTrigger(): Promise<void> {
+async function resetReferralRewardFailureTrigger(
+  failedReason: "Referral Signup Bonus" | "Welcome Signup Bonus" = "Referral Signup Bonus",
+): Promise<void> {
   await pool.query("DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger");
   await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_first_referral_reward()");
   await pool.query("DROP SEQUENCE IF EXISTS daily007_test_referral_reward_failure_seq");
@@ -169,10 +171,10 @@ async function resetReferralRewardFailureTrigger(): Promise<void> {
     LANGUAGE plpgsql
     AS $$
     BEGIN
-      IF NEW.reason = 'Referral Signup Bonus'
+      IF NEW.reason = '${failedReason}'
          AND nextval('daily007_test_referral_reward_failure_seq') = 1 THEN
         PERFORM pg_advisory_xact_lock(743003, 1);
-        RAISE EXCEPTION 'Injected one-time referral signup ledger failure';
+        RAISE EXCEPTION 'Injected one-time signup reward ledger failure';
       END IF;
       RETURN NEW;
     END;
@@ -478,6 +480,151 @@ test("a waiting Google sign-in recovers after a real referral reward transaction
       [GOOGLE_CLERK_USER_ID],
     );
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
+
+test("a waiting Google signup recovers after the welcome-bonus ledger insert rolls back", async () => {
+  await resetReferralRewardFailureTrigger("Welcome Signup Bonus");
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseTransactionOpen = false;
+  let firstSignIn: Promise<JsonResult> | undefined;
+  let secondSignIn: Promise<JsonResult> | undefined;
+  try {
+    await withServer(async (origin) => {
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the trigger pause PID");
+      await blocker.query("BEGIN");
+      pauseTransactionOpen = true;
+      await blocker.query("SELECT pg_advisory_xact_lock(743003, 1)");
+
+      firstSignIn = googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+      const failingRequestPid = await waitForBlockedBackend(
+        blocker.processID,
+        "%INSERT INTO daily007_v2_wallet_ledger%",
+        "first sign-in to pause at its welcome-bonus ledger write",
+      );
+
+      secondSignIn = googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+      await waitForBlockedBackend(
+        failingRequestPid,
+        "%pg_advisory_xact_lock%",
+        "second sign-in to wait on the first sign-in's identity lock",
+      );
+
+      await blocker.query("COMMIT");
+      pauseTransactionOpen = false;
+
+      const results = await Promise.all([firstSignIn, secondSignIn]);
+      assert.deepEqual(
+        results.map(({ status }) => status).sort((left, right) => left - right),
+        [201, 500],
+        "the first request should fail and the identity-lock waiter should create the account",
+      );
+
+      const recoveredSignIn = results.find(({ status }) => status === 201);
+      assert.ok(recoveredSignIn);
+      assert.equal(recoveredSignIn.body.coins, 10);
+      assert.equal(typeof recoveredSignIn.body.token, "string");
+
+      const accounts = await pool.query<{
+        id: string;
+        email: string;
+        wallet_coins: number;
+        clerk_user_id: string;
+      }>(
+        `SELECT id, email, wallet_coins, clerk_user_id
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.equal(accounts.rows.length, 1, "only the successful retry's Google account should remain");
+      const account = accounts.rows[0]!;
+      assert.equal(account.id, recoveredSignIn.body.id);
+      assert.equal(account.email, GOOGLE_EMAIL);
+      assert.equal(account.wallet_coins, 10);
+
+      const allAccounts = await pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM daily007_v2_users",
+      );
+      assert.equal(allAccounts.rows[0]?.count, 1, "the rolled-back attempt must not leave a duplicate account");
+
+      const generatedCodes = await pool.query<{
+        legacy_codes: number;
+        short_codes: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM daily007_v2_referral_codes) AS legacy_codes,
+           (SELECT count(*)::int FROM daily007_v2_referral_short_codes) AS short_codes`,
+      );
+      assert.deepEqual(
+        generatedCodes.rows[0],
+        { legacy_codes: 1, short_codes: 1 },
+        "only the successful retry's generated referral codes should remain",
+      );
+
+      const referrals = await pool.query(
+        "SELECT id FROM daily007_v2_referrals",
+      );
+      assert.deepEqual(referrals.rows, [], "a signup without a referral code must not create a referral");
+
+      const rewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1`,
+        [account.id],
+      );
+      assert.deepEqual(rewards.rows, [{
+        user_id: account.id,
+        amount: 10,
+        balance_after: 10,
+        reason: "Welcome Signup Bonus",
+      }], "the failed transaction must leave exactly one 10-coin welcome reward");
+
+      const failureAttempts = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_referral_reward_failure_seq",
+      );
+      assert.equal(
+        failureAttempts.rows[0]?.last_value,
+        "2",
+        "the first welcome reward insert should fail and the waiting retry should pass",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(recoveredSignIn.body.token)}` },
+      });
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(walletResponse.status, 200);
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        [{ amount: 10, balanceAfter: 10, reason: "Welcome Signup Bonus" }],
+        "Wallet history should show exactly one surviving welcome reward",
+      );
+    });
+  } finally {
+    if (pauseTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      pauseTransactionOpen = false;
+    }
+    await Promise.all([
+      firstSignIn?.catch(() => undefined),
+      secondSignIn?.catch(() => undefined),
+    ]);
+    blocker?.release();
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_first_referral_reward()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_referral_reward_failure_seq");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = $1",
+      [GOOGLE_CLERK_USER_ID],
+    );
     resetMockGoogleUser();
   }
 });
