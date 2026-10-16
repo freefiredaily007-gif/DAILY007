@@ -51,6 +51,7 @@ function SquadSlotsPanel({
   onRefetchAvailable: (refetch: (() => Promise<unknown>) | null) => void;
 }) {
   const [selected, setSelected] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
+  const [joinDetailsOpen, setJoinDetailsOpen] = useState(false);
   const [gameName, setGameName] = useState('');
   const [gameUid, setGameUid] = useState('');
   const [pendingRemoval, setPendingRemoval] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
@@ -91,6 +92,7 @@ function SquadSlotsPanel({
         },
       });
       setSelected(null);
+      setJoinDetailsOpen(false);
       setGameName('');
       setGameUid('');
       setMessage(
@@ -142,10 +144,10 @@ function SquadSlotsPanel({
     );
   }
 
-  const selectedSlot = selected
+  const selectedTeam = selected
     ? slots.teams.find((team) => team.teamNumber === selected.teamNumber)
-        ?.slots.find((slot) => slot.slotNumber === selected.slotNumber)
     : undefined;
+  const selectedSlot = selectedTeam?.slots.find((slot) => slot.slotNumber === selected?.slotNumber);
   const canAfford = walletCoins >= entryCoins;
   return (
     <View>
@@ -159,113 +161,193 @@ function SquadSlotsPanel({
       </Card>
       {!!error && <Msg kind="err" text={error} accessibilityLiveRegion="assertive" />}
       {!!message && <Msg kind="ok" text={message} accessibilityLiveRegion="polite" />}
-      {slots.teams.map((team) => (
-        <Card key={team.teamNumber} style={{ marginBottom: 9 }}>
-          <Text style={s.squadTeamHeading}>
-            TEAM {String(team.teamNumber).padStart(2, '0')}
-            {team.captainGameName ? ` · CAPTAIN ${team.captainGameName}` : ''}
-            {team.legacy ? ' · EXISTING TEAM' : ''}
-          </Text>
-          {team.slots.map((slot) => {
-            const isSelected = selected?.teamNumber === team.teamNumber && selected.slotNumber === slot.slotNumber;
-            const removalPending = pendingRemoval?.teamNumber === team.teamNumber &&
-              pendingRemoval.slotNumber === slot.slotNumber;
-            return (
-              <View key={slot.slotNumber} style={s.squadSlotRow}>
-                <Pressable
-                  onPress={() => {
-                    if (slot.canJoin) {
-                      setSelected({ teamNumber: team.teamNumber, slotNumber: slot.slotNumber });
-                      setError('');
-                      setMessage('');
-                    }
-                  }}
-                  disabled={!slot.canJoin || Boolean(busyKey)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Team ${team.teamNumber}, slot ${slot.slotNumber}, ${slot.occupied ? slot.gameName || 'occupied' : 'open'}${slot.isCaptain ? ', captain' : ''}${slot.canJoin ? ', available to join' : ''}`}
-                  accessibilityState={{ disabled: !slot.canJoin, selected: isSelected }}
-                  testID={`squad-slot-${team.teamNumber}-${slot.slotNumber}`}
-                  style={[
-                    s.squadSlot,
-                    slot.occupied && s.squadSlotOccupied,
-                    isSelected && s.squadSlotSelected,
-                    !slot.occupied && !slot.canJoin && s.squadSlotUnavailable,
-                  ]}
-                >
-                  <Text style={s.squadSlotLabel}>
-                    SLOT {slot.slotNumber}{slot.isCaptain ? ' · CAPTAIN' : ''}
-                  </Text>
-                  <Text style={slot.occupied ? s.squadSlotName : s.squadSlotOpen}>
-                    {slot.occupied ? slot.gameName || 'Registered player' : 'OPEN · SELECT'}
-                  </Text>
-                </Pressable>
-                {slot.canRemove ? (
-                  <View style={s.squadRemoveWrap}>
-                    {removalPending ? (
-                      <View style={s.squadConfirmRow}>
-                        <Text style={s.squadConfirmText}>No refund</Text>
-                        <Btn title="CANCEL" kind="ghost" small
-                          onPress={() => setPendingRemoval(null)} testID={`squad-remove-cancel-${team.teamNumber}-${slot.slotNumber}`} />
-                        <Btn title="REMOVE" kind="danger" small loading={busyKey === `remove-${team.teamNumber}-${slot.slotNumber}`}
-                          onPress={() => { void remove(); }} testID={`squad-remove-confirm-${team.teamNumber}-${slot.slotNumber}`} />
-                      </View>
-                    ) : (
-                      <Btn title="REMOVE PLAYER" kind="danger" small
-                        disabled={Boolean(busyKey) || slots.registrationClosed}
-                        accessibilityHint="Removes this teammate from your team. The entry fee will not be refunded."
-                        onPress={() => setPendingRemoval({ teamNumber: team.teamNumber, slotNumber: slot.slotNumber })}
-                        testID={`squad-remove-${team.teamNumber}-${slot.slotNumber}`} />
-                    )}
-                  </View>
+      {slots.teams.map((team) => {
+        const teamNumber = String(team.teamNumber).padStart(2, '0');
+        const joinedCount = team.slots.filter((slot) => slot.occupied).length;
+        const selectedForTeam = selected?.teamNumber === team.teamNumber;
+        const selectedRemoval = pendingRemoval?.teamNumber === team.teamNumber
+          ? team.slots.find((slot) => slot.slotNumber === pendingRemoval.slotNumber)
+          : undefined;
+
+        return (
+          <Card key={team.teamNumber} style={s.squadTeamCard}>
+            <View style={s.squadTeamHeader}>
+              <View style={s.squadTeamTitleRow}>
+                <Text style={s.squadTeamHeading}>TEAM</Text>
+                <Text style={s.squadTeamNumber}>{teamNumber}</Text>
+                {team.legacy ? (
+                  <Text style={s.squadLegacyBadge}>EXISTING TEAM</Text>
                 ) : null}
               </View>
-            );
-          })}
-        </Card>
-      ))}
-      {selected && selectedSlot?.canJoin ? (
-        <Card style={{ marginTop: 4 }}>
-          <Text style={s.squadTeamHeading}>
-            JOIN TEAM {String(selected.teamNumber).padStart(2, '0')} · SLOT {selected.slotNumber}
-          </Text>
-          <Text style={s.squadNotice}>Entry fee: {entryCoins} coins · Your wallet: {walletCoins} coins</Text>
-          <Input
-            value={gameName}
-            onChangeText={setGameName}
-            placeholder="Your Free Fire name"
-            accessibilityLabel="Your Free Fire name"
-            autoCapitalize="none"
-            maxLength={100}
-            testID="squad-game-name"
-          />
-          <Input
-            value={gameUid}
-            onChangeText={setGameUid}
-            placeholder="Your Free Fire UID"
-            accessibilityLabel="Your Free Fire UID"
-            keyboardType="number-pad"
-            maxLength={128}
-            style={{ marginTop: 8 }}
-            testID="squad-game-uid"
-          />
-          {!canAfford ? (
-            <View style={{ marginTop: 10 }}>
-              <Text style={s.squadInsufficient}>Not enough coins for this player’s entry fee.</Text>
-              <Btn title="GO TO WALLET" kind="gold" onPress={onGoWallet} style={{ marginTop: 8 }} />
+              <View style={s.squadJoinedBadge} accessibilityLabel={`${joinedCount} of 4 players joined`}>
+                <Text style={s.squadJoinedText}>{joinedCount}/4 JOINED</Text>
+              </View>
             </View>
-          ) : (
-            <Btn
-              title={`CONFIRM & PAY ${entryCoins} COINS`}
-              onPress={() => { void join(); }}
-              loading={busyKey.startsWith('join-')}
-              disabled={!gameName.trim() || !gameUid.trim() || Boolean(busyKey) || slots.registrationClosed}
-              accessibilityHint="Pays the entry fee from your wallet and confirms your player slot."
-              style={{ marginTop: 10 }}
-              testID="squad-join-confirm"
-            />
-          )}
-        </Card>
-      ) : null}
+
+            <View style={s.squadSlotsRow}>
+              {team.slots.map((slot) => {
+                const isSelected = selected?.teamNumber === team.teamNumber &&
+                  selected.slotNumber === slot.slotNumber;
+                const isCaptainSlot = slot.slotNumber === 1;
+                const slotTitle = isCaptainSlot ? 'Captain' : String(slot.slotNumber);
+                const slotStatus = slot.occupied
+                  ? slot.gameName || 'Registered player'
+                  : 'OPEN · SELECT';
+                return (
+                  <View key={slot.slotNumber} style={s.squadSlotColumn}>
+                    <Pressable
+                      onPress={() => {
+                        if (slot.canJoin) {
+                          setSelected({ teamNumber: team.teamNumber, slotNumber: slot.slotNumber });
+                          setJoinDetailsOpen(false);
+                          setGameName('');
+                          setGameUid('');
+                          setError('');
+                          setMessage('');
+                        }
+                      }}
+                      disabled={!slot.canJoin || Boolean(busyKey)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Team ${team.teamNumber}, ${slotTitle}, ${slot.occupied ? slot.gameName || 'occupied' : 'open'}${slot.canJoin ? ', available to join' : ''}`}
+                      accessibilityState={{ disabled: !slot.canJoin, selected: isSelected }}
+                      testID={`squad-slot-${team.teamNumber}-${slot.slotNumber}`}
+                      style={[
+                        s.squadSlot,
+                        isSelected && s.squadSlotSelected,
+                        !slot.canJoin && !slot.occupied && s.squadSlotUnavailable,
+                      ]}
+                    >
+                      <View style={s.squadSlotTitleRow}>
+                        {isCaptainSlot ? <Text style={s.squadSlotCrown}>♛</Text> : null}
+                        <Text style={s.squadSlotLabel}>{slotTitle}</Text>
+                      </View>
+                      <Text
+                        numberOfLines={2}
+                        style={slot.occupied ? s.squadSlotName : s.squadSlotOpen}
+                      >
+                        {slotStatus}
+                      </Text>
+                    </Pressable>
+
+                    <View style={s.squadSlotActionArea}>
+                      {slot.canRemove ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove player from Team ${teamNumber}, slot ${slot.slotNumber}`}
+                          accessibilityHint="The removed player's entry fee will not be refunded."
+                          disabled={Boolean(busyKey) || slots.registrationClosed}
+                          onPress={() => setPendingRemoval({
+                            teamNumber: team.teamNumber,
+                            slotNumber: slot.slotNumber,
+                          })}
+                          testID={`squad-remove-${team.teamNumber}-${slot.slotNumber}`}
+                          style={s.squadRemoveButton}
+                        >
+                          <Text style={s.squadRemoveButtonText}>REMOVE</Text>
+                        </Pressable>
+                      ) : isSelected && slot.canJoin ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Join Team ${teamNumber}`}
+                          accessibilityHint="Opens the player details and payment form for this team slot."
+                          onPress={() => setJoinDetailsOpen(true)}
+                          testID={`squad-join-select-${team.teamNumber}-${slot.slotNumber}`}
+                          style={s.squadSlotJoinButton}
+                        >
+                          <Text style={s.squadSlotJoinButtonText}>JOIN{"\n"}TEAM {teamNumber}</Text>
+                        </Pressable>
+                      ) : (
+                        <View style={s.squadSlotActionSpacer} />
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            {selectedRemoval && pendingRemoval ? (
+              <View style={s.squadConfirmPanel}>
+                <Text style={s.squadConfirmText}>
+                  Remove this player? Their entry fee will not be refunded.
+                </Text>
+                <View style={s.squadConfirmRow}>
+                  <Btn
+                    title="CANCEL"
+                    kind="ghost"
+                    small
+                    onPress={() => setPendingRemoval(null)}
+                    testID={`squad-remove-cancel-${team.teamNumber}-${pendingRemoval.slotNumber}`}
+                  />
+                  <Btn
+                    title="REMOVE PLAYER"
+                    kind="danger"
+                    small
+                    loading={busyKey === `remove-${team.teamNumber}-${pendingRemoval.slotNumber}`}
+                    onPress={() => { void remove(); }}
+                    testID={`squad-remove-confirm-${team.teamNumber}-${pendingRemoval.slotNumber}`}
+                  />
+                </View>
+              </View>
+            ) : null}
+
+            {selectedForTeam && selectedSlot?.canJoin && joinDetailsOpen ? (
+              <View style={s.squadJoinForm}>
+                <Text style={s.squadJoinHeading}>JOIN TEAM {teamNumber}</Text>
+                <Text style={s.squadNotice}>
+                  Slot: {selectedSlot.slotNumber === 1 ? 'Captain' : selectedSlot.slotNumber} · Entry fee: {entryCoins} coins · Your wallet: {walletCoins} coins
+                </Text>
+                <Input
+                  value={gameName}
+                  onChangeText={setGameName}
+                  placeholder="Your Free Fire name"
+                  accessibilityLabel="Your Free Fire name"
+                  autoCapitalize="none"
+                  maxLength={100}
+                  testID="squad-game-name"
+                />
+                <Input
+                  value={gameUid}
+                  onChangeText={setGameUid}
+                  placeholder="Your Free Fire UID"
+                  accessibilityLabel="Your Free Fire UID"
+                  keyboardType="number-pad"
+                  maxLength={128}
+                  style={{ marginTop: 8 }}
+                  testID="squad-game-uid"
+                />
+                {!canAfford ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={s.squadInsufficient}>Not enough coins for this player’s entry fee.</Text>
+                    <Btn title="GO TO WALLET" kind="gold" onPress={onGoWallet} style={{ marginTop: 8 }} />
+                  </View>
+                ) : (
+                  <View style={s.squadJoinActions}>
+                    <Btn
+                      title="CANCEL"
+                      kind="ghost"
+                      small
+                      onPress={() => {
+                        setJoinDetailsOpen(false);
+                        setSelected(null);
+                      }}
+                      testID="squad-join-cancel"
+                    />
+                    <Btn
+                      title={`CONFIRM & PAY ${entryCoins} COINS`}
+                      onPress={() => { void join(); }}
+                      loading={busyKey.startsWith('join-')}
+                      disabled={!gameName.trim() || !gameUid.trim() || Boolean(busyKey) || slots.registrationClosed}
+                      accessibilityHint="Pays the entry fee from your wallet and confirms your player slot."
+                      style={s.squadJoinConfirm}
+                      testID="squad-join-confirm"
+                    />
+                  </View>
+                )}
+              </View>
+            ) : null}
+          </Card>
+        );
+      })}
       {slots.registrationClosed ? (
         <Text style={s.squadClosed}>Registration is closed. Open slots can no longer be joined.</Text>
       ) : null}
@@ -852,23 +934,88 @@ const s = StyleSheet.create({
   winnerPrizeAmount: { color: C.green, fontSize: 13, fontWeight: '900' },
   winnerPrizeLabel: { color: C.dim, fontSize: 8, fontWeight: '900', letterSpacing: 0.7, marginTop: 3 },
   winnerPrizeValue: { color: C.text, fontSize: 10, fontWeight: '800', marginTop: 2 },
-  squadCapacity: { color: C.blue, fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
+  squadCapacity: { color: C.squadAccent, fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
   squadNotice: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 6 },
-  squadTeamHeading: { color: C.text, fontSize: 12, fontWeight: '900', letterSpacing: 0.7, marginBottom: 7 },
-  squadSlotRow: { marginTop: 5 },
-  squadSlot: {
-    minHeight: 54, borderWidth: 1, borderColor: C.border, borderRadius: 10,
-    backgroundColor: C.bg2, paddingHorizontal: 10, paddingVertical: 8, justifyContent: 'center',
+  squadTeamCard: {
+    marginBottom: 10, padding: 12, backgroundColor: C.squadPanel,
+    borderColor: C.squadBorder, borderWidth: 1, borderRadius: 16,
   },
-  squadSlotOccupied: { borderColor: C.border, backgroundColor: C.bg },
-  squadSlotSelected: { borderColor: C.neon, backgroundColor: C.neon + '18' },
-  squadSlotUnavailable: { opacity: 0.6 },
-  squadSlotLabel: { color: C.dim, fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
-  squadSlotName: { color: C.text, fontSize: 12, fontWeight: '800', marginTop: 2 },
-  squadSlotOpen: { color: C.green, fontSize: 11, fontWeight: '900', marginTop: 2 },
-  squadRemoveWrap: { marginTop: 5, alignItems: 'flex-end' },
-  squadConfirmRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  squadConfirmText: { color: C.gold, fontSize: 10, fontWeight: '900', flex: 1 },
+  squadTeamHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 10, minHeight: 22,
+  },
+  squadTeamTitleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 5, flexShrink: 1 },
+  squadTeamHeading: { color: C.sub, fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
+  squadTeamNumber: { color: C.squadAccent, fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
+  squadLegacyBadge: {
+    color: C.gold, fontSize: 7, fontWeight: '900', letterSpacing: 0.4, marginLeft: 4,
+  },
+  squadJoinedBadge: {
+    backgroundColor: C.bg2, borderColor: C.squadBorder, borderWidth: 1,
+    borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, marginLeft: 6,
+  },
+  squadJoinedText: { color: C.sub, fontSize: 8, fontWeight: '900', letterSpacing: 0.3 },
+  squadSlotsRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  squadSlotColumn: { flex: 1, minWidth: 0 },
+  squadSlot: {
+    width: '100%', height: 76, borderWidth: 1, borderColor: C.squadBorder, borderRadius: 12,
+    backgroundColor: C.squadTile, paddingHorizontal: 3, paddingVertical: 7,
+    alignItems: 'center', justifyContent: 'space-between',
+  },
+  squadSlotSelected: {
+    borderColor: C.squadAccent, borderWidth: 2, backgroundColor: C.squadAccent + '18',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0px 0px 12px rgba(0, 240, 255, 0.4)' }
+      : {
+        shadowColor: C.squadAccent, shadowOpacity: 0.4, shadowRadius: 6,
+        shadowOffset: { width: 0, height: 0 }, elevation: 8,
+      }),
+  },
+  squadSlotUnavailable: { opacity: 0.62 },
+  squadSlotTitleRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3,
+    minHeight: 14, width: '100%',
+  },
+  squadSlotCrown: { color: C.gold, fontSize: 10, fontWeight: '900' },
+  squadSlotLabel: { color: C.text, fontSize: 9, fontWeight: '900', textAlign: 'center' },
+  squadSlotName: {
+    color: C.text, fontSize: 8, fontWeight: '800', marginTop: 2, textAlign: 'center',
+    lineHeight: 10, width: '100%',
+  },
+  squadSlotOpen: {
+    color: C.squadAccent, fontSize: 8, fontWeight: '900', marginTop: 2,
+    textAlign: 'center', lineHeight: 9, width: '100%',
+  },
+  squadSlotActionArea: { height: 38, width: '100%', marginTop: 4 },
+  squadSlotActionSpacer: { flex: 1 },
+  squadSlotJoinButton: {
+    minHeight: 34, width: '100%', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.squadAccent, borderRadius: 8, paddingHorizontal: 1, paddingVertical: 3,
+  },
+  squadSlotJoinButtonText: {
+    color: C.squadPanel, fontSize: 8, fontWeight: '900', textAlign: 'center', lineHeight: 9,
+  },
+  squadRemoveButton: {
+    minHeight: 34, width: '100%', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.red + '22', borderColor: C.red + '66', borderWidth: 1,
+    borderRadius: 8, paddingHorizontal: 1, paddingVertical: 3,
+  },
+  squadRemoveButtonText: { color: C.red, fontSize: 7, fontWeight: '900', textAlign: 'center' },
+  squadConfirmPanel: {
+    marginTop: 10, padding: 10, backgroundColor: C.bg, borderColor: C.gold + '66',
+    borderWidth: 1, borderRadius: 10,
+  },
+  squadConfirmRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 8,
+  },
+  squadConfirmText: { color: C.gold, fontSize: 10, fontWeight: '800', lineHeight: 15 },
+  squadJoinForm: {
+    marginTop: 10, padding: 12, backgroundColor: C.bg, borderColor: C.squadAccent + '55',
+    borderWidth: 1, borderRadius: 12,
+  },
+  squadJoinHeading: { color: C.squadAccent, fontSize: 12, fontWeight: '900', letterSpacing: 0.6 },
+  squadJoinActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  squadJoinConfirm: { flex: 1 },
   squadInsufficient: { color: C.red, fontSize: 12, fontWeight: '800' },
   squadClosed: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 6 },
 });

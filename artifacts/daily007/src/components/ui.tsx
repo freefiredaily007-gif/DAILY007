@@ -8,6 +8,7 @@ export { default as TimePicker } from './TimePicker';
 
 export const C = {
   bg: '#070a12', bg2: '#0b1020', card: '#10162b', card2: '#141b33', border: '#1e2745',
+  squadPanel: '#0b1120', squadTile: '#070d19', squadBorder: '#1c2940', squadAccent: '#00f0ff',
   neon: '#ff3d3d', orange: '#ff7a1a', gold: '#ffb020', green: '#2ecc71', blue: '#4da3ff',
   purple: '#a05cff', red: '#ff5c5c', text: '#eef1f8', sub: '#9aa3b8', dim: '#5b6478', line: '#1e2745',
 };
