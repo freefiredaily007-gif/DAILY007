@@ -185,3 +185,104 @@ test("PostgreSQL counts a rosterless approved team once and excludes rejected te
     assert.equal(legacyTeamCount.rows[0].count, 2);
   });
 });
+
+test("PostgreSQL list and detail keep an approved captain-only team in filled and available team slots", async () => {
+  const matchId = randomUUID();
+  const userId = randomUUID();
+  await pool.query(
+    `INSERT INTO daily007_v2_matches
+       (id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, status)
+     VALUES ($1, 'Captain-only Team Slot Summary', 'squad', 'battle_royale', 'squad',
+             12, 5, 100, clock_timestamp() + interval '20 hours', 'open')`,
+    [matchId],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Captain-only Player', $2, 'salt', 'hash')`,
+    [userId, `${userId}@example.test`],
+  );
+  const registration = await pool.query<{ id: string }>(
+    `INSERT INTO daily007_v2_registrations
+       (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
+        team_name, entry_coins_paid, status)
+     VALUES ($1, $2, 'Captain-only Player', 'CaptainOnlyFire', 'captain-only-uid',
+             'Captain-only Team', 5, 'approved')
+     RETURNING id`,
+    [matchId, userId],
+  );
+
+  const rosterCount = await pool.query<{ count: number }>(
+    "SELECT count(*)::integer AS count FROM daily007_v2_roster WHERE registration_id = $1",
+    [registration.rows[0].id],
+  );
+  assert.equal(rosterCount.rows[0].count, 0, "The approved captain-only registration must have no saved teammates.");
+
+  await withServer(async (origin) => {
+    const listResponse = await fetch(`${origin}/tournaments`);
+    assert.equal(listResponse.status, 200);
+    const list = await listResponse.json() as {
+      id: string;
+      filledSlots: number;
+      totalSlots: number;
+      availableSlots: number;
+    }[];
+    const homeCardTournament = list.find(({ id }) => id === matchId);
+    assert.ok(homeCardTournament, "Home's tournament list must include the seeded match.");
+
+    const detailResponse = await fetch(`${origin}/tournaments/${matchId}`);
+    assert.equal(detailResponse.status, 200);
+    const detailTournament = await detailResponse.json() as {
+      filledSlots: number;
+      totalSlots: number;
+      availableSlots: number;
+    };
+
+    const expectedTeamSlots = { filledSlots: 1, totalSlots: 12, availableSlots: 11 };
+    assert.deepEqual(
+      {
+        filledSlots: homeCardTournament.filledSlots,
+        totalSlots: homeCardTournament.totalSlots,
+        availableSlots: homeCardTournament.availableSlots,
+      },
+      expectedTeamSlots,
+      "The Home card API payload must count the captain-only team as one filled team slot.",
+    );
+    assert.deepEqual(
+      {
+        filledSlots: detailTournament.filledSlots,
+        totalSlots: detailTournament.totalSlots,
+        availableSlots: detailTournament.availableSlots,
+      },
+      expectedTeamSlots,
+      "The detail API payload must match Home's filled and available team-slot totals.",
+    );
+
+    const participantResponse = await fetch(`${origin}/tournaments/${matchId}/participants`);
+    assert.equal(participantResponse.status, 200);
+    const participantPayload = await participantResponse.json() as {
+      participants: { teamName: string; status: string; players: string[] }[];
+    };
+    assert.deepEqual(participantPayload.participants, [{
+      teamName: "Captain-only Team",
+      status: "approved",
+      players: ["CaptainOnlyFire"],
+    }]);
+
+    const afterParticipantDetailResponse = await fetch(`${origin}/tournaments/${matchId}`);
+    assert.equal(afterParticipantDetailResponse.status, 200);
+    const afterParticipantDetail = await afterParticipantDetailResponse.json() as {
+      filledSlots: number;
+      totalSlots: number;
+      availableSlots: number;
+    };
+    assert.deepEqual(
+      {
+        filledSlots: afterParticipantDetail.filledSlots,
+        totalSlots: afterParticipantDetail.totalSlots,
+        availableSlots: afterParticipantDetail.availableSlots,
+      },
+      expectedTeamSlots,
+      "Materializing the captain's legacy squad row must not change team-slot capacity.",
+    );
+  });
+});

@@ -31,6 +31,7 @@ import {
   getTournamentResultsRefreshInterval,
   resolveTournamentWinnerState,
 } from '../lib/tournament-winner-details';
+import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 
 const claimRoomDetailsAvailabilityAnnouncement =
   createRoomCredentialAvailabilityAnnouncementTracker();
@@ -567,6 +568,7 @@ export default function TDetail() {
     : `Joined ${teamTournament ? 'teams' : 'players'}: ${participants.length}.`;
   const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
+  const teamSlotSummary = getTournamentTeamSlotSummary(t);
   const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * Number(t.teamSize ?? 1));
   const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * Number(t.teamSize ?? 1));
   const tournamentStatus = isCompleted ? 'completed' : String(t.status || '').toLowerCase();
@@ -630,9 +632,12 @@ export default function TDetail() {
         <View style={s.stat}>
            <Text style={s.statK}>{individualSquad || t.slotUnit === 'player' ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
            <Text style={[s.statV, { color: C.blue }]}>{individualSquad ? `${filledPlayers}/${totalPlayers}` : `${filledSlots}/${totalSlots}`}</Text>
-          <Text style={s.statSub}>
+           <Text
+             testID={individualSquad ? 'tournament-team-slot-count' : undefined}
+             style={s.statSub}
+           >
              {individualSquad
-               ? `${t.filledSlots ?? 0}/${t.totalSlots ?? 12} teams formed`
+               ? teamSlotSummary.label
                : t.slotUnit === 'player'
               ? `${filledSlots}/${totalSlots} players`
                : `${filledPlayers}/${totalPlayers} players`}

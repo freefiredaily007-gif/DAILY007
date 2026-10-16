@@ -21,6 +21,7 @@ import {
   shouldRefreshHomeTournaments,
   startHomeTournamentRefreshPolling,
 } from '../lib/tournamentLifecycle';
+import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 import HomeGameModeCards from './HomeGameModeCards';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
@@ -481,6 +482,7 @@ export default function Home() {
               const isIndividualSquad = String(t.teamType ?? '').toLowerCase() === 'squad' &&
                 (String(t.mode ?? t.gameMode ?? '').toLowerCase().includes('battle royale') ||
                   String(t.mode ?? t.gameMode ?? '').toLowerCase() === 'battle_royale');
+              const teamSlotSummary = getTournamentTeamSlotSummary(t);
               const filled = isIndividualSquad
                 ? t.filledPlayerSlots ?? Number(t.filledSlots ?? t.filled ?? 0) * 4
                 : t.filledSlots ?? t.filled ?? 0;
@@ -596,13 +598,21 @@ export default function Home() {
                   <Text style={[s.mStatV, { color: C.green }]}>🪙 {t.prizePool ?? 0}</Text>
                 </View>
                 <View style={s.mStat}>
-                  <Text style={s.mStatL}>SLOTS</Text>
+                  <Text style={s.mStatL}>{isIndividualSquad ? 'PLAYER SLOTS' : 'SLOTS'}</Text>
                   <Text style={s.mStatV}>{filled}/{total}</Text>
                 </View>
               </View>
               <View style={s.slotBar}>
                 <View style={[s.slotFill, { width: `${Math.min(100, (filled / Math.max(1, total)) * 100)}%` }]} />
               </View>
+              {isIndividualSquad && (
+                <Text
+                  testID={`home-upcoming-team-slots-${t.id}`}
+                  style={s.teamSlotSummary}
+                >
+                  {teamSlotSummary.label}
+                </Text>
+              )}
               <View
                 pointerEvents="none"
                 style={[
@@ -774,6 +784,7 @@ const s = StyleSheet.create({
   mStatV: { color: C.text, fontWeight: '900', fontSize: 14, marginTop: 3 },
   slotBar: { height: 4, backgroundColor: '#1a2136', borderRadius: 2, marginTop: 10, overflow: 'hidden' },
   slotFill: { height: 4, backgroundColor: C.neon, borderRadius: 2 },
+  teamSlotSummary: { color: C.sub, fontSize: 10, fontWeight: '700', textAlign: 'center', marginTop: 6 },
   socialBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12,
     borderRadius: 16, borderWidth: 1.2, paddingVertical: 12, paddingHorizontal: 14,
