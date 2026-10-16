@@ -169,6 +169,31 @@ test('approved-player load failures use one polite retry announcement without mo
   assert.match(screenSource, /testID=\{`retry-approved-registrations-\$\{t\.id\}`\}/);
 });
 
+test('inline approved-player retry announces progress, recovery, and repeated failure once on iOS', () => {
+  const announcementHelper = screenSource.match(
+    /const announceApprovedRegistrationRetryStatus = \(message: string\) => \{[\s\S]*?\n  \};/,
+  )?.[0];
+  const loaderStart = screenSource.indexOf('const loadApprovedRegistrations = async');
+  const loaderEnd = screenSource.indexOf('\n  const retryApprovedRegistrations', loaderStart);
+  const loader = screenSource.slice(loaderStart, loaderEnd);
+
+  assert.ok(announcementHelper, 'Retry status announcements need a dedicated helper.');
+  assert.match(announcementHelper, /if \(Platform\.OS !== 'ios'\) return/);
+  assert.match(announcementHelper, /AccessibilityInfo\.announceForAccessibilityWithOptions/);
+  assert.match(loader, /if \(isRetry\) \{[\s\S]*announceApprovedRegistrationRetryStatus\('Retrying approved registrations…'\)/);
+  assert.match(
+    loader,
+    /if \(isRetry\) \{\s*announceApprovedRegistrationRetryStatus\('Approved registrations loaded\.'\);/,
+  );
+  assert.match(
+    loader,
+    /announcedErrors\.current\.result = errorMessage;\s*announceApprovedRegistrationRetryStatus\([\s\S]*Approved registrations could not be loaded\. Retry here\./,
+    'A repeated failure must combine its error and retry guidance rather than announcing the same error twice.',
+  );
+  assert.match(screenSource, /<Text accessibilityLiveRegion="polite" style=\{st\.actionHint\}>/);
+  assert.doesNotMatch(loader, /setAccessibilityFocus|\.focus\(/);
+});
+
 test('Result Entry announces distinct successful empty states separately from load failures', () => {
   assert.match(
     screenSource,
@@ -256,7 +281,7 @@ test('inline approved-player retry recovers on success and can be retried after 
   assert.match(loader, /setResultRegs\(registrations\)/, 'A successful retry must use the returned approved players.');
   assert.match(
     loader,
-    /catch \(e: any\) \{\s*if \(actionRequestId\.current === requestId\) \{\s*setResultError\(apiError\(e\)\);\s*setResultRegs\(null\);/,
+    /catch \(e: any\) \{\s*if \(actionRequestId\.current === requestId\) \{\s*const errorMessage = apiError\(e\);\s*setResultError\(errorMessage\);[\s\S]*setResultRegs\(null\);/,
     'A repeated failure must retain the error and failed-load state.',
   );
   assert.match(loader, /setResultBusy\(false\);[\s\S]*setRetryingApprovedRegistrations\(false\)/);

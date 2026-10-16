@@ -134,6 +134,14 @@ export default function AdminTournaments() {
     (tournament) => getTournamentLifecycleState(tournament, clockNow) === tab,
   );
 
+  const announceApprovedRegistrationRetryStatus = (message: string) => {
+    if (Platform.OS !== 'ios') return;
+    AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+      queue: true,
+      priority: 'low',
+    });
+  };
+
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     const messages = [
@@ -205,13 +213,27 @@ export default function AdminTournaments() {
     if (isRetry) {
       setResultError('');
       setResultSuccess('');
+      announceApprovedRegistrationRetryStatus('Retrying approved registrations…');
     }
     try {
       const registrations = await Api.adminApprovedRegs(tournamentId);
-      if (actionRequestId.current === requestId) setResultRegs(registrations);
+      if (actionRequestId.current === requestId) {
+        setResultRegs(registrations);
+        if (isRetry) {
+          announceApprovedRegistrationRetryStatus('Approved registrations loaded.');
+        }
+      }
     } catch (e: any) {
       if (actionRequestId.current === requestId) {
-        setResultError(apiError(e));
+        const errorMessage = apiError(e);
+        setResultError(errorMessage);
+        if (isRetry) {
+          // The result-error effect would otherwise announce this same failure a second time.
+          announcedErrors.current.result = errorMessage;
+          announceApprovedRegistrationRetryStatus(
+            `${errorMessage} Approved registrations could not be loaded. Retry here. If the problem continues, close and reopen this panel.`,
+          );
+        }
         setResultRegs(null);
       }
     } finally {
