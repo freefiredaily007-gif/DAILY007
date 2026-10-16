@@ -3127,6 +3127,142 @@ test("a blocked admin cannot complete a role change queued behind the block", as
   }
 });
 
+test("a demoted Full Admin cannot complete a role change queued behind the demotion", async () => {
+  const actorId = randomUUID();
+  const demoterId = randomUUID();
+  const targetId = randomUUID();
+  const demotionPauseKey = 740086n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let demotionPauseLockHeld = false;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+  let roleChangePromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Full Admin to Demote', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, 'Role Demotion Authorizer', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Role Change Target', $6, 'test-salt', 'test-hash', 'user', 0)`,
+      [
+        actorId,
+        `queued-role-change-actor-${actorId}@example.test`,
+        demoterId,
+        `queued-role-change-demoter-${demoterId}@example.test`,
+        targetId,
+        `queued-role-change-target-${targetId}@example.test`,
+      ],
+    );
+    await pool.query("CREATE TABLE daily007_test_paused_role_demotions (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_paused_role_demotions (id) VALUES ($1)",
+      [actorId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_role_demotion() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.role = 'admin'
+           AND NEW.role = 'user'
+           AND EXISTS (
+             SELECT 1 FROM daily007_test_paused_role_demotions WHERE id = NEW.id
+           ) THEN
+          PERFORM pg_advisory_xact_lock(${demotionPauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_role_demotion
+      BEFORE UPDATE OF role ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_role_demotion()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${demotionPauseKey}::bigint)`);
+    demotionPauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        demotionPromise = patchJson(
+          origin,
+          `/admin/users/${actorId}/role`,
+          demoterId,
+          { role: "user" },
+        );
+        const roleUpdate = "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role";
+        await waitForBlockedQuery(
+          roleUpdate,
+          "the Full Admin demotion to pause after acquiring the exclusive role gate",
+        );
+
+        roleChangePromise = patchJson(
+          origin,
+          `/admin/users/${targetId}/role`,
+          actorId,
+          { role: "tournament_admin" },
+        );
+        await waitForQueryBlockedBy(
+          "SELECT pg_advisory_xact_lock(740073)",
+          roleUpdate,
+          "the demoted Full Admin's role change to queue behind the demotion",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${demotionPauseKey}::bigint)`);
+        demotionPauseLockHeld = false;
+        const [demotion, roleChange] = await Promise.all([demotionPromise, roleChangePromise]);
+        assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+        assert.equal(demotion.body.role, "user");
+        assert.equal(roleChange.status, 403, JSON.stringify(roleChange.body));
+      } finally {
+        if (demotionPauseLockHeld) {
+          await blocker!
+            .query(`SELECT pg_advisory_unlock(${demotionPauseKey}::bigint)`)
+            .catch(() => undefined);
+          demotionPauseLockHeld = false;
+        }
+      }
+    });
+
+    const accounts = await pool.query<{ id: string; role: string }>(
+      "SELECT id, role FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[actorId, demoterId, targetId]],
+    );
+    assert.deepEqual(
+      new Map(accounts.rows.map(({ id, role }) => [id, role])),
+      new Map([
+        [actorId, "user"],
+        [demoterId, "admin"],
+        [targetId, "user"],
+      ]),
+    );
+  } finally {
+    if (blocker) {
+      if (demotionPauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${demotionPauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (demotionPromise || roleChangePromise) {
+      await Promise.allSettled(
+        [demotionPromise, roleChangePromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_role_demotion ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_role_demotion()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_role_demotions");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[actorId, demoterId, targetId]],
+    );
+  }
+});
+
 test("a recovery queue read waiting behind a committed demotion returns no recovery details", async () => {
   const readerId = randomUUID();
   const demoterId = randomUUID();
