@@ -79,6 +79,8 @@ class MemoryLeaderboardDatabase {
   rewardSettingWriteAttempts: ("weekly" | "monthly")[] = [];
   activePeriodSnapshotWriteAttempts: ("weekly" | "monthly")[] = [];
   private nextPeriodNumber = 100;
+  private advisoryLockHeld = false;
+  private advisoryLockQueue: (() => void)[] = [];
 
   reset(): void {
     this.users = new Map([
@@ -103,6 +105,8 @@ class MemoryLeaderboardDatabase {
     this.rewardSettingWriteAttempts = [];
     this.activePeriodSnapshotWriteAttempts = [];
     this.nextPeriodNumber = 100;
+    this.advisoryLockHeld = false;
+    this.advisoryLockQueue = [];
   }
 
   seedPeriod(period: Omit<TestPeriod, "approved_by" | "approved_at" | "settled_at"> & {
@@ -132,20 +136,29 @@ class MemoryLeaderboardDatabase {
 
   async connect() {
     let beforeTransaction: TestSnapshot | null = null;
+    let releaseAdvisoryLock: (() => void) | null = null;
     return {
       query: async <T = unknown>(sql: string, values: unknown[] = []) => {
         const normalized = this.normalize(sql);
         if (normalized === "BEGIN") {
+          return { rows: [] as T[] };
+        }
+        if (normalized === "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)") {
+          releaseAdvisoryLock = await this.acquireAdvisoryLock();
           beforeTransaction = this.snapshot();
           return { rows: [] as T[] };
         }
         if (normalized === "COMMIT") {
           beforeTransaction = null;
+          releaseAdvisoryLock?.();
+          releaseAdvisoryLock = null;
           return { rows: [] as T[] };
         }
         if (normalized === "ROLLBACK") {
           if (beforeTransaction) this.restore(beforeTransaction);
           beforeTransaction = null;
+          releaseAdvisoryLock?.();
+          releaseAdvisoryLock = null;
           return { rows: [] as T[] };
         }
         return this.execute<T>(normalized, values);
@@ -185,6 +198,23 @@ class MemoryLeaderboardDatabase {
 
   private normalize(sql: string): string {
     return sql.replace(/\s+/g, " ").trim();
+  }
+
+  private async acquireAdvisoryLock(): Promise<() => void> {
+    if (this.advisoryLockHeld) {
+      await new Promise<void>((resolve) => this.advisoryLockQueue.push(resolve));
+    } else {
+      this.advisoryLockHeld = true;
+    }
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.advisoryLockQueue.shift();
+      if (next) next();
+      else this.advisoryLockHeld = false;
+    };
   }
 
   private snapshot(): TestSnapshot {

@@ -996,6 +996,119 @@ test("Full Admin prize updates leave pending approval payout snapshots unchanged
   }
 });
 
+test("concurrent monthly approvals finalize and pay each winner exactly once", async () => {
+  daily007LeaderboardTestDb.reset();
+  seedPendingAndOpenPeriods(new Date());
+
+  try {
+    await withServer(async (origin) => {
+      const approvalPath =
+        `/daily007/v2/admin/leaderboards/periods/${TEST_MONTHLY_PERIOD_ID}/approve`;
+      const [first, second] = await Promise.all([
+        call(origin, TEST_FULL_ADMIN_ID, approvalPath, "POST"),
+        call(origin, TEST_FULL_ADMIN_ID, approvalPath, "POST"),
+      ]);
+
+      assert.equal(first.status, 200);
+      assert.equal(second.status, 200);
+      const results = [first.body, second.body];
+      assert.deepEqual(
+        results.map((result) => result.alreadyApproved).sort(),
+        [false, true],
+        "exactly one racing approval should perform the payout",
+      );
+      assert.deepEqual(
+        results.map((result) => result.payouts)
+          .sort((left, right) => left.length - right.length),
+        [
+          [
+            {
+              rank: 1,
+              userId: TEST_PLAYER_THREE_ID,
+              name: "Charlie",
+              coins: 25,
+              balanceAfter: 125,
+            },
+            {
+              rank: 3,
+              userId: TEST_PLAYER_TWO_ID,
+              name: "Bravo",
+              coins: 5,
+              balanceAfter: 105,
+            },
+          ],
+          [],
+        ].sort((left, right) => left.length - right.length),
+        "one response should contain the two saved monthly payouts and the other none",
+      );
+
+      const savedPeriod = daily007LeaderboardTestDb.periods.get(TEST_MONTHLY_PERIOD_ID);
+      assert.equal(savedPeriod?.status, "finalized");
+      assert.equal(savedPeriod?.approved_by, TEST_FULL_ADMIN_ID);
+      assert.ok(savedPeriod?.approved_at);
+      assert.deepEqual(
+        [
+          TEST_PLAYER_ONE_ID,
+          TEST_PLAYER_TWO_ID,
+          TEST_PLAYER_THREE_ID,
+          TEST_PLAYER_FOUR_ID,
+        ].map((id) => daily007LeaderboardTestDb.users.get(id)?.wallet_coins),
+        [100, 105, 125, 100],
+        "only the eligible monthly winners should receive their saved prizes",
+      );
+
+      const monthlyLedgerEntries = [...daily007LeaderboardTestDb.ledger.values()]
+        .filter((entry) => entry.idempotency_key.startsWith(
+          `leaderboard-cycle:${TEST_MONTHLY_PERIOD_ID}:`,
+        ));
+      assert.equal(monthlyLedgerEntries.length, 2);
+      assert.equal(
+        new Set(monthlyLedgerEntries.map((entry) => entry.idempotency_key)).size,
+        2,
+        "each paid rank should have one unique idempotency key",
+      );
+      assert.deepEqual(
+        monthlyLedgerEntries
+          .map((entry) => ({
+            userId: entry.user_id,
+            amount: entry.amount,
+            idempotencyKey: entry.idempotency_key,
+          }))
+          .sort((left, right) => left.idempotencyKey.localeCompare(right.idempotencyKey)),
+        [
+          {
+            userId: TEST_PLAYER_THREE_ID,
+            amount: 25,
+            idempotencyKey: `leaderboard-cycle:${TEST_MONTHLY_PERIOD_ID}:rank:1`,
+          },
+          {
+            userId: TEST_PLAYER_TWO_ID,
+            amount: 5,
+            idempotencyKey: `leaderboard-cycle:${TEST_MONTHLY_PERIOD_ID}:rank:3`,
+          },
+        ],
+      );
+
+      const repeated = await call(origin, TEST_FULL_ADMIN_ID, approvalPath, "POST");
+      assert.equal(repeated.status, 200);
+      assert.equal(repeated.body.alreadyApproved, true);
+      assert.deepEqual(repeated.body.payouts, []);
+      assert.deepEqual(
+        [
+          TEST_PLAYER_ONE_ID,
+          TEST_PLAYER_TWO_ID,
+          TEST_PLAYER_THREE_ID,
+          TEST_PLAYER_FOUR_ID,
+        ].map((id) => daily007LeaderboardTestDb.users.get(id)?.wallet_coins),
+        [100, 105, 125, 100],
+      );
+      assert.equal(daily007LeaderboardTestDb.ledger.size, 2);
+    });
+  } finally {
+    daily007LeaderboardTestDb.reset();
+  }
+});
+
 test("a failed monthly Full Admin prize save rolls back both schedules and active-period snapshots", async () => {
   daily007LeaderboardTestDb.reset();
   seedOpenPeriods(new Date());
