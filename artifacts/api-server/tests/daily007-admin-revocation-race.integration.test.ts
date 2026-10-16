@@ -2586,6 +2586,185 @@ test("a Tournament Admin result queued behind a block is rejected without publis
   }
 });
 
+test("a Tournament Admin result queued behind role demotion is rejected without awarding", async () => {
+  const tournamentAdminId = randomUUID();
+  const fullAdminId = randomUUID();
+  const playerId = randomUUID();
+  const tournamentId = randomUUID();
+  const registrationId = randomUUID();
+  const demotionPauseKey = 740085n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let demotionPauseLockHeld = false;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+  let resultPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Tournament Admin to Demote', $2, 'test-salt', 'test-hash', 'tournament_admin', 0),
+         ($3, 'Tournament Demotion Full Admin', $4, 'test-salt', 'test-hash', 'admin', 0),
+         ($5, 'Demotion Race Player', $6, 'test-salt', 'test-hash', 'user', 5)`,
+      [
+        tournamentAdminId,
+        `tournament-admin-demotion-race-${tournamentAdminId}@example.test`,
+        fullAdminId,
+        `tournament-demotion-full-admin-${fullAdminId}@example.test`,
+        playerId,
+        `tournament-demotion-player-${playerId}@example.test`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, prize_pool, prize_distribution, starts_at, status, enabled)
+       VALUES ($1, 'Queued Result Demotion Race', 50, '1: 50', now() - interval '1 day', 'active', true)`,
+      [tournamentId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations (id, match_id, captain_user_id, status)
+       VALUES ($1, $2, $3, 'approved')`,
+      [registrationId, tournamentId, playerId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
+       VALUES ($1, 4, 1, 12, 30)`,
+      [playerId],
+    );
+    await pool.query("CREATE TABLE daily007_test_paused_result_demotions (id uuid PRIMARY KEY)");
+    await pool.query(
+      "INSERT INTO daily007_test_paused_result_demotions (id) VALUES ($1)",
+      [tournamentAdminId],
+    );
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_result_demotion() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.role = 'tournament_admin'
+           AND NEW.role = 'user'
+           AND EXISTS (
+             SELECT 1 FROM daily007_test_paused_result_demotions WHERE id = NEW.id
+           ) THEN
+          PERFORM pg_advisory_xact_lock(${demotionPauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_result_demotion
+      BEFORE UPDATE OF role ON daily007_v2_users
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_result_demotion()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${demotionPauseKey}::bigint)`);
+    demotionPauseLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        demotionPromise = patchJson(
+          origin,
+          `/admin/users/${tournamentAdminId}/role`,
+          fullAdminId,
+          { role: "user" },
+        );
+        const roleUpdate = "UPDATE daily007_v2_users SET role = $2 WHERE id = $1 RETURNING id, role";
+        await waitForBlockedQuery(
+          roleUpdate,
+          "the demotion to pause after acquiring the exclusive role gate",
+        );
+
+        resultPromise = postJson(origin, "/admin/results", tournamentAdminId, {
+          tournamentId,
+          registrationId,
+          rank: 1,
+          kills: 2,
+        });
+        await waitForQueryBlockedBy(
+          "SELECT pg_advisory_xact_lock_shared(740073)",
+          roleUpdate,
+          "the result submission to queue behind the Tournament Admin demotion",
+        );
+
+        await blocker!.query(`SELECT pg_advisory_unlock(${demotionPauseKey}::bigint)`);
+        demotionPauseLockHeld = false;
+        const [demotion, result] = await Promise.all([demotionPromise, resultPromise]);
+        assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+        assert.equal(demotion.body.role, "user");
+        assert.equal(result.status, 403, JSON.stringify(result.body));
+      } finally {
+        if (demotionPauseLockHeld) {
+          await blocker!
+            .query(`SELECT pg_advisory_unlock(${demotionPauseKey}::bigint)`)
+            .catch(() => undefined);
+          demotionPauseLockHeld = false;
+        }
+      }
+    });
+
+    const demotedAdmin = await pool.query<{ status: string; role: string }>(
+      "SELECT status, role FROM daily007_v2_users WHERE id = $1",
+      [tournamentAdminId],
+    );
+    const match = await pool.query<{ enabled: boolean }>(
+      "SELECT enabled FROM daily007_v2_matches WHERE id = $1",
+      [tournamentId],
+    );
+    const player = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [playerId],
+    );
+    const awards = await pool.query(
+      "SELECT id FROM daily007_v2_result_awards WHERE match_id = $1",
+      [tournamentId],
+    );
+    const stats = await pool.query(
+      "SELECT user_id, matches, wins, kills, prize_coins FROM daily007_v2_user_stats WHERE user_id = $1",
+      [playerId],
+    );
+    const ledger = await pool.query(
+      "SELECT id FROM daily007_v2_wallet_ledger WHERE match_id = $1 OR registration_id = $2",
+      [tournamentId, registrationId],
+    );
+    assert.deepEqual(demotedAdmin.rows, [{ status: "active", role: "user" }]);
+    assert.deepEqual(match.rows, [{ enabled: true }]);
+    assert.equal(player.rows[0]?.wallet_coins, 5);
+    assert.deepEqual(awards.rows, []);
+    assert.deepEqual(stats.rows, [
+      { user_id: playerId, matches: 4, wins: 1, kills: 12, prize_coins: 30 },
+    ]);
+    assert.deepEqual(ledger.rows, []);
+  } finally {
+    if (blocker) {
+      if (demotionPauseLockHeld) {
+        await blocker
+          .query(`SELECT pg_advisory_unlock(${demotionPauseKey}::bigint)`)
+          .catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (demotionPromise || resultPromise) {
+      await Promise.allSettled(
+        [demotionPromise, resultPromise].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_result_demotion ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_result_demotion()");
+    await pool.query("DROP TABLE IF EXISTS daily007_test_paused_result_demotions");
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [tournamentId]);
+    await pool.query("DELETE FROM daily007_v2_user_stats WHERE user_id = $1", [playerId]);
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE match_id = $1", [tournamentId]);
+    await pool.query("DELETE FROM daily007_v2_registrations WHERE id = $1", [registrationId]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [tournamentId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[tournamentAdminId, fullAdminId, playerId]],
+    );
+  }
+});
+
 test("a blocked admin cannot complete a role change queued behind the block", async () => {
   const firstAdminId = randomUUID();
   const secondAdminId = randomUUID();
