@@ -8,6 +8,7 @@ CREATE TABLE daily007_v2_matches (
   title text NOT NULL,
   mode text NOT NULL,
   game_mode text,
+  team_type text,
   capacity integer NOT NULL,
   starts_at timestamptz NOT NULL,
   status text NOT NULL,

@@ -27,6 +27,9 @@ const FINALIZATION_TRIGGER = "daily007_test_fail_late_auto_cancel_finalization";
 const FINALIZATION_FUNCTION =
   "daily007_test_fail_late_auto_cancel_finalization";
 const FINALIZATION_SEQUENCE = "daily007_test_auto_cancel_finalization_attempts";
+const CURSOR_SAVE_TRIGGER = "daily007_test_fail_auto_cancel_cursor_save";
+const CURSOR_SAVE_FUNCTION = "daily007_test_fail_auto_cancel_cursor_save";
+const CURSOR_SAVE_SEQUENCE = "daily007_test_auto_cancel_cursor_save_attempts";
 const CURSOR_WRAP_TRIGGER = "daily007_test_fail_cursor_wrap_candidate";
 const CURSOR_WRAP_FUNCTION = "daily007_test_fail_cursor_wrap_candidate";
 const CURSOR_WRAP_SEQUENCE = "daily007_test_cursor_wrap_attempts";
@@ -174,6 +177,33 @@ async function installLateFinalizationFailure(
     CREATE TRIGGER ${FINALIZATION_TRIGGER}
     BEFORE UPDATE OF status ON daily007_v2_matches
     FOR EACH ROW EXECUTE FUNCTION ${FINALIZATION_FUNCTION}()
+  `);
+}
+
+async function installCursorSaveFailure(failedMatchId: string): Promise<void> {
+  await pool.query(`CREATE SEQUENCE ${CURSOR_SAVE_SEQUENCE}`);
+  await pool.query(`
+    CREATE FUNCTION ${CURSOR_SAVE_FUNCTION}() RETURNS trigger AS $function$
+    BEGIN
+      IF NEW.id = 1 AND NEW.settings ? '__daily007AutoCancelCursor'
+         AND nextval('${CURSOR_SAVE_SEQUENCE}') = 1 THEN
+        IF (SELECT status FROM daily007_v2_matches WHERE id = '${failedMatchId}'::uuid)
+             <> 'cancelled'
+           OR (SELECT count(*) FROM daily007_v2_wallet_ledger
+                WHERE match_id = '${failedMatchId}'::uuid
+                  AND reason = 'tournament_cancel_refund') <> 2 THEN
+          RAISE EXCEPTION 'Cursor save failure fired before cancellation refunds committed';
+        END IF;
+        RAISE EXCEPTION 'Injected automatic cancellation cursor save failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$ LANGUAGE plpgsql
+  `);
+  await pool.query(`
+    CREATE TRIGGER ${CURSOR_SAVE_TRIGGER}
+    BEFORE INSERT OR UPDATE ON daily007_v2_settings
+    FOR EACH ROW EXECUTE FUNCTION ${CURSOR_SAVE_FUNCTION}()
   `);
 }
 
@@ -972,6 +1002,133 @@ test("late PostgreSQL tournament finalization failure rolls back refunds and the
       `DROP TRIGGER IF EXISTS ${FINALIZATION_TRIGGER} ON daily007_v2_matches`,
       `DROP FUNCTION IF EXISTS ${FINALIZATION_FUNCTION}()`,
       `DROP SEQUENCE IF EXISTS ${FINALIZATION_SEQUENCE}`,
+    ]) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    try {
+      await cleanupFixture(fixture);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "Failed to clean up isolated tournament cancellation fixtures.",
+      );
+    }
+  }
+});
+
+test("a cursor save failure after committed refunds does not repeat them and the next sweep continues", async () => {
+  const fixture = await createFixture();
+  try {
+    await installCursorSaveFailure(fixture.matchIds[0]);
+
+    await runDaily007AutoCancellationSweep();
+
+    const failedCursorWrite = await pool.query<{
+      last_value: string;
+      is_called: boolean;
+    }>(`SELECT last_value::text, is_called FROM ${CURSOR_SAVE_SEQUENCE}`);
+    assert.deepEqual(
+      failedCursorWrite.rows[0],
+      { last_value: "1", is_called: true },
+      "the cursor write must fail exactly after the first cancellation",
+    );
+
+    const firstMatch = await pool.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_matches WHERE id = $1",
+      [fixture.matchIds[0]],
+    );
+    assert.equal(firstMatch.rows[0]?.status, "cancelled");
+    const firstPayers = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[fixture.payerIds[0], fixture.payerIds[1]]],
+    );
+    assert.deepEqual(
+      new Map(firstPayers.rows.map((payer) => [payer.id, payer.wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 145],
+        [fixture.payerIds[1], 120],
+      ]),
+      "the committed cancellation must have refunded both payers",
+    );
+    const firstRefunds = await pool.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
+      [fixture.matchIds[0]],
+    );
+    assert.equal(firstRefunds.rows[0]?.count, 2);
+    assert.equal(await storedCursor(), undefined, "the failed cursor write must not persist progress");
+
+    const laterBeforeRetry = await pool.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_matches WHERE id = $1",
+      [fixture.matchIds[1]],
+    );
+    assert.equal(laterBeforeRetry.rows[0]?.status, "open");
+
+    await pool.query(`DROP TRIGGER ${CURSOR_SAVE_TRIGGER} ON daily007_v2_settings`);
+    await pool.query(`DROP FUNCTION ${CURSOR_SAVE_FUNCTION}()`);
+    await runDaily007AutoCancellationSweep();
+
+    const finalMatchStatuses = await pool.query<{ id: string; status: string }>(
+      "SELECT id, status FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
+      [fixture.matchIds],
+    );
+    assert.deepEqual(
+      new Map(finalMatchStatuses.rows.map((match) => [match.id, match.status])),
+      new Map(fixture.matchIds.map((id) => [id, "cancelled"])),
+      "the later sweep must continue to the next eligible tournament",
+    );
+
+    const firstRefundsAfterRetry = await pool.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
+      [fixture.matchIds[0]],
+    );
+    assert.equal(firstRefundsAfterRetry.rows[0]?.count, 2);
+    const firstPayersAfterRetry = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[fixture.payerIds[0], fixture.payerIds[1]]],
+    );
+    assert.deepEqual(
+      new Map(firstPayersAfterRetry.rows.map((payer) => [payer.id, payer.wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 145],
+        [fixture.payerIds[1], 120],
+      ]),
+      "retrying after a cursor failure must not credit the first tournament again",
+    );
+
+    const laterRefunds = await pool.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
+      [fixture.matchIds[1]],
+    );
+    assert.equal(laterRefunds.rows[0]?.count, 1);
+    const laterPayer = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [fixture.payerIds[2]],
+    );
+    assert.equal(laterPayer.rows[0]?.wallet_coins, 88);
+    assert.equal(
+      (await storedCursor())?.id,
+      fixture.matchIds[1],
+      "the successful later sweep must persist progress through the later candidate",
+    );
+  } finally {
+    const cleanupErrors: unknown[] = [];
+    for (const statement of [
+      `DROP TRIGGER IF EXISTS ${CURSOR_SAVE_TRIGGER} ON daily007_v2_settings`,
+      `DROP FUNCTION IF EXISTS ${CURSOR_SAVE_FUNCTION}()`,
+      `DROP SEQUENCE IF EXISTS ${CURSOR_SAVE_SEQUENCE}`,
     ]) {
       try {
         await pool.query(statement);
