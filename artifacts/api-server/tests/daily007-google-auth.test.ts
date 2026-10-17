@@ -13,6 +13,7 @@ import {
 import { shortReferralCodeForUserId } from "../src/lib/daily007-compat-extra-validation";
 import { logoutDaily007 } from "../../daily007/src/lib/logout";
 import {
+  failNextMockGoogleUserLookup,
   getMockGoogleUserLookupCount,
   resetMockGoogleUser,
   resetMockGoogleUsers,
@@ -1883,6 +1884,100 @@ test("a valid referral code does not change rewards when a password account link
       assert.equal(repeat.body.id, account.id);
       assert.equal(repeat.body.coins, 73);
       assert.equal(account.wallet_coins, 73);
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("a temporary Clerk verification outage lets a password account retry Google linking", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "clerk-outage-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "clerk-outage-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "clerk-outage-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const accountBefore = structuredClone(account);
+      const referralsBefore = structuredClone(signupTestDb.referrals);
+      const ledgerBefore = structuredClone(signupTestDb.ledger);
+      const userCountBefore = signupTestDb.users.size;
+      const expectedWalletHistory = ledgerBefore
+        .filter(({ user_id }) => user_id === account.id)
+        .map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        }));
+
+      failNextMockGoogleUserLookup();
+      const failedLink = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(failedLink.status, 503);
+      assert.equal(
+        failedLink.body.error,
+        "Unable to verify the Google identity with Clerk. Please try again.",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.deepEqual(account, accountBefore, "a temporary Clerk outage must leave the password account unchanged");
+      assert.equal(signupTestDb.users.size, userCountBefore, "a failed link must not create another account");
+      assert.deepEqual(signupTestDb.referrals, referralsBefore, "a failed link must preserve referrals");
+      assert.deepEqual(signupTestDb.ledger, ledgerBefore, "a failed link must preserve Wallet history");
+
+      const walletAfterFailure = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletAfterFailure.status, 200, "the current Daily007 session should survive the outage");
+      const failedAttemptHistory = await walletAfterFailure.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        failedAttemptHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+      );
+
+      const retriedLink = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(retriedLink.status, 200, "the same Daily007 session should be able to retry the link");
+      assert.equal(retriedLink.body.googleLinked, true);
+      assert.equal(retriedLink.body.id, account.id);
+      assert.equal(retriedLink.body.coins, 73);
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.deepEqual(account, {
+        ...accountBefore,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+      }, "successful retry should only add the Google identity link to the account");
+      assert.equal(signupTestDb.users.size, userCountBefore);
+      assert.deepEqual(signupTestDb.referrals, referralsBefore);
+      assert.deepEqual(signupTestDb.ledger, ledgerBefore);
+
+      const walletAfterRetry = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletAfterRetry.status, 200, "the same Daily007 session should remain usable after linking");
+      const retriedWalletHistory = await walletAfterRetry.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        retriedWalletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+      );
     });
   } finally {
     signupTestDb.reset();

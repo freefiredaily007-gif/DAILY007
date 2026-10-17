@@ -21,6 +21,7 @@ type MockRequest = {
 
 let mockGoogleUsers = new Map<string, User>();
 let userLookupCount = 0;
+let nextGoogleUserLookupFailure: Error | null = null;
 
 export function resetMockGoogleUser(user: User | null = null): void {
   resetMockGoogleUsers(user ? [user] : []);
@@ -29,6 +30,11 @@ export function resetMockGoogleUser(user: User | null = null): void {
 export function resetMockGoogleUsers(users: User[] = []): void {
   mockGoogleUsers = new Map(users.map((user) => [user.id, structuredClone(user)]));
   userLookupCount = 0;
+  nextGoogleUserLookupFailure = null;
+}
+
+export function failNextMockGoogleUserLookup(): void {
+  nextGoogleUserLookupFailure = new Error("Simulated temporary Clerk user lookup failure.");
 }
 
 export function updateMockGoogleUser(user: User): void {
@@ -50,6 +56,9 @@ export const clerkClient = {
   users: {
     async getUser(userId: string): Promise<User> {
       userLookupCount += 1;
+      const failure = nextGoogleUserLookupFailure;
+      nextGoogleUserLookupFailure = null;
+      if (failure) throw failure;
       const user = mockGoogleUsers.get(userId);
       if (!user) {
         throw new Error("No matching mocked Google identity is configured.");
