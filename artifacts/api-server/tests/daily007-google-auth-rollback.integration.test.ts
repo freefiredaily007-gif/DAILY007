@@ -836,6 +836,113 @@ test("a waiting Google sign-in recovers after a real referral reward transaction
   }
 });
 
+test("a failed referral signup and same-identity retry leave the referrer's wallet unchanged", async () => {
+  const referrerId = randomUUID();
+  try {
+    await resetReferralRewardFailureTrigger();
+    resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, wallet_coins)
+       VALUES ($1, 'Postgres Test Referrer', $2, 'test-salt', 'test-hash', 37)`,
+      [referrerId, `referrer-${referrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [referrerId, REFERRAL_CODE],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, idempotency_key, details, created_at)
+       VALUES ($1, 37, 37, 'Initial Referrer Balance', $2, '{"source":"rollback-test"}',
+               '2026-01-15T10:00:00.000Z')`,
+      [referrerId, `test-referrer-wallet:${referrerId}`],
+    );
+
+    const readReferrerWalletState = async () => {
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [referrerId],
+      );
+      const ledger = await pool.query<{
+        id: string;
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string | null;
+        details: Record<string, unknown> | null;
+        created_at: string;
+      }>(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details,
+                created_at::text AS created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at ASC, id ASC`,
+        [referrerId],
+      );
+      return { wallet: wallet.rows, ledger: ledger.rows };
+    };
+
+    await withServer(async (origin) => {
+      const referrerBefore = await readReferrerWalletState();
+      assert.deepEqual(referrerBefore.wallet, [{ wallet_coins: 37 }]);
+      assert.equal(referrerBefore.ledger.length, 1, "the referrer should have one existing ledger row to protect");
+
+      const failedSignup = await googleSignIn(origin);
+      assert.equal(failedSignup.status, 500, "the injected referral reward failure should reject the first signup");
+      const failureAttempts = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_referral_reward_failure_seq",
+      );
+      assert.equal(failureAttempts.rows[0]?.last_value, "1", "the first request should reach the injected failure");
+      assert.deepEqual(
+        await readReferrerWalletState(),
+        referrerBefore,
+        "the failed referral signup must not change the referrer's wallet or ledger",
+      );
+
+      const retry = await googleSignIn(origin);
+      assert.equal(retry.status, 201, "the same Google identity should succeed on retry");
+      assert.equal(retry.body.coins, 10);
+      const retryRewards = await pool.query<{
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1`,
+        [String(retry.body.id)],
+      );
+      assert.deepEqual(
+        retryRewards.rows,
+        [{ amount: 10, balance_after: 10, reason: "Referral Signup Bonus" }],
+        "the successful retry must credit the referred player exactly once",
+      );
+      assert.deepEqual(
+        await readReferrerWalletState(),
+        referrerBefore,
+        "the successful retry must not change the referrer's wallet or ledger",
+      );
+
+      const retryAttempts = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_referral_reward_failure_seq",
+      );
+      assert.equal(retryAttempts.rows[0]?.last_value, "2", "the same Google identity should reach the reward on retry");
+    });
+  } finally {
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_first_referral_reward()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_referral_reward_failure_seq");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = $1",
+      [GOOGLE_CLERK_USER_ID],
+    );
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
+
 test("a waiting Google signup recovers after the welcome-bonus ledger insert rolls back", async () => {
   await resetReferralRewardFailureTrigger("Welcome Signup Bonus");
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
