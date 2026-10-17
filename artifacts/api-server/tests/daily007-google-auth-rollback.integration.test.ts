@@ -351,6 +351,132 @@ async function resetReferralRewardFailureTrigger(
   `);
 }
 
+test("Google signup retries a colliding short referral code in PostgreSQL", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const googleAccountId = "00000000-0000-4000-8000-000000001229";
+  const collisionOwnerId = "00000000-0000-4000-8000-000000001228";
+  const firstCandidate = shortReferralCodeForUserId(googleAccountId, 0);
+  const fallbackCandidate = shortReferralCodeForUserId(googleAccountId, 1);
+  assert.notEqual(firstCandidate, fallbackCandidate);
+
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Existing Short-Code Owner', $2, 'owner-salt', 'owner-hash')`,
+    [collisionOwnerId, `short-code-owner-${collisionOwnerId}@example.test`],
+  );
+  await pool.query(
+    "INSERT INTO daily007_v2_referral_short_codes (user_id, code) VALUES ($1, $2)",
+    [collisionOwnerId, firstCandidate],
+  );
+
+  try {
+    await pool.query(`
+      CREATE FUNCTION daily007_test_force_google_signup_user_id()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.clerk_user_id = '${GOOGLE_CLERK_USER_ID}' THEN
+          NEW.id := '${googleAccountId}'::uuid;
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_force_google_signup_user_id
+      BEFORE INSERT ON daily007_v2_users
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_force_google_signup_user_id()
+    `);
+
+    await withServer(async (origin) => {
+      const signup = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+      assert.equal(signup.status, 201, "Google signup should succeed after the first short code collides");
+      assert.equal(signup.body.id, googleAccountId);
+      assert.equal(signup.body.coins, 10, "the new account should receive its one signup reward");
+
+      const ownerCode = await pool.query<{ user_id: string; code: string }>(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          WHERE user_id = $1`,
+        [collisionOwnerId],
+      );
+      assert.deepEqual(
+        ownerCode.rows,
+        [{ user_id: collisionOwnerId, code: firstCandidate }],
+        "the existing owner must keep the first candidate",
+      );
+
+      const newAccount = await pool.query<{
+        id: string;
+        clerk_user_id: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(
+        newAccount.rows,
+        [{ id: googleAccountId, clerk_user_id: GOOGLE_CLERK_USER_ID, wallet_coins: 10 }],
+        "exactly one Google-linked account should persist with its signup reward",
+      );
+
+      const savedShortCodes = await pool.query<{ user_id: string; code: string }>(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [[collisionOwnerId, googleAccountId]],
+      );
+      assert.deepEqual(
+        savedShortCodes.rows,
+        [
+          { user_id: collisionOwnerId, code: firstCandidate },
+          { user_id: googleAccountId, code: fallbackCandidate },
+        ].sort((left, right) => left.user_id.localeCompare(right.user_id)),
+        "PostgreSQL should retain the original owner and save the next deterministic candidate",
+      );
+
+      const signupRewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+            AND reason IN ('Welcome Signup Bonus', 'Referral Signup Bonus')`,
+        [googleAccountId],
+      );
+      assert.deepEqual(
+        signupRewards.rows,
+        [{
+          user_id: googleAccountId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Welcome Signup Bonus",
+          idempotency_key: `daily007-welcome-signup:${googleAccountId}`,
+        }],
+        "the Google account should retain exactly one signup reward",
+      );
+    });
+  } finally {
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_force_google_signup_user_id ON daily007_v2_users");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_force_google_signup_user_id()");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[collisionOwnerId, googleAccountId]],
+    );
+    resetMockGoogleUser();
+  }
+});
+
 test("Google signup cannot take over a password account with the verified email", async () => {
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
   const passwordUserId = randomUUID();
