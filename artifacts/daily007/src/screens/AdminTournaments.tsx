@@ -20,8 +20,12 @@ import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedResultAccessibility';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
-import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncement';
+import {
+  takeTournamentStartAnnouncement,
+  takeTournamentStartAnnouncements,
+} from '../lib/tournamentStartAnnouncement';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
+import { useFocusEffect } from '@react-navigation/native';
 
 function todayInIST() {
   const istDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -100,8 +104,11 @@ export default function AdminTournaments() {
   const [listRecoveryAnnouncement, setListRecoveryAnnouncement] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const [startAnnouncement, setStartAnnouncement] = useState('');
+  const [missedStartCheckVersion, setMissedStartCheckVersion] = useState(0);
   const appState = useRef(AppState.currentState);
+  const listFocused = useRef(false);
   const announcedTournamentStarts = useRef(new Set<string>());
+  const missedStartCheckPending = useRef(false);
   const hasLoadedList = useRef(false);
   const [expandedAction, setExpandedAction] = useState<TournamentAction | null>(null);
   const actionRequestId = useRef(0);
@@ -167,6 +174,9 @@ export default function AdminTournaments() {
       setList(Array.isArray(response) ? response : []);
       hasLoadedList.current = true;
       setClockNow(Date.now());
+      if (missedStartCheckPending.current) {
+        setMissedStartCheckVersion((version) => version + 1);
+      }
       setLoadError('');
       return true;
     } catch (e: any) {
@@ -434,18 +444,56 @@ export default function AdminTournaments() {
       if (actionRequestId.current === requestId) setResultBusy(false);
     }
   };
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => {
+    listFocused.current = true;
+    void load();
+    return () => {
+      listFocused.current = false;
+      missedStartCheckPending.current = true;
+    };
+  }, [load]));
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = appState.current !== 'active' && nextState === 'active';
+      if (appState.current === 'active' && nextState !== 'active' && listFocused.current) {
+        missedStartCheckPending.current = true;
+      }
       appState.current = nextState;
-      if (returnedToApp) {
+      if (returnedToApp && listFocused.current) {
         setClockNow(Date.now());
         void load();
       }
     });
     return () => subscription.remove();
   }, [load]);
+  useEffect(() => {
+    if (
+      missedStartCheckVersion === 0 ||
+      !missedStartCheckPending.current ||
+      !listFocused.current ||
+      AppState.currentState !== 'active' ||
+      !list
+    ) {
+      return;
+    }
+    const announcements = takeTournamentStartAnnouncements(
+      list,
+      (tournament) => getTournamentLifecycleState(tournament, clockNow) === 'ongoing',
+      announcedTournamentStarts.current,
+    );
+    missedStartCheckPending.current = false;
+    if (announcements.length === 0) return;
+    if (Platform.OS === 'ios') {
+      announcements.forEach((announcement) => {
+        AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+          queue: true,
+          priority: 'low',
+        });
+      });
+    } else {
+      setStartAnnouncement(announcements.join(' '));
+    }
+  }, [list, clockNow, missedStartCheckVersion]);
   useEffect(() => {
     if (!list) return;
     const now = Date.now();
@@ -460,7 +508,11 @@ export default function AdminTournaments() {
     if (nextStart === undefined) return;
     const timer = setTimeout(() => {
       const now = Date.now();
-      if (nextStart.startMs <= now && AppState.currentState === 'active') {
+      if (
+        nextStart.startMs <= now &&
+        listFocused.current &&
+        AppState.currentState === 'active'
+      ) {
         const announcements = list.flatMap((tournament) => {
           if (
             getTournamentLifecycleState(tournament, clockNow) !== 'upcoming' ||
@@ -486,9 +538,9 @@ export default function AdminTournaments() {
             setStartAnnouncement(announcements.join(' '));
           }
         }
+        setClockNow(now);
+        void load();
       }
-      setClockNow(now);
-      void load();
     }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextStart.startMs - now + 20)));
     return () => clearTimeout(timer);
   }, [list, clockNow, load]);

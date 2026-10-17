@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { takeTournamentStartAnnouncement } from "../src/lib/tournamentStartAnnouncement.ts";
+import {
+  takeTournamentStartAnnouncement,
+  takeTournamentStartAnnouncements,
+} from "../src/lib/tournamentStartAnnouncement.ts";
 
 const [playerScreenSource, adminScreenSource] = await Promise.all([
   readFile(new URL("../src/screens/Tournaments.tsx", import.meta.url), "utf8"),
@@ -75,6 +78,34 @@ test("simultaneous tournament starts announce each tournament once", () => {
   );
 });
 
+test("inactive-list starts are caught on return and remain one-time", () => {
+  const announcedTournamentIds = new Set();
+  const tournaments = [
+    { id: "missed", name: "Missed While Away", lifecycle: "ongoing" },
+    { id: "already-heard", name: "Already Heard", lifecycle: "ongoing" },
+    { id: "not-started", name: "Still Upcoming", lifecycle: "upcoming" },
+  ];
+  announcedTournamentIds.add("already-heard");
+
+  assert.deepEqual(
+    takeTournamentStartAnnouncements(
+      tournaments,
+      (tournament) => tournament.lifecycle === "ongoing",
+      announcedTournamentIds,
+    ),
+    ["Tournament Missed While Away is now ongoing."],
+  );
+  assert.deepEqual(
+    takeTournamentStartAnnouncements(
+      tournaments,
+      (tournament) => tournament.lifecycle === "ongoing",
+      announcedTournamentIds,
+    ),
+    [],
+    "Returning again must not repeat a missed or previously heard start.",
+  );
+});
+
 test("Player and Admin lists expose queued VoiceOver and polite live-region announcements", () => {
   for (const [screenName, source] of [
     ["Player", playerScreenSource],
@@ -89,6 +120,31 @@ test("Player and Admin lists expose queued VoiceOver and polite live-region anno
       source,
       /accessibilityLiveRegion="polite"/,
       `${screenName} starts must be exposed to TalkBack through a polite live region.`,
+    );
+  }
+});
+
+test("Player and Admin check for missed starts only after an inactive period and successful list load", () => {
+  for (const [screenName, source, listName] of [
+    ["Player", playerScreenSource, "items"],
+    ["Admin", adminScreenSource, "list"],
+  ]) {
+    assert.match(
+      source,
+      /missedStartCheckPending\.current = true/,
+      `${screenName} must remember when the list becomes inactive.`,
+    );
+    assert.match(
+      source,
+      /if \(missedStartCheckPending\.current\) \{\s*setMissedStartCheckVersion/,
+      `${screenName} must trigger the missed-start check only after a successful refresh.`,
+    );
+    assert.match(
+      source,
+      listName === "items"
+        ? /takeTournamentStartAnnouncements\(\s*items,\s*\(tournament\) => lifecycleOf\(tournament\) === 'ongoing'/
+        : /takeTournamentStartAnnouncements\(\s*list,\s*\(tournament\) => getTournamentLifecycleState\(tournament, clockNow\) === 'ongoing'/,
+      `${screenName} must announce only tournaments that are ongoing when the list returns.`,
     );
   }
 });

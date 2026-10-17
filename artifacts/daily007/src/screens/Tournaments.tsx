@@ -39,7 +39,10 @@ import {
   TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
   TournamentLifecycleState,
 } from '../lib/tournamentLifecycle';
-import { takeTournamentStartAnnouncement } from '../lib/tournamentStartAnnouncement';
+import {
+  takeTournamentStartAnnouncement,
+  takeTournamentStartAnnouncements,
+} from '../lib/tournamentStartAnnouncement';
 
 function announcePlayerLoadStatusOnIOS(message: string): void {
   if (Platform.OS !== 'ios') return;
@@ -65,12 +68,14 @@ export default function Tournaments() {
   const [startAnnouncement, setStartAnnouncement] = useState('');
   const [playerLoadAnnouncement, setPlayerLoadAnnouncement] = useState('');
   const [playerRefreshAnnouncementVersion, setPlayerRefreshAnnouncementVersion] = useState(0);
+  const [missedStartCheckVersion, setMissedStartCheckVersion] = useState(0);
   const [clockNow, setClockNow] = useState(Date.now());
   const [connectivityRefreshes] = useState(createFocusedRefreshCoalescer);
   const [completionRefresh] = useState(createTournamentRefreshSingleFlight);
   const appState = useRef(AppState.currentState);
   const listFocused = useRef(false);
   const announcedTournamentStarts = useRef(new Set<string>());
+  const missedStartCheckPending = useRef(false);
   const hasLoadedList = useRef(false);
   const initialLoadFailed = useRef(false);
   const latestLoadFailed = useRef(false);
@@ -125,7 +130,7 @@ export default function Tournaments() {
         const previous = registrationByTournament.get(tournamentId);
         if (!previous || status === 'approved') registrationByTournament.set(tournamentId, registration);
       }
-      setItems((Array.isArray(listResult.value) ? listResult.value : []).map((tournament: any) => {
+      const refreshedItems = (Array.isArray(listResult.value) ? listResult.value : []).map((tournament: any) => {
         const myRegistration = registrationByTournament.get(String(tournament.id));
         return {
           ...tournament,
@@ -133,7 +138,8 @@ export default function Tournaments() {
           joinedStatusUnknown: !registrationStatusKnown,
           myRegistration,
         };
-      }));
+      });
+      setItems(refreshedItems);
       hasLoadedList.current = true;
       initialLoadFailed.current = false;
       latestLoadFailed.current = !registrationStatusKnown;
@@ -143,6 +149,9 @@ export default function Tournaments() {
         setPlayerRefreshAnnouncementVersion((version) => version + 1);
       }
       setClockNow(Date.now());
+      if (missedStartCheckPending.current) {
+        setMissedStartCheckVersion((version) => version + 1);
+      }
       setError('');
     } catch (e) {
       if (loadRequests.current.isCurrent(request)) {
@@ -236,6 +245,7 @@ export default function Tournaments() {
     return () => {
       active = false;
       listFocused.current = false;
+      missedStartCheckPending.current = true;
       connectivityRefreshes.setFocused(false);
       stopCompletionPolling();
       networkSubscription.remove();
@@ -245,6 +255,9 @@ export default function Tournaments() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = appState.current !== 'active' && nextState === 'active';
+      if (appState.current === 'active' && nextState !== 'active' && listFocused.current) {
+        missedStartCheckPending.current = true;
+      }
       appState.current = nextState;
       if (returnedToApp && listFocused.current) {
         setClockNow(Date.now());
@@ -253,6 +266,34 @@ export default function Tournaments() {
     });
     return () => subscription.remove();
   }, [load]);
+
+  useEffect(() => {
+    if (
+      missedStartCheckVersion === 0 ||
+      !missedStartCheckPending.current ||
+      !listFocused.current ||
+      AppState.currentState !== 'active'
+    ) {
+      return;
+    }
+    const announcements = takeTournamentStartAnnouncements(
+      items,
+      (tournament) => lifecycleOf(tournament) === 'ongoing',
+      announcedTournamentStarts.current,
+    );
+    missedStartCheckPending.current = false;
+    if (announcements.length === 0) return;
+    if (Platform.OS === 'ios') {
+      announcements.forEach((announcement) => {
+        AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+          queue: true,
+          priority: 'low',
+        });
+      });
+    } else {
+      setStartAnnouncement(announcements.join(' '));
+    }
+  }, [items, clockNow, missedStartCheckVersion]);
 
   useEffect(() => {
     const now = Date.now();
