@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 import {
   createHomeRefreshRequestGuard,
   createHomeRefreshSingleFlight,
@@ -21,6 +22,147 @@ const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const apiSource = await readFile(
+  new URL("../src/lib/api.ts", import.meta.url),
+  "utf8",
+);
+const homeSourceFile = ts.createSourceFile(
+  "Home.tsx",
+  homeSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+const apiSourceFile = ts.createSourceFile(
+  "api.ts",
+  apiSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TS,
+);
+
+function findVariableInitializer(sourceFile, variableName) {
+  let initializer;
+
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === variableName
+    ) {
+      initializer = node.initializer ?? undefined;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  assert.ok(initializer, `The ${variableName} initializer should be present.`);
+  return initializer;
+}
+
+function evaluateTypeScriptExpression(expression, sourceFile, scope = {}) {
+  const javascript = ts.transpileModule(
+    `const __runtimeValue = (${expression.getText(sourceFile)});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __runtimeValue;`,
+  )(...Object.values(scope));
+}
+
+const homeMergeHelpers = homeSourceFile.statements.filter(
+  (statement) =>
+    ts.isFunctionDeclaration(statement)
+    && ["hasSameHomeTournamentData", "mergeHomeTournamentItems"].includes(statement.name?.text ?? ""),
+);
+assert.equal(
+  homeMergeHelpers.length,
+  2,
+  "Home's tournament merge helpers should be available for the refresh test.",
+);
+const homeMergeHelpersJavascript = ts.transpileModule(
+  homeMergeHelpers
+    .map((statement) => statement.getText(homeSourceFile).replace(/^export\s+/, ""))
+    .join("\n"),
+  {
+    compilerOptions: {
+      module: ts.ModuleKind.None,
+      target: ts.ScriptTarget.ES2022,
+    },
+  },
+).outputText;
+const mergeHomeTournamentItems = new Function(
+  `${homeMergeHelpersJavascript}\nreturn mergeHomeTournamentItems;`,
+)();
+
+const apiObject = findVariableInitializer(apiSourceFile, "Api");
+assert.ok(ts.isObjectLiteralExpression(apiObject), "The shared API object should be present.");
+const myRegistrationsProperty = apiObject.properties.find(
+  (property) =>
+    ts.isPropertyAssignment(property)
+    && property.name.getText(apiSourceFile) === "myRegistrations",
+);
+assert.ok(
+  myRegistrationsProperty && ts.isPropertyAssignment(myRegistrationsProperty),
+  "The shared myRegistrations API method should be present.",
+);
+
+function createHomeLoadHarness(api) {
+  const state = {
+    items: [],
+    loading: true,
+    loadError: "",
+    lastSuccessfulRefreshAt: null,
+    clockNow: 0,
+  };
+  const scope = {
+    useCallback: (callback) => callback,
+    api,
+    loadRequestGuardRef: { current: createHomeRefreshRequestGuard() },
+    loadSingleFlightRef: { current: createHomeRefreshSingleFlight() },
+    activeRequestsRef: { current: 0 },
+    resumeRefreshPendingRef: { current: false },
+    homePollInFlightRef: { current: false },
+    refreshHomeIfIdleRef: { current: () => {} },
+    mergeHomeTournamentItems,
+    setItems: (update) => {
+      state.items = typeof update === "function" ? update(state.items) : update;
+    },
+    setLoading: (loading) => {
+      state.loading = loading;
+    },
+    setLoadError: (loadError) => {
+      state.loadError = loadError;
+    },
+    setLastSuccessfulRefreshAt: (timestamp) => {
+      state.lastSuccessfulRefreshAt = timestamp;
+    },
+    setClockNow: (timestamp) => {
+      state.clockNow = timestamp;
+    },
+  };
+  const load = evaluateTypeScriptExpression(
+    findVariableInitializer(homeSourceFile, "load"),
+    homeSourceFile,
+    scope,
+  );
+  return { load, state };
+}
+
+function createSharedMyRegistrations(http) {
+  return evaluateTypeScriptExpression(
+    myRegistrationsProperty.initializer,
+    apiSourceFile,
+    { http, unwrap: (response) => response },
+  );
+}
 
 test("Home polls only while active and stops polling when it loses focus", async () => {
   assert.equal(HOME_TOURNAMENT_REFRESH_INTERVAL_MS, 30_000);
@@ -303,6 +445,73 @@ test("out-of-order Home refreshes keep the newest paired snapshot and successful
     /return loadPromise\.finally\(\(\) => \{[\s\S]*?resumeRefreshPendingRef\.current = false;[\s\S]*?refreshHomeIfIdleRef\.current\(\)/,
     "A refresh queued behind a direct request must start after the shared request settles.",
   );
+});
+
+test("malformed registration refresh preserves confirmed Home cards until valid data arrives", async () => {
+  let tournaments = [
+    { id: "joined-match", title: "Confirmed match", status: "upcoming" },
+  ];
+  let registrations = [
+    { tournamentId: "joined-match", status: "approved" },
+  ];
+  const api = {
+    tournaments: async () => tournaments,
+    myRegistrations: createSharedMyRegistrations({
+      get: async () => registrations,
+    }),
+  };
+  const harness = createHomeLoadHarness(api);
+
+  await harness.load();
+  const confirmedItems = harness.state.items;
+  assert.equal(confirmedItems.length, 1);
+  assert.equal(confirmedItems[0].title, "Confirmed match");
+  assert.equal(confirmedItems[0].joined, true);
+  assert.equal(harness.state.loadError, "");
+  assert.equal(harness.state.loading, false);
+  const confirmedRefreshAt = harness.state.lastSuccessfulRefreshAt;
+  assert.equal(typeof confirmedRefreshAt, "number");
+
+  tournaments = [
+    { id: "joined-match", title: "Updated match", status: "upcoming" },
+    { id: "new-match", title: "New match", status: "upcoming" },
+  ];
+  registrations = { malformed: true };
+  await harness.load();
+
+  assert.strictEqual(
+    harness.state.items,
+    confirmedItems,
+    "Malformed shared API data must not replace Home's last confirmed tournament snapshot.",
+  );
+  assert.equal(harness.state.items[0].joined, true, "The confirmed joined indicator must remain visible.");
+  assert.equal(harness.state.items[0].title, "Confirmed match");
+  assert.equal(harness.state.loadError, "Invalid registrations response.");
+  assert.equal(harness.state.loading, false);
+  assert.equal(
+    harness.state.lastSuccessfulRefreshAt,
+    confirmedRefreshAt,
+    "A malformed registration response must not advance the successful-refresh timestamp.",
+  );
+
+  registrations = [];
+  await harness.load();
+
+  assert.notStrictEqual(harness.state.items, confirmedItems);
+  assert.deepEqual(
+    harness.state.items.map((tournament) => ({
+      id: tournament.id,
+      title: tournament.title,
+      joined: tournament.joined,
+    })),
+    [
+      { id: "joined-match", title: "Updated match", joined: false },
+      { id: "new-match", title: "New match", joined: false },
+    ],
+    "A later valid paired response should update tournament details and joined indicators.",
+  );
+  assert.equal(harness.state.loadError, "", "A valid refresh should clear the issue.");
+  assert.ok(harness.state.lastSuccessfulRefreshAt >= confirmedRefreshAt);
 });
 
 test("a tournament that starts while Home is backgrounded leaves the upcoming carousel", () => {
