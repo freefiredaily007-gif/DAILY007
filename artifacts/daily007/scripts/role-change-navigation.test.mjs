@@ -657,6 +657,59 @@ test("restored connectivity refreshes account access and updates role while the 
   assert.equal(state.sessionRejectionCalls, 0);
 });
 
+test("a late initial network snapshot cannot mask an online event or repeat its role refresh", async () => {
+  const initialSnapshot = deferred();
+  let listener = null;
+  let accountRefreshCalls = 0;
+  const network = {
+    addNetworkStateListener(nextListener) {
+      listener = nextListener;
+      return {
+        remove() {
+          listener = null;
+        },
+      };
+    },
+    getNetworkStateAsync() {
+      return initialSnapshot.promise;
+    },
+    emit(state) {
+      listener?.(state);
+    },
+  };
+  const unsubscribe = subscribeToAccountAccessReconnect(
+    () => true,
+    () => {
+      accountRefreshCalls += 1;
+    },
+    network,
+  );
+
+  try {
+    assert.equal(typeof listener, "function", "the network listener should be registered before the snapshot resolves");
+    network.emit({ isConnected: false, isInternetReachable: false });
+    assert.equal(accountRefreshCalls, 0);
+
+    network.emit({ isConnected: true, isInternetReachable: true });
+    assert.equal(accountRefreshCalls, 1, "the offline-to-online event should refresh account access once");
+
+    initialSnapshot.resolve({ isConnected: false, isInternetReachable: false });
+    await initialSnapshot.promise;
+    await Promise.resolve();
+
+    assert.equal(accountRefreshCalls, 1, "resolving the stale snapshot must not refresh account access again");
+    network.emit({ isConnected: true, isInternetReachable: true });
+    assert.equal(accountRefreshCalls, 1, "the stale offline snapshot must not replace the observed online state");
+
+    network.emit({ isConnected: false, isInternetReachable: false });
+    network.emit({ isConnected: true, isInternetReachable: true });
+    assert.equal(accountRefreshCalls, 2, "a later real offline-to-online transition should still refresh once");
+  } finally {
+    initialSnapshot.resolve({ isConnected: false, isInternetReachable: false });
+    unsubscribe();
+  }
+});
+
 test("connectivity restoration waits for an in-flight refresh before retrying", async () => {
   const state = await applyMockRoleChangeOnReconnect({ pendingBeforeReconnect: true });
 
