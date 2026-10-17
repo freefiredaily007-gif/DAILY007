@@ -9,6 +9,13 @@ export const MY_MATCHES_TEXT_SCALE_RESULTS = Array.from({ length: 10 }, (_, inde
   };
 });
 
+export const MY_MATCHES_TEXT_SCALE_INDIVIDUAL_REGISTRATIONS =
+  MY_MATCHES_TEXT_SCALE_RESULTS.map((result, index) => ({
+    id: `native-individual-result-${index + 1}`,
+    tournament: { results: [] },
+    resultDetails: result,
+  }));
+
 export const MY_MATCHES_TEXT_SCALE_REGISTRATIONS = [{
   id: 'native-large-text-fixture',
   status: 'rejected',

@@ -48,34 +48,47 @@ try {
     throw new Error(`Android returned an invalid font scale: ${originalFontScale || '(empty)'}`);
   }
 
-  fontScaleChangeAttempted = true;
-  runChecked(
-    'adb',
-    ['shell', 'settings', 'put', 'system', 'font_scale', '2'],
-    'Setting Android font scale to 2',
-  );
-  const actualScale = Number(runChecked(
-    'adb',
-    ['shell', 'settings', 'get', 'system', 'font_scale'],
-    'Verifying the Android font scale',
-  ));
-  if (!Number.isFinite(actualScale) || Math.abs(actualScale - 2) > 0.005) {
-    throw new Error(`Android did not apply font scale 2; it reports ${actualScale}.`);
-  }
+  for (const testCase of [
+    {
+      scale: 2,
+      flow: 'maestro/my-matches-native-text-scale/large-text.yaml',
+    },
+    {
+      scale: 1.5,
+      flow: 'maestro/my-matches-native-text-scale/individual-result-large-text.yaml',
+    },
+  ]) {
+    fontScaleChangeAttempted = true;
+    runChecked(
+      'adb',
+      ['shell', 'settings', 'put', 'system', 'font_scale', String(testCase.scale)],
+      `Setting Android font scale to ${testCase.scale}`,
+    );
+    const actualScale = Number(runChecked(
+      'adb',
+      ['shell', 'settings', 'get', 'system', 'font_scale'],
+      'Verifying the Android font scale',
+    ));
+    if (!Number.isFinite(actualScale) || Math.abs(actualScale - testCase.scale) > 0.005) {
+      throw new Error(`Android did not apply font scale ${testCase.scale}; it reports ${actualScale}.`);
+    }
 
-  runChecked('adb', ['shell', 'am', 'force-stop', 'host.exp.exponent'], 'Restarting Expo Go for the updated font scale');
-  const maestroArgs = ['test'];
-  if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
-    maestroArgs.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
-  }
-  maestroArgs.push('maestro/my-matches-native-text-scale/large-text.yaml');
-  const maestro = run('maestro', maestroArgs, {
-    stdio: 'inherit',
-    env: { ...process.env, MY_MATCHES_TEXT_SCALE: '2.00' },
-  });
-  if (maestro.error) throw maestro.error;
-  if (maestro.status !== 0) {
-    throw new Error(`Maestro failed for My Matches at 2.00× text scale (exit code ${maestro.status ?? 'unknown'}).`);
+    runChecked('adb', ['shell', 'am', 'force-stop', 'host.exp.exponent'], 'Restarting Expo Go for the updated font scale');
+    const maestroArgs = ['test'];
+    if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
+      maestroArgs.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
+    }
+    maestroArgs.push(testCase.flow);
+    const maestro = run('maestro', maestroArgs, {
+      stdio: 'inherit',
+      env: { ...process.env, MY_MATCHES_TEXT_SCALE: testCase.scale.toFixed(2) },
+    });
+    if (maestro.error) throw maestro.error;
+    if (maestro.status !== 0) {
+      throw new Error(
+        `Maestro failed for My Matches at ${testCase.scale.toFixed(2)}× text scale (exit code ${maestro.status ?? 'unknown'}).`,
+      );
+    }
   }
 } catch (error) {
   console.error(`Android My Matches large-text test failed: ${error.message}`);

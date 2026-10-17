@@ -6,6 +6,8 @@ import { tournamentResultAccessibilityLabel } from '../lib/tournamentResultAcces
 
 type LayoutBox = { x: number; y: number; width: number; height: number };
 type LayoutProbeKey =
+  | 'card'
+  | 'heading'
   | 'row'
   | 'main'
   | 'rank'

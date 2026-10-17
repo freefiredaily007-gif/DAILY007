@@ -5,7 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import ts from "typescript";
 import { tournamentResultAccessibilityLabel } from "../src/lib/tournamentResultAccessibility.ts";
-import { MY_MATCHES_TEXT_SCALE_RESULTS } from "../src/lib/myMatchesTextScaleFixture.ts";
+import {
+  MY_MATCHES_TEXT_SCALE_INDIVIDUAL_REGISTRATIONS,
+  MY_MATCHES_TEXT_SCALE_RESULTS,
+} from "../src/lib/myMatchesTextScaleFixture.ts";
 
 const myMatchesSource = readFileSync(
   new URL("../src/screens/MyMatches.tsx", import.meta.url),
@@ -25,6 +28,10 @@ const nativeTextScaleScreenSource = readFileSync(
 );
 const nativeTextScaleFlow = readFileSync(
   new URL("../maestro/my-matches-native-text-scale/large-text.yaml", import.meta.url),
+  "utf8",
+);
+const nativeIndividualTextScaleFlow = readFileSync(
+  new URL("../maestro/my-matches-native-text-scale/individual-result-large-text.yaml", import.meta.url),
   "utf8",
 );
 const nativeTextScaleRunner = readFileSync(
@@ -167,7 +174,7 @@ test("My Matches results show Free Fire details without the account profile name
   );
 });
 
-test("My Matches shows an individual result clearly when tournament standings are empty", () => {
+test("My Matches shows an individual result clearly when tournament standings are empty at 1.5×", () => {
   const profileName = "Daily007 Profile Name";
   const markup = renderMatchCard({
     id: "registration-individual-result",
@@ -189,9 +196,10 @@ test("My Matches shows an individual result clearly when tournament standings ar
       status: "completed",
       results: [],
     },
-  });
+  }, { fontScale: 1.5 });
   const renderedText = markup.replace(/<[^>]*>/g, "");
 
+  assert.match(markup, /data-font-scale="1\.5"/);
   assert.match(renderedText, /YOUR RESULT/, "The fallback should identify the individual result.");
   assert.match(renderedText, /RunnerUpFF/, "The fallback should show the Free Fire name.");
   assert.match(renderedText, /TEAM Blue Fire/, "The fallback should show the team.");
@@ -328,7 +336,7 @@ test("native Android fixture verifies wrapping bounds and can scroll to every re
   assert.match(nativeTextScaleScreenSource, /prizeLabel\.y >= prizeAmountRow\.y \+ prizeAmountRow\.height/);
   assert.match(nativeTextScaleScreenSource, /prize\.y >= main\.y \+ main\.height/);
   assert.match(nativeTextScaleScreenSource, /All 10 result rows fit within bounds at 2\.00×/);
-  assert.match(nativeTextScaleRunner, /settings', 'put', 'system', 'font_scale', '2'/);
+  assert.match(nativeTextScaleRunner, /font_scale', String\(testCase\.scale\)/);
   assert.match(nativeTextScaleRunner, /maestro\/my-matches-native-text-scale\/large-text\.yaml/);
   assert.match(nativeTextScaleRunner, /finally\s*\{[\s\S]*?originalFontScale/);
   assert.match(nativeTextScaleRunner, /Could not verify restoration of Android font scale/);
@@ -337,6 +345,30 @@ test("native Android fixture verifies wrapping bounds and can scroll to every re
     assert.ok(nativeTextScaleFlow.includes(`id: my-matches-result-${rank}-${rank - 1}`));
     assert.ok(nativeTextScaleFlow.includes(`Rank ${rank}, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card ${rank}`));
     assert.ok(nativeTextScaleFlow.includes(`team Blue Phoenix Squad With A Long Tournament Team Name ${rank}`));
+  }
+});
+
+test("native Android fixture verifies empty-standings individual cards fit and scroll at 1.5×", () => {
+  assert.equal(MY_MATCHES_TEXT_SCALE_INDIVIDUAL_REGISTRATIONS.length, 10);
+  for (const registration of MY_MATCHES_TEXT_SCALE_INDIVIDUAL_REGISTRATIONS) {
+    assert.deepEqual(registration.tournament.results, [], "The fixture must exercise the empty-standings fallback.");
+    assert.ok(registration.resultDetails.rank, "Each fallback card should have an individual rank.");
+  }
+
+  assert.match(nativeTextScaleScreenSource, /registration\.tournament\.results\.length === 0/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(row, card\)/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(heading, card\)/);
+  assert.match(nativeTextScaleScreenSource, /row\.y >= heading\.y \+ heading\.height/);
+  assert.match(nativeTextScaleScreenSource, /All 10 individual result cards fit within bounds at 1\.50×/);
+  assert.match(nativeTextScaleRunner, /scale: 1\.5/);
+  assert.match(nativeTextScaleRunner, /my-matches-native-text-scale\/individual-result-large-text\.yaml/);
+  assert.match(nativeIndividualTextScaleFlow, /font scale 1\.50/);
+  assert.match(nativeIndividualTextScaleFlow, /All 10 individual result cards fit within bounds at 1\.50×/);
+  assert.match(nativeIndividualTextScaleFlow, /YOUR RESULT/);
+
+  for (let rank = 1; rank <= 10; rank += 1) {
+    assert.ok(nativeIndividualTextScaleFlow.includes(`id: my-matches-individual-result-card-${rank}`));
+    assert.ok(nativeIndividualTextScaleFlow.includes(`Rank ${rank}, Free Fire name International Free Fire Champion With A Name That Wraps Across The Result Card ${rank}`));
   }
 });
 
