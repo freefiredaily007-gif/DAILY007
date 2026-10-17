@@ -136,9 +136,11 @@ function googleAuth(
   origin: string,
   dailyToken?: string,
   referralCode?: string,
+  clerkUserId = GOOGLE_CLERK_USER_ID,
 ): Promise<JsonResult> {
   return postJson(origin, "/auth/google", referralCode ? { referralCode } : {}, {
     authorization: "Bearer mocked-clerk-session",
+    "x-mock-clerk-user-id": clerkUserId,
     ...(dailyToken ? { "X-Daily007-Token": dailyToken } : {}),
   });
 }
@@ -328,9 +330,12 @@ test("first and repeated Google sign-ins keep one Daily007 account and one signu
   }
 });
 
-test("Google signup retries with a fallback short code when the first candidate is owned", async () => {
+test("Google signup uses a fallback short code that the next player can redeem", async () => {
   signupTestDb.reset();
-  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  resetMockGoogleUsers([
+    VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+    SECOND_VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+  ]);
 
   const newAccountId = "40000000-0000-4000-8000-000000000002";
   const firstCandidate = shortReferralCodeForUserId(newAccountId, 0);
@@ -387,6 +392,60 @@ test("Google signup retries with a fallback short code when the first candidate 
         })),
         [{ amount: 10, balance_after: 10, reason: "Welcome Signup Bonus" }],
         "the successful fallback signup should receive exactly one reward",
+      );
+
+      const secondSignup = await googleAuth(
+        origin,
+        undefined,
+        fallbackCandidate,
+        SECOND_GOOGLE_CLERK_USER_ID,
+      );
+      assert.equal(secondSignup.status, 201, "a second player should be able to use the fallback code");
+      assert.equal(secondSignup.body.coins, 10);
+      assert.equal(typeof secondSignup.body.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+
+      const secondAccountId = String(secondSignup.body.id);
+      const secondAccount = signupTestDb.users.get(secondAccountId);
+      assert.ok(secondAccount, "the second Google signup should create a Daily007 account");
+      assert.equal(secondAccount.clerk_user_id, SECOND_GOOGLE_CLERK_USER_ID);
+      assert.equal(secondAccount.wallet_coins, 10);
+      assert.equal(signupTestDb.shortCodeOwners.get(fallbackCandidate), newAccountId);
+
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: newAccountId,
+          referred_user_id: secondAccountId,
+          code: fallbackCandidate,
+        }],
+        "the referral relationship should credit the first Google account using its fallback code",
+      );
+
+      const secondSignupRewards = signupTestDb.ledger.filter(
+        (entry) => entry.user_id === secondAccountId,
+      );
+      assert.deepEqual(
+        secondSignupRewards.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+        "the second player should receive exactly one 10-coin referral signup reward",
+      );
+      assert.equal(
+        secondSignupRewards.filter((entry) => entry.reason === "Welcome Signup Bonus").length,
+        0,
+        "the second player must not also receive the Welcome Signup Bonus",
       );
     });
   } finally {
