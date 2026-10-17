@@ -6531,7 +6531,88 @@ async function checkHomeRetryRecovery() {
       laterFailureState.retryVisible,
     `A later refresh failure must preserve the last successful cards and keep the warning and retry available: ${JSON.stringify(laterFailureState)}.`,
   );
-  console.log("PASS — Home's visible retry starts one paired refresh, preserves cached joined cards while pending, applies successful updates, and retains cards and warning after a later failure.");
+
+  await evaluate(`window.__daily007HomeCarouselTest.updateTournament('later-one', {
+    name: 'Latest Tournament After Second Retry'
+  })`);
+  await evaluate("window.__daily007HomeCarouselTest.setRegistrations([])");
+  await evaluate("window.__daily007HomeCarouselTest.deferNextTournamentRead()");
+  await evaluate("window.__daily007HomeCarouselTest.deferNextRegistrationRead()");
+  await evaluate(`(() => {
+    window.__daily007HomeCarouselTest.secondRetryStaleCardNodes = [
+      ...document.querySelectorAll('[data-testid^="home-upcoming-card-"]'),
+    ];
+  })()`);
+  const countsBeforeSecondVisibleRetry = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await tapSelector('[data-testid="home-upcoming-retry"]', "Home's retry after a second connection failure");
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${countsBeforeSecondVisibleRetry.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${countsBeforeSecondVisibleRetry.registrations + 1} &&
+      document.querySelector('[data-testid="home-upcoming-retry"]')?.innerText.includes('RETRYING')`,
+    "the second visible Home retry to start exactly one paired refresh and remain pending",
+  );
+  const pendingSecondRetryState = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    return {
+      cardTexts: cards.map((card) => card.innerText),
+      cardNodesRetained: window.__daily007HomeCarouselTest.secondRetryStaleCardNodes?.every(
+        (card, index) => card === cards[index],
+      ) ?? false,
+      warningText: document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText ?? null,
+      retryText: document.querySelector('[data-testid="home-upcoming-retry"]')?.innerText ?? null,
+    };
+  })()`);
+  assert(
+    pendingSecondRetryState.cardTexts.length === 3 &&
+      pendingSecondRetryState.cardTexts[1].includes("JOINED") &&
+      !pendingSecondRetryState.cardTexts[1].includes("Latest Tournament After Second Retry") &&
+      pendingSecondRetryState.cardNodesRetained &&
+      pendingSecondRetryState.warningText?.includes("A later Home refresh failed") &&
+      pendingSecondRetryState.retryText?.includes("RETRYING"),
+    `While the second retry is pending, Home must retain cached joined cards and the warning: ${JSON.stringify(pendingSecondRetryState)}.`,
+  );
+  const countsDuringSecondVisibleRetry = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    countsDuringSecondVisibleRetry.tournaments === countsBeforeSecondVisibleRetry.tournaments + 1 &&
+      countsDuringSecondVisibleRetry.registrations === countsBeforeSecondVisibleRetry.registrations + 1,
+    `The second retry should start only one request for each endpoint: ${JSON.stringify({
+      before: countsBeforeSecondVisibleRetry,
+      during: countsDuringSecondVisibleRetry,
+    })}.`,
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.resolveDeferredTournamentRead()"),
+    "The second retry's tournament response should be released.",
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
+    "The second retry's registration response should be released.",
+  );
+  await waitForCondition(
+    `document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('Latest Tournament After Second Retry') &&
+      !document.querySelector('[data-testid="home-upcoming-card-later-one"]')?.innerText.includes('JOINED') &&
+      !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
+    "the second successful retry to update the cached card and clear the warning",
+  );
+  const countsAfterSecondVisibleRetry = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  assert(
+    countsAfterSecondVisibleRetry.tournaments === countsBeforeSecondVisibleRetry.tournaments + 1 &&
+      countsAfterSecondVisibleRetry.registrations === countsBeforeSecondVisibleRetry.registrations + 1,
+    `No duplicate tournament or registration request should start during the second retry: ${JSON.stringify({
+      before: countsBeforeSecondVisibleRetry,
+      after: countsAfterSecondVisibleRetry,
+    })}.`,
+  );
+  console.log("PASS — Home can retry again after a later refresh failure, preserves cached joined cards while pending, and applies the second successful paired refresh.");
 }
 
 async function checkHomeRefreshOverlap() {
