@@ -1,0 +1,34 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/logout-native-test?scenario=success
+- extendedWaitUntil:
+    visible:
+      id: admin-header-logout-control
+    timeout: 30000
+- tapOn:
+    id: admin-header-logout-control
+- extendedWaitUntil:
+    visible:
+      id: logout-pending
+    timeout: 10000
+- assertNotVisible:
+    id: admin-header-logout-control
+- assertNotVisible:
+    id: auth-login-tab
+- tapOn:
+    id: logout-test-repeat
+- assertVisible: "Clerk sign-out calls: 1"
+- assertNotVisible: "Clerk sign-out calls: 2"
+- tapOn:
+    id: logout-test-resolve
+- extendedWaitUntil:
+    visible:
+      id: auth-login-tab
+    timeout: 10000
+- assertVisible:
+    id: auth-screen
+- assertNotVisible:
+    id: logout-pending
+- assertNotVisible:
+    id: admin-header-logout-control

@@ -154,5 +154,6 @@ else
   run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
   run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
   run_maestro_suite session-verification test:android-session-verification
+  run_maestro_suite clerk-logout test:android-logout
   run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy
 fi

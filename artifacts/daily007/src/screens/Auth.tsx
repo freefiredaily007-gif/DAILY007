@@ -167,6 +167,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
 
   return (
     <KeyboardAwareScrollViewCompat
+      testID="auth-screen"
       style={{ flex: 1, backgroundColor: C.bg }}
       contentContainerStyle={[
         s.wrap,

@@ -1,0 +1,10 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/logout-native-test?scenario=cleanup
+- extendedWaitUntil:
+    visible:
+      id: logout-test-cleaned
+    timeout: 20000
+- assertNotVisible:
+    id: logout-test-cleanup-error

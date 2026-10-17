@@ -68,6 +68,37 @@ export type Ctx = {
 export const Ctx = React.createContext<Ctx>(null as any);
 export const useApp = () => React.useContext(Ctx);
 
+export type LogoutNativeTestControls = {
+  signOutCalls: number;
+  onResolveClerkSignOut: () => void;
+  onRejectClerkSignOut: () => void;
+};
+
+const logoutNativeTestUser: User = {
+  id: 'native-clerk-logout-player',
+  name: 'Native Logout Test Player',
+  email: 'native-clerk-logout@daily007.test',
+  role: 'admin',
+  token: 'native-clerk-logout-token',
+};
+
+export function DailyAppLogoutNativeTest({
+  signOutClerk,
+  controls,
+}: {
+  signOutClerk: () => Promise<void>;
+  controls: LogoutNativeTestControls;
+}) {
+  if (!__DEV__) return null;
+  return (
+    <DailyApp
+      signOutClerk={signOutClerk}
+      testInitialUser={logoutNativeTestUser}
+      logoutNativeTestControls={controls}
+    />
+  );
+}
+
 setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 20_000 } },
@@ -159,9 +190,17 @@ const navTheme = {
   ...DarkTheme, colors: { ...DarkTheme.colors, background: '#070a12', card: '#10162b', border: '#1e2745', primary: '#ff3d3d', text: '#70B8FF' },
 };
 
-function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
-  const [booting, setBooting] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
+function DailyApp({
+  signOutClerk,
+  testInitialUser,
+  logoutNativeTestControls,
+}: {
+  signOutClerk?: () => Promise<void>;
+  testInitialUser?: User;
+  logoutNativeTestControls?: LogoutNativeTestControls;
+}) {
+  const [booting, setBooting] = useState(!testInitialUser);
+  const [user, setUser] = useState<User | null>(testInitialUser ?? null);
   const [logoutPending, setLogoutPending] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
   const [googleLinkError, setGoogleLinkError] = useState('');
@@ -187,6 +226,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   }, []);
 
   useEffect(() => {
+    if (testInitialUser) return;
     let mounted = true;
     void (async () => {
       try {
@@ -403,6 +443,40 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
       >
         Signing out…
       </Text>
+      {logoutNativeTestControls ? (
+        <View style={s.logoutNativeTestControls}>
+          <Text testID="logout-test-signout-call-count" style={s.logoutPendingText}>
+            Clerk sign-out calls: {logoutNativeTestControls.signOutCalls}
+          </Text>
+          <Pressable
+            testID="logout-test-repeat"
+            accessibilityRole="button"
+            accessibilityLabel="Try another logout while sign-out is pending"
+            onPress={() => { void logout(); }}
+            style={s.logoutNativeTestButton}
+          >
+            <Text style={s.logoutPendingText}>Try another logout</Text>
+          </Pressable>
+          <Pressable
+            testID="logout-test-resolve"
+            accessibilityRole="button"
+            accessibilityLabel="Complete Clerk sign-out successfully"
+            onPress={logoutNativeTestControls.onResolveClerkSignOut}
+            style={s.logoutNativeTestButton}
+          >
+            <Text style={s.logoutPendingText}>Complete Clerk sign-out</Text>
+          </Pressable>
+          <Pressable
+            testID="logout-test-reject"
+            accessibilityRole="button"
+            accessibilityLabel="Fail Clerk sign-out"
+            onPress={logoutNativeTestControls.onRejectClerkSignOut}
+            style={s.logoutNativeTestButton}
+          >
+            <Text style={s.logoutPendingText}>Fail Clerk sign-out</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 
@@ -481,4 +555,6 @@ const s = StyleSheet.create({
   boot: { flex: 1, backgroundColor: '#070a12', alignItems: 'center', justifyContent: 'center' },
   logo: { color: '#ff3d3d', fontSize: 30, fontWeight: '900', letterSpacing: 3, textShadowColor: '#ff3d3d66', textShadowRadius: 20 },
   logoutPendingText: { color: '#F5F7FF', fontSize: 15, fontWeight: '600', marginTop: 16 },
+  logoutNativeTestControls: { alignItems: 'center', marginTop: 12 },
+  logoutNativeTestButton: { borderWidth: 1, borderColor: '#70B8FF', borderRadius: 8, marginTop: 8, padding: 10 },
 });
