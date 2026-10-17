@@ -303,7 +303,7 @@ test("each result announces all standings details as one accessible row", () => 
   assert.match(resultAccessibilitySource, /`prize \$\{spokenPrize\}`/);
 });
 
-test("1.5× result rows stack prize details below the wrapping player and team names", () => {
+test("large-text result rows stack prize details below the wrapping player and team names", () => {
   assert.match(myMatchesSource, /<TournamentResultRow[\s\S]*?fontScale=\{fontScale\}/);
   assert.match(resultRowSource, /const largeText = fontScale >= 1\.5/);
   assert.match(resultRowSource, /resultRowLarge: \{[\s\S]*?flexDirection: 'column'[\s\S]*?alignItems: 'stretch'/);
@@ -319,12 +319,16 @@ test("native Android fixture verifies wrapping bounds and can scroll to every re
   assert.match(nativeTextScaleScreenSource, /MY_MATCHES_TEXT_SCALE_RESULTS/);
   assert.match(nativeTextScaleScreenSource, /Number\(result\.nameLines\) > 1/);
   assert.match(nativeTextScaleScreenSource, /Number\(result\.detailsLines\) > 1/);
-  assert.match(nativeTextScaleScreenSource, /main\.x \+ main\.width <= row\.width \+ 1/);
-  assert.match(nativeTextScaleScreenSource, /prize\.x >= -1/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(rank, main\)/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(rankText, rank\)/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(name, identity\)/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(details, identity\)/);
+  assert.match(nativeTextScaleScreenSource, /details\.y >= name\.y \+ name\.height/);
+  assert.match(nativeTextScaleScreenSource, /fitsWithin\(prizeAmount, prizeAmountRow\)/);
+  assert.match(nativeTextScaleScreenSource, /prizeLabel\.y >= prizeAmountRow\.y \+ prizeAmountRow\.height/);
   assert.match(nativeTextScaleScreenSource, /prize\.y >= main\.y \+ main\.height/);
-  assert.match(nativeTextScaleScreenSource, /prize\.y \+ prize\.height <= row\.height \+ 1/);
-  assert.match(nativeTextScaleScreenSource, /All 10 result rows wrap within bounds at 1\.50×/);
-  assert.match(nativeTextScaleRunner, /settings', 'put', 'system', 'font_scale', '1\.5'/);
+  assert.match(nativeTextScaleScreenSource, /All 10 result rows fit within bounds at 2\.00×/);
+  assert.match(nativeTextScaleRunner, /settings', 'put', 'system', 'font_scale', '2'/);
   assert.match(nativeTextScaleRunner, /maestro\/my-matches-native-text-scale\/large-text\.yaml/);
   assert.match(nativeTextScaleRunner, /finally\s*\{[\s\S]*?originalFontScale/);
   assert.match(nativeTextScaleRunner, /Could not verify restoration of Android font scale/);

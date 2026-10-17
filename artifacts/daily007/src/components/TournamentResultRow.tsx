@@ -5,7 +5,20 @@ import { C } from './ui';
 import { tournamentResultAccessibilityLabel } from '../lib/tournamentResultAccessibility';
 
 type LayoutBox = { x: number; y: number; width: number; height: number };
-type LayoutProbeKey = 'row' | 'main' | 'nameLines' | 'detailsLines' | 'prize';
+type LayoutProbeKey =
+  | 'row'
+  | 'main'
+  | 'rank'
+  | 'rankText'
+  | 'identity'
+  | 'name'
+  | 'nameLines'
+  | 'details'
+  | 'detailsLines'
+  | 'prize'
+  | 'prizeAmountRow'
+  | 'prizeAmount'
+  | 'prizeLabel';
 
 export type TournamentResultLayoutProbe = (
   rank: number,
@@ -76,11 +89,17 @@ export function TournamentResultRow({
         style={[s.resultMain, largeText && s.resultMainLarge]}
       >
         <View
+          onLayout={onLayoutProbe ? report('rank') : undefined}
           style={[s.rankMedal, rankStyle]}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
-          <Text style={s.rankNumber}>{rank}</Text>
+          <Text
+            onLayout={onLayoutProbe ? report('rankText') : undefined}
+            style={s.rankNumber}
+          >
+            {rank}
+          </Text>
         </View>
         <View
           style={[s.resultAvatar, { backgroundColor: avatarColors[index % avatarColors.length] }]}
@@ -90,11 +109,13 @@ export function TournamentResultRow({
           <Text style={s.resultAvatarInitial}>{avatarName.charAt(0).toUpperCase()}</Text>
         </View>
         <View
+          onLayout={onLayoutProbe ? report('identity') : undefined}
           style={s.resultIdentity}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
           <Text
+            onLayout={onLayoutProbe ? report('name') : undefined}
             onTextLayout={onLayoutProbe ? report('nameLines') : undefined}
             style={s.resultName}
             testID={`my-matches-result-name-${rank}-${index}`}
@@ -103,6 +124,7 @@ export function TournamentResultRow({
           </Text>
           {!!resultMeta && (
             <Text
+              onLayout={onLayoutProbe ? report('details') : undefined}
               onTextLayout={onLayoutProbe ? report('detailsLines') : undefined}
               style={s.resultKills}
               testID={`my-matches-result-details-${rank}-${index}`}
@@ -118,16 +140,25 @@ export function TournamentResultRow({
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
-        <View style={[s.prizeAmountRow, largeText && s.prizeAmountRowLarge]}>
+        <View
+          onLayout={onLayoutProbe ? report('prizeAmountRow') : undefined}
+          style={[s.prizeAmountRow, largeText && s.prizeAmountRowLarge]}
+        >
           <View style={s.coinIcon}><Text style={s.coinStar}>★</Text></View>
           <Text
+            onLayout={onLayoutProbe ? report('prizeAmount') : undefined}
             style={s.prizeAmount}
             testID={`my-matches-result-prize-${rank}-${index}`}
           >
             {entry.prizeCoins ?? 0}
           </Text>
         </View>
-        <Text style={s.prizeLabel}>Prize Won</Text>
+        <Text
+          onLayout={onLayoutProbe ? report('prizeLabel') : undefined}
+          style={s.prizeLabel}
+        >
+          Prize Won
+        </Text>
       </View>
     </View>
   );

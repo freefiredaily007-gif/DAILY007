@@ -51,16 +51,16 @@ try {
   fontScaleChangeAttempted = true;
   runChecked(
     'adb',
-    ['shell', 'settings', 'put', 'system', 'font_scale', '1.5'],
-    'Setting Android font scale to 1.5',
+    ['shell', 'settings', 'put', 'system', 'font_scale', '2'],
+    'Setting Android font scale to 2',
   );
   const actualScale = Number(runChecked(
     'adb',
     ['shell', 'settings', 'get', 'system', 'font_scale'],
     'Verifying the Android font scale',
   ));
-  if (!Number.isFinite(actualScale) || Math.abs(actualScale - 1.5) > 0.005) {
-    throw new Error(`Android did not apply font scale 1.5; it reports ${actualScale}.`);
+  if (!Number.isFinite(actualScale) || Math.abs(actualScale - 2) > 0.005) {
+    throw new Error(`Android did not apply font scale 2; it reports ${actualScale}.`);
   }
 
   runChecked('adb', ['shell', 'am', 'force-stop', 'host.exp.exponent'], 'Restarting Expo Go for the updated font scale');
@@ -71,11 +71,11 @@ try {
   maestroArgs.push('maestro/my-matches-native-text-scale/large-text.yaml');
   const maestro = run('maestro', maestroArgs, {
     stdio: 'inherit',
-    env: { ...process.env, MY_MATCHES_TEXT_SCALE: '1.50' },
+    env: { ...process.env, MY_MATCHES_TEXT_SCALE: '2.00' },
   });
   if (maestro.error) throw maestro.error;
   if (maestro.status !== 0) {
-    throw new Error(`Maestro failed for My Matches at 1.50× text scale (exit code ${maestro.status ?? 'unknown'}).`);
+    throw new Error(`Maestro failed for My Matches at 2.00× text scale (exit code ${maestro.status ?? 'unknown'}).`);
   }
 } catch (error) {
   console.error(`Android My Matches large-text test failed: ${error.message}`);

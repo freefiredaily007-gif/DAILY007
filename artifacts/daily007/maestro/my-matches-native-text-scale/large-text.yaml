@@ -7,10 +7,10 @@ appId: host.exp.exponent
       id: my-matches-text-scale-banner
     timeout: 15000
 - assertVisible:
-    text: "My Matches result fixture · font scale 1.50"
+    text: "My Matches result fixture · font scale 2.00"
 - extendedWaitUntil:
     visible:
-      text: "All 10 result rows wrap within bounds at 1.50×"
+      text: "All 10 result rows fit within bounds at 2.00×"
     timeout: 15000
 
 - scrollUntilVisible:
