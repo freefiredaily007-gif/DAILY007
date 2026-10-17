@@ -982,6 +982,47 @@ try {
   assert.equal(restartedSignupState.activeAuthorization, null);
   assert.equal(restartedSignupState.unexpectedRequests.length, 0);
 
+  await setInputValue('[data-testid="auth-email"]', "password-signup@example.test", "existing account login email after reload");
+  await setInputValue('[data-testid="auth-password"]', "incorrectpass123", "incorrect existing account password");
+  await clickSelector('[data-testid="auth-submit"]', "reject an incorrect password for the existing signup account");
+  await waitForExpression(
+    `document.body.innerText.includes("Email or password is incorrect.")`,
+    "the visible login error after an incorrect password",
+  );
+  const rejectedRestartLogin = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const rejectedRestartLoginView = await evaluate(`(() => ({
+    loginErrorVisible: document.body.innerText.includes("Email or password is incorrect."),
+    protectedTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+    signupFormVisible: document.body.innerText.includes("PLAYER PROFILE"),
+  }))()`);
+  assert.equal(rejectedRestartLoginView.loginErrorVisible, true, "The incorrect-password error must remain visible.");
+  assert.equal(rejectedRestartLoginView.protectedTabCount, 0, "An incorrect password must not expose protected tabs.");
+  assert.equal(rejectedRestartLoginView.signupFormVisible, false, "An incorrect password must not return to signup.");
+  assert.equal(rejectedRestartLogin.passwordSignupAttempts, 1, "A failed login must not register the account again.");
+  assert.equal(rejectedRestartLogin.passwordAuthAttempts, 2);
+  assert.equal(rejectedRestartLogin.passwordSignupLoginCredentialMatched, false);
+  assert.equal(
+    rejectedRestartLogin.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
+    1,
+    "Rejecting the incorrect password must leave registration at one attempt.",
+  );
+  const rejectedLoginCalls = rejectedRestartLogin.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/login",
+  );
+  assert.equal(rejectedLoginCalls.length, 1);
+  assert.equal(rejectedLoginCalls[0]?.status, 401, "The incorrect password must be rejected by the login endpoint.");
+  assert.deepEqual(rejectedRestartLogin.sessionStorage, {}, "An incorrect password must not save a session.");
+  assert.equal(rejectedRestartLogin.storedSession, null);
+  assert.equal(rejectedRestartLogin.currentSession, null);
+  assert.equal(rejectedRestartLogin.activeAuthorization, null);
+  assert.equal(
+    rejectedRestartLogin.calls.some((call) =>
+      ["/auth/me", "/me/stats", "/wallet/transactions", "/my/payments", "/my/withdrawals"].includes(call.path)),
+    false,
+    "Protected API requests must not run after an incorrect password.",
+  );
+  assert.equal(rejectedRestartLogin.unexpectedRequests.length, 0);
+
   await evaluate("window.__daily007GoogleSignupWalletTest.holdNextSessionWrite()");
   await setInputValue('[data-testid="auth-email"]', "password-signup@example.test", "existing account login email");
   await setInputValue('[data-testid="auth-password"]', "testpass123", "existing account login password");
@@ -1000,15 +1041,20 @@ try {
     signupFormVisible: document.body.innerText.includes("PLAYER PROFILE"),
   }))()`);
   assert.equal(loginBeforePersistence.passwordSignupAttempts, 1, "Signing in must not register the account again.");
-  assert.equal(loginBeforePersistence.passwordAuthAttempts, 2);
+  assert.equal(loginBeforePersistence.passwordAuthAttempts, 3);
   assert.equal(loginBeforePersistence.passwordSignupLoginCredentialMatched, true);
   assert.equal(
     loginBeforePersistence.calls.filter((call) => call.method === "POST" && call.path === "/auth/register").length,
     1,
   );
-  assert.equal(
-    loginBeforePersistence.calls.filter((call) => call.method === "POST" && call.path === "/auth/login").length,
-    1,
+  const loginCallsBeforePersistence = loginBeforePersistence.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/login",
+  );
+  assert.equal(loginCallsBeforePersistence.length, 2);
+  assert.deepEqual(
+    loginCallsBeforePersistence.map((call) => call.status),
+    [401, 200],
+    "The bad password must fail before the correct password is accepted.",
   );
   assert.deepEqual(loginBeforePersistence.sessionStorage, {}, "The held login write must remain unsaved.");
   assert.equal(loginBeforePersistence.storedSession, null);
@@ -1041,9 +1087,11 @@ try {
     1,
     "The successful login must leave the original single registration intact.",
   );
-  assert.equal(
-    restartedLoginRecovery.calls.filter((call) => call.method === "POST" && call.path === "/auth/login").length,
-    1,
+  assert.deepEqual(
+    restartedLoginRecovery.calls
+      .filter((call) => call.method === "POST" && call.path === "/auth/login")
+      .map((call) => call.status),
+    [401, 200],
   );
   assert.equal(restartedLoginRecovery.passwordSignupLoginCredentialMatched, true);
   assert.equal(restartedLoginRecovery.currentSession?.id, "mock-password-signup-player");
