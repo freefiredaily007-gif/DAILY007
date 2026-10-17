@@ -7,6 +7,7 @@ let storedSession = null;
 let sessionRemoveCalls = 0;
 let blockedSetItem = null;
 let blockedGetItem = null;
+let blockedRemoveItem = null;
 let nextGetItemError = null;
 const storage = {
   async getItem(key) {
@@ -38,6 +39,12 @@ const storage = {
   async removeItem(key) {
     assert.equal(key, SESSION_KEY);
     sessionRemoveCalls += 1;
+    const block = blockedRemoveItem;
+    if (block) {
+      blockedRemoveItem = null;
+      block.entered.resolve();
+      await block.release.promise;
+    }
     storedSession = null;
   },
 };
@@ -100,6 +107,38 @@ function blockNextStorageRead() {
   blockedGetItem = block;
   return block;
 }
+
+function blockNextStorageRemoval() {
+  const block = { entered: deferred(), release: deferred() };
+  blockedRemoveItem = block;
+  return block;
+}
+
+test("a saved-session record without a token is removed", async () => {
+  await setSession(null);
+  storedSession = JSON.stringify({ id: "missing-token-account", name: "Incomplete" });
+
+  assert.equal(await getSession(), null);
+  assert.equal(storedSession, null);
+  assert.equal(currentUser(), null);
+});
+
+test("invalid saved-session cleanup cannot overwrite a newer sign-in", async () => {
+  const newAccount = { id: "new-cleanup-account", token: "new-cleanup-token", role: "user" };
+  await setSession(null);
+  storedSession = "{not valid JSON";
+
+  const blockedRemoval = blockNextStorageRemoval();
+  const restore = getSession();
+  await blockedRemoval.entered.promise;
+
+  const signIn = setSession(newAccount);
+  blockedRemoval.release.resolve();
+
+  await Promise.all([restore, signIn]);
+  assert.equal(currentUser(), newAccount);
+  assert.deepEqual(JSON.parse(storedSession), newAccount);
+});
 
 test("a refresh write already in progress cannot restore the session after logout", async () => {
   const account = { id: "logout-race-account", token: "logout-race-token", role: "user" };

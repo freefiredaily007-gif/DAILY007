@@ -250,24 +250,44 @@ export async function getSession(): Promise<User | null> {
     throw error;
   }
   if (readRevision !== sessionRevision) return current;
+
+  let savedSession: User | null = null;
+  let hasInvalidSavedSession = false;
   if (raw !== null) {
-    let u: User;
     try {
-      u = JSON.parse(raw) as User;
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        typeof (parsed as User).token !== 'string' ||
+        !(parsed as User).token
+      ) {
+        hasInvalidSavedSession = true;
+      } else {
+        savedSession = parsed as User;
+      }
     } catch {
+      hasInvalidSavedSession = true;
+    }
+  }
+
+  if (hasInvalidSavedSession) {
+    try {
+      await persistSessionMutation(null, readRevision);
+    } catch (error) {
       if (readRevision !== sessionRevision) return current;
-      await persistSessionMutation(null, readRevision);
-      return readRevision === sessionRevision ? null : current;
+      throw error;
     }
-    if (typeof u?.token !== 'string' || !u.token) {
-      await persistSessionMutation(null, readRevision);
-      return readRevision === sessionRevision ? null : current;
-    }
+    return readRevision === sessionRevision ? null : current;
+  }
+
+  if (savedSession) {
     if (readRevision !== sessionRevision) return current;
     sessionRevision += 1;
-    activateSession(u);
-    return u;
+    activateSession(savedSession);
+    return savedSession;
   }
+
   return readRevision === sessionRevision ? null : current;
 }
 
