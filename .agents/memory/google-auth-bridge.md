@@ -35,6 +35,12 @@ On 2026-10-05, the user also confirmed both flows on a standalone Android Play b
 
 **How to apply:** Treat the reported Play-build flows as the device baseline, but do not assume the tested binary matched the repository version unless its installed versionCode is confirmed.
 
+On 2026-10-17, the user reported that the native Android check for a pending Google attempt passed: LOGIN/SIGN UP and password submission stayed blocked, no password authentication started, and one Daily007 session remained after completion.
+
+**Why:** Browser automation cannot confirm real Android touch behavior during the Google handoff.
+
+**How to apply:** Treat this pending-attempt sequence as device-confirmed; recheck it after changing the Auth controls, Google busy-state wiring, or native SSO callback.
+
 For Expo Google SSO, treat the returned session ID and the active Clerk session as separate states: await the `setActive` function returned by `startSSOFlow` before reading the Clerk session or requesting its token, then verify that the active session ID matches.
 
 **Why:** `startSSOFlow` can return a completed session without making it the active session automatically. Reading the active session first can produce an intermittent missing or stale session.
