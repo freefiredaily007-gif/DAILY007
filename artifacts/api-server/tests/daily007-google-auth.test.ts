@@ -1890,7 +1890,7 @@ test("a valid referral code does not change rewards when a password account link
   }
 });
 
-test("a linked Google identity cannot sign in after its verified email changes", async () => {
+test("a linked Google identity recovers sign-in after its verified email returns to the saved address", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
 
@@ -1981,6 +1981,50 @@ test("a linked Google identity cannot sign in after its verified email changes",
             balanceAfter: balance_after,
             reason,
           })),
+      );
+
+      updateMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+      const restoredSignIn = await googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(restoredSignIn.status, 200,
+        "the linked Google identity should sign in after its verified email returns to the saved address");
+      assert.equal(restoredSignIn.body.googleLinked, true);
+      assert.equal(restoredSignIn.body.id, account.id);
+      assert.equal(restoredSignIn.body.email, account.email);
+      assert.equal(restoredSignIn.body.coins, 73,
+        "restoring the verified email should return the existing account balance");
+      assert.equal(typeof restoredSignIn.body.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 3);
+      assert.deepEqual(account, {
+        ...accountAfterLink,
+        auth_version: accountAfterLink.auth_version + 1,
+      }, "successful recovery should keep the account and wallet, advancing only its sign-in version");
+      assert.equal(signupTestDb.users.size, accountCountAfterLink,
+        "restored Google sign-in should reuse the existing account");
+      assert.deepEqual(signupTestDb.referrals, referralsAfterLink,
+        "restored Google sign-in should preserve referral relationships");
+      assert.deepEqual(signupTestDb.ledger, ledgerAfterLink,
+        "restored Google sign-in should not add, remove, or alter wallet entries");
+
+      const restoredWalletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(restoredSignIn.body.token)}` },
+      });
+      assert.equal(restoredWalletResponse.status, 200,
+        "the token returned after email restoration should access Wallet");
+      const restoredWalletHistory = await restoredWalletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        restoredWalletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        ledgerAfterLink
+          .filter(({ user_id }) => user_id === account.id)
+          .map(({ amount, balance_after, reason }) => ({
+            amount,
+            balanceAfter: balance_after,
+            reason,
+          })),
+        "the restored Google session should retain the existing Wallet history",
       );
     });
   } finally {

@@ -688,12 +688,15 @@ class MemorySignupDatabase {
       ) &&
       normalized.includes("FROM daily007_v2_wallet_ledger ledger") &&
       normalized.includes(
-        "WHERE ledger.user_id = $1 ORDER BY ledger.created_at DESC LIMIT 500",
+        "WHERE ledger.user_id = $1 ORDER BY ledger.created_at DESC, ledger.id DESC LIMIT 500",
       )
     ) {
       rows = this.ledger
         .filter((entry) => entry.user_id === first)
-        .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+        .sort((a, b) =>
+          b.created_at.getTime() - a.created_at.getTime() ||
+          (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+        )
         .slice(0, 500)
         .map((entry) => ({
           id: entry.id,
@@ -702,8 +705,12 @@ class MemorySignupDatabase {
           reason: entry.reason,
           details: structuredClone(entry.details),
           createdAt: entry.created_at,
+          cursorCreatedAt: entry.created_at.toISOString(),
           matchId: null,
+          registrationId: null,
           tournamentTitle: null,
+          placementRank: null,
+          placementKills: null,
         }));
     } else if (normalized.startsWith(
       "SELECT id, amount, balance_after AS \"balanceAfter\", reason, details,",
