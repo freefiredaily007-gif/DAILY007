@@ -245,7 +245,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           ? <Msg
             kind="err"
             text={googleErr}
-            accessibilityLiveRegion={Platform.OS === 'android' ? undefined : 'assertive'}
+            accessibilityLiveRegion={Platform.OS === 'web' ? 'assertive' : undefined}
           />
           : null}
         {!isSignup && loginThrottleStatus ? (

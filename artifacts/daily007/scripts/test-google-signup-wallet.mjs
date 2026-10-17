@@ -194,6 +194,13 @@ try {
     /announceGoogleStatus\([\s\S]*?'Google sign-up complete\.'/,
     "A successful Google signup should announce completion.",
   );
+  const googleErrorReporter = googleButtonSource.match(/function reportGoogleError\([\s\S]*?\n\}/)?.[0];
+  assert.ok(googleErrorReporter, "Native Google failures should use one shared announcement path.");
+  assert.match(
+    googleErrorReporter,
+    /if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
+    "Android and iOS should explicitly announce Google failures; web keeps its live-region path.",
+  );
 
   const appConfig = JSON.parse(await readFile(path.join(daily007Root, "app.json"), "utf8")).expo;
   const expectedAppVersion = appConfig.version;

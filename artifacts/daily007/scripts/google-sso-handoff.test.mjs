@@ -784,20 +784,23 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(buttonSource, /announceGoogleStatus\([\s\S]*?'Google sign-up complete\.'/);
   assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
   assert.match(buttonSource, /return `\$\{message\} Please try again\.`/);
-  assert.match(buttonSource, /onError && Platform\.OS === 'android'[\s\S]*?AccessibilityInfo\.announceForAccessibility\(message\)/);
+  assert.match(buttonSource, /if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/);
   const googleErrorReporter = buttonSource.match(/function reportGoogleError\([\s\S]*?\n\}/)?.[0];
   assert.ok(googleErrorReporter, "Google errors should use the shared error reporter");
   assert.equal(
     (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
     1,
-    "Google errors should have one direct Android announcement",
+    "Google errors should have one direct native announcement",
   );
-  assert.match(buttonSource, /accessibilityLabel=\{error\}[\s\S]*?accessibilityLiveRegion="assertive"/);
+  assert.match(
+    buttonSource,
+    /accessibilityLabel=\{error\}[\s\S]*?accessibilityLiveRegion=\{Platform\.OS === 'web' \? 'assertive' : undefined\}/,
+  );
   const authGoogleError = authSource.match(/\{googleErr\s*\? <Msg[\s\S]*?text=\{googleErr\}[\s\S]*?\/>[\s\S]*?: null\}/);
   assert.ok(authGoogleError, "login screen should display Google errors");
   assert.match(
     authGoogleError[0],
-    /accessibilityLiveRegion=\{Platform\.OS === 'android' \? undefined : 'assertive'\}/,
+    /accessibilityLiveRegion=\{Platform\.OS === 'web' \? 'assertive' : undefined\}/,
   );
   assert.match(
     authSource,
@@ -842,7 +845,7 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(callbackSource, /Platform\.OS === 'web'[\s\S]*?WebBrowser\.maybeCompleteAuthSession\(\)/);
 });
 
-test("Google recovery errors use the single Android announcement path and keep recovery retries available", async () => {
+test("Google recovery errors use one native announcement path and keep recovery retries available", async () => {
   const buttonSource = await readFile(
     new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
     "utf8",
@@ -871,12 +874,12 @@ test("Google recovery errors use the single Android announcement path and keep r
 
   assert.match(
     googleErrorReporter,
-    /onError\?\.\(message\);[\s\S]*?if \(onError && Platform\.OS === 'android'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
+    /onError\?\.\(message\);[\s\S]*?if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
   );
   assert.equal(
     (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
     1,
-    "recovery errors should share exactly one direct Android announcement call",
+    "recovery errors should share exactly one direct native announcement call",
   );
   assert.match(buttonSource, /const showError = \(message: string\) => \{\s*setError\(message\);\s*reportGoogleError\(onError, message\);/);
 
@@ -914,7 +917,7 @@ test("Google recovery errors use the single Android announcement path and keep r
   assert.match(ownerRecoveryControl, /disabled=\{recoveryBusy \|\| !ownerRecoveryCode\.trim\(\)\}/);
 });
 
-test("the recovery TalkBack harness is development-only and cannot call real recovery endpoints", async () => {
+test("the recovery accessibility harness is development-only and cannot call real recovery endpoints", async () => {
   const buttonSource = await readFile(
     new URL("../src/components/GoogleSSOButton.tsx", import.meta.url),
     "utf8",
@@ -954,7 +957,7 @@ test("the recovery TalkBack harness is development-only and cannot call real rec
     /Errors are generated locally; this screen does not send recovery requests or use the real owner code\./,
   );
   assert.match(testScreenSource, /devRecoveryTestScenario=\{scenario\}/);
-  assert.match(testScreenSource, /accessibilityLiveRegion=\{Platform\.OS === 'android' \? undefined : 'assertive'\}/);
+  assert.match(testScreenSource, /accessibilityLiveRegion=\{Platform\.OS === 'web' \? 'assertive' : undefined\}/);
   assert.match(testRouteSource, /<GoogleRecoveryAccessibilityTest \/>/);
   assert.match(
     authSource,

@@ -41,7 +41,7 @@ export type GoogleRecoveryTestScenario =
 
 function reportGoogleError(onError: Props['onError'], message: string) {
   onError?.(message);
-  if (onError && Platform.OS === 'android') {
+  if (Platform.OS !== 'web') {
     AccessibilityInfo.announceForAccessibility(message);
   }
 }
@@ -111,7 +111,7 @@ function UnavailableButton({ onError, disabled, label = 'Continue with Google' }
           kind="err"
           text={error}
           accessibilityLabel={error}
-          accessibilityLiveRegion="assertive"
+          accessibilityLiveRegion={Platform.OS === 'web' ? 'assertive' : undefined}
         />
       )}
     </>
@@ -353,7 +353,7 @@ function ConfiguredGoogleButton({
           kind="err"
           text={error}
           accessibilityLabel={error}
-          accessibilityLiveRegion="assertive"
+          accessibilityLiveRegion={Platform.OS === 'web' ? 'assertive' : undefined}
         />
       )}
     </>

@@ -78,7 +78,7 @@ function GoogleRecoveryAccessibilityFixture() {
             kind="err"
             text={error}
             accessibilityLabel={error}
-            accessibilityLiveRegion={Platform.OS === 'android' ? undefined : 'assertive'}
+            accessibilityLiveRegion={Platform.OS === 'web' ? 'assertive' : undefined}
           />
         ) : null}
       </ScrollView>
