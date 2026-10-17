@@ -21,6 +21,7 @@ import {
   shouldRefreshHomeTournaments,
   startHomeTournamentRefreshPolling,
 } from '../lib/tournamentLifecycle';
+import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 import HomeGameModeCards from './HomeGameModeCards';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
@@ -495,9 +496,10 @@ export default function Home() {
               const showFormatArt = formatPresentation.showFormatBanner;
               const showBattleRoyalePoster = formatPresentation.showBattleRoyalePoster;
               const br = showBattleRoyalePoster;
+              const schedule = getRoomCredentialSchedule(t.startsAt);
               const matchMetaDate = showBattleRoyalePoster
-                ? fmtDate(t.date)
-                : `${t.teamType ?? ''} • ${fmtDate(t.date)}`;
+                ? schedule?.date ?? fmtDate(t.date)
+                : `${t.teamType ?? ''} • ${schedule?.date ?? fmtDate(t.date)}`;
               const tournamentModeLabel = String(t.mode || t.gameMode || 'CLASH SQUAD')
                 .replace(/[_-]+/g, ' ')
                 .toUpperCase();
@@ -587,7 +589,7 @@ export default function Home() {
                   )}
                 </View>
               )}
-              <Text style={s.mSub}>{matchMetaDate} • <Text style={s.mTime}>{fmtTime12(t.time)} IST</Text></Text>
+              <Text style={s.mSub}>{matchMetaDate} • <Text style={s.mTime}>{fmtTime12(schedule?.startTime24 ?? t.time)} IST</Text></Text>
               <View style={s.mStats}>
                 <View style={s.mStat}>
                   <Text style={s.mStatL}>ENTRY</Text>
