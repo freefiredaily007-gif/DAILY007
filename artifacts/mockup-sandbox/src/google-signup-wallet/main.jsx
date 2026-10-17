@@ -176,6 +176,9 @@ http.defaults.adapter = async (config) => {
     path,
     authorization: authorizationHeader(config),
     daily007Token: daily007TokenHeader(config),
+    ...(scenario === "lowercase-referral" && method === "POST" && path === "/auth/google"
+      ? { body: requestBody(config) }
+      : {}),
   };
   calls.push(call);
   persistRestartBackendState();
@@ -256,7 +259,8 @@ http.defaults.adapter = async (config) => {
         request: { url: config.url, method },
       });
     }
-    if (!storageFailureScenario && !profileLinkScenario && googleExchangeAttempts === 1) {
+    if (!storageFailureScenario && !profileLinkScenario &&
+        scenario !== "lowercase-referral" && googleExchangeAttempts === 1) {
       call.failure = {
         type: "network",
         message: "Network Error",
@@ -288,7 +292,16 @@ http.defaults.adapter = async (config) => {
   }
   if (method === "GET" && path === "/wallet/transactions") {
     call.status = 200;
-    return respond(config, profileLinkScenario
+    const transactions = scenario === "lowercase-referral"
+      ? [{
+        id: "mock-referral-signup-bonus",
+        amount: 10,
+        balanceAfter: 10,
+        reason: "Referral Signup Bonus",
+        description: "Referral Signup Bonus",
+        createdAt: "2026-10-17T07:00:00.000Z",
+      }]
+      : profileLinkScenario
       ? [{
         id: "mock-password-account-wallet-row",
         amount: 5,
@@ -304,7 +317,8 @@ http.defaults.adapter = async (config) => {
         reason: "Welcome Signup Bonus",
         description: "Welcome Signup Bonus",
         createdAt: "2026-10-05T10:00:00.000Z",
-      }]);
+      }];
+    return respond(config, { items: transactions, nextCursor: null });
   }
   if (method === "GET" && path === "/my/payments") {
     return respond(config, { items: [], nextCursor: null });

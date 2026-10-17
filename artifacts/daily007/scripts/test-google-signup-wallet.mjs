@@ -1519,9 +1519,74 @@ try {
   const walletForAlreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(walletForAlreadyLinked, "after opening Wallet for an already-linked Google account");
 
+  await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=lowercase-referral`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for lowercase referral signup",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-referral-code"]'))`,
+    "the optional referral input on the signup form",
+  );
+  await setInputValue(
+    '[data-testid="auth-referral-code"]',
+    "  abcde  ",
+    "lowercase referral code with surrounding whitespace",
+  );
+  const enteredReferralCode = await evaluate(
+    `document.querySelector('[data-testid="auth-referral-code"]')?.value ?? null`,
+  );
+  assert.equal(enteredReferralCode, "  abcde  ", "The form should accept lowercase input and surrounding whitespace.");
+  await clickSelector('[data-testid="continue-with-google"]', "Google signup with the lowercase referral code");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "the signed-in tabs after referred Google signup",
+  );
+  const referralWalletTab = await evaluate(`(() => {
+    const tab = document.querySelector('[data-testid="mock-tab-wallet"]');
+    if (!tab) return false;
+    tab.click();
+    return true;
+  })()`);
+  assert.equal(referralWalletTab, true, "Wallet should be available after referred Google signup.");
+  await waitForExpression(
+    `document.body.innerText.includes("Referral Signup Bonus")
+      && Boolean(document.querySelector('[aria-label="Available coins: 10"]'))`,
+    "the 10-coin referral reward in Wallet",
+  );
+  const lowercaseReferralReport = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  const lowercaseReferralWallet = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    return {
+      referralRewardCount: bodyText.split("Referral Signup Bonus").length - 1,
+      welcomeRewardCount: bodyText.split("Welcome Signup Bonus").length - 1,
+      balanceLabel: document.querySelector('[aria-label="Available coins: 10"]')
+        ?.getAttribute("aria-label") ?? null,
+    };
+  })()`);
+  const lowercaseReferralRequests = lowercaseReferralReport.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(lowercaseReferralRequests.length, 1);
+  assert.deepEqual(
+    lowercaseReferralRequests[0].body,
+    { referralCode: "abcde" },
+    "Google SSO should trim whitespace while preserving the lowercase code for backend normalization.",
+  );
+  assert.equal(lowercaseReferralRequests[0].status, 200);
+  assert.equal(lowercaseReferralWallet.balanceLabel, "Available coins: 10");
+  assert.equal(lowercaseReferralWallet.referralRewardCount, 1, "Wallet should show exactly one referral reward.");
+  assert.equal(lowercaseReferralWallet.welcomeRewardCount, 0, "A referred signup must not show a welcome bonus.");
+  assert.equal(lowercaseReferralReport.unexpectedRequests.length, 0);
+
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google signup retries, password signup recovery across reload and login, and Profile Google-link network-retry/success/cancel/error/storage-failure/restart scenarios.",
+    "PASS — Google signup retries and lowercase referral handoff, password signup recovery, Profile Google-link recovery, and Wallet reward display.",
   );
 } finally {
   socket?.close();
