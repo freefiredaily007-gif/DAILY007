@@ -7,7 +7,11 @@ import { useApp } from '../App';
 import { C, Card, Btn } from '../components/ui';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
-export default function EditProfile() {
+type EditProfileProps = {
+  updateProfile?: (profile: { name: string; phone: string; gameUid: string }) => Promise<unknown>;
+};
+
+export default function EditProfile({ updateProfile = Api.updateProfile }: EditProfileProps) {
   const { user, refresh } = useApp();
   const [name, setName] = useState(user?.name ?? '');
   const [phone, setPhone] = useState(user?.phone ?? '');
@@ -20,7 +24,7 @@ export default function EditProfile() {
     setSaveError('');
     setSaving(true);
     try {
-      await Api.updateProfile({ name: name.trim(), phone: phone.trim(), gameUid: gameUid.trim() });
+      await updateProfile({ name: name.trim(), phone: phone.trim(), gameUid: gameUid.trim() });
       await refresh();
       Alert.alert('Saved', 'Profile updated');
     } catch (e: any) {

@@ -1,0 +1,59 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/form-resume-test
+- extendedWaitUntil:
+    visible:
+      id: form-resume-fixture-title
+    timeout: 15000
+
+- tapOn:
+    id: edit-profile-name
+- inputText: "Background Profile Name"
+- tapOn:
+    id: edit-profile-phone
+- inputText: "5550104321"
+- tapOn:
+    id: edit-profile-game-uid
+- inputText: "profile-uid-4321"
+- pressKey: HOME
+- waitForAnimationToEnd
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: form-resume-fixture-title
+    timeout: 15000
+- tapOn:
+    id: edit-profile-save
+- extendedWaitUntil:
+    visible: "Saved"
+    timeout: 10000
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible:
+      id: form-resume-profile-saved
+    timeout: 10000
+- assertVisible: "Saved profile: Background Profile Name | 5550104321 | profile-uid-4321"
+
+- tapOn:
+    id: form-resume-select-join
+- tapOn:
+    id: join-form-captain-game-name
+- inputText: "Background Captain"
+- tapOn:
+    id: join-form-captain-game-uid
+- inputText: "987654321"
+- pressKey: HOME
+- waitForAnimationToEnd
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: form-resume-fixture-title
+    timeout: 15000
+- tapOn:
+    id: join-form-submit
+- extendedWaitUntil:
+    visible:
+      id: form-resume-join-confirmed
+    timeout: 10000
+- assertVisible: "Joined with: Background Captain | 987654321"
