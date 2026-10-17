@@ -20,6 +20,7 @@ const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position
 const profilePasswordConflictOnly = process.argv.includes("--profile-password-conflict-only");
 const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-only");
 const browserErrors = [];
+const layoutFailures = [];
 const ignoredWebOnlyConsoleErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
 ]);
@@ -55,6 +56,16 @@ const walletCancellationRefundDescription =
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function collectLayoutFailure(description, check) {
+  try {
+    await check();
+  } catch (error) {
+    layoutFailures.push(
+      `${description}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function browserErrorForCdpEvent(method, params = {}) {
@@ -2534,9 +2545,17 @@ try {
     });
     await delay(120);
 
-    for (const screen of screens) await checkScreen(screen, viewportWidth);
+    for (const screen of screens) {
+      await collectLayoutFailure(
+        `${screen.name} at ${viewportWidth}px and 2×`,
+        () => checkScreen(screen, viewportWidth),
+      );
+    }
     for (const fontScale of [1.2, 1.35, 1.49, 1.5]) {
-      await checkScreen(leaderboardDetailsScreen, viewportWidth, fontScale);
+      await collectLayoutFailure(
+        `LeaderboardDetails at ${viewportWidth}px and ${fontScale}×`,
+        () => checkScreen(leaderboardDetailsScreen, viewportWidth, fontScale),
+      );
     }
 
     if (viewportWidth === 375) {
@@ -2549,47 +2568,54 @@ try {
       await checkDelayedVideoWatchStartAcrossVideos();
     }
 
-    await navigateToScreen("Home", "GAME MODES");
-    const navState = await evaluate(`(() => ({
-      bar: (() => {
-        const rect = document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect();
-        return rect ? { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right } : null;
-      })(),
-      height: document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect().height,
-      labels: [...document.querySelectorAll('[data-testid^="player-tab-label-"]')].map((node) => ({
-        text: node.textContent.trim(),
-        scrollWidth: node.scrollWidth,
-        clientWidth: node.clientWidth,
-        scrollHeight: node.scrollHeight,
-        clientHeight: node.clientHeight,
-        bounds: (() => {
-          const rect = node.getBoundingClientRect();
-          return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
-        })()
-      }))
-    }))()`);
-    assert(navState.bar, `The bottom tab bar is missing at ${viewportWidth}px.`);
-    const minimumTabBarHeight = viewportWidth <= 340 ? 148 : 90;
-    assert(
-      navState.height >= minimumTabBarHeight,
-      `The tab bar did not provide enough height for 2× text at ${viewportWidth}px: ${JSON.stringify(navState)}.`,
-    );
-    assert(
-      navState.labels.every((label) =>
-        label.scrollWidth <= label.clientWidth + 2
-          && label.scrollHeight <= label.clientHeight + 2
-          && label.bounds.left >= navState.bar.left - 1
-          && label.bounds.right <= navState.bar.right + 1
-          && label.bounds.top >= navState.bar.top - 1
-          && label.bounds.bottom <= navState.bar.bottom + 1
-      ),
-      `A bottom-tab label is clipped at ${viewportWidth}px: ${JSON.stringify(navState.labels)}.`,
-    );
-    for (const tab of ["home", "video", "earn", "wallet", "profile"]) {
-      await checkReachable(`[data-testid="player-tab-${tab}"]`, `${tab} bottom tab`, true);
-    }
+    await collectLayoutFailure(`Bottom navigation at ${viewportWidth}px and 2×`, async () => {
+      await navigateToScreen("Home", "GAME MODES");
+      const navState = await evaluate(`(() => ({
+        bar: (() => {
+          const rect = document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect();
+          return rect ? { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right } : null;
+        })(),
+        height: document.querySelector('[data-testid="player-tab-bar"]')?.getBoundingClientRect().height,
+        labels: [...document.querySelectorAll('[data-testid^="player-tab-label-"]')].map((node) => ({
+          text: node.textContent.trim(),
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+          scrollHeight: node.scrollHeight,
+          clientHeight: node.clientHeight,
+          bounds: (() => {
+            const rect = node.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+          })()
+        }))
+      }))()`);
+      assert(navState.bar, `The bottom tab bar is missing at ${viewportWidth}px.`);
+      const minimumTabBarHeight = viewportWidth <= 340 ? 148 : 90;
+      assert(
+        navState.height >= minimumTabBarHeight,
+        `The tab bar did not provide enough height for 2× text at ${viewportWidth}px: ${JSON.stringify(navState)}.`,
+      );
+      assert(
+        navState.labels.every((label) =>
+          label.scrollWidth <= label.clientWidth + 2
+            && label.scrollHeight <= label.clientHeight + 2
+            && label.bounds.left >= navState.bar.left - 1
+            && label.bounds.right <= navState.bar.right + 1
+            && label.bounds.top >= navState.bar.top - 1
+            && label.bounds.bottom <= navState.bar.bottom + 1
+        ),
+        `A bottom-tab label is clipped at ${viewportWidth}px: ${JSON.stringify(navState.labels)}.`,
+      );
+      for (const tab of ["home", "video", "earn", "wallet", "profile"]) {
+        await checkReachable(`[data-testid="player-tab-${tab}"]`, `${tab} bottom tab`, true);
+      }
+    });
   }
-  assert(browserErrors.length === 0, `Browser errors: ${browserErrors.join(" | ")}`);
+  if (layoutFailures.length || browserErrors.length) {
+    throw new Error([
+      `Screen/layout check failures: ${layoutFailures.length ? layoutFailures.join(" | ") : "none"}`,
+      `Browser errors: ${browserErrors.length ? browserErrors.join(" | ") : "none"}`,
+    ].join("\n"));
+  }
   console.log(
     videoStartFailureOnly
       ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
@@ -2616,8 +2642,14 @@ try {
                     : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
-  console.error(`FAIL — ${error instanceof Error ? error.message : String(error)}`);
-  if (browserErrors.length) console.error(`Browser errors: ${browserErrors.join(" | ")}`);
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.error(`FAIL — ${errorMessage}`);
+  if (!errorMessage.includes("Screen/layout check failures:")) {
+    console.error(`Screen/layout check failures: ${layoutFailures.length ? layoutFailures.join(" | ") : "none"}`);
+  }
+  if (!errorMessage.includes("Browser errors:")) {
+    console.error(`Browser errors: ${browserErrors.length ? browserErrors.join(" | ") : "none"}`);
+  }
   if (viteOutput.trim()) console.error(`Vite output:\n${viteOutput.trim()}`);
   process.exitCode = 1;
 } finally {
