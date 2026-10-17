@@ -69,6 +69,12 @@ class YoutubeClaimTestDatabase {
   ledger: LedgerEntry[] = [];
   notifications: Notification[] = [];
   claimTableQueryCount = 0;
+  claimLockWaiterCount = 0;
+  private claimLocks = new Map<string, { locked: boolean; waiters: Array<() => void> }>();
+  private nextClaimLockPause: {
+    acquired: () => void;
+    waitForRelease: Promise<void>;
+  } | null = null;
 
   reset(): void {
     this.users = new Map([
@@ -121,6 +127,66 @@ class YoutubeClaimTestDatabase {
     this.ledger = [];
     this.notifications = [];
     this.claimTableQueryCount = 0;
+    this.claimLockWaiterCount = 0;
+    this.claimLocks.clear();
+    this.nextClaimLockPause = null;
+  }
+
+  pauseNextClaimLockForTest(): { acquired: Promise<void>; release: () => void } {
+    let markAcquired!: () => void;
+    let resume!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      markAcquired = resolve;
+    });
+    const waitForRelease = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    this.nextClaimLockPause = {
+      acquired: markAcquired,
+      waitForRelease,
+    };
+    return { acquired, release: resume };
+  }
+
+  async waitForClaimLockWaiters(count: number, timeoutMs = 5_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.claimLockWaiterCount < count) {
+      if (Date.now() >= deadline) {
+        throw new Error(`Expected ${count} claim-lock waiter(s), saw ${this.claimLockWaiterCount}.`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  async acquireClaimRowLockForTest(claimId: string): Promise<() => void> {
+    let lock = this.claimLocks.get(claimId);
+    if (!lock) {
+      lock = { locked: false, waiters: [] };
+      this.claimLocks.set(claimId, lock);
+    }
+
+    if (lock.locked) {
+      this.claimLockWaiterCount += 1;
+      await new Promise<void>((resolve) => lock!.waiters.push(resolve));
+    } else {
+      lock.locked = true;
+    }
+
+    const pause = this.nextClaimLockPause;
+    if (pause) {
+      this.nextClaimLockPause = null;
+      pause.acquired();
+      await pause.waitForRelease;
+    }
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const nextWaiter = lock!.waiters.shift();
+      if (nextWaiter) nextWaiter();
+      else lock!.locked = false;
+    };
   }
 
   snapshot(): DatabaseState {
@@ -231,6 +297,10 @@ export const pool = {
     youtubeClaimTestDb.query<T>(sql, values),
   connect: async () => {
     let transactionSnapshot: DatabaseState | null = null;
+    const releaseClaimLocks: Array<() => void> = [];
+    const releaseLocks = () => {
+      while (releaseClaimLocks.length > 0) releaseClaimLocks.pop()?.();
+    };
     return {
       query: async <T = unknown>(sql: string, values?: unknown[]) => {
         const normalized = sql.replace(/\s+/g, " ").trim();
@@ -244,15 +314,22 @@ export const pool = {
           youtubeClaimTestDb.claims = snapshot.claims;
           youtubeClaimTestDb.ledger = snapshot.ledger;
           youtubeClaimTestDb.notifications = snapshot.notifications;
+          transactionSnapshot = null;
+          releaseLocks();
           return { rows: [] as T[] };
         }
         if (normalized === "COMMIT" || normalized === "ROLLBACK") {
           transactionSnapshot = null;
+          releaseLocks();
           return { rows: [] as T[] };
+        }
+        if (normalized === "SELECT * FROM daily007_v2_youtube_subscribe_claims WHERE id = $1 FOR UPDATE") {
+          const claimId = String(values?.[0] ?? "");
+          releaseClaimLocks.push(await youtubeClaimTestDb.acquireClaimRowLockForTest(claimId));
         }
         return youtubeClaimTestDb.query<T>(normalized, values);
       },
-      release: () => {},
+      release: releaseLocks,
     };
   },
 };

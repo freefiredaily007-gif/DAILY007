@@ -132,6 +132,81 @@ test("Full Admin can approve a YouTube subscribe claim and receive the configure
   });
 });
 
+test("overlapping Full Admin approvals credit a YouTube claim exactly once", async () => {
+  youtubeClaimTestDb.reset();
+  const claimLockPause = youtubeClaimTestDb.pauseNextClaimLockForTest();
+
+  await withYoutubeClaimServer(async (origin) => {
+    const approvals: Array<ReturnType<typeof youtubeAdminRequest>> = [];
+    try {
+      approvals.push(youtubeAdminRequest(
+        origin,
+        YOUTUBE_TEST_ADMIN_ID,
+        `/admin/earn/youtube-subscribe/claims/${YOUTUBE_TEST_CLAIM_ID}/approve`,
+        "POST",
+      ));
+
+      let acquiredTimeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          claimLockPause.acquired,
+          new Promise<never>((_resolve, reject) => {
+            acquiredTimeout = setTimeout(
+              () => reject(new Error("The first approval did not acquire the claim row lock.")),
+              5_000,
+            );
+          }),
+        ]);
+      } finally {
+        if (acquiredTimeout) clearTimeout(acquiredTimeout);
+      }
+
+      approvals.push(youtubeAdminRequest(
+        origin,
+        YOUTUBE_TEST_ADMIN_ID,
+        `/admin/earn/youtube-subscribe/claims/${YOUTUBE_TEST_CLAIM_ID}/approve`,
+        "POST",
+      ));
+      await youtubeClaimTestDb.waitForClaimLockWaiters(1);
+      claimLockPause.release();
+
+      const [first, second] = await Promise.all(approvals);
+      assert.equal(first.status, 200);
+      assert.equal(second.status, 200);
+      assert.equal(first.body.status, "approved");
+      assert.equal(second.body.status, "approved");
+      assert.equal(first.body.rewardCoins, 2);
+      assert.equal(second.body.rewardCoins, 2);
+      assert.equal(first.body.walletCoins, 12);
+      assert.equal(second.body.walletCoins, null, "the idempotent repeat should not credit the wallet again");
+
+      const claim = youtubeClaimTestDb.claims.get(YOUTUBE_TEST_CLAIM_ID);
+      assert.equal(claim?.status, "approved");
+      assert.equal(claim?.reviewed_by, YOUTUBE_TEST_ADMIN_ID);
+      assert.ok(claim?.reviewed_at);
+      assert.equal(claim?.reward_ledger_id, first.body.transactionId);
+      assert.equal(second.body.transactionId, claim?.reward_ledger_id);
+
+      const player = youtubeClaimTestDb.users.get(YOUTUBE_TEST_PLAYER_ID);
+      assert.equal(player?.wallet_coins, 12, "the player should receive the configured reward only once");
+      assert.equal(youtubeClaimTestDb.ledger.length, 1);
+      assert.equal(youtubeClaimTestDb.ledger[0]?.user_id, YOUTUBE_TEST_PLAYER_ID);
+      assert.equal(youtubeClaimTestDb.ledger[0]?.amount, 2);
+      assert.equal(
+        youtubeClaimTestDb.ledger[0]?.idempotency_key,
+        `daily007-youtube-subscribe:${YOUTUBE_TEST_PLAYER_ID}`,
+      );
+      assert.equal(youtubeClaimTestDb.ledger[0]?.id, claim?.reward_ledger_id);
+      assert.equal(youtubeClaimTestDb.notifications.length, 1);
+      assert.equal(youtubeClaimTestDb.claimLockWaiterCount, 1);
+    } finally {
+      claimLockPause.release();
+      await Promise.allSettled(approvals);
+    }
+  });
+  claimLockPause.release();
+});
+
 test("YouTube task URLs only accept secure YouTube hosts with a channel path", () => {
   assert.equal(isValidYoutubeChannelUrl("https://youtube.com/@freefiredaily007?si=abc"), true);
   assert.equal(isValidYoutubeChannelUrl("https://www.youtube.com/@freefiredaily007"), true);
