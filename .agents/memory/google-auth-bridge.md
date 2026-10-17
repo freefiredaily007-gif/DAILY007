@@ -87,14 +87,16 @@ On 2026-10-14, the user reported that after a native Android force-close and rel
 
 ## Google sign-in error accessibility
 
-On Android, keep Google failure speech on one path: the Google button announces once after loading clears, and the login screen displays that error without a second assertive live-region announcement. Keep ordinary email/password failures on their existing live region.
+On Android and iOS, keep Google failure speech on one explicit native announcement path: the Google button announces once after loading clears, and the screen displays the error without a second live-region announcement. The web screen can keep its assertive live region.
 
-**Why:** Combining `AccessibilityInfo.announceForAccessibility` with an assertive parent error live region can speak the same Google failure twice. On 2026-10-09, the user confirmed on Android 16 with TalkBack that provider and Daily007 server failures were each spoken once and the Google button remained retryable after the duplicate path was removed.
+**Why:** Combining `AccessibilityInfo.announceForAccessibility` with a live-region error can duplicate speech, while React Native live regions do not reliably announce on iOS. On 2026-10-09, the user confirmed on Android 16 with TalkBack that provider and Daily007 server failures were each spoken once and the Google button remained retryable after the duplicate path was removed.
 
-**How to apply:** When changing the Google sign-in error callback, preserve one Android announcement, visible error text, and a retry-enabled button after loading ends. Confirm platform-specific announcements on a real device; source tests alone do not establish TalkBack speech.
+**How to apply:** When changing the Google sign-in error callback, announce directly once on each native platform, preserve visible error text, and keep the button retryable after loading ends. Keep web live-region behavior separate. Confirm platform-specific announcements on real devices; source tests alone do not establish screen-reader speech.
 
 On 2026-10-09, the user confirmed on Android TalkBack that missing-session, simulated recovery-request, and simulated owner-code errors each spoke once and left the relevant recovery action retryable.
 
 **Why:** The recovery actions use distinct controls from ordinary Google sign-in, and the development-only local simulation verified their announcement and retry paths without contacting recovery APIs or requiring the owner code.
 
 **How to apply:** Keep recovery simulations development-only and local. After changing recovery error handling, recheck all three paths with TalkBack; do not treat source assertions or browser behavior as proof of native speech.
+
+On 2026-10-17, the user confirmed that Google sign-up progress, success, failure/retry, and focus checks passed with Android TalkBack and iOS VoiceOver; exact spoken wording was not recorded.
