@@ -8177,6 +8177,11 @@ async function checkAdminTournamentKeyboard() {
 
 async function checkAdminTournamentCreationSaveAtLargeText() {
   await setViewport(320, 1.5);
+  await cdp("Emulation.setTimezoneOverride", { timezoneId: "Pacific/Kiritimati" });
+  assert(
+    await evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone === "Pacific/Kiritimati"'),
+    "The tournament creation preview did not use the Pacific/Kiritimati browser timezone.",
+  );
   assert(
     await evaluate("window.__daily007LargeTextScale === 1.5"),
     "The tournament creation preview did not apply 1.5× Android text scale.",
@@ -8251,6 +8256,16 @@ async function checkAdminTournamentCreationSaveAtLargeText() {
       prizeDist,
     },
   }, "Tournament creation");
+
+  const savedSchedule = await evaluate(`JSON.parse(
+    window.sessionStorage.getItem("daily007-admin-created-tournament-home-refresh") ?? "null"
+  )`);
+  assert(
+    savedSchedule?.date === date &&
+      savedSchedule?.time === "9:35 PM" &&
+      savedSchedule?.startsAt === "2031-06-17T16:05:00.000Z",
+    `The saved tournament schedule must retain the selected IST date and time, received ${JSON.stringify(savedSchedule)}.`,
+  );
 
   const successState = await evaluate(`({
     successVisible: document.body.innerText.includes("Tournament created successfully"),
@@ -8340,8 +8355,10 @@ async function checkAdminTournamentCreationAppearsOnHomeRefresh() {
     `document.querySelector('[data-testid="home-upcoming-card-${createdTournamentId}"]')?.innerText ?? ""`,
   );
   assert(
-    createdCardText.includes("Clash Night 7"),
-    `Home should show the created tournament's name after refresh: ${createdCardText}`,
+    createdCardText.includes("Clash Night 7") &&
+      createdCardText.includes("17 JUN 2031") &&
+      createdCardText.includes("9:35 PM IST"),
+    `Home should show the created tournament's name and unchanged IST date/time after refresh: ${createdCardText}`,
   );
   const newHomeBrowserErrors = browserErrors.filter((error) => !homeBrowserErrorBaseline.has(error));
   assert(
@@ -8432,6 +8449,11 @@ async function checkDisabledTournamentDisappearsAfterHomeRefresh() {
 
 async function checkAdminTournamentEditSaveAtLargeText() {
   await setViewport(320, 1.5);
+  await cdp("Emulation.setTimezoneOverride", { timezoneId: "Pacific/Kiritimati" });
+  assert(
+    await evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone === "Pacific/Kiritimati"'),
+    "The tournament edit preview did not use the Pacific/Kiritimati browser timezone.",
+  );
   assert(
     await evaluate("window.__daily007LargeTextScale === 1.5"),
     "The tournament edit preview did not apply 1.5× Android text scale.",
