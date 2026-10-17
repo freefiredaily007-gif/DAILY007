@@ -647,7 +647,7 @@ test("match detail polling follows both focus and app activity without duplicate
   controller.stop();
 });
 
-test("a malformed registration snapshot preserves the last confirmed joined detail until valid data arrives", async () => {
+test("malformed and rejected registration snapshots preserve the last confirmed joined detail until valid data arrives", async () => {
   const snapshots = [
     {
       tournament: { id: "match-1", name: "Confirmed tournament" },
@@ -656,6 +656,10 @@ test("a malformed registration snapshot preserves the last confirmed joined deta
     {
       tournament: { id: "match-1", name: "Uncommitted tournament update" },
       registrations: { malformed: true },
+    },
+    {
+      tournament: { id: "match-1", name: "Rejected tournament update" },
+      registrations: new Error("Temporary network failure"),
     },
     {
       tournament: { id: "match-1", name: "Updated tournament" },
@@ -672,6 +676,7 @@ test("a malformed registration snapshot preserves the last confirmed joined deta
       const registrations = activeSnapshot.registrations;
       snapshotIndex = Math.min(snapshotIndex + 1, snapshots.length - 1);
       activeSnapshot = snapshots[snapshotIndex];
+      if (registrations instanceof Error) throw registrations;
       return registrations;
     },
   };
@@ -698,7 +703,16 @@ test("a malformed registration snapshot preserves the last confirmed joined deta
   );
   assert.equal(visibleDetail.registrationStatusKnown, true);
   assert.equal(visibleDetail.joined, true, "malformed data must not turn the confirmed joined state into unjoined");
-  assert.equal(visibleDetail.name, "Confirmed tournament", "the failed snapshot must not replace the visible detail");
+  assert.equal(visibleDetail.name, "Confirmed tournament", "the malformed snapshot must not replace the visible detail");
+
+  await refreshDetail();
+  assert.equal(
+    visibleError,
+    "Could not verify your entry status. Your last confirmed status is shown. Pull to refresh to try again.",
+  );
+  assert.equal(visibleDetail.registrationStatusKnown, true);
+  assert.equal(visibleDetail.joined, true, "a rejected request must not turn the confirmed joined state into unjoined");
+  assert.equal(visibleDetail.name, "Confirmed tournament", "the rejected snapshot must not replace the visible detail");
 
   await refreshDetail();
   assert.equal(visibleError, "");

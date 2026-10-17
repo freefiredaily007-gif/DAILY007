@@ -16,7 +16,7 @@ export async function fetchTournamentDetailSnapshot(
 
   if (tournamentResult.status === 'rejected') throw tournamentResult.reason;
   if (
-    registrationsResult.status === 'fulfilled' &&
+    registrationsResult.status === 'rejected' ||
     !Array.isArray(registrationsResult.value)
   ) {
     throw new Error(
