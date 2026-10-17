@@ -216,10 +216,12 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
   const refs = {
     loadRequests: { current: createLatestRequestGuard() },
     hasLoadedList: { current: false },
+    hasConfirmedRegistrationStatus: { current: false },
     initialLoadFailed: { current: false },
     latestLoadFailed: { current: false },
     refreshingRequest: { current: false },
     failedManualRefresh: { current: false },
+    missedStartCheckPending: { current: false },
     activeLoad: { current: null },
   };
   const loadScope = {
@@ -228,10 +230,12 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     apiError: (error) => error instanceof Error ? error.message : String(error),
     loadRequests: refs.loadRequests,
     hasLoadedList: refs.hasLoadedList,
+    hasConfirmedRegistrationStatus: refs.hasConfirmedRegistrationStatus,
     initialLoadFailed: refs.initialLoadFailed,
     latestLoadFailed: refs.latestLoadFailed,
     refreshingRequest: refs.refreshingRequest,
     failedManualRefresh: refs.failedManualRefresh,
+    missedStartCheckPending: refs.missedStartCheckPending,
     activeLoad: refs.activeLoad,
     setItems: (nextItems) => {
       state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
@@ -846,7 +850,7 @@ test('failed tournament refreshes preserve the last complete rows and successful
   );
 });
 
-test('first-load registration failure keeps tournament counts and marks entry status unknown until retry', async () => {
+test('repeated first-load registration failures keep tournament counts and unknown entry guidance until recovery', async () => {
   const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const pastStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const initialTournaments = [
@@ -886,16 +890,34 @@ test('first-load registration failure keeps tournament counts and marks entry st
   }
   assert.equal(harness.state.error, '', 'a failed registration lookup should not replace the successful tournament list with a list error');
   assert.equal(harness.state.registrationError, 'Temporary registration lookup failure');
+  assert.equal(harness.refs.hasConfirmedRegistrationStatus.current, false);
   assert.equal(
     harness.state.items.find((tournament) => tournament.id === 'initial-upcoming').myRegistration,
     undefined,
   );
   assert.match(
     tournamentsSource,
-    /text=\{`Could not confirm which tournaments you have joined: \$\{registrationError\}\. \$\{hasLoadedList\.current \? 'Showing your last confirmed status; refresh to try again\.' : 'Entry status is unknown; refresh before joining\.'\}`\}/,
+    /text=\{`Could not confirm which tournaments you have joined: \$\{registrationError\}\. \$\{hasConfirmedRegistrationStatus\.current \? 'Showing your last confirmed status; refresh to try again\.' : 'Entry status is unknown; refresh before joining\.'\}`\}/,
   );
   assert.match(uiSource, /const statusUnknown = t\?\.joinedStatusUnknown === true;/);
   assert.match(uiSource, /statusUnknown\s*\?\s*'ENTRY STATUS UNKNOWN · TAP TO CHECK →'/);
+
+  await harness.load();
+
+  assert.equal(harness.state.loading, false, 'a second registration lookup failure should keep the successful tournament rows available');
+  assert.deepEqual(harness.state.items.map((tournament) => tournament.id), [
+    'initial-upcoming',
+    'initial-ongoing',
+    'initial-completed',
+  ]);
+  assert.deepEqual(getTabCounts(), { upcoming: 1, ongoing: 1, completed: 1 });
+  for (const tournament of harness.state.items) {
+    assert.equal(tournament.joined, undefined, `${tournament.id} must not be shown as confirmed unjoined`);
+    assert.equal(tournament.joinedStatusUnknown, true);
+  }
+  assert.equal(harness.state.error, '');
+  assert.equal(harness.state.registrationError, 'Temporary registration lookup failure');
+  assert.equal(harness.refs.hasConfirmedRegistrationStatus.current, false);
 
   registrationsFail = false;
   await harness.load();
@@ -907,6 +929,7 @@ test('first-load registration failure keeps tournament counts and marks entry st
   assert.equal(recoveredUpcoming.myRegistration.status, 'approved');
   assert.equal(harness.state.registrationError, '', 'a valid retry should clear the registration warning');
   assert.equal(harness.state.error, '');
+  assert.equal(harness.refs.hasConfirmedRegistrationStatus.current, true);
 });
 
 test('malformed registration refresh preserves confirmed JOINED cards until valid data arrives', async () => {

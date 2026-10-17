@@ -77,6 +77,7 @@ export default function Tournaments() {
   const announcedTournamentStarts = useRef(new Set<string>());
   const missedStartCheckPending = useRef(false);
   const hasLoadedList = useRef(false);
+  const hasConfirmedRegistrationStatus = useRef(false);
   const initialLoadFailed = useRef(false);
   const latestLoadFailed = useRef(false);
   const announcedInitialLoadFailure = useRef(false);
@@ -107,6 +108,7 @@ export default function Tournaments() {
       }
       const registrationStatusKnown =
         registrationsResult.status === 'fulfilled' && Array.isArray(registrationsResult.value);
+      if (registrationStatusKnown) hasConfirmedRegistrationStatus.current = true;
       const registrationErrorMessage = registrationStatusKnown
         ? ''
         : registrationsResult.status === 'rejected'
@@ -449,7 +451,7 @@ export default function Tournaments() {
             {!!registrationError && (
               <Msg
                 kind="err"
-                text={`Could not confirm which tournaments you have joined: ${registrationError}. ${hasLoadedList.current ? 'Showing your last confirmed status; refresh to try again.' : 'Entry status is unknown; refresh before joining.'}`}
+                text={`Could not confirm which tournaments you have joined: ${registrationError}. ${hasConfirmedRegistrationStatus.current ? 'Showing your last confirmed status; refresh to try again.' : 'Entry status is unknown; refresh before joining.'}`}
               />
             )}
           </View>
