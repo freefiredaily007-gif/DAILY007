@@ -12,6 +12,8 @@ import {
 } from "../lib/daily007-google-auth-validation";
 
 const router: IRouter = Router();
+const EMAIL_CONFLICT_MESSAGE =
+  "An account already uses this email. Sign in with your password, then connect Google in Profile.";
 
 type Account = {
   id: string;
@@ -171,7 +173,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
         throw httpError(409, "The linked Google email no longer matches this Daily007 account. Sign in with your password to resolve the account link.");
       }
       if (action === "email-conflict") {
-        throw httpError(409, "An account already uses this email. Sign in with your password, then connect Google in Profile.");
+        throw httpError(409, EMAIL_CONFLICT_MESSAGE);
       }
 
       let account: Account;
@@ -239,6 +241,18 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       return;
     }
     if ((error as { code?: string }).code === "23505") {
+      const emailOwner = await pool.query<{ id: string }>(
+        `SELECT id
+           FROM daily007_v2_users
+          WHERE email = $1
+            AND clerk_user_id IS DISTINCT FROM $2
+          LIMIT 1`,
+        [identity.email, identity.clerkUserId],
+      );
+      if (emailOwner.rows.length > 0) {
+        fail(res, 409, EMAIL_CONFLICT_MESSAGE);
+        return;
+      }
       fail(res, 409, "This email or Google identity is already linked to another account.");
       return;
     }

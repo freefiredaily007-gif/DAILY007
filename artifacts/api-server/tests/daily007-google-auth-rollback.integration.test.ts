@@ -71,6 +71,23 @@ const SECOND_VERIFIED_GOOGLE_USER = {
   }],
 } as unknown as User;
 
+const SECOND_VERIFIED_GOOGLE_USER_WITH_SHARED_EMAIL = {
+  id: SECOND_GOOGLE_CLERK_USER_ID,
+  firstName: "Second",
+  lastName: "Postgres",
+  emailAddresses: [{
+    emailAddress: GOOGLE_EMAIL,
+    verification: { status: "verified" },
+  }],
+  externalAccounts: [{
+    provider: "google",
+    emailAddress: GOOGLE_EMAIL,
+    firstName: "Second",
+    lastName: "Postgres",
+    verification: { status: "verified" },
+  }],
+} as unknown as User;
+
 type JsonResult = { status: number; body: Record<string, unknown> };
 
 after(async () => {
@@ -1352,6 +1369,246 @@ test("two independent Google signups keep their referral rewards when both trans
     await pool.query("DROP TRIGGER IF EXISTS daily007_test_independent_reward_pause ON daily007_v2_wallet_ledger");
     await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_first_independent_referral_reward()");
     await pool.query("DROP SEQUENCE IF EXISTS daily007_test_independent_reward_pause_seq");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = ANY($1::text[])",
+      [[GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID]],
+    );
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
+
+test("simultaneous Google signups with the same verified email leave only the winner's referral and reward", async () => {
+  resetMockGoogleUsers([
+    VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+    SECOND_VERIFIED_GOOGLE_USER_WITH_SHARED_EMAIL as unknown as MockGoogleUser,
+  ]);
+  const referrerId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseTransactionOpen = false;
+  let losingSignIn: Promise<JsonResult> | undefined;
+  let winningSignIn: Promise<JsonResult> | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Same Email Race Referrer', $2, 'test-salt', 'test-hash')`,
+      [referrerId, `same-email-referrer-${referrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [referrerId, REFERRAL_CODE],
+    );
+    await pool.query(`
+      CREATE SEQUENCE daily007_test_same_email_signup_pause_seq START 1;
+      CREATE FUNCTION daily007_test_pause_first_same_email_signup_insert()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.email = '${GOOGLE_EMAIL}'
+           AND nextval('daily007_test_same_email_signup_pause_seq') = 1 THEN
+          PERFORM pg_advisory_xact_lock(743003, 3);
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER daily007_test_same_email_signup_pause
+      BEFORE INSERT ON daily007_v2_users
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_pause_first_same_email_signup_insert();
+    `);
+
+    await withServer(async (origin) => {
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the signup-pause PID");
+      await blocker.query("BEGIN");
+      pauseTransactionOpen = true;
+      await blocker.query("SELECT pg_advisory_xact_lock(743003, 3)");
+
+      try {
+        losingSignIn = googleSignIn(origin, GOOGLE_CLERK_USER_ID);
+        await waitForBlockedBackend(
+          blocker.processID,
+          "%INSERT INTO daily007_v2_users%",
+          "the first same-email signup to pause before its account insert",
+        );
+
+        const pendingWinningSignIn = googleSignIn(origin, SECOND_GOOGLE_CLERK_USER_ID);
+        winningSignIn = pendingWinningSignIn;
+        let winnerTimeout: NodeJS.Timeout | undefined;
+        let winnerResult: JsonResult;
+        try {
+          winnerResult = await Promise.race([
+            pendingWinningSignIn,
+            new Promise<never>((_resolve, reject) => {
+              winnerTimeout = setTimeout(
+                () => reject(new Error("The second same-email signup did not finish while the first was paused.")),
+                5_000,
+              );
+            }),
+          ]);
+        } finally {
+          if (winnerTimeout) clearTimeout(winnerTimeout);
+        }
+        assert.equal(winnerResult.status, 201,
+          "one distinct Google identity should commit while the other is paused at the unique email insert");
+        assert.equal(winnerResult.body.email, GOOGLE_EMAIL);
+        assert.equal(winnerResult.body.coins, 10);
+        assert.equal(typeof winnerResult.body.token, "string");
+
+        const winnerAccount = await pool.query<{
+          id: string;
+          email: string;
+          clerk_user_id: string;
+          wallet_coins: number;
+        }>(
+          `SELECT id, email, clerk_user_id, wallet_coins
+             FROM daily007_v2_users
+            WHERE email = $1`,
+          [GOOGLE_EMAIL],
+        );
+        assert.deepEqual(winnerAccount.rows, [{
+          id: String(winnerResult.body.id),
+          email: GOOGLE_EMAIL,
+          clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+          wallet_coins: 10,
+        }], "the winning signup should be committed before the first insert resumes");
+
+        const winnerReferral = await pool.query<{
+          referrer_user_id: string;
+          referred_user_id: string;
+          code: string;
+        }>(
+          `SELECT referrer_user_id, referred_user_id, code
+             FROM daily007_v2_referrals
+            WHERE referred_user_id = $1`,
+          [winnerResult.body.id],
+        );
+        assert.deepEqual(winnerReferral.rows, [{
+          referrer_user_id: referrerId,
+          referred_user_id: String(winnerResult.body.id),
+          code: REFERRAL_CODE,
+        }], "the winner's referral should commit while the competing signup remains pending");
+
+        const winnerReward = await pool.query<{
+          user_id: string;
+          amount: number;
+          balance_after: number;
+          reason: string;
+        }>(
+          `SELECT user_id, amount, balance_after, reason
+             FROM daily007_v2_wallet_ledger
+            WHERE user_id = $1`,
+          [winnerResult.body.id],
+        );
+        assert.deepEqual(winnerReward.rows, [{
+          user_id: String(winnerResult.body.id),
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }], "the winner's reward should commit while the competing signup remains pending");
+      } finally {
+        if (pauseTransactionOpen && blocker) {
+          await blocker.query("ROLLBACK");
+          pauseTransactionOpen = false;
+        }
+      }
+
+      assert.ok(losingSignIn && winningSignIn);
+      const [losingResult, winningResult] = await Promise.all([losingSignIn, winningSignIn]);
+      assert.deepEqual(
+        [losingResult.status, winningResult.status],
+        [409, 201],
+        "only one signup should succeed and the losing database insert should return a conflict",
+      );
+      assert.match(
+        String(losingResult.body.error),
+        /An account already uses this email.*sign in with your password, then connect Google in Profile/i,
+      );
+      assert.equal(winningResult.body.email, GOOGLE_EMAIL);
+      assert.equal(winningResult.body.coins, 10);
+
+      const accounts = await pool.query<{
+        id: string;
+        email: string;
+        clerk_user_id: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, email, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE email = $1
+             OR clerk_user_id = ANY($2::text[])`,
+        [GOOGLE_EMAIL, [GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID]],
+      );
+      assert.deepEqual(accounts.rows, [{
+        id: String(winningResult.body.id),
+        email: GOOGLE_EMAIL,
+        clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+        wallet_coins: 10,
+      }], "exactly one account should remain for the shared email and either competing identity");
+
+      const referrals = await pool.query<{
+        referrer_user_id: string;
+        referred_user_id: string;
+        code: string;
+      }>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals`,
+      );
+      assert.deepEqual(referrals.rows, [{
+        referrer_user_id: referrerId,
+        referred_user_id: String(winningResult.body.id),
+        code: REFERRAL_CODE,
+      }], "only the winning signup's referral relationship should remain");
+
+      const rewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger`,
+      );
+      assert.deepEqual(rewards.rows, [{
+        user_id: String(winningResult.body.id),
+        amount: 10,
+        balance_after: 10,
+        reason: "Referral Signup Bonus",
+      }], "only one 10-coin reward should remain after the losing signup rolls back");
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(winningResult.body.token)}` },
+      });
+      assert.equal(walletResponse.status, 200);
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        [{ amount: 10, balanceAfter: 10, reason: "Referral Signup Bonus" }],
+        "the surviving account's Wallet history should contain exactly one signup reward",
+      );
+
+      const insertAttempts = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_same_email_signup_pause_seq",
+      );
+      assert.equal(insertAttempts.rows[0]?.last_value, "2",
+        "both distinct identities should reach PostgreSQL's same-email account insert");
+    });
+  } finally {
+    if (pauseTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      pauseTransactionOpen = false;
+    }
+    await Promise.all([
+      losingSignIn?.catch(() => undefined),
+      winningSignIn?.catch(() => undefined),
+    ]);
+    blocker?.release();
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_same_email_signup_pause ON daily007_v2_users");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_first_same_email_signup_insert()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_same_email_signup_pause_seq");
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE clerk_user_id = ANY($1::text[])",
       [[GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID]],
