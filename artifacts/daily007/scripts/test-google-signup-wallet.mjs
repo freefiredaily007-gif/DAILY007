@@ -604,6 +604,135 @@ try {
   assert.deepEqual(browserErrors, [], `Browser errors during the double-tap flow: ${browserErrors.join(" | ")}`);
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=auth-cancel`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the Google cancellation scenario",
+  );
+  await setInputValue('[data-testid="auth-email"]', "password-player@example.test", "login email before Google cancellation");
+  await setInputValue('[data-testid="auth-password"]', "Daily007-safe-password-123", "login password before Google cancellation");
+  await clickSelector('[data-testid="continue-with-google"]', "Google sign-in to dismiss from the Auth screen");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.clerk.events.includes("start-sso")
+      && state.googleExchangeAttempts === 0
+      && state.inFlightGoogleExchanges === 0
+      && document.querySelector('[data-testid="auth-login-tab"]')?.getAttribute("aria-disabled") !== "true")`,
+    "Google cancellation to release the Auth screen controls without exchanging a token",
+  );
+  const cancelledAuthAttempt = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const cancelledLoginView = await evaluate(`(() => {
+    const disabled = (selector) => {
+      const node = document.querySelector(selector);
+      return !node || node.disabled === true || node.getAttribute("aria-disabled") === "true";
+    };
+    const editable = (selector) => {
+      const node = document.querySelector(selector);
+      return Boolean(node) && node.disabled !== true && node.readOnly !== true;
+    };
+    return {
+      loginTabDisabled: disabled('[data-testid="auth-login-tab"]'),
+      signupTabDisabled: disabled('[data-testid="auth-signup-tab"]'),
+      submitDisabled: disabled('[data-testid="auth-submit"]'),
+      emailEditable: editable('[data-testid="auth-email"]'),
+      passwordEditable: editable('[data-testid="auth-password"]'),
+      googleBusy: document.querySelector('[data-testid="continue-with-google"]')
+        ?.getAttribute("aria-busy") === "true",
+    };
+  })()`);
+  assert.equal(cancelledAuthAttempt.googleExchangeAttempts, 0, "A dismissed Google flow must not exchange a token.");
+  assert.equal(cancelledAuthAttempt.passwordAuthAttempts, 0, "Cancellation must not submit password authentication.");
+  assert.equal(cancelledAuthAttempt.storedSession, null, "Cancellation must not create a Daily007 session.");
+  assert.equal(cancelledAuthAttempt.currentSession, null);
+  assert.equal(cancelledAuthAttempt.activeAuthorization, null);
+  assert.deepEqual(cancelledAuthAttempt.sessionStorage, {});
+  assert.deepEqual(cancelledAuthAttempt.clerk.events, ["start-sso"]);
+  assert.deepEqual(
+    cancelledAuthAttempt.calls.filter(
+      (call) => call.method === "POST" && ["/auth/google", "/auth/login", "/auth/register"].includes(call.path),
+    ),
+    [],
+    "Dismissal must not make a Google exchange, login, or registration request.",
+  );
+  assert.deepEqual(cancelledLoginView, {
+    loginTabDisabled: false,
+    signupTabDisabled: false,
+    submitDisabled: false,
+    emailEditable: true,
+    passwordEditable: true,
+    googleBusy: false,
+  });
+
+  await clickSelector('[data-testid="auth-signup-tab"]', "SIGN UP tab after Google cancellation");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-name"]'))`,
+    "the enabled signup form after Google cancellation",
+  );
+  const availableSignupView = await evaluate(`(() => ({
+    loginTabDisabled: document.querySelector('[data-testid="auth-login-tab"]')
+      ?.getAttribute("aria-disabled") === "true",
+    signupTabDisabled: document.querySelector('[data-testid="auth-signup-tab"]')
+      ?.getAttribute("aria-disabled") === "true",
+    submitDisabled: document.querySelector('[data-testid="auth-submit"]')
+      ?.getAttribute("aria-disabled") === "true",
+    nameEditable: (() => {
+      const name = document.querySelector('[data-testid="auth-name"]');
+      return Boolean(name) && name.disabled !== true && name.readOnly !== true;
+    })(),
+  }))()`);
+  assert.deepEqual(availableSignupView, {
+    loginTabDisabled: false,
+    signupTabDisabled: false,
+    submitDisabled: false,
+    nameEditable: true,
+  });
+  await clickSelector('[data-testid="auth-login-tab"]', "LOGIN tab after Google cancellation");
+  await waitForExpression(
+    `!document.querySelector('[data-testid="auth-name"]')
+      && document.querySelector('[data-testid="auth-submit"]')?.getAttribute("aria-disabled") !== "true"`,
+    "the enabled login form after switching back from signup",
+  );
+  await clickSelector('[data-testid="auth-submit"]', "password login after Google cancellation");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.passwordAuthAttempts === 1
+      && state.currentSession?.id === "mock-password-player"
+      && state.storedSession?.token === "mock-password-account-token")`,
+    "the single successful password session after Google cancellation",
+  );
+  const passwordAfterGoogleCancel = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const authRequestsAfterGoogleCancel = passwordAfterGoogleCancel.calls.filter(
+    (call) =>
+      call.method === "POST"
+      && ["/auth/google", "/auth/login", "/auth/register"].includes(call.path),
+  );
+  assert.deepEqual(
+    authRequestsAfterGoogleCancel.map((call) => call.path),
+    ["/auth/login"],
+    "Only the successful password login should create an authentication request.",
+  );
+  assert.equal(passwordAfterGoogleCancel.passwordAuthAttempts, 1);
+  assert.equal(passwordAfterGoogleCancel.passwordSignupAttempts, 0);
+  assert.equal(passwordAfterGoogleCancel.googleExchangeAttempts, 0);
+  assert.equal(passwordAfterGoogleCancel.currentSession?.id, "mock-password-player");
+  assert.equal(passwordAfterGoogleCancel.currentSession?.token, "mock-password-account-token");
+  assert.equal(passwordAfterGoogleCancel.storedSession?.id, "mock-password-player");
+  assert.equal(passwordAfterGoogleCancel.storedSession?.token, "mock-password-account-token");
+  assert.equal(passwordAfterGoogleCancel.activeAuthorization, "Bearer mock-password-account-token");
+  assert.equal(passwordAfterGoogleCancel.clerk.activeSessionId, null);
+  assert.deepEqual(passwordAfterGoogleCancel.clerk.events, ["start-sso"]);
+  assert.deepEqual(passwordAfterGoogleCancel.sessionStorage, {
+    daily007_v2_session: JSON.stringify(passwordAfterGoogleCancel.storedSession),
+  });
+  assert.equal(
+    Object.keys(passwordAfterGoogleCancel.sessionStorage).length,
+    1,
+    "Only the successful password session should be persisted.",
+  );
+  assert.equal(passwordAfterGoogleCancel.unexpectedRequests.length, 0);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=storage-write-failure`,
   });
   await waitForExpression(
@@ -1634,7 +1763,7 @@ try {
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google signup retries and lowercase referral handoff, password signup recovery, Profile Google-link recovery, and Wallet reward display.",
+    "PASS — Google cancellation password recovery, Google signup retries and referral handoff, password signup recovery, Profile Google-link recovery, and Wallet rewards.",
   );
 } finally {
   socket?.close();

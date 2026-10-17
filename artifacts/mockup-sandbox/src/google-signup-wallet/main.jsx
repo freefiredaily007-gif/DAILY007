@@ -284,6 +284,8 @@ http.defaults.adapter = async (config) => {
       ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
         ? { ...PASSWORD_ACCOUNT, googleLinked: googleLinkedForPasswordAccount }
+        : scenario === "auth-cancel"
+          ? PASSWORD_ACCOUNT
         : ACCOUNT;
     return respond(config, account);
   }
@@ -360,7 +362,9 @@ if (profileLinkScenario && (!profileLinkStorageRestartScenario || profileLinkSto
   storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
 }
 resetClerkMock({
-  startResultType: scenario === "profile-link-cancel" ? "dismiss" : null,
+  startResultType: scenario === "profile-link-cancel" || scenario === "auth-cancel"
+    ? "dismiss"
+    : null,
 });
 window.__daily007GoogleSignupWalletTest = {
   async snapshot() {
