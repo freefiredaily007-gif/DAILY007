@@ -106,6 +106,70 @@ test("inactive-list starts are caught on return and remain one-time", () => {
   );
 });
 
+test("Player and Admin announce a tournament first returned by refresh only once at its start", () => {
+  const startMs = Date.parse("2026-10-18T12:00:00.000Z");
+  const refreshedTournament = {
+    id: "first-returned-by-refresh",
+    name: "Newly Refreshed Match",
+    startsAt: new Date(startMs).toISOString(),
+    lifecycle: "upcoming",
+  };
+
+  for (const [screenName, source, listName, upcomingPredicate] of [
+    [
+      "Player",
+      playerScreenSource,
+      "items",
+      /lifecycleOf\(tournament\) === 'upcoming'[\s\S]*?getRoomCredentialSchedule\(tournament\.startsAt\)\?\.startsAtMs === nextTransition/,
+    ],
+    [
+      "Admin",
+      adminScreenSource,
+      "list",
+      /getTournamentLifecycleState\(tournament, clockNow\) === 'upcoming'[\s\S]*?Date\.parse\(String\(tournament\.startsAt \?\? ''\)\) === nextStart\.startMs/,
+    ],
+  ]) {
+    const announcedTournamentIds = new Set();
+    let loadedTournaments = [];
+
+    assert.match(
+      source,
+      listName === "items"
+        ? /const transitions = items\.flatMap[\s\S]*?takeTournamentStartAnnouncements\(\s*items,[\s\S]*?\}, \[items, clockNow, load\]\);/
+        : /const nextStart = list[\s\S]*?takeTournamentStartAnnouncements\(\s*list,[\s\S]*?\}, \[list, clockNow, load\]\);/,
+      `${screenName} must recalculate its start timer and callback when refreshed list data changes.`,
+    );
+    assert.match(
+      source,
+      upcomingPredicate,
+      `${screenName} must announce only the refreshed upcoming tournament whose start timer fired.`,
+    );
+
+    // This tournament was absent before the successful refresh that populated this list.
+    loadedTournaments = [refreshedTournament];
+    const announceAtStart = () =>
+      takeTournamentStartAnnouncements(
+        loadedTournaments,
+        (tournament) =>
+          tournament.lifecycle === "upcoming" &&
+          Date.parse(tournament.startsAt) === startMs,
+        announcedTournamentIds,
+      );
+
+    assert.deepEqual(announceAtStart(), [
+      "Tournament Newly Refreshed Match is now ongoing.",
+    ]);
+
+    // A later refresh returns the same tournament again, but its start is already claimed.
+    loadedTournaments = [{ ...refreshedTournament }];
+    assert.deepEqual(
+      announceAtStart(),
+      [],
+      `${screenName} refreshes must not repeat a scheduled start announcement.`,
+    );
+  }
+});
+
 test("Player and Admin lists expose queued VoiceOver and polite live-region announcements", () => {
   for (const [screenName, source] of [
     ["Player", playerScreenSource],

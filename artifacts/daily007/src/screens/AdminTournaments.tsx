@@ -513,19 +513,13 @@ export default function AdminTournaments() {
         listFocused.current &&
         AppState.currentState === 'active'
       ) {
-        const announcements = list.flatMap((tournament) => {
-          if (
-            getTournamentLifecycleState(tournament, clockNow) !== 'upcoming' ||
-            Date.parse(String(tournament.startsAt ?? '')) !== nextStart.startMs
-          ) {
-            return [];
-          }
-          const announcement = takeTournamentStartAnnouncement(
-            tournament,
-            announcedTournamentStarts.current,
-          );
-          return announcement ? [announcement] : [];
-        });
+        const announcements = takeTournamentStartAnnouncements(
+          list,
+          (tournament) =>
+            getTournamentLifecycleState(tournament, clockNow) === 'upcoming' &&
+            Date.parse(String(tournament.startsAt ?? '')) === nextStart.startMs,
+          announcedTournamentStarts.current,
+        );
         if (announcements.length > 0) {
           if (Platform.OS === 'ios') {
             announcements.forEach((announcement) => {

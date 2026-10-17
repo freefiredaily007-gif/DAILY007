@@ -316,16 +316,13 @@ export default function Tournaments() {
     const timer = setTimeout(() => {
       const now = Date.now();
       if (nextTransition <= now && listFocused.current && AppState.currentState === 'active') {
-        const announcements = items.flatMap((tournament) => {
-          if (lifecycleOf(tournament) !== 'upcoming') return [];
-          const schedule = getRoomCredentialSchedule(tournament.startsAt);
-          if (schedule?.startsAtMs !== nextTransition) return [];
-          const announcement = takeTournamentStartAnnouncement(
-            tournament,
-            announcedTournamentStarts.current,
-          );
-          return announcement ? [announcement] : [];
-        });
+        const announcements = takeTournamentStartAnnouncements(
+          items,
+          (tournament) =>
+            lifecycleOf(tournament) === 'upcoming' &&
+            getRoomCredentialSchedule(tournament.startsAt)?.startsAtMs === nextTransition,
+          announcedTournamentStarts.current,
+        );
         if (announcements.length > 0) {
           if (Platform.OS === 'ios') {
             announcements.forEach((announcement) => {
