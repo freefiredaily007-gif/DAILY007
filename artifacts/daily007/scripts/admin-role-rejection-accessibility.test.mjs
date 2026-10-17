@@ -126,9 +126,18 @@ function loadRenderedAdminTabs(role) {
     }
   }
   visit(tree);
+  const renderedText = (node) => {
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) return node.map(renderedText).join('');
+    if (node && typeof node === 'object' && 'type' in node) {
+      return renderedText(node.props?.children);
+    }
+    return '';
+  };
   return elements.filter((element) =>
     typeof element.props?.testID === 'string' &&
-    element.props.testID.startsWith('admin-tab-'));
+    element.props.testID.startsWith('admin-tab-'))
+    .map((element) => ({ ...element, visibleLabel: renderedText(element.props.children) }));
 }
 
 test('Admin tabs expose readable names and announce the selected section', () => {
@@ -139,16 +148,19 @@ test('Admin tabs expose readable names and announce the selected section', () =>
   assert.match(adminAppSource, /const activeScreen = navigation\.activeScreen/);
   assert.match(adminAppSource, /adminNavigationForRole\(user\.role, screen, NAV\)/);
 
-  for (const [key, label] of [
-    ['leaderboards', 'Leaderboard rewards'],
-    ['registrations', 'Registrations'],
-    ['earnTasks', 'Earn tasks'],
-    ['notifications', 'Notifications'],
+  for (const [key, label, accessibleLabel] of [
+    ['leaderboards', 'Leaderboards', 'Leaderboard rewards'],
+    ['registrations', 'Registrations', 'Registrations'],
+    ['earnTasks', 'Earn tasks', 'Earn tasks'],
+    ['notifications', 'Notifications', 'Notifications'],
   ]) {
     assert.match(
       adminAppSource,
-      new RegExp(`key: '${key}', label: '[^']+', accessibilityLabel: '${label}'`),
+      new RegExp(`key: '${key}', label: '${label}'`),
     );
+    if (accessibleLabel !== label) {
+      assert.match(adminAppSource, new RegExp(`key: '${key}', label: '${label}', accessibilityLabel: '${accessibleLabel}'`));
+    }
   }
 });
 
@@ -174,25 +186,25 @@ test('rendered Admin tabs expose the right names, roles, selection, and role res
     {
       role: 'admin',
       expectedTabs: [
-        ['dashboard', 'Dashboard'],
-        ['leaderboards', 'Leaderboard rewards'],
-        ['tournaments', 'Tournaments'],
-        ['registrations', 'Registrations'],
-        ['payments', 'Payments'],
-        ['wallet', 'Wallet'],
-        ['earnTasks', 'Earn tasks'],
-        ['videos', 'Videos'],
-        ['users', 'Users'],
-        ['notifications', 'Notifications'],
-        ['settings', 'Settings'],
+        ['dashboard', 'Dashboard', 'Dashboard'],
+        ['leaderboards', 'Leaderboard rewards', 'Leaderboards'],
+        ['tournaments', 'Tournaments', 'Tournaments'],
+        ['registrations', 'Registrations', 'Registrations'],
+        ['payments', 'Payments', 'Payments'],
+        ['wallet', 'Wallet', 'Wallet'],
+        ['earnTasks', 'Earn tasks', 'Earn tasks'],
+        ['videos', 'Videos', 'Videos'],
+        ['users', 'Users', 'Users'],
+        ['notifications', 'Notifications', 'Notifications'],
+        ['settings', 'Settings', 'Settings'],
       ],
       selectedTab: 'dashboard',
     },
     {
       role: 'tournament_admin',
       expectedTabs: [
-        ['tournaments', 'Tournaments'],
-        ['registrations', 'Registrations'],
+        ['tournaments', 'Tournaments', 'Tournaments'],
+        ['registrations', 'Registrations', 'Registrations'],
       ],
       selectedTab: 'tournaments',
     },
@@ -201,9 +213,10 @@ test('rendered Admin tabs expose the right names, roles, selection, and role res
   for (const { role, expectedTabs, selectedTab } of roleCases) {
     const tabs = loadRenderedAdminTabs(role);
     assert.deepEqual(
-      tabs.map(({ props }) => [
+      tabs.map(({ props, visibleLabel }) => [
         props.testID.replace('admin-tab-', ''),
         props.accessibilityLabel,
+        visibleLabel,
       ]),
       expectedTabs,
       `${role} should render only its allowed tabs with their accessible names.`,
@@ -214,6 +227,8 @@ test('rendered Admin tabs expose the right names, roles, selection, and role res
         'tab',
         `${props.testID} should have the tab accessibility role.`,
       );
+      assert.equal(typeof props.onPress, 'function', `${props.testID} should be tappable.`);
+      assert.equal(typeof props.onLayout, 'function', `${props.testID} should report its scroll position.`);
       assert.equal(
         props.accessibilityState?.selected,
         props.testID === `admin-tab-${selectedTab}`,
@@ -227,6 +242,25 @@ test('rendered Admin tabs expose the right names, roles, selection, and role res
       `${role} should have exactly one selected section.`,
     );
   }
+});
+
+test('Admin tabs stay readable and the selected section scrolls into view at enlarged text sizes', () => {
+  assert.match(adminAppSource, /testID="admin-section-tabs"/);
+  assert.match(adminAppSource, /accessibilityLabel="Admin sections"/);
+  assert.match(adminAppSource, /<ScrollView[\s\S]*?horizontal[\s\S]*?contentContainerStyle=\{st\.nav\}/);
+  assert.match(adminAppSource, /<Text allowFontScaling style=\{\[st\.navLabel, active && st\.navLabelActive\]\}>\{n\.label\}<\/Text>/);
+  assert.match(
+    adminAppSource,
+    /navItem: \{[^}]*flexShrink: 0[^}]*minHeight: 56/,
+    'Tabs should grow with their scaled labels rather than shrink or clip.',
+  );
+  assert.match(
+    adminAppSource,
+    /navLabel: \{[^}]*fontSize: 10\.5[^}]*textAlign: 'center'/,
+    'Section names should remain legible and centered at enlarged Android text sizes.',
+  );
+  assert.match(adminAppSource, /navItemOffsets\.current\[n\.key\] = event\.nativeEvent\.layout\.x/);
+  assert.match(adminAppSource, /navScrollRef\.current\?\.scrollTo\(\{ x: Math\.max\(0, targetX - 8\), animated: true \}\)/);
 });
 
 test('admin error toasts expose the exact message as an assertive TalkBack alert', () => {

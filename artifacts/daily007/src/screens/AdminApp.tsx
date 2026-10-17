@@ -27,15 +27,15 @@ const NAV: {
   icon: keyof typeof Feather.glyphMap;
 }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
-  { key: 'leaderboards', label: 'Rewards', accessibilityLabel: 'Leaderboard rewards', icon: 'award' },
+  { key: 'leaderboards', label: 'Leaderboards', accessibilityLabel: 'Leaderboard rewards', icon: 'award' },
   { key: 'tournaments', label: 'Tournaments', icon: 'award' },
-  { key: 'registrations', label: 'Regs', accessibilityLabel: 'Registrations', icon: 'file-text' },
+  { key: 'registrations', label: 'Registrations', icon: 'file-text' },
   { key: 'payments', label: 'Payments', icon: 'credit-card' },
   { key: 'wallet', label: 'Wallet', icon: 'database' },
-  { key: 'earnTasks', label: 'Earn', accessibilityLabel: 'Earn tasks', icon: 'youtube' },
+  { key: 'earnTasks', label: 'Earn tasks', icon: 'youtube' },
   { key: 'videos', label: 'Videos', icon: 'video' },
   { key: 'users', label: 'Users', icon: 'users' },
-  { key: 'notifications', label: 'Notify', accessibilityLabel: 'Notifications', icon: 'bell' },
+  { key: 'notifications', label: 'Notifications', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },
 ];
 export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => void }) {
@@ -134,7 +134,14 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
 
         {/* BOTTOM NAV */}
         <View style={st.navWrap}>
-          <ScrollView ref={navScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.nav}>
+          <ScrollView
+            ref={navScrollRef}
+            testID="admin-section-tabs"
+            accessibilityLabel="Admin sections"
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={st.nav}
+          >
             {visibleNav.map((n) => {
               const active = activeScreen === n.key;
               return (
@@ -152,7 +159,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
                     {active && <View style={st.navIconGlow} />}
                     <Feather name={n.icon} size={19} color={active ? A.gold : A.sub} />
                   </View>
-                  <Text style={[st.navLabel, active && st.navLabelActive]}>{n.label}</Text>
+                  <Text allowFontScaling style={[st.navLabel, active && st.navLabelActive]}>{n.label}</Text>
                 </Pressable>
               );
             })}
@@ -183,12 +190,12 @@ const st = StyleSheet.create({
   logoutBtn: { minWidth: 48, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: 'rgba(255,75,54,0.08)', borderWidth: 1, borderColor: 'rgba(255,75,54,0.23)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
   logoutTxt: { color: A.red, fontSize: 8, fontWeight: '900', letterSpacing: 0.6, fontFamily: 'Inter_700Bold' },
   navWrap: { borderTopWidth: 1, borderTopColor: '#2a3558', backgroundColor: '#0d1220ee', shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
-  nav: { paddingHorizontal: 8, paddingVertical: 6, gap: 4 },
-  navItem: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, minWidth: 66, minHeight: 48, borderWidth: 1, borderColor: 'transparent' },
+  nav: { alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, gap: 4 },
+  navItem: { alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 12, minWidth: 66, minHeight: 56, borderWidth: 1, borderColor: 'transparent' },
   navActive: { backgroundColor: 'rgba(255,176,32,0.08)', borderColor: 'rgba(255,176,32,0.3)' },
   navIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
   navIconActive: { backgroundColor: 'rgba(255,176,32,0.14)', borderColor: 'rgba(255,176,32,0.42)', shadowColor: A.gold, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   navIconGlow: { position: 'absolute', width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,176,32,0.14)' },
-  navLabel: { color: A.sub, fontSize: 8.5, fontWeight: '700', marginTop: 3, letterSpacing: 0.25, fontFamily: 'Inter_500Medium' },
+  navLabel: { color: A.sub, fontSize: 10.5, fontWeight: '700', marginTop: 3, letterSpacing: 0.25, textAlign: 'center', fontFamily: 'Inter_500Medium' },
   navLabelActive: { color: A.gold, fontFamily: 'Inter_700Bold' },
 });
