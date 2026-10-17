@@ -1891,6 +1891,89 @@ test("a valid referral code does not change rewards when a password account link
   }
 });
 
+test("a verified but malformed Google email cannot link a password account", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser({
+    ...VERIFIED_GOOGLE_USER,
+    emailAddresses: [{
+      emailAddress: "google@.example.test",
+      verification: { status: "verified" },
+    }],
+    externalAccounts: [{
+      provider: "google",
+      emailAddress: "google@.example.test",
+      firstName: "Google",
+      lastName: "Signup",
+      verification: { status: "verified" },
+    }],
+  });
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "malformed-google-email-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "malformed-google-email-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "malformed-google-email-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const accountBefore = structuredClone(account);
+      const referralsBefore = structuredClone(signupTestDb.referrals);
+      const ledgerBefore = structuredClone(signupTestDb.ledger);
+      const userCountBefore = signupTestDb.users.size;
+      const expectedWalletHistory = ledgerBefore
+        .filter(({ user_id }) => user_id === account.id)
+        .map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        }));
+
+      const rejectedLink = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(rejectedLink.status, 403);
+      assert.equal(
+        rejectedLink.body.error,
+        "This Clerk account must have a Google account with a verified email address.",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.deepEqual(account, accountBefore, "a malformed verified email must not alter the password account");
+      assert.equal(signupTestDb.users.size, userCountBefore, "rejection must not create another account");
+      assert.deepEqual(signupTestDb.referrals, referralsBefore, "rejection must preserve referral relationships");
+      assert.deepEqual(signupTestDb.ledger, ledgerBefore, "rejection must preserve Wallet ledger entries");
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletResponse.status, 200, "the current Daily007 session must remain active");
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+        "the existing Wallet history must remain visible and unchanged",
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("a temporary Clerk verification outage lets a password account retry Google linking", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
