@@ -1,7 +1,7 @@
 // Login / Signup screen
 import React, { useState } from 'react';
 import { Link } from 'expo-router';
-import { Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking } from 'react-native';
+import { Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking, useWindowDimensions } from 'react-native';
 import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
@@ -26,6 +26,7 @@ import { referralSignupFromUrl } from '../lib/referral-invite';
 
 
 export default function Auth({ onDone, notice }: { onDone: (u: User) => void; notice?: string }) {
+  const { width, fontScale } = useWindowDimensions();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -50,6 +51,7 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const retrySignupSession = isSignup ? pendingSignupSession : null;
   const authInputsDisabled = busy || googleBusy || retrySignupSession !== null;
   const authTabsDisabled = busy || googleBusy || pendingSignupSession !== null;
+  const compactLoginLayout = !isSignup && (width <= 360 || fontScale >= 1.5);
 
   React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
@@ -166,7 +168,11 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   return (
     <KeyboardAwareScrollViewCompat
       style={{ flex: 1, backgroundColor: C.bg }}
-      contentContainerStyle={[s.wrap, isSignup && s.signupWrap]}
+      contentContainerStyle={[
+        s.wrap,
+        isSignup && s.signupWrap,
+        compactLoginLayout && s.compactLoginWrap,
+      ]}
       keyboardShouldPersistTaps="handled"
       bottomOffset={72}
     >
@@ -440,6 +446,12 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
 
 const s = StyleSheet.create({
   wrap: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 32, paddingBottom: 36 },
+  compactLoginWrap: {
+    justifyContent: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
   signupWrap: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
   logo: { alignItems: 'center', marginBottom: 24 },
   signupLogo: { marginBottom: 17 },

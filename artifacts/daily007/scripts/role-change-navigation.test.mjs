@@ -1008,13 +1008,23 @@ test("the expired-session notice stays scalable and the login form remains scrol
   );
   assert.match(
     authSource,
-    /contentContainerStyle=\{\[s\.wrap, isSignup && s\.signupWrap\]\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
-    "The login screen must retain its scroll content container and working tap behavior.",
+    /contentContainerStyle=\{\[[\s\S]*?s\.wrap,[\s\S]*?isSignup && s\.signupWrap,[\s\S]*?compactLoginLayout && s\.compactLoginWrap,[\s\S]*?\]\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
+    "The login screen must retain a responsive scroll content container and working tap behavior.",
+  );
+  assert.match(
+    authSource,
+    /const \{ width, fontScale \} = useWindowDimensions\(\);[\s\S]*?const compactLoginLayout = !isSignup && \(width <= 360 \|\| fontScale >= 1\.5\);/,
+    "Narrow display sizes and 1.5× or larger text must switch login to its compact layout.",
   );
   assert.match(
     authSource,
     /wrap:\s*\{\s*flexGrow:\s*1,\s*justifyContent:\s*'center'/,
-    "The login content must grow naturally instead of clipping to a fixed height.",
+    "The ordinary login content must still grow naturally instead of clipping to a fixed height.",
+  );
+  assert.match(
+    authSource,
+    /compactLoginWrap:\s*\{\s*justifyContent:\s*'flex-start',\s*paddingHorizontal:\s*16,\s*paddingTop:\s*16,\s*paddingBottom:\s*24/,
+    "Compact login must start at the top and preserve enough width and vertical room for scrolling.",
   );
   assert.match(
     authSource,
