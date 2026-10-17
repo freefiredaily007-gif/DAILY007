@@ -1,7 +1,7 @@
 // Login / Signup screen
 import React, { useState } from 'react';
 import { Link } from 'expo-router';
-import { Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking, useWindowDimensions } from 'react-native';
 import type { TextInput as NativeTextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from '../components/typography';
@@ -25,7 +25,15 @@ import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScr
 import { referralSignupFromUrl } from '../lib/referral-invite';
 
 
-export default function Auth({ onDone, notice }: { onDone: (u: User) => void; notice?: string }) {
+export default function Auth({
+  onDone,
+  notice,
+  devSessionPersistenceFailures,
+}: {
+  onDone: (u: User) => void;
+  notice?: string;
+  devSessionPersistenceFailures?: number;
+}) {
   const { width, fontScale } = useWindowDimensions();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
@@ -42,6 +50,13 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const [loginThrottleMessageBase, setLoginThrottleMessageBase] = useState('');
   const [loginThrottleStatus, setLoginThrottleStatus] = useState('');
   const [pendingSignupSession, setPendingSignupSession] = useState<User | null>(null);
+  const [sessionSaveError, setSessionSaveError] = useState(false);
+  const [sessionSaveErrorAnnouncement, setSessionSaveErrorAnnouncement] = useState<{
+    id: number;
+    message: string;
+  } | null>(null);
+  const sessionSaveAnnouncementId = React.useRef(0);
+  const devSessionPersistenceFailuresRemaining = React.useRef(devSessionPersistenceFailures ?? 0);
   const googleAttemptInFlight = React.useRef(false);
   const nameInputRef = React.useRef<NativeTextInput>(null);
   const referralInputRef = React.useRef<NativeTextInput>(null);
@@ -52,6 +67,15 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
   const authInputsDisabled = busy || googleBusy || retrySignupSession !== null;
   const authTabsDisabled = busy || googleBusy || pendingSignupSession !== null;
   const compactLoginLayout = !isSignup && (width <= 360 || fontScale >= 1.5);
+  const authErrorTestID = __DEV__ && devSessionPersistenceFailures !== undefined
+    ? `auth-error-attempt-${sessionSaveErrorAnnouncement?.id ?? 0}`
+    : 'auth-error';
+
+  React.useEffect(() => {
+    if (Platform.OS === 'android' && sessionSaveErrorAnnouncement) {
+      AccessibilityInfo.announceForAccessibility(sessionSaveErrorAnnouncement.message);
+    }
+  }, [sessionSaveErrorAnnouncement]);
 
   React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
@@ -97,12 +121,14 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
 
   const submit = async () => {
     if (googleAttemptInFlight.current || googleBusy) return;
+    if (busy) return;
     if (mode === 'login' && loginRetryDeadline !== null) {
       if (loginRetryDeadline > Date.now()) return;
       setLoginRetryDeadline(null);
       setLoginRetryRemaining(0);
     }
     setErr('');
+    setSessionSaveError(false);
     setGoogleErr('');
     if (mode === 'login') {
       setLoginThrottleMessageBase('');
@@ -122,6 +148,14 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
       let u: User;
       if (retrySignupSession) {
         u = retrySignupSession;
+      } else if (__DEV__ && devSessionPersistenceFailures !== undefined && mode === 'signup') {
+        u = {
+          id: 'signup-session-accessibility-test',
+          name: name.trim(),
+          email: email.trim(),
+          role: 'user',
+          token: 'signup-session-accessibility-test-token',
+        };
       } else {
         const r: any = mode === 'login'
           ? await Api.login({ email: email.trim(), password })
@@ -134,7 +168,16 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
         u = { ...r.user, token: r.token };
       }
       try {
-        const saved = await setSessionForAuthAttempt(u, authRevision);
+        let saved: boolean;
+        if (__DEV__ && devSessionPersistenceFailures !== undefined && mode === 'signup') {
+          if (devSessionPersistenceFailuresRemaining.current > 0) {
+            devSessionPersistenceFailuresRemaining.current -= 1;
+            throw new SessionPersistenceError();
+          }
+          saved = true;
+        } else {
+          saved = await setSessionForAuthAttempt(u, authRevision);
+        }
         if (!saved) return;
       } catch (e) {
         if (mode === 'signup' && !retrySignupSession && e instanceof SessionPersistenceError) {
@@ -158,7 +201,19 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           `${message} Wait ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before trying again.`,
         );
       } else {
-        setErr(apiError(e));
+        const message = apiError(e);
+        setErr(message);
+        if (
+          Platform.OS === 'android'
+          && mode === 'signup'
+          && e instanceof SessionPersistenceError
+        ) {
+          setSessionSaveError(true);
+          setSessionSaveErrorAnnouncement({
+            id: ++sessionSaveAnnouncementId.current,
+            message,
+          });
+        }
       }
     } finally {
       setBusy(false);
@@ -240,7 +295,15 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           </Pressable>
         </View>
 
-        <Msg kind="err" text={err} accessibilityLiveRegion={err ? 'assertive' : undefined} />
+        <Msg
+          kind="err"
+          text={err}
+          testID={authErrorTestID}
+          accessibilityLabel={err || undefined}
+          accessibilityLiveRegion={err && !(Platform.OS === 'android' && sessionSaveError)
+            ? 'assertive'
+            : undefined}
+        />
         {googleErr
           ? <Msg
             kind="err"
@@ -436,9 +499,10 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
           accessibilityState={{
             disabled: busy || googleBusy || (!isSignup && loginRetryRemaining > 0),
           }}
-          disabled={busy || googleBusy || (!isSignup && loginRetryRemaining > 0)}
+          disabled={googleBusy || (!isSignup && loginRetryRemaining > 0)}
           onPress={submit}
           loading={busy}
+          preserveAccessibilityFocusWhileLoading={isSignup}
           style={isSignup && s.signupSubmit}
         />
 

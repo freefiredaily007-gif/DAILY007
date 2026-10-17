@@ -1,0 +1,32 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/signup-session-retry-accessibility-test
+- tapOn:
+    id: auth-signup-tab
+- tapOn:
+    id: auth-name
+- inputText: "TalkBack Signup Test"
+- tapOn:
+    id: auth-email
+- inputText: "talkback-signup@example.test"
+- tapOn:
+    id: auth-password
+- inputText: "testpass123"
+- hideKeyboard
+- tapOn:
+    id: auth-submit
+- extendedWaitUntil:
+    visible:
+      id: auth-error-attempt-1
+    timeout: 10000
+- assertVisible: "Daily007 could not save your session on this device. Check available storage and try again."
+- assertVisible: "RETRY SAVING SESSION"
+- tapOn:
+    id: auth-submit
+- extendedWaitUntil:
+    visible:
+      id: auth-error-attempt-2
+    timeout: 10000
+- assertVisible: "Daily007 could not save your session on this device. Check available storage and try again."
+- assertVisible: "RETRY SAVING SESSION"
