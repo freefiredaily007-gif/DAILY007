@@ -166,6 +166,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
   const [authNotice, setAuthNotice] = useState('');
   const [googleLinkError, setGoogleLinkError] = useState('');
   const [verificationSession, setVerificationSession] = useState<User | null>(null);
+  const [sessionReadFailed, setSessionReadFailed] = useState(false);
   const [retryingVerification, setRetryingVerification] = useState(false);
   const refreshRequest = useRef<Promise<User | null> | null>(null);
   const accessRefreshRequest = useRef<Promise<User | null> | null>(null);
@@ -194,7 +195,7 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
         if (result.status === 'verified') setUser(result.session);
         else if (result.status === 'retry') setVerificationSession(result.session);
       } catch {
-        // A local storage read failure is not proof that the saved API session expired.
+        if (mounted) setSessionReadFailed(true);
       } finally {
         if (mounted) setBooting(false);
       }
@@ -230,14 +231,35 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     });
   }, [verificationSession]);
 
+  const retrySessionRead = useCallback((): Promise<void> => {
+    if (!sessionReadFailed) return Promise.resolve();
+    return runSingleFlight(verificationRequest, async () => {
+      setRetryingVerification(true);
+      try {
+        const result = await restoreDaily007Session(getSession, Api.me, setSession);
+        setSessionReadFailed(false);
+        if (result.status === 'verified') setUser(result.session);
+        else if (result.status === 'retry') setVerificationSession(result.session);
+      } catch {
+        // Keep the recovery screen visible; a failed read is not a missing session.
+        setSessionReadFailed(true);
+      } finally {
+        setRetryingVerification(false);
+      }
+    });
+  }, [sessionReadFailed]);
+
   useEffect(() => {
     return subscribeToSessionVerificationRecovery(
-      !!verificationSession,
-      () => { void retrySessionVerification(); },
+      !!verificationSession || sessionReadFailed,
+      () => {
+        if (verificationSession) void retrySessionVerification();
+        else void retrySessionRead();
+      },
       Network,
       AppState,
     );
-  }, [verificationSession, retrySessionVerification]);
+  }, [verificationSession, sessionReadFailed, retrySessionRead, retrySessionVerification]);
 
   const refresh = useCallback((): Promise<User | null> => {
     if (refreshRequest.current) return refreshRequest.current;
@@ -388,6 +410,14 @@ function DailyApp({ signOutClerk }: { signOutClerk?: () => Promise<void> }) {
     <SessionVerificationPaused
       onRetry={() => { void retrySessionVerification(); }}
       retrying={retryingVerification}
+    />
+  );
+
+  if (!user && sessionReadFailed) return (
+    <SessionVerificationPaused
+      onRetry={() => { void retrySessionRead(); }}
+      retrying={retryingVerification}
+      message="Daily007 could not read your saved sign-in from this device. It has not been cleared. Check device storage and retry."
     />
   );
 

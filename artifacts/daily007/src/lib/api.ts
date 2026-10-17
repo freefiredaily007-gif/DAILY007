@@ -242,9 +242,15 @@ export async function setSessionForIdentity(
 export async function getSession(): Promise<User | null> {
   if (current) return current;
   const readRevision = sessionRevision;
+  let raw: string | null;
   try {
-    const raw = await AsyncStorage.getItem(KEY);
+    raw = await AsyncStorage.getItem(KEY);
+  } catch (error) {
     if (readRevision !== sessionRevision) return current;
+    throw error;
+  }
+  if (readRevision !== sessionRevision) return current;
+  try {
     if (raw) {
       const u = JSON.parse(raw) as User;
       if (typeof u?.token !== 'string' || !u.token) {

@@ -6,6 +6,7 @@ const SESSION_KEY = "daily007_v2_session";
 let storedSession = null;
 let blockedSetItem = null;
 let blockedGetItem = null;
+let nextGetItemError = null;
 const storage = {
   async getItem(key) {
     assert.equal(key, SESSION_KEY);
@@ -15,6 +16,11 @@ const storage = {
       blockedGetItem = null;
       block.entered.resolve();
       await block.release.promise;
+    }
+    if (nextGetItemError) {
+      const error = nextGetItemError;
+      nextGetItemError = null;
+      throw error;
     }
     return value;
   },
@@ -61,6 +67,7 @@ registerHooks({
 });
 
 const {
+  Api,
   captureSessionRevision,
   captureSessionIdentity,
   currentUser,
@@ -70,6 +77,7 @@ const {
   setSessionForAuthAttempt,
   setSessionForIdentity,
 } = await import("../src/lib/api.ts");
+const { restoreDaily007Session } = await import("../src/lib/session-verification.ts");
 
 function deferred() {
   let resolve;
@@ -200,6 +208,61 @@ test("a saved-session read finishing after a new sign-in keeps the newer session
   assert.equal(await restore, newAccount);
   assert.equal(currentUser(), newAccount);
   assert.deepEqual(JSON.parse(storedSession), newAccount);
+});
+
+test("a temporary saved-session read failure stays inactive and recovers through API verification", async (t) => {
+  const savedAccount = {
+    id: "read-retry-account",
+    name: "Read Retry Player",
+    email: "read-retry@example.test",
+    token: "read-retry-token",
+    role: "user",
+  };
+  await setSession(null);
+  assert.equal(await getSession(), null, "A confirmed missing storage value must remain an empty session.");
+  storedSession = JSON.stringify(savedAccount);
+  nextGetItemError = new Error("Temporary AsyncStorage read failure.");
+  const requests = [];
+  t.mock.method(http, "get", async (path) => {
+    requests.push(path);
+    if (path === "/auth/me") {
+      return {
+        data: {
+          id: savedAccount.id,
+          name: "Verified Read Retry Player",
+          email: savedAccount.email,
+          role: "user",
+          status: "active",
+          coins: 9,
+        },
+      };
+    }
+    if (path === "/me/stats") {
+      return { data: { matches: 3, wins: 1, kills: 7, prizeCoins: 20 } };
+    }
+    assert.fail(`Unexpected API request: ${path}`);
+  });
+  t.after(async () => {
+    nextGetItemError = null;
+    await setSession(null);
+  });
+
+  await assert.rejects(getSession(), /Temporary AsyncStorage read failure/);
+  assert.equal(currentUser(), null, "A failed read must not activate an unverified saved token.");
+  assert.equal(
+    http.defaults.headers.common.Authorization,
+    undefined,
+    "A failed read must not install an Authorization header.",
+  );
+  assert.deepEqual(requests, [], "No API verification can run until the saved session is readable.");
+
+  const recovered = await restoreDaily007Session(getSession, Api.me, setSession);
+  assert.equal(recovered.status, "verified");
+  assert.equal(recovered.session.id, savedAccount.id);
+  assert.equal(recovered.session.name, "Verified Read Retry Player");
+  assert.equal(recovered.session.token, savedAccount.token);
+  assert.equal(currentUser().token, savedAccount.token);
+  assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
 });
 
 test("an authentication attempt started before logout cannot restore its account", async () => {

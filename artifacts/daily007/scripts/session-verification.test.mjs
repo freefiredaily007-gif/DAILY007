@@ -1493,6 +1493,13 @@ test("App keeps the verification retry screen until refreshed session data is sa
     "utf8",
   );
   assert.match(appSource, /result\.status === 'retry'\) setVerificationSession\(result\.session\)/);
+  assert.match(appSource, /if \(mounted\) setSessionReadFailed\(true\)/);
+  assert.match(appSource, /if \(!user && sessionReadFailed\) return/);
+  assert.match(appSource, /else void retrySessionRead\(\)/);
+  assert.match(
+    appSource,
+    /message="Daily007 could not read your saved sign-in from this device\. It has not been cleared\./,
+  );
   assert.match(appSource, /if \(result\.status === 'verified'\) \{\s*setVerificationSession\(null\);\s*setUser\(result\.session\);\s*\}/);
   assert.match(appSource, /if \(!user && verificationSession\) return/);
   assert.match(pausedScreen, /Your session is still saved/);

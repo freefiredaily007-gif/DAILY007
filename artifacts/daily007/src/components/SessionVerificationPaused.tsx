@@ -5,10 +5,12 @@ import { ReadableText as Text } from './typography';
 export function SessionVerificationPaused({
   onRetry,
   retrying,
+  message = 'Daily007 could not verify your saved sign-in right now. Your session is still saved. Check your connection and try again.',
   children,
 }: {
   onRetry: () => void;
   retrying: boolean;
+  message?: string;
   children?: ReactNode;
 }) {
   return (
@@ -17,7 +19,7 @@ export function SessionVerificationPaused({
         SESSION VERIFICATION PAUSED
       </Text>
       <Text style={styles.message}>
-        Daily007 could not verify your saved sign-in right now. Your session is still saved. Check your connection and try again.
+        {message}
       </Text>
       <Pressable
         accessibilityRole="button"
