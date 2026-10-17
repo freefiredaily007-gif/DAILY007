@@ -345,7 +345,9 @@ export default function Auth({ onDone, notice }: { onDone: (u: User) => void; no
               <Input
                 ref={referralInputRef}
                 testID="auth-referral-code"
+                accessible
                 accessibilityLabel="Referral Code, optional"
+                accessibilityHint="If Google sign-up rejects this code, edit it and return to Sign up with Google to retry."
                 placeholder="Referral Code (Optional)"
                 value={refCode}
                 onChangeText={setRefCode}

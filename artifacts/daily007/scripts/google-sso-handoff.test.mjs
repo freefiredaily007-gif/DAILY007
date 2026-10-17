@@ -659,6 +659,7 @@ test("Google signup retries a corrected referral code with the same active Clerk
   const errors = [];
   const successes = [];
   const activeSession = createSession("active-google-session", [], "verified-clerk-jwt");
+  const loadingStates = [];
   await setSession(null);
   http.defaults.adapter = async (config) => {
     requests.push(config);
@@ -699,7 +700,7 @@ test("Google signup retries a corrected referral code with the same active Clerk
         },
         exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, { referralCode }),
       }),
-      setLoading() {},
+      setLoading: (loading) => loadingStates.push(loading),
       showError: (message) => errors.push(message),
       onSuccess: (value) => successes.push(value),
       getErrorMessage: (error) => error?.response?.data?.error ?? error.message,
@@ -710,11 +711,14 @@ test("Google signup retries a corrected referral code with the same active Clerk
     await retryWithReferral("BAD00");
     assert.deepEqual(errors, ["Referral code is invalid"]);
     assert.deepEqual(successes, []);
+    assert.deepEqual(loadingStates, [true, false],
+      "the rejected signup should clear loading so the Google action can be retried");
 
     await retryWithReferral("GOOD7");
     assert.deepEqual(errors, ["Referral code is invalid"]);
     assert.equal(successes.length, 1);
     assert.equal(successes[0].user.id, "daily007-player");
+    assert.deepEqual(loadingStates, [true, false, true, false]);
 
     assert.equal(requests.length, 2);
     assert.deepEqual(
@@ -769,7 +773,13 @@ test("the React Native button and callback route use the isolated handoff and me
   );
   assert.match(buttonSource, /accessibilityState=\{\{ disabled: !!disabled \|\| !!loading, busy: !!loading \}\}/);
   assert.match(buttonSource, /aria-busy=\{!!loading\}/);
+  assert.match(buttonSource, /accessibilityRole="button"/,
+    "TalkBack should expose Google sign-up as an actionable button");
   assert.match(buttonSource, /accessibilityLabel=\{loading \? `\$\{label\}\. Connecting to Google\. Please wait\.` : label\}/);
+  assert.match(authSource, /label=\{mode === 'signup' \? 'Sign up with Google' : 'Continue with Google'\}/,
+    "TalkBack should identify the retry action as Google sign-up");
+  assert.match(buttonSource, /if \(!disabled && !loading\) onPress\(\);/,
+    "a completed rejection should leave the Google retry action pressable");
   assert.match(buttonSource, /if \(isBusy\) announceGoogleStatus\('Connecting to Google\. Please wait\.'\)/);
   assert.match(buttonSource, /announceGoogleStatus\([\s\S]*?'Google sign-up complete\.'/);
   assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
@@ -809,6 +819,19 @@ test("the React Native button and callback route use the isolated handoff and me
     authSource,
     /<Input\s+ref=\{referralInputRef\}[\s\S]*?testID="auth-referral-code"[\s\S]*?value=\{refCode\}[\s\S]*?onChangeText=\{setRefCode\}[\s\S]*?editable=\{!authInputsDisabled\}/,
     "prefilled referral codes should remain editable on signup",
+  );
+  const referralInput = authSource.match(
+    /<Input\s+ref=\{referralInputRef\}[\s\S]*?style=\{s\.signupInput\}\s*\/>/,
+  )?.[0];
+  assert.ok(referralInput, "the referral code should remain a native text input after an error");
+  assert.match(referralInput, /\baccessible\b/,
+    "TalkBack should be able to focus the referral-code input");
+  assert.match(referralInput, /accessibilityLabel="Referral Code, optional"/,
+    "TalkBack should identify the optional referral code");
+  assert.match(
+    referralInput,
+    /accessibilityHint="If Google sign-up rejects this code, edit it and return to Sign up with Google to retry\."/,
+    "TalkBack should explain how to correct the code and return to the retry action",
   );
   assert.doesNotMatch(
     authSource,
