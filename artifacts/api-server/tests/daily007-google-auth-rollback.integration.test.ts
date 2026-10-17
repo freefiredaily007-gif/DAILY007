@@ -762,6 +762,134 @@ test("a rejected legacy-style referral code rolls back Google signup before a va
   }
 });
 
+test("Google signup accepts lowercase five-letter referral codes with surrounding whitespace in PostgreSQL", async () => {
+  await pool.query(
+    "DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger",
+  );
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const referrerId = randomUUID();
+  const referralCodeInput = `  ${REFERRAL_CODE.toLowerCase()}  `;
+
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Lowercase Referral Owner', $2, 'owner-salt', 'owner-hash')`,
+    [referrerId, `lowercase-referrer-${referrerId}@example.test`],
+  );
+  await pool.query(
+    "INSERT INTO daily007_v2_referral_short_codes (user_id, code) VALUES ($1, $2)",
+    [referrerId, REFERRAL_CODE],
+  );
+
+  try {
+    await withServer(async (origin) => {
+      const signup = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, referralCodeInput);
+      assert.equal(signup.status, 201, "a lowercase registered short code should be accepted");
+      assert.equal(signup.body.coins, 10);
+      assert.equal(typeof signup.body.token, "string");
+
+      const accountId = String(signup.body.id);
+      const linkedAccount = await pool.query<{
+        id: string;
+        email: string;
+        clerk_user_id: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, email, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(
+        linkedAccount.rows,
+        [{
+          id: accountId,
+          email: GOOGLE_EMAIL,
+          clerk_user_id: GOOGLE_CLERK_USER_ID,
+          wallet_coins: 10,
+        }],
+        "the signup should persist exactly one linked account with a 10-coin balance",
+      );
+
+      const referrals = await pool.query<{
+        id: string;
+        referrer_user_id: string;
+        referred_user_id: string;
+        code: string;
+      }>(
+        `SELECT id, referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          WHERE referred_user_id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(
+        referrals.rows.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{ referrer_user_id: referrerId, referred_user_id: accountId, code: REFERRAL_CODE }],
+        "PostgreSQL should persist the canonical code against the correct referrer",
+      );
+      const [referral] = referrals.rows;
+      assert.ok(referral, "the normalized code should create one referral relationship");
+
+      const rewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+        details: Record<string, unknown>;
+      }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key, details
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(
+        rewards.rows,
+        [{
+          user_id: accountId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+          idempotency_key: `daily007-referral-signup:${accountId}`,
+          details: {
+            referrerUserId: referrerId,
+            referralId: referral.id,
+            referralCode: REFERRAL_CODE,
+          },
+        }],
+        "the account should receive one referral reward with the canonical code and no welcome bonus",
+      );
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(signup.body.token)}` },
+      });
+      assert.equal(walletResponse.status, 200);
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.equal(walletHistory.length, 1, "Wallet history should contain one signup row");
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({
+          amount,
+          balanceAfter,
+          reason,
+        })),
+        [{ amount: 10, balanceAfter: 10, reason: "Referral Signup Bonus" }],
+      );
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = $1",
+      [GOOGLE_CLERK_USER_ID],
+    );
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    await resetReferralRewardFailureTrigger();
+    resetMockGoogleUser();
+  }
+});
+
 test("a waiting Google sign-in recovers after a real referral reward transaction rollback", async () => {
   await resetReferralRewardFailureTrigger();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
