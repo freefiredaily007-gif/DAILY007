@@ -68,31 +68,34 @@ export default function Profile() {
   useFocusEffect(React.useCallback(() => {
     void refresh();
   }, [refresh]));
-  const statsUnavailable = !!user?.statsError || user?.matches === undefined;
+  const statsLoading = !user?.statsError && user?.matches === undefined;
+  const statsUnavailable = !!user?.statsError || statsLoading;
+  const unavailableStatLabel = (statName: string) =>
+    `${statName} unavailable${statsLoading ? ' while loading' : ''}`;
   const profileStats = [
     {
       id: 'matches',
       value: statsUnavailable ? '—' : user?.matches ?? 0,
       label: 'MATCHES',
-      accessibilityLabel: statsUnavailable ? 'Matches unavailable' : `${user?.matches ?? 0} matches`,
+      accessibilityLabel: statsUnavailable ? unavailableStatLabel('Matches') : `${user?.matches ?? 0} matches`,
     },
     {
       id: 'wins',
       value: statsUnavailable ? '—' : user?.wins ?? 0,
       label: 'WINS',
-      accessibilityLabel: statsUnavailable ? 'Wins unavailable' : `${user?.wins ?? 0} wins`,
+      accessibilityLabel: statsUnavailable ? unavailableStatLabel('Wins') : `${user?.wins ?? 0} wins`,
     },
     {
       id: 'kills',
       value: statsUnavailable ? '—' : user?.kills ?? 0,
       label: 'KILLS',
-      accessibilityLabel: statsUnavailable ? 'Kills unavailable' : `${user?.kills ?? 0} kills`,
+      accessibilityLabel: statsUnavailable ? unavailableStatLabel('Kills') : `${user?.kills ?? 0} kills`,
     },
     {
       id: 'prizes',
       value: `🪙${statsUnavailable ? '—' : user?.prizeCoins ?? 0}`,
       label: 'PRIZES',
-      accessibilityLabel: statsUnavailable ? 'Prize coins unavailable' : `${user?.prizeCoins ?? 0} prize coins`,
+      accessibilityLabel: statsUnavailable ? unavailableStatLabel('Prize coins') : `${user?.prizeCoins ?? 0} prize coins`,
     },
   ];
   const displayStatValue = (value: string | number) => {

@@ -622,6 +622,72 @@ test("Profile announces each total with its label and hides duplicate visual tex
   });
 });
 
+function assertUnavailableProfileStatCards(markup, expectedAnnouncements) {
+  const statCards = [...markup.matchAll(
+    /<div data-testid="profile-stat-card"([^>]*)>([\s\S]*?)<\/div>/g,
+  )];
+  const expectedValues = ["—", "—", "—", "🪙—"];
+
+  assert.equal(statCards.length, 4, "All four profile totals should render.");
+  statCards.forEach(([, attributes, contents], index) => {
+    assert.match(attributes, /data-accessible="true"/);
+    assert.match(attributes, /role="text"/);
+    assert.match(attributes, /data-important-for-accessibility="yes"/);
+    assert.ok(
+      attributes.includes(`aria-label="${expectedAnnouncements[index]}"`),
+      `Stat card ${index + 1} should announce its unavailable state.`,
+    );
+    assert.doesNotMatch(attributes, /🪙|coin icon/i, "Decorative coin art must not be in the spoken label.");
+    assert.equal(
+      [...contents.matchAll(/aria-hidden="true"/g)].length,
+      2,
+      "Both visible text nodes should be hidden under the single stat announcement.",
+    );
+    assert.equal(
+      [...contents.matchAll(/data-important-for-accessibility="no-hide-descendants"/g)].length,
+      2,
+    );
+    assert.match(
+      contents,
+      new RegExp(`<span data-testid="profile-stat-value"[^>]*>${expectedValues[index]}</span>`),
+      "Unavailable data should render a placeholder, not a stale total.",
+    );
+  });
+}
+
+test("Profile announces all four totals as unavailable while statistics are loading", () => {
+  const user = { ...savedSession };
+  const markup = renderToStaticMarkup(createProfileScreen(user));
+
+  assertUnavailableProfileStatCards(markup, [
+    "Matches unavailable while loading",
+    "Wins unavailable while loading",
+    "Kills unavailable while loading",
+    "Prize coins unavailable while loading",
+  ]);
+  assert.match(markup, /Profile statistics are loading\./);
+});
+
+test("Profile announces all four totals as unavailable after a statistics failure", () => {
+  const user = {
+    ...savedSession,
+    matches: 27,
+    wins: 11,
+    kills: 94,
+    prizeCoins: 640,
+    statsError: "Network disconnected",
+  };
+  const markup = renderToStaticMarkup(createProfileScreen(user));
+
+  assertUnavailableProfileStatCards(markup, [
+    "Matches unavailable",
+    "Wins unavailable",
+    "Kills unavailable",
+    "Prize coins unavailable",
+  ]);
+  assert.match(markup, /Profile statistics unavailable: Network disconnected/);
+});
+
 test("Profile keeps large totals and labels inside stat cards at enlarged text scales", () => {
   const user = {
     ...savedSession,
