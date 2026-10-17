@@ -6,6 +6,10 @@ import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import type { User } from "@clerk/express";
 import { makeToken } from "../src/lib/daily007-session-token";
+import {
+  referralCodeForUserId,
+  shortReferralCodeForUserId,
+} from "../src/lib/daily007-compat-extra-validation";
 import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 import daily007GoogleAuthRouter from "../src/routes/daily007-google-auth";
 import daily007V2Router from "../src/routes/daily007-v2";
@@ -678,9 +682,9 @@ test("a waiting Google sign-in recovers after a real referral reward transaction
 
       const results = await Promise.all([firstSignIn, secondSignIn]);
       assert.deepEqual(
-        results.map(({ status }) => status).sort((left, right) => left - right),
-        [201, 500],
-        "the first request should fail and the identity-lock waiter should succeed",
+        results.map(({ status }) => status),
+        [500, 201],
+        "the first request should roll back and the identity-lock waiter should retry successfully",
       );
 
       const recoveredSignIn = results.find(({ status }) => status === 201);
@@ -709,6 +713,58 @@ test("a waiting Google sign-in recovers after a real referral reward transaction
         "SELECT count(*)::int AS count FROM daily007_v2_users",
       );
       assert.equal(allAccounts.rows[0]?.count, 2, "only the referrer and one referred account should remain");
+
+      const legacyCodes = await pool.query<{
+        user_id: string;
+        owner_user_id: string | null;
+        clerk_user_id: string | null;
+        code: string;
+      }>(
+        `SELECT codes.user_id, users.id AS owner_user_id, users.clerk_user_id, codes.code
+           FROM daily007_v2_referral_codes AS codes
+           LEFT JOIN daily007_v2_users AS users ON users.id = codes.user_id
+          ORDER BY codes.user_id`,
+      );
+      assert.deepEqual(
+        legacyCodes.rows,
+        [
+          {
+            user_id: referrerId,
+            owner_user_id: referrerId,
+            clerk_user_id: null,
+            code: REFERRAL_CODE,
+          },
+          {
+            user_id: account.id,
+            owner_user_id: account.id,
+            clerk_user_id: GOOGLE_CLERK_USER_ID,
+            code: referralCodeForUserId(account.id),
+          },
+        ].sort((left, right) => left.user_id.localeCompare(right.user_id)),
+        "legacy codes must belong only to the referrer and the single retrying account",
+      );
+
+      const shortCodes = await pool.query<{
+        user_id: string;
+        owner_user_id: string | null;
+        clerk_user_id: string | null;
+        code: string;
+      }>(
+        `SELECT codes.user_id, users.id AS owner_user_id, users.clerk_user_id, codes.code
+           FROM daily007_v2_referral_short_codes AS codes
+           LEFT JOIN daily007_v2_users AS users ON users.id = codes.user_id
+          ORDER BY codes.user_id`,
+      );
+      assert.deepEqual(
+        shortCodes.rows,
+        [{
+          user_id: account.id,
+          owner_user_id: account.id,
+          clerk_user_id: GOOGLE_CLERK_USER_ID,
+          code: shortReferralCodeForUserId(account.id),
+        }],
+        "the short-code table must contain exactly one valid row for the retrying account",
+      );
 
       const referrals = await pool.query<{
         referrer_user_id: string;
