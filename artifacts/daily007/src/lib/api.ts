@@ -250,19 +250,24 @@ export async function getSession(): Promise<User | null> {
     throw error;
   }
   if (readRevision !== sessionRevision) return current;
-  try {
-    if (raw) {
-      const u = JSON.parse(raw) as User;
-      if (typeof u?.token !== 'string' || !u.token) {
-        await persistSessionMutation(null, readRevision);
-        return readRevision === sessionRevision ? null : current;
-      }
+  if (raw !== null) {
+    let u: User;
+    try {
+      u = JSON.parse(raw) as User;
+    } catch {
       if (readRevision !== sessionRevision) return current;
-      sessionRevision += 1;
-      activateSession(u);
-      return u;
+      await persistSessionMutation(null, readRevision);
+      return readRevision === sessionRevision ? null : current;
     }
-  } catch {}
+    if (typeof u?.token !== 'string' || !u.token) {
+      await persistSessionMutation(null, readRevision);
+      return readRevision === sessionRevision ? null : current;
+    }
+    if (readRevision !== sessionRevision) return current;
+    sessionRevision += 1;
+    activateSession(u);
+    return u;
+  }
   return readRevision === sessionRevision ? null : current;
 }
 

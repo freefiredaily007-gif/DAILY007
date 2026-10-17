@@ -4,6 +4,7 @@ import test, { mock } from "node:test";
 
 const SESSION_KEY = "daily007_v2_session";
 let storedSession = null;
+let sessionRemoveCalls = 0;
 let blockedSetItem = null;
 let blockedGetItem = null;
 let nextGetItemError = null;
@@ -36,6 +37,7 @@ const storage = {
   },
   async removeItem(key) {
     assert.equal(key, SESSION_KEY);
+    sessionRemoveCalls += 1;
     storedSession = null;
   },
 };
@@ -208,6 +210,29 @@ test("a saved-session read finishing after a new sign-in keeps the newer session
   assert.equal(await restore, newAccount);
   assert.equal(currentUser(), newAccount);
   assert.deepEqual(JSON.parse(storedSession), newAccount);
+});
+
+test("a malformed saved session is discarded so a later launch does not reread it", async (t) => {
+  await setSession(null);
+  sessionRemoveCalls = 0;
+  storedSession = "{broken saved session";
+  t.after(async () => {
+    await setSession(null);
+  });
+
+  assert.equal(await getSession(), null);
+  assert.equal(currentUser(), null);
+  assert.equal(storedSession, null, "Malformed saved data must be removed after a successful read.");
+  assert.equal(sessionRemoveCalls, 1);
+
+  const restartedApi = await import("../src/lib/api.ts?fresh-malformed-session");
+  assert.equal(await restartedApi.getSession(), null);
+  assert.equal(storedSession, null);
+  assert.equal(
+    sessionRemoveCalls,
+    1,
+    "A fresh app instance should find no malformed saved value to parse or remove again.",
+  );
 });
 
 test("a temporary saved-session read failure stays inactive and recovers through API verification", async (t) => {

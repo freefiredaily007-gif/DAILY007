@@ -17,6 +17,12 @@ On cold-start session verification, clear a saved Daily007 token only after a 40
 
 **How to apply:** Keep transport and 5xx failures separate from authorization rejection in session restore and retry flows.
 
+Malformed serialized session data is definitive only after the storage read itself succeeds. Remove the invalid value under the captured session revision; preserve the stored value on a read failure, and surface a retry if cleanup fails.
+
+**Why:** Leaving corrupt JSON in storage causes the same parse failure on every cold start, while clearing data after a transient storage error could discard a valid account.
+
+**How to apply:** Handle AsyncStorage read errors separately from JSON parsing errors. Revision-guard cleanup of malformed or tokenless values, and let failed cleanup reach the existing recovery screen.
+
 Client account-access refreshes must remain tied to the session identity active when the request began. Serialize persistent session changes and discard delayed reads or writes after logout or another sign-in changes that identity.
 
 **Why:** Async local storage can finish an operation after the player's intent changes. Checking only before starting a write still allows a delayed write to leave an old account as the final saved session.
