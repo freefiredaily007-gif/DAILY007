@@ -1077,3 +1077,286 @@ test("a separate Google signup remains committed when the other identity's refer
     resetMockGoogleUser();
   }
 });
+
+test("two independent Google signups keep their referral rewards when both transactions succeed", async () => {
+  resetMockGoogleUsers([
+    VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+    SECOND_VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+  ]);
+  const referrerId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseTransactionOpen = false;
+  let firstSignIn: Promise<JsonResult> | undefined;
+  let secondSignIn: Promise<JsonResult> | undefined;
+
+  try {
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_first_referral_reward()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_referral_reward_failure_seq");
+    await pool.query(`
+      CREATE SEQUENCE daily007_test_independent_reward_pause_seq START 1;
+      CREATE FUNCTION daily007_test_pause_first_independent_referral_reward()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.reason = 'Referral Signup Bonus'
+           AND nextval('daily007_test_independent_reward_pause_seq') = 1 THEN
+          PERFORM pg_advisory_xact_lock(743003, 2);
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER daily007_test_independent_reward_pause
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_pause_first_independent_referral_reward();
+    `);
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Independent Signup Referrer', $2, 'test-salt', 'test-hash')`,
+      [referrerId, `independent-referrer-${referrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [referrerId, REFERRAL_CODE],
+    );
+
+    await withServer(async (origin) => {
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the reward-pause PID");
+      await blocker.query("BEGIN");
+      pauseTransactionOpen = true;
+      await blocker.query("SELECT pg_advisory_xact_lock(743003, 2)");
+
+      try {
+        firstSignIn = googleSignIn(origin, GOOGLE_CLERK_USER_ID);
+        await waitForBlockedBackend(
+          blocker.processID,
+          "%INSERT INTO daily007_v2_wallet_ledger%",
+          "the first independent signup to pause at its referral reward",
+        );
+
+        const pendingSecondSignIn = googleSignIn(origin, SECOND_GOOGLE_CLERK_USER_ID);
+        secondSignIn = pendingSecondSignIn;
+        let secondTimeout: NodeJS.Timeout | undefined;
+        let secondResult: JsonResult;
+        try {
+          secondResult = await Promise.race([
+            pendingSecondSignIn,
+            new Promise<never>((_resolve, reject) => {
+              secondTimeout = setTimeout(
+                () => reject(new Error("The second identity did not finish while the first signup was paused.")),
+                5_000,
+              );
+            }),
+          ]);
+        } finally {
+          if (secondTimeout) clearTimeout(secondTimeout);
+        }
+        assert.equal(secondResult.status, 201,
+          "the distinct identity should commit while the first signup transaction remains open");
+        assert.equal(secondResult.body.email, SECOND_GOOGLE_EMAIL);
+        assert.equal(secondResult.body.coins, 10);
+        assert.equal(typeof secondResult.body.token, "string");
+
+        const secondAccount = await pool.query<{
+          id: string;
+          email: string;
+          wallet_coins: number;
+          clerk_user_id: string;
+        }>(
+          `SELECT id, email, wallet_coins, clerk_user_id
+             FROM daily007_v2_users
+            WHERE clerk_user_id = $1`,
+          [SECOND_GOOGLE_CLERK_USER_ID],
+        );
+        assert.deepEqual(secondAccount.rows, [{
+          id: String(secondResult.body.id),
+          email: SECOND_GOOGLE_EMAIL,
+          wallet_coins: 10,
+          clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+        }], "the second signup should be durably committed before the first reward is released");
+
+        const secondReferral = await pool.query<{
+          referrer_user_id: string;
+          referred_user_id: string;
+          code: string;
+        }>(
+          `SELECT referrer_user_id, referred_user_id, code
+             FROM daily007_v2_referrals
+            WHERE referred_user_id = $1`,
+          [secondResult.body.id],
+        );
+        assert.deepEqual(secondReferral.rows, [{
+          referrer_user_id: referrerId,
+          referred_user_id: String(secondResult.body.id),
+          code: REFERRAL_CODE,
+        }], "the second signup's referral should commit while the first remains pending");
+
+        const secondReward = await pool.query<{
+          user_id: string;
+          amount: number;
+          balance_after: number;
+          reason: string;
+        }>(
+          `SELECT user_id, amount, balance_after, reason
+             FROM daily007_v2_wallet_ledger
+            WHERE user_id = $1`,
+          [secondResult.body.id],
+        );
+        assert.deepEqual(secondReward.rows, [{
+          user_id: String(secondResult.body.id),
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }], "the second signup's reward should commit while the first remains pending");
+      } finally {
+        if (pauseTransactionOpen && blocker) {
+          await blocker.query("ROLLBACK");
+          pauseTransactionOpen = false;
+        }
+      }
+
+      assert.ok(firstSignIn && secondSignIn);
+      const [firstResult, secondResult] = await Promise.all([firstSignIn, secondSignIn]);
+      assert.deepEqual(
+        [firstResult.status, secondResult.status],
+        [201, 201],
+        "both distinct verified Google identities should finish signup successfully",
+      );
+      assert.notEqual(firstResult.body.id, secondResult.body.id,
+        "each Google identity must retain a distinct Daily007 account");
+      assert.deepEqual(
+        [
+          { email: firstResult.body.email, coins: firstResult.body.coins },
+          { email: secondResult.body.email, coins: secondResult.body.coins },
+        ],
+        [
+          { email: GOOGLE_EMAIL, coins: 10 },
+          { email: SECOND_GOOGLE_EMAIL, coins: 10 },
+        ],
+      );
+      assert.equal(typeof firstResult.body.token, "string");
+      assert.equal(typeof secondResult.body.token, "string");
+
+      const accounts = await pool.query<{
+        id: string;
+        email: string;
+        wallet_coins: number;
+        clerk_user_id: string;
+      }>(
+        `SELECT id, email, wallet_coins, clerk_user_id
+           FROM daily007_v2_users
+          WHERE clerk_user_id = ANY($1::text[])
+          ORDER BY clerk_user_id`,
+        [[GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID]],
+      );
+      assert.equal(accounts.rows.length, 2, "exactly two new Google accounts should remain");
+      const accountByIdentity = new Map(accounts.rows.map((account) => [account.clerk_user_id, account]));
+      assert.deepEqual(accountByIdentity.get(GOOGLE_CLERK_USER_ID), {
+        id: String(firstResult.body.id),
+        email: GOOGLE_EMAIL,
+        wallet_coins: 10,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+      });
+      assert.deepEqual(accountByIdentity.get(SECOND_GOOGLE_CLERK_USER_ID), {
+        id: String(secondResult.body.id),
+        email: SECOND_GOOGLE_EMAIL,
+        wallet_coins: 10,
+        clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+      }, "both Google identities should have separate accounts with their own 10-coin balances");
+
+      const referrals = await pool.query<{
+        referrer_user_id: string;
+        referred_user_id: string;
+        code: string;
+      }>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY referred_user_id`,
+      );
+      assert.deepEqual(
+        referrals.rows,
+        [
+          {
+            referrer_user_id: referrerId,
+            referred_user_id: String(firstResult.body.id),
+            code: REFERRAL_CODE,
+          },
+          {
+            referrer_user_id: referrerId,
+            referred_user_id: String(secondResult.body.id),
+            code: REFERRAL_CODE,
+          },
+        ].sort((left, right) => left.referred_user_id < right.referred_user_id ? -1 : 1),
+        "each signup should retain its own referral relationship",
+      );
+
+      const rewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [[String(firstResult.body.id), String(secondResult.body.id)]],
+      );
+      assert.deepEqual(
+        rewards.rows,
+        [
+          String(firstResult.body.id),
+          String(secondResult.body.id),
+        ].sort().map((userId) => ({
+          user_id: userId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        })),
+        "each account should have exactly one persisted 10-coin referral reward",
+      );
+
+      for (const result of [firstResult, secondResult]) {
+        const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+          headers: { authorization: `Bearer ${String(result.body.token)}` },
+        });
+        const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+        assert.equal(walletResponse.status, 200);
+        assert.deepEqual(
+          walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+          [{ amount: 10, balanceAfter: 10, reason: "Referral Signup Bonus" }],
+          `Wallet history should show exactly one referral reward for ${String(result.body.email)}`,
+        );
+      }
+
+      const rewardPauseCalls = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_independent_reward_pause_seq",
+      );
+      assert.equal(rewardPauseCalls.rows[0]?.last_value, "2",
+        "both distinct signup transactions should reach the isolated PostgreSQL reward trigger");
+    });
+  } finally {
+    if (pauseTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      pauseTransactionOpen = false;
+    }
+    await Promise.all([
+      firstSignIn?.catch(() => undefined),
+      secondSignIn?.catch(() => undefined),
+    ]);
+    blocker?.release();
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_independent_reward_pause ON daily007_v2_wallet_ledger");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_first_independent_referral_reward()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_independent_reward_pause_seq");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = ANY($1::text[])",
+      [[GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID]],
+    );
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
