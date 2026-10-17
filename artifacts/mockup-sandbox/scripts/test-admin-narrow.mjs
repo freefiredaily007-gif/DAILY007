@@ -6446,6 +6446,46 @@ async function checkHomeRetryRecovery() {
   await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
     { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
   ])`);
+  await evaluate("window.__daily007HomeCarouselTest.failNextTournamentRead('Home tournament-list retry failed')");
+  const countsBeforeTournamentRetry = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+  })`);
+  await tapSelector(
+    '[data-testid="home-upcoming-retry"]',
+    "Home's visible retry after a registration refresh failure",
+  );
+  await waitForCondition(
+    `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${countsBeforeTournamentRetry.tournaments + 1} &&
+      window.__daily007HomeCarouselTest.getMyRegistrationReadCount() === ${countsBeforeTournamentRetry.registrations + 1} &&
+      document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText.includes('Home tournament-list retry failed') &&
+      Boolean(document.querySelector('[data-testid="home-upcoming-retry"]'))`,
+    "Home to finish the retry with a failed tournament read and successful registration read",
+  );
+  const tournamentRetryFailureState = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-testid^="home-upcoming-card-"]')];
+    return {
+      cardTexts: cards.map((card) => card.innerText),
+      cardNodesRetained: window.__daily007HomeCarouselTest.retryStaleCardNodes?.every(
+        (card, index) => card === cards[index],
+      ) ?? false,
+      warningText: document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText ?? null,
+      retryVisible: Boolean(document.querySelector('[data-testid="home-upcoming-retry"]')),
+    };
+  })()`);
+  assert(
+    tournamentRetryFailureState.cardTexts.length === 3 &&
+      tournamentRetryFailureState.cardTexts[1].includes("JOINED") &&
+      !tournamentRetryFailureState.cardTexts[1].includes("Latest Tournament From Home Retry") &&
+      tournamentRetryFailureState.cardNodesRetained &&
+      tournamentRetryFailureState.warningText?.includes("Home tournament-list retry failed") &&
+      tournamentRetryFailureState.retryVisible,
+    `A failed tournament-list retry must retain the last good joined cards and leave the warning and retry available: ${JSON.stringify(tournamentRetryFailureState)}.`,
+  );
+
+  await evaluate(`window.__daily007HomeCarouselTest.setRegistrations([
+    { id: "preview-registration-later-one", tournamentId: "later-one", status: "approved" }
+  ])`);
   await evaluate("window.__daily007HomeCarouselTest.deferNextRegistrationRead()");
   const countsBeforeVisibleRetry = await evaluate(`({
     tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
@@ -6612,7 +6652,7 @@ async function checkHomeRetryRecovery() {
       after: countsAfterSecondVisibleRetry,
     })}.`,
   );
-  console.log("PASS — Home can retry again after a later refresh failure, preserves cached joined cards while pending, and applies the second successful paired refresh.");
+  console.log("PASS — Home retries recover after repeated failures; tournament-list and registration errors preserve cached joined cards, and successful retries update data and clear warnings.");
 }
 
 async function checkHomeRefreshOverlap() {
