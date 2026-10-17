@@ -180,6 +180,95 @@ test("corrected video metadata stays public and preserves its PostgreSQL watch s
   }
 });
 
+test("PostgreSQL watch history blocks a changed YouTube link and preserves both records", async () => {
+  const suffix = randomUUID();
+  let adminId: string | null = null;
+  let playerId: string | null = null;
+  let videoId: string | null = null;
+  let sessionId: string | null = null;
+
+  try {
+    const admin = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash, role)
+       VALUES ('Watched video edit test admin', $1, 'test-salt', 'test-hash', 'admin')
+       RETURNING id`,
+      [`watched-video-edit-admin-${suffix}@example.test`],
+    );
+    adminId = admin.rows[0]?.id ?? null;
+    assert.ok(adminId, "test admin should be created");
+
+    const player = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_users (name, email, password_salt, password_hash)
+       VALUES ('Watched video edit test player', $1, 'test-salt', 'test-hash')
+       RETURNING id`,
+      [`watched-video-edit-player-${suffix}@example.test`],
+    );
+    playerId = player.rows[0]?.id ?? null;
+    assert.ok(playerId, "test player should be created");
+
+    const youtubeId = suffix.replace(/-/g, "").slice(0, 11);
+    await withServer(async (origin) => {
+      const createdResponse = await fetch(`${origin}/admin/videos`, {
+        method: "POST",
+        headers: authHeaders(adminId!),
+        body: JSON.stringify({
+          title: "Watched video",
+          topic: "Battle Royale",
+          url: `https://youtu.be/${youtubeId}`,
+        }),
+      });
+      assert.equal(createdResponse.status, 201);
+      const created = await createdResponse.json() as { id: string; youtubeId: string };
+      videoId = created.id;
+      assert.equal(created.youtubeId, youtubeId);
+
+      const session = await pool.query<{ id: string }>(
+        `INSERT INTO daily007_v2_video_watch_sessions
+           (user_id, video_id, duration_seconds, reported_percent, started_at)
+         VALUES ($1, $2, 75, 42, '2026-10-16T12:34:56.000Z')
+         RETURNING id`,
+        [playerId, videoId],
+      );
+      sessionId = session.rows[0]?.id ?? null;
+      assert.ok(sessionId, "test watch session should be created");
+
+      const [videoBefore, sessionBefore] = await Promise.all([
+        pool.query("SELECT * FROM daily007_v2_videos WHERE id = $1", [videoId]),
+        pool.query("SELECT * FROM daily007_v2_video_watch_sessions WHERE id = $1", [sessionId]),
+      ]);
+      assert.equal(videoBefore.rows.length, 1);
+      assert.equal(sessionBefore.rows.length, 1);
+
+      const updatedResponse = await fetch(`${origin}/admin/videos/${videoId}`, {
+        method: "PATCH",
+        headers: authHeaders(adminId!),
+        body: JSON.stringify({
+          title: "Replacement video",
+          topic: "Clash Squad",
+          url: "https://youtu.be/Z9x8Y7w6V5u",
+        }),
+      });
+      assert.equal(updatedResponse.status, 409);
+      const rejection = await updatedResponse.json() as { error?: string };
+      assert.match(String(rejection.error), /watch history/i);
+
+      const [videoAfter, sessionAfter] = await Promise.all([
+        pool.query("SELECT * FROM daily007_v2_videos WHERE id = $1", [videoId]),
+        pool.query("SELECT * FROM daily007_v2_video_watch_sessions WHERE id = $1", [sessionId]),
+      ]);
+      assert.deepEqual(videoAfter.rows, videoBefore.rows, "the rejected update must leave every video field unchanged");
+      assert.deepEqual(sessionAfter.rows, sessionBefore.rows, "the rejected update must preserve the watch-session row");
+    });
+  } finally {
+    if (sessionId) {
+      await pool.query("DELETE FROM daily007_v2_video_watch_sessions WHERE id = $1", [sessionId]);
+    }
+    if (videoId) await pool.query("DELETE FROM daily007_v2_videos WHERE id = $1", [videoId]);
+    if (playerId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [playerId]);
+    if (adminId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
+  }
+});
+
 test.after(async () => {
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
