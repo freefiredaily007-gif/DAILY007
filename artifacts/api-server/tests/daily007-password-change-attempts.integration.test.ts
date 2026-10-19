@@ -100,6 +100,25 @@ async function passwordChange(
   return { status: response.status, retryAfter: response.headers.get("retry-after") };
 }
 
+async function waitForBlockedPasswordAttemptSettlements(blockerPid: number, expectedCount: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ waiting_count: number }>(
+      `SELECT count(*)::integer AS waiting_count
+         FROM pg_stat_activity AS waiting
+         CROSS JOIN LATERAL unnest(pg_blocking_pids(waiting.pid)) AS blockers(blocker_pid)
+        WHERE waiting.pid <> pg_backend_pid()
+          AND waiting.wait_event_type = 'Lock'
+          AND waiting.query ILIKE '%UPDATE daily007_password_change_attempts%'
+          AND blockers.blocker_pid = $1`,
+      [blockerPid],
+    );
+    if (result.rows[0]?.waiting_count === expectedCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} password-change checks to overlap.`);
+}
+
 after(async () => {
   await Promise.all(apiProcesses.map((apiProcess) => apiProcess.stop()));
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
@@ -223,5 +242,105 @@ test("exhausting one player's password-change attempts does not block another pl
   ]));
   assert.equal(attemptsByUser.size, 2);
   assert.deepEqual(attemptsByUser.get(firstUserId), { failures: 5, in_flight: 0 });
+  assert.deepEqual(attemptsByUser.get(secondUserId), { failures: 0, in_flight: 0 });
+});
+
+test("overlapping password checks keep separate retry rows and counters for two players", async () => {
+  const firstUserId = randomUUID();
+  const secondUserId = randomUUID();
+  const firstPassword = "first-overlap-current-password";
+  const secondPassword = "second-overlap-current-password";
+  const firstCredentials = await hashPassword(firstPassword);
+  const secondCredentials = await hashPassword(secondPassword);
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES
+       ($1, 'First Overlap Player', $2, $3, $4),
+       ($5, 'Second Overlap Player', $6, $7, $8)`,
+    [
+      firstUserId,
+      `password-change-overlap-first-${firstUserId}@example.test`,
+      firstCredentials.salt,
+      firstCredentials.hash,
+      secondUserId,
+      `password-change-overlap-second-${secondUserId}@example.test`,
+      secondCredentials.salt,
+      secondCredentials.hash,
+    ],
+  );
+
+  const firstToken = makeToken(firstUserId, 0);
+  const secondToken = makeToken(secondUserId, 0);
+  assert.ok(firstToken);
+  assert.ok(secondToken);
+
+  const lockKey = BigInt(`0x${randomUUID().replaceAll("-", "").slice(0, 15)}`).toString();
+  await pool.query(
+    `CREATE FUNCTION daily007_test_pause_password_attempt_settlement() RETURNS trigger AS $function$
+     BEGIN
+       IF NEW.in_flight < OLD.in_flight THEN
+         PERFORM pg_advisory_xact_lock(${lockKey}::bigint);
+       END IF;
+       RETURN NEW;
+     END;
+     $function$ LANGUAGE plpgsql`,
+  );
+  await pool.query(
+    `CREATE TRIGGER daily007_test_pause_password_attempt_settlement
+       BEFORE UPDATE ON daily007_password_change_attempts
+       FOR EACH ROW
+       EXECUTE FUNCTION daily007_test_pause_password_attempt_settlement()`,
+  );
+
+  const blocker = await pool.connect();
+  const apiForFirstPlayer = await startApiProcess();
+  const apiForSecondPlayer = await startApiProcess();
+  const pendingChecks = [
+    passwordChange(apiForFirstPlayer.origin, firstToken),
+    passwordChange(apiForSecondPlayer.origin, secondToken, secondPassword),
+  ];
+  try {
+    await blocker.query("SELECT pg_advisory_lock($1::bigint)", [lockKey]);
+    const blockerPid = await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    await waitForBlockedPasswordAttemptSettlements(blockerPid.rows[0].pid, 2);
+
+    const inFlightRows = await pool.query<{ user_id: string; failures: number; in_flight: number }>(
+      `SELECT user_id, failures, in_flight
+         FROM daily007_password_change_attempts
+        WHERE user_id = ANY($1::uuid[])`,
+      [[firstUserId, secondUserId]],
+    );
+    assert.deepEqual(
+      new Map(inFlightRows.rows.map(({ user_id, failures, in_flight }) => [user_id, { failures, in_flight }])),
+      new Map([
+        [firstUserId, { failures: 0, in_flight: 1 }],
+        [secondUserId, { failures: 0, in_flight: 1 }],
+      ]),
+      "both separate accounts should hold an in-flight retry reservation at once",
+    );
+  } finally {
+    await blocker.query("SELECT pg_advisory_unlock($1::bigint)", [lockKey]);
+    await Promise.allSettled(pendingChecks);
+    await pool.query("DROP TRIGGER daily007_test_pause_password_attempt_settlement ON daily007_password_change_attempts");
+    await pool.query("DROP FUNCTION daily007_test_pause_password_attempt_settlement()");
+    blocker.release();
+  }
+
+  const results = await Promise.all(pendingChecks);
+  assert.deepEqual(results.map(({ status }) => status), [401, 200]);
+
+  const attemptRows = await pool.query<{ user_id: string; failures: number; in_flight: number }>(
+    `SELECT user_id, failures, in_flight
+       FROM daily007_password_change_attempts
+      WHERE user_id = ANY($1::uuid[])`,
+    [[firstUserId, secondUserId]],
+  );
+  assert.equal(attemptRows.rows.length, 2, "each player should have exactly one limiter row");
+  const attemptsByUser = new Map(attemptRows.rows.map(({ user_id, failures, in_flight }) => [
+    user_id,
+    { failures, in_flight },
+  ]));
+  assert.deepEqual(attemptsByUser.get(firstUserId), { failures: 1, in_flight: 0 });
   assert.deepEqual(attemptsByUser.get(secondUserId), { failures: 0, in_flight: 0 });
 });
