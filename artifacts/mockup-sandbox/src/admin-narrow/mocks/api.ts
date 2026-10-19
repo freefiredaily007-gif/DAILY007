@@ -344,6 +344,13 @@ export function isSessionIdentityCurrent(_identity: PreviewSessionIdentity): boo
   return false;
 }
 
+export async function setSessionForIdentity(
+  _user: unknown,
+  _identity: PreviewSessionIdentity,
+): Promise<boolean> {
+  return false;
+}
+
 let tournamentReadCount = 0;
 let tournamentDetailReadCount = 0;
 let nextTournamentReadError: string | null = null;

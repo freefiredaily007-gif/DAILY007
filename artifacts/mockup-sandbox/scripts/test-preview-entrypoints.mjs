@@ -64,6 +64,15 @@ const previewGroups = [
         screen: "Player Home",
         markers: ["GAME MODES", 'data-testid="home-mode-battle-royale"'],
       },
+      {
+        path: "/player-largest-text-preview.html?screen=Video",
+        screen: "Player Video",
+        markers: [
+          "Tutorial Videos (2)",
+          'data-testid="video-catalog-search"',
+          'data-testid="video-catalog-card-large-video-01"',
+        ],
+      },
     ],
   },
   {

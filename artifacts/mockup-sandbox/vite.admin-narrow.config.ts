@@ -13,6 +13,9 @@ export default defineConfig({
   root: sandboxRoot,
   base: "/",
   plugins: [react()],
+  define: {
+    __DEV__: JSON.stringify(true),
+  },
   optimizeDeps: {
     entries: ["admin-narrow-preview.html"],
   },

@@ -7,4 +7,4 @@ When a Daily007 browser preview imports multiple screens, keep its local mock ex
 
 **Why:** A Home-only preview failed dependency scanning because the screen registry also reached Video.tsx, whose generated query-key helper was missing from the local mock. The signup preview likewise exposed an omitted persistence-error class in its Auth API mock.
 
-**How to apply:** After changing imports used by previewed screens, run the browser-entrypoint smoke test across all specialized Vite configs and add only isolated local stubs for the missing exports.
+**How to apply:** Run the full browser-entrypoint smoke after adding a route; shared screen bundles statically import off-route modules, and earlier previews can expose missing named exports or Metro globals. Fix these with local Vite defines and stubs only, not app-code changes.
