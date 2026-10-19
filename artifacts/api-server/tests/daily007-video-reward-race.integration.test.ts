@@ -285,6 +285,203 @@ test("retrying a video start after its committed response is lost reuses the ses
   }
 });
 
+test("separate players can use the same playback attempt and earn only their own rewards", async () => {
+  const firstPlayerFixture = await createFixture({ includeInitialSession: false });
+  const secondPlayerFixture = await createFixture({ includeInitialSession: false });
+  assert.ok(firstPlayerFixture.playerId && firstPlayerFixture.videoId);
+  assert.ok(secondPlayerFixture.playerId);
+  assert.notEqual(firstPlayerFixture.playerId, secondPlayerFixture.playerId);
+
+  const attemptId = randomUUID();
+
+  try {
+    await withServer(async (origin) => {
+      const [firstStart, secondStart] = await Promise.all([
+        sendJson(
+          origin,
+          "/videos/watch/start",
+          firstPlayerFixture.playerId!,
+          "POST",
+          { videoId: firstPlayerFixture.videoId, durationSeconds: 5, attemptId },
+        ),
+        sendJson(
+          origin,
+          "/videos/watch/start",
+          secondPlayerFixture.playerId!,
+          "POST",
+          { videoId: firstPlayerFixture.videoId, durationSeconds: 5, attemptId },
+        ),
+      ]);
+
+      assert.equal(firstStart.status, 201);
+      assert.equal(secondStart.status, 201);
+      assert.equal(typeof firstStart.body.sessionId, "string");
+      assert.equal(typeof secondStart.body.sessionId, "string");
+      const firstSessionId = firstStart.body.sessionId as string;
+      const secondSessionId = secondStart.body.sessionId as string;
+      assert.notEqual(firstSessionId, secondSessionId);
+      firstPlayerFixture.sessionId = firstSessionId;
+      secondPlayerFixture.sessionId = secondSessionId;
+
+      const createdSessions = await pool.query<{
+        id: string;
+        userId: string;
+        videoId: string;
+        attemptId: string | null;
+        completedAt: Date | null;
+      }>(
+        `SELECT id::text AS id,
+                user_id::text AS "userId",
+                video_id::text AS "videoId",
+                start_attempt_id AS "attemptId",
+                completed_at AS "completedAt"
+           FROM daily007_v2_video_watch_sessions
+          WHERE id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [[firstSessionId, secondSessionId]],
+      );
+      assert.equal(createdSessions.rows.length, 2);
+      assert.deepEqual(
+        createdSessions.rows.map((session) => session.userId),
+        [firstPlayerFixture.playerId, secondPlayerFixture.playerId].sort(),
+      );
+      for (const session of createdSessions.rows) {
+        assert.equal(session.videoId, firstPlayerFixture.videoId);
+        assert.equal(session.attemptId, attemptId);
+        assert.equal(session.completedAt, null);
+      }
+
+      await pool.query(
+        `UPDATE daily007_v2_video_watch_sessions
+            SET started_at = now() - interval '30 seconds'
+          WHERE id = ANY($1::uuid[])`,
+        [[firstSessionId, secondSessionId]],
+      );
+
+      const firstCompletion = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        firstPlayerFixture.playerId!,
+        "POST",
+        { sessionId: firstSessionId, percentWatched: 100 },
+      );
+      assert.equal(firstCompletion.status, 200);
+      assert.equal(firstCompletion.body.rewarded, true);
+      assert.equal(firstCompletion.body.walletCoins, 13);
+      assert.equal(typeof firstCompletion.body.transactionId, "string");
+
+      const afterFirstCompletion = await pool.query<{
+        userId: string;
+        sessionId: string;
+        walletCoins: number;
+        completedAt: Date | null;
+        rewardLedgerId: string | null;
+        ledgerCount: number;
+        ledgerUserId: string | null;
+      }>(
+        `SELECT session.user_id::text AS "userId",
+                session.id::text AS "sessionId",
+                player.wallet_coins AS "walletCoins",
+                session.completed_at AS "completedAt",
+                session.reward_ledger_id::text AS "rewardLedgerId",
+                COUNT(ledger.id)::int AS "ledgerCount",
+                MIN(ledger.user_id::text) AS "ledgerUserId"
+           FROM daily007_v2_video_watch_sessions session
+           JOIN daily007_v2_users player ON player.id = session.user_id
+           LEFT JOIN daily007_v2_wallet_ledger ledger
+             ON ledger.user_id = session.user_id
+            AND ledger.idempotency_key = 'daily007-video-watch:' || session.id::text
+          WHERE session.id = ANY($1::uuid[])
+          GROUP BY session.user_id, session.id, player.wallet_coins
+          ORDER BY session.user_id`,
+        [[firstSessionId, secondSessionId]],
+      );
+      assert.equal(afterFirstCompletion.rows.length, 2);
+      const firstPlayerAfterFirst = afterFirstCompletion.rows.find(
+        (row) => row.userId === firstPlayerFixture.playerId,
+      );
+      const secondPlayerAfterFirst = afterFirstCompletion.rows.find(
+        (row) => row.userId === secondPlayerFixture.playerId,
+      );
+      assert.ok(firstPlayerAfterFirst);
+      assert.ok(secondPlayerAfterFirst);
+      assert.equal(firstPlayerAfterFirst.sessionId, firstSessionId);
+      assert.equal(firstPlayerAfterFirst.walletCoins, 13);
+      assert.ok(firstPlayerAfterFirst.completedAt);
+      assert.ok(firstPlayerAfterFirst.rewardLedgerId);
+      assert.equal(firstPlayerAfterFirst.ledgerCount, 1);
+      assert.equal(firstPlayerAfterFirst.ledgerUserId, firstPlayerFixture.playerId);
+      assert.equal(secondPlayerAfterFirst.sessionId, secondSessionId);
+      assert.equal(secondPlayerAfterFirst.walletCoins, 12);
+      assert.equal(secondPlayerAfterFirst.completedAt, null);
+      assert.equal(secondPlayerAfterFirst.rewardLedgerId, null);
+      assert.equal(secondPlayerAfterFirst.ledgerCount, 0);
+      assert.equal(secondPlayerAfterFirst.ledgerUserId, null);
+
+      const secondCompletion = await sendJson(
+        origin,
+        "/videos/watch/complete",
+        secondPlayerFixture.playerId!,
+        "POST",
+        { sessionId: secondSessionId, percentWatched: 100 },
+      );
+      assert.equal(secondCompletion.status, 200);
+      assert.equal(secondCompletion.body.rewarded, true);
+      assert.equal(secondCompletion.body.walletCoins, 13);
+      assert.equal(typeof secondCompletion.body.transactionId, "string");
+      assert.notEqual(firstCompletion.body.transactionId, secondCompletion.body.transactionId);
+
+      const afterBothCompletions = await pool.query<{
+        userId: string;
+        sessionId: string;
+        walletCoins: number;
+        completedAt: Date | null;
+        rewardLedgerId: string | null;
+        ledgerCount: number;
+        ledgerUserId: string | null;
+        ledgerSessionId: string | null;
+      }>(
+        `SELECT session.user_id::text AS "userId",
+                session.id::text AS "sessionId",
+                player.wallet_coins AS "walletCoins",
+                session.completed_at AS "completedAt",
+                session.reward_ledger_id::text AS "rewardLedgerId",
+                COUNT(ledger.id)::int AS "ledgerCount",
+                MIN(ledger.user_id::text) AS "ledgerUserId",
+                MIN(ledger.details->>'sessionId') AS "ledgerSessionId"
+           FROM daily007_v2_video_watch_sessions session
+           JOIN daily007_v2_users player ON player.id = session.user_id
+           LEFT JOIN daily007_v2_wallet_ledger ledger
+             ON ledger.user_id = session.user_id
+            AND ledger.idempotency_key = 'daily007-video-watch:' || session.id::text
+          WHERE session.id = ANY($1::uuid[])
+          GROUP BY session.user_id, session.id, player.wallet_coins
+          ORDER BY session.user_id`,
+        [[firstSessionId, secondSessionId]],
+      );
+      assert.equal(afterBothCompletions.rows.length, 2);
+      for (const [playerId, sessionId, response] of [
+        [firstPlayerFixture.playerId, firstSessionId, firstCompletion],
+        [secondPlayerFixture.playerId, secondSessionId, secondCompletion],
+      ] as const) {
+        const state = afterBothCompletions.rows.find((row) => row.userId === playerId);
+        assert.ok(state);
+        assert.equal(state.sessionId, sessionId);
+        assert.equal(state.walletCoins, 13);
+        assert.ok(state.completedAt);
+        assert.ok(state.rewardLedgerId);
+        assert.equal(state.rewardLedgerId, response.body.transactionId);
+        assert.equal(state.ledgerCount, 1);
+        assert.equal(state.ledgerUserId, playerId);
+        assert.equal(state.ledgerSessionId, sessionId);
+      }
+    });
+  } finally {
+    await cleanupFixture(secondPlayerFixture);
+    await cleanupFixture(firstPlayerFixture);
+  }
+});
+
 async function sendPermanentDelete(
   origin: string,
   videoId: string,
