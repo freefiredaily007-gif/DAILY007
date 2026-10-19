@@ -229,7 +229,21 @@ export default function AdminPayments() {
                 />
               ) : null}
             </View>
-          ) : <Text style={st.sub}>Paid from UPI ID: {p.payerUpiId || '—'}</Text>}
+          ) : <Text style={st.sub}>Paid from UPI ID: {p.payerUpiId || 'Not provided'}</Text>}
+          {p.kind === 'payment' && p.status === 'pending' &&
+            (p.payerUpiIdMissing === true || !String(p.payerUpiId ?? '').trim()) && (
+              <View
+                accessible
+                accessibilityRole="alert"
+                accessibilityLabel="No payer UPI ID was recorded for this request. Verify the payment details before approving."
+                testID={`missing-payer-upi-warning-${p.id}`}
+                style={st.missingPayerUpiWarning}
+              >
+                <Text style={st.missingPayerUpiWarningText}>
+                  No payer UPI ID was recorded for this request. Verify the payment details before approving.
+                </Text>
+              </View>
+            )}
           {p.kind === 'payment' && <Text style={st.sub}>Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
           <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
           {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}
@@ -295,6 +309,21 @@ const st = StyleSheet.create({
   notice: { color: C.gold, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  missingPayerUpiWarning: {
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: C.gold + '66',
+    backgroundColor: C.gold + '14',
+  },
+  missingPayerUpiWarningText: {
+    color: C.gold,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
   payoutStatus: {
     alignSelf: 'flex-start',
     maxWidth: '100%',

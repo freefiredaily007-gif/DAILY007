@@ -47,6 +47,7 @@
     "test:admin-payment-actions-concurrency": "node --test scripts/admin-payment-actions-concurrency.test.mjs",
     "test:admin-action-failure-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-action-failure-accessibility.test.mjs",
     "test:admin-financial-action-guard": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-financial-action-guard.test.mjs",
+    "test:admin-missing-payer-upi-warning": "node --test scripts/admin-missing-payer-upi-warning.test.mjs",
     "test:admin-role-rejection-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-role-rejection-accessibility.test.mjs",
     "test:admin-user-deletion-accessibility": "node --test scripts/admin-user-deletion-accessibility.test.mjs",
     "test:role-change-navigation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/role-change-navigation.test.mjs",

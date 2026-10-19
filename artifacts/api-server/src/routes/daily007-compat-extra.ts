@@ -609,6 +609,7 @@ router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
         `SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email,
                 p.coins, p.amount, p.reference AS "reference", p.reference AS "txnId", p.status,
                 p.payer_upi_id AS "payerUpiId",
+                NULLIF(BTRIM(p.payer_upi_id), '') IS NULL AS "payerUpiIdMissing",
                 p.proof_object_path IS NOT NULL AS "proofAvailable",
                 p.review_reason AS "reviewReason",
                 p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
