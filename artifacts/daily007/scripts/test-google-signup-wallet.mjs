@@ -2006,6 +2006,96 @@ try {
   );
   assert.deepEqual(delayedStorageFailure.clerk.events, ["start-sso", "set-active", "get-token"]);
   assert.equal(delayedStorageFailure.unexpectedRequests.length, 0);
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")
+      && Boolean(document.querySelector('[data-testid="profile-google-session-save-retry"]'))
+      && Boolean(document.querySelector('[data-testid="profile-google-connected"]'))`,
+    "the save-only retry after the server has confirmed the Google link",
+  );
+  const retryReady = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(retryReady, "before retrying the completed Google-link session save");
+  assert.equal(
+    retryReady.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "The retry setup must retain the single completed Google-link request.",
+  );
+  const retryWriteMetricsBefore = retryReady.storageWriteMetrics;
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.holdNextSessionWrite()"),
+    true,
+    "The storage mock should hold the retry write so the warning can be checked before success.",
+  );
+  await clickSelector(
+    '[data-testid="profile-google-session-save-retry"]',
+    "retry saving the confirmed Google link on this device",
+  );
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return state.heldSessionWrite
+        && state.storageWriteMetrics.sessionWriteAttempts === ${retryWriteMetricsBefore.sessionWriteAttempts + 1}
+        && document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")
+        && Boolean(document.querySelector('[data-testid="profile-google-session-save-retry"]'));
+    })()`,
+    "the local session-save retry remaining pending with the warning still visible",
+  );
+  const retryWritePending = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(retryWritePending, "while retrying the local Google-link session save");
+  assert.equal(retryWritePending.heldSessionWrite, true);
+  assert.equal(
+    retryWritePending.storageWriteMetrics.rejectedSessionWrites,
+    retryWriteMetricsBefore.rejectedSessionWrites,
+    "The pending retry must not be counted as another rejection.",
+  );
+  assert.equal(
+    retryWritePending.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "Retrying a local save must not send another Google-link request.",
+  );
+  assert.deepEqual(
+    retryWritePending.clerk.events,
+    delayedStorageFailure.clerk.events,
+    "Retrying the local save must not start another Clerk flow.",
+  );
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.releaseHeldSessionWrite()"),
+    true,
+    "The held local retry should be released to succeed.",
+  );
+  await waitForExpression(
+    `!document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")
+      && Boolean(document.querySelector('[data-testid="profile-google-connected"]'))
+      && !document.querySelector('[data-testid="profile-google-session-save-retry"]')`,
+    "the warning clearing after the local retry succeeds",
+  );
+  const successfulSessionSaveRetry = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(successfulSessionSaveRetry, "after retrying the local Google-link session save");
+  assert.equal(successfulSessionSaveRetry.currentSession?.googleLinked, true);
+  assert.equal(successfulSessionSaveRetry.storedSession?.googleLinked, true);
+  assert.equal(
+    successfulSessionSaveRetry.storageWriteMetrics.rejectedSessionWrites,
+    retryWriteMetricsBefore.rejectedSessionWrites,
+    "The successful retry should not add another storage rejection.",
+  );
+  assert.equal(
+    successfulSessionSaveRetry.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "The successful retry must not duplicate the earlier Google-link request.",
+  );
+  const walletRetryCallStart = successfulSessionSaveRetry.calls.length;
+  await assertWalletBalance("after retrying the local Google-link session save");
+  const walletAfterSessionSaveRetry = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletAfterSessionSaveRetry, "after Wallet loads following the successful local session-save retry");
+  const walletRequestsAfterSaveRetry = walletAfterSessionSaveRetry.calls.slice(walletRetryCallStart).filter(
+    (call) => call.method === "GET" && call.path === "/wallet/transactions",
+  );
+  assert.ok(walletRequestsAfterSaveRetry.length > 0, "Wallet should load after the successful local session-save retry.");
+  assert.ok(
+    walletRequestsAfterSaveRetry.every(
+      (call) => call.status === 200 && call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Wallet after the retry must use the original password-account session and token.",
+  );
 
   await openProfileScenario("profile-link-already-linked");
   const alreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");

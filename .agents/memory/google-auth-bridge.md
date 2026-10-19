@@ -79,6 +79,12 @@ When the server accepts a Google link but the returned Daily007 session cannot b
 
 **How to apply:** Keep session-persistence failures distinct from API authorization failures and continue protected calls with the original password-account bearer token.
 
+If that local save fails, keep the server-returned linked session in app-level state and offer a save-only retry from Profile; do not repeat the Clerk flow or `/auth/google` request. A pending retry must survive switching tabs because Profile or its button may unmount.
+
+**Why:** The server may already report Google as linked when the local write fails, hiding the original Connect action; repeating the link request is unnecessary, and screen-local retry state can disappear during navigation.
+
+**How to apply:** Store the pending session above tab screens, retry persistence only while the same Daily007 account and token are active, and clear the warning only after the save succeeds.
+
 On 2026-10-14, the user reported that after a native Android force-close and relaunch, a linked password account still showed Google connected, an unlinked account still offered Connect Google, and the account ID, wallet balance, and Daily007 token were unchanged.
 
 **Why:** Browser mocks cannot prove native AsyncStorage survives an Android process restart.

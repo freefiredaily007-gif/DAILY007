@@ -66,6 +66,8 @@ export type Ctx = {
   logout: () => void;
   googleLinkError: string;
   setGoogleLinkError: (message: string) => void;
+  pendingGoogleLinkSession?: User | null;
+  setPendingGoogleLinkSession?: (session: User | null) => void;
   googleSSONativeTestHarness?: GoogleSSONativeTestHarness;
 };
 export const Ctx = React.createContext<Ctx>(null as any);
@@ -240,6 +242,7 @@ function DailyApp({
   const [logoutPending, setLogoutPending] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
   const [googleLinkError, setGoogleLinkError] = useState('');
+  const [pendingGoogleLinkSession, setPendingGoogleLinkSession] = useState<User | null>(null);
   const [verificationSession, setVerificationSession] = useState<User | null>(null);
   const [sessionReadFailed, setSessionReadFailed] = useState(false);
   const [retryingVerification, setRetryingVerification] = useState(false);
@@ -253,6 +256,7 @@ function DailyApp({
     const handleExpiredSession = () => {
       setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
       setGoogleLinkError('');
+      setPendingGoogleLinkSession(null);
       setSession(null);
       setUser(null);
       queryClient.clear();
@@ -435,6 +439,7 @@ function DailyApp({
     setVerificationSession(null);
     setAuthNotice('');
     setGoogleLinkError('');
+    setPendingGoogleLinkSession(null);
     try {
       let retryClearFailed = false;
       const accountId = user?.id ?? user?.$id;
@@ -537,6 +542,7 @@ function DailyApp({
       if (logoutInFlight.current) return;
       setAuthNotice('');
       setGoogleLinkError('');
+      setPendingGoogleLinkSession(null);
       setUser(u);
     }}
   />;
@@ -550,6 +556,8 @@ function DailyApp({
       logout,
       googleLinkError,
       setGoogleLinkError,
+      pendingGoogleLinkSession,
+      setPendingGoogleLinkSession,
       ...(googleSSONativeTestHarness ? { googleSSONativeTestHarness } : {}),
     }}>
       <QueryClientProvider client={queryClient}>

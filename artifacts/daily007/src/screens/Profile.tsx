@@ -6,7 +6,13 @@ import Constants from 'expo-constants';
 import { ReadableText as Text } from '../components/typography';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useApp } from '../App';
-import { Api, apiError } from '../lib/api';
+import {
+  Api,
+  apiError,
+  captureSessionIdentity,
+  setSessionForIdentity,
+  type User,
+} from '../lib/api';
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { useDaily007ChangePassword } from '@workspace/api-client-react';
@@ -37,6 +43,8 @@ export default function Profile({
     refresh,
     googleLinkError,
     setGoogleLinkError,
+    pendingGoogleLinkSession,
+    setPendingGoogleLinkSession,
     googleSSONativeTestHarness,
   } = useApp();
   const profileEmail = String(user?.email ?? '');
@@ -63,6 +71,8 @@ export default function Profile({
   const [googleStatusRetrying, setGoogleStatusRetrying] = React.useState(false);
   const googleStatusRequest = React.useRef<Promise<void> | null>(null);
   const googleStatusRevision = React.useRef(0);
+  const [googleSessionSaveRetrying, setGoogleSessionSaveRetrying] = React.useState(false);
+  const googleSessionSaveRetryInFlight = React.useRef(false);
   const [passwordModalVisible, setPasswordModalVisible] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
@@ -115,6 +125,62 @@ export default function Profile({
     googleStatusRequest.current = request;
     return request;
   }, []);
+  const rememberPendingGoogleSessionSave = React.useCallback((linkedSession: User) => {
+    const accountId = user.id ?? user.$id;
+    const originalToken = user.token;
+    const linkedAccountId = linkedSession.id ?? linkedSession.$id;
+    if (
+      !accountId ||
+      !originalToken ||
+      linkedAccountId !== accountId ||
+      linkedSession.token !== originalToken
+    ) {
+      return;
+    }
+    setPendingGoogleLinkSession?.(linkedSession);
+  }, [setPendingGoogleLinkSession, user.id, user.$id, user.token]);
+  const retryGoogleSessionSave = React.useCallback(async () => {
+    if (googleSessionSaveRetryInFlight.current || !pendingGoogleLinkSession) return;
+    const pendingAccountId = pendingGoogleLinkSession.id ?? pendingGoogleLinkSession.$id;
+    const identity = captureSessionIdentity();
+    if (
+      !identity ||
+      !pendingAccountId ||
+      identity.accountId !== pendingAccountId ||
+      identity.token !== pendingGoogleLinkSession.token ||
+      user.token !== pendingGoogleLinkSession.token
+    ) {
+      setPendingGoogleLinkSession?.(null);
+      setGoogleLinkError('Your Daily007 session changed. Sign in again before retrying this save.');
+      return;
+    }
+
+    googleSessionSaveRetryInFlight.current = true;
+    setGoogleSessionSaveRetrying(true);
+    try {
+      const saved = await setSessionForIdentity(pendingGoogleLinkSession, identity);
+      if (!saved) {
+        setGoogleLinkError('Your Daily007 session changed during the retry. Please try again from the current account.');
+        return;
+      }
+      setPendingGoogleLinkSession?.(null);
+      setGoogleLinkError('');
+      void refresh();
+      void loadGoogleStatus();
+    } catch (error) {
+      setGoogleLinkError(apiError(error));
+    } finally {
+      googleSessionSaveRetryInFlight.current = false;
+      setGoogleSessionSaveRetrying(false);
+    }
+  }, [
+    loadGoogleStatus,
+    pendingGoogleLinkSession,
+    refresh,
+    setGoogleLinkError,
+    setPendingGoogleLinkSession,
+    user.token,
+  ]);
   useFocusEffect(React.useCallback(() => {
     void loadGoogleStatus();
     return () => {
@@ -356,16 +422,24 @@ export default function Profile({
           <Text testID="profile-google-connected" style={s.connected}>Google connection confirmed.</Text>
         ) : googleStatus === 'unlinked' ? (
           <>
-            <GoogleSSOButton
-              label="Connect Google"
-              dailyToken={user.token}
-              devNativeTestHarness={googleSSONativeTestHarness}
-              onError={setGoogleLinkError}
-              onSuccess={async () => {
-                setGoogleLinkError('');
-                await loadGoogleStatus();
-              }}
-            />
+            {pendingGoogleLinkSession ? (
+              <Text testID="profile-google-save-pending" style={s.connectDescription}>
+                Google linking completed. Retry saving the updated session on this device below.
+              </Text>
+            ) : (
+              <GoogleSSOButton
+                label="Connect Google"
+                dailyToken={user.token}
+                devNativeTestHarness={googleSSONativeTestHarness}
+                onError={setGoogleLinkError}
+                onSessionPersistenceError={rememberPendingGoogleSessionSave}
+                onSuccess={async () => {
+                  setPendingGoogleLinkSession?.(null);
+                  setGoogleLinkError('');
+                  await loadGoogleStatus();
+                }}
+              />
+            )}
           </>
         ) : googleStatus === 'unavailable' ? (
           <>
@@ -387,7 +461,24 @@ export default function Profile({
         ) : (
           <Text testID="profile-google-status-loading" style={s.connected}>Checking Google connection…</Text>
         )}
-        {!!googleLinkError && <Text style={s.statsError}>{googleLinkError}</Text>}
+        {pendingGoogleLinkSession && (
+          <Btn
+            testID="profile-google-session-save-retry"
+            title={googleSessionSaveRetrying ? 'SAVING SESSION…' : 'RETRY SAVING SESSION'}
+            kind="ghost"
+            onPress={() => { void retryGoogleSessionSave(); }}
+            disabled={googleSessionSaveRetrying}
+            loading={googleSessionSaveRetrying}
+            accessibilityLabel={googleSessionSaveRetrying ? 'Saving your Daily007 session' : 'Retry saving your Daily007 session'}
+            accessibilityHint="Retries the device save for the completed Google link without sending another Google link request."
+            accessibilityState={{ disabled: googleSessionSaveRetrying, busy: googleSessionSaveRetrying }}
+          />
+        )}
+        {!!googleLinkError && (
+          <Text testID="profile-google-link-error" style={s.statsError}>
+            {googleLinkError}
+          </Text>
+        )}
       </Card>
 
       <SectionTitle accent={C.gold}>SECURITY</SectionTitle>

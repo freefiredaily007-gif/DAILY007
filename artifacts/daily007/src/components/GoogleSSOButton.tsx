@@ -32,6 +32,7 @@ const clerkConfigured = !!process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 type Props = {
   onSuccess: (user: User) => void | Promise<void>;
   onError?: (message: string) => void;
+  onSessionPersistenceError?: (user: User) => void;
   referralCode?: string;
   dailyToken?: string;
   disabled?: boolean;
@@ -172,6 +173,7 @@ function GoogleButtonController({
   startNativeSSOFlow,
   onSuccess,
   onError,
+  onSessionPersistenceError,
   referralCode,
   dailyToken,
   disabled,
@@ -242,7 +244,15 @@ function GoogleButtonController({
       },
       showError,
       onSuccess: async (authenticated) => {
-        const saved = await setSessionForAuthAttempt(authenticated.user, authRevision);
+        let saved: boolean;
+        try {
+          saved = await setSessionForAuthAttempt(authenticated.user, authRevision);
+        } catch (error) {
+          if (dailyToken && error instanceof SessionPersistenceError) {
+            onSessionPersistenceError?.(authenticated.user);
+          }
+          throw error;
+        }
         if (!saved) return;
         announceGoogleStatus(
           label.toLowerCase().includes('sign up')
