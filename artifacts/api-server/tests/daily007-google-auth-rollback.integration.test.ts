@@ -1796,7 +1796,10 @@ test("two independent Google signups keep their referral rewards when both trans
   }
 });
 
-test("simultaneous Google signups with the same verified email leave only the winner's referral and reward", async () => {
+async function runSameEmailGoogleSignupRace(
+  pausedClerkUserId: string,
+  winningClerkUserId: string,
+): Promise<void> {
   resetMockGoogleUsers([
     VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
     SECOND_VERIFIED_GOOGLE_USER_WITH_SHARED_EMAIL as unknown as MockGoogleUser,
@@ -1846,14 +1849,14 @@ test("simultaneous Google signups with the same verified email leave only the wi
       await blocker.query("SELECT pg_advisory_xact_lock(743003, 3)");
 
       try {
-        losingSignIn = googleSignIn(origin, GOOGLE_CLERK_USER_ID);
+        losingSignIn = googleSignIn(origin, pausedClerkUserId);
         await waitForBlockedBackend(
           blocker.processID,
           "%INSERT INTO daily007_v2_users%",
           "the first same-email signup to pause before its account insert",
         );
 
-        const pendingWinningSignIn = googleSignIn(origin, SECOND_GOOGLE_CLERK_USER_ID);
+        const pendingWinningSignIn = googleSignIn(origin, winningClerkUserId);
         winningSignIn = pendingWinningSignIn;
         let winnerTimeout: NodeJS.Timeout | undefined;
         let winnerResult: JsonResult;
@@ -1890,7 +1893,7 @@ test("simultaneous Google signups with the same verified email leave only the wi
         assert.deepEqual(winnerAccount.rows, [{
           id: String(winnerResult.body.id),
           email: GOOGLE_EMAIL,
-          clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+          clerk_user_id: winningClerkUserId,
           wallet_coins: 10,
         }], "the winning signup should be committed before the first insert resumes");
 
@@ -1963,7 +1966,7 @@ test("simultaneous Google signups with the same verified email leave only the wi
       assert.deepEqual(accounts.rows, [{
         id: String(winningResult.body.id),
         email: GOOGLE_EMAIL,
-        clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+        clerk_user_id: winningClerkUserId,
         wallet_coins: 10,
       }], "exactly one account should remain for the shared email and either competing identity");
 
@@ -2034,6 +2037,14 @@ test("simultaneous Google signups with the same verified email leave only the wi
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
     resetMockGoogleUser();
   }
+}
+
+test("the second Google identity wins when the first pauses before the shared-email insert", async () => {
+  await runSameEmailGoogleSignupRace(GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID);
+});
+
+test("the first Google identity wins when the second pauses before the shared-email insert", async () => {
+  await runSameEmailGoogleSignupRace(SECOND_GOOGLE_CLERK_USER_ID, GOOGLE_CLERK_USER_ID);
 });
 
 test("a waiting Google signup claims a shared email after the first identity rolls back", async () => {
