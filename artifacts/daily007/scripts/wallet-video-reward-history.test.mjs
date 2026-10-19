@@ -89,13 +89,21 @@ function createDeferred() {
 }
 
 function createWalletLoadHarness({ Api, refresh, walletUserId = 'wallet-player' }) {
-  const state = {};
+  const state = {
+    history: {
+      userId: walletUserId,
+      items: [],
+      transactionCursor: null,
+      paymentCursor: null,
+    },
+  };
   const setterNames = [
     'setError',
     'setLoading',
     'setLoadingMoreHistory',
     'setHistory',
     'setHistoryLoadError',
+    'setBalanceLoadError',
     'setHistoryRetryStatus',
     'setPaymentUpi',
     'setPaymentQr',
@@ -114,16 +122,13 @@ function createWalletLoadHarness({ Api, refresh, walletUserId = 'wallet-player' 
     'setTotalDeposited',
     'setTotalWithdrawn',
   ];
-  let finishWalletLoad;
-  const walletLoadFinished = new Promise((resolve) => {
-    finishWalletLoad = resolve;
-  });
   const setters = Object.fromEntries(setterNames.map((name) => [
     name,
     (value) => {
       const stateKey = `${name[3].toLowerCase()}${name.slice(4)}`;
-      state[stateKey] = value;
-      if (name === 'setLoading' && value === false) finishWalletLoad();
+      state[stateKey] = name === 'setHistory' && typeof value === 'function'
+        ? value(state[stateKey])
+        : value;
     },
   ]));
   const loadDeclaration = findVariableDeclaration(walletSourceFile, 'load');
@@ -148,12 +153,24 @@ function createWalletLoadHarness({ Api, refresh, walletUserId = 'wallet-player' 
   });
   const refreshHistoryDeclaration = findVariableDeclaration(walletSourceFile, 'refreshHistory');
   assert.ok(ts.isCallExpression(refreshHistoryDeclaration.initializer));
+  const focusedLoads = [];
+  const trackedLoad = () => {
+    const result = loadWallet();
+    focusedLoads.push(result);
+    return result;
+  };
   const refreshHistory = loadWalletCallback(refreshHistoryDeclaration.initializer.arguments[0], {
-    load: loadWallet,
+    load: trackedLoad,
     setHistoryRetryStatus: setters.setHistoryRetryStatus,
   });
   const focusWallet = loadWalletCallback(findWalletFocusCallback(), { refreshHistory });
-  return { state, loadWallet, focusWallet, walletLoadFinished };
+  const focusAndWait = () => {
+    const previousLoadCount = focusedLoads.length;
+    focusWallet();
+    assert.equal(focusedLoads.length, previousLoadCount + 1, 'Wallet focus should start one refresh.');
+    return focusedLoads[previousLoadCount];
+  };
+  return { state, loadWallet, focusWallet, focusAndWait, setters };
 }
 
 test('Wallet keeps simultaneous video rewards as separate rows with their own balances', () => {
@@ -306,10 +323,9 @@ test('returning to Wallet after two rewarded video sessions loads both rows and 
     myWithdrawals: async () => [],
     settings: async () => ({ settings: {} }),
   };
-  const { state, focusWallet, walletLoadFinished } = createWalletLoadHarness({ Api, refresh });
+  const { state, focusAndWait } = createWalletLoadHarness({ Api, refresh });
 
-  await focusWallet();
-  await walletLoadFinished;
+  await focusAndWait();
 
   assert.equal(balanceFetches, 1, 'Wallet focus should refresh the server-owned balance.');
   assert.equal(walletBalance, 13);
@@ -369,6 +385,7 @@ test('a slower older Wallet load cannot replace the newer balance or video rewar
   const { state, loadWallet } = createWalletLoadHarness({ Api, refresh });
 
   const olderLoad = loadWallet();
+  await Promise.resolve();
   assert.equal(walletBalance, 12, 'the older focus request may fetch its balance before its history');
 
   const newerLoad = loadWallet();
@@ -389,4 +406,160 @@ test('a slower older Wallet load cannot replace the newer balance or video rewar
   assert.strictEqual(state.history, newestHistory);
   assert.deepEqual(state.history.items.map((transaction) => transaction.id), [newReward.id]);
   assert.equal(state.history.items[0]?.balanceAfter, 13);
+});
+
+test('Wallet labels a stale balance when refresh fails and replaces it after a successful focus refresh', async () => {
+  const previousReward = {
+    id: 'video-reward-previous',
+    amount: 1,
+    balanceAfter: 20,
+    reason: 'video_watch_reward',
+    createdAt: '2026-10-17T12:00:00.000Z',
+  };
+  let currentRewards = [
+    {
+      id: 'video-reward-current-1',
+      amount: 1,
+      balanceAfter: 30,
+      reason: 'video_watch_reward',
+      createdAt: '2026-10-18T12:00:00.000Z',
+    },
+    {
+      id: 'video-reward-current-2',
+      amount: 1,
+      balanceAfter: 31,
+      reason: 'video_watch_reward',
+      createdAt: '2026-10-19T12:00:00.000Z',
+    },
+  ];
+  let displayedBalance = 20;
+  let serverBalance = 31;
+  let failBalanceRefresh = true;
+  const refresh = async () => {
+    if (failBalanceRefresh) {
+      failBalanceRefresh = false;
+      throw new Error('balance endpoint unavailable');
+    }
+    displayedBalance = serverBalance;
+    return { coins: serverBalance };
+  };
+  const Api = {
+    transactionsPage: async () => ({ items: currentRewards, nextCursor: null }),
+    myPaymentsPage: async () => ({ items: [], nextCursor: null }),
+    myWithdrawals: async () => [],
+    settings: async () => ({ settings: {} }),
+  };
+  const { state, focusAndWait, setters } = createWalletLoadHarness({ Api, refresh });
+  setters.setHistory({
+    userId: 'wallet-player',
+    items: [previousReward],
+    transactionCursor: 'old-transaction-cursor',
+    paymentCursor: null,
+  });
+
+  const partialResult = await focusAndWait();
+
+  assert.equal(partialResult, true, 'available transaction history should still load when balance refresh fails');
+  assert.equal(displayedBalance, 20, 'the last known balance remains until the server refresh succeeds');
+  assert.match(state.balanceLoadError, /Could not refresh your available coin balance/);
+  assert.match(state.balanceLoadError, /Showing the last known balance/);
+  assert.equal(state.historyLoadError, '');
+  assert.deepEqual(state.history.items.map((item) => item.id), currentRewards.map((item) => item.id));
+
+  serverBalance = 34;
+  currentRewards = [
+    ...currentRewards,
+    {
+      id: 'video-reward-current-3',
+      amount: 1,
+      balanceAfter: 34,
+      reason: 'video_watch_reward',
+      createdAt: '2026-10-20T12:00:00.000Z',
+    },
+  ];
+  await focusAndWait();
+
+  assert.equal(displayedBalance, 34);
+  assert.equal(state.balanceLoadError, '');
+  assert.equal(state.historyLoadError, '');
+  assert.deepEqual(state.history.items.map((item) => item.id), currentRewards.map((item) => item.id));
+  assert.equal(state.loading, false);
+  assert.match(walletScreenSource, /testID="wallet-balance-error"/);
+  assert.match(walletScreenSource, /testID="wallet-balance-retry"/);
+});
+
+test('Wallet labels retained transactions when history fails and replaces them after a successful focus refresh', async () => {
+  const previousReward = {
+    id: 'video-reward-previous',
+    amount: 1,
+    balanceAfter: 40,
+    reason: 'video_watch_reward',
+    createdAt: '2026-10-17T12:00:00.000Z',
+  };
+  const currentRewards = [
+    {
+      id: 'video-reward-current-1',
+      amount: 1,
+      balanceAfter: 51,
+      reason: 'video_watch_reward',
+      createdAt: '2026-10-18T12:00:00.000Z',
+    },
+    {
+      id: 'video-reward-current-2',
+      amount: 1,
+      balanceAfter: 52,
+      reason: 'video_watch_reward',
+      createdAt: '2026-10-19T12:00:00.000Z',
+    },
+  ];
+  let displayedBalance = 40;
+  let serverBalance = 51;
+  let failTransactionHistory = true;
+  const refresh = async () => {
+    displayedBalance = serverBalance;
+    return { coins: serverBalance };
+  };
+  const Api = {
+    transactionsPage: async () => {
+      if (failTransactionHistory) {
+        failTransactionHistory = false;
+        throw new Error('transaction history unavailable');
+      }
+      return { items: currentRewards, nextCursor: null };
+    },
+    myPaymentsPage: async () => ({ items: [], nextCursor: null }),
+    myWithdrawals: async () => [],
+    settings: async () => ({ settings: {} }),
+  };
+  const { state, focusAndWait, setters } = createWalletLoadHarness({ Api, refresh });
+  setters.setHistory({
+    userId: 'wallet-player',
+    items: [previousReward],
+    transactionCursor: 'old-transaction-cursor',
+    paymentCursor: null,
+  });
+
+  const partialResult = await focusAndWait();
+
+  assert.equal(partialResult, false, 'a failed transaction-history request should be reported as incomplete');
+  assert.equal(displayedBalance, 51, 'a successful balance refresh should still be applied');
+  assert.equal(state.balanceLoadError, '');
+  assert.match(state.historyLoadError, /Could not refresh transaction history/);
+  assert.match(state.historyLoadError, /Previously loaded transactions are still shown/);
+  assert.match(state.historyLoadError, /transaction history unavailable/);
+  assert.deepEqual(state.history.items.map((item) => item.id), [previousReward.id]);
+  assert.equal(state.history.transactionCursor, 'old-transaction-cursor');
+  assert.equal(state.loading, false);
+
+  serverBalance = 53;
+  await focusAndWait();
+
+  assert.equal(displayedBalance, 53);
+  assert.equal(state.balanceLoadError, '');
+  assert.equal(state.historyLoadError, '');
+  assert.deepEqual(state.history.items.map((item) => item.id), currentRewards.map((item) => item.id));
+  assert.equal(state.history.transactionCursor, null);
+  assert.equal(state.loading, false);
+  assert.match(walletScreenSource, /testID="wallet-history-error"/);
+  assert.match(walletScreenSource, /testID="wallet-history-retry"/);
 });

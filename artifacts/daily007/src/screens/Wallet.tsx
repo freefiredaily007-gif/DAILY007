@@ -126,6 +126,7 @@ export default function Wallet({
   const transactionHistoryCursor = currentUserHistory.transactionCursor;
   const paymentHistoryCursor = currentUserHistory.paymentCursor;
   const [historyLoadError, setHistoryLoadError] = useState('');
+  const [balanceLoadError, setBalanceLoadError] = useState('');
   const [historyRetryStatus, setHistoryRetryStatus] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -172,6 +173,7 @@ export default function Wallet({
     setLoading(Boolean(walletUserId));
     setLoadingMoreHistory(false);
     setHistoryLoadError('');
+    setBalanceLoadError('');
     setHistoryRetryStatus('');
     setError('');
   }, [walletUserId]);
@@ -182,6 +184,8 @@ export default function Wallet({
     setLoadingMoreHistory(false);
     if (!requestedUserId) {
       setHistory(emptyWalletHistoryState(null));
+      setHistoryLoadError('');
+      setBalanceLoadError('');
       setLoading(false);
       return null;
     }
@@ -191,74 +195,139 @@ export default function Wallet({
     try {
       setError('');
       setLoading(true);
-      const [, transactionPage, paymentPage, wds, settings] = await Promise.all([
-        refresh(),
-        Api.transactionsPage(),
-        Api.myPaymentsPage(),
-        Api.myWithdrawals(),
-        Api.settings(),
+      const [
+        balanceResult,
+        transactionResult,
+        paymentResult,
+        withdrawalResult,
+        settingsResult,
+      ] = await Promise.allSettled([
+        Promise.resolve().then(refresh),
+        Promise.resolve().then(() => Api.transactionsPage()),
+        Promise.resolve().then(() => Api.myPaymentsPage()),
+        Promise.resolve().then(() => Api.myWithdrawals()),
+        Promise.resolve().then(() => Api.settings()),
       ]);
       if (!requestIsCurrent()) return null;
+      const transactionPage = transactionResult.status === 'fulfilled' ? transactionResult.value : null;
+      const paymentPage = paymentResult.status === 'fulfilled' ? paymentResult.value : null;
+      const wds = withdrawalResult.status === 'fulfilled' ? withdrawalResult.value : null;
+      const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null;
       const data = transactionPage?.items;
       const pays = paymentPage?.items;
-      if (!Array.isArray(data) || !Array.isArray(pays) || !Array.isArray(wds)) {
-        throw new Error('The wallet server returned an invalid response.');
+      const hasTransactions = transactionResult.status === 'fulfilled' && Array.isArray(data);
+      const hasPayments = paymentResult.status === 'fulfilled' && Array.isArray(pays);
+      const hasWithdrawals = withdrawalResult.status === 'fulfilled' && Array.isArray(wds);
+      const hasSettings = settingsResult.status === 'fulfilled';
+
+      if (balanceResult.status === 'fulfilled') {
+        setBalanceLoadError('');
+      } else {
+        setBalanceLoadError(
+          `Could not refresh your available coin balance. Showing the last known balance. ${apiError(balanceResult.reason)}`,
+        );
       }
-      const nextTransactionCursor = typeof transactionPage.nextCursor === 'string' ? transactionPage.nextCursor : null;
-      const nextPaymentCursor = typeof paymentPage.nextCursor === 'string' ? paymentPage.nextCursor : null;
-      const config = settings?.settings ?? settings ?? {};
-      setPaymentUpi(String(config?.upiId ?? config?.upi_id ?? '').trim());
-      setPaymentQr(String(config?.upiQrUrl ?? '').trim());
-      setPaymentNote(String(config?.paymentNote ?? '').trim());
-      setRechargeEnabled(config?.rechargeEnabled === true || config?.rechargeEnabled === 'true');
-      setWithdrawalEnabled(config?.withdrawalEnabled === true || config?.withdrawalEnabled === 'true');
-      setMinPurchase(Math.max(1, Number(config?.minPurchase) || 1));
-      setMaxPurchase(Math.max(1, Number(config?.maxPurchase) || 5000));
-      setCoinToMoneyRate(Number(config?.coinToMoneyRate) > 0 ? Number(config.coinToMoneyRate) : 1);
-      const configuredPackages = String(config?.coinPackages ?? '').split(',')
-        .map((value: string) => Number(value.trim()))
-        .filter((value: number) => Number.isSafeInteger(value) && value > 0);
-      setCoinPackages([...new Set(configuredPackages)]);
-      const configuredMinWithdraw = Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW);
-      setMinWithdraw(configuredMinWithdraw);
-      setMaxWithdraw(Math.max(configuredMinWithdraw, Number(config?.maxWithdrawal) || DEFAULT_MAX_WITHDRAW));
-      setHasPending(pays.some((p: any) => p.status === 'pending'));
-      setHasPendingWithdraw(wds.some((w: any) => w.status === 'pending'));
-      setPendingDepositCoins(pays
-        .filter((p: any) => p.status === 'pending')
-        .reduce((sum: number, p: any) => sum + Number(p.coins ?? 0), 0));
-      setTotalDeposited(pays
-        .filter((p: any) => p.status === 'approved')
-        .reduce((sum: number, p: any) => sum + Number(p.coins ?? 0), 0));
-      setTotalWithdrawn(wds
-        .filter((w: any) => w.status === 'approved' && w.payoutStatus === 'paid')
-        .reduce((sum: number, w: any) => sum + Number(w.coins ?? 0), 0));
-      const pendingPays = pays
-        .filter((p: any) => p.status !== 'deleted')
-        .map((p: any) => ({
-          id: 'pay-' + p.id, description: 'Coin recharge request', reference: p.txnId,
-          coins: Number(p.coins || p.amount || 0), amount: Number(p.amount || 0),
-          createdAt: p.createdAt, status: p.status, reviewReason: p.reviewReason,
-          isRequest: true, requestType: 'payment',
-        }));
-      const pendingWds = wds
-        .filter((w: any) => w.status !== 'deleted')
-        .map((w: any) => ({
-          id: 'wd-' + w.id, description: 'Withdrawal request', coins: Number(w.coins || 0),
-          amount: -Number(w.coins || 0), createdAt: w.createdAt, status: w.status,
-          reviewReason: w.reviewReason, payoutStatus: w.payoutStatus,
-          isRequest: true, requestType: 'withdrawal',
-        }));
-      const merged = [...pendingPays, ...pendingWds, ...data]
-        .sort((left, right) => Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? '')));
-      setHistory({
-        userId: requestedUserId,
-        items: merged,
-        transactionCursor: nextTransactionCursor,
-        paymentCursor: nextPaymentCursor,
+      if (hasTransactions) {
+        setHistoryLoadError('');
+      } else {
+        const reason = transactionResult.status === 'rejected'
+          ? apiError(transactionResult.reason)
+          : 'The wallet server returned an invalid transaction-history response.';
+        setHistoryLoadError(
+          `Could not refresh transaction history. Previously loaded transactions are still shown. ${reason}`,
+        );
+      }
+
+      const auxiliaryFailures: string[] = [];
+      if (!hasPayments) auxiliaryFailures.push('recharge requests');
+      if (!hasWithdrawals) auxiliaryFailures.push('withdrawal requests');
+      if (!hasSettings) auxiliaryFailures.push('wallet settings');
+      setError(auxiliaryFailures.length
+        ? `Could not refresh ${auxiliaryFailures.join(', ')}. Previously loaded details are still shown.`
+        : '');
+
+      if (hasSettings) {
+        const config = settings?.settings ?? settings ?? {};
+        setPaymentUpi(String(config?.upiId ?? config?.upi_id ?? '').trim());
+        setPaymentQr(String(config?.upiQrUrl ?? '').trim());
+        setPaymentNote(String(config?.paymentNote ?? '').trim());
+        setRechargeEnabled(config?.rechargeEnabled === true || config?.rechargeEnabled === 'true');
+        setWithdrawalEnabled(config?.withdrawalEnabled === true || config?.withdrawalEnabled === 'true');
+        setMinPurchase(Math.max(1, Number(config?.minPurchase) || 1));
+        setMaxPurchase(Math.max(1, Number(config?.maxPurchase) || 5000));
+        setCoinToMoneyRate(Number(config?.coinToMoneyRate) > 0 ? Number(config.coinToMoneyRate) : 1);
+        const configuredPackages = String(config?.coinPackages ?? '').split(',')
+          .map((value: string) => Number(value.trim()))
+          .filter((value: number) => Number.isSafeInteger(value) && value > 0);
+        setCoinPackages([...new Set(configuredPackages)]);
+        const configuredMinWithdraw = Math.max(DEFAULT_MIN_WITHDRAW, Number(config?.minWithdrawal) || DEFAULT_MIN_WITHDRAW);
+        setMinWithdraw(configuredMinWithdraw);
+        setMaxWithdraw(Math.max(configuredMinWithdraw, Number(config?.maxWithdrawal) || DEFAULT_MAX_WITHDRAW));
+      }
+
+      if (hasPayments) {
+        setHasPending(pays.some((p: any) => p.status === 'pending'));
+        setPendingDepositCoins(pays
+          .filter((p: any) => p.status === 'pending')
+          .reduce((sum: number, p: any) => sum + Number(p.coins ?? 0), 0));
+        setTotalDeposited(pays
+          .filter((p: any) => p.status === 'approved')
+          .reduce((sum: number, p: any) => sum + Number(p.coins ?? 0), 0));
+      }
+      if (hasWithdrawals) {
+        setHasPendingWithdraw(wds.some((w: any) => w.status === 'pending'));
+        setTotalWithdrawn(wds
+          .filter((w: any) => w.status === 'approved' && w.payoutStatus === 'paid')
+          .reduce((sum: number, w: any) => sum + Number(w.coins ?? 0), 0));
+      }
+
+      const pendingPays = hasPayments
+        ? pays
+          .filter((p: any) => p.status !== 'deleted')
+          .map((p: any) => ({
+            id: 'pay-' + p.id, description: 'Coin recharge request', reference: p.txnId,
+            coins: Number(p.coins || p.amount || 0), amount: Number(p.amount || 0),
+            createdAt: p.createdAt, status: p.status, reviewReason: p.reviewReason,
+            isRequest: true, requestType: 'payment',
+          }))
+        : null;
+      const pendingWds = hasWithdrawals
+        ? wds
+          .filter((w: any) => w.status !== 'deleted')
+          .map((w: any) => ({
+            id: 'wd-' + w.id, description: 'Withdrawal request', coins: Number(w.coins || 0),
+            amount: -Number(w.coins || 0), createdAt: w.createdAt, status: w.status,
+            reviewReason: w.reviewReason, payoutStatus: w.payoutStatus,
+            isRequest: true, requestType: 'withdrawal',
+          }))
+        : null;
+      const nextTransactionCursor = hasTransactions && typeof transactionPage.nextCursor === 'string'
+        ? transactionPage.nextCursor
+        : null;
+      const nextPaymentCursor = hasPayments && typeof paymentPage.nextCursor === 'string'
+        ? paymentPage.nextCursor
+        : null;
+      setHistory((previous) => {
+        const ownedHistory = walletHistoryForUser(previous, requestedUserId);
+        const previousPayments = ownedHistory.items.filter((item: any) =>
+          item.isRequest && item.requestType === 'payment');
+        const previousWithdrawals = ownedHistory.items.filter((item: any) =>
+          item.isRequest && item.requestType === 'withdrawal');
+        const previousTransactions = ownedHistory.items.filter((item: any) => !item.isRequest);
+        const merged = [
+          ...(pendingPays ?? previousPayments),
+          ...(pendingWds ?? previousWithdrawals),
+          ...(hasTransactions ? data : previousTransactions),
+        ].sort((left, right) =>
+          Date.parse(String(right.createdAt ?? '')) - Date.parse(String(left.createdAt ?? '')));
+        return {
+          userId: requestedUserId,
+          items: merged,
+          transactionCursor: hasTransactions ? nextTransactionCursor : ownedHistory.transactionCursor,
+          paymentCursor: hasPayments ? nextPaymentCursor : ownedHistory.paymentCursor,
+        };
       });
-      setHistoryLoadError('');
-      return true;
+      return hasTransactions;
     } catch (e) {
       if (requestIsCurrent()) {
         setHistoryLoadError(apiError(e));
@@ -475,6 +544,25 @@ export default function Wallet({
               >
                 🪙 {formatWalletCoins(user?.coins, fontScale >= 1.5)}
               </Text>
+              {!!balanceLoadError && (
+                <View style={s.historyRetry}>
+                  <Msg
+                    kind="err"
+                    text={balanceLoadError}
+                    testID="wallet-balance-error"
+                    accessibilityLabel={balanceLoadError}
+                  />
+                  <Btn
+                    title={loading ? 'REFRESHING BALANCE…' : 'RETRY BALANCE'}
+                    testID="wallet-balance-retry"
+                    accessibilityLabel={loading ? 'Refreshing wallet balance' : 'Retry wallet balance refresh'}
+                    accessibilityHint="Refreshes your wallet balance and transaction history."
+                    onPress={refreshHistory}
+                    loading={loading}
+                    disabled={loading}
+                  />
+                </View>
+              )}
               <Text style={s.rateNote}>1 coin = {inr(1, coinToMoneyRate)}</Text>
               <View style={[s.row, fontScale >= 1.5 && s.rowLarge]}>
                 <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(pendingDepositCoins, fontScale >= 1.5)}</Text><Text style={s.statL}>PENDING DEPOSITS</Text></View>
