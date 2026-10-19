@@ -17,19 +17,49 @@ export default function EditProfile({ updateProfile = Api.updateProfile }: EditP
   const [phone, setPhone] = useState(user?.phone ?? '');
   const [gameUid, setGameUid] = useState(user?.gameUid ?? '');
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [refreshError, setRefreshError] = useState('');
+
+  const refreshSavedProfile = async () => {
+    setRefreshError('');
+    setRefreshing(true);
+    try {
+      const refreshedUser = await refresh();
+      if (!refreshedUser) throw new Error('Profile refresh did not return a user.');
+    } catch {
+      setRefreshError(
+        'Your profile changes were saved, but the latest profile could not be loaded. Check your connection and retry loading your profile.',
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const save = async () => {
     if (!name.trim()) { Alert.alert('Missing', 'Name is required'); return; }
     setSaveError('');
+    setRefreshError('');
     setSaving(true);
     try {
       await updateProfile({ name: name.trim(), phone: phone.trim(), gameUid: gameUid.trim() });
-      await refresh();
-      Alert.alert('Saved', 'Profile updated');
     } catch (e: any) {
       setSaveError(e?.response?.data?.error ?? e?.message ?? 'Could not update profile. Please try again.');
-    } finally { setSaving(false); }
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const refreshedUser = await refresh();
+      if (!refreshedUser) throw new Error('Profile refresh did not return a user.');
+      Alert.alert('Saved', 'Profile updated');
+    } catch {
+      setRefreshError(
+        'Your profile changes were saved, but the latest profile could not be loaded. Check your connection and retry loading your profile.',
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -57,9 +87,21 @@ export default function EditProfile({ updateProfile = Api.updateProfile }: EditP
             {saveError}
           </Text>
         ) : null}
-        {saving
+        {refreshError ? (
+          <Text
+            testID="edit-profile-refresh-error"
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+            style={s.saveError}
+          >
+            {refreshError}
+          </Text>
+        ) : null}
+        {saving || refreshing
           ? <ActivityIndicator color={C.neon} style={{ marginTop: 8 }} />
-          : <Btn testID="edit-profile-save" title="SAVE CHANGES" onPress={save} />}
+          : refreshError
+            ? <Btn testID="edit-profile-refresh" title="RETRY PROFILE REFRESH" onPress={refreshSavedProfile} />
+            : <Btn testID="edit-profile-save" title="SAVE CHANGES" onPress={save} />}
       </Card>
     </KeyboardAwareScrollViewCompat>
   );

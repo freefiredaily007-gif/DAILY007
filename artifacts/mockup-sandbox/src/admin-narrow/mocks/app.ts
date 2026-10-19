@@ -22,7 +22,18 @@ const largestTextPreviewUser = {
   role: "player",
 };
 
-const previewRefresh = async () => ({ user: previewUser });
+const previewRefresh = async () => {
+  const controls = globalThis as typeof globalThis & {
+    __daily007FailNextProfileRefresh?: boolean;
+    __daily007ProfileRefreshCalls?: number;
+  };
+  controls.__daily007ProfileRefreshCalls = (controls.__daily007ProfileRefreshCalls ?? 0) + 1;
+  if (controls.__daily007FailNextProfileRefresh === true) {
+    controls.__daily007FailNextProfileRefresh = false;
+    return null;
+  }
+  return { user: previewUser };
+};
 const previewLogout = () => undefined;
 
 export function useApp() {

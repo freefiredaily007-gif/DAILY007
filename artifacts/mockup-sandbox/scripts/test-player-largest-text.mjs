@@ -618,8 +618,65 @@ async function checkEditProfileSaveFailure(viewportWidth) {
     JSON.stringify(retriedSave.values) === JSON.stringify(correctedValues),
     "A successful retry should leave the corrected field values visible.",
   );
+
+  const refreshValues = ["Saved But Not Refreshed Player", "9876543210", "1234567890"];
+  for (const [index, selector] of selectors.entries()) {
+    await setInputValue(selector, refreshValues[index], `profile refresh test field ${index + 1}`);
+  }
+  await evaluate(`(() => {
+    window.__daily007FailNextProfileRefresh = true;
+    window.__daily007ProfileRefreshCalls = 0;
+    const calls = window.__daily007LargestTextApiCalls;
+    if (Array.isArray(calls)) calls.length = 0;
+  })()`);
+  await clickSelector('[data-testid="edit-profile-save"]', "Edit Profile Save before refresh failure");
+  await waitForCondition(
+    "window.__daily007LargestTextApiCalls?.filter((call) => call.method === 'updateProfile').length === 1 && Boolean(document.querySelector('[data-testid=\"edit-profile-refresh-error\"]'))",
+    "the successful profile update followed by a failed refresh",
+  );
+
+  const failedRefresh = await evaluate(`(() => ({
+    values: ${JSON.stringify(selectors)}.map((selector) => document.querySelector(selector)?.value ?? null),
+    saveError: document.querySelector('[data-testid="edit-profile-save-error"]')?.textContent?.trim() ?? '',
+    refreshError: document.querySelector('[data-testid="edit-profile-refresh-error"]')?.textContent?.trim() ?? '',
+    updateCalls: window.__daily007LargestTextApiCalls?.filter((call) => call.method === "updateProfile") ?? [],
+    refreshCalls: window.__daily007ProfileRefreshCalls ?? 0,
+  }))()`);
+  assert(
+    JSON.stringify(failedRefresh.values) === JSON.stringify(refreshValues),
+    `A failed profile refresh must preserve the saved name, phone, and Free Fire UID: ${JSON.stringify(failedRefresh.values)}`,
+  );
+  assert(
+    failedRefresh.saveError === '',
+    `A failed refresh after a successful save must not report that the profile update failed: ${JSON.stringify(failedRefresh.saveError)}`,
+  );
+  assert(
+    failedRefresh.refreshError === "Your profile changes were saved, but the latest profile could not be loaded. Check your connection and retry loading your profile.",
+    `A failed refresh should explain that the update was saved and how to recover: ${JSON.stringify(failedRefresh.refreshError)}`,
+  );
+  assert(failedRefresh.updateCalls.length === 1, "The successful update should be submitted exactly once.");
+  assert(failedRefresh.refreshCalls === 1, "The failed profile refresh should be attempted exactly once.");
+
+  await checkReachable('[data-testid="edit-profile-refresh"]', "Edit Profile refresh retry");
+  await clickSelector('[data-testid="edit-profile-refresh"]', "Edit Profile refresh retry");
+  await waitForCondition(
+    "window.__daily007ProfileRefreshCalls === 2 && !document.querySelector('[data-testid=\"edit-profile-refresh-error\"]')",
+    "the successful refresh-only retry",
+  );
+  const refreshedProfile = await evaluate(`(() => ({
+    values: ${JSON.stringify(selectors)}.map((selector) => document.querySelector(selector)?.value ?? null),
+    updateCalls: window.__daily007LargestTextApiCalls?.filter((call) => call.method === "updateProfile") ?? [],
+  }))()`);
+  assert(
+    JSON.stringify(refreshedProfile.values) === JSON.stringify(refreshValues),
+    `The refresh-only retry must preserve the saved form values: ${JSON.stringify(refreshedProfile.values)}`,
+  );
+  assert(
+    refreshedProfile.updateCalls.length === 1,
+    "Retrying the profile refresh must not submit the profile update again.",
+  );
   console.log(
-    `PASS — Edit Profile failure recovery at ${viewportWidth}px and 2× text; values persisted, the error was clear, and the corrected form retried with the keyboard open.`,
+    `PASS — Edit Profile save and refresh recovery at ${viewportWidth}px and 2× text; rejected saves and failed refreshes have distinct guidance, values persist, and refresh retries do not resubmit the update.`,
   );
 }
 
