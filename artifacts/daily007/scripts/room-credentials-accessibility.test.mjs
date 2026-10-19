@@ -12,6 +12,9 @@ import {
   ROOM_CREDENTIAL_REVEAL_LEAD_MS,
 } from "../src/lib/roomCredentialTiming.ts";
 import {
+  createTournamentRoomDetailsAnnouncementTracker,
+} from "../src/lib/tournamentRoomDetailsAnnouncement.ts";
+import {
   createRoomCredentialAvailabilityAnnouncementTracker,
 } from "../src/lib/roomCredentialAvailabilityAnnouncement.ts";
 import {
@@ -26,6 +29,10 @@ const panelSource = await readFile(
 );
 const detailSource = await readFile(
   new URL("../src/screens/TDetail.tsx", import.meta.url),
+  "utf8",
+);
+const tournamentsSource = await readFile(
+  new URL("../src/screens/Tournaments.tsx", import.meta.url),
   "utf8",
 );
 const rowStart = panelSource.indexOf("function CredentialRow(");
@@ -141,6 +148,66 @@ test("room availability and credential replacements are announced without exposi
     detailSource,
     /announcement\s*=\s*`[^`]*(?:roomId|roomPassword|Room ID|Password)/,
     "automatic announcements must never interpolate a credential",
+  );
+});
+
+test("Tournaments announces late room availability once and only after scheduled refreshes", () => {
+  const track = createTournamentRoomDetailsAnnouncementTracker();
+  const pending = {
+    tournamentId: "match-1",
+    status: "pending",
+    credentialsAvailable: false,
+  };
+  const approvedWithoutRoom = {
+    ...pending,
+    status: "approved",
+  };
+  const approvedWithRoom = {
+    ...approvedWithoutRoom,
+    credentialsAvailable: true,
+  };
+
+  assert.equal(track("focus", [pending]), 0, "initial list loads must not announce");
+  assert.equal(track("manual", [approvedWithRoom]), 0, "manual refreshes must not trigger this scheduled-only announcement");
+  assert.equal(track("scheduled", [approvedWithRoom]), 0, "the tracker must not invent a transition after an unannounced manual approval");
+
+  const lateApprovalTrack = createTournamentRoomDetailsAnnouncementTracker();
+  assert.equal(lateApprovalTrack("focus", [pending]), 0);
+  assert.equal(lateApprovalTrack("scheduled", [approvedWithoutRoom]), 0);
+  assert.equal(
+    lateApprovalTrack("scheduled", [approvedWithRoom]),
+    1,
+    "available credentials arriving after a scheduled approval must be announced",
+  );
+  assert.equal(
+    lateApprovalTrack("scheduled", [approvedWithRoom]),
+    0,
+    "unrelated scheduled refreshes must not repeat the announcement",
+  );
+
+  const hiddenCredentialsTrack = createTournamentRoomDetailsAnnouncementTracker();
+  assert.equal(hiddenCredentialsTrack("focus", [pending]), 0);
+  assert.equal(hiddenCredentialsTrack("scheduled", [approvedWithRoom]), 1);
+
+  assert.match(
+    tournamentsSource,
+    /loadLatest = useCallback\(async \(trigger: TournamentLoadTrigger\)/,
+  );
+  assert.match(
+    tournamentsSource,
+    /roomDetailsAnnouncementTracker\.current\(\s*trigger,\s*\[\.\.\.registrationByTournament\.values\(\)\]\.map\(\(registration: any\) => \(\{[\s\S]*?credentialsAvailable: hasServerAuthorizedRoomCredentials\(/,
+  );
+  assert.match(tournamentsSource, /'Room details are now available for your approved tournament entry\.'/);
+  assert.match(tournamentsSource, /accessibilityLiveRegion="polite"/);
+  assert.match(tournamentsSource, /testID="tournament-room-details-announcement"/);
+  assert.match(
+    tournamentsSource,
+    /Platform\.OS === 'ios'\)\s*\{\s*AccessibilityInfo\.announceForAccessibilityWithOptions/,
+  );
+  assert.doesNotMatch(
+    tournamentsSource,
+    /setAccessibilityFocus|announceForAccessibility\([^)]*(?:roomId|roomPassword)/,
+    "the availability message must not move focus or include credential values",
   );
 });
 

@@ -20,6 +20,7 @@ import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
 import {
   getNextRoomCredentialRefreshAtMs,
   getRoomCredentialSchedule,
+  hasServerAuthorizedRoomCredentials,
 } from '../lib/roomCredentialTiming';
 import { tournamentListEmptyMessage, tournamentTabsForRoute } from '../lib/tournamentFilters';
 import { createLatestRequestGuard } from '../lib/latestRequestGuard';
@@ -43,6 +44,7 @@ import {
   takeTournamentStartAnnouncement,
   takeTournamentStartAnnouncements,
 } from '../lib/tournamentStartAnnouncement';
+import { createTournamentRoomDetailsAnnouncementTracker } from '../lib/tournamentRoomDetailsAnnouncement';
 
 function announcePlayerLoadStatusOnIOS(message: string): void {
   if (Platform.OS !== 'ios') return;
@@ -51,6 +53,9 @@ function announcePlayerLoadStatusOnIOS(message: string): void {
     priority: 'low',
   });
 }
+
+const ROOM_DETAILS_AVAILABLE_ANNOUNCEMENT =
+  'Room details are now available for your approved tournament entry.';
 
 type TournamentLoadTrigger = 'focus' | 'scheduled' | 'resume' | 'connectivity' | 'manual';
 
@@ -66,6 +71,7 @@ export default function Tournaments() {
   const [error, setError] = useState('');
   const [registrationError, setRegistrationError] = useState('');
   const [startAnnouncement, setStartAnnouncement] = useState('');
+  const [roomDetailsAnnouncementVersion, setRoomDetailsAnnouncementVersion] = useState(0);
   const [playerLoadAnnouncement, setPlayerLoadAnnouncement] = useState('');
   const [playerRefreshAnnouncementVersion, setPlayerRefreshAnnouncementVersion] = useState(0);
   const [missedStartCheckVersion, setMissedStartCheckVersion] = useState(0);
@@ -75,6 +81,9 @@ export default function Tournaments() {
   const appState = useRef(AppState.currentState);
   const listFocused = useRef(false);
   const announcedTournamentStarts = useRef(new Set<string>());
+  const roomDetailsAnnouncementTracker = useRef(
+    createTournamentRoomDetailsAnnouncementTracker(),
+  );
   const missedStartCheckPending = useRef(false);
   const hasLoadedList = useRef(false);
   const hasConfirmedRegistrationStatus = useRef(false);
@@ -91,7 +100,7 @@ export default function Tournaments() {
   const teamType = route?.params?.teamType as string | undefined;
   const heading = route?.params?.gameModeLabel || legacyMode || gameMode;
 
-  const loadLatest = useCallback(async () => {
+  const loadLatest = useCallback(async (trigger: TournamentLoadTrigger) => {
     const request = loadRequests.current.begin();
     try {
       const [listResult, registrationsResult] = await Promise.allSettled([
@@ -132,6 +141,27 @@ export default function Tournaments() {
         const previous = registrationByTournament.get(tournamentId);
         if (!previous || status === 'approved') registrationByTournament.set(tournamentId, registration);
       }
+      if (registrationStatusKnown) {
+        const newlyAvailableCount = roomDetailsAnnouncementTracker.current(
+          trigger,
+          [...registrationByTournament.values()].map((registration: any) => ({
+            ...registration,
+            credentialsAvailable: hasServerAuthorizedRoomCredentials(
+              registration.roomId,
+              registration.roomPassword,
+            ),
+          })),
+        );
+        if (newlyAvailableCount > 0) {
+          setRoomDetailsAnnouncementVersion((version) => version + 1);
+          if (Platform.OS === 'ios') {
+            AccessibilityInfo.announceForAccessibilityWithOptions(
+              ROOM_DETAILS_AVAILABLE_ANNOUNCEMENT,
+              { queue: true, priority: 'low' },
+            );
+          }
+        }
+      }
       const refreshedItems = (Array.isArray(listResult.value) ? listResult.value : []).map((tournament: any) => {
         const myRegistration = registrationByTournament.get(String(tournament.id));
         return {
@@ -171,7 +201,7 @@ export default function Tournaments() {
     const pending = activeLoad.current;
     if (pending && trigger !== 'focus') return pending;
 
-    const promise = loadLatest();
+    const promise = loadLatest(trigger);
     activeLoad.current = promise;
     const clearActiveLoad = () => {
       if (activeLoad.current === promise) activeLoad.current = null;
@@ -385,6 +415,17 @@ export default function Tournaments() {
           style={s.screenReaderAnnouncement}
         >
           {startAnnouncement}
+        </Text>
+      ) : null}
+      {Platform.OS === 'android' && roomDetailsAnnouncementVersion > 0 ? (
+        <Text
+          key={roomDetailsAnnouncementVersion}
+          accessible={false}
+          accessibilityLiveRegion="polite"
+          testID="tournament-room-details-announcement"
+          style={s.screenReaderAnnouncement}
+        >
+          {ROOM_DETAILS_AVAILABLE_ANNOUNCEMENT}
         </Text>
       ) : null}
       {playerLoadAnnouncement ? (

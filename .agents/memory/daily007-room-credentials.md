@@ -17,7 +17,7 @@ On 2026-10-05, the user also confirmed on an iQOO Neo 10 running Android 16 that
 
 On 2026-10-06, the user confirmed on the same Android device that My Matches recovered automatically after connectivity returned while the screen remained open, without manual refresh or navigation; fake credentials for an approved non-production test registration stayed hidden until T−5.
 
-On 2026-10-19, the user reported that the Android Tournaments late-approval check was good. They did not specify the device, OS version, or exact observed timing.
+On 2026-10-19, the user confirmed that the Android Tournaments late-approval TalkBack check was good; no device, OS, or exact transcript/timing was specified.
 
 **Why:** Server tests verify the access boundary, but only a physical Android device exercises the on-screen timer, navigation focus, and app-resume refresh together.
 
