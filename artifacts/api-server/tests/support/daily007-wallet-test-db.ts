@@ -302,9 +302,14 @@ class MemoryWalletDatabase {
     } else if (normalized.startsWith(
       'SELECT p.id, p.user_id AS "userId", u.name AS "userName", u.email',
     )) {
+      if (!normalized.includes("ORDER BY p.created_at DESC, p.id DESC LIMIT 500")) {
+        throw new Error("Admin payment requests must sort by creation time and id.");
+      }
       rows = [...this.payments.values()]
         .filter((payment) => payment.status !== "deleted")
-        .sort((left, right) => right.created_at.getTime() - left.created_at.getTime())
+        .sort((left, right) =>
+          right.created_at.getTime() - left.created_at.getTime() || right.id.localeCompare(left.id),
+        )
         .slice(0, 500)
         .flatMap((payment) => {
           const user = this.users.get(payment.user_id);
@@ -328,9 +333,14 @@ class MemoryWalletDatabase {
     } else if (normalized.startsWith(
       'SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email',
     )) {
+      if (!normalized.includes("ORDER BY w.created_at DESC, w.id DESC LIMIT 500")) {
+        throw new Error("Admin withdrawal requests must sort by creation time and id.");
+      }
       rows = [...this.withdrawals.values()]
         .filter((withdrawal) => withdrawal.status !== "deleted")
-        .sort((left, right) => right.created_at.getTime() - left.created_at.getTime())
+        .sort((left, right) =>
+          right.created_at.getTime() - left.created_at.getTime() || right.id.localeCompare(left.id),
+        )
         .slice(0, 500)
         .flatMap((withdrawal) => {
           const user = this.users.get(withdrawal.user_id);

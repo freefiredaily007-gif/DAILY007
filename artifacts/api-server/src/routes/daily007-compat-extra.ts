@@ -614,7 +614,7 @@ router.get("/admin/payments", authenticate, async (req, res): Promise<void> => {
                 p.created_at AS "createdAt", p.reviewed_at AS "reviewedAt"
            FROM daily007_v2_payments p JOIN daily007_v2_users u ON u.id = p.user_id
           WHERE p.status <> 'deleted'
-          ORDER BY p.created_at DESC LIMIT 500`,
+          ORDER BY p.created_at DESC, p.id DESC LIMIT 500`,
       );
       return result.rows;
     });
@@ -653,7 +653,7 @@ router.get("/admin/withdrawals", authenticate, async (req, res): Promise<void> =
                 w.created_at AS "createdAt", w.reviewed_at AS "reviewedAt"
            FROM daily007_v2_withdrawals w JOIN daily007_v2_users u ON u.id = w.user_id
           WHERE w.status <> 'deleted'
-          ORDER BY w.created_at DESC LIMIT 500`,
+          ORDER BY w.created_at DESC, w.id DESC LIMIT 500`,
       );
       return result.rows;
     });

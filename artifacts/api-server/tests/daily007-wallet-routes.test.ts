@@ -218,6 +218,59 @@ test("Full Admins can delete payment and withdrawal requests", async () => {
   });
 });
 
+test("Admin payment and withdrawal lists stay stable when equal timestamps reach the limit", async () => {
+  walletTestDb.reset();
+  const createdAt = new Date("2026-10-19T12:00:00.000Z");
+  const requestIds = Array.from({ length: 501 }, (_, index) =>
+    `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+
+  requestIds.forEach((id, index) => {
+    walletTestDb.payments.set(id, {
+      id,
+      user_id: TEST_PLAYER_ID,
+      coins: 100 + index,
+      amount: 250 + index,
+      payer_upi_id: "player@upi",
+      reference: `same-time-payment-${index + 1}`,
+      reference_normalized: `same-time-payment-${index + 1}`,
+      proof_object_path: null,
+      status: "pending",
+      review_reason: null,
+      reviewed_by: null,
+      created_at: createdAt,
+      reviewed_at: null,
+    });
+    walletTestDb.withdrawals.set(id, {
+      id,
+      user_id: TEST_PLAYER_ID,
+      coins: 100 + index,
+      method: "upi",
+      account: "player@upi",
+      status: "pending",
+      payout_status: "not_paid",
+      review_reason: null,
+      reviewed_by: null,
+      created_at: createdAt,
+      reviewed_at: null,
+    });
+  });
+
+  const expectedIds = requestIds.slice(1).reverse();
+  await withServer(async (origin) => {
+    for (const path of ["/admin/payments", "/admin/withdrawals"]) {
+      const first = await call(origin, TEST_ADMIN_ID, path, "GET");
+      const second = await call(origin, TEST_ADMIN_ID, path, "GET");
+
+      assert.equal(first.status, 200);
+      assert.equal(second.status, 200);
+      assert.equal(first.body.length, 500);
+      assert.deepEqual(first.body.map((request: any) => request.id), expectedIds);
+      assert.deepEqual(second.body.map((request: any) => request.id), expectedIds);
+    }
+  });
+});
+
 test("Full Admins can list payment and withdrawal requests", async () => {
   walletTestDb.reset();
 
