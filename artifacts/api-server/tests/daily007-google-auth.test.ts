@@ -15,6 +15,7 @@ import { logoutDaily007 } from "../../daily007/src/lib/logout";
 import {
   failNextMockGoogleUserLookup,
   getMockGoogleUserLookupCount,
+  hangNextMockGoogleUserLookup,
   resetMockGoogleUser,
   resetMockGoogleUsers,
   updateMockGoogleUser,
@@ -123,11 +124,13 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
   headers: Record<string, string> = {},
+  signal?: AbortSignal,
 ): Promise<JsonResult> {
   const response = await fetch(`${origin}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
+    signal,
   });
   return { status: response.status, body: await response.json() };
 }
@@ -137,12 +140,13 @@ function googleAuth(
   dailyToken?: string,
   referralCode?: string,
   clerkUserId = GOOGLE_CLERK_USER_ID,
+  signal?: AbortSignal,
 ): Promise<JsonResult> {
   return postJson(origin, "/auth/google", referralCode ? { referralCode } : {}, {
     authorization: "Bearer mocked-clerk-session",
     "x-mock-clerk-user-id": clerkUserId,
     ...(dailyToken ? { "X-Daily007-Token": dailyToken } : {}),
-  });
+  }, signal);
 }
 
 async function rawGoogleSignup(
@@ -2122,6 +2126,124 @@ test("a temporary Clerk verification outage lets a password account retry Google
       );
     });
   } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
+test("a Clerk lookup that never responds times out and lets Google linking be retried", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  let releaseHangingLookup: (() => void) | undefined;
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "clerk-timeout-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "clerk-timeout-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "clerk-timeout-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const accountBefore = structuredClone(account);
+      const referralsBefore = structuredClone(signupTestDb.referrals);
+      const ledgerBefore = structuredClone(signupTestDb.ledger);
+      const userCountBefore = signupTestDb.users.size;
+      const expectedWalletHistory = ledgerBefore
+        .filter(({ user_id }) => user_id === account.id)
+        .map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        }));
+
+      const hangingLookup = hangNextMockGoogleUserLookup();
+      releaseHangingLookup = hangingLookup.release;
+      const abortController = new AbortController();
+      let testGuard: ReturnType<typeof setTimeout> | undefined;
+      const failedLink = await Promise.race([
+        googleAuth(
+          origin,
+          token,
+          SIGNUP_TEST_REFERRAL_CODE,
+          GOOGLE_CLERK_USER_ID,
+          abortController.signal,
+        ),
+        new Promise<never>((_resolve, reject) => {
+          testGuard = setTimeout(() => {
+            abortController.abort();
+            reject(new Error("Google linking did not return within the test guard."));
+          }, 8_000);
+        }),
+      ]).finally(() => {
+        if (testGuard !== undefined) clearTimeout(testGuard);
+      });
+      assert.equal(failedLink.status, 503, "a stalled Clerk lookup should return a retryable response");
+      assert.equal(
+        failedLink.body.error,
+        "Unable to verify the Google identity with Clerk. Please try again.",
+      );
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.deepEqual(account, accountBefore, "the timeout must not alter the password account or session");
+      assert.equal(signupTestDb.users.size, userCountBefore, "the timeout must not create another account");
+      assert.deepEqual(signupTestDb.referrals, referralsBefore, "the timeout must preserve referral rows");
+      assert.deepEqual(signupTestDb.ledger, ledgerBefore, "the timeout must preserve wallet history");
+
+      releaseHangingLookup();
+      releaseHangingLookup = undefined;
+
+      const walletAfterTimeout = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletAfterTimeout.status, 200, "the existing password session must survive the timeout");
+      const timedOutWalletHistory = await walletAfterTimeout.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        timedOutWalletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+      );
+
+      const retriedLink = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(retriedLink.status, 200, "the password account should be able to retry linking");
+      assert.equal(retriedLink.body.googleLinked, true);
+      assert.equal(retriedLink.body.id, account.id);
+      assert.equal(retriedLink.body.coins, 73);
+      assert.equal(getMockGoogleUserLookupCount(), 2);
+      assert.deepEqual(account, {
+        ...accountBefore,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+      }, "the retry should add only the verified Google link");
+      assert.equal(signupTestDb.users.size, userCountBefore);
+      assert.deepEqual(signupTestDb.referrals, referralsBefore);
+      assert.deepEqual(signupTestDb.ledger, ledgerBefore);
+
+      const walletAfterRetry = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletAfterRetry.status, 200, "the same password session should remain usable after retry");
+      const retriedWalletHistory = await walletAfterRetry.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        retriedWalletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+      );
+    });
+  } finally {
+    releaseHangingLookup?.();
     signupTestDb.reset();
     resetMockGoogleUser();
   }

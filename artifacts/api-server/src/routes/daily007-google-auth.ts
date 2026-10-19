@@ -14,6 +14,7 @@ import {
 const router: IRouter = Router();
 const EMAIL_CONFLICT_MESSAGE =
   "An account already uses this email. Sign in with your password, then connect Google in Profile.";
+const GOOGLE_IDENTITY_LOOKUP_TIMEOUT_MS = 5_000;
 
 type Account = {
   id: string;
@@ -61,8 +62,22 @@ async function withTransaction<T>(work: (client: SqlClient) => Promise<T>): Prom
 async function lookupGoogleIdentity(req: Request): Promise<GoogleIdentity | null> {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  const user = await clerkClient.users.getUser(userId);
-  return verifiedGoogleIdentity(user);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Clerk's getUser API does not accept an AbortSignal, so cap how long this request waits for it.
+    const user = await Promise.race([
+      clerkClient.users.getUser(userId),
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error("Google identity lookup timed out.")),
+          GOOGLE_IDENTITY_LOOKUP_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    return verifiedGoogleIdentity(user);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
 }
 
 router.post("/auth/google", async (req, res): Promise<void> => {
