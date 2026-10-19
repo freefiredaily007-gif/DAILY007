@@ -409,6 +409,12 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
   assert.equal(retryStartingBalance, 350);
   assert.deepEqual(initialRetryLedger.rows, []);
 
+  await pool.query(
+    `INSERT INTO daily007_v2_notifications (user_id, title, body, type, read_at)
+     VALUES ($1, 'Existing payment update', 'This retry account already has a notification.', 'payment', $2)`,
+    [retryPlayerId, new Date("2026-01-01T00:00:00.000Z")],
+  );
+
   await withServer(async (origin) => {
     const deposit = await call(origin, originalPlayerId, "/payments", "POST", {
       coins,
@@ -427,6 +433,22 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
     );
     assert.equal(approval.status, 200);
     assert.equal(approval.body.status, "approved");
+
+    const initialRetryNotifications = await pool.query<{
+      id: string;
+      title: string;
+      body: string;
+      type: string;
+      read_at: Date | null;
+      created_at: Date;
+    }>(
+      `SELECT id, title, body, type, read_at, created_at
+         FROM daily007_v2_notifications
+        WHERE user_id = $1
+        ORDER BY created_at, id`,
+      [retryPlayerId],
+    );
+    assert.equal(initialRetryNotifications.rows.length, 1);
 
     const approvedState = await pool.query<{
       id: string;
@@ -518,6 +540,19 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
       balance_after: originalStartingBalance! + coins,
       reason: "payment_approved",
     }]);
+
+    const finalRetryNotifications = await pool.query(
+      `SELECT id, title, body, type, read_at, created_at
+         FROM daily007_v2_notifications
+        WHERE user_id = $1
+        ORDER BY created_at, id`,
+      [retryPlayerId],
+    );
+    assert.deepEqual(
+      finalRetryNotifications.rows,
+      initialRetryNotifications.rows,
+      "Retrying an already-approved reference must leave the retry account's notifications unchanged.",
+    );
   });
 });
 
