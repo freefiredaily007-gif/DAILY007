@@ -115,14 +115,18 @@ export default function AdminRegs() {
         }
         const safeId = selectedTournament.id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const file = new File(Paths.cache, `daily007-${safeId}-players.csv`);
-        if (file.exists) file.delete();
-        file.create();
-        file.write(csv);
-        await Sharing.shareAsync(file.uri, {
-          mimeType: 'text/csv',
-          UTI: 'public.comma-separated-values-text',
-          dialogTitle: `${selectedTournament.name} player list`,
-        });
+        try {
+          if (file.exists) file.delete();
+          file.create();
+          file.write(csv);
+          await Sharing.shareAsync(file.uri, {
+            mimeType: 'text/csv',
+            UTI: 'public.comma-separated-values-text',
+            dialogTitle: `${selectedTournament.name} player list`,
+          });
+        } finally {
+          if (file.exists) file.delete();
+        }
         setOkMsg('CSV file opened in the native share sheet. Choose an app or save destination.');
       }
     } catch (e: any) { setErr(e?.message || 'Could not export the player list.'); }
