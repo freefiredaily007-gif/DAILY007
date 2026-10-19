@@ -182,6 +182,36 @@ async function waitForBlockedBackend(
   throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
 }
 
+async function waitForBlockedBackends(
+  blocker: Awaited<ReturnType<typeof pool.connect>>,
+  queryPattern: string,
+  expectedCount: number,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<number[]> {
+  assert.ok(Number.isInteger(blocker.processID), "PostgreSQL should expose the blocker PID");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await blocker.query("SELECT pg_stat_clear_snapshot()");
+    const result = await blocker.query<{ pid: number }>(
+      `SELECT waiting.pid
+         FROM pg_stat_activity AS waiting
+        WHERE waiting.pid <> $1
+          AND waiting.wait_event_type = 'Lock'
+          AND waiting.query ILIKE $2
+          AND $1 = ANY(pg_blocking_pids(waiting.pid))
+        ORDER BY waiting.query_start
+        LIMIT $3`,
+      [blocker.processID, queryPattern, expectedCount],
+    );
+    if (result.rows.length >= expectedCount) {
+      return result.rows.map(({ pid }) => pid);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${description} to block in PostgreSQL.`);
+}
+
 test("Google linking preserves a password account and its PostgreSQL Wallet history", async () => {
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
   const accountId = randomUUID();
@@ -559,6 +589,242 @@ test("Google signup retries a colliding short referral code in PostgreSQL", asyn
            OR clerk_user_id = ANY($2::text[])`,
       [
         [collisionOwnerId, googleAccountId],
+        [GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID],
+      ],
+    );
+    resetMockGoogleUser();
+  }
+});
+
+test("concurrent Google signups keep unique fallback codes and one signup reward each", async () => {
+  resetMockGoogleUsers([
+    VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+    SECOND_VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+  ]);
+  const firstAccountId = "00000000-0000-4000-8000-00000000006e";
+  const secondAccountId = "00000000-0000-4000-8000-0000000001bc";
+  const collisionOwnerId = randomUUID();
+  const firstCandidate = shortReferralCodeForUserId(firstAccountId, 0);
+  const secondFirstCandidate = shortReferralCodeForUserId(secondAccountId, 0);
+  const firstFallback = shortReferralCodeForUserId(firstAccountId, 1);
+  const secondFallback = shortReferralCodeForUserId(secondAccountId, 1);
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseTransactionOpen = false;
+  let firstSignIn: Promise<JsonResult> | undefined;
+  let secondSignIn: Promise<JsonResult> | undefined;
+
+  assert.equal(firstCandidate, secondFirstCandidate,
+    "the deterministic account IDs must share their first short-code candidate");
+  assert.notEqual(firstFallback, secondFallback,
+    "the fallback candidates must be distinct");
+  assert.notEqual(firstFallback, firstCandidate);
+  assert.notEqual(secondFallback, secondFirstCandidate);
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Existing Referral-Code Owner', $2, 'owner-salt', 'owner-hash')`,
+      [collisionOwnerId, `concurrent-short-code-owner-${collisionOwnerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [collisionOwnerId, REFERRAL_CODE],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_short_codes (user_id, code) VALUES ($1, $2)",
+      [collisionOwnerId, firstCandidate],
+    );
+    await resetReferralRewardFailureTrigger("Welcome Signup Bonus");
+
+    await pool.query(`
+      CREATE FUNCTION daily007_test_assign_concurrent_google_signup_ids()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.clerk_user_id = '${GOOGLE_CLERK_USER_ID}' THEN
+          NEW.id := '${firstAccountId}'::uuid;
+        ELSIF NEW.clerk_user_id = '${SECOND_GOOGLE_CLERK_USER_ID}' THEN
+          NEW.id := '${secondAccountId}'::uuid;
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_assign_concurrent_google_signup_ids
+      BEFORE INSERT ON daily007_v2_users
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_assign_concurrent_google_signup_ids()
+    `);
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_shared_first_short_code()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.code = '${firstCandidate}' THEN
+          PERFORM pg_advisory_xact_lock(743003, 3);
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_shared_first_short_code
+      BEFORE INSERT ON daily007_v2_referral_short_codes
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_pause_shared_first_short_code()
+    `);
+
+    await withServer(async (origin) => {
+      blocker = await pool.connect();
+      assert.ok(Number.isInteger(blocker.processID),
+        "PostgreSQL should expose the concurrent-candidate barrier PID");
+      await blocker.query("BEGIN");
+      pauseTransactionOpen = true;
+      await blocker.query("SELECT pg_advisory_xact_lock(743003, 3)");
+
+      try {
+        firstSignIn = googleSignIn(origin, GOOGLE_CLERK_USER_ID);
+        secondSignIn = googleSignIn(origin, SECOND_GOOGLE_CLERK_USER_ID);
+        const queuedSignups = await waitForBlockedBackends(
+          blocker,
+          "%INSERT INTO daily007_v2_referral_short_codes%",
+          2,
+          "both Google signups to reach their shared first short-code candidate",
+        );
+        assert.equal(new Set(queuedSignups).size, 2,
+          "the shared candidate attempt should be reached by two separate signup transactions");
+
+        await blocker.query("COMMIT");
+        pauseTransactionOpen = false;
+        const [firstResult, secondResult] = await Promise.all([firstSignIn, secondSignIn]);
+        assert.deepEqual(
+          [firstResult.status, secondResult.status],
+          [201, 201],
+          "both concurrent Google signups should succeed after reserving fallback codes",
+        );
+        assert.equal(firstResult.body.id, firstAccountId);
+        assert.equal(secondResult.body.id, secondAccountId);
+        assert.equal(firstResult.body.email, GOOGLE_EMAIL);
+        assert.equal(secondResult.body.email, SECOND_GOOGLE_EMAIL);
+        assert.equal(firstResult.body.coins, 10);
+        assert.equal(secondResult.body.coins, 10);
+
+        const linkedAccounts = await pool.query<{
+          id: string;
+          email: string;
+          clerk_user_id: string;
+          wallet_coins: number;
+        }>(
+          `SELECT id, email, clerk_user_id, wallet_coins
+             FROM daily007_v2_users
+            WHERE clerk_user_id = ANY($1::text[])
+            ORDER BY clerk_user_id`,
+          [[GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID]],
+        );
+        assert.equal(linkedAccounts.rows.length, 2,
+          "each Google identity should link to exactly one new Daily007 account");
+        const accountsByClerkId = new Map(
+          linkedAccounts.rows.map((account) => [account.clerk_user_id, account]),
+        );
+        assert.deepEqual(accountsByClerkId.get(GOOGLE_CLERK_USER_ID), {
+          id: firstAccountId,
+          email: GOOGLE_EMAIL,
+          clerk_user_id: GOOGLE_CLERK_USER_ID,
+          wallet_coins: 10,
+        });
+        assert.deepEqual(accountsByClerkId.get(SECOND_GOOGLE_CLERK_USER_ID), {
+          id: secondAccountId,
+          email: SECOND_GOOGLE_EMAIL,
+          clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+          wallet_coins: 10,
+        });
+
+        const savedCodes = await pool.query<{ user_id: string; code: string }>(
+          `SELECT user_id, code
+             FROM daily007_v2_referral_short_codes
+            WHERE user_id = ANY($1::uuid[])
+            ORDER BY user_id`,
+          [[collisionOwnerId, firstAccountId, secondAccountId]],
+        );
+        assert.deepEqual(
+          savedCodes.rows,
+          [
+            { user_id: collisionOwnerId, code: firstCandidate },
+            { user_id: firstAccountId, code: firstFallback },
+            { user_id: secondAccountId, code: secondFallback },
+          ].sort((left, right) => left.user_id.localeCompare(right.user_id)),
+          "the existing owner should keep the shared code while each signup reserves its unique fallback",
+        );
+
+        const rewards = await pool.query<{
+          user_id: string;
+          amount: number;
+          balance_after: number;
+          reason: string;
+          idempotency_key: string;
+        }>(
+          `SELECT user_id, amount, balance_after, reason, idempotency_key
+             FROM daily007_v2_wallet_ledger
+            WHERE user_id = ANY($1::uuid[])
+            ORDER BY user_id`,
+          [[firstAccountId, secondAccountId]],
+        );
+        assert.deepEqual(
+          rewards.rows,
+          [
+            {
+              user_id: firstAccountId,
+              amount: 10,
+              balance_after: 10,
+              reason: "Referral Signup Bonus",
+              idempotency_key: `daily007-referral-signup:${firstAccountId}`,
+            },
+            {
+              user_id: secondAccountId,
+              amount: 10,
+              balance_after: 10,
+              reason: "Referral Signup Bonus",
+              idempotency_key: `daily007-referral-signup:${secondAccountId}`,
+            },
+          ].sort((left, right) => left.user_id.localeCompare(right.user_id)),
+          "each account should retain exactly one 10-coin signup reward",
+        );
+      } finally {
+        if (pauseTransactionOpen && blocker) {
+          await blocker.query("ROLLBACK").catch(() => undefined);
+          pauseTransactionOpen = false;
+        }
+        await Promise.all([
+          firstSignIn?.catch(() => undefined),
+          secondSignIn?.catch(() => undefined),
+        ]);
+      }
+    });
+  } finally {
+    if (pauseTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      pauseTransactionOpen = false;
+    }
+    blocker?.release();
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_shared_first_short_code ON daily007_v2_referral_short_codes",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_shared_first_short_code()");
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_assign_concurrent_google_signup_ids ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_assign_concurrent_google_signup_ids()");
+    await resetReferralRewardFailureTrigger();
+    await pool.query(
+      `DELETE FROM daily007_v2_users
+        WHERE id = ANY($1::uuid[])
+           OR clerk_user_id = ANY($2::text[])`,
+      [
+        [collisionOwnerId, firstAccountId, secondAccountId],
         [GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID],
       ],
     );
