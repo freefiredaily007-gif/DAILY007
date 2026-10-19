@@ -169,7 +169,7 @@ export default function Tournaments() {
 
   const load = useCallback((trigger: TournamentLoadTrigger = 'focus') => {
     const pending = activeLoad.current;
-    if (pending && trigger !== 'focus' && trigger !== 'manual') return pending;
+    if (pending && trigger !== 'focus') return pending;
 
     const promise = loadLatest();
     activeLoad.current = promise;

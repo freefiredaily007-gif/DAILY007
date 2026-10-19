@@ -5180,6 +5180,49 @@ async function checkTournamentRefreshCoalescing() {
     await evaluate("window.__daily007TournamentResume.getTournamentReadCount()") === readsBefore + 1,
     "The failed shared request should not create another tournament read.",
   );
+  const sharedFailureAnnouncements = await evaluate(`window.__daily007TournamentResume.getLoadAnnouncementEvents()
+    .filter((event) => event.testID === 'player-tournament-refresh-error')`);
+  assert(
+    JSON.stringify(sharedFailureAnnouncements) === JSON.stringify([{
+      testID: 'player-tournament-refresh-error',
+      text: 'Could not refresh tournaments: App-resume refresh failed',
+    }]),
+    `A failed shared request should produce exactly one clear error announcement: ${JSON.stringify(sharedFailureAnnouncements)}.`,
+  );
+
+  const recoveredName = "Player Recovered After App-Resume Refresh Failure";
+  readsBefore = await evaluate("window.__daily007TournamentResume.getTournamentReadCount()");
+  registrationReadsBefore = await evaluate(
+    "window.__daily007TournamentResume.getMyRegistrationReadCount()",
+  );
+  await evaluate("window.__daily007TournamentResume.deferNextTournamentRead()");
+  await triggerPlayerManualRefresh();
+  await waitForCondition(
+    `window.__daily007TournamentResume.getTournamentReadCount() === ${readsBefore + 1} && window.__daily007TournamentResume.getMyRegistrationReadCount() === ${registrationReadsBefore + 1} && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Refreshing'`,
+    "a later manual pull to start a fresh tournament and registration request",
+  );
+  const recoveredRelease = await evaluate(`window.__daily007TournamentResume.resolveDeferredTournamentRead([{
+    id: 'resume-boundary',
+    name: ${JSON.stringify(recoveredName)},
+    status: 'upcoming',
+  }])`);
+  assert(recoveredRelease, "The fresh manual retry should be resolvable after the shared failure.");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(recoveredName)}) && !document.body.innerText.includes('Could not refresh tournaments: App-resume refresh failed') && document.querySelector('[data-testid="player-refresh-control-pending"]')?.textContent === 'Ready'`,
+    "the successful retry to update the card, clear the shared error, and stop refreshing",
+  );
+  assert(
+    JSON.stringify(await evaluate(`window.__daily007TournamentResume.getLoadAnnouncementEvents()
+      .filter((event) => event.testID === 'player-tournament-refresh-announcement')`)) === JSON.stringify([{
+      testID: 'player-tournament-refresh-announcement',
+      text: 'Tournaments updated.',
+    }]),
+    "A successful retry after the shared failure should announce recovery exactly once.",
+  );
+  assert(
+    await evaluate("document.body.innerText.includes('Could not refresh tournaments')") === false,
+    "A successful retry must clear the shared refresh error.",
+  );
 }
 
 async function checkTournamentResume() {
