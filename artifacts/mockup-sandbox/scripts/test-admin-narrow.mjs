@@ -5063,6 +5063,67 @@ async function checkAdminResultEntryRetry() {
     ]),
     `Each approved-player request must use the tournament ID that was active when it started: ${JSON.stringify(switchedResultState.requests)}.`,
   );
+
+  await clickSelector(otherOpenSelector, "closing the switched tournament before testing a closed panel");
+  await waitForCondition(
+    `!document.querySelector(${JSON.stringify(otherPanelSelector)})`,
+    "the switched tournament's Result Entry panel to close",
+  );
+  await clickSelector(openSelector, "opening Result Entry before closing its pending request");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 7
+      && Boolean(document.querySelector(${JSON.stringify(panelSelector)}))
+      && document.body.innerText.includes("Loading approved registrations…")`,
+    "an approved-player request to remain pending before Result Entry closes",
+  );
+  await clickSelector(openSelector, "closing Result Entry while the approved-player request is pending");
+  await waitForCondition(
+    `!document.querySelector(${JSON.stringify(panelSelector)})`,
+    "the pending Result Entry panel to close",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.releaseClosedApprovedRegistrations()"),
+    "The approved-player response for the closed panel should resolve.",
+  );
+  await delay(100);
+  const closedPanelState = await evaluate(`({
+    activePanelVisible: Boolean(document.querySelector(${JSON.stringify(panelSelector)})),
+    switchedPanelVisible: Boolean(document.querySelector(${JSON.stringify(otherPanelSelector)})),
+    closedPlayerVisible: document.body.innerText.includes("Closed Request Player")
+      || document.body.innerText.includes("CLOSED-RESULT-UID"),
+    requests: window.__daily007TournamentResume.getApprovedRegistrationRequests(),
+  })`);
+  assert(
+    !closedPanelState.activePanelVisible
+      && !closedPanelState.switchedPanelVisible
+      && !closedPanelState.closedPlayerVisible,
+    `Resolving a request after Result Entry closes must not restore its panel or player data: ${JSON.stringify(closedPanelState)}.`,
+  );
+
+  await clickSelector(openSelector, "reopening Result Entry for a fresh approved-player request");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 8
+      && document.body.innerText.includes("Fresh Reopened Player")
+      && document.body.innerText.includes("FRESH-REOPEN-UID")
+      && !document.body.innerText.includes("Closed Request Player")`,
+    "the new request to control the reopened Result Entry panel",
+  );
+  const reopenedRequests = await evaluate(
+    "window.__daily007TournamentResume.getApprovedRegistrationRequests()",
+  );
+  assert(
+    JSON.stringify(reopenedRequests) === JSON.stringify([
+      tournamentId,
+      tournamentId,
+      tournamentId,
+      tournamentId,
+      tournamentId,
+      otherTournamentId,
+      tournamentId,
+      tournamentId,
+    ]),
+    `Reopening Result Entry must issue a fresh request for its active tournament: ${JSON.stringify(reopenedRequests)}.`,
+  );
 }
 
 async function triggerPlayerManualRefresh() {
@@ -9798,7 +9859,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during Admin Result Entry retry checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Result Entry retries remain scoped, and a late approved-player response cannot replace the newly selected tournament's players.");
+      console.log("PASS — Result Entry ignores late responses after a tournament switch or close, and reopening uses fresh approved-player data.");
     } else if (squadSlotLayoutOnly) {
       for (const width of [320, 360, 390]) {
         for (const fontScale of [1.5, 2]) {

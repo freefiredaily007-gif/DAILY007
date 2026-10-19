@@ -221,6 +221,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   let releaseApprovedRegistrationRetry = () => false;
   let releaseStaleApprovedRegistrations = () => false;
   let releaseSwitchedApprovedRegistrations = () => false;
+  let releaseClosedApprovedRegistrations = () => false;
   if (adminResultEntryRetryOnly) {
     const startedAt = fakeNow - 60 * 60 * 1000;
     apiMocks.previewTournaments.splice(
@@ -279,6 +280,29 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
             return true;
           };
         });
+      }
+      if (requestIndex === 6) {
+        return new Promise((resolve) => {
+          releaseClosedApprovedRegistrations = () => {
+            resolve([{
+              id: "result-entry-closed-registration",
+              tournamentId: "result-entry-retry-active",
+              status: "approved",
+              playerName: "Closed Request Player",
+              gameUid: "CLOSED-RESULT-UID",
+            }]);
+            return true;
+          };
+        });
+      }
+      if (requestIndex === 7) {
+        return [{
+          id: "result-entry-fresh-registration",
+          tournamentId: "result-entry-retry-active",
+          status: "approved",
+          playerName: "Fresh Reopened Player",
+          gameUid: "FRESH-REOPEN-UID",
+        }];
       }
       const errors = [
         "Initial approved registrations request failed.",
@@ -342,6 +366,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     releaseApprovedRegistrationRetry: () => releaseApprovedRegistrationRetry(),
     releaseStaleApprovedRegistrations: () => releaseStaleApprovedRegistrations(),
     releaseSwitchedApprovedRegistrations: () => releaseSwitchedApprovedRegistrations(),
+    releaseClosedApprovedRegistrations: () => releaseClosedApprovedRegistrations(),
     getLoadAnnouncementEvents: () => loadAnnouncementEvents.map((event) => ({ ...event })),
     getStartAnnouncementEvents: () => [...startAnnouncementEvents],
     resetStartAnnouncementEvents: () => { startAnnouncementEvents.splice(0); },
