@@ -566,6 +566,176 @@ test("Google signup retries a colliding short referral code in PostgreSQL", asyn
   }
 });
 
+test("a failed Google signup does not consume a fallback short code before retry in PostgreSQL", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const googleAccountId = randomUUID();
+  const collisionOwnerId = randomUUID();
+  const firstCandidate = shortReferralCodeForUserId(googleAccountId, 0);
+  const fallbackCandidate = shortReferralCodeForUserId(googleAccountId, 1);
+  assert.notEqual(firstCandidate, fallbackCandidate);
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Existing Short-Code Owner', $2, 'owner-salt', 'owner-hash')`,
+      [collisionOwnerId, `failed-signup-code-owner-${collisionOwnerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_short_codes (user_id, code) VALUES ($1, $2)",
+      [collisionOwnerId, firstCandidate],
+    );
+    await resetReferralRewardFailureTrigger("Welcome Signup Bonus");
+
+    await pool.query(`
+      CREATE FUNCTION daily007_test_force_google_signup_user_id()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.clerk_user_id = '${GOOGLE_CLERK_USER_ID}' THEN
+          NEW.id := '${googleAccountId}'::uuid;
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_force_google_signup_user_id
+      BEFORE INSERT ON daily007_v2_users
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_force_google_signup_user_id()
+    `);
+
+    await withServer(async (origin) => {
+      const failedSignup = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+      assert.equal(failedSignup.status, 500, "the injected welcome-reward write should fail the signup");
+
+      const failedRewardAttempts = await pool.query<{
+        last_value: string;
+        is_called: boolean;
+      }>(
+        "SELECT last_value::text, is_called FROM daily007_test_referral_reward_failure_seq",
+      );
+      assert.deepEqual(
+        failedRewardAttempts.rows,
+        [{ last_value: "1", is_called: true }],
+        "the first signup should reach the one-shot reward failure trigger",
+      );
+
+      const failedAccount = await pool.query<{ id: string }>(
+        `SELECT id
+           FROM daily007_v2_users
+          WHERE id = $1 OR clerk_user_id = $2 OR email = $3`,
+        [googleAccountId, GOOGLE_CLERK_USER_ID, GOOGLE_EMAIL],
+      );
+      assert.deepEqual(failedAccount.rows, [], "the failed signup must leave no account behind");
+
+      const failedCodes = await pool.query<{ code: string }>(
+        `SELECT code FROM daily007_v2_referral_short_codes WHERE user_id = $1
+         UNION ALL
+         SELECT code FROM daily007_v2_referral_codes WHERE user_id = $1`,
+        [googleAccountId],
+      );
+      assert.deepEqual(failedCodes.rows, [], "the failed signup must leave no referral code behind");
+
+      const ownerCodeAfterFailure = await pool.query<{ user_id: string; code: string }>(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          WHERE code = $1`,
+        [firstCandidate],
+      );
+      assert.deepEqual(
+        ownerCodeAfterFailure.rows,
+        [{ user_id: collisionOwnerId, code: firstCandidate }],
+        "the collision owner must retain the first candidate after rollback",
+      );
+
+      const retry = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+      assert.equal(retry.status, 201, "the same Google identity should succeed on retry");
+      assert.equal(retry.body.id, googleAccountId);
+      assert.equal(retry.body.coins, 10, "the successful retry should award exactly 10 coins");
+
+      const accountAfterRetry = await pool.query<{
+        id: string;
+        clerk_user_id: string;
+        email: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, clerk_user_id, email, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [googleAccountId],
+      );
+      assert.deepEqual(
+        accountAfterRetry.rows,
+        [{
+          id: googleAccountId,
+          clerk_user_id: GOOGLE_CLERK_USER_ID,
+          email: GOOGLE_EMAIL,
+          wallet_coins: 10,
+        }],
+        "the retry should create one account with its one-time signup reward",
+      );
+
+      const codeAfterRetry = await pool.query<{ user_id: string; code: string }>(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          WHERE user_id = $1`,
+        [googleAccountId],
+      );
+      assert.deepEqual(
+        codeAfterRetry.rows,
+        [{ user_id: googleAccountId, code: fallbackCandidate }],
+        "the retry should reserve the same next candidate after the collision",
+      );
+
+      const rewardsAfterRetry = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+            AND reason IN ('Welcome Signup Bonus', 'Referral Signup Bonus')`,
+        [googleAccountId],
+      );
+      assert.deepEqual(
+        rewardsAfterRetry.rows,
+        [{
+          user_id: googleAccountId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Welcome Signup Bonus",
+          idempotency_key: `daily007-welcome-signup:${googleAccountId}`,
+        }],
+        "the successful retry should leave exactly one signup reward",
+      );
+
+      const rewardAttemptsAfterRetry = await pool.query<{ last_value: string }>(
+        "SELECT last_value::text FROM daily007_test_referral_reward_failure_seq",
+      );
+      assert.equal(
+        rewardAttemptsAfterRetry.rows[0]?.last_value,
+        "2",
+        "the retry should pass the one-shot failure and reach the reward ledger",
+      );
+    });
+  } finally {
+    await resetReferralRewardFailureTrigger();
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_force_google_signup_user_id ON daily007_v2_users");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_force_google_signup_user_id()");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[collisionOwnerId, googleAccountId]],
+    );
+    resetMockGoogleUser();
+  }
+});
+
 test("Google signup cannot take over a password account with the verified email", async () => {
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
   const passwordUserId = randomUUID();
