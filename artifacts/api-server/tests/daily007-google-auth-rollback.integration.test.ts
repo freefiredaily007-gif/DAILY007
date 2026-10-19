@@ -353,7 +353,10 @@ async function resetReferralRewardFailureTrigger(
 }
 
 test("Google signup retries a colliding short referral code in PostgreSQL", async () => {
-  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  resetMockGoogleUsers([
+    VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+    SECOND_VERIFIED_GOOGLE_USER as unknown as MockGoogleUser,
+  ]);
   const googleAccountId = "00000000-0000-4000-8000-000000001229";
   const collisionOwnerId = "00000000-0000-4000-8000-000000001228";
   const firstCandidate = shortReferralCodeForUserId(googleAccountId, 0);
@@ -442,6 +445,85 @@ test("Google signup retries a colliding short referral code in PostgreSQL", asyn
         "PostgreSQL should retain the original owner and save the next deterministic candidate",
       );
 
+      // The fixture injects a one-shot failure for the first referral reward; keep this success-path
+      // case focused on redemption while retaining the failure hook for other rollback tests.
+      await resetReferralRewardFailureTrigger("Welcome Signup Bonus");
+      const referredSignup = await googleSignIn(
+        origin,
+        SECOND_GOOGLE_CLERK_USER_ID,
+        fallbackCandidate,
+      );
+      assert.equal(referredSignup.status, 201, "a second Google account should redeem the fallback code");
+      assert.equal(referredSignup.body.email, SECOND_GOOGLE_EMAIL);
+      assert.equal(referredSignup.body.coins, 10, "the referred account should receive exactly 10 signup coins");
+      assert.equal(typeof referredSignup.body.id, "string");
+      const referredAccountId = String(referredSignup.body.id);
+
+      const referralRelationship = await pool.query<{
+        referrer_user_id: string;
+        referred_user_id: string;
+        code: string;
+      }>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          WHERE referred_user_id = $1`,
+        [referredAccountId],
+      );
+      assert.deepEqual(
+        referralRelationship.rows,
+        [{
+          referrer_user_id: googleAccountId,
+          referred_user_id: referredAccountId,
+          code: fallbackCandidate,
+        }],
+        "PostgreSQL should link the second Google account to the owner of the fallback code",
+      );
+
+      const referredAccount = await pool.query<{
+        id: string;
+        clerk_user_id: string;
+        wallet_coins: number;
+      }>(
+        `SELECT id, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE clerk_user_id = $1`,
+        [SECOND_GOOGLE_CLERK_USER_ID],
+      );
+      assert.deepEqual(
+        referredAccount.rows,
+        [{
+          id: referredAccountId,
+          clerk_user_id: SECOND_GOOGLE_CLERK_USER_ID,
+          wallet_coins: 10,
+        }],
+        "the second Google account should persist with the one-time signup reward balance",
+      );
+
+      const referredSignupRewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+            AND reason IN ('Welcome Signup Bonus', 'Referral Signup Bonus')`,
+        [referredAccountId],
+      );
+      assert.deepEqual(
+        referredSignupRewards.rows,
+        [{
+          user_id: referredAccountId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+          idempotency_key: `daily007-referral-signup:${referredAccountId}`,
+        }],
+        "the referral relationship should produce exactly one 10-coin signup reward",
+      );
+
       const signupRewards = await pool.query<{
         user_id: string;
         amount: number;
@@ -468,11 +550,17 @@ test("Google signup retries a colliding short referral code in PostgreSQL", asyn
       );
     });
   } finally {
+    await resetReferralRewardFailureTrigger();
     await pool.query("DROP TRIGGER IF EXISTS daily007_test_force_google_signup_user_id ON daily007_v2_users");
     await pool.query("DROP FUNCTION IF EXISTS daily007_test_force_google_signup_user_id()");
     await pool.query(
-      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
-      [[collisionOwnerId, googleAccountId]],
+      `DELETE FROM daily007_v2_users
+        WHERE id = ANY($1::uuid[])
+           OR clerk_user_id = ANY($2::text[])`,
+      [
+        [collisionOwnerId, googleAccountId],
+        [GOOGLE_CLERK_USER_ID, SECOND_GOOGLE_CLERK_USER_ID],
+      ],
     );
     resetMockGoogleUser();
   }
