@@ -616,7 +616,7 @@ test("Google linking preserves an existing password account referral attribution
   }
 });
 
-test("a changed verified Google email cannot alter its linked password account or rewards in PostgreSQL", async () => {
+test("a changed verified Google email rejects sign-in but restores the same PostgreSQL account when fixed", async () => {
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
   const referrerId = randomUUID();
   const referralCode = randomUUID().replaceAll("-", "").slice(0, 5).toUpperCase();
@@ -748,6 +748,63 @@ test("a changed verified Google email cannot alter its linked password account o
       const walletAfter = await readWalletHistory(origin, passwordToken);
       assert.equal(walletAfter.status, 200, "the existing password session should remain usable after rejection");
       assert.deepEqual(walletAfter.history, walletBefore.history, "the rejected sign-in must not change Wallet history");
+
+      updateMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+      const restoredSignIn = await postJson(origin, "/auth/google", { referralCode }, {
+        authorization: "Bearer mocked-clerk-session",
+        "x-mock-clerk-user-id": GOOGLE_CLERK_USER_ID,
+      });
+      assert.equal(restoredSignIn.status, 200,
+        "the linked Google identity should sign in after its verified email returns to the saved address");
+      assert.equal(restoredSignIn.body.googleLinked, true);
+      assert.equal(restoredSignIn.body.id, accountId,
+        "restored Google sign-in must reuse the original password account");
+      assert.equal(restoredSignIn.body.email, ACCOUNT_EMAIL);
+      assert.equal(restoredSignIn.body.coins, beforeAccount.rows[0]?.wallet_coins,
+        "restoring the verified email must return the persisted account balance");
+      assert.equal(typeof restoredSignIn.body.token, "string");
+
+      const afterRestoredAccount = await pool.query<AccountSnapshot>(
+        `SELECT auth_version, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(afterRestoredAccount.rows, [{
+        auth_version: Number(beforeAccount.rows[0]?.auth_version) + 1,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+        wallet_coins: beforeAccount.rows[0]?.wallet_coins,
+      }], "recovery should only advance the sign-in version, preserving the linked identity and balance");
+
+      const afterRestoredReferrer = await pool.query(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [referrerId],
+      );
+      assert.deepEqual(afterRestoredReferrer.rows, beforeReferrer.rows,
+        "restored sign-in must not change the referrer's persisted reward balance");
+      const afterRestoredReferrals = await pool.query(
+        `SELECT id, referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          ORDER BY id`,
+      );
+      assert.deepEqual(afterRestoredReferrals.rows, beforeReferrals.rows,
+        "restored sign-in must preserve the original referral attribution");
+      const afterRestoredLedger = await pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, idempotency_key, details, created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY created_at, id`,
+        [[accountId, referrerId]],
+      );
+      assert.deepEqual(afterRestoredLedger.rows, beforeLedger.rows,
+        "restored sign-in must not add, remove, or alter persisted wallet ledger entries");
+
+      const restoredWallet = await readWalletHistory(origin, String(restoredSignIn.body.token));
+      assert.equal(restoredWallet.status, 200, "the restored Google session should be able to read Wallet history");
+      assert.deepEqual(restoredWallet.history, walletBefore.history,
+        "Wallet history should still show the persisted balance and referral reward after recovery");
     });
   } finally {
     if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
