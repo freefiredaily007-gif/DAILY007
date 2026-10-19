@@ -1,0 +1,45 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/profile-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: profile-text-scale-banner
+    timeout: 15000
+- assertVisible:
+    text: "Profile text scale fixture · font scale 2.00"
+- extendedWaitUntil:
+    visible:
+      text: "Profile key text fits available widths at 2.00×"
+    timeout: 15000
+- assertVisible:
+    id: profile-text-scale-name
+- assertVisible:
+    id: profile-text-scale-email
+- assertVisible:
+    id: profile-text-scale-game-uid
+- assertVisible:
+    text: "123456 matches"
+- assertVisible:
+    text: "9876 wins"
+
+- scrollUntilVisible:
+    element:
+      id: profile-change-password
+    direction: DOWN
+- tapOn:
+    id: profile-change-password
+- assertVisible:
+    text: "CHANGE PASSWORD"
+- assertVisible:
+    text: "Current Daily007 password"
+- scrollUntilVisible:
+    element:
+      id: profile-password-submit
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: profile-password-cancel
+    direction: DOWN
+- tapOn:
+    id: profile-password-cancel

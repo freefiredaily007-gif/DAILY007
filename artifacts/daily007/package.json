@@ -17,6 +17,8 @@
     "test:my-matches-resume-refresh": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/my-matches-resume-refresh.test.mjs",
     "test:my-matches-results": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/my-matches-results.test.mjs",
     "test:android-my-matches-large-text": "node scripts/run-android-my-matches-large-text.mjs",
+    "test:player-native-text-scale": "node --test scripts/player-native-text-scale.test.mjs",
+    "test:android-player-large-text": "node scripts/run-android-player-large-text.mjs",
     "test:android-home-mode-large-text": "node scripts/run-android-home-mode-large-text.mjs",
     "test:room-credentials-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/room-credentials-accessibility.test.mjs",
     "test:room-credentials-clock-skew": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/room-credentials-clock-skew.test.mjs",

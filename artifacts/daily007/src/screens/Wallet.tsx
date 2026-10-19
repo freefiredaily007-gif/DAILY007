@@ -32,6 +32,10 @@ import { useApp } from '../App';
 import { C, Card, Btn, Empty, Loading, Msg, Input, SectionTitle, GCard, glow } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
 import {
+  nativeTextScaleTextProps,
+  type NativeTextScaleLayoutObserver,
+} from '../lib/nativeTextScaleLayout';
+import {
   emptyWalletHistoryState,
   walletHistoryForUser,
 } from '../lib/wallet-history-state';
@@ -105,8 +109,10 @@ function formatWalletCoins(value: unknown, allowBreaks: boolean) {
 
 export default function Wallet({
   onHistoryChange,
+  onTextScaleLayout,
 }: {
   onHistoryChange?: WalletHistoryTestObserver;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
 } = {}) {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
@@ -537,9 +543,16 @@ export default function Wallet({
         ListHeaderComponent={
           <>
             <GCard glowColor={C.gold} style={s.balCard}>
-              <Text style={s.balLabel}>AVAILABLE COINS</Text>
               <Text
+                {...nativeTextScaleTextProps('wallet:balance-label', onTextScaleLayout)}
+                style={s.balLabel}
+              >
+                AVAILABLE COINS
+              </Text>
+              <Text
+                testID="wallet-text-scale-balance"
                 accessibilityLabel={`Available coins: ${formatWalletCoins(user?.coins, false)}`}
+                {...nativeTextScaleTextProps('wallet:balance', onTextScaleLayout)}
                 style={[s.bal, fontScale >= 1.5 && s.balLarge, glow(C.gold, 12)]}
               >
                 🪙 {formatWalletCoins(user?.coins, fontScale >= 1.5)}
@@ -571,8 +584,8 @@ export default function Wallet({
                 <View style={[s.stat, fontScale >= 1.5 && s.statLarge]}><Text style={s.statV}>{formatWalletCoins(totalWithdrawn, fontScale >= 1.5)}</Text><Text style={s.statL}>TOTAL WITHDRAWN</Text></View>
               </View>
               <View style={[s.btnRow, narrowLargeText && s.btnRowLarge]}>
-                <View style={narrowLargeText ? s.btnWrapLarge : s.btnWrap}><Btn title="+ ADD COINS" testID="wallet-open-recharge" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
-                <View style={narrowLargeText ? s.btnWrapLarge : s.btnWrap}><Btn title="↩ WITHDRAW" testID="wallet-open-withdraw" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
+                <View style={narrowLargeText ? s.btnWrapLarge : s.btnWrap}><Btn title="+ ADD COINS" testID="wallet-open-recharge" onTextScaleLayout={onTextScaleLayout} textScaleLayoutKey="wallet:action:add" onPress={() => openSheet('add')} disabled={!rechargeEnabled || !paymentUpi || !paymentQr} /></View>
+                <View style={narrowLargeText ? s.btnWrapLarge : s.btnWrap}><Btn title="↩ WITHDRAW" testID="wallet-open-withdraw" onTextScaleLayout={onTextScaleLayout} textScaleLayoutKey="wallet:action:withdraw" kind="gold" onPress={() => openSheet('withdraw')} disabled={!withdrawalEnabled} /></View>
               </View>
               {!rechargeEnabled || !paymentUpi || !paymentQr
                 ? <Text style={s.minWarn}>Coin recharge is unavailable until an administrator enables it and configures a UPI ID and QR.</Text>
@@ -590,6 +603,7 @@ export default function Wallet({
                   filter={filter}
                   active={historyFilter === filter.value}
                   onPress={() => setHistoryFilter(filter.value)}
+                  onTextScaleLayout={onTextScaleLayout}
                 />
               ))}
             </View>
@@ -892,10 +906,12 @@ function PressableHistoryFilter({
   filter,
   active,
   onPress,
+  onTextScaleLayout,
 }: {
   filter: { value: WalletTransactionFilter; label: string };
   active: boolean;
   onPress: () => void;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
 }) {
   return (
     <Pressable
@@ -906,7 +922,10 @@ function PressableHistoryFilter({
       onPress={onPress}
       style={[s.historyFilter, active && s.historyFilterActive]}
     >
-      <Text style={[s.historyFilterText, active && s.historyFilterTextActive]}>
+      <Text
+        {...nativeTextScaleTextProps(`wallet:filter:${filter.value}`, onTextScaleLayout)}
+        style={[s.historyFilterText, active && s.historyFilterTextActive]}
+      >
         {filter.label}
       </Text>
     </Pressable>

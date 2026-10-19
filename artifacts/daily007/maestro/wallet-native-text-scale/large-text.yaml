@@ -1,0 +1,69 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/wallet-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: wallet-text-scale-banner
+    timeout: 15000
+- assertVisible:
+    text: "Wallet text scale fixture · font scale 2.00"
+- extendedWaitUntil:
+    visible:
+      text: "Wallet key text fits available widths at 2.00×"
+    timeout: 15000
+- assertVisible:
+    text: "AVAILABLE COINS"
+- assertVisible:
+    id: wallet-text-scale-balance
+
+- scrollUntilVisible:
+    element:
+      id: wallet-open-recharge
+    direction: DOWN
+- tapOn:
+    id: wallet-open-recharge
+- scrollUntilVisible:
+    element:
+      id: wallet-transaction-id
+    direction: DOWN
+- assertVisible:
+    id: wallet-transaction-id
+- scrollUntilVisible:
+    element:
+      id: wallet-close-form
+    direction: DOWN
+- assertVisible:
+    id: wallet-close-form
+- tapOn:
+    id: wallet-close-form
+
+- scrollUntilVisible:
+    element:
+      id: wallet-open-withdraw
+    direction: DOWN
+- tapOn:
+    id: wallet-open-withdraw
+- scrollUntilVisible:
+    element:
+      id: wallet-withdraw-account
+    direction: DOWN
+- assertVisible:
+    id: wallet-withdraw-account
+- scrollUntilVisible:
+    element:
+      id: wallet-close-form
+    direction: DOWN
+- assertVisible:
+    id: wallet-close-form
+- tapOn:
+    id: wallet-close-form
+
+- scrollUntilVisible:
+    element:
+      id: wallet-history-filter-withdrawals
+    direction: DOWN
+- assertVisible:
+    id: wallet-history-filter-withdrawals
+- tapOn:
+    id: wallet-history-filter-withdrawals

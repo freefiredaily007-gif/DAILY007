@@ -11,8 +11,16 @@ import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { useDaily007ChangePassword } from '@workspace/api-client-react';
 import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from '../lib/profilePassword';
+import {
+  nativeTextScaleTextProps,
+  type NativeTextScaleLayoutObserver,
+} from '../lib/nativeTextScaleLayout';
 
-export default function Profile() {
+export default function Profile({
+  onTextScaleLayout,
+}: {
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
+} = {}) {
   const { width, fontScale } = useWindowDimensions();
   const compactStats = width <= 360;
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
@@ -244,10 +252,25 @@ export default function Profile() {
     <ScrollView style={s.wrap} contentContainerStyle={{ padding: 14, gap: 12 }}>
       <Card style={s.head}>
         <View style={s.avatar}><Text style={s.avatarTxt}>{(user?.name ?? 'P').charAt(0).toUpperCase()}</Text></View>
-        <Text style={s.name}>{user?.name ?? 'Player'}</Text>
-        <Text style={s.email} accessibilityLabel={profileEmail}>{displayProfileEmail}</Text>
+        <Text
+          testID="profile-text-scale-name"
+          {...nativeTextScaleTextProps('profile:name', onTextScaleLayout)}
+          style={s.name}
+        >
+          {user?.name ?? 'Player'}
+        </Text>
+        <Text
+          testID="profile-text-scale-email"
+          {...nativeTextScaleTextProps('profile:email', onTextScaleLayout)}
+          style={s.email}
+          accessibilityLabel={profileEmail}
+        >
+          {displayProfileEmail}
+        </Text>
         {user?.gameUid ? (
           <Text
+            testID="profile-text-scale-game-uid"
+            {...nativeTextScaleTextProps('profile:game-uid', onTextScaleLayout)}
             style={[s.uid, narrowLargeText && s.uidLarge]}
             accessibilityLabel={`FF UID: ${profileGameUid}`}
           >
@@ -268,6 +291,7 @@ export default function Profile() {
             importantForAccessibility="yes"
           >
             <Text
+              {...nativeTextScaleTextProps(`profile:stat:${stat.id}:value`, onTextScaleLayout)}
               style={s.statV}
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
@@ -275,6 +299,7 @@ export default function Profile() {
               {displayStatValue(stat.value)}
             </Text>
             <Text
+              {...nativeTextScaleTextProps(`profile:stat:${stat.id}:label`, onTextScaleLayout)}
               style={s.statL}
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
@@ -369,7 +394,14 @@ export default function Profile() {
       <Card>
         <Text style={s.connectTitle}>DAILY007 PASSWORD</Text>
         <Text style={s.connectDescription}>Change your Daily007 password. This does not change your Google password.</Text>
-        <Btn testID="profile-change-password" title="CHANGE PASSWORD" kind="ghost" onPress={openPasswordModal} />
+        <Btn
+          testID="profile-change-password"
+          title="CHANGE PASSWORD"
+          kind="ghost"
+          onTextScaleLayout={onTextScaleLayout}
+          textScaleLayoutKey="profile:action:password"
+          onPress={openPasswordModal}
+        />
         {!!passwordMessage && <Text style={s.connected} accessibilityLiveRegion="polite">{passwordMessage}</Text>}
       </Card>
 
@@ -474,7 +506,13 @@ export default function Profile() {
           />
           {!!passwordError && <Text style={s.modalError} accessibilityLiveRegion="polite">{passwordError}</Text>}
           <Btn testID="profile-password-submit" title="UPDATE PASSWORD" kind="gold" loading={passwordBusy} onPress={submitPasswordChange} />
-          <Btn title="CANCEL" kind="ghost" disabled={passwordBusy} onPress={closePasswordModal} />
+          <Btn
+            testID="profile-password-cancel"
+            title="CANCEL"
+            kind="ghost"
+            disabled={passwordBusy}
+            onPress={closePasswordModal}
+          />
         </View>
       </ScrollView>
     </Modal>

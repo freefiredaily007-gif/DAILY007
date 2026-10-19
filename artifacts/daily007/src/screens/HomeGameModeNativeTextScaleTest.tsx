@@ -4,6 +4,11 @@ import { Redirect } from 'expo-router';
 import { C } from '../components/ui';
 import { ReadableText as Text } from '../components/typography';
 import { homeModeRouteParams } from '../lib/tournamentFilters';
+import {
+  mergeNativeTextScaleLayout,
+  nativeTextScaleLayoutsFit,
+  type NativeTextScaleLayout,
+} from '../lib/nativeTextScaleLayout';
 import HomeGameModeCards from './HomeGameModeCards';
 
 type ModeRouteParams = ReturnType<typeof homeModeRouteParams>;
@@ -16,6 +21,13 @@ export default function HomeGameModeNativeTextScaleTest() {
 function NativeFixture() {
   const { fontScale } = useWindowDimensions();
   const [selectedMode, setSelectedMode] = useState<ModeRouteParams | null>(null);
+  const [textLayouts, setTextLayouts] = useState<Record<string, NativeTextScaleLayout>>({});
+  const requiredTextLayouts = [
+    'battle_royale:category', 'battle_royale:title', 'battle_royale:capacity', 'battle_royale:action',
+    'clash_squad:category', 'clash_squad:title', 'clash_squad:capacity', 'clash_squad:action',
+    'lone_wolf:category', 'lone_wolf:title', 'lone_wolf:capacity', 'lone_wolf:action',
+  ];
+  const textFits = nativeTextScaleLayoutsFit(textLayouts, requiredTextLayouts);
 
   if (selectedMode) {
     return (
@@ -48,9 +60,17 @@ function NativeFixture() {
         Home game-mode fixture | font scale {fontScale.toFixed(2)}
       </Text>
       <Text style={styles.heading}>GAME MODES</Text>
+      <Text testID="home-mode-text-scale-layout-check" style={styles.layoutCheck}>
+        {fontScale >= 2 && textFits
+          ? 'Home labels fit their available width at 2×'
+          : `Checking Home labels at ${fontScale.toFixed(2)}×`}
+      </Text>
       <HomeGameModeCards
         onOpenMode={setSelectedMode}
         onChooseFormat={() => {}}
+        onTextScaleLayout={(key, update) => {
+          setTextLayouts((current) => mergeNativeTextScaleLayout(current, key, update));
+        }}
       />
     </ScrollView>
   );
@@ -61,6 +81,7 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 32 },
   banner: { color: C.sub, fontSize: 11, marginBottom: 8 },
   heading: { color: C.gold, fontSize: 22, fontWeight: '900', marginBottom: 10 },
+  layoutCheck: { color: C.sub, fontSize: 11, marginBottom: 8 },
   destination: {
     flex: 1,
     justifyContent: 'center',

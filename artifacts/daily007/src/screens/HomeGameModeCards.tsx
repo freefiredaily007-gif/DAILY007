@@ -5,14 +5,20 @@ import modeSquadLogo from '../assets/mode-squad-logo.jpg';
 import modeClashLogo from '../assets/mode-clash-logo.jpg';
 import { ReadableText as Text } from '../components/typography';
 import { C, GCard, glow } from '../components/ui';
+import {
+  nativeTextScaleTextProps,
+  type NativeTextScaleLayoutObserver,
+} from '../lib/nativeTextScaleLayout';
 import { HOME_GAME_MODE_CARDS, homeModeRouteParams } from '../lib/tournamentFilters';
 
 export default function HomeGameModeCards({
   onOpenMode,
   onChooseFormat,
+  onTextScaleLayout,
 }: {
   onOpenMode: (params: ReturnType<typeof homeModeRouteParams>) => void;
   onChooseFormat: (params: ReturnType<typeof homeModeRouteParams>) => void;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
 }) {
   const { fontScale } = useWindowDimensions();
   const largeModeCard = fontScale >= 1.5;
@@ -49,18 +55,33 @@ export default function HomeGameModeCards({
                 />
               </View>
               <View style={[s.modeBody, largeModeCard && s.modeBodyLarge]}>
-                <Text style={[s.modeKicker, { color: mode.accent }]}>{mode.category}</Text>
-                <Text style={s.modeTitle}>{mode.title}</Text>
+                <Text
+                  {...nativeTextScaleTextProps(`${mode.gameMode}:category`, onTextScaleLayout)}
+                  style={[s.modeKicker, { color: mode.accent }]}
+                >
+                  {mode.category}
+                </Text>
+                <Text
+                  {...nativeTextScaleTextProps(`${mode.gameMode}:title`, onTextScaleLayout)}
+                  style={s.modeTitle}
+                >
+                  {mode.title}
+                </Text>
                 <View style={[
                   s.modeCapacityBadge,
                   largeModeCard && s.modeCapacityBadgeLarge,
                   { borderColor: mode.accent + '66', backgroundColor: mode.accent + '14' },
                 ]}>
-                  <Text style={[
-                    s.modeCapacity,
-                    largeModeCard && s.modeCapacityLarge,
-                    { color: mode.accent },
-                  ]}>{mode.capacity}</Text>
+                  <Text
+                    {...nativeTextScaleTextProps(`${mode.gameMode}:capacity`, onTextScaleLayout)}
+                    style={[
+                      s.modeCapacity,
+                      largeModeCard && s.modeCapacityLarge,
+                      { color: mode.accent },
+                    ]}
+                  >
+                    {mode.capacity}
+                  </Text>
                 </View>
                 <View style={[
                   s.modeBtn,
@@ -68,7 +89,12 @@ export default function HomeGameModeCards({
                   { backgroundColor: mode.accent },
                   glow(mode.accent, 8),
                 ]}>
-                  <Text style={[s.modeBtnT, largeModeCard && s.modeBtnTLarge]}>BROWSE TOURNAMENTS</Text>
+                  <Text
+                    {...nativeTextScaleTextProps(`${mode.gameMode}:action`, onTextScaleLayout)}
+                    style={[s.modeBtnT, largeModeCard && s.modeBtnTLarge]}
+                  >
+                    BROWSE TOURNAMENTS
+                  </Text>
                   <Text style={s.modeBtnArrow} accessibilityElementsHidden>›</Text>
                 </View>
               </View>

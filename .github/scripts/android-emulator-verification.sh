@@ -197,6 +197,7 @@ else
   run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
   run_maestro_suite wallet-payment-history test:android-wallet-payment-history
   run_maestro_suite wallet-cancellation-narrow-large-text test:android-wallet-cancellation-refund-large-text
+  run_maestro_suite player-large-text test:android-player-large-text
   run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
   run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
   run_maestro_suite session-verification test:android-session-verification

@@ -4,6 +4,10 @@ import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing, Image
 import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
 import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
+import {
+  nativeTextScaleTextProps,
+  type NativeTextScaleLayoutObserver,
+} from '../lib/nativeTextScaleLayout';
 export { default as TimePicker } from './TimePicker';
 
 export const C = {
@@ -84,6 +88,8 @@ export function Btn({
   accessibilityHint,
   accessibilityState,
   testID,
+  onTextScaleLayout,
+  textScaleLayoutKey,
 }: {
   title: string; onPress?: () => void; disabled?: boolean;
   kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean;
@@ -91,6 +97,8 @@ export function Btn({
   accessibilityLabel?: string; accessibilityHint?: string;
   accessibilityState?: React.ComponentProps<typeof Pressable>['accessibilityState'];
   testID?: string;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
+  textScaleLayoutKey?: string;
 }) {
   const adminSurface = useAdminSurface();
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
@@ -121,7 +129,14 @@ export function Btn({
       ]}
     >
       {loading ? <ActivityIndicator accessible={false} color={C.bg} size="small" />
-        : <Text style={[st.btnText, adminSurface && adminSt.btnText, { color: k.fg }]}>{title}</Text>}
+        : <Text
+            {...(textScaleLayoutKey
+              ? nativeTextScaleTextProps(textScaleLayoutKey, onTextScaleLayout)
+              : {})}
+            style={[st.btnText, adminSurface && adminSt.btnText, { color: k.fg }]}
+          >
+            {title}
+          </Text>}
     </Pressable>
   );
 }
