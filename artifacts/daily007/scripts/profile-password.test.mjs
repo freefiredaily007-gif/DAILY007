@@ -802,6 +802,113 @@ test("canceling after a rejected password change clears all entries before reope
   );
 });
 
+test("Cancel and modal dismissal preserve password entries until a pending change settles", async () => {
+  const entries = {
+    currentPassword: "synthetic-current-entry",
+    newPassword: "synthetic-new-entry",
+    confirmNewPassword: "synthetic-new-entry",
+  };
+  const state = {
+    modalVisible: false,
+    ...entries,
+    passwordError: "",
+  };
+  let passwordBusy = false;
+  let mutationCalls = 0;
+  let resolveRequestStarted;
+  let rejectRequest;
+  const requestStarted = new Promise((resolve) => { resolveRequestStarted = resolve; });
+  const pendingRequest = new Promise((_, reject) => { rejectRequest = reject; });
+  const setters = {
+    setPasswordModalVisible: (value) => { state.modalVisible = value; },
+    setCurrentPassword: (value) => { state.currentPassword = value; },
+    setNewPassword: (value) => { state.newPassword = value; },
+    setConfirmNewPassword: (value) => { state.confirmNewPassword = value; },
+    setPasswordError: (value) => { state.passwordError = value; },
+    setPasswordMessage: () => {},
+  };
+  const openPasswordModal = loadProfileCallback("openPasswordModal", setters);
+  openPasswordModal();
+  Object.assign(state, entries);
+
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    ...entries,
+    passwordChangeInFlight: { current: false },
+    changePassword: async () => {
+      mutationCalls += 1;
+      passwordBusy = true;
+      resolveRequestStarted();
+      try {
+        await pendingRequest;
+      } finally {
+        passwordBusy = false;
+      }
+    },
+    submitProfilePasswordChange,
+    apiError: () => "The mocked password request failed.",
+    ...setters,
+  });
+
+  const cancelButton = profileSource.match(
+    /<Btn\s+testID="profile-password-cancel"[\s\S]*?\/>/,
+  )?.[0];
+  assert.ok(cancelButton, "Profile should render its password Cancel control.");
+  assert.match(cancelButton, /disabled=\{passwordBusy\}/);
+  assert.match(cancelButton, /onPress=\{closePasswordModal\}/);
+  assert.equal(profileSource.includes("onRequestClose={closePasswordModal}"), true);
+
+  const submission = submitPasswordChange();
+  await requestStarted;
+  assert.equal(mutationCalls, 1, "Submitting should start exactly one controlled request.");
+  assert.equal(passwordBusy, true, "The mocked request should remain pending.");
+
+  const closeWhilePending = loadProfileCallback("closePasswordModal", {
+    passwordBusy,
+    ...setters,
+  });
+  closeWhilePending(); // The visible Cancel handler must be safe even if invoked while disabled.
+  assert.equal(state.modalVisible, true, "Cancel must leave the form open while the request is pending.");
+  assert.equal(
+    state.currentPassword === entries.currentPassword
+      && state.newPassword === entries.newPassword
+      && state.confirmNewPassword === entries.confirmNewPassword,
+    true,
+    "Cancel must preserve all three entries while the request is pending.",
+  );
+
+  const onRequestClose = loadProfileCallback(getPasswordModalRequestCloseHandlerName(), {
+    passwordBusy,
+    ...setters,
+  });
+  onRequestClose();
+  assert.equal(state.modalVisible, true, "Modal dismissal must leave the form open while pending.");
+  assert.equal(
+    state.currentPassword === entries.currentPassword
+      && state.newPassword === entries.newPassword
+      && state.confirmNewPassword === entries.confirmNewPassword,
+    true,
+    "Modal dismissal must preserve all three entries while the request is pending.",
+  );
+
+  rejectRequest(new Error("Mocked password request rejected."));
+  await submission;
+  assert.equal(passwordBusy, false, "The mocked request should no longer be pending after rejection.");
+  assert.equal(state.modalVisible, true, "A rejected request should leave the form available to dismiss.");
+
+  const closeAfterSettle = loadProfileCallback("closePasswordModal", {
+    passwordBusy,
+    ...setters,
+  });
+  closeAfterSettle();
+  assert.equal(state.modalVisible, false, "Cancel should dismiss the form after the request settles.");
+  assert.equal(
+    [state.currentPassword, state.newPassword, state.confirmNewPassword].every((value) => value === ""),
+    true,
+    "Dismissing after settlement should clear all three entries.",
+  );
+  assert.equal(mutationCalls, 1, "Dismissal should not send another password request.");
+});
+
 test("Android Back after a rejected password change closes and clears the form before reopening", async () => {
   const state = {
     modalVisible: false,
