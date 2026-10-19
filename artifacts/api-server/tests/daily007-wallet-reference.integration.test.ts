@@ -32,6 +32,7 @@ const fixture = {
   approvedReferenceRetryPlayerId: randomUUID(),
   approvedReferenceSecondRetryPlayerId: randomUUID(),
   concurrentApprovalPlayerId: randomUUID(),
+  oppositeReviewPlayerId: randomUUID(),
   racePlayerIds: [randomUUID(), randomUUID()] as const,
   adminId: randomUUID(),
   secondAdminId: randomUUID(),
@@ -48,6 +49,7 @@ after(async () => {
       fixture.approvedReferenceRetryPlayerId,
       fixture.approvedReferenceSecondRetryPlayerId,
       fixture.concurrentApprovalPlayerId,
+      fixture.oppositeReviewPlayerId,
       ...fixture.racePlayerIds,
     ];
     await pool.query("DELETE FROM daily007_v2_notifications WHERE user_id = ANY($1::uuid[])", [playerIds]);
@@ -79,7 +81,8 @@ before(async () => {
        ($15, 'UPI Reference Concurrent Approval Player', $16, 'test-salt', 'test-hash', 'user', 1100),
        ($19, 'Approved Reference Player', $20, 'test-salt', 'test-hash', 'user', 500),
        ($21, 'Approved Reference Retry Player', $22, 'test-salt', 'test-hash', 'user', 350),
-        ($23, 'Approved Reference Second Retry Player', $24, 'test-salt', 'test-hash', 'user', 275)`,
+        ($23, 'Approved Reference Second Retry Player', $24, 'test-salt', 'test-hash', 'user', 275),
+        ($25, 'Opposite Review Race Player', $26, 'test-salt', 'test-hash', 'user', 620)`,
     [
       fixture.playerId,
       fixture.retryPlayerId,
@@ -105,6 +108,8 @@ before(async () => {
       `approved-reference-retry-${fixture.approvedReferenceRetryPlayerId}@example.test`,
       fixture.approvedReferenceSecondRetryPlayerId,
       `approved-reference-second-retry-${fixture.approvedReferenceSecondRetryPlayerId}@example.test`,
+      fixture.oppositeReviewPlayerId,
+      `opposite-review-race-${fixture.oppositeReviewPlayerId}@example.test`,
     ],
   );
   await pool.query(
@@ -225,23 +230,23 @@ async function waitForBlockedPaymentReviewRequests(blockerPid: number, expectedC
       ["%FROM daily007_v2_payments WHERE id =%"],
     );
     if (result.rows.length >= expectedCount) {
-      assert.equal(result.rows.length, expectedCount, "Only the two approvals for this payment should be waiting.");
+      assert.equal(result.rows.length, expectedCount, "Only the expected payment reviews should be waiting.");
       const requestPids = new Set(result.rows.map((row) => Number(row.pid)));
       assert.ok(
         result.rows.some((row) => row.blockers.map(Number).includes(blockerPid)),
-        "At least one approval must be waiting directly on the test payment-row lock.",
+        "At least one review must be waiting directly on the test payment-row lock.",
       );
       assert.ok(
         result.rows.every((row) =>
           row.blockers.some((pid) => Number(pid) === blockerPid || requestPids.has(Number(pid))),
         ),
-        "Each approval must be queued behind the blocker or the earlier waiting approval.",
+        "Each review must be queued behind the blocker or the earlier waiting review.",
       );
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`Timed out waiting for ${expectedCount} payment approvals to block in PostgreSQL.`);
+  throw new Error(`Timed out waiting for ${expectedCount} payment reviews to block in PostgreSQL.`);
 }
 
 test("payment requests require a valid payer UPI ID and save valid values", async () => {
@@ -989,6 +994,142 @@ test("concurrent admin approvals credit a deposit and notify its player exactly 
       blockerTransactionOpen = false;
     }
     await Promise.allSettled(approvals);
+    blocker?.release();
+  }
+});
+
+test("concurrent approval and rejection allow one outcome and only its effects", async () => {
+  const playerId = fixture.oppositeReviewPlayerId;
+  const coins = 175;
+  const reason = "The transfer could not be verified.";
+  const reference = `OPPOSITE-REVIEW-RACE-${randomUUID().replace(/-/g, "").toUpperCase()}`;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let reviews: Promise<{ status: number; body: any }>[] = [];
+  const before = await pool.query<{ wallet_coins: number }>(
+    "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+    [playerId],
+  );
+  assert.equal(before.rows.length, 1);
+  const initialBalance = before.rows[0]!.wallet_coins;
+
+  try {
+    await withServer(async (origin) => {
+      const deposit = await call(origin, playerId, "/payments", "POST", {
+        coins,
+        payerUpiId: "opposite-review-player@upi",
+        txnId: reference,
+      });
+      assert.equal(deposit.status, 201);
+      const paymentId = deposit.body.id as string;
+      assert.ok(paymentId);
+
+      blocker = await pool.connect();
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_payments WHERE id = $1 FOR UPDATE",
+        [paymentId],
+      );
+      const blockerBackendPid = await backendPid(blocker);
+
+      reviews = [
+        call(origin, fixture.adminId, `/admin/payments/${paymentId}/approve`, "POST"),
+        call(origin, fixture.secondAdminId, `/admin/payments/${paymentId}/reject`, "POST", { reason }),
+      ];
+      try {
+        await waitForBlockedPaymentReviewRequests(blockerBackendPid, 2);
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const responses = await Promise.all(reviews);
+      assert.equal(responses.filter((response) => response.status === 200).length, 1);
+      assert.equal(responses.filter((response) => response.status === 409).length, 1);
+      const winner = responses.find((response) => response.status === 200)!;
+      const loser = responses.find((response) => response.status === 409)!;
+      assert.equal(loser.body.error, "This request has already been reviewed with a different outcome.");
+      assert.ok(winner.body.status === "approved" || winner.body.status === "rejected");
+
+      const finalStatus = winner.body.status as "approved" | "rejected";
+      const payment = await pool.query<{
+        id: string;
+        user_id: string;
+        coins: number;
+        status: string;
+        reviewed_by: string;
+        review_reason: string | null;
+      }>(
+        `SELECT id, user_id, coins, status, reviewed_by, review_reason
+           FROM daily007_v2_payments WHERE id = $1`,
+        [paymentId],
+      );
+      assert.equal(payment.rows.length, 1);
+      assert.deepEqual(
+        (({ reviewed_by: _reviewedBy, ...row }) => row)(payment.rows[0]!),
+        {
+          id: paymentId,
+          user_id: playerId,
+          coins,
+          status: finalStatus,
+          review_reason: finalStatus === "rejected" ? reason : null,
+        },
+      );
+      assert.ok(
+        [fixture.adminId, fixture.secondAdminId].includes(payment.rows[0]!.reviewed_by),
+        "The final payment must record one of the two reviewing admins.",
+      );
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [playerId],
+      );
+      const ledger = await pool.query<{
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger WHERE user_id = $1`,
+        [playerId],
+      );
+      const notifications = await pool.query<{ title: string; body: string; type: string }>(
+        `SELECT title, body, type
+           FROM daily007_v2_notifications WHERE user_id = $1`,
+        [playerId],
+      );
+
+      if (finalStatus === "approved") {
+        assert.deepEqual(wallet.rows, [{ wallet_coins: initialBalance + coins }]);
+        assert.deepEqual(ledger.rows, [{
+          amount: coins,
+          balance_after: initialBalance + coins,
+          reason: "payment_approved",
+        }]);
+        assert.deepEqual(notifications.rows, [{
+          title: "Coin deposit approved",
+          body: `Your coin deposit has been approved. ${coins} coins have been added to your wallet.`,
+          type: "payment",
+        }]);
+      } else {
+        assert.deepEqual(wallet.rows, [{ wallet_coins: initialBalance }]);
+        assert.deepEqual(ledger.rows, []);
+        assert.deepEqual(notifications.rows, [{
+          title: "Coin deposit rejected",
+          body: `Your coin deposit request was rejected. Reason: ${reason}`,
+          type: "payment",
+        }]);
+      }
+    });
+  } finally {
+    if (blockerTransactionOpen && blocker) {
+      await blocker.query("ROLLBACK");
+      blockerTransactionOpen = false;
+    }
+    await Promise.allSettled(reviews);
     blocker?.release();
   }
 });
