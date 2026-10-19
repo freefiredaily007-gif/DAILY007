@@ -85,6 +85,12 @@ If that local save fails, keep the server-returned linked session in app-level s
 
 **How to apply:** Store the pending session above tab screens, retry persistence only while the same Daily007 account and token are active, and clear the warning only after the save succeeds.
 
+Clear the Google-link save warning and its pending retry when the player signs out or a different Daily007 account signs in; never carry account-specific recovery details into another player's Profile.
+
+**Why:** The user explicitly requires that a device-save warning from one account not be shown to another account.
+
+**How to apply:** Reset both values during logout and on successful authentication, then verify a different account's Profile after the account switch.
+
 On 2026-10-14, the user reported that after a native Android force-close and relaunch, a linked password account still showed Google connected, an unlinked account still offered Connect Google, and the account ID, wallet balance, and Daily007 token were unchanged.
 
 **Why:** Browser mocks cannot prove native AsyncStorage survives an Android process restart.

@@ -2097,6 +2097,112 @@ try {
     "Wallet after the retry must use the original password-account session and token.",
   );
 
+  await openProfileScenario("profile-link-warning-account-switch");
+  const accountSwitchBeforeFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(accountSwitchBeforeFailure, "before creating the warning for the account-switch check");
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.holdNextSessionWrite()"),
+    true,
+    "The account-switch scenario should hold the Google-link session write.",
+  );
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "start Google linking before the account-switch warning check",
+  );
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return state.heldSessionWrite
+        && state.calls.some((call) => call.method === "POST"
+          && call.path === "/auth/google" && call.status === 200);
+    })()`,
+    "the completed Google link waiting for its local session write",
+  );
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.rejectHeldSessionWrite()"),
+    true,
+    "The mock should reject the held session write before the account changes.",
+  );
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")
+      && Boolean(document.querySelector('[data-testid="profile-google-session-save-retry"]'))`,
+    "the visible local-save warning before signing out",
+  );
+  const accountSwitchWarningVisible = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(accountSwitchWarningVisible, "while the warning is shown for the original account");
+  assert.equal(
+    accountSwitchWarningVisible.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "The warning scenario should make one completed Google-link request.",
+  );
+
+  await clickSelector('[aria-label="LOGOUT"]', "sign out before switching mock accounts");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-submit"]'))
+      && !document.querySelector('[data-testid="mock-tab-profile"]')
+      && !document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")
+      && window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+        state.currentSession === null
+        && state.storedSession === null
+        && state.activeAuthorization === null)`,
+    "Daily007 to sign out and clear the original account session and warning",
+  );
+  const accountSwitchAfterLogout = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(accountSwitchAfterLogout.currentSession, null);
+  assert.equal(accountSwitchAfterLogout.storedSession, null);
+  assert.equal(accountSwitchAfterLogout.activeAuthorization, null);
+  assert.deepEqual(accountSwitchAfterLogout.sessionStorage, {});
+
+  await setInputValue(
+    '[data-testid="auth-email"]',
+    "password-signup@example.test",
+    "the different mock account email",
+  );
+  await setInputValue(
+    '[data-testid="auth-password"]',
+    "testpass123",
+    "the different mock account password",
+  );
+  await clickSelector('[data-testid="auth-submit"]', "sign in to the different mock account");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-profile"]'))
+      && window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+        state.profileLinkAlternateLoginCredentialMatched === true
+        && state.currentSession?.id === "mock-password-signup-player"
+        && state.currentSession?.token === "mock-password-signup-session-token"
+        && state.storedSession?.id === "mock-password-signup-player"
+        && state.storedSession?.token === "mock-password-signup-session-token")`,
+    "the different mock account signing in after the original warning is cleared",
+  );
+  const differentMockAccount = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(differentMockAccount.currentSession?.id, "mock-password-signup-player");
+  assert.equal(differentMockAccount.storedSession?.id, "mock-password-signup-player");
+  assert.equal(differentMockAccount.activeAuthorization, "Bearer mock-password-signup-session-token");
+  assert.equal(
+    differentMockAccount.calls.filter((call) => call.method === "POST" && call.path === "/auth/login").length,
+    1,
+    "The different mock account should sign in once.",
+  );
+  await clickSelector('[data-testid="mock-tab-profile"]', "open Profile for the different mock account");
+  await waitForExpression(
+    `document.body.innerText.includes("Mock Password Signup Player")
+      && document.body.innerText.includes("🪙 10")
+      && !document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")
+      && !document.querySelector('[data-testid="profile-google-link-error"]')
+      && !document.querySelector('[data-testid="profile-google-session-save-retry"]')`,
+    "the different account's Profile staying clear of the previous account's warning",
+  );
+  const differentMockAccountProfile = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(differentMockAccountProfile.currentSession?.id, "mock-password-signup-player");
+  assert.equal(differentMockAccountProfile.currentSession?.coins, 10);
+  assert.equal(differentMockAccountProfile.storedSession?.token, "mock-password-signup-session-token");
+  assert.equal(
+    differentMockAccountProfile.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "Signing in as another account must not repeat the original Google-link request.",
+  );
+  assert.equal(differentMockAccountProfile.unexpectedRequests.length, 0);
+
   await openProfileScenario("profile-link-already-linked");
   const alreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(alreadyLinked, "after restoring an already-linked Google account");

@@ -101,6 +101,7 @@ let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 
 let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
 let passwordSignupLoginCredentialMatched = savedRestartBackendState.passwordSignupLoginCredentialMatched ?? false;
 let profileLinkPasswordLoginCredentialMatched = false;
+let profileLinkAlternateLoginCredentialMatched = false;
 let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked"
   || (profileLinkStorageRestartScenario && Boolean(savedProfileLinkRestartBackendState.googleLinked));
 
@@ -242,15 +243,20 @@ http.defaults.adapter = async (config) => {
     profileLinkPasswordLoginCredentialMatched =
       body.email === PASSWORD_ACCOUNT.email &&
       body.password === PASSWORD_ACCOUNT_TEST_PASSWORD;
-    if (!profileLinkPasswordLoginCredentialMatched) {
+    profileLinkAlternateLoginCredentialMatched =
+      body.email === PASSWORD_SIGNUP_ACCOUNT.email &&
+      body.password === "testpass123";
+    if (!profileLinkPasswordLoginCredentialMatched && !profileLinkAlternateLoginCredentialMatched) {
       return rejectMockAuth(config, 401, "Email or password is incorrect.", "Unauthorized");
     }
     call.status = 200;
-    return respond(config, {
-      ...PASSWORD_ACCOUNT,
-      googleLinked: googleLinkedForPasswordAccount,
-      token: PASSWORD_TOKEN,
-    });
+    return respond(config, profileLinkAlternateLoginCredentialMatched
+      ? { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN }
+      : {
+        ...PASSWORD_ACCOUNT,
+        googleLinked: googleLinkedForPasswordAccount,
+        token: PASSWORD_TOKEN,
+      });
   }
   if (method === "POST" && (path === "/auth/login" || path === "/auth/register")) {
     passwordAuthAttempts += 1;
@@ -329,6 +335,8 @@ http.defaults.adapter = async (config) => {
     call.status = 200;
     const account = passwordSignupSessionStorageFailureScenario || passwordSignupRestartScenario
       ? PASSWORD_SIGNUP_ACCOUNT
+      : profileLinkScenario && call.authorization === `Bearer ${PASSWORD_SIGNUP_TOKEN}`
+        ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
         ? { ...PASSWORD_ACCOUNT, googleLinked: googleLinkedForPasswordAccount }
         : scenario === "auth-cancel"
@@ -433,6 +441,7 @@ window.__daily007GoogleSignupWalletTest = {
       passwordSignupRegistered,
       passwordSignupLoginCredentialMatched,
       profileLinkPasswordLoginCredentialMatched,
+      profileLinkAlternateLoginCredentialMatched,
       heldSessionWrite: storage.hasHeldSessionWrite(),
       unexpectedRequests: [...unexpectedRequests],
     };
