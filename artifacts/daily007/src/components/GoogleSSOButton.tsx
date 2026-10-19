@@ -13,7 +13,12 @@ import {
   setSessionForAuthAttempt,
   User,
 } from '../lib/api';
-import { runGoogleSSOAttempt, runGoogleSSOFlow } from '../lib/google-sso-flow';
+import {
+  runGoogleSSOAttempt,
+  runGoogleSSOFlow,
+  type GoogleClerkSession,
+  type GoogleSSOStartResult,
+} from '../lib/google-sso-flow';
 import { C, Input, Msg } from './ui';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -30,6 +35,12 @@ type Props = {
   label?: string;
   allowRecoveryRequest?: boolean;
   devRecoveryTestScenario?: GoogleRecoveryTestScenario;
+  devNativeTestHarness?: GoogleSSONativeTestHarness;
+};
+
+export type GoogleSSONativeTestHarness = {
+  getActiveSession: () => GoogleClerkSession | null | undefined;
+  startSSOFlow: (redirectUrl: string) => Promise<GoogleSSOStartResult>;
 };
 
 const RECOVERY_CONFLICT = 'An account already uses this email. Sign in with your password, then connect Google in Profile.';
@@ -53,6 +64,9 @@ function announceGoogleStatus(message: string) {
 }
 
 export default function GoogleSSOButton(props: Props) {
+  if (__DEV__ && props.devNativeTestHarness) {
+    return <NativeTestGoogleButton {...props} />;
+  }
   if (!clerkConfigured) {
     return <UnavailableButton {...props} />;
   }
@@ -118,7 +132,34 @@ function UnavailableButton({ onError, disabled, label = 'Continue with Google' }
   );
 }
 
-function ConfiguredGoogleButton({
+function ConfiguredGoogleButton(props: Props) {
+  const { startSSOFlow } = useSSO();
+  return (
+    <GoogleButtonController
+      {...props}
+      getActiveSession={() => getClerkInstance().session}
+      startNativeSSOFlow={(redirectUrl) => startSSOFlow({
+        strategy: 'oauth_google',
+        redirectUrl,
+      })}
+    />
+  );
+}
+
+function NativeTestGoogleButton({ devNativeTestHarness, ...props }: Props) {
+  if (!devNativeTestHarness) return null;
+  return (
+    <GoogleButtonController
+      {...props}
+      getActiveSession={devNativeTestHarness.getActiveSession}
+      startNativeSSOFlow={devNativeTestHarness.startSSOFlow}
+    />
+  );
+}
+
+function GoogleButtonController({
+  getActiveSession,
+  startNativeSSOFlow,
   onSuccess,
   onError,
   referralCode,
@@ -128,8 +169,10 @@ function ConfiguredGoogleButton({
   label = 'Continue with Google',
   allowRecoveryRequest,
   devRecoveryTestScenario,
-}: Props) {
-  const { startSSOFlow } = useSSO();
+}: Props & {
+  getActiveSession: () => GoogleClerkSession | null | undefined;
+  startNativeSSOFlow: (redirectUrl: string) => Promise<GoogleSSOStartResult>;
+}) {
   const [busy, setBusy] = useState(false);
   const googleAttemptInFlight = useRef(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
@@ -169,15 +212,12 @@ function ConfiguredGoogleButton({
         setOwnerRecoveryCode('');
       },
       authenticate: () => runGoogleSSOFlow({
-        getActiveSession: () => getClerkInstance().session,
+        getActiveSession,
         startSSOFlow: async () => {
           const redirectUrl = Platform.OS === 'web'
             ? AuthSession.makeRedirectUri()
             : AuthSession.makeRedirectUri({ scheme: 'daily007', path: 'sso-callback' });
-          return startSSOFlow({
-            strategy: 'oauth_google',
-            redirectUrl,
-          });
+          return startNativeSSOFlow(redirectUrl);
         },
         exchangeToken: (clerkJwt) => Api.googleAuth(clerkJwt, {
           ...(dailyToken ? { dailyToken } : {}),

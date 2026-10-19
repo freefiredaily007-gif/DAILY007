@@ -16,3 +16,11 @@ The user confirmed that the GitHub Actions Android emulator release workflow pas
 **Why:** Multiline inline scripts lose assignments and shell options between lines, then fail before producing diagnostics. Checking the entire inline block with `sh -n` does not reproduce the action's execution semantics.
 
 **How to apply:** Test through the action's single-line invocation and verify cleanup and failure handling. Do not infer Expo Go installation or emulator-to-Metro connectivity from APK download success.
+
+## Fixture health-probe ordering
+
+Keep additional local-fixture health probes after Metro has started and passed its host readiness check. The emulator workflow test's `curl` stub deliberately waits for Metro before returning; an earlier fixture probe will stall the whole shell.
+
+**Why:** A pre-Metro curl call deadlocks the mocked release script even when the fixture server itself is healthy.
+
+**How to apply:** Select and export fixture configuration before starting Metro, but launch the fixture server and probe it only after Metro readiness.

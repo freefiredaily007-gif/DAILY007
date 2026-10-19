@@ -23,7 +23,14 @@ export default function Profile() {
   const appBuild = Application.nativeBuildVersion
     ?? (configuredBuild == null ? '—' : String(configuredBuild));
   const buildLabel = Platform.OS === 'ios' ? 'iOS build' : 'Android build';
-  const { user, logout, refresh, googleLinkError, setGoogleLinkError } = useApp();
+  const {
+    user,
+    logout,
+    refresh,
+    googleLinkError,
+    setGoogleLinkError,
+    googleSSONativeTestHarness,
+  } = useApp();
   const profileEmail = String(user?.email ?? '');
   const displayProfileEmail = fontScale >= 1.5
     ? profileEmail.replace(/([@._+-])/g, '$1\u200B')
@@ -327,6 +334,7 @@ export default function Profile() {
             <GoogleSSOButton
               label="Connect Google"
               dailyToken={user.token}
+              devNativeTestHarness={googleSSONativeTestHarness}
               onError={setGoogleLinkError}
               onSuccess={async () => {
                 setGoogleLinkError('');

@@ -57,6 +57,7 @@ import {
   rootNavigationForRole,
 } from './lib/roleNavigation';
 import { useClerk } from '@clerk/expo';
+import type { GoogleSSONativeTestHarness } from './components/GoogleSSOButton';
 
 export type Ctx = {
   user: User;
@@ -64,6 +65,7 @@ export type Ctx = {
   logout: () => void;
   googleLinkError: string;
   setGoogleLinkError: (message: string) => void;
+  googleSSONativeTestHarness?: GoogleSSONativeTestHarness;
 };
 export const Ctx = React.createContext<Ctx>(null as any);
 export const useApp = () => React.useContext(Ctx);
@@ -81,6 +83,29 @@ const logoutNativeTestUser: User = {
   role: 'admin',
   token: 'native-clerk-logout-token',
 };
+
+const googleLinkNativeTestUser: User = {
+  id: 'native-google-link-player',
+  name: 'Native Google Link Player',
+  email: 'native-google-link@daily007.test',
+  role: 'user',
+  coins: 42,
+  token: 'native-google-link-password-token',
+};
+
+export function DailyAppGoogleLinkNativeTest({
+  harness,
+}: {
+  harness: GoogleSSONativeTestHarness;
+}) {
+  if (!__DEV__) return null;
+  return (
+    <DailyApp
+      testInitialUser={googleLinkNativeTestUser}
+      googleSSONativeTestHarness={harness}
+    />
+  );
+}
 
 export function DailyAppLogoutNativeTest({
   signOutClerk,
@@ -194,10 +219,12 @@ function DailyApp({
   signOutClerk,
   testInitialUser,
   logoutNativeTestControls,
+  googleSSONativeTestHarness,
 }: {
   signOutClerk?: () => Promise<void>;
   testInitialUser?: User;
   logoutNativeTestControls?: LogoutNativeTestControls;
+  googleSSONativeTestHarness?: GoogleSSONativeTestHarness;
 }) {
   const [booting, setBooting] = useState(!testInitialUser);
   const [user, setUser] = useState<User | null>(testInitialUser ?? null);
@@ -508,7 +535,14 @@ function DailyApp({
   const rootNavigation = rootNavigationForRole(user.role);
 
   return (
-    <Ctx.Provider value={{ user, refresh, logout, googleLinkError, setGoogleLinkError }}>
+    <Ctx.Provider value={{
+      user,
+      refresh,
+      logout,
+      googleLinkError,
+      setGoogleLinkError,
+      ...(googleSSONativeTestHarness ? { googleSSONativeTestHarness } : {}),
+    }}>
       <QueryClientProvider client={queryClient}>
         <NavigationContainer theme={navTheme}>
           <Stack.Navigator screenOptions={{

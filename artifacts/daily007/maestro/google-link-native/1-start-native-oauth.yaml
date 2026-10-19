@@ -1,0 +1,26 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/google-link-native-test
+- extendedWaitUntil:
+    visible:
+      id: google-link-native-phase
+    timeout: 30000
+- assertVisible: "Native test: ready"
+- assertVisible: "Daily007 account: native-google-link-player"
+- tapOn: "PROFILE"
+- scrollUntilVisible:
+    element:
+      id: continue-with-google
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "CONNECT GOOGLE"
+- assertNotVisible:
+    id: profile-google-connected
+- assertVisible: "Saved wallet: 42 coins"
+- assertVisible: "Password bearer: password token preserved"
+- tapOn:
+    id: continue-with-google
+- extendedWaitUntil:
+    visible: "Continue with test Google"
+    timeout: 30000

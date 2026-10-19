@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const [
+  app,
+  profile,
+  googleButton,
+  nativeFixture,
+  fixtureServer,
+  runner,
+  emulatorScript,
+  workflow,
+  startFlow,
+  offlineFlow,
+  retryFlow,
+  cleanupFlow,
+] = await Promise.all([
+  readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/screens/Profile.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/components/GoogleSSOButton.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/screens/GoogleLinkNativeTest.tsx", import.meta.url), "utf8"),
+  readFile(new URL("./google-link-native-oauth-fixture-server.mjs", import.meta.url), "utf8"),
+  readFile(new URL("./run-android-google-link-retry.mjs", import.meta.url), "utf8"),
+  readFile(new URL("../../../.github/scripts/android-emulator-verification.sh", import.meta.url), "utf8"),
+  readFile(new URL("../../../.github/workflows/android-release-verification.yml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/google-link-native/1-start-native-oauth.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/google-link-native/2-offline-failure.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/google-link-native/3-retry-success.yaml", import.meta.url), "utf8"),
+  readFile(new URL("../maestro/google-link-native/restore-session.yaml", import.meta.url), "utf8"),
+]);
+
+test("native Google-link test harness is development-only and exercises the production Profile and SSO flow", () => {
+  assert.match(app, /export function DailyAppGoogleLinkNativeTest/);
+  assert.match(app, /if \(!__DEV__\) return null/);
+  assert.match(profile, /label="Connect Google"[\s\S]*?devNativeTestHarness=\{googleSSONativeTestHarness\}/);
+  assert.match(googleButton, /if \(__DEV__ && props\.devNativeTestHarness\)/);
+  assert.match(googleButton, /runGoogleSSOAttempt/);
+  assert.match(googleButton, /runGoogleSSOFlow/);
+  assert.match(googleButton, /startNativeSSOFlow/);
+  assert.match(nativeFixture, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  assert.match(nativeFixture, /WebBrowser\.openAuthSessionAsync\(authPageUrl, redirectUrl\)/);
+  assert.match(nativeFixture, /setActive: async \(\{ session \}\)/);
+  assert.match(nativeFixture, /Api\.googleAuth|http\.defaults\.adapter/);
+});
+
+test("offline OAuth return preserves the original account, wallet, and password bearer until a successful retry", () => {
+  assert.match(nativeFixture, /id: 'native-google-link-player'/);
+  assert.match(nativeFixture, /coins: 42/);
+  assert.match(nativeFixture, /token: 'native-google-link-password-token'/);
+  assert.match(nativeFixture, /X-Daily007-Token/);
+  assert.match(nativeFixture, /failed while Android was offline/);
+  assert.match(nativeFixture, /googleLinked\.current = true/);
+  assert.match(nativeFixture, /sessionToken: session\?\.token === FIXTURE_SESSION\.token \? 'password token preserved' : 'changed'/);
+  assert.match(startFlow, /Continue with test Google/);
+  assert.match(startFlow, /assertNotVisible:[\s\S]*?profile-google-connected/);
+  assert.match(offlineFlow, /Could not reach Daily007\. Check your connection and try again\./);
+  assert.match(offlineFlow, /First exchange: failed while Android was offline/);
+  assert.match(offlineFlow, /Daily007 account: native-google-link-player/);
+  assert.match(offlineFlow, /Saved wallet: 42 coins/);
+  assert.match(offlineFlow, /Password bearer: password token preserved/);
+  assert.match(retryFlow, /Second exchange: succeeded online/);
+  assert.match(retryFlow, /profile-google-connected/);
+  assert.match(retryFlow, /Link requests kept password token: 2\/2/);
+  assert.match(offlineFlow, /Available coins: 42/);
+  assert.match(retryFlow, /Available coins: 42/);
+});
+
+test("Android release verification runs the native retry scenario and restores device/session state", () => {
+  assert.match(emulatorScript, /EXPO_PUBLIC_GOOGLE_LINK_TEST_AUTH_URL/);
+  assert.match(emulatorScript, /google-link-native-oauth-fixture-server\.mjs/);
+  assert.match(emulatorScript, /oauth-fixture-adb-reverse/);
+  assert.match(emulatorScript, /run_maestro_suite google-link-native-retry test:android-google-link-retry/);
+  assert.match(workflow, /test:google-link-native/);
+  assert.match(runner, /setConnectivity\(false\)[\s\S]*?2-offline-failure\.yaml[\s\S]*?setConnectivity\(true\)[\s\S]*?3-retry-success\.yaml/);
+  assert.match(runner, /restore-session\.yaml/);
+  assert.match(runner, /setAirplaneModeEnabled\(originalAirplane === "1"\)/);
+  assert.match(runner, /setWifiEnabled\(originalWifi === "1"\)/);
+  assert.match(cleanupFlow, /scenario=cleanup/);
+});
+
+test("local OAuth page only returns a test token through an app deep link", () => {
+  assert.match(fixtureServer, /native-google-link-callback-test-token/);
+  assert.match(fixtureServer, /Continue with test Google/);
+  assert.match(fixtureServer, /\^\(\?:exp\|daily007\):\\\/\\\//);
+  assert.doesNotMatch(fixtureServer, /accounts\.google\.com|oauth\.google/);
+});

@@ -115,6 +115,9 @@ jobs:
       - name: Verify Clerk logout test coverage
         run: pnpm --filter @workspace/daily007 run test:logout-native
 
+      - name: Verify Android Google-link retry test coverage
+        run: pnpm --filter @workspace/daily007 run test:google-link-native
+
       - name: Verify Expo Go matches the app SDK
         run: |
           node <<'NODE'

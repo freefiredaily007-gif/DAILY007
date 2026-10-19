@@ -1,0 +1,9 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/google-link-native-test?scenario=cleanup
+- extendedWaitUntil:
+    visible:
+      id: google-link-native-cleaned
+    timeout: 20000
+- assertVisible: "Previous saved session restored"

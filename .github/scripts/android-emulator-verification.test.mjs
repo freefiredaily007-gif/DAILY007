@@ -214,7 +214,8 @@ for (const api of [35, 36]) {
     assert.match(result.calls, new RegExp(`adb shell .*127\\.0\\.0\\.1 ${metroPort}`));
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
-    assert.equal(suites.length, api === 35 ? 9 : 1);
+    assert.equal(suites.length, api === 35 ? 11 : 1);
+    if (api === 35) assert.match(result.calls, /test:android-google-link-retry/);
     assert.equal(result.exit, "exit_status=0\n");
     assert.match(result.logcat, /mock logcat/);
   });

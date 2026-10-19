@@ -1,0 +1,31 @@
+appId: host.exp.exponent
+---
+- tapOn: "Continue with test Google"
+- extendedWaitUntil:
+    visible: "Could not reach Daily007. Check your connection and try again."
+    timeout: 30000
+- assertVisible: "CONNECT GOOGLE"
+- assertNotVisible:
+    id: profile-google-connected
+- assertVisible: "First exchange: failed while Android was offline"
+- assertVisible: "OAuth handoffs: 1"
+- assertVisible: "Google exchanges: 1"
+- assertVisible: "Daily007 account: native-google-link-player"
+- assertVisible: "Saved wallet: 42 coins"
+- assertVisible: "Password bearer: password token preserved"
+- assertVisible: "Protected API requests kept password bearer: yes"
+- assertVisible: "Link requests kept password token: 1/1"
+- tapOn: "WALLET"
+- extendedWaitUntil:
+    visible: "Available coins: 42"
+    timeout: 20000
+- assertVisible: "AVAILABLE COINS"
+- tapOn: "PROFILE"
+- scrollUntilVisible:
+    element:
+      id: continue-with-google
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "CONNECT GOOGLE"
+- assertNotVisible:
+    id: profile-google-connected

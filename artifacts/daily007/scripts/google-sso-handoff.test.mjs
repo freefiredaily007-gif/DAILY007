@@ -806,10 +806,14 @@ test("the React Native button and callback route use the isolated handoff and me
     authSource,
     /onError=\{\(message\) => \{\s*setErr\(''\);\s*setGoogleErr\(message\);\s*setReferralCodeApplied\(false\);\s*\}\}/,
   );
-  assert.match(authSource, /accessibilityLiveRegion=\{err \? 'assertive' : undefined\}/);
+  assert.match(
+    authSource,
+    /accessibilityLiveRegion=\{err && !\(Platform\.OS === 'android' && sessionSaveError\)\s*\?\s*'assertive'\s*:\s*undefined\}/,
+    "Android's session-save announcement should not be duplicated by its live region",
+  );
   assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
-  assert.match(buttonSource, /getActiveSession:\s*\(\)\s*=>\s*getClerkInstance\(\)\.session/);
+  assert.match(buttonSource, /getActiveSession=\{\(\) => getClerkInstance\(\)\.session\}/);
   assert.match(buttonSource, /strategy:\s*'oauth_google'/);
   assert.match(buttonSource, /AuthSession\.makeRedirectUri\(\{ scheme: 'daily007', path: 'sso-callback' \}\)/);
   assert.match(buttonSource, /exchangeToken:\s*\(clerkJwt\)\s*=>\s*Api\.googleAuth\(clerkJwt/);

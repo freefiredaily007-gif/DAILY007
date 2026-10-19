@@ -18,6 +18,7 @@ mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
 printf 'Emulator script started. api=%s cwd=%s workspace=%s\n' \
   "$ANDROID_API_LEVEL" "$PWD" "$WORKSPACE_DIR" > "$DIAG_DIR/runner-started.txt"
 METRO_PID=""
+OAUTH_FIXTURE_PID=""
 PHASE="initialize"
 FAILURE_REPORTED=0
 report_failure() {
@@ -42,6 +43,10 @@ cleanup() {
   if [ -n "$METRO_PID" ]; then
     kill "$METRO_PID" 2>/dev/null || true
     wait "$METRO_PID" 2>/dev/null || true
+  fi
+  if [ -n "$OAUTH_FIXTURE_PID" ]; then
+    kill "$OAUTH_FIXTURE_PID" 2>/dev/null || true
+    wait "$OAUTH_FIXTURE_PID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -78,6 +83,23 @@ case "$METRO_PORT" in
   ''|*[!0-9]*) echo "Could not select a valid Metro port: $METRO_PORT" >&2; exit 1 ;;
 esac
 export METRO_PORT
+
+PHASE="start local Google OAuth callback fixture"
+OAUTH_FIXTURE_PORT=""
+if [ "$ANDROID_API_LEVEL" = 35 ]; then
+  OAUTH_FIXTURE_PORT="$(node -e '
+    const server = require("node:net").createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      server.close(() => process.stdout.write(String(port)));
+    });
+  ')"
+  case "$OAUTH_FIXTURE_PORT" in
+    ''|*[!0-9]*) echo "Could not select a valid OAuth fixture port: $OAUTH_FIXTURE_PORT" >&2; exit 1 ;;
+  esac
+  export GOOGLE_LINK_OAUTH_FIXTURE_PORT="$OAUTH_FIXTURE_PORT"
+  export EXPO_PUBLIC_GOOGLE_LINK_TEST_AUTH_URL="http://127.0.0.1:${OAUTH_FIXTURE_PORT}/auth"
+fi
 
 PHASE="configure adb reverse for Metro port ${METRO_PORT}"
 run_logged adb-reverse adb reverse "tcp:${METRO_PORT}" "tcp:${METRO_PORT}"
@@ -125,6 +147,29 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     "$ANDROID_API_LEVEL" "$METRO_PORT" >> "$GITHUB_STEP_SUMMARY"
 fi
 
+if [ "$ANDROID_API_LEVEL" = 35 ]; then
+  PHASE="start local Google OAuth callback fixture"
+  node artifacts/daily007/scripts/google-link-native-oauth-fixture-server.mjs \
+    > "$DIAG_DIR/google-link-oauth-fixture.log" 2>&1 &
+  OAUTH_FIXTURE_PID=$!
+  oauth_fixture_ready=false
+  for attempt in $(seq 1 30); do
+    if curl --fail --silent "http://127.0.0.1:${OAUTH_FIXTURE_PORT}/health" > "$DIAG_DIR/google-link-oauth-fixture-health.txt"; then
+      oauth_fixture_ready=true
+      break
+    fi
+    if ! kill -0 "$OAUTH_FIXTURE_PID" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  if [ "$oauth_fixture_ready" != true ]; then
+    cat "$DIAG_DIR/google-link-oauth-fixture.log"
+    PHASE="local Google OAuth callback fixture did not become ready"
+    report_failure 1 "$LINENO" "fixture port ${OAUTH_FIXTURE_PORT}"
+    exit 1
+  fi
+  run_logged oauth-fixture-adb-reverse adb reverse "tcp:${OAUTH_FIXTURE_PORT}" "tcp:${OAUTH_FIXTURE_PORT}"
+fi
+
 run_maestro_suite() {
   local suite_name="$1"
   local package_script="$2"
@@ -154,6 +199,7 @@ else
   run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
   run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
   run_maestro_suite session-verification test:android-session-verification
+  run_maestro_suite google-link-native-retry test:android-google-link-retry
   run_maestro_suite clerk-logout test:android-logout
   run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy
 fi
