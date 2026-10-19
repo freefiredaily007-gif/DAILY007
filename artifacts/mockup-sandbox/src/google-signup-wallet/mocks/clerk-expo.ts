@@ -15,12 +15,17 @@ const fakeSession = {
 
 let activeSession: typeof fakeSession | null = null;
 let startResultType: string | null = null;
+let rejectSignOut = false;
 
-export function resetClerkMock(options: { startResultType?: string | null } = {}) {
+export function resetClerkMock(options: {
+  startResultType?: string | null;
+  rejectSignOut?: boolean;
+} = {}) {
   events.length = 0;
   startOptions.length = 0;
   activeSession = null;
   startResultType = options.startResultType ?? null;
+  rejectSignOut = options.rejectSignOut ?? false;
 }
 
 export function getClerkMockSnapshot() {
@@ -58,5 +63,11 @@ export function getClerkInstance() {
 }
 
 export function useClerk() {
-  return { signOut: async () => undefined };
+  return {
+    signOut: async () => {
+      if (!rejectSignOut) return;
+      events.push("sign-out");
+      throw new Error("Simulated Clerk sign-out failure.");
+    },
+  };
 }

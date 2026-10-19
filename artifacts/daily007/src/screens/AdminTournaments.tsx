@@ -651,25 +651,27 @@ export default function AdminTournaments() {
       ) : null}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <Text style={[st.h, { flex: 1, minWidth: 0, flexShrink: 1 }]}>TOURNAMENTS</Text>
-        {tab === 'upcoming' && (
-          <Btn
-            title={showForm ? 'CLOSE' : 'NEW'}
-            small
-            testID="admin-tournament-create-toggle"
-            onPress={() => {
-              actionRequestId.current++;
-              setExpandedAction(null);
-              setRoomBusy(false);
-              setResultBusy(false);
-              setRetryingApprovedRegistrations(false);
-              setShowForm(!showForm);
-              setEditId(null);
-              setForm(newTournamentForm());
-            }}
-          />
-        )}
       </View>
       <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
+      {tab === 'upcoming' && (
+        <Btn
+          title={showForm ? 'CLOSE CREATE FORM' : 'CREATE TOURNAMENT'}
+          accessibilityLabel={showForm ? 'Close tournament creation form' : 'Create a new tournament'}
+          accessibilityHint={showForm ? 'Close the form without saving.' : 'Open the form to enter tournament details.'}
+          testID="admin-tournament-create-toggle"
+          style={{ alignSelf: 'stretch', marginTop: 10, marginBottom: 12 }}
+          onPress={() => {
+            actionRequestId.current++;
+            setExpandedAction(null);
+            setRoomBusy(false);
+            setResultBusy(false);
+            setRetryingApprovedRegistrations(false);
+            setShowForm(!showForm);
+            setEditId(null);
+            setForm(newTournamentForm());
+          }}
+        />
+      )}
       <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
       {!!loadError && (
         <View style={st.loadRetry}>

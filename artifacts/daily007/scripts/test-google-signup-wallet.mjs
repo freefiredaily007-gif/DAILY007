@@ -2203,6 +2203,85 @@ try {
   );
   assert.equal(differentMockAccountProfile.unexpectedRequests.length, 0);
 
+  await openProfileScenario("profile-link-logout-pending-write");
+  const logoutRaceBeforeLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(logoutRaceBeforeLink, "before starting the held Google-link save and logout race");
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.holdNextSessionWrite()"),
+    true,
+    "The logout-race scenario should hold the Google-link session write.",
+  );
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "start Google linking before the logout-race check",
+  );
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return state.heldSessionWrite
+        && state.calls.some((call) => call.method === "POST"
+          && call.path === "/auth/google" && call.status === 200);
+    })()`,
+    "the completed Google link waiting for its local session write before logout",
+  );
+  const logoutRaceWhileWriteHeld = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const logoutRaceCallStart = logoutRaceWhileWriteHeld.calls.length;
+  await clickSelector('[aria-label="LOGOUT"]', "log out while the Google-link session save is held");
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return Boolean(document.querySelector('[data-testid="logout-pending"]'))
+        && !document.querySelector('[data-testid="mock-tab-profile"]')
+        && state.heldSessionWrite
+        && state.currentSession === null
+        && state.activeAuthorization === null
+        && state.storedSession?.token === "mock-password-account-token";
+    })()`,
+    "logout to hide the player tabs and clear the active token while the queued storage clear waits",
+  );
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.releaseHeldSessionWrite()"),
+    true,
+    "The delayed Google-link save should be released while logout is pending.",
+  );
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      return Boolean(document.querySelector('[data-testid="auth-submit"]'))
+        && !document.querySelector('[data-testid="logout-pending"]')
+        && !document.querySelector('[data-testid="mock-tab-profile"]')
+        && state.clerk.events.includes("sign-out")
+        && !state.heldSessionWrite
+        && state.currentSession === null
+        && state.storedSession === null
+        && state.activeAuthorization === null
+        && Object.keys(state.sessionStorage).length === 0;
+    })()`,
+    "the rejected Clerk sign-out and completed logout to leave both session stores empty",
+  );
+  const logoutRaceAfterClear = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(
+    logoutRaceAfterClear.calls.slice(logoutRaceCallStart).some(
+      (call) => call.authorization === "Bearer mock-password-account-token",
+    ),
+    false,
+    "No request started after logout should use the old password-account token.",
+  );
+  const protectedProbe = await evaluate("window.__daily007GoogleSignupWalletTest.probeProtectedRequest()");
+  assert.equal(protectedProbe.length, 1, "The protected-request probe should make one request.");
+  assert.equal(protectedProbe[0].path, "/wallet/transactions");
+  assert.notEqual(
+    protectedProbe[0].authorization,
+    "Bearer mock-password-account-token",
+    "A protected Wallet request after logout must not reuse the old Daily007 token.",
+  );
+  const logoutRaceAfterProbe = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(logoutRaceAfterProbe.currentSession, null);
+  assert.equal(logoutRaceAfterProbe.storedSession, null);
+  assert.equal(logoutRaceAfterProbe.activeAuthorization, null);
+  assert.deepEqual(logoutRaceAfterProbe.sessionStorage, {});
+  assert.equal(logoutRaceAfterProbe.unexpectedRequests.length, 0);
+
   await openProfileScenario("profile-link-already-linked");
   const alreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(alreadyLinked, "after restoring an already-linked Google account");

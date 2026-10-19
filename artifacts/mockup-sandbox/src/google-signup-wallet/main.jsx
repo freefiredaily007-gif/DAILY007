@@ -421,6 +421,7 @@ resetClerkMock({
   startResultType: scenario === "profile-link-cancel" || scenario === "auth-cancel"
     ? "dismiss"
     : null,
+  rejectSignOut: scenario === "profile-link-logout-pending-write",
 });
 window.__daily007GoogleSignupWalletTest = {
   async snapshot() {
@@ -484,6 +485,11 @@ window.__daily007GoogleSignupWalletTest = {
   },
   rejectHeldSessionWrite() {
     return storage.rejectHeldSessionWrite();
+  },
+  async probeProtectedRequest() {
+    const callStart = calls.length;
+    await http.get("/wallet/transactions");
+    return calls.slice(callStart);
   },
 };
 
