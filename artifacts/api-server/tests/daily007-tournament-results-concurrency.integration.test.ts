@@ -597,6 +597,57 @@ async function removeRunnerUpLedgerFailure(): Promise<void> {
   await pool.query("DROP SEQUENCE IF EXISTS daily007_test_result_failure_observed_seq");
 }
 
+function firstPlaceFailureObjectNames() {
+  const suffix = randomUUID().replaceAll("-", "").slice(0, 16);
+  return {
+    trigger: `daily007_test_first_place_failure_${suffix}`,
+    function: `daily007_test_first_place_failure_fn_${suffix}`,
+    sequence: `daily007_test_first_place_failure_seq_${suffix}`,
+  };
+}
+
+async function installOneShotFirstPlaceLedgerFailure(
+  names: ReturnType<typeof firstPlaceFailureObjectNames>,
+  player: PlayerFixture,
+  matchId: string,
+): Promise<void> {
+  await pool.query(`CREATE SEQUENCE ${names.sequence}`);
+  await pool.query(`
+    CREATE FUNCTION ${names.function}() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $body$
+    BEGIN
+      IF NEW.user_id::text = TG_ARGV[0]
+         AND NEW.match_id::text = TG_ARGV[1]
+         AND NEW.registration_id::text = TG_ARGV[2]
+         AND NEW.reason = 'match_prize' THEN
+        IF nextval('${names.sequence}') = 1 THEN
+          RAISE EXCEPTION 'Injected one-shot failure at first-place prize ledger insert'
+            USING ERRCODE = 'XX000';
+        END IF;
+      END IF;
+      RETURN NEW;
+    END;
+    $body$
+  `);
+  await pool.query(`
+    CREATE TRIGGER ${names.trigger}
+    BEFORE INSERT ON daily007_v2_wallet_ledger
+    FOR EACH ROW
+    EXECUTE FUNCTION ${names.function}('${player.userId}', '${matchId}', '${player.registrationId}')
+  `);
+}
+
+async function removeOneShotFirstPlaceLedgerFailure(
+  names: ReturnType<typeof firstPlaceFailureObjectNames>,
+): Promise<void> {
+  await pool.query(
+    `DROP TRIGGER IF EXISTS ${names.trigger} ON daily007_v2_wallet_ledger`,
+  );
+  await pool.query(`DROP FUNCTION IF EXISTS ${names.function}()`);
+  await pool.query(`DROP SEQUENCE IF EXISTS ${names.sequence}`);
+}
+
 async function backendPid(client: { query<T>(sql: string): Promise<{ rows: T[] }> }): Promise<number> {
   const result = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
   const pid = result.rows[0]?.pid;
@@ -3269,6 +3320,122 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
   } finally {
     try {
       await removeRunnerUpLedgerFailure();
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  }
+});
+
+test("a failed first-place payout rolls back completely and the winner can retry", async () => {
+  const fixture = await createFixture();
+  const winner = fixture.players[0];
+  assert.ok(winner, "a winner fixture is required");
+  const failureObjects = firstPlaceFailureObjectNames();
+
+  try {
+    await withServer(async (origin) => {
+      const beforeFailure = await captureSettlementState(fixture, winner);
+      assert.deepEqual(beforeFailure, {
+        walletCoins: 100,
+        awards: [],
+        stats: null,
+        ledger: [],
+        match: { enabled: true, status: "open" },
+      });
+      const standingsBeforeFailure = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsBeforeFailure.status, 200);
+      assert.equal(standingsBeforeFailure.body.status, "draft");
+      assert.deepEqual(standingsBeforeFailure.body.entries, []);
+
+      await installOneShotFirstPlaceLedgerFailure(failureObjects, winner, fixture.matchId);
+      const failed = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
+      assert.equal(failed.status, 500, `expected injected database failure: ${JSON.stringify(failed.body)}`);
+
+      const failureEvidence = await pool.query<{ last_value: string; is_called: boolean }>(
+        `SELECT last_value::text, is_called FROM ${failureObjects.sequence}`,
+      );
+      assert.deepEqual(
+        failureEvidence.rows,
+        [{ last_value: "1", is_called: true }],
+        "the one-shot failure must occur at the first-place prize ledger insert",
+      );
+      assert.deepEqual(
+        await captureSettlementState(fixture, winner),
+        beforeFailure,
+        "the failed attempt must leave wallet, award, stats, ledger, and tournament state unchanged",
+      );
+      const standingsAfterFailure = await publicStandings(origin, fixture.matchId);
+      assert.deepEqual(
+        standingsAfterFailure,
+        standingsBeforeFailure,
+        "a failed first-place payout must not finalize or expose standings",
+      );
+
+      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 7);
+      assert.equal(retry.status, 201, `retry should succeed: ${JSON.stringify(retry.body)}`);
+      assert.equal(retry.body.registrationId, winner.registrationId);
+      assert.equal(retry.body.userId, winner.userId);
+      assert.equal(retry.body.prizeCoins, 500);
+      assert.equal(retry.body.walletCoins, 600);
+
+      const retryEvidence = await pool.query<{ last_value: string; is_called: boolean }>(
+        `SELECT last_value::text, is_called FROM ${failureObjects.sequence}`,
+      );
+      assert.deepEqual(
+        retryEvidence.rows,
+        [{ last_value: "2", is_called: true }],
+        "the retry must pass the same trigger after the one-shot database failure",
+      );
+
+      const finalState = await captureSettlementState(fixture, winner);
+      assert.deepEqual(finalState, {
+        walletCoins: 600,
+        awards: [{
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 7,
+          prize_coins: 500,
+        }],
+        stats: { matches: 1, wins: 1, kills: 7, prize_coins: 500 },
+        ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
+        match: { enabled: false, status: "open" },
+      }, "the retry must persist exactly one first-place award and payout");
+
+      const payoutRows = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        user_id: string;
+        amount: number;
+        balance_after: number;
+      }>(
+        `SELECT match_id, registration_id, user_id, amount, balance_after
+           FROM daily007_v2_wallet_ledger
+          WHERE match_id = $1 AND reason = 'match_prize'`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(payoutRows.rows, [{
+        match_id: fixture.matchId,
+        registration_id: winner.registrationId,
+        user_id: winner.userId,
+        amount: 500,
+        balance_after: 600,
+      }], "the tournament must have exactly one payout, for the retried winner");
+
+      const standingsAfterRetry = await publicStandings(origin, fixture.matchId);
+      assert.equal(standingsAfterRetry.status, 200);
+      assert.equal(standingsAfterRetry.body.status, "finalized");
+      assert.deepEqual(standingsAfterRetry.body.entries, [{
+        rank: 1,
+        kills: 7,
+        prizeCoins: 500,
+        gameName: "TestGame1",
+        teamName: null,
+      }], "finalized standings must contain only the successfully paid winner");
+    });
+  } finally {
+    try {
+      await removeOneShotFirstPlaceLedgerFailure(failureObjects);
     } finally {
       await cleanupFixture(fixture);
     }
