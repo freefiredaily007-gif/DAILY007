@@ -9,6 +9,8 @@ description: Native Android confirmation of video catalog lifecycle and offline 
 
 **Confirmed:** On 2026-10-19, the user reported the warning disappeared without pressing Reload and the refreshed video list appeared after connectivity returned.
 
+**Confirmed:** On 2026-10-19, the user reported all checks passed on Android for this task: offline Video retained a retryable catalog error, reconnecting on the catalog recovered it, and reconnecting while the player was open did not refresh the catalog.
+
 **Why:** Automated query tests cannot confirm native Android AppState, network interruptions, or actual player navigation.
 
 **How to apply:** Treat warm background/resume, player-open polling pause, refresh-on-return, opening a cached card after a failed offline refresh, and automatic warning/list recovery as confirmed on this device. Recheck native behavior after lifecycle changes; this does not verify iOS or force-stop/relaunch behavior.
