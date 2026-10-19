@@ -27,6 +27,7 @@ import {
   captureSessionRevision,
   LoginRateLimitError,
   SessionPersistenceError,
+  setDevSessionPersistenceFailuresForTest,
   setSessionForAuthAttempt,
   User,
 } from '../lib/api';
@@ -81,10 +82,12 @@ export default function Auth({
   onDone,
   notice,
   devSessionPersistenceFailures,
+  devRejectFirstSignupSessionWrite = false,
 }: {
   onDone: (u: User) => void;
   notice?: string;
   devSessionPersistenceFailures?: number;
+  devRejectFirstSignupSessionWrite?: boolean;
 }) {
   const { width, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -110,6 +113,7 @@ export default function Auth({
   } | null>(null);
   const sessionSaveAnnouncementId = React.useRef(0);
   const devSessionPersistenceFailuresRemaining = React.useRef(devSessionPersistenceFailures ?? 0);
+  const devSessionWriteFailureInjected = React.useRef(false);
   const googleAttemptInFlight = React.useRef(false);
   const nameInputRef = React.useRef<NativeTextInput>(null);
   const referralInputRef = React.useRef<NativeTextInput>(null);
@@ -264,6 +268,16 @@ export default function Auth({
       }
       try {
         let saved: boolean;
+        if (
+          __DEV__ &&
+          devRejectFirstSignupSessionWrite &&
+          mode === 'signup' &&
+          !retrySignupSession &&
+          !devSessionWriteFailureInjected.current
+        ) {
+          setDevSessionPersistenceFailuresForTest(1);
+          devSessionWriteFailureInjected.current = true;
+        }
         if (__DEV__ && devSessionPersistenceFailures !== undefined && mode === 'signup') {
           if (devSessionPersistenceFailuresRemaining.current > 0) {
             devSessionPersistenceFailuresRemaining.current -= 1;

@@ -81,6 +81,7 @@ let current: User | null = null;
 let sessionExpiredHandler: (() => void) | null = null;
 let sessionRevision = 0;
 let sessionPersistenceQueue: Promise<void> = Promise.resolve();
+let devSessionPersistenceFailuresRemainingForTest = 0;
 
 export type SessionIdentity = {
   revision: number;
@@ -93,6 +94,13 @@ export class SessionPersistenceError extends Error {
     super('Daily007 could not save your session on this device. Check available storage and try again.');
     this.name = 'SessionPersistenceError';
   }
+}
+
+export function setDevSessionPersistenceFailuresForTest(count: number): void {
+  if (typeof __DEV__ === 'undefined' || !__DEV__) return;
+  devSessionPersistenceFailuresRemainingForTest = Number.isFinite(count)
+    ? Math.max(0, Math.floor(count))
+    : 0;
 }
 
 export class LoginRateLimitError extends Error {
@@ -138,6 +146,10 @@ export function isSessionIdentityCurrent(identity: SessionIdentity): boolean {
 function persistSessionMutation(user: User | null, revision: number): Promise<boolean> {
   const operation = sessionPersistenceQueue.catch(() => {}).then(async () => {
     if (revision !== sessionRevision) return false;
+    if (user?.token && devSessionPersistenceFailuresRemainingForTest > 0) {
+      devSessionPersistenceFailuresRemainingForTest -= 1;
+      throw new Error('Injected dev-only session persistence failure.');
+    }
     if (user?.token) await AsyncStorage.setItem(KEY, JSON.stringify(user));
     else await AsyncStorage.removeItem(KEY);
     if (revision !== sessionRevision) return false;

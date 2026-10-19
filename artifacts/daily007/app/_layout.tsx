@@ -80,6 +80,7 @@ function RootLayoutNav() {
       <Stack.Screen name="google-recovery-accessibility-test" />
       <Stack.Screen name="google-link-native-test" />
       <Stack.Screen name="signup-session-retry-accessibility-test" />
+      <Stack.Screen name="password-signup-restart-test" />
       <Stack.Screen name="withdrawal-upi-copy-test" />
       <Stack.Screen name="wallet-cancellation-refund-voiceover-test" />
     </Stack>
