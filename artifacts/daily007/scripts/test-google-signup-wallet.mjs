@@ -1595,6 +1595,98 @@ try {
   assert.ok(successfulLink.clerk.events.includes("get-token"));
   await assertWalletBalance("after successful Google linking");
 
+  await clickSelector('[data-testid="mock-tab-profile"]', "open Profile before the fresh password login check");
+  await waitForExpression(
+    `document.body.innerText.includes("Google connection confirmed.")
+      && document.body.innerText.includes("Mock Password Player")`,
+    "the linked password account before signing out",
+  );
+  const linkedBeforePasswordLogin = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(linkedBeforePasswordLogin, "before signing out of the linked account");
+  assert.equal(linkedBeforePasswordLogin.currentSession?.googleLinked, true);
+  assert.equal(linkedBeforePasswordLogin.storedSession?.googleLinked, true);
+
+  await clickSelector('[aria-label="LOGOUT"]', "sign out of the Google-linked password account");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-submit"]'))
+      && !document.querySelector('[data-testid="mock-tab-profile"]')
+      && window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+        state.currentSession === null
+        && state.storedSession === null
+        && state.activeAuthorization === null)`,
+    "Daily007 to sign out and clear the previous password session",
+  );
+  const signedOutLinkedAccount = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(signedOutLinkedAccount.currentSession, null);
+  assert.equal(signedOutLinkedAccount.storedSession, null);
+  assert.equal(signedOutLinkedAccount.activeAuthorization, null);
+  assert.deepEqual(signedOutLinkedAccount.sessionStorage, {});
+
+  await setInputValue('[data-testid="auth-email"]', "password-player@example.test", "original password-account email");
+  await setInputValue('[data-testid="auth-password"]', "Daily007-safe-password-123", "original password-account password");
+  await clickSelector('[data-testid="auth-submit"]', "fresh password login to the linked account");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-profile"]'))
+      && window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+        state.profileLinkPasswordLoginCredentialMatched === true
+        && state.currentSession?.id === "mock-password-player"
+        && state.currentSession?.coins === 42
+        && state.currentSession?.googleLinked === true
+        && state.storedSession?.id === "mock-password-player"
+        && state.storedSession?.coins === 42
+        && state.storedSession?.googleLinked === true)`,
+    "a fresh password login to restore the same account and wallet with Google still linked",
+  );
+  const freshPasswordLogin = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(freshPasswordLogin, "after fresh password login to the Google-linked account");
+  assert.equal(freshPasswordLogin.passwordAuthAttempts, 1);
+  assert.equal(freshPasswordLogin.profileLinkPasswordLoginCredentialMatched, true);
+  const passwordLoginRequests = freshPasswordLogin.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/login",
+  );
+  assert.equal(passwordLoginRequests.length, 1, "The linked account should use one fresh password login request.");
+  assert.equal(passwordLoginRequests[0].status, 200);
+  assert.equal(freshPasswordLogin.currentSession?.googleLinked, true);
+  assert.equal(freshPasswordLogin.storedSession?.googleLinked, true);
+
+  await clickSelector('[data-testid="mock-tab-profile"]', "open Profile after fresh password login");
+  await waitForExpression(
+    `document.body.innerText.includes("GOOGLE CONNECTED")
+      && document.body.innerText.includes("Google connection confirmed.")
+      && !document.querySelector('[data-testid="continue-with-google"]')
+      && document.body.innerText.includes("Mock Password Player")
+      && document.body.innerText.includes("🪙 42")`,
+    "Profile to confirm the original account, wallet balance, and still-linked Google identity after password login",
+  );
+  const profileAfterPasswordLogin = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(profileAfterPasswordLogin, "after Profile confirms Google remains linked after password login");
+  assert.equal(profileAfterPasswordLogin.currentSession?.googleLinked, true);
+  assert.equal(profileAfterPasswordLogin.storedSession?.googleLinked, true);
+  assert.equal(
+    profileAfterPasswordLogin.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    2,
+    "Password login should preserve the existing Google link without sending another link request.",
+  );
+
+  const walletCallStartAfterLogin = profileAfterPasswordLogin.calls.length;
+  await assertWalletBalance("after signing in with the original password to the linked account");
+  await waitForExpression(
+    `document.body.innerText.includes("Existing password-account wallet history")`,
+    "the original password account's Wallet history after the fresh login",
+  );
+  const walletAfterPasswordLogin = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(walletAfterPasswordLogin, "after reloading Wallet following the fresh password login");
+  const walletRequestsAfterPasswordLogin = walletAfterPasswordLogin.calls
+    .slice(walletCallStartAfterLogin)
+    .filter((call) => call.method === "GET" && call.path === "/wallet/transactions");
+  assert.ok(walletRequestsAfterPasswordLogin.length > 0, "Wallet should reload after the fresh password login.");
+  assert.ok(
+    walletRequestsAfterPasswordLogin.every(
+      (call) => call.status === 200 && call.authorization === "Bearer mock-password-account-token",
+    ),
+    "Wallet should use the same Daily007 password-account token after the fresh password login.",
+  );
+
   await openProfileScenario("profile-link-cancel");
   const beforeCancel = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(beforeCancel, "before cancelling Google linking");
@@ -1961,7 +2053,7 @@ try {
 
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
-    "PASS — Google cancellation password recovery, Google signup retries and referral handoff, password signup recovery, Profile Google-link recovery, and Wallet rewards.",
+    "PASS — Google cancellation password recovery, Google signup retries and referral handoff, password signup recovery, fresh password login after Google linking, Profile Google-link recovery, and Wallet rewards.",
   );
 } finally {
   socket?.close();

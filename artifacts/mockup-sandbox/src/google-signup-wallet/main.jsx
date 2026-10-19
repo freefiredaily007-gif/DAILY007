@@ -28,6 +28,7 @@ const PASSWORD_ACCOUNT = {
   googleLinked: false,
 };
 const PASSWORD_TOKEN = "mock-password-account-token";
+const PASSWORD_ACCOUNT_TEST_PASSWORD = "Daily007-safe-password-123";
 const PASSWORD_SIGNUP_ACCOUNT = {
   id: "mock-password-signup-player",
   name: "Mock Password Signup Player",
@@ -95,6 +96,7 @@ let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
 let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 0;
 let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
 let passwordSignupLoginCredentialMatched = savedRestartBackendState.passwordSignupLoginCredentialMatched ?? false;
+let profileLinkPasswordLoginCredentialMatched = false;
 let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked"
   || (profileLinkStorageRestartScenario && Boolean(savedProfileLinkRestartBackendState.googleLinked));
 
@@ -228,6 +230,22 @@ http.defaults.adapter = async (config) => {
     passwordSignupAttempts += 1;
     call.status = 200;
     return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
+  }
+  if (profileLinkScenario && method === "POST" && path === "/auth/login") {
+    passwordAuthAttempts += 1;
+    const body = requestBody(config);
+    profileLinkPasswordLoginCredentialMatched =
+      body.email === PASSWORD_ACCOUNT.email &&
+      body.password === PASSWORD_ACCOUNT_TEST_PASSWORD;
+    if (!profileLinkPasswordLoginCredentialMatched) {
+      return rejectMockAuth(config, 401, "Email or password is incorrect.", "Unauthorized");
+    }
+    call.status = 200;
+    return respond(config, {
+      ...PASSWORD_ACCOUNT,
+      googleLinked: googleLinkedForPasswordAccount,
+      token: PASSWORD_TOKEN,
+    });
   }
   if (method === "POST" && (path === "/auth/login" || path === "/auth/register")) {
     passwordAuthAttempts += 1;
@@ -400,6 +418,7 @@ window.__daily007GoogleSignupWalletTest = {
       passwordSignupAttempts,
       passwordSignupRegistered,
       passwordSignupLoginCredentialMatched,
+      profileLinkPasswordLoginCredentialMatched,
       heldSessionWrite: storage.hasHeldSessionWrite(),
       unexpectedRequests: [...unexpectedRequests],
     };
