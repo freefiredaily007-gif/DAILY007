@@ -1954,6 +1954,96 @@ test("a valid referral code does not change rewards when a password account link
   }
 });
 
+test("a valid mixed-case verified Google email links the matching password account", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser({
+    id: GOOGLE_CLERK_USER_ID,
+    firstName: "Google",
+    lastName: "Signup",
+    emailAddresses: [{
+      emailAddress: "Google-SignUp@Example.Test",
+      verification: { status: "verified" },
+    }],
+    externalAccounts: [{
+      provider: "google",
+      emailAddress: "Google-SignUp@Example.Test",
+      firstName: "Google",
+      lastName: "Signup",
+      verification: { status: "verified" },
+    }],
+  } as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "mixed-case-google-email-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "mixed-case-google-email-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "mixed-case-google-email-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const accountBeforeLink = structuredClone(account);
+      const referralsBeforeLink = structuredClone(signupTestDb.referrals);
+      const ledgerBeforeLink = structuredClone(signupTestDb.ledger);
+      const accountCountBeforeLink = signupTestDb.users.size;
+      const expectedWalletHistory = ledgerBeforeLink
+        .filter(({ user_id }) => user_id === account.id)
+        .map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        }));
+
+      const linked = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(linked.status, 200, "different email casing must not block a valid Google link");
+      assert.equal(linked.body.googleLinked, true);
+      assert.equal(linked.body.id, account.id, "the existing password account should be reused");
+      assert.equal(linked.body.email, account.email);
+      assert.equal(linked.body.coins, 73);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+      assert.deepEqual(account, {
+        ...accountBeforeLink,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+      }, "linking should preserve the existing account and only save its Google identity");
+      assert.equal(account.email, "google-signup@example.test");
+      assert.equal(account.wallet_coins, 73, "linking must preserve the existing balance");
+      assert.equal(signupTestDb.users.size, accountCountBeforeLink, "linking must not create a duplicate account");
+      assert.deepEqual(signupTestDb.referrals, referralsBeforeLink, "linking must preserve referrals");
+      assert.deepEqual(signupTestDb.ledger, ledgerBeforeLink, "linking must preserve Wallet history");
+
+      const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletResponse.status, 200, "the current Daily007 session must remain usable");
+      const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+        "the Wallet history must remain visible and unchanged after linking",
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("a verified but malformed Google email cannot link a password account", async () => {
   signupTestDb.reset();
   resetMockGoogleUser({
