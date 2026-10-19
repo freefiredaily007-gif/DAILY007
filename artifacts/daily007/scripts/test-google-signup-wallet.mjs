@@ -1784,38 +1784,98 @@ try {
     "Wallet requests must keep using the original password-account bearer token.",
   );
 
+  const recoverySetup = await evaluate(`(() => ({
+    verificationFailureArmed:
+      window.__daily007GoogleSignupWalletTest.failNextAuthMeRequest(),
+    networkOffline:
+      window.__daily007GoogleSignupWalletTest.setNetworkOffline(),
+  }))()`);
+  assert.deepEqual(recoverySetup, {
+    verificationFailureArmed: true,
+    networkOffline: true,
+  });
   const callCountBeforeFreshBoot = walletAfterLinkStorageFailure.calls.length;
   await cdp("Page.reload", { ignoreCache: true });
   await waitForExpression(
     `(async () => {
       const state = await window.__daily007GoogleSignupWalletTest.snapshot();
-      return Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))
-        && state.currentSession?.id === "mock-password-player"
-        && state.currentSession?.token === "mock-password-account-token"
-        && state.calls.slice(${callCountBeforeFreshBoot}).some((call) =>
+      const freshBootAuthRequests = state.calls.slice(${callCountBeforeFreshBoot}).filter((call) =>
           call.method === "GET"
           && call.path === "/auth/me"
-          && call.authorization === "Bearer mock-password-account-token");
+        );
+      return Boolean(document.querySelector('[data-testid="session-verification-paused-title"]'))
+        && Boolean(document.querySelector('[data-testid="session-verification-retry"]'))
+        && freshBootAuthRequests.length === 1
+        && freshBootAuthRequests[0].status === 503
+        && freshBootAuthRequests[0].authorization === "Bearer mock-password-account-token"
+        && state.storedSession?.id === "mock-password-player"
+        && state.storedSession?.token === "mock-password-account-token";
     })()`,
-    "a fresh app boot restoring the persisted password session after the failed Google-link write",
+    "the transient profile-verification failure while the saved password session remains available",
+  );
+  const pausedFreshBoot = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(pausedFreshBoot, "while fresh-start profile verification is paused");
+  const failedFreshBootProfileRequests = pausedFreshBoot.calls.slice(callCountBeforeFreshBoot).filter(
+    (call) => call.method === "GET" && call.path === "/auth/me",
+  );
+  assert.equal(failedFreshBootProfileRequests.length, 1);
+  assert.equal(failedFreshBootProfileRequests[0].status, 503);
+  assert.equal(
+    failedFreshBootProfileRequests[0].authorization,
+    "Bearer mock-password-account-token",
+    "The transient verification request must use the original saved password token.",
+  );
+  assert.equal(
+    pausedFreshBoot.calls.slice(callCountBeforeFreshBoot)
+      .filter((call) => call.method === "GET" && call.path === "/wallet/transactions").length,
+    0,
+    "Wallet must wait until the saved session has been verified after the transient failure.",
+  );
+  assert.equal(
+    await evaluate("Boolean(document.querySelector('[data-testid=\"mock-tab-wallet\"]'))"),
+    false,
+    "Protected tabs must stay unavailable while startup verification is paused.",
+  );
+  assert.equal(
+    pausedFreshBoot.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    1,
+    "Restoring after the server-side link must not submit the Google link again.",
+  );
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.setNetworkOnline()"),
+    true,
+    "The mocked reconnect should be dispatched to the app.",
+  );
+  await waitForExpression(
+    `(async () => {
+      const state = await window.__daily007GoogleSignupWalletTest.snapshot();
+      const freshBootAuthRequests = state.calls.slice(${callCountBeforeFreshBoot}).filter((call) =>
+        call.method === "GET" && call.path === "/auth/me"
+      );
+      return Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))
+        && !document.querySelector('[data-testid="session-verification-paused-title"]')
+        && freshBootAuthRequests.some((call) => call.status === 200)
+        && state.currentSession?.id === "mock-password-player"
+        && state.currentSession?.token === "mock-password-account-token";
+    })()`,
+    "automatic saved-session verification recovery after reconnect",
   );
   const freshBootSession = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
-  assertPasswordSession(freshBootSession, "after restoring the password session in a fresh app lifecycle");
+  assertPasswordSession(freshBootSession, "after saved-session verification recovers on reconnect");
   const freshBootProfileRequests = freshBootSession.calls.slice(callCountBeforeFreshBoot).filter(
     (call) => call.method === "GET" && call.path === "/auth/me",
   );
-  assert.ok(freshBootProfileRequests.length > 0, "Fresh startup should verify the saved profile.");
+  assert.ok(freshBootProfileRequests.length >= 2, "Fresh startup should retry profile verification after reconnect.");
+  assert.equal(freshBootProfileRequests[0].status, 503, "The first fresh-start verification should fail transiently.");
+  assert.ok(
+    freshBootProfileRequests.slice(1).some((call) => call.status === 200),
+    "Profile verification should recover successfully after reconnect.",
+  );
   assert.ok(
     freshBootProfileRequests.every(
-      (call) => call.status === 200
-        && call.authorization === "Bearer mock-password-account-token",
+      (call) => call.authorization === "Bearer mock-password-account-token",
     ),
-    "Fresh startup profile requests must succeed with the original password-account bearer token.",
-  );
-  assert.equal(
-    freshBootSession.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
-    1,
-    "Restoring after the server-side link must not submit the Google link again.",
+    "All fresh-start profile requests must keep using the original password-account bearer token.",
   );
   await clickSelector(
     '[data-testid="mock-tab-profile"]',

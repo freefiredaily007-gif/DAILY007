@@ -5,6 +5,7 @@ import App from "../../../daily007/src/App";
 import { currentUser, http } from "../../../daily007/src/lib/api";
 import storage from "./mocks/async-storage";
 import { getClerkMockSnapshot, resetClerkMock } from "./mocks/clerk-expo";
+import { setMockNetworkState } from "./mocks/network";
 
 const ACCOUNT = {
   id: "mock-daily007-google-player",
@@ -77,6 +78,8 @@ const savedRestartBackendState = passwordSignupRestartScenario
 const savedProfileLinkRestartBackendState = profileLinkStorageRestartScenario
   ? JSON.parse(window.localStorage.getItem(profileLinkRestartBackendStorageKey) ?? "{}")
   : {};
+let profileLinkAuthMeFailuresRemaining =
+  savedProfileLinkRestartBackendState.authMeFailuresRemaining ?? 0;
 const heldGoogleExchangeScenario = scenario === "double-tap" || scenario === "login-conflict";
 const profileLinkScenario = scenario?.startsWith("profile-link-") ?? false;
 const calls = passwordSignupRestartScenario
@@ -107,6 +110,7 @@ function persistRestartBackendState() {
       calls,
       unexpectedRequests,
       googleLinked: googleLinkedForPasswordAccount,
+      authMeFailuresRemaining: profileLinkAuthMeFailuresRemaining,
     }));
     return;
   }
@@ -313,6 +317,15 @@ http.defaults.adapter = async (config) => {
       : { ...ACCOUNT, token: DAILY007_TOKEN });
   }
   if (method === "GET" && path === "/auth/me") {
+    if (profileLinkStorageRestartScenario && profileLinkAuthMeFailuresRemaining > 0) {
+      profileLinkAuthMeFailuresRemaining -= 1;
+      return rejectMockAuth(
+        config,
+        503,
+        "Daily007 profile verification is temporarily unavailable.",
+        "Service Unavailable",
+      );
+    }
     call.status = 200;
     const account = passwordSignupSessionStorageFailureScenario || passwordSignupRestartScenario
       ? PASSWORD_SIGNUP_ACCOUNT
@@ -441,6 +454,20 @@ window.__daily007GoogleSignupWalletTest = {
   simulateRemoteGoogleLink() {
     if (!profileLinkScenario) return false;
     googleLinkedForPasswordAccount = true;
+    return true;
+  },
+  failNextAuthMeRequest() {
+    if (!profileLinkStorageRestartScenario) return false;
+    profileLinkAuthMeFailuresRemaining = 1;
+    persistRestartBackendState();
+    return true;
+  },
+  setNetworkOffline() {
+    setMockNetworkState({ isConnected: false, isInternetReachable: false });
+    return true;
+  },
+  setNetworkOnline() {
+    setMockNetworkState({ isConnected: true, isInternetReachable: true });
     return true;
   },
   releaseHeldSessionWrite() {
