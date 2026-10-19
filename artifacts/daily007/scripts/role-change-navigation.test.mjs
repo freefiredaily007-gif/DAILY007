@@ -522,6 +522,85 @@ for (const status of [401, 403]) {
   });
 }
 
+test("a Clerk logout failure keeps the app signed out, shows the warning, and allows a later sign-in", async () => {
+  const originalUser = {
+    id: "logout-failure-player",
+    name: "Logout Failure Player",
+    role: "user",
+    token: "logout-failure-session",
+  };
+  let currentUser = originalUser;
+  let savedSession = originalUser;
+  let logoutPending = true;
+  let logoutInFlight = true;
+  let warning = null;
+  const events = [];
+  currentUser = null;
+  const clerkSignOutFailed = await logoutDaily007(
+    async () => {
+      assert.equal(currentUser, null, "The app must hide the signed-in player before calling Clerk.");
+      assert.equal(savedSession, null, "The Daily007 session must be cleared before calling Clerk.");
+      events.push("clerk-sign-out");
+      throw new Error("Simulated Clerk sign-out failure.");
+    },
+    async () => {
+      currentUser = null;
+      savedSession = null;
+      events.push("daily007-session-cleared");
+    },
+  );
+  if (clerkSignOutFailed) {
+    warning = {
+      title: "Sign-out issue",
+      message: "Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.",
+    };
+  }
+  currentUser = null;
+  logoutPending = false;
+  logoutInFlight = false;
+
+  assert.deepEqual(events, ["daily007-session-cleared", "clerk-sign-out"]);
+  assert.equal(clerkSignOutFailed, true);
+  assert.equal(currentUser, null);
+  assert.equal(savedSession, null);
+  assert.equal(logoutPending, false);
+  assert.equal(logoutInFlight, false);
+  assert.equal(currentUser ? rootNavigationForRole(currentUser.role) : "Auth", "Auth");
+  assert.deepEqual(warning, {
+    title: "Sign-out issue",
+    message: "Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.",
+  });
+
+  const authenticatedAgain = {
+    id: "logout-recovery-player",
+    name: "Signed In Again",
+    role: "user",
+    token: "logout-recovery-session",
+  };
+  savedSession = authenticatedAgain;
+  if (!logoutInFlight) currentUser = authenticatedAgain;
+  assert.equal(currentUser, authenticatedAgain);
+  assert.equal(savedSession, authenticatedAgain);
+  assert.equal(rootNavigationForRole(currentUser.role), "Tabs");
+
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(
+    appSource,
+    /if \(clerkSignOutFailed\) \{\s*Alert\.alert\('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed\. Please reopen the app and try again\.'\);/,
+    "The signed-out app must show the existing warning when Clerk sign-out rejects.",
+  );
+  assert.match(
+    appSource,
+    /if \(!user\) return <Auth\s+notice=\{authNotice\}/,
+    "A rejected Clerk sign-out must leave the app on its authentication screen.",
+  );
+  assert.match(
+    appSource,
+    /onDone=\{\(u\) => \{\s*if \(logoutInFlight\.current\) return;\s*setAuthNotice\(''\);\s*setGoogleLinkError\(''\);\s*setPendingGoogleLinkSession\(null\);\s*setUser\(u\);/,
+    "A later successful authentication must be allowed to restore the signed-in app.",
+  );
+});
+
 test("a delayed account refresh cannot restore the saved session after logout", async () => {
   const initialUser = {
     id: "signed-out-account",
@@ -1066,7 +1145,7 @@ test("the expired-session notice stays scalable and the login form remains scrol
   );
   assert.match(
     authSource,
-    /const \{ width, fontScale \} = useWindowDimensions\(\);[\s\S]*?const compactLoginLayout = !isSignup && \(width <= 360 \|\| fontScale >= 1\.5\);/,
+    /const \{ width, fontScale \} = useWindowDimensions\(\);[\s\S]*?const compactAuthLayout = width <= 360 \|\| fontScale >= 1\.5;[\s\S]*?const compactLoginLayout = !isSignup && compactAuthLayout;/,
     "Narrow display sizes and 1.5× or larger text must switch login to its compact layout.",
   );
   assert.match(
@@ -1076,12 +1155,12 @@ test("the expired-session notice stays scalable and the login form remains scrol
   );
   assert.match(
     authSource,
-    /compactLoginWrap:\s*\{\s*justifyContent:\s*'flex-start',\s*paddingHorizontal:\s*16,\s*paddingTop:\s*16,\s*paddingBottom:\s*24/,
+    /compactLoginWrap:\s*\{\s*justifyContent:\s*'flex-start'\s*\},[\s\S]*?compactAuthWrap:\s*\{\s*paddingHorizontal:\s*15,\s*paddingTop:\s*16,\s*paddingBottom:\s*20\s*\}/,
     "Compact login must start at the top and preserve enough width and vertical room for scrolling.",
   );
   assert.match(
     authSource,
-    /sessionNotice:\s*\{\s*color:\s*C\.gold,\s*textAlign:\s*'center',\s*fontSize:\s*12,\s*lineHeight:\s*18/,
+    /sessionNotice:\s*\{\s*color:\s*AUTH\.gold,\s*textAlign:\s*'center',[\s\S]*?fontSize:\s*12,\s*lineHeight:\s*18/,
     "The notice must have readable, centered text styling that can wrap as it scales.",
   );
   const noticeNode = authSource.slice(noticeStart, emailStart);

@@ -53,6 +53,7 @@
 - [Daily007 Full Admin role changes](daily007-full-admin-role-changes.md) — protect sensitive reads and writes with the shared role gate; serialize demotions and enforce the last-admin rule in-transaction.
 - [Daily007 Full Admin rejection TalkBack](daily007-admin-role-rejection-talkback.md) — physical Android verification confirmed the safeguard is announced and the refreshed row remains FULL ADMIN.
 - [Daily007 Admin accessibility regression tests](daily007-admin-accessibility-tests.md) — keep source assertions aligned with platform-specific accessibility behavior and typed source declarations.
+- [Daily007 Auth layout source tests](daily007-auth-source-tests.md) — assert responsive login behavior without depending on brittle constant names or which style modifier owns spacing.
 - [Daily007 account deletion TalkBack](daily007-account-deletion-talkback.md) — iQOO Neo 10 / Android 16 confirmed clear deletion announcements and stable focus across the full flow.
 - [Daily007 database CHECK constraints](daily007-role-constraint-verification.md) — compare dev/prod definitions; rename same-name stale checks to make Publish detect expression drift.
 - [Drizzle CHECK constraint drift](drizzle-check-constraints.md) — after changing a Drizzle CHECK, verify the live PostgreSQL definition; a successful push can leave it stale.
