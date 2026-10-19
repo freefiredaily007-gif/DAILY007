@@ -347,9 +347,12 @@ async function authenticate(path: string, body: object): Promise<{ user: User; t
   }
 }
 
-async function currentAccount(): Promise<User> {
+async function currentAccount(options: { revalidate?: boolean } = {}): Promise<User> {
   const savedSession = current ?? await getSession();
-  return normalizeUser(await unwrap(http.get('/auth/me')), savedSession?.token);
+  const response = await unwrap(http.get('/auth/me', options.revalidate
+    ? { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } }
+    : undefined));
+  return normalizeUser(response, savedSession?.token);
 }
 
 export const Api = {
@@ -402,7 +405,7 @@ export const Api = {
   )),
   meAccount: currentAccount,
   googleLinkStatus: async (): Promise<boolean> => {
-    const user = await currentAccount();
+    const user = await currentAccount({ revalidate: true });
     if (typeof user.googleLinked !== 'boolean') {
       throw new Error('The server could not confirm your Google connection status.');
     }

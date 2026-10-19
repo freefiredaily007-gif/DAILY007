@@ -1853,6 +1853,47 @@ try {
   const walletForAlreadyLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(walletForAlreadyLinked, "after opening Wallet for an already-linked Google account");
 
+  await openProfileScenario("profile-link-cross-device");
+  const crossDeviceBeforeLink = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(crossDeviceBeforeLink.currentSession?.googleLinked, false);
+  assert.equal(crossDeviceBeforeLink.storedSession?.googleLinked, false);
+  assertPasswordSession(crossDeviceBeforeLink, "before Google is linked on another device");
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.simulateRemoteGoogleLink()"),
+    true,
+    "The mock backend should record the link made on another device.",
+  );
+  const staleLocalStatus = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(staleLocalStatus.currentSession?.googleLinked, false);
+  assert.equal(staleLocalStatus.storedSession?.googleLinked, false);
+  await assertWalletBalance("after Google is linked on another device");
+  await clickSelector('[data-testid="mock-tab-profile"]', "return to Profile after a remote Google link");
+  await waitForExpression(
+    `document.body.innerText.includes("GOOGLE CONNECTED")
+      && document.body.innerText.includes("Google connection confirmed.")
+      && !document.querySelector('[data-testid="continue-with-google"]')`,
+    "the server-confirmed Google link after returning to Profile",
+  );
+  const crossDeviceLinked = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(crossDeviceLinked, "after Profile refreshes a Google link made on another device");
+  assert.equal(crossDeviceLinked.currentSession?.googleLinked, true);
+  assert.equal(crossDeviceLinked.storedSession?.googleLinked, true);
+  assert.equal(
+    crossDeviceLinked.calls.some((call) =>
+      call.method === "GET" &&
+      call.path === "/auth/me" &&
+      call.cacheControl === "no-cache" &&
+      call.authorization === "Bearer mock-password-account-token"),
+    true,
+    "Profile must revalidate Google-link status with the server using the existing Daily007 token.",
+  );
+  assert.equal(
+    crossDeviceLinked.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    0,
+    "Returning to Profile must not attempt another Google link.",
+  );
+  await assertWalletBalance("after Profile refreshes a Google link made on another device");
+
   await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=lowercase-referral`,
   });

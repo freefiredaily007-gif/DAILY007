@@ -155,6 +155,12 @@ function daily007TokenHeader(config) {
   return headers?.["X-Daily007-Token"] ?? headers?.["x-daily007-token"] ?? null;
 }
 
+function cacheControlHeader(config) {
+  const headers = config.headers;
+  if (typeof headers?.get === "function") return headers.get("Cache-Control");
+  return headers?.["Cache-Control"] ?? headers?.["cache-control"] ?? null;
+}
+
 function respond(config, payload) {
   persistRestartBackendState();
   return {
@@ -180,6 +186,7 @@ http.defaults.adapter = async (config) => {
     path,
     authorization: authorizationHeader(config),
     daily007Token: daily007TokenHeader(config),
+    cacheControl: cacheControlHeader(config),
     ...(scenario === "lowercase-referral" && method === "POST" && path === "/auth/google"
       ? { body: requestBody(config) }
       : {}),
@@ -409,6 +416,11 @@ window.__daily007GoogleSignupWalletTest = {
   },
   holdNextSessionWrite() {
     storage.holdNextSessionWrite();
+    return true;
+  },
+  simulateRemoteGoogleLink() {
+    if (!profileLinkScenario) return false;
+    googleLinkedForPasswordAccount = true;
     return true;
   },
   releaseHeldSessionWrite() {
