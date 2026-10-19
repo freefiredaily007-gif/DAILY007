@@ -47,6 +47,11 @@ const WALLET_HISTORY_FILTERS: { value: WalletTransactionFilter; label: string }[
   { value: 'refunds', label: 'Refunds' },
 ];
 
+export type WalletHistoryTestObserver = (
+  items: readonly any[],
+  cursors: { transactionCursor: string | null; paymentCursor: string | null },
+) => void;
+
 function normalizeWalletPaymentReference(reference: unknown): string {
   return typeof reference === 'string'
     ? reference.normalize('NFKC').trim().toLocaleUpperCase('en-US')
@@ -98,7 +103,11 @@ function formatWalletCoins(value: unknown, allowBreaks: boolean) {
   return allowBreaks ? formatted.replace(/,/g, ',\u200B') : formatted;
 }
 
-export default function Wallet() {
+export default function Wallet({
+  onHistoryChange,
+}: {
+  onHistoryChange?: WalletHistoryTestObserver;
+} = {}) {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const { user, refresh } = useApp();
@@ -146,6 +155,15 @@ export default function Wallet() {
   const [coinToMoneyRate, setCoinToMoneyRate] = useState(1);
   const [proof, setProof] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const historyLoadVersion = useRef(0);
+
+  useEffect(() => {
+    if (__DEV__ && onHistoryChange) {
+      onHistoryChange(currentUserHistory.items, {
+        transactionCursor: currentUserHistory.transactionCursor,
+        paymentCursor: currentUserHistory.paymentCursor,
+      });
+    }
+  }, [currentUserHistory, onHistoryChange]);
 
   useEffect(() => {
     historyLoadVersion.current += 1;
