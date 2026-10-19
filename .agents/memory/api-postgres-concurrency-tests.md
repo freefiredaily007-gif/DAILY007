@@ -110,3 +110,9 @@ To prove concurrent requests contend on a globally unique key, hold an uncommitt
 **Why:** The default `/run/postgresql` directory is absent here, so `pg_ctl` can fail after PostgreSQL begins listening on loopback.
 
 **How to apply:** Pass `-c unix_socket_directories=<temporary-directory>` to the server startup options, bind TCP to `127.0.0.1`, and stop the cluster before removing its temporary directory.
+
+When multiple reward transactions hold compatible `FOR SHARE` locks, do not require a later admin update's `pg_blocking_pids()` result to list every lock holder.
+
+**Why:** In a PostgreSQL race with two reward requests each already waiting on a separate wallet row, the queued video update reported only one of the two shared-lock owners as a blocker.
+
+**How to apply:** First observe every reward request blocked at its own wallet query, proving each progressed beyond the video active-state lock; then verify the admin update is queued behind a reward transaction without requiring an exhaustive blocker list.
