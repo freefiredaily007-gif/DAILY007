@@ -170,6 +170,39 @@ function loadTournamentFocusEffect(scope) {
   )(...Object.values(scope));
 }
 
+function loadTournamentAppStateEffect(scope) {
+  let effectCallback;
+
+  function visit(node) {
+    if (
+      ts.isCallExpression(node)
+      && node.expression.getText(tournamentsSourceFile) === 'useEffect'
+      && ts.isArrowFunction(node.arguments[0])
+      && node.arguments[0].body.getText(tournamentsSourceFile).includes('AppState.addEventListener')
+    ) {
+      effectCallback = node.arguments[0];
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(tournamentsSourceFile);
+  assert.ok(effectCallback, 'the Tournaments app-state effect should be present');
+  const javascript = ts.transpileModule(
+    `const __effect = (${effectCallback.getText(tournamentsSourceFile)});`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.None,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+
+  return new Function(
+    ...Object.keys(scope),
+    `${javascript}\nreturn __effect;`,
+  )(...Object.values(scope));
+}
+
 function findVariableInitializer(sourceFile, variableName) {
   let initializer;
 
@@ -1364,6 +1397,84 @@ test('focused tournament polling moves server-completed matches and their tab co
 
   stopPolling();
   assert.deepEqual(clearedIntervals, ['completion-poll']);
+});
+
+test('a focused tournament screen refreshes immediately on app resume and ignores blurred resume', async () => {
+  let serverStatus = 'ongoing';
+  let tournamentRequests = 0;
+  const startsAt = '2026-10-08T12:00:00.000Z';
+  const api = {
+    tournaments: async () => {
+      tournamentRequests += 1;
+      return [{
+        id: 'server-completes',
+        gameMode: 'clash_squad',
+        teamType: 'Duo',
+        status: serverStatus,
+        startsAt,
+        completedAt: serverStatus === 'completed' ? '2026-10-08T12:12:00.000Z' : null,
+      }];
+    },
+    myRegistrations: async () => [],
+  };
+  const now = Date.parse('2026-10-08T12:20:00.000Z');
+  const harness = createTournamentLoadHarness(api, () => now);
+  await harness.load();
+  const getCounts = () => Object.fromEntries(
+    Object.entries(tournamentTabsForRoute(
+      harness.state.items,
+      { gameMode: 'clash_squad' },
+      (tournament) => getTournamentLifecycleState(tournament, harness.state.clockNow),
+    )).map(([name, tournaments]) => [name, tournaments.length]),
+  );
+  assert.deepEqual(getCounts(), { upcoming: 0, ongoing: 1, completed: 0 });
+
+  const listFocused = { current: true };
+  const appState = { current: 'active' };
+  const missedStartCheckPending = { current: false };
+  let onAppStateChange;
+  let listenerRemoved = false;
+  const AppState = {
+    currentState: 'active',
+    addEventListener(event, callback) {
+      assert.equal(event, 'change');
+      onAppStateChange = callback;
+      return { remove: () => { listenerRemoved = true; } };
+    },
+  };
+  const effect = loadTournamentAppStateEffect({
+    AppState,
+    appState,
+    listFocused,
+    missedStartCheckPending,
+    setMissedStartCheckVersion() {},
+    setClockNow: (clockNow) => { harness.state.clockNow = clockNow; },
+    load: harness.load,
+    Date: { now: () => now },
+  });
+  const cleanup = effect();
+
+  onAppStateChange('background');
+  serverStatus = 'completed';
+  onAppStateChange('active');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(tournamentRequests, 2, 'returning to a focused screen must request a fresh server snapshot immediately');
+  assert.deepEqual(getCounts(), { upcoming: 0, ongoing: 0, completed: 1 });
+  assert.equal(
+    harness.state.items[0].status,
+    'completed',
+    'the resumed screen must use the server status rather than estimating completion locally',
+  );
+
+  onAppStateChange('background');
+  listFocused.current = false;
+  onAppStateChange('active');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(tournamentRequests, 2, 'returning while the Tournaments screen is blurred must not refresh it');
+
+  cleanup();
+  assert.equal(listenerRemoved, true, 'the app-state listener should be removed when the effect is cleaned up');
 });
 
 test('a slow tournament poll stays single-flight while manual refresh supersedes its response', async () => {
