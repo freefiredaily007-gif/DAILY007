@@ -2408,6 +2408,62 @@ try {
   assert.equal(lowercaseReferralWallet.welcomeRewardCount, 0, "A referred signup must not show a welcome bonus.");
   assert.equal(lowercaseReferralReport.unexpectedRequests.length, 0);
 
+  const callsBeforeReferralRelaunch = lowercaseReferralReport.calls.length;
+  await cdp("Page.reload", { ignoreCache: true });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "signed-in tabs restored after the referred Google signup relaunch",
+  );
+  await clickSelector(
+    '[data-testid="mock-tab-wallet"]',
+    "reopen Wallet after the referred Google signup relaunch",
+  );
+  await waitForExpression(
+    `document.body.innerText.includes("Referral Signup Bonus")
+      && Boolean(document.querySelector('[aria-label="Available coins: 10"]'))`,
+    "the restored 10-coin referral reward in Wallet",
+  );
+  const referralRelaunchReport = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  const referralRelaunchWallet = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    return {
+      referralRewardCount: bodyText.split("Referral Signup Bonus").length - 1,
+      welcomeRewardCount: bodyText.split("Welcome Signup Bonus").length - 1,
+      balanceLabel: document.querySelector('[aria-label="Available coins: 10"]')
+        ?.getAttribute("aria-label") ?? null,
+    };
+  })()`);
+  const walletRequestsAfterRelaunch = referralRelaunchReport.calls
+    .slice(callsBeforeReferralRelaunch)
+    .filter((call) => call.method === "GET" && call.path === "/wallet/transactions");
+  assert.equal(referralRelaunchReport.storedSession?.id, "mock-daily007-google-player");
+  assert.equal(referralRelaunchReport.storedSession?.token, "mock-daily007-session-token");
+  assert.equal(referralRelaunchReport.googleReferralSignupRequests, 1,
+    "Relaunching should not submit the Google signup a second time.");
+  assert.equal(
+    referralRelaunchReport.calls.filter(
+      (call) => call.method === "POST" && call.path === "/auth/google",
+    ).length,
+    1,
+    "The saved Google signup should remain linked to exactly one auth request after relaunch.",
+  );
+  assert.equal(referralRelaunchWallet.balanceLabel, "Available coins: 10");
+  assert.equal(referralRelaunchWallet.referralRewardCount, 1,
+    "Wallet should still show exactly one referral reward after relaunch.");
+  assert.equal(referralRelaunchWallet.welcomeRewardCount, 0,
+    "A referred signup must not acquire a welcome bonus after relaunch.");
+  assert.ok(walletRequestsAfterRelaunch.length > 0,
+    "Wallet history should be fetched again after the app relaunch.");
+  assert.ok(
+    walletRequestsAfterRelaunch.every(
+      (call) => call.authorization === "Bearer mock-daily007-session-token",
+    ),
+    "The reloaded Wallet should use the saved Daily007 session.",
+  );
+  assert.equal(referralRelaunchReport.unexpectedRequests.length, 0);
+
   assert.deepEqual(browserErrors, [], `Browser errors during mocked Google auth flows: ${browserErrors.join(" | ")}`);
   console.log(
     "PASS — Google cancellation password recovery, Google signup retries and referral handoff, password signup recovery, fresh password login after Google linking, Profile Google-link recovery, and Wallet rewards.",

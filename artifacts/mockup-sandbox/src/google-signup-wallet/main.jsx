@@ -50,10 +50,13 @@ const passwordSignupSessionStorageFailureScenario =
   passwordSignupStorageFailureScenario || referralPasswordSignupStorageFailureScenario;
 const passwordSignupRestartScenario = scenario === "password-signup-restart";
 const profileLinkStorageRestartScenario = scenario === "profile-link-storage-restart";
+const googleReferralRelaunchScenario = scenario === "lowercase-referral";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
 const restartScenarioMarkerKey = "daily007-test-password-signup-scenario";
 const profileLinkRestartBackendStorageKey = "daily007-test-profile-link-backend";
 const profileLinkRestartScenarioMarkerKey = "daily007-test-profile-link-scenario";
+const googleReferralRestartBackendStorageKey = "daily007-test-google-referral-backend";
+const googleReferralRestartScenarioMarkerKey = "daily007-test-google-referral-scenario";
 let passwordSignupRestartFirstLoad = false;
 if (passwordSignupRestartScenario) {
   passwordSignupRestartFirstLoad =
@@ -72,11 +75,23 @@ if (profileLinkStorageRestartScenario) {
     window.localStorage.removeItem(profileLinkRestartBackendStorageKey);
   }
 }
+let googleReferralRestartFirstLoad = false;
+if (googleReferralRelaunchScenario) {
+  googleReferralRestartFirstLoad =
+    window.sessionStorage.getItem(googleReferralRestartScenarioMarkerKey) !== scenario;
+  if (googleReferralRestartFirstLoad) {
+    window.sessionStorage.setItem(googleReferralRestartScenarioMarkerKey, scenario);
+    window.localStorage.removeItem(googleReferralRestartBackendStorageKey);
+  }
+}
 const savedRestartBackendState = passwordSignupRestartScenario
   ? JSON.parse(window.localStorage.getItem(restartBackendStorageKey) ?? "{}")
   : {};
 const savedProfileLinkRestartBackendState = profileLinkStorageRestartScenario
   ? JSON.parse(window.localStorage.getItem(profileLinkRestartBackendStorageKey) ?? "{}")
+  : {};
+const savedGoogleReferralRestartBackendState = googleReferralRelaunchScenario
+  ? JSON.parse(window.localStorage.getItem(googleReferralRestartBackendStorageKey) ?? "{}")
   : {};
 let profileLinkAuthMeFailuresRemaining =
   savedProfileLinkRestartBackendState.authMeFailuresRemaining ?? 0;
@@ -86,16 +101,22 @@ const calls = passwordSignupRestartScenario
   ? (savedRestartBackendState.calls ?? [])
   : profileLinkStorageRestartScenario
     ? (savedProfileLinkRestartBackendState.calls ?? [])
-    : [];
+    : googleReferralRelaunchScenario
+      ? (savedGoogleReferralRestartBackendState.calls ?? [])
+      : [];
 const unexpectedRequests = passwordSignupRestartScenario
   ? (savedRestartBackendState.unexpectedRequests ?? [])
   : profileLinkStorageRestartScenario
     ? (savedProfileLinkRestartBackendState.unexpectedRequests ?? [])
-    : [];
+    : googleReferralRelaunchScenario
+      ? (savedGoogleReferralRestartBackendState.unexpectedRequests ?? [])
+      : [];
 const pendingGoogleExchangeResolvers = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
+let googleReferralSignupRequests =
+  savedGoogleReferralRestartBackendState.googleReferralSignupRequests ?? 0;
 let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
 let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 0;
 let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
@@ -106,6 +127,14 @@ let googleLinkedForPasswordAccount = scenario === "profile-link-already-linked"
   || (profileLinkStorageRestartScenario && Boolean(savedProfileLinkRestartBackendState.googleLinked));
 
 function persistRestartBackendState() {
+  if (googleReferralRelaunchScenario) {
+    window.localStorage.setItem(googleReferralRestartBackendStorageKey, JSON.stringify({
+      calls,
+      unexpectedRequests,
+      googleReferralSignupRequests,
+    }));
+    return;
+  }
   if (profileLinkStorageRestartScenario) {
     window.localStorage.setItem(profileLinkRestartBackendStorageKey, JSON.stringify({
       calls,
@@ -267,6 +296,7 @@ http.defaults.adapter = async (config) => {
   }
   if (method === "POST" && path === "/auth/google") {
     googleExchangeAttempts += 1;
+    if (googleReferralRelaunchScenario) googleReferralSignupRequests += 1;
     if (heldGoogleExchangeScenario) {
       inFlightGoogleExchanges += 1;
       maxConcurrentGoogleExchanges = Math.max(maxConcurrentGoogleExchanges, inFlightGoogleExchanges);
@@ -405,9 +435,13 @@ http.defaults.adapter = async (config) => {
   });
 };
 
-if (profileLinkStorageRestartScenario) {
+if (profileLinkStorageRestartScenario || googleReferralRelaunchScenario) {
   storage.enablePersistentMode();
-  storage.clear({ preservePersistent: !profileLinkStorageRestartFirstLoad });
+  storage.clear({
+    preservePersistent: googleReferralRelaunchScenario
+      ? !googleReferralRestartFirstLoad
+      : !profileLinkStorageRestartFirstLoad,
+  });
 } else {
   storage.clear();
 }
@@ -435,6 +469,7 @@ window.__daily007GoogleSignupWalletTest = {
       sessionStorage: storage.snapshot(),
       storageWriteMetrics: storage.writeMetrics(),
       googleExchangeAttempts,
+      googleReferralSignupRequests,
       inFlightGoogleExchanges,
       maxConcurrentGoogleExchanges,
       passwordAuthAttempts,
