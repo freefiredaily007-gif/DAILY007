@@ -24,6 +24,7 @@ import {
   walletTransactionDescription,
   walletTransactionIsLeaderboardReward,
   walletTransactionMatchesFilter,
+  walletRejectedDepositReasonText,
   type WalletTransactionFilter,
 } from '../lib/wallet-transaction-display';
 import { WalletRejectedDepositRow } from '../components/WalletRejectedDepositRow';
@@ -503,6 +504,13 @@ export default function Wallet({
         }
 
         const statusLabel = walletPaymentStatusLabel(existingPayment.status);
+        if (existingPayment.status === 'rejected') {
+          const rejectionReason = walletRejectedDepositReasonText(existingPayment.reviewReason);
+          setRechargeNotice(
+            `Your recharge request was already saved. Current status: ${statusLabel}. Admin's reason: ${rejectionReason} If you make a new payment, use a different valid transaction reference.`,
+          );
+          return;
+        }
         setOk(`Your recharge request was already saved. Current status: ${statusLabel}. Check Wallet history for the request.`);
         setShowSheet(false);
         setAmount('');

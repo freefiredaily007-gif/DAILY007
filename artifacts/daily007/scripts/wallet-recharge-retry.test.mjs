@@ -147,6 +147,12 @@ function createFixture({
     isDuplicatePaymentReferenceError,
     findExistingPaymentByReference,
     walletPaymentStatusLabel,
+    walletRejectedDepositReasonText: (reviewReason) => {
+      const reason = typeof reviewReason === 'string'
+        ? reviewReason.trim().replace(/\s+/g, ' ')
+        : '';
+      return reason || 'No rejection reason was provided.';
+    },
     load: async () => { state.loadCalls += 1; },
   });
   return { state, submitAdd };
@@ -206,6 +212,39 @@ test('a duplicate recharge retry refreshes and identifies the existing request s
   assert.equal(state.txnId, '');
   assert.equal(state.error, '');
   assert.equal(state.rechargeNotice, '');
+  assert.equal(state.submitting, false);
+});
+
+test('an older rejected recharge explains the admin reason and requires a different valid reference', async () => {
+  const { state, submitAdd } = createFixture({
+    pages: [
+      {
+        items: [{ id: 'payment-other', txnId: 'UTR-OTHER', status: 'approved' }],
+        nextCursor: 'older-payments',
+      },
+      {
+        items: [{
+          id: 'payment-original',
+          txnId: 'UTR-AB12',
+          status: 'rejected',
+          reviewReason: 'The payment amount did not match.',
+        }],
+        nextCursor: null,
+      },
+    ],
+  });
+
+  await submitAdd();
+
+  assert.deepEqual(state.pageCursors, [undefined, 'older-payments']);
+  assert.equal(state.loadCalls, 1, 'Refresh history after reconciling the duplicate reference.');
+  assert.match(state.rechargeNotice, /Current status: Rejected/);
+  assert.match(state.rechargeNotice, /Admin's reason: The payment amount did not match\./);
+  assert.match(state.rechargeNotice, /use a different valid transaction reference/i);
+  assert.equal(state.showSheet, true, 'Keep the notice with the recharge form so the player can enter a new reference.');
+  assert.equal(state.ok, '');
+  assert.equal(state.txnId, ' utr-ab12 ', 'Do not silently reuse or replace the rejected reference.');
+  assert.equal(state.createCalls.length, 1, 'Do not create another payment during reconciliation.');
   assert.equal(state.submitting, false);
 });
 
