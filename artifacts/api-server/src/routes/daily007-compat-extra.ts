@@ -1903,48 +1903,52 @@ router.get("/admin/results/duplicate-placements", authenticate, async (req, res)
 router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   const includeUnfinalized = req.query.includeUnfinalized === "true";
-  const result = await pool.query<{
-    tournamentId: string;
-    tournamentName: string;
-    registrationId: string;
-    playerName: string;
-    gameName: string | null;
-    teamName: string | null;
-    rank: number;
-    kills: number;
-    prizeCoins: number;
-    createdAt: Date | string;
-  }>(
-    `SELECT award.match_id AS "tournamentId", m.title AS "tournamentName",
-            award.registration_id AS "registrationId", registration.captain_name AS "playerName",
-            registration.captain_game_name AS "gameName", registration.team_name AS "teamName",
-            award.rank, award.kills, award.prize_coins AS "prizeCoins", award.created_at AS "createdAt"
-       FROM daily007_v2_result_awards award
-       JOIN daily007_v2_matches m ON m.id = award.match_id
-       JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
-       WHERE m.status <> 'cancelled'
-         AND (
-           $1::boolean
-           OR (
-             m.enabled = false
-             AND EXISTS (
-               SELECT 1 FROM daily007_v2_result_awards winner
-                WHERE winner.match_id = m.id AND winner.rank = 1
+  try {
+    const result = await roleTransaction(req, "tournament_admin", (client) =>
+      client.query<{
+        tournamentId: string;
+        tournamentName: string;
+        registrationId: string;
+        playerName: string;
+        gameName: string | null;
+        teamName: string | null;
+        rank: number;
+        kills: number;
+        prizeCoins: number;
+        createdAt: Date | string;
+      }>(
+        `SELECT award.match_id AS "tournamentId", m.title AS "tournamentName",
+                award.registration_id AS "registrationId", registration.captain_name AS "playerName",
+                registration.captain_game_name AS "gameName", registration.team_name AS "teamName",
+                award.rank, award.kills, award.prize_coins AS "prizeCoins", award.created_at AS "createdAt"
+           FROM daily007_v2_result_awards award
+           JOIN daily007_v2_matches m ON m.id = award.match_id
+           JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
+           WHERE m.status <> 'cancelled'
+             AND (
+               $1::boolean
+               OR (
+                 m.enabled = false
+                 AND EXISTS (
+                   SELECT 1 FROM daily007_v2_result_awards winner
+                    WHERE winner.match_id = m.id AND winner.rank = 1
+                 )
+               )
              )
-           )
-         )
-       ORDER BY m.starts_at DESC, award.rank ASC, award.created_at ASC, award.id ASC`,
-    [includeUnfinalized],
-  );
-  res.json({
-    success: true,
-    data: result.rows.map((row) => ({
-      ...row,
-      createdAt: row.createdAt instanceof Date
-        ? row.createdAt.toISOString()
-        : new Date(row.createdAt).toISOString(),
-    })),
-  });
+           ORDER BY m.starts_at DESC, award.rank ASC, award.created_at ASC, award.id ASC`,
+        [includeUnfinalized],
+      ),
+    );
+    res.json({
+      success: true,
+      data: result.rows.map((row) => ({
+        ...row,
+        createdAt: row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString(),
+      })),
+    });
+  } catch (e) { respondFailure(res, e); }
 });
 
 router.post("/admin/results", authenticate, async (req, res): Promise<void> => {

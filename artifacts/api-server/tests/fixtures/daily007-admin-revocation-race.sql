@@ -100,6 +100,9 @@ CREATE TABLE daily007_v2_registrations (
   id uuid PRIMARY KEY,
   match_id uuid NOT NULL REFERENCES daily007_v2_matches(id),
   captain_user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  captain_name text NOT NULL DEFAULT '',
+  captain_game_name text NOT NULL DEFAULT '',
+  team_name text,
   status text NOT NULL DEFAULT 'approved'
 );
 
@@ -111,6 +114,7 @@ CREATE TABLE daily007_v2_result_awards (
   rank integer NOT NULL,
   kills integer NOT NULL,
   prize_coins integer NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT daily007_v2_result_awards_registration_id_unique UNIQUE (registration_id),
   UNIQUE (match_id, rank)
 );

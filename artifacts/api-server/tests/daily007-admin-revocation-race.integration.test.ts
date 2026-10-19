@@ -248,6 +248,49 @@ async function seedTournamentWriteRaceFixture(
   );
 }
 
+async function seedAdminResultsReadRaceFixture(
+  tournamentAdminId: string,
+  fullAdminId: string,
+  playerId: string,
+  tournamentId: string,
+  registrationId: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, role, wallet_coins)
+     VALUES
+       ($1, 'Unfinalized Results Reader', $2, 'test-salt', 'test-hash', 'tournament_admin', 0),
+       ($3, 'Results Read Revoker', $4, 'test-salt', 'test-hash', 'admin', 0),
+       ($5, 'Unfinalized Results Player', $6, 'test-salt', 'test-hash', 'user', 0)`,
+    [
+      tournamentAdminId,
+      `unfinalized-results-reader-${tournamentAdminId}@example.test`,
+      fullAdminId,
+      `unfinalized-results-revoker-${fullAdminId}@example.test`,
+      playerId,
+      `unfinalized-results-player-${playerId}@example.test`,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_matches
+       (id, title, prize_pool, prize_distribution, starts_at, status, enabled)
+     VALUES ($1, 'Unfinalized Results Race', 50, '1: 50', now() - interval '1 day', 'active', true)`,
+    [tournamentId],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_registrations
+       (id, match_id, captain_user_id, captain_name, captain_game_name, team_name, status)
+     VALUES ($1, $2, $3, 'Unfinalized Results Player', 'Free Fire Player', 'Results Test Squad', 'approved')`,
+    [registrationId, tournamentId, playerId],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_result_awards
+       (match_id, registration_id, user_id, rank, kills, prize_coins)
+     VALUES ($1, $2, $3, 1, 4, 50)`,
+    [tournamentId, registrationId, playerId],
+  );
+}
+
 function startTournamentWriteRequests(
   origin: string,
   tournamentAdminId: string,
@@ -3599,6 +3642,244 @@ test("a concurrent demotion waits until an authorized recovery queue read finish
       );
     }
     await pool.query("DELETE FROM daily007_v2_google_recovery_requests WHERE id = $1", [requestId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[readerId, demoterId, playerId]],
+    );
+  }
+});
+
+test("an in-flight unfinalized results read finishes before Tournament Admin access is revoked", async () => {
+  const readerId = randomUUID();
+  const demoterId = randomUUID();
+  const playerId = randomUUID();
+  const tournamentId = randomUUID();
+  const registrationId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let tableLockHeld = false;
+  let resultsPromise: Promise<{ status: number; body: unknown }> | undefined;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await seedAdminResultsReadRaceFixture(
+      readerId,
+      demoterId,
+      playerId,
+      tournamentId,
+      registrationId,
+    );
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "LOCK TABLE daily007_v2_result_awards IN ACCESS EXCLUSIVE MODE",
+    );
+    tableLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        resultsPromise = getJson(origin, "/admin/results?includeUnfinalized=true", readerId);
+        await waitForQueryBlockedBy(
+          "SELECT award.match_id AS",
+          "LOCK TABLE daily007_v2_result_awards IN ACCESS EXCLUSIVE MODE",
+          "the unfinalized results query to wait after the role check",
+        );
+
+        demotionPromise = patchJson(
+          origin,
+          `/admin/users/${readerId}/role`,
+          demoterId,
+          { role: "user" },
+        );
+        await waitForQueryBlockedBy(
+          "SELECT pg_advisory_xact_lock(740073)",
+          "SELECT award.match_id AS",
+          "the Tournament Admin demotion to wait until the results read finishes",
+        );
+
+        await blocker!.query("COMMIT");
+        tableLockHeld = false;
+        const [results, demotion] = await Promise.all([
+          resultsPromise!,
+          demotionPromise!,
+        ]);
+        assert.equal(results.status, 200, JSON.stringify(results.body));
+        const data = (results.body as { data?: Record<string, unknown>[] }).data;
+        assert.ok(Array.isArray(data), "An authorized in-flight read should return results.");
+        const visibleResult = data.find((row) => row.registrationId === registrationId);
+        assert.deepEqual(
+          visibleResult && {
+            tournamentId: visibleResult.tournamentId,
+            tournamentName: visibleResult.tournamentName,
+            playerName: visibleResult.playerName,
+          },
+          {
+            tournamentId,
+            tournamentName: "Unfinalized Results Race",
+            playerName: "Unfinalized Results Player",
+          },
+        );
+        assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+        assert.equal(demotion.body.role, "user");
+
+        const afterDemotion = await getJson(
+          origin,
+          "/admin/results?includeUnfinalized=true",
+          readerId,
+        );
+        assert.equal(afterDemotion.status, 403, JSON.stringify(afterDemotion.body));
+        assert.deepEqual(afterDemotion.body, {
+          error: "Tournament administrator access is required.",
+        });
+
+        const fullAdminResults = await getJson(
+          origin,
+          "/admin/results?includeUnfinalized=true",
+          demoterId,
+        );
+        assert.equal(fullAdminResults.status, 200, JSON.stringify(fullAdminResults.body));
+        const fullAdminData = (
+          fullAdminResults.body as { data?: Record<string, unknown>[] }
+        ).data;
+        assert.ok(
+          fullAdminData?.some((row) => row.registrationId === registrationId),
+          "Full Admins should retain access to unfinalized results.",
+        );
+      } finally {
+        if (tableLockHeld) {
+          await blocker!.query("ROLLBACK").catch(() => undefined);
+          tableLockHeld = false;
+        }
+      }
+    });
+  } finally {
+    if (blocker) {
+      if (tableLockHeld) {
+        await blocker.query("ROLLBACK").catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (resultsPromise || demotionPromise) {
+      await Promise.allSettled(
+        [resultsPromise, demotionPromise].filter(Boolean) as Promise<unknown>[],
+      );
+    }
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [tournamentId]);
+    await pool.query("DELETE FROM daily007_v2_registrations WHERE id = $1", [registrationId]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [tournamentId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[readerId, demoterId, playerId]],
+    );
+  }
+});
+
+test("an unfinalized results read queued behind Tournament Admin revocation returns no results", async () => {
+  const readerId = randomUUID();
+  const demoterId = randomUUID();
+  const playerId = randomUUID();
+  const tournamentId = randomUUID();
+  const registrationId = randomUUID();
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let rowLockHeld = false;
+  let resultsPromise: Promise<{ status: number; body: unknown }> | undefined;
+  let demotionPromise: Promise<JsonResponse> | undefined;
+
+  try {
+    await seedAdminResultsReadRaceFixture(
+      readerId,
+      demoterId,
+      playerId,
+      tournamentId,
+      registrationId,
+    );
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+      [readerId],
+    );
+    rowLockHeld = true;
+
+    await withServer(async (origin) => {
+      try {
+        demotionPromise = patchJson(
+          origin,
+          `/admin/users/${readerId}/role`,
+          demoterId,
+          { role: "user" },
+        );
+        await waitForQueryBlockedBy(
+          "SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "the demotion to hold the exclusive role gate while it waits for the target row",
+        );
+        const demotionBackend = await pool.query<{ pid: number }>(
+          `SELECT pid
+             FROM pg_stat_activity
+            WHERE pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%SELECT role FROM daily007_v2_users WHERE id = $1 FOR UPDATE%'
+            ORDER BY query_start DESC
+            LIMIT 1`,
+        );
+        assert.ok(
+          demotionBackend.rows[0],
+          "The demotion should be queued on the target row while holding the exclusive role gate.",
+        );
+
+        resultsPromise = getJson(origin, "/admin/results?includeUnfinalized=true", readerId);
+        await waitForBlockedQuery(
+          "SELECT pg_advisory_xact_lock_shared(740073)",
+          "the results read's shared role check to queue behind revocation",
+        );
+        await waitForQueryBlockedByPid(
+          demotionBackend.rows[0].pid,
+          "the results role check to wait behind the demotion transaction",
+        );
+
+        await blocker!.query("COMMIT");
+        rowLockHeld = false;
+        const [demotion, results] = await Promise.all([
+          demotionPromise!,
+          resultsPromise!,
+        ]);
+        assert.equal(demotion.status, 200, JSON.stringify(demotion.body));
+        assert.equal(demotion.body.role, "user");
+        assert.equal(results.status, 403, JSON.stringify(results.body));
+        assert.deepEqual(results.body, {
+          error: "Tournament administrator access is required.",
+        });
+        assert.equal(
+          "data" in (results.body as Record<string, unknown>),
+          false,
+          "A queued request denied after revocation must not return any results.",
+        );
+        assert.equal(
+          JSON.stringify(results.body).includes("Unfinalized Results Player"),
+          false,
+        );
+      } finally {
+        if (rowLockHeld) {
+          await blocker!.query("ROLLBACK").catch(() => undefined);
+          rowLockHeld = false;
+        }
+      }
+    });
+  } finally {
+    if (blocker) {
+      if (rowLockHeld) {
+        await blocker.query("ROLLBACK").catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (resultsPromise || demotionPromise) {
+      await Promise.allSettled(
+        [resultsPromise, demotionPromise].filter(Boolean) as Promise<unknown>[],
+      );
+    }
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [tournamentId]);
+    await pool.query("DELETE FROM daily007_v2_registrations WHERE id = $1", [registrationId]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [tournamentId]);
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
       [[readerId, demoterId, playerId]],
