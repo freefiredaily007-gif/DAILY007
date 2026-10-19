@@ -334,6 +334,68 @@ test("first and repeated Google sign-ins keep one Daily007 account and one signu
   }
 });
 
+test("password signup normalizes lowercase short referral codes and awards one referral bonus", async () => {
+  signupTestDb.reset();
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const registration = await postJson(origin, "/daily007/v2/auth/register", {
+        name: "Password Referred Player",
+        email: "password-referral-signup@example.test",
+        password: "password-referral-test-password",
+        referralCode: `  ${SIGNUP_TEST_REFERRAL_CODE.toLowerCase()}  `,
+      });
+      assert.equal(registration.status, 201, "password signup should accept a lowercase short referral code");
+      assert.equal(typeof registration.body.token, "string");
+      assert.equal(registration.body.account.wallet_coins, 10);
+
+      const accountId = String(registration.body.account.id);
+      const account = signupTestDb.users.get(accountId);
+      assert.ok(account, "the password signup should create a Daily007 account");
+      assert.equal(account.email, "password-referral-signup@example.test");
+      assert.equal(account.referral_code, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(account.wallet_coins, 10);
+      assert.equal(signupTestDb.users.size, 2, "only the referrer and new password account should exist");
+
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer, "the isolated fixture should contain the short-code owner");
+      assert.deepEqual(
+        signupTestDb.referrals.map(({ referrer_user_id, referred_user_id, code }) => ({
+          referrer_user_id,
+          referred_user_id,
+          code,
+        })),
+        [{
+          referrer_user_id: referrer.id,
+          referred_user_id: accountId,
+          code: SIGNUP_TEST_REFERRAL_CODE,
+        }],
+        "the referral should point to the correct owner and store the canonical short code",
+      );
+
+      const signupRewards = signupTestDb.ledger.filter((entry) => entry.user_id === accountId);
+      assert.deepEqual(
+        signupRewards.map(({ amount, balance_after, reason }) => ({
+          amount,
+          balance_after,
+          reason,
+        })),
+        [{
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+        }],
+        "password signup should issue exactly one 10-coin referral bonus and no welcome bonus",
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("Google signup uses a fallback short code that the next player can redeem", async () => {
   signupTestDb.reset();
   resetMockGoogleUsers([
