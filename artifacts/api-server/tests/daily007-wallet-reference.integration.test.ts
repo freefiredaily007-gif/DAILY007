@@ -239,7 +239,7 @@ async function waitForBlockedPaymentReviewRequests(blockerPid: number, expectedC
   throw new Error(`Timed out waiting for ${expectedCount} payment approvals to block in PostgreSQL.`);
 }
 
-test("payment requests require a payer UPI ID and save valid values", async () => {
+test("payment requests require a valid payer UPI ID and save valid values", async () => {
   const initialPayments = await pool.query<{ count: string }>(
     "SELECT COUNT(*)::text AS count FROM daily007_v2_payments WHERE user_id = $1",
     [fixture.payerUpiValidationPlayerId],
@@ -259,6 +259,28 @@ test("payment requests require a payer UPI ID and save valid values", async () =
     assert.equal(blank.status, 400);
     assert.equal(blank.body.error, "payerUpiId must contain 1–200 characters.");
 
+    const invalidPayerUpiIds = [
+      "payerupi",
+      "@upi",
+      "p@upi",
+      "payer@",
+      "payer@@upi",
+      "payer name@upi",
+      "payer@upi!",
+      `${"a".repeat(101)}@upi`,
+    ];
+    for (const payerUpiId of invalidPayerUpiIds) {
+      const invalid = await call(origin, fixture.payerUpiValidationPlayerId, "/payments", "POST", {
+        ...baseRequest,
+        payerUpiId,
+      });
+      assert.equal(invalid.status, 400, `${payerUpiId} should be rejected.`);
+      assert.equal(
+        invalid.body.error,
+        "Use 2–100 letters, numbers, dots, underscores, or hyphens before @ and 2–100 letters, numbers, dots, or hyphens after it (for example, name@upi).",
+      );
+    }
+
     const afterRejections = await pool.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM daily007_v2_payments WHERE user_id = $1",
       [fixture.payerUpiValidationPlayerId],
@@ -267,16 +289,16 @@ test("payment requests require a payer UPI ID and save valid values", async () =
 
     const valid = await call(origin, fixture.payerUpiValidationPlayerId, "/payments", "POST", {
       ...baseRequest,
-      payerUpiId: "payer@upi",
+      payerUpiId: "pay.user_1-2@upi-bank",
     });
     assert.equal(valid.status, 201);
-    assert.equal(valid.body.payerUpiId, "payer@upi");
+    assert.equal(valid.body.payerUpiId, "pay.user_1-2@upi-bank");
 
     const savedPayments = await pool.query<{ payer_upi_id: string | null }>(
       "SELECT payer_upi_id FROM daily007_v2_payments WHERE user_id = $1",
       [fixture.payerUpiValidationPlayerId],
     );
-    assert.deepEqual(savedPayments.rows, [{ payer_upi_id: "payer@upi" }]);
+    assert.deepEqual(savedPayments.rows, [{ payer_upi_id: "pay.user_1-2@upi-bank" }]);
   });
 });
 

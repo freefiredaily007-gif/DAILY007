@@ -135,6 +135,9 @@ function decodeWalletTransactionCursor(value: unknown): PaymentHistoryCursor | n
 function text(value: unknown, min = 1, max = 200): string | null {
   return typeof value === "string" && value.trim().length >= min && value.trim().length <= max ? value.trim() : null;
 }
+const PAYER_UPI_ID_PATTERN = /^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/;
+const INVALID_PAYER_UPI_ID_MESSAGE =
+  "Use 2–100 letters, numbers, dots, underscores, or hyphens before @ and 2–100 letters, numbers, dots, or hyphens after it (for example, name@upi).";
 function integer(value: unknown, min = 0, max = MAX_INT): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= min && value <= max;
 }
@@ -417,6 +420,10 @@ router.post("/payments", authenticate, async (req, res): Promise<void> => {
   }
   if (!payerUpiId) {
     error(res, 400, "payerUpiId must contain 1–200 characters.");
+    return;
+  }
+  if (!PAYER_UPI_ID_PATTERN.test(payerUpiId)) {
+    error(res, 400, INVALID_PAYER_UPI_ID_MESSAGE);
     return;
   }
   const config = await settings();

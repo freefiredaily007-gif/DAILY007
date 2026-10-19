@@ -44,6 +44,9 @@ import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScr
 const DEFAULT_MIN_WITHDRAW = 100;
 const DEFAULT_MAX_WITHDRAW = 5000;
 const DUPLICATE_PAYMENT_REFERENCE_ERROR = 'This payment reference has already been submitted.';
+const PAYER_UPI_ID_PATTERN = /^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/;
+const INVALID_PAYER_UPI_ID_MESSAGE =
+  'Use 2–100 letters, numbers, dots, underscores, or hyphens before @ and 2–100 letters, numbers, dots, or hyphens after it (for example, name@upi).';
 const WALLET_HISTORY_FILTERS: { value: WalletTransactionFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'deposits', label: 'Deposits' },
@@ -472,6 +475,7 @@ export default function Wallet({
     if (!rechargeEnabled || !paymentUpi || !paymentQr) { setError('Coin recharge is unavailable until an administrator configures it.'); return; }
     if (!coins || coins < minPurchase || coins > maxPurchase) { setError(`Enter an amount between ${minPurchase} and ${maxPurchase} coins.`); return; }
     if (!payerUpiId.trim()) { setError('Please enter the UPI ID you used to make the payment.'); return; }
+    if (!PAYER_UPI_ID_PATTERN.test(payerUpiId.trim())) { setError(INVALID_PAYER_UPI_ID_MESSAGE); return; }
     if (!txnId.trim()) { setError('Please enter the transaction ID of your payment.'); return; }
     setSubmitting(true); setError('');
     try {

@@ -68,12 +68,17 @@ function loadSubmitAdd(scope) {
   return compile(findVariableInitializer('submitAdd').getText(walletSourceFile), scope);
 }
 
-function createFixture({ pages, createError = duplicatePaymentError }) {
+function createFixture({
+  pages,
+  createError = duplicatePaymentError,
+  payerUpiId = 'player@upi',
+  proof = null,
+}) {
   const state = {
     amount: '100',
-    payerUpiId: 'player@upi',
+    payerUpiId,
     txnId: ' utr-ab12 ',
-    proof: null,
+    proof,
     submitting: false,
     showSheet: true,
     ok: '',
@@ -82,6 +87,7 @@ function createFixture({ pages, createError = duplicatePaymentError }) {
     createCalls: [],
     pageCursors: [],
     loadCalls: 0,
+    uploadCalls: 0,
   };
   const Api = {
     async createPayment(payload) {
@@ -111,6 +117,9 @@ function createFixture({ pages, createError = duplicatePaymentError }) {
   );
   const walletPaymentStatusLabel = loadHelper('walletPaymentStatusLabel');
   const submitAdd = loadSubmitAdd({
+    PAYER_UPI_ID_PATTERN: /^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/,
+    INVALID_PAYER_UPI_ID_MESSAGE:
+      'Use 2–100 letters, numbers, dots, underscores, or hyphens before @ and 2–100 letters, numbers, dots, or hyphens after it (for example, name@upi).',
     rechargeEnabled: true,
     paymentUpi: 'merchant@upi',
     paymentQr: 'https://example.test/qr.png',
@@ -130,6 +139,7 @@ function createFixture({ pages, createError = duplicatePaymentError }) {
     setTxnId: (value) => { state.txnId = value; },
     setProof: (value) => { state.proof = value; },
     uploadWalletImage: async () => {
+      state.uploadCalls += 1;
       throw new Error('No payment proof should be uploaded in this fixture.');
     },
     Api,
@@ -141,6 +151,22 @@ function createFixture({ pages, createError = duplicatePaymentError }) {
   });
   return { state, submitAdd };
 }
+
+test('a malformed payer UPI ID is rejected before upload or payment creation', async () => {
+  const { state, submitAdd } = createFixture({
+    pages: [],
+    payerUpiId: 'payer name@upi',
+    proof: { uri: 'file:///payment-proof.png' },
+  });
+
+  await submitAdd();
+
+  assert.equal(state.createCalls.length, 0, 'Do not send malformed payer IDs to the API.');
+  assert.equal(state.uploadCalls, 0, 'Do not upload proof for a malformed payer ID.');
+  assert.match(state.error, /Use 2–100/);
+  assert.equal(state.showSheet, true, 'Keep the form open so the player can correct the ID.');
+  assert.equal(state.submitting, false);
+});
 
 test('a duplicate recharge retry refreshes and identifies the existing request status', async () => {
   const existingPayment = {
