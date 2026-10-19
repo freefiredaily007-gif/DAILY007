@@ -235,6 +235,8 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     loadRequests: refs.loadRequests,
     hasLoadedList: refs.hasLoadedList,
     hasConfirmedRegistrationStatus: refs.hasConfirmedRegistrationStatus,
+    roomDetailsAnnouncementTracker: { current: () => 0 },
+    hasServerAuthorizedRoomCredentials,
     initialLoadFailed: refs.initialLoadFailed,
     latestLoadFailed: refs.latestLoadFailed,
     refreshingRequest: refs.refreshingRequest,
@@ -599,7 +601,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
 });
 
-test('a failed T-5 registration refresh is retried after connectivity returns and reveals only approved room details', async () => {
+test('a delayed stale network snapshot cannot suppress the single T-5 reconnect retry', async () => {
   const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
   const schedule = getRoomCredentialSchedule(new Date(startAtMs).toISOString());
   assert.ok(schedule);
@@ -619,6 +621,10 @@ test('a failed T-5 registration refresh is retried after connectivity returns an
   let registrationCalls = 0;
   let resolveReconnectRequest;
   const reconnectRequest = new Promise((resolve) => { resolveReconnectRequest = resolve; });
+  let resolveInitialNetworkSnapshot;
+  const initialNetworkSnapshot = new Promise((resolve) => {
+    resolveInitialNetworkSnapshot = resolve;
+  });
   const api = {
     tournaments: async () => matches,
     myRegistrations: async () => {
@@ -663,15 +669,13 @@ test('a failed T-5 registration refresh is retried after connectivity returns an
         networkListener = listener;
         return { remove() {} };
       },
-      getNetworkStateAsync: async () => ({
-        isConnected: false,
-        isInternetReachable: false,
-      }),
+      getNetworkStateAsync: () => initialNetworkSnapshot,
     },
     connectivityRefreshes,
     createNetworkEventRevision,
     isUsableNetworkState,
     listFocused: { current: false },
+    missedStartCheckPending: harness.refs.missedStartCheckPending,
     load: harness.load,
     Date: { now: () => fakeNow },
     setClockNow: (value) => { harness.state.clockNow = value; },
@@ -731,10 +735,15 @@ test('a failed T-5 registration refresh is retried after connectivity returns an
   networkListener({ isConnected: false, isInternetReachable: false });
   networkListener({ isConnected: true, isInternetReachable: true });
   networkListener({ isConnected: true, isInternetReachable: true });
+  resolveInitialNetworkSnapshot({
+    isConnected: false,
+    isInternetReachable: false,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(
     timers.filter((timer) => !canceledTimers.has(timer)).length,
     1,
-    'a burst of restored-connectivity events should queue only one refresh',
+    'the newer online event must control recovery instead of the delayed offline snapshot',
   );
   const reconnectTimer = timers.find((timer) => !canceledTimers.has(timer));
   assert.equal(reconnectTimer.delayMs, 250, 'the reconnect refresh should use the coalescing delay');
@@ -743,6 +752,11 @@ test('a failed T-5 registration refresh is retried after connectivity returns an
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(registrationCalls, 3, 'connectivity restoration should issue one retry without manual refresh');
+  assert.equal(
+    timers.filter((timer) => timer !== reconnectTimer && !canceledTimers.has(timer)).length,
+    0,
+    'the stale snapshot must not queue another refresh after the T-5 retry succeeds',
+  );
   const approved = harness.state.items.find((item) => item.id === 'approved-room').myRegistration;
   assert.deepEqual(
     { roomId: approved.roomId, roomPassword: approved.roomPassword },
@@ -761,6 +775,66 @@ test('a failed T-5 registration refresh is retried after connectivity returns an
   assert.equal(harness.refs.latestLoadFailed.current, false);
 
   cleanupLifecycle();
+  cleanupFocus();
+});
+
+test('a stale online snapshot cannot queue a refresh after a failed T-5 load and a newer offline event', async () => {
+  let resolveInitialNetworkSnapshot;
+  const initialNetworkSnapshot = new Promise((resolve) => {
+    resolveInitialNetworkSnapshot = resolve;
+  });
+  const timers = [];
+  const canceledTimers = new Set();
+  const connectivityRefreshes = createFocusedRefreshCoalescer({
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => canceledTimers.add(timer),
+  });
+  let networkListener;
+  // Model the failed T-5 load so this case isolates the delayed snapshot's retry decision.
+  const latestLoadFailed = { current: true };
+  const focusEffect = loadTournamentFocusEffect({
+    AppState: { currentState: 'active' },
+    Network: {
+      addNetworkStateListener: (listener) => {
+        networkListener = listener;
+        return { remove() {} };
+      },
+      getNetworkStateAsync: () => initialNetworkSnapshot,
+    },
+    connectivityRefreshes,
+    completionRefresh: { run: async (refresh) => refresh() },
+    createNetworkEventRevision,
+    isUsableNetworkState,
+    latestLoadFailed,
+    listFocused: { current: false },
+    missedStartCheckPending: { current: false },
+    load() {},
+    Date: { now: () => 1 },
+    setClockNow() {},
+    startTournamentListRefreshPolling: () => () => {},
+    TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
+  });
+  const cleanupFocus = focusEffect();
+  assert.ok(networkListener, 'the focused screen should listen for network changes');
+
+  networkListener({ isConnected: false, isInternetReachable: false });
+  networkListener({ isConnected: true, isInternetReachable: true });
+  networkListener({ isConnected: false, isInternetReachable: false });
+  resolveInitialNetworkSnapshot({
+    isConnected: true,
+    isInternetReachable: true,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(
+    timers.filter((timer) => !canceledTimers.has(timer)).length,
+    0,
+    'the latest offline event must prevent a stale online snapshot from scheduling another retry',
+  );
   cleanupFocus();
 });
 
