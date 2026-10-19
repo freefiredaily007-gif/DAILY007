@@ -323,8 +323,10 @@ export default function Auth({
         locations={[0, 0.46, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View pointerEvents="none" style={[s.ambientGlow, s.ambientTop]} />
-      <View pointerEvents="none" style={[s.ambientGlow, s.ambientBottom]} />
+      <View pointerEvents="none" style={s.ambientBackground}>
+        <View style={[s.ambientGlow, s.ambientTop]} />
+        <View style={[s.ambientGlow, s.ambientBottom]} />
+      </View>
       <KeyboardAwareScrollViewCompat
         testID="auth-screen"
         style={s.scroll}
@@ -679,6 +681,7 @@ export default function Auth({
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: AUTH.background },
   scroll: { flex: 1, backgroundColor: 'transparent' },
+  ambientBackground: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, overflow: 'hidden' },
   ambientGlow: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.08 },
   ambientTop: { top: -190, left: -100, backgroundColor: AUTH.fire },
   ambientBottom: { bottom: -210, right: -130, backgroundColor: AUTH.orange },

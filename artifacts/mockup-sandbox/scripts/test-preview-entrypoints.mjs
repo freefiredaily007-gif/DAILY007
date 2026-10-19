@@ -346,6 +346,30 @@ async function checkPreview(url, entry) {
       };
     });
     const clippedMarkers = markerLayouts.filter((layout) => !layout.visible || layout.clipped);
+    const overflowingElements = [...document.querySelectorAll("body *")]
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        const rightOverflow = rect.right - layoutWidth;
+        const leftOverflow = -rect.left;
+        return {
+          tag: element.tagName,
+          testId: element.getAttribute("data-testid"),
+          id: element.id || null,
+          className: typeof element.className === "string" ? element.className.slice(0, 80) : "",
+          text: (element.textContent ?? "").trim().slice(0, 80),
+          rightOverflow,
+          leftOverflow,
+          width: rect.width,
+        };
+      })
+      .filter((element) =>
+        element.width > 0 && (element.rightOverflow > 1 || element.leftOverflow > 1)
+      )
+      .sort((left, right) =>
+        Math.max(right.rightOverflow, right.leftOverflow)
+          - Math.max(left.rightOverflow, left.leftOverflow)
+      )
+      .slice(0, 8);
     const phoneViewportOk = Boolean(root && document.body)
       && window.innerWidth === ${expectedPhoneWidth}
       && Math.abs(layoutWidth - ${expectedPhoneWidth}) <= 1
@@ -364,6 +388,7 @@ async function checkPreview(url, entry) {
         visualScale: window.visualViewport?.scale ?? null,
         layoutWidth,
         scrollWidth,
+        overflowingElements,
         metaViewport: document.querySelector('meta[name="viewport"]')?.content ?? null,
       },
       overflowPx,
