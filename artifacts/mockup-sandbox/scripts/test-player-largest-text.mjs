@@ -2404,6 +2404,109 @@ async function checkDelayedVideoWatchStart() {
   console.log("PASS — a late session reply cannot reward ended playback, and a fresh playback uses its own session.");
 }
 
+async function checkVideoWatchStartResolvesInBackground() {
+  await navigateToScreen("VideoDelayedStart", "Tutorial Videos");
+  await clickSelector(
+    '[data-testid="video-catalog-card-still-active-video"]',
+    "active video for the backgrounded session-start test",
+  );
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"video-preview-start-playback\"]'))",
+    "video playback simulator before backgrounding",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow = performance.timeOrigin + performance.now();
+    Date.now = () => window.__daily007VideoNow;
+  })()`);
+  await clickSelector(
+    '[data-testid="video-preview-start-playback"]',
+    "start playback before backgrounding the pending request",
+  );
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.starts.length === 1
+      && typeof window.__resolvePendingVideoWatchStart === "function"`,
+    "the pending watch-session request before backgrounding",
+  );
+
+  await evaluate(`(() => {
+    if (typeof window.__setDaily007AppState !== "function") {
+      throw new Error("The preview app-lifecycle simulator is unavailable.");
+    }
+    window.__setDaily007AppState("background");
+    window.__daily007VideoNow += 60_000;
+    window.__sendVideoRewardPreviewProgress?.(7, 8);
+  })()`);
+  await evaluate("window.__resolvePendingVideoWatchStart?.()");
+  await waitForCondition(
+    `window.__videoRewardPreviewCalls?.sessions.length === 1
+      && typeof window.__resolvePendingVideoWatchStart !== "function"`,
+    "the watch-session response while the app is backgrounded",
+  );
+  await evaluate(`(() => {
+    window.__daily007VideoNow += 1_000;
+    window.__sendVideoRewardPreviewProgress?.(7.5, 8);
+  })()`);
+
+  await evaluate("window.__setDaily007AppState?.('active')");
+  await delay(120);
+  await evaluate(`(() => {
+    window.__daily007VideoNow += 1_000;
+    window.__sendVideoRewardPreviewProgress?.(0, 8);
+  })()`);
+  const resumedBaseline = await evaluate(`(() => ({
+    progress: document.querySelector('[data-testid="video-progress-value"]')?.textContent?.trim() ?? null,
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+  }))()`);
+  assert(
+    resumedBaseline.progress === "0%"
+      && resumedBaseline.sessions.length === 1
+      && resumedBaseline.completions.length === 0,
+    `Background playback must not count when the session resolves before resume: ${JSON.stringify(resumedBaseline)}`,
+  );
+
+  await evaluate(`(() => {
+    const sendProgress = window.__sendVideoRewardPreviewProgress;
+    if (typeof sendProgress !== "function") {
+      throw new Error("The preview progress sender is unavailable.");
+    }
+    for (let currentTime = 1; currentTime <= 6; currentTime += 1) {
+      window.__daily007VideoNow += 1_000;
+      sendProgress(currentTime, 8);
+    }
+  })()`);
+  await waitForCondition(
+    `document.querySelector('[data-testid="video-progress-value"]')?.textContent?.trim() === "75%"`,
+    "the qualifying foreground playback threshold",
+  );
+  await clickSelector(
+    '[data-testid="video-preview-finish-playback"]',
+    "finish after qualifying foreground playback",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes("1 coin added to your wallet.")
+      && window.__videoRewardPreviewCalls?.completions.length === 1`,
+    "the reward after qualifying foreground playback",
+  );
+  const completedPlayback = await evaluate(`(() => ({
+    starts: window.__videoRewardPreviewCalls?.starts.length ?? 0,
+    sessions: window.__videoRewardPreviewCalls?.sessions ?? [],
+    completions: window.__videoRewardPreviewCalls?.completions ?? [],
+    progress: document.querySelector('[data-testid="video-progress-value"]')?.textContent?.trim() ?? null,
+  }))()`);
+  assert(
+    completedPlayback.starts === 1
+      && completedPlayback.sessions.length === 1
+      && completedPlayback.completions.length === 1
+      && completedPlayback.completions[0]?.data?.sessionId === completedPlayback.sessions[0]
+      && completedPlayback.completions[0]?.data?.percentWatched >= 75
+      && completedPlayback.progress === "87%",
+    `Only the later foreground playback should qualify for the reward: ${JSON.stringify(completedPlayback)}`,
+  );
+  await evaluate("window.__setDaily007AppState?.('active')");
+  console.log("PASS — a watch session resolving in the background credits no playback until qualifying foreground progress resumes.");
+}
+
 async function checkRepeatedProgressWhileVideoWatchStartPending() {
   await navigateToScreen("VideoDelayedStart", "Tutorial Videos");
   await clickSelector(
@@ -2743,6 +2846,7 @@ try {
   }
   if (pendingVideoWatchStartOnly) {
     await checkDelayedVideoWatchStart();
+    await checkVideoWatchStartResolvesInBackground();
     await checkRepeatedProgressWhileVideoWatchStartPending();
     await checkDelayedVideoWatchStartAcrossVideos();
   }
@@ -2853,6 +2957,7 @@ try {
       await checkUnavailableVideoCatalogRefreshFailure("becomes unavailable");
       await checkTransientVideoRewardRetry();
       await checkDelayedVideoWatchStart();
+      await checkVideoWatchStartResolvesInBackground();
       await checkRepeatedProgressWhileVideoWatchStartPending();
       await checkDelayedVideoWatchStartAcrossVideos();
     }

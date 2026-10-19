@@ -8,6 +8,25 @@ export function findNodeHandle() {
   return null;
 }
 
+type PreviewAppState = "active" | "background" | "inactive";
+const appStateListeners = new Set<(nextState: PreviewAppState) => void>();
+
+export const AppState = {
+  currentState: "active" as PreviewAppState,
+  addEventListener(eventName: "change", listener: (nextState: PreviewAppState) => void) {
+    if (eventName === "change") appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  },
+};
+
+const previewAppStateGlobal = globalThis as typeof globalThis & {
+  __setDaily007AppState?: (nextState: PreviewAppState) => void;
+};
+previewAppStateGlobal.__setDaily007AppState = (nextState) => {
+  AppState.currentState = nextState;
+  for (const listener of appStateListeners) listener(nextState);
+};
+
 const requestedPlatform = typeof window !== "undefined"
   ? new URLSearchParams(window.location.search).get("platform")
   : null;
