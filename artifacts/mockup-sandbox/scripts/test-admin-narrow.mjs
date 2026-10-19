@@ -8462,7 +8462,7 @@ async function checkAdminTournamentCreationSaveAtLargeText() {
     `Boolean(document.querySelector('[data-testid="admin-tournament-tab-upcoming"]'))`,
     "Admin tournament screen",
   );
-  await clickButton("NEW");
+  await clickSelector('[data-testid="admin-tournament-create-toggle"]', "New tournament control");
   await waitForCondition(
     `Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]'))`,
     "tournament creation form",
@@ -8499,6 +8499,41 @@ async function checkAdminTournamentCreationSaveAtLargeText() {
     "populated tournament creation form",
   );
 
+  const bannerUrlInput = 'input[placeholder="Optional custom banner image URL (HTTPS)"]';
+  const validationMessage = "Custom banner image must be a valid HTTPS URL.";
+  const unsafeBannerUrls = [
+    ["non-HTTPS", "http://example.invalid/clash-night.png"],
+    ["embedded credentials", "https://admin:password@example.invalid/clash-night.png"],
+  ];
+  for (const [description, unsafeUrl] of unsafeBannerUrls) {
+    await setTournamentFormValue(bannerUrlInput, unsafeUrl);
+    await resetAdminMutationCalls();
+    await clickTournamentFormControl(
+      "CREATE",
+      `Reject tournament creation with ${description} banner URL`,
+    );
+    await waitForCondition(
+      `document.body.innerText.includes(${JSON.stringify(validationMessage)}) &&
+        Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]'))`,
+      `${description} banner URL validation while keeping the creation form open`,
+    );
+    const rejectedState = await evaluate(`(() => ({
+      errorVisible: document.body.innerText.includes(${JSON.stringify(validationMessage)}),
+      formOpen: Boolean(document.querySelector('[data-testid="admin-tournament-create-form"]')),
+      enteredUrl: document.querySelector(${JSON.stringify(bannerUrlInput)})?.value ?? null,
+      mutationCalls: window.__daily007AdminMutations?.calls ?? null,
+    }))()`);
+    assert(
+      rejectedState?.errorVisible &&
+        rejectedState.formOpen &&
+        rejectedState.enteredUrl === unsafeUrl &&
+        Array.isArray(rejectedState.mutationCalls) &&
+        rejectedState.mutationCalls.length === 0,
+      `The ${description} banner URL should show validation, preserve the creation form, and make no create API call: ${JSON.stringify(rejectedState)}.`,
+    );
+  }
+
+  await setTournamentFormValue(bannerUrlInput, imageUrl);
   await resetAdminMutationCalls();
   await clickTournamentFormControl("CREATE", "Create tournament action");
   await waitForCondition(

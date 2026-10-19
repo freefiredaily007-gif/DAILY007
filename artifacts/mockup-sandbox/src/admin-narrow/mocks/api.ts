@@ -855,8 +855,8 @@ export const Api = {
     return {};
   },
   createTournament: async (payload: Record<string, unknown>) => {
-    const createdTournament = addPreviewTournamentFromAdminPayload(payload);
     adminPreviewMutationCalls.push({ method: "createTournament", payload: { ...payload } });
+    const createdTournament = addPreviewTournamentFromAdminPayload(payload);
     return { ...createdTournament };
   },
   deleteTournament: async (id: string) => {
