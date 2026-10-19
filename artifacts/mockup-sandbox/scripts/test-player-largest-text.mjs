@@ -21,6 +21,7 @@ const profilePasswordConflictOnly = process.argv.includes("--profile-password-co
 const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-only");
 const profileSavePersistenceOnly = process.argv.includes("--profile-save-persistence-only");
 const homeRefreshNoticeOnly = process.argv.includes("--home-refresh-notice-only");
+const homeLayoutOnly = process.argv.includes("--home-layout-only");
 const browserErrors = [];
 const layoutFailures = [];
 const ignoredWebOnlyConsoleErrors = new Set([
@@ -293,6 +294,28 @@ async function inspectLayout(screenName) {
     const textNodes = [...root.querySelectorAll('*')].filter((node) =>
       node.children.length === 0 && node.textContent?.trim() && node.getBoundingClientRect().width > 0
     );
+    const canRevealByVerticalScroll = (node, clippingAncestor, clippingRect, nodeRect) => {
+      let scrollParent = node.parentElement;
+      while (scrollParent && scrollParent !== clippingAncestor) {
+        const scrollStyle = getComputedStyle(scrollParent);
+        const scrollRect = scrollParent.getBoundingClientRect();
+        const maxScrollTop = scrollParent.scrollHeight - scrollParent.clientHeight;
+        if (
+          /(auto|scroll)/.test(scrollStyle.overflowY)
+          && maxScrollTop > 1
+          && scrollRect.top >= clippingRect.top - 2
+          && scrollRect.bottom <= clippingRect.bottom + 2
+        ) {
+          const contentTop = nodeRect.top + scrollParent.scrollTop - scrollRect.top;
+          const contentBottom = nodeRect.bottom + scrollParent.scrollTop - scrollRect.top;
+          const firstScrollTop = Math.max(0, contentBottom - scrollParent.clientHeight);
+          const lastScrollTop = Math.min(maxScrollTop, contentTop);
+          if (firstScrollTop <= lastScrollTop + 1) return true;
+        }
+        scrollParent = scrollParent.parentElement;
+      }
+      return false;
+    };
     for (const node of textNodes) {
       const text = node.textContent.trim();
       const rect = node.getBoundingClientRect();
@@ -317,9 +340,15 @@ async function inspectLayout(screenName) {
         const parentRect = parent.getBoundingClientRect();
         const clipsX = parentStyle.overflowX === 'hidden' || parentStyle.overflowX === 'clip';
         const clipsY = parentStyle.overflowY === 'hidden' || parentStyle.overflowY === 'clip';
+        const outsideX = rect.left < parentRect.left - 2 || rect.right > parentRect.right + 2;
+        const outsideY = rect.top < parentRect.top - 2 || rect.bottom > parentRect.bottom + 2;
         if (
-          (clipsX && (rect.left < parentRect.left - 2 || rect.right > parentRect.right + 2))
-          || (clipsY && (rect.top < parentRect.top - 2 || rect.bottom > parentRect.bottom + 2))
+          (clipsX && outsideX)
+          || (
+            clipsY
+            && outsideY
+            && !canRevealByVerticalScroll(node, parent, parentRect, rect)
+          )
         ) {
           clippedByAncestor = true;
           break;
@@ -335,6 +364,23 @@ async function inspectLayout(screenName) {
           overflow: [style.overflowX, style.overflowY],
           clippedByAncestor,
           outsideRoot: outsideRoot && !insideHorizontalScroll,
+          ancestorChain: (() => {
+            const chain = [];
+            let ancestor = node.parentElement;
+            while (ancestor && ancestor !== root) {
+              const ancestorStyle = getComputedStyle(ancestor);
+              const ancestorRect = ancestor.getBoundingClientRect();
+              chain.push({
+                tag: ancestor.tagName,
+                testID: ancestor.getAttribute('data-testid'),
+                overflow: [ancestorStyle.overflowX, ancestorStyle.overflowY],
+                bounds: [ancestorRect.top, ancestorRect.bottom],
+                scroll: [ancestor.scrollTop, ancestor.clientHeight, ancestor.scrollHeight],
+              });
+              ancestor = ancestor.parentElement;
+            }
+            return chain;
+          })(),
         });
       }
       if (textIssues.length >= 18) break;
@@ -2665,10 +2711,10 @@ try {
   });
   await delay(120);
   if (homeRefreshNoticeOnly) await checkHomeRefreshNoticeStates();
-  if (!homeRefreshNoticeOnly && !videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
+  if (!homeRefreshNoticeOnly && !homeLayoutOnly && !videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!homeRefreshNoticeOnly && !lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
+  if (!homeRefreshNoticeOnly && !homeLayoutOnly && !lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2725,7 +2771,25 @@ try {
     });
     await checkEditProfileSavedDetailsAfterReopen(375);
   }
+  if (homeLayoutOnly) {
+    const homeScreen = screens.find((screen) => screen.name === "Home");
+    assert(homeScreen, "The Home screen is not registered.");
+    for (const viewportWidth of [375, 320]) {
+      await cdp("Emulation.setDeviceMetricsOverride", {
+        width: viewportWidth,
+        height: 820,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(120);
+      await collectLayoutFailure(
+        `Home at ${viewportWidth}px and 2×`,
+        () => checkScreen(homeScreen, viewportWidth),
+      );
+    }
+  }
   const focusedVideoCheck = videoStartFailureOnly
+    || homeLayoutOnly
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
     || videoCatalogRefreshAnnouncementOnly
@@ -2821,6 +2885,8 @@ try {
   console.log(
     homeRefreshNoticeOnly
       ? "PASS — Home refresh notices appear only while stale tournament data needs recovery."
+      : homeLayoutOnly
+        ? "PASS — Home text remains readable at 2× scale while its vertical content scrolls."
       : videoStartFailureOnly
       ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
       : lateVideoRewardResponseOnly
