@@ -170,7 +170,7 @@ function PreviewTabBar({ fontScale, width }) {
   );
 }
 
-function PreviewStackHeader({ title }) {
+function PreviewStackHeader({ title, onBack }) {
   return (
     <View
       testID="preview-stack-header"
@@ -190,6 +190,7 @@ function PreviewStackHeader({ title }) {
         testID="preview-back-button"
         accessibilityRole="button"
         accessibilityLabel="Go back"
+        onPress={onBack}
         style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}
       >
         <Text style={{ color: "#f5f7ff", fontSize: 14 }}>‹ BACK</Text>
@@ -203,17 +204,29 @@ function PreviewStackHeader({ title }) {
 
 function PlayerLargeTextPreview() {
   const { width, fontScale } = useWindowDimensions();
+  const [activeScreen, setActiveScreen] = React.useState(screenName);
   const [leaderboardCycleType, setLeaderboardCycleType] = React.useState("weekly");
-  const hasTabBar = tabScreens.includes(screenName);
+  const Screen = screens[activeScreen.startsWith("Video") ? "Video" : activeScreen] || Home;
+  const hasTabBar = tabScreens.includes(activeScreen);
+
+  React.useEffect(() => {
+    window.__daily007PreviewNavigate = (routeName) => setActiveScreen(routeName);
+    return () => { delete window.__daily007PreviewNavigate; };
+  }, []);
 
   return (
     <View
       testID="preview-frame"
       style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", backgroundColor: "#080b12" }}
     >
-      {!hasTabBar ? <PreviewStackHeader title={titles[screenName] || screenName.toUpperCase()} /> : null}
+      {!hasTabBar ? (
+        <PreviewStackHeader
+          title={titles[activeScreen] || activeScreen.toUpperCase()}
+          onBack={() => setActiveScreen("Profile")}
+        />
+      ) : null}
       <View testID="player-screen" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-        {screenName === "LeaderboardDetails" ? (
+        {activeScreen === "LeaderboardDetails" ? (
           <Screen
             route={{ params: { cycleType: leaderboardCycleType } }}
             navigation={{ setParams: (params) => setLeaderboardCycleType(params.cycleType) }}

@@ -357,6 +357,11 @@ let deferredTournamentRead: {
   claimed: boolean;
 } | null = null;
 let playerLargestTextPreview = false;
+let playerPreviewProfile = {
+  name: "Daily007 Champion With A Long Player Name",
+  phone: "+91 98765 43210",
+  gameUid: "12345678901234567890",
+};
 let istDateSurfacePreview = false;
 let myRegistrationReadCount = 0;
 let myRegistrationPreview: any[] | null = null;
@@ -537,6 +542,10 @@ export function configurePlayerLargestTextPreview() {
   (globalThis as any).__daily007LargestTextApiCalls = walletPreviewCalls;
 }
 
+export function getPlayerPreviewProfile() {
+  return { ...playerPreviewProfile };
+}
+
 export function configureIstDateSurfacePreview(
   schedule: { date: string; time: string; startsAt?: string } = {
     date: istDateSurfaceTournament.date,
@@ -675,6 +684,12 @@ export const Api = {
       });
       throw error;
     }
+    const profile = payload as Partial<typeof playerPreviewProfile>;
+    playerPreviewProfile = {
+      name: String(profile?.name ?? playerPreviewProfile.name),
+      phone: String(profile?.phone ?? playerPreviewProfile.phone),
+      gameUid: String(profile?.gameUid ?? playerPreviewProfile.gameUid),
+    };
     return {};
   },
   adminStats: async () => ({ ...stats, stats: { ...stats } }),

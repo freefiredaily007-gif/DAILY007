@@ -1,3 +1,5 @@
+import { getPlayerPreviewProfile } from "./api";
+
 const previewUser = {
   id: "preview-player",
   name: "Preview Player",
@@ -22,6 +24,16 @@ const largestTextPreviewUser = {
   role: "player",
 };
 
+const getPreviewUser = () => {
+  const largeTextPreview = Boolean(
+    (globalThis as typeof globalThis & { __playerLargestTextPreview?: boolean })
+      .__playerLargestTextPreview,
+  );
+  return largeTextPreview
+    ? { ...largestTextPreviewUser, ...getPlayerPreviewProfile() }
+    : previewUser;
+};
+
 const previewRefresh = async () => {
   const controls = globalThis as typeof globalThis & {
     __daily007FailNextProfileRefresh?: boolean;
@@ -32,17 +44,13 @@ const previewRefresh = async () => {
     controls.__daily007FailNextProfileRefresh = false;
     return null;
   }
-  return { user: previewUser };
+  return { user: getPreviewUser() };
 };
 const previewLogout = () => undefined;
 
 export function useApp() {
-  const largeTextPreview = Boolean(
-    (globalThis as typeof globalThis & { __playerLargestTextPreview?: boolean })
-      .__playerLargestTextPreview,
-  );
   return {
-    user: largeTextPreview ? largestTextPreviewUser : previewUser,
+    user: getPreviewUser(),
     refresh: previewRefresh,
     logout: previewLogout,
   };

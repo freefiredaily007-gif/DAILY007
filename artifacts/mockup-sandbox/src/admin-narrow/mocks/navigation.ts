@@ -63,6 +63,16 @@ export function useNavigation() {
     const preview = globalThis as typeof globalThis & { __previewNavigations?: unknown[][] };
     preview.__previewNavigations ??= [];
     preview.__previewNavigations.push(args);
+    if (
+      typeof window !== "undefined"
+      && new URLSearchParams(window.location.search).has("profile-save-persistence-only")
+      && args[0] === "EditProfile"
+    ) {
+      const controls = globalThis as typeof globalThis & {
+        __daily007PreviewNavigate?: (routeName: string) => void;
+      };
+      controls.__daily007PreviewNavigate?.("EditProfile");
+    }
   };
   return {
     navigate: recordNavigation,

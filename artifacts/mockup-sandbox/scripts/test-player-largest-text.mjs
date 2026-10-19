@@ -19,6 +19,7 @@ const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog
 const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
 const profilePasswordConflictOnly = process.argv.includes("--profile-password-conflict-only");
 const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-only");
+const profileSavePersistenceOnly = process.argv.includes("--profile-save-persistence-only");
 const browserErrors = [];
 const layoutFailures = [];
 const ignoredWebOnlyConsoleErrors = new Set([
@@ -211,6 +212,7 @@ async function waitForCondition(expression, description) {
 async function navigateToScreen(name, readyText, fontScale = 2) {
   const query = new URLSearchParams({ screen: name, fontScale: String(fontScale) });
   if (name === "VideoConnectivityRecovery") query.set("resume-while-refresh-only", "");
+  if (profileSavePersistenceOnly) query.set("profile-save-persistence-only", "");
   await cdp("Page.navigate", { url: `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?${query}` });
   await waitForCondition(
     `Boolean(document.querySelector('[data-testid="player-screen"]') && document.body.innerText.includes(${JSON.stringify(readyText)}))`,
@@ -677,6 +679,69 @@ async function checkEditProfileSaveFailure(viewportWidth) {
   );
   console.log(
     `PASS — Edit Profile save and refresh recovery at ${viewportWidth}px and 2× text; rejected saves and failed refreshes have distinct guidance, values persist, and refresh retries do not resubmit the update.`,
+  );
+}
+
+async function checkEditProfileSavedDetailsAfterReopen(viewportWidth) {
+  const selectors = [
+    '[data-testid="edit-profile-name"]',
+    '[data-testid="edit-profile-phone"]',
+    '[data-testid="edit-profile-game-uid"]',
+  ];
+  const savedValues = ["Reopened Preview Player", "9876501234", "9988776655"];
+  await navigateToScreen("EditProfile", "EDIT PROFILE");
+  for (const [index, selector] of selectors.entries()) {
+    await setInputValue(selector, savedValues[index], `Edit Profile field ${index + 1}`);
+  }
+  await evaluate(`(() => {
+    window.alert = () => {};
+    const calls = window.__daily007LargestTextApiCalls;
+    if (Array.isArray(calls)) calls.length = 0;
+  })()`);
+  await clickSelector('[data-testid="edit-profile-save"]', "Edit Profile save");
+  await waitForCondition(
+    "window.__daily007LargestTextApiCalls?.filter((call) => call.method === 'updateProfile').length === 1 && Boolean(document.querySelector('[data-testid=\"edit-profile-save\"]'))",
+    "the successful profile save",
+  );
+
+  const savedRequest = await evaluate(
+    `window.__daily007LargestTextApiCalls?.find((call) => call.method === "updateProfile") ?? null`,
+  );
+  assert(
+    JSON.stringify(savedRequest?.payload) === JSON.stringify({
+      name: savedValues[0],
+      phone: savedValues[1],
+      gameUid: savedValues[2],
+    }),
+    `The save request should contain all three changed profile details: ${JSON.stringify(savedRequest)}`,
+  );
+
+  await clickSelector('[data-testid="preview-back-button"]', "Edit Profile back button");
+  await waitForCondition(
+    "document.body.innerText.includes('PROFILE') && Boolean(document.querySelector('[data-testid=\"profile-change-password\"]'))",
+    "returning to Profile after saving",
+  );
+  await clickButtonWithText("EDIT PROFILE", "Profile's Edit Profile action");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"edit-profile-name\"]')) && document.body.innerText.includes('EDIT PROFILE')",
+    "reopening Edit Profile",
+  );
+  await assertInputValues(selectors, savedValues, "after leaving and reopening Edit Profile");
+
+  const finalState = await evaluate(`(() => ({
+    values: ${JSON.stringify(selectors)}.map((selector) => document.querySelector(selector)?.value ?? null),
+    updateCalls: window.__daily007LargestTextApiCalls?.filter((call) => call.method === "updateProfile") ?? [],
+  }))()`);
+  assert(
+    finalState.updateCalls.length === 1,
+    `Reopening Edit Profile must not submit a second update: ${finalState.updateCalls.length} updates`,
+  );
+  assert(
+    JSON.stringify(finalState.values) === JSON.stringify(savedValues),
+    `All server-saved details should be present when Edit Profile is reopened: ${JSON.stringify(finalState.values)}`,
+  );
+  console.log(
+    `PASS — Edit Profile at ${viewportWidth}px and 2× text; saved name, phone, and Free Fire UID remain after leaving and reopening the form.`,
   );
 }
 
@@ -2531,10 +2596,10 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
+  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly) {
+  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2582,6 +2647,15 @@ try {
       await checkEditProfileSaveFailure(viewportWidth);
     }
   }
+  if (profileSavePersistenceOnly) {
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width: 375,
+      height: 820,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await checkEditProfileSavedDetailsAfterReopen(375);
+  }
   const focusedVideoCheck = videoStartFailureOnly
     || lateVideoRewardResponseOnly
     || pendingVideoWatchStartOnly
@@ -2592,7 +2666,8 @@ try {
     || lateVideoCatalogResponseOnly
     || videoCatalogPositionOnly
     || profilePasswordConflictOnly
-    || profileSaveFailureOnly;
+    || profileSaveFailureOnly
+    || profileSavePersistenceOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -2696,6 +2771,8 @@ try {
                     ? "PASS — password conflicts preserve the form and allow a successful retry."
                     : profileSaveFailureOnly
                       ? "PASS — failed Edit Profile saves preserve all details and allow retry at 2× text."
+                      : profileSavePersistenceOnly
+                        ? "PASS — saved Edit Profile details remain after leaving and reopening the form."
                     : "PASS — all twelve player screens at 375px and 320px at 2×, plus Weekly and Monthly leaderboard podiums, expanded rank/name/score rows, and rank-20 scrolling at 1.2×, 1.35×, 1.49×, and 1.5× Android text scale.",
   );
 } catch (error) {
