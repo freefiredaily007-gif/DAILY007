@@ -52,6 +52,7 @@ type TournamentAdminTab = (typeof TOURNAMENT_TABS)[number]['id'];
 type TournamentAction = { tournamentId: string; kind: 'room' | 'results' };
 const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed.';
 const RESULT_ALREADY_PUBLISHED_PREFIX = 'Result already published — ';
+const CUSTOM_BANNER_URL_ERROR = 'Custom banner image must be a valid HTTPS URL.';
 
 function configuredPrizeForRank(tournament: Tournament, rank: number): number {
   const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
@@ -545,6 +546,16 @@ export default function AdminTournaments() {
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
+  const rejectCustomBannerUrl = () => {
+    setErr(CUSTOM_BANNER_URL_ERROR);
+    if (Platform.OS === 'android') {
+      AccessibilityInfo.announceForAccessibilityWithOptions(CUSTOM_BANNER_URL_ERROR, {
+        queue: true,
+        priority: 'high',
+      });
+    }
+  };
+
   const save = async () => {
     setErr(''); setOkMsg('');
     if (!form.name.trim() || !form.date.trim() || form.entryCoins === '') {
@@ -556,10 +567,10 @@ export default function AdminTournaments() {
       try {
         const parsed = new URL(imageUrl);
         if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) {
-          return setErr('Custom banner image must be a valid HTTPS URL.');
+          return rejectCustomBannerUrl();
         }
       } catch {
-        return setErr('Custom banner image must be a valid HTTPS URL.');
+        return rejectCustomBannerUrl();
       }
     }
     setBusy(true);
@@ -672,7 +683,13 @@ export default function AdminTournaments() {
           }}
         />
       )}
-      <Msg kind="err" text={err} accessibilityLiveRegion="polite" />
+      <Msg
+        kind="err"
+        text={err}
+        accessibilityLiveRegion={
+          Platform.OS === 'android' && err === CUSTOM_BANNER_URL_ERROR ? undefined : 'polite'
+        }
+      />
       {!!loadError && (
         <View style={st.loadRetry}>
           <Msg

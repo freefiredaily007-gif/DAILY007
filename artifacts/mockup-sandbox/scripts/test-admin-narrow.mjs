@@ -8813,6 +8813,26 @@ async function checkDisabledTournamentDisappearsAfterHomeRefresh() {
 }
 
 async function checkAdminTournamentEditSaveAtLargeText() {
+  const source = readFileSync(
+    path.join(workspaceRoot, "artifacts/daily007/src/screens/AdminTournaments.tsx"),
+    "utf8",
+  );
+  assert(
+    source.includes("const CUSTOM_BANNER_URL_ERROR = 'Custom banner image must be a valid HTTPS URL.';") &&
+      source.includes("if (Platform.OS === 'android')") &&
+      source.includes("AccessibilityInfo.announceForAccessibilityWithOptions(CUSTOM_BANNER_URL_ERROR") &&
+      source.includes("err === CUSTOM_BANNER_URL_ERROR ? undefined : 'polite'"),
+    "Android must hear each rejected tournament banner URL directly without also receiving a duplicate live-region announcement.",
+  );
+  const saveStart = source.indexOf("const save = async () =>");
+  const saveEnd = source.indexOf("const removeNow =", saveStart);
+  const saveSource = source.slice(saveStart, saveEnd);
+  assert(
+    (saveSource.match(/return rejectCustomBannerUrl\(\);/g) ?? []).length === 2 &&
+      saveSource.includes("parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password"),
+    "Both unsupported protocols and embedded URL credentials must use the announced HTTPS validation error.",
+  );
+
   await setViewport(320, 1.5);
   await cdp("Emulation.setTimezoneOverride", { timezoneId: "Pacific/Kiritimati" });
   assert(
