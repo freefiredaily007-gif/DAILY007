@@ -114,7 +114,10 @@ const s = StyleSheet.create({
   modeBanner: { width: '100%', height: '100%', minHeight: 124 },
   modeBannerLarge: { minHeight: 0 },
   modeBody: { flex: 1, minWidth: 0, justifyContent: 'center', paddingLeft: 12, paddingRight: 2, paddingVertical: 3 },
-  modeBodyLarge: { flex: 0, paddingLeft: 0, paddingRight: 0, paddingVertical: 2 },
+  modeBodyLarge: {
+    flexGrow: 0, flexShrink: 0, flexBasis: 'auto',
+    paddingLeft: 0, paddingRight: 0, paddingVertical: 2,
+  },
   modeKicker: { fontWeight: '900', fontSize: 9, letterSpacing: 1.4, lineHeight: 12 },
   modeTitle: { color: C.text, fontWeight: '900', fontSize: 17, letterSpacing: 0.45, lineHeight: 20, marginTop: 4 },
   modeCapacityBadge: {

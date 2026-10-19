@@ -364,23 +364,6 @@ async function inspectLayout(screenName) {
           overflow: [style.overflowX, style.overflowY],
           clippedByAncestor,
           outsideRoot: outsideRoot && !insideHorizontalScroll,
-          ancestorChain: (() => {
-            const chain = [];
-            let ancestor = node.parentElement;
-            while (ancestor && ancestor !== root) {
-              const ancestorStyle = getComputedStyle(ancestor);
-              const ancestorRect = ancestor.getBoundingClientRect();
-              chain.push({
-                tag: ancestor.tagName,
-                testID: ancestor.getAttribute('data-testid'),
-                overflow: [ancestorStyle.overflowX, ancestorStyle.overflowY],
-                bounds: [ancestorRect.top, ancestorRect.bottom],
-                scroll: [ancestor.scrollTop, ancestor.clientHeight, ancestor.scrollHeight],
-              });
-              ancestor = ancestor.parentElement;
-            }
-            return chain;
-          })(),
         });
       }
       if (textIssues.length >= 18) break;

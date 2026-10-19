@@ -72,6 +72,7 @@
 - [Daily007 leaderboard large text](daily007-leaderboard-large-text.md) — preserve the 1.5× layout breakpoint; wrap compact podium scores and expanded names instead of truncating them.
 - [Daily007 leaderboard screen readers](daily007-leaderboard-talkback.md) — native checks cover standings, stale-data recovery, podium updates, tab selection, and Top 20 state.
 - [Daily007 Home mode-card screen readers](daily007-home-mode-screen-reader.md) — VoiceOver and TalkBack announce mode and all team sizes in one stop, without decorative stops.
+- [React Native Web large-text flex sizing](rnw-large-text-flex-sizing.md) — flex: 0 can still shrink a content column to zero; preserve its intrinsic basis and disable shrinking.
 - [GCard accessibility grouping](gcard-accessibility-grouping.md) — group and hide card contents only when an interactive card supplies one complete spoken label.
 - [Daily007 room-detail TalkBack](daily007-room-details-talkback.md) — iQOO Neo 10 / Android 16 confirmed labeled room values, distinct copy controls, and spoken copy feedback.
 - [Daily007 full-capacity TalkBack](daily007-full-capacity-talkback.md) — iQOO Neo 10 / Android 16 confirmed one rejection-and-capacity announcement without repetition or focus movement.
