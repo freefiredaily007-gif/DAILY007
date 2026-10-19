@@ -57,7 +57,7 @@
 - [Drizzle CHECK constraint drift](drizzle-check-constraints.md) — after changing a Drizzle CHECK, verify the live PostgreSQL definition; a successful push can leave it stale.
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.
 - [Daily007 video catalog concurrency](daily007-video-catalog-concurrency.md) — cancel superseded refetches and ignore older retry outcomes before they change announcements.
-- [Daily007 Android video catalog lifecycle](daily007-video-catalog-android.md) — iQOO Neo 10 / Android 16 confirmed removal on resume, no polling in player, and refresh on return.
+- [Daily007 Android video catalog lifecycle](daily007-video-catalog-android.md) — iQOO Neo 10 / Android 16 confirmed refresh behavior and cached cards remain playable after an offline refresh fails.
 - [Daily007 YouTube link behavior](daily007-youtube-link-behavior.md) — only the explicit YouTube action leaves the in-app player; Android opens the selected video in YouTube first, with browser fallback.
 - [Daily007 tournament captain name](daily007-tournament-captain-name.md) — use the read-only Daily007 profile name for the captain instead of asking for a separate real name.
 - [Daily007 tournament UID reuse](daily007-tournament-uid-reuse.md) — Only approved/pending entries reserve UIDs, and only in the same tournament; rejected entries are reusable.
