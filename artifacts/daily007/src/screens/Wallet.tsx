@@ -519,7 +519,7 @@ export default function Wallet({
         setProof(null);
       } catch {
         setRechargeNotice(
-          'This transaction ID was already submitted, but its request status could not be checked. Refresh Wallet history before trying again. No new payment was created.',
+          'This transaction ID was already submitted, but we couldn’t verify its request status. Refresh Wallet history before trying again. No new payment was created.',
         );
       }
     } finally { setSubmitting(false); }

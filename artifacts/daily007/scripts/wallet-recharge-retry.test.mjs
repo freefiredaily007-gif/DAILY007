@@ -71,6 +71,7 @@ function loadSubmitAdd(scope) {
 function createFixture({
   pages,
   createError = duplicatePaymentError,
+  paymentHistoryError,
   payerUpiId = 'player@upi',
   proof = null,
 }) {
@@ -101,6 +102,7 @@ function createFixture({
     },
     async myPaymentsPage(cursor) {
       state.pageCursors.push(cursor);
+      if (paymentHistoryError) throw paymentHistoryError;
       const page = pages.shift();
       assert.ok(page, `Unexpected payment-history page request at cursor ${cursor}.`);
       return page;
@@ -140,7 +142,7 @@ function createFixture({
     setProof: (value) => { state.proof = value; },
     uploadWalletImage: async () => {
       state.uploadCalls += 1;
-      throw new Error('No payment proof should be uploaded in this fixture.');
+      return 'proof-object-path';
     },
     Api,
     apiError: (error) => error?.response?.data?.error ?? error?.message ?? 'Network error.',
@@ -264,6 +266,38 @@ test('a duplicate reference with no matching player request is not treated as a 
   assert.match(
     walletSource,
     /accessibilityRole="alert"[\s\S]*?accessibilityLiveRegion="polite"[\s\S]*?testID="wallet-recharge-reconciliation"/,
+  );
+  assert.equal(state.error, '');
+  assert.equal(state.submitting, false);
+});
+
+test('a duplicate reference with unavailable Wallet history asks the player to refresh before retrying', async () => {
+  const { state, submitAdd } = createFixture({
+    pages: [],
+    paymentHistoryError: new Error('Payment history is temporarily unavailable.'),
+    proof: { uri: 'file:///payment-proof.png' },
+  });
+
+  await submitAdd();
+
+  assert.equal(state.createCalls.length, 1, 'Do not repeat payment creation after the conflict.');
+  assert.equal(state.createCalls[0].proofObjectPath, 'proof-object-path');
+  assert.equal(state.uploadCalls, 1);
+  assert.deepEqual(state.pageCursors, [undefined], 'Attempt one authenticated payment-history lookup.');
+  assert.equal(state.loadCalls, 0, 'Do not claim a successful refresh after the lookup failed.');
+  assert.equal(state.showSheet, true, 'Keep the recharge form open for the player.');
+  assert.equal(state.amount, '100');
+  assert.equal(state.payerUpiId, 'player@upi');
+  assert.equal(state.txnId, ' utr-ab12 ');
+  assert.deepEqual(state.proof, { uri: 'file:///payment-proof.png' });
+  assert.equal(state.ok, '', 'Do not show a verified payment status.');
+  assert.match(state.rechargeNotice, /couldn.t verify its request status/i);
+  assert.match(state.rechargeNotice, /refresh Wallet history before trying again/i);
+  assert.match(state.rechargeNotice, /No new payment was created/i);
+  assert.match(
+    walletSource,
+    /accessibilityRole="alert"[\s\S]*?accessibilityLiveRegion="polite"[\s\S]*?testID="wallet-recharge-reconciliation"/,
+    'The notice should be exposed as a polite accessible alert in the recharge modal.',
   );
   assert.equal(state.error, '');
   assert.equal(state.submitting, false);
