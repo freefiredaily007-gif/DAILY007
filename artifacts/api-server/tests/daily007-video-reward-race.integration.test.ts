@@ -1665,6 +1665,143 @@ test("two players can complete the same video without waiting on each other's wa
   }
 });
 
+test("a wallet-blocked reward does not delay a new player starting the same video", async () => {
+  const completingPlayerFixture = await createFixture();
+  let startingPlayerFixture: TestFixture | null = null;
+  let walletBlocker: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const inFlight: Promise<JsonResponse>[] = [];
+
+  try {
+    startingPlayerFixture = await createFixture({ includeInitialSession: false });
+    assert.ok(
+      completingPlayerFixture.adminId &&
+        completingPlayerFixture.playerId &&
+        completingPlayerFixture.videoId &&
+        completingPlayerFixture.sessionId,
+    );
+    assert.ok(startingPlayerFixture.playerId);
+    assert.notEqual(completingPlayerFixture.playerId, startingPlayerFixture.playerId);
+
+    await withServer(async (origin) => {
+      walletBlocker = await pool.connect();
+      await walletBlocker.query("BEGIN");
+      await walletBlocker.query(
+        "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [completingPlayerFixture.playerId],
+      );
+      const walletBlockerPid = await backendPid(walletBlocker);
+
+      const completion = sendJson(
+        origin,
+        "/videos/watch/complete",
+        completingPlayerFixture.playerId,
+        "POST",
+        { sessionId: completingPlayerFixture.sessionId, percentWatched: 100 },
+      );
+      inFlight.push(completion);
+      const completionPid = await waitForBlockedBackend(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [walletBlockerPid],
+      );
+
+      const start = sendJson(
+        origin,
+        "/videos/watch/start",
+        startingPlayerFixture.playerId!,
+        "POST",
+        {
+          videoId: completingPlayerFixture.videoId,
+          durationSeconds: 30,
+          attemptId: randomUUID(),
+        },
+      );
+      inFlight.push(start);
+
+      let startTimeout: ReturnType<typeof setTimeout> | undefined;
+      const startResponse = await Promise.race([
+        start,
+        new Promise<never>((_resolve, reject) => {
+          startTimeout = setTimeout(() => {
+            reject(new Error(
+              "A wallet-blocked reward prevented another player from starting the same video.",
+            ));
+          }, 5_000);
+        }),
+      ]).finally(() => {
+        if (startTimeout) clearTimeout(startTimeout);
+      });
+      assert.equal(startResponse.status, 201);
+      assert.equal(typeof startResponse.body.sessionId, "string");
+      assert.equal(typeof startResponse.body.startedAt, "string");
+      assert.ok(Number.isFinite(Date.parse(startResponse.body.startedAt as string)));
+
+      const stillBlockedPid = await waitForBlockedBackend(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [walletBlockerPid],
+      );
+      assert.equal(stillBlockedPid, completionPid);
+
+      await walletBlocker.query("COMMIT");
+      walletBlocker.release();
+      walletBlocker = null;
+
+      const completionResponse = await completion;
+      assert.equal(completionResponse.status, 200);
+      assert.equal(completionResponse.body.rewarded, true);
+      assert.equal(completionResponse.body.coins, 1);
+      assert.equal(completionResponse.body.walletCoins, 13);
+      assert.equal(typeof completionResponse.body.transactionId, "string");
+
+      const startedSession = await pool.query<{
+        userId: string;
+        videoId: string;
+        durationSeconds: number;
+        completedAt: Date | null;
+        rewardLedgerId: string | null;
+      }>(
+        `SELECT user_id AS "userId",
+                video_id AS "videoId",
+                duration_seconds AS "durationSeconds",
+                completed_at AS "completedAt",
+                reward_ledger_id::text AS "rewardLedgerId"
+           FROM daily007_v2_video_watch_sessions
+          WHERE id = $1`,
+        [startResponse.body.sessionId],
+      );
+      assert.equal(startedSession.rows.length, 1);
+      assert.equal(startedSession.rows[0]?.userId, startingPlayerFixture.playerId);
+      assert.equal(startedSession.rows[0]?.videoId, completingPlayerFixture.videoId);
+      assert.equal(startedSession.rows[0]?.durationSeconds, 30);
+      assert.equal(startedSession.rows[0]?.completedAt, null);
+      assert.equal(startedSession.rows[0]?.rewardLedgerId, null);
+
+      const completionState = await inspectFixture(completingPlayerFixture);
+      assert.equal(completionState.active, true);
+      assert.equal(completionState.walletCoins, 13);
+      assert.equal(completionState.ledgerCount, 1);
+      assert.ok(completionState.completedAt);
+      assert.ok(completionState.rewardLedgerId);
+      assert.equal(completionState.rewardLedgerId, completionState.ledgerId);
+      assert.equal(completionState.ledgerAmount, 1);
+      assert.equal(completionState.ledgerBalanceAfter, 13);
+    }, async () => {
+      if (walletBlocker) {
+        await walletBlocker.query("ROLLBACK").catch(() => undefined);
+        walletBlocker.release();
+        walletBlocker = null;
+      }
+      await Promise.allSettled(inFlight);
+    });
+  } finally {
+    if (walletBlocker) {
+      await walletBlocker.query("ROLLBACK").catch(() => undefined);
+      walletBlocker.release();
+    }
+    if (startingPlayerFixture) await cleanupFixture(startingPlayerFixture);
+    await cleanupFixture(completingPlayerFixture);
+  }
+});
+
 test("a locked wallet row for one player does not block another player's video reward", async () => {
   const lockedPlayerFixture = await createFixture();
   let independentPlayerFixture: TestFixture | null = null;
