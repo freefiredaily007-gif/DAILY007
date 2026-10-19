@@ -318,6 +318,12 @@ class Daily007AutoCancelTestDatabase {
         has_started: match.startsAtWallMs <= this.nowMs + IST_OFFSET_MS,
         has_winner: match.hasWinner,
       }] : [];
+    } else if (
+      normalized.startsWith("SELECT EXISTS ( SELECT 1 FROM daily007_v2_result_awards") &&
+      normalized.includes("AS has_winner")
+    ) {
+      const match = this.matches.get(String(values[0]));
+      rows = [{ has_winner: match?.hasWinner ?? false }];
     } else if (normalized.includes("count(*)::integer AS filled_slots")) {
       const matchId = String(values[0]);
       rows = [{

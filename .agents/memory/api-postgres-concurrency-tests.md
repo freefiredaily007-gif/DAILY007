@@ -122,3 +122,9 @@ When multiple reward transactions hold compatible `FOR SHARE` locks, do not requ
 **Why:** In a PostgreSQL race with two reward requests each already waiting on a separate wallet row, the queued video update reported only one of the two shared-lock owners as a blocker.
 
 **How to apply:** First observe every reward request blocked at its own wallet query, proving each progressed beyond the video active-state lock; then verify the admin update is queued behind a reward transaction without requiring an exhaustive blocker list.
+
+**Rule:** After a transaction waits for a row lock under READ COMMITTED, read derived state from related rows in a fresh statement rather than a subquery in the locking statement.
+
+**Why:** The locking statement can retain its pre-wait snapshot for the related-row subquery; cancellation consequently missed a winner award committed by the transaction that released the match lock.
+
+**How to apply:** Acquire the serialization row first, then query related state in a subsequent statement before making the dependent policy decision.

@@ -100,14 +100,9 @@ export async function cancelUnderfilledTournamentTransaction(
       status: string;
       capacity: number;
       has_started: boolean;
-      has_winner: boolean;
     }>(
       `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.status, m.capacity,
-              m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
-              EXISTS (
-                SELECT 1 FROM daily007_v2_result_awards award
-                 WHERE award.match_id = m.id AND award.rank = 1
-              ) AS has_winner
+              m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started
          FROM daily007_v2_matches m
         WHERE m.id = $1
         FOR UPDATE OF m`,
@@ -119,6 +114,17 @@ export async function cancelUnderfilledTournamentTransaction(
       throw new TournamentCancellationError("Tournament not found.", 404);
     }
 
+    // Check in a fresh statement after acquiring the match lock. If this
+    // transaction waited behind result publishing, the original locking
+    // statement's snapshot may predate its committed winner award.
+    const winnerResult = await client.query<{ has_winner: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM daily007_v2_result_awards award
+          WHERE award.match_id = $1 AND award.rank = 1
+       ) AS has_winner`,
+      [matchId],
+    );
     const isBattleRoyaleSquad = match.mode === "squad" &&
       (match.game_mode === null ||
         (match.game_mode === "battle_royale" && match.team_type === "squad"));
@@ -143,7 +149,7 @@ export async function cancelUnderfilledTournamentTransaction(
       storageMode: match.mode,
       status: match.status,
       hasStarted: match.has_started,
-      hasWinner: match.has_winner,
+      hasWinner: winnerResult.rows[0]?.has_winner ?? false,
       filledSlots,
       capacity,
     };

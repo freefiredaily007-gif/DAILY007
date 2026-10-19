@@ -261,6 +261,19 @@ async function submitResult(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function cancelTournament(
+  origin: string,
+  adminId: string,
+  matchId: string,
+): Promise<ResultResponse> {
+  const response = await fetch(`${origin}/admin/tournaments/${matchId}/lifecycle`, {
+    method: "POST",
+    headers: authHeaders(adminId),
+    body: JSON.stringify({ status: "cancelled" }),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
 async function createFixture(playerCount = 2): Promise<TournamentFixture> {
   if (!Number.isSafeInteger(playerCount) || playerCount < 2) {
     throw new Error("A tournament result fixture requires at least two players.");
@@ -696,6 +709,33 @@ async function waitForBlockedResultRequests(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Timed out waiting for ${expectedCount} result requests to block in PostgreSQL.`);
+}
+
+async function waitForBlockedTournamentRequest(
+  queryPattern: string,
+  timeoutMs = 5_000,
+): Promise<{ pid: number; blockers: number[] }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ pid: number; blockers: number[] }>(
+      `SELECT activity.pid, pg_blocking_pids(activity.pid) AS blockers
+         FROM pg_stat_activity activity
+        WHERE activity.pid <> pg_backend_pid()
+          AND activity.wait_event_type = 'Lock'
+          AND activity.query LIKE $1
+        ORDER BY activity.query_start`,
+      [queryPattern],
+    );
+    if (result.rows.length > 0) {
+      assert.equal(result.rows.length, 1, `Only one request should match ${queryPattern}.`);
+      return {
+        pid: Number(result.rows[0]!.pid),
+        blockers: result.rows[0]!.blockers.map(Number),
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for a PostgreSQL lock wait matching ${queryPattern}.`);
 }
 
 async function waitForBlockedWalletPayoutRequests(
@@ -2176,6 +2216,169 @@ test("public results stay draft when a cancelled tournament retains a winner awa
     } finally {
       client.release();
     }
+  }
+});
+
+test("a result that locks first prevents a queued cancellation from overriding the declared winner", async () => {
+  const fixture = await createFixture();
+  const winner = fixture.players[0];
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+
+  try {
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [fixture.matchId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      const resultRequest = submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        winner,
+        1,
+        12,
+      );
+      const blockedResult = await waitForBlockedTournamentRequest(
+        "%SELECT mode, game_mode, team_type FROM daily007_v2_matches%",
+      );
+      assert.ok(blockedResult.blockers.includes(blockerPid));
+
+      const cancellationRequest = cancelTournament(origin, fixture.adminId, fixture.matchId);
+      const blockedCancellation = await waitForBlockedTournamentRequest(
+        "%SELECT m.id, m.title, m.mode, m.game_mode, m.team_type%",
+      );
+      assert.ok(
+        blockedCancellation.blockers.includes(blockedResult.pid),
+        "cancellation must queue behind the result transaction that reached the match row first",
+      );
+
+      await blocker.query("COMMIT");
+      blockerTransactionOpen = false;
+
+      const [published, cancellation] = await Promise.all([resultRequest, cancellationRequest]);
+      assert.equal(published.status, 201, `the first result should publish: ${JSON.stringify(published.body)}`);
+      assert.equal(cancellation.status, 409);
+      assert.equal(
+        cancellation.body.error,
+        "A tournament with a declared winner cannot be cancelled.",
+        "the cancellation policy must recheck the committed winner after waiting for the match lock",
+      );
+
+      const standings = await publicStandings(origin, fixture.matchId);
+      assert.equal(standings.status, 200);
+      assert.equal(standings.body.status, "finalized");
+      assert.deepEqual(standings.body.entries, [{
+        rank: 1,
+        kills: 12,
+        prizeCoins: 500,
+        gameName: "TestGame1",
+        teamName: null,
+      }]);
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a cancellation that locks first rejects queued results and public standings hide a retained winner award", async () => {
+  const fixture = await createFixture();
+  const winner = fixture.players[0];
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+
+  try {
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        [fixture.matchId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      const cancellationRequest = cancelTournament(origin, fixture.adminId, fixture.matchId);
+      const blockedCancellation = await waitForBlockedTournamentRequest(
+        "%SELECT m.id, m.title, m.mode, m.game_mode, m.team_type%",
+      );
+      assert.ok(blockedCancellation.blockers.includes(blockerPid));
+
+      const resultRequest = submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        winner,
+        1,
+        12,
+      );
+      const blockedResult = await waitForBlockedTournamentRequest(
+        "%SELECT mode, game_mode, team_type FROM daily007_v2_matches%",
+      );
+      assert.ok(
+        blockedResult.blockers.includes(blockedCancellation.pid),
+        "the result submission must queue behind the cancellation that reached the match row first",
+      );
+
+      await blocker.query("COMMIT");
+      blockerTransactionOpen = false;
+
+      const [cancellation, published] = await Promise.all([cancellationRequest, resultRequest]);
+      assert.equal(cancellation.status, 200, `cancellation should commit: ${JSON.stringify(cancellation.body)}`);
+      assert.deepEqual(cancellation.body.data, {
+        id: fixture.matchId,
+        status: "cancelled",
+        registrationsRefunded: 0,
+        accountsRefunded: 0,
+        coinsRefunded: 0,
+      });
+      assert.equal(published.status, 409);
+      assert.equal(
+        published.body.error,
+        "Results cannot be published for a cancelled tournament.",
+        "the queued result must follow the existing cancellation policy",
+      );
+
+      const rejectedResultState = await captureSettlementState(fixture, winner);
+      assert.deepEqual(rejectedResultState.match, { enabled: false, status: "cancelled" });
+      assert.equal(rejectedResultState.walletCoins, 100);
+      assert.equal(rejectedResultState.stats, null);
+      assert.deepEqual(rejectedResultState.ledger, []);
+      assert.deepEqual(rejectedResultState.awards, []);
+
+      // Retain a fixture-owned award to verify public standings remain hidden
+      // even when a cancelled tournament has a stored winner row.
+      await pool.query(
+        `INSERT INTO daily007_v2_result_awards
+           (match_id, registration_id, user_id, rank, kills, prize_coins)
+         VALUES ($1, $2, $3, 1, 12, 500)`,
+        [fixture.matchId, winner.registrationId, winner.userId],
+      );
+      const standings = await publicStandings(origin, fixture.matchId);
+      assert.equal(standings.status, 200);
+      assert.equal(standings.body.status, "draft");
+      assert.deepEqual(standings.body.entries, []);
+
+      const retainedAward = await pool.query<{ registration_id: string; rank: number }>(
+        `SELECT registration_id, rank
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(retainedAward.rows, [{
+        registration_id: winner.registrationId,
+        rank: 1,
+      }]);
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await cleanupFixture(fixture);
   }
 });
 
