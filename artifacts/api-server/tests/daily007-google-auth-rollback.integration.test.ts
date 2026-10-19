@@ -832,6 +832,140 @@ test("concurrent Google signups keep unique fallback codes and one signup reward
   }
 });
 
+test("Google signup leaves no partial account when every short referral-code candidate is taken", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const googleAccountId = "00000000-0000-4000-8000-000000001708";
+  const ownerIds = Array.from({ length: 500 }, () => randomUUID());
+  const candidateAttempts = Array.from(
+    { length: 500 },
+    (_, attempt) => shortReferralCodeForUserId(googleAccountId, attempt),
+  );
+  const occupiedCandidates = [...new Set(candidateAttempts)];
+
+  assert.equal(candidateAttempts.length, 500,
+    "the test should occupy every candidate the allocator tries");
+  assert.ok(occupiedCandidates.length > 0);
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash)
+       SELECT owners.id, 'Existing Candidate Owner', owners.email, 'owner-salt', 'owner-hash'
+         FROM unnest($1::uuid[], $2::text[]) AS owners(id, email)`,
+      [
+        ownerIds,
+        ownerIds.map((ownerId) => `exhausted-code-owner-${ownerId}@example.test`),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_referral_short_codes (user_id, code)
+       SELECT owners.user_id, owners.code
+         FROM unnest($1::uuid[], $2::text[]) AS owners(user_id, code)`,
+      [ownerIds.slice(0, occupiedCandidates.length), occupiedCandidates],
+    );
+    const ownerCodesBefore = await pool.query<{ user_id: string; code: string }>(
+      `SELECT user_id, code
+         FROM daily007_v2_referral_short_codes
+        WHERE user_id = ANY($1::uuid[])
+        ORDER BY user_id`,
+      [ownerIds],
+    );
+    assert.equal(ownerCodesBefore.rows.length, occupiedCandidates.length,
+      "each distinct attempted candidate should already have an owner");
+    assert.deepEqual(
+      new Set(ownerCodesBefore.rows.map(({ code }) => code)),
+      new Set(occupiedCandidates),
+      "the seeded owners should cover all 500 candidate attempts",
+    );
+
+    await pool.query(`
+      CREATE FUNCTION daily007_test_force_exhausted_google_signup_id()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.clerk_user_id = '${GOOGLE_CLERK_USER_ID}' THEN
+          NEW.id := '${googleAccountId}'::uuid;
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_force_exhausted_google_signup_id
+      BEFORE INSERT ON daily007_v2_users
+      FOR EACH ROW
+      EXECUTE FUNCTION daily007_test_force_exhausted_google_signup_id()
+    `);
+
+    await withServer(async (origin) => {
+      const signup = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+      assert.equal(signup.status, 500,
+        "Google signup should fail once all deterministic short-code candidates are occupied");
+      assert.equal(signup.body.error, "Test server encountered an unexpected error.");
+
+      const account = await pool.query<{
+        id: string;
+        email: string;
+        clerk_user_id: string | null;
+        wallet_coins: number;
+      }>(
+        `SELECT id, email, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1 OR clerk_user_id = $2 OR email = $3`,
+        [googleAccountId, GOOGLE_CLERK_USER_ID, GOOGLE_EMAIL],
+      );
+      assert.deepEqual(account.rows, [],
+        "failed signup must leave no account or Google identity link");
+
+      const legacyCodes = await pool.query<{ user_id: string; code: string }>(
+        "SELECT user_id, code FROM daily007_v2_referral_codes WHERE user_id = $1",
+        [googleAccountId],
+      );
+      assert.deepEqual(legacyCodes.rows, [],
+        "failed signup must not leave its long-form referral code");
+
+      const shortCodes = await pool.query<{ user_id: string; code: string }>(
+        "SELECT user_id, code FROM daily007_v2_referral_short_codes WHERE user_id = $1",
+        [googleAccountId],
+      );
+      assert.deepEqual(shortCodes.rows, [],
+        "failed signup must not leave a short-code reservation");
+
+      const rewards = await pool.query<{ user_id: string; amount: number; reason: string }>(
+        `SELECT user_id, amount, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1`,
+        [googleAccountId],
+      );
+      assert.deepEqual(rewards.rows, [],
+        "failed signup must not leave a partial wallet reward");
+
+      const ownerCodesAfter = await pool.query<{ user_id: string; code: string }>(
+        `SELECT user_id, code
+           FROM daily007_v2_referral_short_codes
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY user_id`,
+        [ownerIds],
+      );
+      assert.deepEqual(ownerCodesAfter.rows, ownerCodesBefore.rows,
+        "all existing owners must keep their original short codes after rollback");
+    });
+  } finally {
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_force_exhausted_google_signup_id ON daily007_v2_users",
+    );
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_force_exhausted_google_signup_id()");
+    await pool.query(
+      `DELETE FROM daily007_v2_users
+        WHERE id = ANY($1::uuid[])
+           OR id = $2
+           OR clerk_user_id = $3`,
+      [ownerIds, googleAccountId, GOOGLE_CLERK_USER_ID],
+    );
+    resetMockGoogleUser();
+  }
+});
+
 test("a failed Google signup does not consume a fallback short code before retry in PostgreSQL", async () => {
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
   const googleAccountId = randomUUID();
