@@ -356,6 +356,7 @@ let tournamentDetailReadCount = 0;
 let nextTournamentReadError: string | null = null;
 let nextMyRegistrationReadError: string | null = null;
 let nextAdminUsersReadError: string | null = null;
+let emptyNextAdminUsersRead = false;
 let nextMyRegistrationReadResponse: { value: unknown } | null = null;
 let deferredTournamentRead: {
   promise: Promise<any[]>;
@@ -424,6 +425,7 @@ const adminPreviewMutations = {
       deferredAdminNotificationSend = null;
     }
     nextAdminUsersReadError = null;
+    emptyNextAdminUsersRead = false;
     previewFullAdminRecoveryUser.role = "admin";
   },
   holdNextNotificationSend: () => {
@@ -454,6 +456,9 @@ const adminPreviewMutations = {
       throw new Error("An isolated Admin preview user-list failure needs an error message.");
     }
     nextAdminUsersReadError = message;
+  },
+  returnEmptyUserListOnce: () => {
+    emptyNextAdminUsersRead = true;
   },
   changeRecoveryPreviewRole: (role: "admin" | "tournament_admin" | "user") => {
     previewFullAdminRecoveryUser.role = role;
@@ -716,6 +721,10 @@ export const Api = {
       const error = nextAdminUsersReadError;
       nextAdminUsersReadError = null;
       throw new Error(error);
+    }
+    if (emptyNextAdminUsersRead) {
+      emptyNextAdminUsersRead = false;
+      return [];
     }
     const recoveryPreviewEnabled = typeof window !== "undefined"
       && new URLSearchParams(window.location.search).has("admin-full-admin-recovery-only");

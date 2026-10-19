@@ -30,6 +30,7 @@ const tournamentDetailRegistrationFailureOnly = process.argv.includes("--tournam
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
 const adminUsersInitialLoadFailureOnly = process.argv.includes("--admin-users-initial-load-failure-only");
+const adminUsersEmptyStateOnly = process.argv.includes("--admin-users-empty-state-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const adminResultEntryRetryOnly = process.argv.includes("--admin-result-entry-retry-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
@@ -4583,6 +4584,68 @@ async function checkAdminUsersInitialLoadFailure() {
       && !await evaluate(`Boolean(document.querySelector('[data-testid="admin-users-load-retry"]'))`),
     "A successful Admin Users retry must remove the error and Retry control.",
   );
+}
+
+async function checkAdminUsersEmptyState() {
+  for (const { width, fontScale } of [
+    { width: 390, fontScale: 1.5 },
+    { width: 320, fontScale: 2 },
+  ]) {
+    await setViewport(width, fontScale, "admin-narrow-preview.html");
+    await waitForCondition(
+      `Boolean(document.querySelector('[data-testid="admin-tab-users"]'))`,
+      "the Admin Users tab to become available",
+    );
+    await evaluate("window.__daily007AdminMutations.returnEmptyUserListOnce()");
+    await clickSelector('[data-testid="admin-tab-users"]', "Users tab for the empty-list state");
+    await waitForCondition(
+      `Boolean(document.querySelector('[data-testid="admin-users-empty-state"]')) && document.body.innerText.includes("No user accounts yet")`,
+      `the successful empty account list at ${fontScale}× text`,
+    );
+
+    const emptyState = await evaluate(`(() => {
+      const state = document.querySelector('[data-testid="admin-users-empty-state"]');
+      const title = document.querySelector('[data-testid="admin-users-empty-title"]');
+      const search = document.querySelector('[data-testid="admin-users-search"]');
+      const rect = state?.getBoundingClientRect();
+      return {
+        text: state?.innerText ?? null,
+        titleRole: title?.getAttribute('role') ?? null,
+        titleText: title?.textContent?.trim() ?? null,
+        searchValue: search?.value ?? null,
+        bounds: rect ? { left: rect.left, right: rect.right, width: rect.width, height: rect.height } : null,
+      };
+    })()`);
+    assert(
+      emptyState.titleRole === "heading"
+        && emptyState.titleText === "No user accounts yet"
+        && emptyState.text?.includes("There are no accounts available to manage right now.")
+        && emptyState.searchValue === "",
+      `A successful zero-account load must explain the empty list accessibly without requiring a search: ${JSON.stringify(emptyState)}.`,
+    );
+    assert(
+      !await evaluate(`document.body.innerText.includes("No users match this search.")`)
+        && !await evaluate(`Boolean(document.querySelector('[data-testid="admin-users-clear-search"]'))`),
+      "The no-account state must not be confused with the no-match search recovery state.",
+    );
+    await assertVisibleTextFits(
+      '[data-testid="admin-users-empty-state"]',
+      width,
+      `The Admin Users empty-state message at ${fontScale}× text`,
+    );
+
+    await setInputValue('[data-testid="admin-users-search"]', "missing-preview-account");
+    await waitForCondition(
+      `document.body.innerText.includes("No users match this search.") && Boolean(document.querySelector('[data-testid="admin-users-clear-search"]')) && !document.querySelector('[data-testid="admin-users-empty-state"]')`,
+      "the distinct no-match search recovery state",
+    );
+    await assertText("CLEAR SEARCH", "the no-match search recovery action");
+    await clickSelector('[data-testid="admin-users-clear-search"]', "Clear Admin Users search");
+    await waitForCondition(
+      `Boolean(document.querySelector('[data-testid="admin-users-empty-state"]')) && !document.body.innerText.includes("No users match this search.")`,
+      "the empty account state to return after clearing search",
+    );
+  }
 }
 
 async function checkAdminRetryConcurrency() {
@@ -9303,6 +9366,7 @@ try {
     adminInitialLoadFailureOnly ||
     adminLargeTextInitialLoadFailureOnly ||
     adminUsersInitialLoadFailureOnly ||
+    adminUsersEmptyStateOnly ||
     adminRetryConcurrencyOnly ||
     adminResultEntryRetryOnly ||
     refreshReturnOnly ||
@@ -9340,13 +9404,13 @@ try {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
         : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
-           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
+           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminUsersEmptyStateOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
-            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
+            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminUsersEmptyStateOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -9391,6 +9455,8 @@ try {
           ? "Admin first-load failure"
         : adminUsersInitialLoadFailureOnly
           ? "Admin Users initial-load recovery"
+        : adminUsersEmptyStateOnly
+          ? "Admin Users empty-list and search recovery"
         : adminLargeTextInitialLoadFailureOnly
           ? "Admin first-load failure at 1.5× text"
         : adminRetryConcurrencyOnly
@@ -9518,6 +9584,13 @@ try {
         `Browser errors during Player registration-failure checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A successful Player tournament list remains available when the first registration lookup fails; joined status is clearly unknown and safely updates after retry.");
+    } else if (adminUsersEmptyStateOnly) {
+      await checkAdminUsersEmptyState();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin Users empty-state checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — A successful zero-account load has a readable, accessible empty state at 1.5× and 2× text; searching still uses the distinct no-match recovery.");
     } else if (adminUsersInitialLoadFailureOnly) {
       await checkAdminUsersInitialLoadFailure();
       assert(

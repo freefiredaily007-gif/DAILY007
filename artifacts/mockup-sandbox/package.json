@@ -22,6 +22,7 @@
     "test:admin-tournament-initial-load-failure": "node scripts/test-admin-narrow.mjs --admin-initial-load-failure-only",
     "test:admin-tournament-initial-load-failure-large-text": "node scripts/test-admin-narrow.mjs --admin-initial-load-failure-large-text-only",
     "test:admin-users-initial-load-failure": "node scripts/test-admin-narrow.mjs --admin-users-initial-load-failure-only",
+    "test:admin-users-empty-state": "node scripts/test-admin-narrow.mjs --admin-users-empty-state-only",
     "test:admin-tournament-retry-concurrency": "node scripts/test-admin-narrow.mjs --admin-retry-concurrency-only",
     "test:tournament-pull-refresh": "node scripts/test-admin-narrow.mjs --manual-refresh-only",
     "test:tournament-start-timer": "node scripts/test-admin-narrow.mjs --scheduled-start-only",

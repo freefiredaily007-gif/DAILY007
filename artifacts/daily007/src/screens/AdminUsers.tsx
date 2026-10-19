@@ -292,6 +292,19 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
             onPress={() => setQ('')}
           />
         </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <View testID="admin-users-empty-state">
+            <Text
+              testID="admin-users-empty-title"
+              accessibilityRole="header"
+              style={st.emptyTitle}
+            >
+              No user accounts yet
+            </Text>
+            <Text style={st.emptyMessage}>There are no accounts available to manage right now.</Text>
+          </View>
+        </Card>
       ) : filtered.map((u) => {
         const mine = (regs ?? []).filter((g) => g.userId === u.$id);
         const approved = mine.filter((g) => g.status === 'approved').length;
@@ -469,6 +482,8 @@ const st = StyleSheet.create({
   loadErrorTitle: { color: A.red, fontSize: 14, lineHeight: 20, fontWeight: '900' },
   loadErrorMessage: { color: A.text, fontSize: 12, lineHeight: 18, marginTop: 4 },
   loadErrorHint: { color: A.sub, fontSize: 11, lineHeight: 16, marginTop: 6, marginBottom: 12 },
+  emptyTitle: { color: A.text, fontSize: 16, lineHeight: 22, fontWeight: '900' },
+  emptyMessage: { color: A.sub, fontSize: 13, lineHeight: 19, marginTop: 4 },
   noResults: { color: '#e6e9ef', fontSize: 14, lineHeight: 20, fontWeight: '800' },
   noResultsHint: { color: '#9aa3b2', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 12 },
   name: { color: A.text, fontWeight: '900', fontSize: 14 },
