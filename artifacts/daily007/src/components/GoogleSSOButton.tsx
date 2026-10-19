@@ -20,6 +20,9 @@ import {
   type GoogleSSOStartResult,
 } from '../lib/google-sso-flow';
 import { C, Input, Msg } from './ui';
+import colors from '../../constants/colors';
+
+const AUTH = colors.auth;
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -33,6 +36,7 @@ type Props = {
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
   label?: string;
+  appearance?: 'default' | 'auth';
   allowRecoveryRequest?: boolean;
   devRecoveryTestScenario?: GoogleRecoveryTestScenario;
   devNativeTestHarness?: GoogleSSONativeTestHarness;
@@ -78,11 +82,13 @@ function GoogleButtonFrame({
   disabled,
   loading,
   label,
+  appearance = 'default',
 }: {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
   label: string;
+  appearance?: 'default' | 'auth';
 }) {
   return (
     <Pressable
@@ -97,19 +103,22 @@ function GoogleButtonFrame({
       }}
       style={({ pressed }) => [
         s.button,
+        appearance === 'auth' && s.authButton,
         (disabled || loading) && s.disabled,
         pressed && !disabled && !loading && s.pressed,
       ]}
     >
       {loading
-        ? <Text style={s.spinner}>•••</Text>
+        ? <Text style={[s.spinner, appearance === 'auth' && s.authSpinner]}>•••</Text>
         : <View style={s.googleMark}><Text style={s.googleG}>G</Text></View>}
-      <Text style={s.buttonText}>{loading ? 'CONNECTING TO GOOGLE…' : label}</Text>
+      <Text style={[s.buttonText, appearance === 'auth' && s.authButtonText]}>
+        {loading ? 'CONNECTING TO GOOGLE…' : label}
+      </Text>
     </Pressable>
   );
 }
 
-function UnavailableButton({ onError, disabled, label = 'Continue with Google' }: Props) {
+function UnavailableButton({ onError, disabled, label = 'Continue with Google', appearance }: Props) {
   const [error, setError] = useState('');
   const showError = () => {
     const message = 'Google sign-in is not configured in this build. Email and password login are still available.';
@@ -119,7 +128,7 @@ function UnavailableButton({ onError, disabled, label = 'Continue with Google' }
 
   return (
     <>
-      <GoogleButtonFrame label={label} disabled={disabled} onPress={showError} />
+      <GoogleButtonFrame label={label} disabled={disabled} appearance={appearance} onPress={showError} />
       {!!error && !onError && (
         <Msg
           kind="err"
@@ -167,6 +176,7 @@ function GoogleButtonController({
   disabled,
   onBusyChange,
   label = 'Continue with Google',
+  appearance,
   allowRecoveryRequest,
   devRecoveryTestScenario,
 }: Props & {
@@ -324,7 +334,13 @@ function GoogleButtonController({
 
   return (
     <>
-      <GoogleButtonFrame label={label} disabled={disabled || recoveryBusy} loading={busy} onPress={authenticateGoogle} />
+      <GoogleButtonFrame
+        label={label}
+        disabled={disabled || recoveryBusy}
+        loading={busy}
+        appearance={appearance}
+        onPress={authenticateGoogle}
+      />
       {allowRecoveryRequest && (recoveryAvailable || error === RECOVERY_CONFLICT) && (
         <Pressable
           accessibilityRole="button"
@@ -413,12 +429,29 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 12,
   },
+  authButton: {
+    backgroundColor: AUTH.panelRaised,
+    borderColor: AUTH.border,
+    borderTopColor: AUTH.highlight,
+    shadowColor: AUTH.orange,
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
   disabled: { opacity: 0.55 },
   pressed: { opacity: 0.82 },
   googleMark: { position: 'absolute', left: 16 },
   googleG: { color: '#4285F4', fontSize: 19, fontWeight: '900' },
   spinner: { position: 'absolute', left: 20, color: C.sub, fontWeight: '900' },
   buttonText: { color: C.text, fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
+  authButtonText: {
+    color: AUTH.text,
+    fontFamily: 'Rajdhani_700Bold',
+    fontSize: 15,
+    letterSpacing: 0.4,
+  },
+  authSpinner: { color: AUTH.orange },
   recoveryButton: { alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 12, marginTop: 2 },
   recoveryButtonText: { color: C.blue, fontSize: 12, fontWeight: '800', letterSpacing: 0.3, textAlign: 'center' },
   recoveryNotice: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 6, textAlign: 'center' },

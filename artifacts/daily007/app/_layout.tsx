@@ -12,6 +12,13 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
+import { Orbitron_700Bold } from '@expo-google-fonts/orbitron';
+import {
+  Rajdhani_400Regular,
+  Rajdhani_500Medium,
+  Rajdhani_600SemiBold,
+  Rajdhani_700Bold,
+} from '@expo-google-fonts/rajdhani';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { setAuthTokenGetter, setBaseUrl } from '@workspace/api-client-react';
@@ -84,6 +91,11 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    Orbitron_700Bold,
+    Rajdhani_400Regular,
+    Rajdhani_500Medium,
+    Rajdhani_600SemiBold,
+    Rajdhani_700Bold,
   });
 
   useEffect(() => {

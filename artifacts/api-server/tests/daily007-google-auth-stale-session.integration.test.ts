@@ -439,6 +439,183 @@ test("linking Google with a current password session ignores its valid referral 
   }
 });
 
+test("Google linking preserves an existing password account referral attribution in PostgreSQL", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const originalReferrerId = randomUUID();
+  const linkReferrerId = randomUUID();
+  const linkReferralCode = randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase();
+  let accountId: string | undefined;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Original Referral Owner', $2, 'test-salt', 'test-hash')`,
+      [originalReferrerId, `original-referrer-${originalReferrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [originalReferrerId, REFERRAL_CODE],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Google Link Referral Owner', $2, 'test-salt', 'test-hash')`,
+      [linkReferrerId, `link-referrer-${linkReferrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [linkReferrerId, linkReferralCode],
+    );
+
+    await withServer(async (origin) => {
+      const registration = await postJson(origin, "/daily007/v2/auth/register", {
+        name: "Referred Google Link Player",
+        email: ACCOUNT_EMAIL,
+        password: ACCOUNT_PASSWORD,
+        referralCode: REFERRAL_CODE,
+      });
+      assert.equal(registration.status, 201, "the referred password account should be created before linking");
+      accountId = String((registration.body.account as Record<string, unknown>).id);
+
+      const passwordToken = await login(origin, "198.51.100.24");
+      const originalCodeOwner = await pool.query<{ user_id: string }>(
+        "SELECT user_id FROM daily007_v2_referral_codes WHERE code = $1",
+        [REFERRAL_CODE],
+      );
+      const linkCodeOwner = await pool.query<{ user_id: string }>(
+        "SELECT user_id FROM daily007_v2_referral_codes WHERE code = $1",
+        [linkReferralCode],
+      );
+      assert.deepEqual(originalCodeOwner.rows, [{ user_id: originalReferrerId }],
+        "the password signup's referral code should belong to the original referrer");
+      assert.deepEqual(linkCodeOwner.rows, [{ user_id: linkReferrerId }],
+        "the code supplied during linking should belong to another valid referrer");
+
+      const beforeAccount = await pool.query<AccountSnapshot>(
+        `SELECT auth_version, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.equal(beforeAccount.rows.length, 1);
+      assert.equal(beforeAccount.rows[0]?.clerk_user_id, null);
+      assert.equal(beforeAccount.rows[0]?.wallet_coins, 10,
+        "the referred password account should have its one-time 10-coin reward");
+
+      const beforeReferrers = await pool.query<{ id: string; wallet_coins: number }>(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id`,
+        [[originalReferrerId, linkReferrerId]],
+      );
+      const beforeReferrals = await pool.query<ReferralSnapshot>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          WHERE referred_user_id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(beforeReferrals.rows, [{
+        referrer_user_id: originalReferrerId,
+        referred_user_id: accountId,
+        code: REFERRAL_CODE,
+      }], "the account should already be attributed to the original referrer");
+
+      const beforeLedger = await pool.query<LedgerSnapshot & { user_id: string }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY created_at, id`,
+        [[accountId, originalReferrerId, linkReferrerId]],
+      );
+      assert.deepEqual(beforeLedger.rows, [{
+        user_id: accountId,
+        amount: 10,
+        balance_after: 10,
+        reason: "Referral Signup Bonus",
+        idempotency_key: `daily007-referral-signup:${accountId}`,
+      }], "the original referral reward should be the only wallet write before linking");
+
+      const walletBefore = await readWalletHistory(origin, passwordToken);
+      assert.equal(walletBefore.status, 200, "the current password session should read Wallet before linking");
+      assert.deepEqual(
+        walletBefore.history.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        [{
+          amount: 10,
+          balanceAfter: 10,
+          reason: "Referral Signup Bonus",
+        }],
+      );
+
+      const linkAttempt = await postJson(origin, "/auth/google", { referralCode: linkReferralCode }, {
+        authorization: "Bearer mocked-clerk-session",
+        "x-mock-clerk-user-id": GOOGLE_CLERK_USER_ID,
+        "X-Daily007-Token": passwordToken,
+      });
+      assert.equal(linkAttempt.status, 200, "the current password session should link its matching verified Google identity");
+      assert.equal(linkAttempt.body.googleLinked, true);
+      assert.equal(linkAttempt.body.id, accountId);
+      assert.equal(linkAttempt.body.email, ACCOUNT_EMAIL);
+      assert.equal(linkAttempt.body.coins, beforeAccount.rows[0]?.wallet_coins,
+        "linking must preserve the existing referral balance instead of applying the new code");
+
+      const afterAccount = await pool.query<AccountSnapshot>(
+        `SELECT auth_version, clerk_user_id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(afterAccount.rows, [{
+        auth_version: beforeAccount.rows[0]?.auth_version,
+        clerk_user_id: GOOGLE_CLERK_USER_ID,
+        wallet_coins: beforeAccount.rows[0]?.wallet_coins,
+      }], "linking should only add the Google identity and preserve balance and session version");
+
+      const afterReferrers = await pool.query<{ id: string; wallet_coins: number }>(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id`,
+        [[originalReferrerId, linkReferrerId]],
+      );
+      assert.deepEqual(afterReferrers.rows, beforeReferrers.rows,
+        "linking must not change either referral owner's wallet");
+
+      const afterReferrals = await pool.query<ReferralSnapshot>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          WHERE referred_user_id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(afterReferrals.rows, beforeReferrals.rows,
+        "the original referral attribution must remain unchanged");
+
+      const afterLedger = await pool.query<LedgerSnapshot & { user_id: string }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY created_at, id`,
+        [[accountId, originalReferrerId, linkReferrerId]],
+      );
+      assert.deepEqual(afterLedger.rows, beforeLedger.rows,
+        "linking must not add, replace, or alter signup reward ledger entries");
+
+      const walletAfter = await readWalletHistory(origin, passwordToken);
+      assert.equal(walletAfter.status, 200, "the linked password session should remain usable");
+      assert.deepEqual(walletAfter.history, walletBefore.history,
+        "the existing referral reward should remain unchanged in Wallet history");
+    });
+  } finally {
+    if (accountId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [accountId]);
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [[originalReferrerId, linkReferrerId]],
+    );
+    resetMockGoogleUser();
+  }
+});
+
 test("a changed verified Google email cannot alter its linked password account or rewards in PostgreSQL", async () => {
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
   const referrerId = randomUUID();

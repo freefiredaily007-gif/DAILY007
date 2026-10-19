@@ -136,6 +136,8 @@
   },
   "dependencies": {
     "@clerk/expo": "4.7.2",
+    "@expo-google-fonts/orbitron": "^0.4.2",
+    "@expo-google-fonts/rajdhani": "^0.4.1",
     "@react-navigation/bottom-tabs": "^7.19.2",
     "@react-navigation/native": "^7.4.1",
     "@react-navigation/native-stack": "^7.19.2",

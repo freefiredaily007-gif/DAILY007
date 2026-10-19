@@ -5,6 +5,7 @@ import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } 
 import { Feather } from '@expo/vector-icons';
 import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import {
   nativeTextScaleTextProps,
   type NativeTextScaleLayoutObserver,
@@ -91,6 +92,9 @@ export function Btn({
   testID,
   onTextScaleLayout,
   textScaleLayoutKey,
+  textColor,
+  textStyle,
+  scaleOnPress = false,
 }: {
   title: string; onPress?: () => void; disabled?: boolean;
   kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean;
@@ -100,8 +104,12 @@ export function Btn({
   testID?: string;
   onTextScaleLayout?: NativeTextScaleLayoutObserver;
   textScaleLayoutKey?: string;
+  textColor?: string;
+  textStyle?: any;
+  scaleOnPress?: boolean;
 }) {
   const adminSurface = useAdminSurface();
+  const pressScale = useRef(new Animated.Value(1)).current;
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
     primary: { bg: C.neon, fg: C.bg, glowColor: C.neon },
     danger: { bg: '#5a1622', fg: '#ff9aa5', border: '#ff5c5c55' },
@@ -111,8 +119,18 @@ export function Btn({
   };
   const k = map[kind] || map.primary;
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
+      onPressIn={() => {
+        if (scaleOnPress) {
+          Animated.spring(pressScale, { toValue: 0.975, useNativeDriver: true, speed: 36, bounciness: 5 }).start();
+        }
+      }}
+      onPressOut={() => {
+        if (scaleOnPress) {
+          Animated.spring(pressScale, { toValue: 1, useNativeDriver: true, speed: 36, bounciness: 5 }).start();
+        }
+      }}
       disabled={disabled || (loading && !preserveAccessibilityFocusWhileLoading)}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || title}
@@ -125,20 +143,21 @@ export function Btn({
         { backgroundColor: k.bg, opacity: disabled ? 0.4 : pressed ? 0.8 : 1 },
         k.border && { borderWidth: 1, borderColor: k.border },
         k.glowColor && !disabled && glow(k.glowColor, 8),
+        scaleOnPress && { transform: [{ scale: pressScale }] },
         small && { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8 },
         style,
       ]}
     >
-      {loading ? <ActivityIndicator accessible={false} color={C.bg} size="small" />
+      {loading ? <ActivityIndicator accessible={false} color={textColor || C.bg} size="small" />
         : <Text
             {...(textScaleLayoutKey
               ? nativeTextScaleTextProps(textScaleLayoutKey, onTextScaleLayout)
               : {})}
-            style={[st.btnText, adminSurface && adminSt.btnText, { color: k.fg }]}
+            style={[st.btnText, adminSurface && adminSt.btnText, textStyle, { color: textColor || k.fg }]}
           >
             {title}
           </Text>}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

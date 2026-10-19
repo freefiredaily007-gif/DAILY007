@@ -34,6 +34,7 @@ const PRESERVED_COLORS = new Set([
   '#ff5c5c', '#ff9aa5', '#fca5a5', '#ffb4b4',
   '#2ecc71', '#86efac', '#c9f7d4',
   '#ff3d3d', '#ff4655', '#ff4b36', '#a05cff', '#d9b8ff',
+  '#ff2e00', '#ff7b00', '#e4b557', '#f5f7fa', '#9ca6b2', '#7f8a97', '#ff655a',
 ]);
 
 const scaleSize = (value: number) => Math.round(value * TYPE_SCALE * 10) / 10;

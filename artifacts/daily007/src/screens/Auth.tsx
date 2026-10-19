@@ -1,11 +1,26 @@
 // Login / Signup screen
 import React, { useState } from 'react';
 import { Link } from 'expo-router';
-import { AccessibilityInfo, Keyboard, View, StyleSheet, Platform, Pressable, Image, Linking, useWindowDimensions } from 'react-native';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Keyboard,
+  View,
+  StyleSheet,
+  Platform,
+  Pressable,
+  Image,
+  Linking,
+  useWindowDimensions,
+} from 'react-native';
 import type { TextInput as NativeTextInput } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ReadableText as Text } from '../components/typography';
 import logoImg from '../assets/logo.jpg';
+import colors from '../../constants/colors';
 import {
   Api,
   apiError,
@@ -19,11 +34,48 @@ import {
   MAX_SIGNUP_PASSWORD_LENGTH,
   signupPasswordError,
 } from '../lib/signup-password-policy';
-import { Btn, C, Input, Msg } from '../components/ui';
+import { Btn, Input, Msg } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { referralSignupFromUrl } from '../lib/referral-invite';
 
+const AUTH = colors.auth;
+
+type AuthFieldProps = Omit<React.ComponentPropsWithoutRef<typeof Input>, 'style'> & {
+  icon: React.ComponentProps<typeof Feather>['name'];
+  inputRef?: React.Ref<NativeTextInput>;
+  wrapperStyle?: any;
+};
+
+function AuthField({
+  icon,
+  inputRef,
+  wrapperStyle,
+  onFocus,
+  onBlur,
+  ...inputProps
+}: AuthFieldProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={[s.field, focused && s.fieldFocused, wrapperStyle]}>
+      <Feather accessible={false} name={icon} size={17} color={focused ? AUTH.orange : AUTH.muted} />
+      <Input
+        ref={inputRef}
+        {...inputProps}
+        onFocus={(event) => {
+          setFocused(true);
+          onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          onBlur?.(event);
+        }}
+        placeholderTextColor={AUTH.placeholder}
+        style={s.fieldInput}
+      />
+    </View>
+  );
+}
 
 export default function Auth({
   onDone,
@@ -35,6 +87,7 @@ export default function Auth({
   devSessionPersistenceFailures?: number;
 }) {
   const { width, fontScale } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -62,14 +115,56 @@ export default function Auth({
   const referralInputRef = React.useRef<NativeTextInput>(null);
   const emailInputRef = React.useRef<NativeTextInput>(null);
   const passwordInputRef = React.useRef<NativeTextInput>(null);
+  const logoPulse = React.useRef(new Animated.Value(0)).current;
+  const modeProgress = React.useRef(new Animated.Value(1)).current;
   const isSignup = mode === 'signup';
   const retrySignupSession = isSignup ? pendingSignupSession : null;
   const authInputsDisabled = busy || googleBusy || retrySignupSession !== null;
   const authTabsDisabled = busy || googleBusy || pendingSignupSession !== null;
-  const compactLoginLayout = !isSignup && (width <= 360 || fontScale >= 1.5);
+  const compactAuthLayout = width <= 360 || fontScale >= 1.5;
+  const compactLoginLayout = !isSignup && compactAuthLayout;
   const authErrorTestID = __DEV__ && devSessionPersistenceFailures !== undefined
     ? `auth-error-attempt-${sessionSaveErrorAnnouncement?.id ?? 0}`
     : 'auth-error';
+  const logoHaloStyle = {
+    opacity: logoPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
+    transform: [{ scale: logoPulse.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.08] }) }],
+  };
+  const modeAnimatedStyle = {
+    opacity: modeProgress,
+    transform: [{ translateY: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+  };
+
+  React.useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(logoPulse, {
+        toValue: 1,
+        duration: 1350,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoPulse, {
+        toValue: 0,
+        duration: 1350,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [logoPulse]);
+
+  React.useEffect(() => {
+    modeProgress.setValue(0);
+    const transition = Animated.timing(modeProgress, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    transition.start();
+    return () => transition.stop();
+  }, [mode, modeProgress]);
 
   React.useEffect(() => {
     if (Platform.OS === 'android' && sessionSaveErrorAnnouncement) {
@@ -221,47 +316,63 @@ export default function Auth({
   };
 
   return (
-    <KeyboardAwareScrollViewCompat
-      testID="auth-screen"
-      style={{ flex: 1, backgroundColor: C.bg }}
-      contentContainerStyle={[
-        s.wrap,
-        isSignup && s.signupWrap,
-        compactLoginLayout && s.compactLoginWrap,
-      ]}
-      keyboardShouldPersistTaps="handled"
-      bottomOffset={72}
-    >
-        <View style={[s.logo, isSignup && s.signupLogo]}>
-          {isSignup ? (
-            <View style={s.signupLogoFrame}>
-              <Image source={logoImg} style={s.signupLogoIcon} resizeMode="cover" />
+    <View style={s.screen}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={[AUTH.backgroundSoft, AUTH.background, AUTH.background]}
+        locations={[0, 0.46, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View pointerEvents="none" style={[s.ambientGlow, s.ambientTop]} />
+      <View pointerEvents="none" style={[s.ambientGlow, s.ambientBottom]} />
+      <KeyboardAwareScrollViewCompat
+        testID="auth-screen"
+        style={s.scroll}
+        contentContainerStyle={[
+          s.wrap,
+          isSignup && s.signupWrap,
+          compactLoginLayout && s.compactLoginWrap,
+          compactAuthLayout && s.compactAuthWrap,
+          {
+            paddingTop: Platform.OS === 'web' ? 67 : insets.top + 20,
+            paddingBottom: Platform.OS === 'web' ? 34 : insets.bottom + 24,
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={72}
+      >
+        <View style={s.content}>
+          <View style={s.logo}>
+            <View style={s.badgeWrap}>
+              <Animated.View style={[s.logoAura, logoHaloStyle]} />
+              <LinearGradient
+                colors={[AUTH.orange, AUTH.fire, AUTH.orange]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s.logoFrame}
+              >
+                <Image source={logoImg} style={s.logoIcon} resizeMode="cover" />
+              </LinearGradient>
             </View>
-          ) : (
-            <Image source={logoImg} style={s.logoIcon} resizeMode="contain" />
-          )}
-          {isSignup ? (
-            <>
-              <View style={s.signupKickerRow}>
-                <View style={s.signupKickerLine} />
-                <Text style={s.signupKicker}>PLAYER REGISTRATION</Text>
-                <View style={s.signupKickerLine} />
-              </View>
-              <Text style={s.signupTitle}>ENTER THE ARENA</Text>
-              <Text style={s.signupSub}>Create your player profile to join Daily007 tournaments.</Text>
-            </>
-          ) : (
-            <>
-              <Text style={s.logoText}>FREE FIRE DAILY007</Text>
-              <Text style={s.logoSub}>Daily Tournaments. Win Coins. 🏆</Text>
-            </>
-          )}
-        </View>
+            <View style={s.brandPill}>
+              <View style={s.brandDot} />
+              <Text style={s.brandPillText}>DAILY007 PLAYER NETWORK</Text>
+            </View>
+            <Text style={s.logoText}>FREE FIRE DAILY007</Text>
+            <View style={s.logoSubRow}>
+              <Text style={s.logoSub}>Daily Tournaments. Win Coins.</Text>
+              <Feather name="award" size={16} color={AUTH.gold} />
+            </View>
+          </View>
+
+          <View style={s.formCard}>
 
         <View style={[s.tabs, isSignup && s.signupTabs]}>
           <Pressable
             testID="auth-login-tab"
             disabled={authTabsDisabled}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: mode === 'login', disabled: authTabsDisabled }}
             onPress={() => {
               if (googleAttemptInFlight.current) return;
               setErr('');
@@ -276,25 +387,46 @@ export default function Auth({
               }
               setMode('login');
             }}
-            style={[s.tab, mode === 'login' && s.tabOn]}
+            style={({ pressed }) => [s.tab, mode === 'login' && s.tabOn, pressed && s.tabPressed]}
           >
+            {mode === 'login' ? (
+              <LinearGradient
+                pointerEvents="none"
+                colors={[AUTH.fire, AUTH.orange]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={s.activeTabGradient}
+              />
+            ) : null}
             <Text style={[s.tabText, mode === 'login' && s.tabTextOn]}>LOGIN</Text>
           </Pressable>
           <Pressable
             testID="auth-signup-tab"
             disabled={authTabsDisabled}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: mode === 'signup', disabled: authTabsDisabled }}
             onPress={() => {
               if (googleAttemptInFlight.current) return;
               setErr('');
               setGoogleErr('');
               setMode('signup');
             }}
-            style={[s.tab, mode === 'signup' && s.tabOn]}
+            style={({ pressed }) => [s.tab, mode === 'signup' && s.tabOn, pressed && s.tabPressed]}
           >
+            {mode === 'signup' ? (
+              <LinearGradient
+                pointerEvents="none"
+                colors={[AUTH.fire, AUTH.orange]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={s.activeTabGradient}
+              />
+            ) : null}
             <Text style={[s.tabText, mode === 'signup' && s.tabTextOn]}>SIGN UP</Text>
           </Pressable>
         </View>
 
+        <Animated.View style={[s.formTransition, modeAnimatedStyle]}>
         <Msg
           kind="err"
           text={err}
@@ -332,13 +464,19 @@ export default function Auth({
           </Text>
         ) : null}
         {!isSignup
-          ? <Text style={s.sessionHint}>Signing in here will sign out your other Daily007 sessions.</Text>
+          ? (
+            <View style={s.sessionHintCard}>
+              <Feather name="alert-circle" size={14} color={AUTH.gold} />
+              <Text style={s.sessionHint}>Signing in here will sign out your other Daily007 sessions.</Text>
+            </View>
+          )
           : null}
 
         <View style={s.googleArea}>
           <Text style={s.googleHint}>{isSignup ? 'Create an account quickly with Google' : 'Sign in quickly with Google'}</Text>
           <GoogleSSOButton
             label={mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
+            appearance="auth"
             disabled={busy || retrySignupSession !== null}
             onBusyChange={(isBusy) => {
               googleAttemptInFlight.current = isBusy;
@@ -361,13 +499,17 @@ export default function Auth({
           )}
         </View>
 
-        <Text style={s.or}>{isSignup ? 'OR REGISTER WITH EMAIL' : 'OR USE EMAIL'}</Text>
+        <View style={s.divider}>
+          <View style={s.dividerLine} />
+          <Text style={s.or}>{isSignup ? 'OR REGISTER WITH EMAIL' : 'OR USE EMAIL'}</Text>
+          <View style={s.dividerLine} />
+        </View>
 
         {isSignup ? (
           <View style={s.signupFields}>
             <View style={s.signupFieldsHeader}>
               <View style={s.signupFieldsIcon}>
-                <Feather name="user-plus" size={15} color={C.neon} />
+                <Feather name="user-plus" size={15} color={AUTH.orange} />
               </View>
               <View style={s.signupFieldsCopy}>
                 <Text style={s.signupFieldsTitle}>PLAYER PROFILE</Text>
@@ -375,8 +517,9 @@ export default function Auth({
               </View>
               <Text style={s.signupStep}>01 / 01</Text>
             </View>
-            <Input
-              ref={nameInputRef}
+            <AuthField
+              icon="user"
+              inputRef={nameInputRef}
               testID="auth-name"
               accessibilityLabel="Name"
               placeholder="Enter Name"
@@ -390,7 +533,6 @@ export default function Auth({
                 if (referralCodeApplied && refCode.trim()) emailInputRef.current?.focus();
                 else referralInputRef.current?.focus();
               }}
-              style={s.signupInput}
             />
             {referralCodeApplied && refCode.trim() ? (
               <View style={s.referralApplied}>
@@ -406,8 +548,9 @@ export default function Auth({
                 </Pressable>
               </View>
             ) : (
-              <Input
-                ref={referralInputRef}
+              <AuthField
+                icon="gift"
+                inputRef={referralInputRef}
                 testID="auth-referral-code"
                 accessible
                 accessibilityLabel="Referral Code, optional"
@@ -420,11 +563,11 @@ export default function Auth({
                 enterKeyHint="next"
                 blurOnSubmit={false}
                 onSubmitEditing={() => emailInputRef.current?.focus()}
-                style={s.signupInput}
               />
             )}
-            <Input
-              ref={emailInputRef}
+            <AuthField
+              icon="mail"
+              inputRef={emailInputRef}
               testID="auth-email"
               accessibilityLabel="Email"
               placeholder="Enter Email"
@@ -436,10 +579,10 @@ export default function Auth({
               enterKeyHint="next"
               blurOnSubmit={false}
               onSubmitEditing={() => passwordInputRef.current?.focus()}
-              style={s.signupInput}
             />
-            <Input
-              ref={passwordInputRef}
+            <AuthField
+              icon="lock"
+              inputRef={passwordInputRef}
               testID="auth-password"
               accessibilityLabel="Password"
               placeholder="Password (8–200 characters)"
@@ -450,12 +593,13 @@ export default function Auth({
               maxLength={MAX_SIGNUP_PASSWORD_LENGTH}
               enterKeyHint="done"
               onSubmitEditing={() => Keyboard.dismiss()}
-              style={s.signupInputLast}
+              wrapperStyle={s.fieldLast}
             />
           </View>
         ) : (
-          <>
-            <Input
+          <View style={s.loginFields}>
+            <AuthField
+              icon="mail"
               testID="auth-email"
               accessibilityLabel="Email"
               placeholder="Enter Email"
@@ -465,7 +609,8 @@ export default function Auth({
               autoCapitalize="none"
               keyboardType="email-address"
             />
-            <Input
+            <AuthField
+              icon="lock"
               testID="auth-password"
               accessibilityLabel="Password"
               placeholder="Enter Password"
@@ -473,105 +618,203 @@ export default function Auth({
               onChangeText={setPassword}
               editable={!authInputsDisabled}
               secureTextEntry
+              wrapperStyle={s.fieldLast}
             />
-          </>
+          </View>
         )}
 
-        <Btn
-          testID="auth-submit"
-          title={retrySignupSession
-            ? 'RETRY SAVING SESSION'
-            : isSignup
-              ? 'CREATE ACCOUNT'
-              : loginRetryRemaining > 0
-                ? `WAIT ${loginRetryRemaining} ${loginRetryRemaining === 1 ? 'SECOND' : 'SECONDS'}`
-                : 'LOGIN'}
-          accessibilityLabel={retrySignupSession
-            ? 'Retry saving session'
-            : isSignup
-              ? 'Create Account'
-              : loginRetryRemaining > 0
-                ? `Login available in ${loginRetryRemaining} ${loginRetryRemaining === 1 ? 'second' : 'seconds'}`
-                : 'Login'}
-          accessibilityHint={!isSignup && loginRetryRemaining > 0
-            ? 'Wait until the countdown ends before trying to log in.'
-            : undefined}
-          accessibilityState={{
-            disabled: busy || googleBusy || (!isSignup && loginRetryRemaining > 0),
-          }}
-          disabled={googleBusy || (!isSignup && loginRetryRemaining > 0)}
-          onPress={submit}
-          loading={busy}
-          preserveAccessibilityFocusWhileLoading={isSignup}
-          style={isSignup && s.signupSubmit}
-        />
+        <View style={s.submitGlow}>
+          <LinearGradient
+            colors={[AUTH.fire, AUTH.orange]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={s.submitGradient}
+          >
+            <Btn
+              testID="auth-submit"
+              title={retrySignupSession
+                ? 'RETRY SAVING SESSION'
+                : isSignup
+                  ? 'REGISTER'
+                  : loginRetryRemaining > 0
+                    ? `WAIT ${loginRetryRemaining} ${loginRetryRemaining === 1 ? 'SECOND' : 'SECONDS'}`
+                    : 'LOGIN'}
+              accessibilityLabel={retrySignupSession
+                ? 'Retry saving session'
+                : isSignup
+                  ? 'Create Account'
+                  : loginRetryRemaining > 0
+                    ? `Login available in ${loginRetryRemaining} ${loginRetryRemaining === 1 ? 'second' : 'seconds'}`
+                    : 'Login'}
+              accessibilityHint={!isSignup && loginRetryRemaining > 0
+                ? 'Wait until the countdown ends before trying to log in.'
+                : undefined}
+              accessibilityState={{
+                disabled: busy || googleBusy || (!isSignup && loginRetryRemaining > 0),
+              }}
+              disabled={googleBusy || (!isSignup && loginRetryRemaining > 0)}
+              onPress={submit}
+              loading={busy}
+              preserveAccessibilityFocusWhileLoading={isSignup}
+              scaleOnPress
+              textColor={AUTH.text}
+              textStyle={s.submitText}
+              style={s.submitButton}
+            />
+          </LinearGradient>
+        </View>
 
-        <Text style={s.foot}>{isSignup ? 'YOUR NEXT MATCH STARTS HERE' : 'Join tournaments, win prize coins and top the leaderboard 🏆'}</Text>
-    </KeyboardAwareScrollViewCompat>
+        <View style={s.footRow}>
+          <Text style={s.foot}>Join tournaments, win prize coins and top the leaderboard</Text>
+          <Feather name="award" size={16} color={AUTH.gold} />
+        </View>
+          </Animated.View>
+          </View>
+        </View>
+      </KeyboardAwareScrollViewCompat>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  wrap: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 32, paddingBottom: 36 },
-  compactLoginWrap: {
-    justifyContent: 'flex-start',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
+  screen: { flex: 1, backgroundColor: AUTH.background },
+  scroll: { flex: 1, backgroundColor: 'transparent' },
+  ambientGlow: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.08 },
+  ambientTop: { top: -190, left: -100, backgroundColor: AUTH.fire },
+  ambientBottom: { bottom: -210, right: -130, backgroundColor: AUTH.orange },
+  wrap: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20, paddingTop: 24, paddingBottom: 24 },
+  compactLoginWrap: { justifyContent: 'flex-start' },
+  signupWrap: { paddingHorizontal: 18 },
+  compactAuthWrap: { paddingHorizontal: 15, paddingTop: 16, paddingBottom: 20 },
+  content: { width: '100%', maxWidth: 440, alignSelf: 'center' },
+  logo: { alignItems: 'center', marginBottom: 17 },
+  badgeWrap: { width: 112, height: 112, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  logoAura: {
+    position: 'absolute', inset: -5, borderRadius: 38, borderWidth: 2, borderColor: AUTH.orange,
+    shadowColor: AUTH.fire, shadowOpacity: 0.55, shadowRadius: 20,
+    shadowOffset: { width: 0, height: 0 }, elevation: 7,
   },
-  signupWrap: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
-  logo: { alignItems: 'center', marginBottom: 24 },
-  signupLogo: { marginBottom: 17 },
-  logoIcon: { width: 84, height: 84, borderRadius: 18 },
-  logoText: { color: C.text, fontSize: 23, fontWeight: '900', letterSpacing: 2, marginTop: 8 },
-  logoSub: { color: C.sub, marginTop: 4, fontSize: 13 },
-  signupLogoFrame: {
-    width: 122, height: 122, padding: 4, borderRadius: 24, borderWidth: 1.5,
-    borderColor: C.neon + '88', backgroundColor: C.card,
-    shadowColor: C.neon, shadowOpacity: 0.34, shadowRadius: 17,
-    shadowOffset: { width: 0, height: 0 }, elevation: 8,
+  logoFrame: {
+    width: 102, height: 102, borderRadius: 29, padding: 3, borderWidth: 1.5,
+    borderColor: AUTH.orange, overflow: 'hidden', shadowColor: AUTH.orange,
+    shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 6,
   },
-  signupLogoIcon: { width: '100%', height: '100%', borderRadius: 18 },
-  signupKickerRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 13 },
-  signupKickerLine: { width: 20, height: 1, backgroundColor: C.neon, opacity: 0.7 },
-  signupKicker: { color: C.blue, fontSize: 9, fontWeight: '900', letterSpacing: 1.8 },
-  signupTitle: { color: C.neon, fontSize: 23, fontWeight: '900', letterSpacing: 1.2, marginTop: 7 },
-  signupSub: { color: C.sub, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 4, maxWidth: 300 },
-  tabs: { flexDirection: 'row', backgroundColor: C.bg2, borderRadius: 12, padding: 4, marginBottom: 18 },
-  sessionNotice: { color: C.gold, textAlign: 'center', fontSize: 12, lineHeight: 18, marginBottom: 8 },
-  sessionHint: { color: C.dim, textAlign: 'center', fontSize: 11, lineHeight: 16, marginBottom: 8 },
-  signupTabs: { borderWidth: 1, borderColor: C.border, marginBottom: 16 },
-  tab: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: 'center' },
-  tabOn: { backgroundColor: C.neon },
-  tabText: { color: C.sub, fontWeight: '800', letterSpacing: 1 },
-  tabTextOn: { color: C.bg },
-  googleArea: { marginBottom: 2 },
-  googleHint: { color: C.sub, textAlign: 'center', fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  logoIcon: { width: '100%', height: '100%', borderRadius: 25 },
+  brandPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1, borderColor: AUTH.borderSoft, backgroundColor: AUTH.panel,
+  },
+  brandDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: AUTH.orange },
+  brandPillText: {
+    color: AUTH.muted, fontFamily: 'Rajdhani_700Bold', fontSize: 10, letterSpacing: 1.4,
+  },
+  logoText: {
+    color: AUTH.text, fontFamily: 'Orbitron_700Bold', fontSize: 19, fontWeight: '700',
+    letterSpacing: 0.7, marginTop: 9, textAlign: 'center', textShadowColor: AUTH.fire,
+    textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 },
+  },
+  logoSubRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  logoSub: { color: AUTH.muted, fontFamily: 'Rajdhani_600SemiBold', fontSize: 14 },
+  formCard: {
+    backgroundColor: AUTH.panel, borderRadius: 20, borderWidth: 1, borderColor: AUTH.border,
+    borderTopColor: AUTH.highlight, padding: 16, shadowColor: '#000000',
+    shadowOpacity: 0.32, shadowRadius: 22, shadowOffset: { width: 0, height: 12 }, elevation: 8,
+  },
+  tabs: {
+    flexDirection: 'row', backgroundColor: AUTH.backgroundSoft, borderRadius: 15,
+    borderWidth: 1, borderColor: AUTH.borderSoft, padding: 4, marginBottom: 14,
+  },
+  signupTabs: { marginBottom: 13 },
+  tab: {
+    flex: 1, minHeight: 44, borderRadius: 11, alignItems: 'center',
+    justifyContent: 'center', overflow: 'hidden',
+  },
+  tabOn: {
+    shadowColor: AUTH.fire, shadowOpacity: 0.35, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 }, elevation: 4,
+  },
+  tabPressed: { opacity: 0.86, transform: [{ scale: 0.985 }] },
+  activeTabGradient: { ...StyleSheet.absoluteFill, borderRadius: 11 },
+  tabText: { color: AUTH.muted, fontFamily: 'Rajdhani_700Bold', fontSize: 13, letterSpacing: 1.2 },
+  tabTextOn: { color: AUTH.text },
+  formTransition: { width: '100%' },
+  sessionNotice: {
+    color: AUTH.gold, textAlign: 'center', fontFamily: 'Rajdhani_600SemiBold',
+    fontSize: 12, lineHeight: 18, marginBottom: 8,
+  },
+  sessionHintCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 11, borderWidth: 1,
+    borderColor: AUTH.gold + '55', backgroundColor: '#19170f', paddingHorizontal: 10,
+    paddingVertical: 8, marginBottom: 10,
+  },
+  sessionHint: { flex: 1, color: AUTH.gold, fontFamily: 'Rajdhani_600SemiBold', fontSize: 12, lineHeight: 16 },
+  googleArea: { marginBottom: 0 },
+  googleHint: {
+    color: AUTH.muted, textAlign: 'center', fontFamily: 'Rajdhani_600SemiBold',
+    fontSize: 13, marginBottom: 0,
+  },
   devRecoveryTestLink: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 12 },
-  devRecoveryTestText: { color: C.blue, fontSize: 12, fontWeight: '700', textAlign: 'center' },
-  or: { color: C.dim, textAlign: 'center', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 18, marginBottom: 14 },
-  signupFields: {
-    backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderTopColor: C.neon,
-    borderRadius: 16, padding: 13, paddingTop: 12, marginBottom: 5,
+  devRecoveryTestText: { color: AUTH.orange, fontFamily: 'Rajdhani_700Bold', fontSize: 12, textAlign: 'center' },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 17, marginBottom: 14 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: AUTH.borderSoft },
+  or: {
+    color: AUTH.muted, textAlign: 'center', fontFamily: 'Rajdhani_700Bold',
+    fontSize: 10, letterSpacing: 1.2,
   },
-  signupFieldsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  signupFields: { backgroundColor: 'transparent', padding: 0, marginBottom: 8 },
+  loginFields: { width: '100%' },
+  signupFieldsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 11 },
   signupFieldsIcon: {
     width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: C.neon + '18', borderWidth: 1, borderColor: C.neon + '55',
+    backgroundColor: AUTH.fire + '22', borderWidth: 1, borderColor: AUTH.fire + '66',
   },
   signupFieldsCopy: { flex: 1 },
-  signupFieldsTitle: { color: C.text, fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
-  signupFieldsHint: { color: C.sub, fontSize: 10, marginTop: 2 },
-  signupStep: { color: C.neon, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
-  signupInput: { backgroundColor: C.card, marginBottom: 9, minHeight: 46 },
-  signupInputLast: { backgroundColor: C.card, marginBottom: 0, minHeight: 46 },
+  signupFieldsTitle: { color: AUTH.text, fontFamily: 'Rajdhani_700Bold', fontSize: 13, letterSpacing: 0.9 },
+  signupFieldsHint: { color: AUTH.muted, fontFamily: 'Rajdhani_500Medium', fontSize: 11, marginTop: 1 },
+  signupStep: { color: AUTH.orange, fontFamily: 'Rajdhani_700Bold', fontSize: 10, letterSpacing: 0.6 },
+  field: {
+    flexDirection: 'row', alignItems: 'center', minHeight: 52, marginBottom: 10,
+    paddingHorizontal: 13, borderRadius: 13, borderWidth: 1, borderColor: AUTH.borderSoft,
+    backgroundColor: AUTH.panelRaised,
+  },
+  fieldFocused: {
+    borderColor: AUTH.orange, shadowColor: AUTH.fire, shadowOpacity: 0.3,
+    shadowRadius: 11, shadowOffset: { width: 0, height: 0 }, elevation: 4,
+  },
+  fieldInput: {
+    flex: 1, minHeight: 50, marginBottom: 0, paddingHorizontal: 0, paddingVertical: 11,
+    borderWidth: 0, borderRadius: 0, backgroundColor: 'transparent', color: AUTH.text,
+    fontFamily: 'Rajdhani_600SemiBold', fontSize: 14,
+  },
+  fieldLast: { marginBottom: 0 },
   referralApplied: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.card, borderRadius: 10, marginBottom: 9, minHeight: 46,
-    paddingHorizontal: 12, gap: 10,
+    backgroundColor: AUTH.panelRaised, borderWidth: 1, borderColor: AUTH.borderSoft,
+    borderRadius: 13, marginBottom: 10, minHeight: 52, paddingHorizontal: 13, gap: 10,
   },
-  referralAppliedText: { color: C.sub, flex: 1, fontSize: 12, fontWeight: '700' },
-  referralChangeText: { color: C.neon, fontSize: 12, fontWeight: '900' },
-  signupSubmit: { marginTop: 7 },
-  foot: { color: C.dim, textAlign: 'center', marginTop: 18, fontSize: 12 },
+  referralAppliedText: { color: AUTH.muted, flex: 1, fontFamily: 'Rajdhani_600SemiBold', fontSize: 12 },
+  referralChangeText: { color: AUTH.orange, fontFamily: 'Rajdhani_700Bold', fontSize: 12 },
+  submitGlow: {
+    borderRadius: 15, marginTop: 5, shadowColor: AUTH.fire, shadowOpacity: 0.36,
+    shadowRadius: 17, shadowOffset: { width: 0, height: 0 }, elevation: 8,
+  },
+  submitGradient: { borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: AUTH.orange },
+  submitButton: {
+    width: '100%', minHeight: 56, paddingVertical: 15, borderRadius: 13,
+    backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center',
+    shadowColor: AUTH.fire, shadowOpacity: 0.3,
+    shadowRadius: 13, shadowOffset: { width: 0, height: 0 }, elevation: 5,
+  },
+  submitText: {
+    fontFamily: 'Rajdhani_700Bold', fontSize: 16, letterSpacing: 1.7,
+    textAlign: 'center', width: '100%',
+  },
+  footRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, marginTop: 15, paddingHorizontal: 4,
+  },
+  foot: {
+    flexShrink: 1, color: AUTH.muted, textAlign: 'center', fontFamily: 'Rajdhani_600SemiBold',
+    marginTop: 0, fontSize: 12, lineHeight: 17,
+  },
 });

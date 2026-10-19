@@ -9,6 +9,12 @@ An isolated Vite preview can fail before rendering when Expo dependencies resolv
 
 **How to apply:** In the isolated preview config, prioritize `.web` extensions in both `resolve.extensions` and `optimizeDeps.esbuildOptions.resolveExtensions`. Define Metro-style browser globals (`__DEV__`, `global`, and `process.env.EXPO_OS`) only in that preview when required. Prefer selecting Expo's web implementation over adding native-only exports to a React Native Web stub; keep app code and native dependencies unchanged.
 
+When an isolated auth-screen harness renders the screen outside the Expo root, provide its `SafeAreaProvider` context and browser `global` shim in the harness. React Native Animated cleanup can access `global`, and `useSafeAreaInsets` throws without a provider.
+
+**Why:** A bare Vite fixture does not reproduce the Expo app root, even when it resolves native modules to their web implementations.
+
+**How to apply:** Keep provider and runtime shims in the fixture entry point; do not weaken production safe-area or animation behavior to accommodate the preview.
+
 The dedicated Google signup/Wallet preview must also alias `expo-router` to a lightweight local `Link` shim and define `__DEV__`; otherwise dependency scanning reaches Expo Router's native navigation imports, or the screen crashes when it checks the missing Metro global.
 
 **Why:** Vite does not inject Expo Router or Metro globals in this isolated browser harness, and importing Expo Router's production entrypoint pulls native navigation modules into the web preview.

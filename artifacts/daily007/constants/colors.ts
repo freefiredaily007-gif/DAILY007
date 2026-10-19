@@ -51,6 +51,23 @@ const colors = {
     input: '#1e2745',
   },
 
+  auth: {
+    background: '#090a0f',
+    backgroundSoft: '#0d1118',
+    panel: '#111720',
+    panelRaised: '#171e28',
+    border: '#343e49',
+    borderSoft: '#252d37',
+    highlight: '#59636e',
+    fire: '#ff2e00',
+    orange: '#ff7b00',
+    gold: '#e4b557',
+    text: '#f5f7fa',
+    muted: '#9ca6b2',
+    placeholder: '#7f8a97',
+    danger: '#ff655a',
+  },
+
   // Border radius (in px). Sync from the sibling web artifact's --radius
   // CSS variable. This value applies to cards, buttons, inputs, and modals.
   radius: 14,
