@@ -7656,9 +7656,22 @@ async function checkHomeStartTransitionSelection(width) {
     `The start-transition fixture should begin with three ordered cards and page one selected: ${JSON.stringify(initial)}.`,
   );
 
+  await evaluate("window.__daily007HomeCarouselTest.setScreenReaderEnabled(true)");
+  await waitForCondition(
+    "window.__daily007HomeCarouselTest.getCarouselAutoAdvanceIntervalMs() === null",
+    "Home to stop automatic carousel movement while its screen reader is enabled",
+  );
   const firstStart = await evaluate("window.__daily007HomeCarouselTest.scheduledStartMs");
   await swipeHomeCarousel("left", "the middle Upcoming tournament before its scheduled start");
   await waitForHomeCarouselCard("later-one", 1, width, "The selected middle Upcoming tournament");
+  await evaluate("window.__daily007HomeCarouselTest.clearAccessibilityAnnouncements()");
+  const focusedControl = await evaluate(`(() => {
+    const control = document.querySelector('[aria-label="Notifications"]');
+    if (!control) return null;
+    control.focus();
+    return document.activeElement === control ? control.getAttribute("aria-label") : null;
+  })()`);
+  assert(focusedControl === "Notifications", "The stable Home control could not receive focus before the selected match starts.");
   assert(
     await evaluate(`window.__daily007HomeCarouselTest.getScheduledStartTimerTarget() === ${firstStart}`),
     "Home should be watching the selected middle tournament's scheduled start.",
@@ -7673,12 +7686,27 @@ async function checkHomeStartTransitionSelection(width) {
   );
   await waitForHomeCarouselCard("later-two", 1, width, "The next remaining tournament after the middle card starts");
   const afterMiddleStart = await readHomeCarouselState();
+  const transitionAnnouncements = await evaluate(
+    "window.__daily007HomeCarouselTest.getAccessibilityAnnouncements()",
+  );
+  const focusedControlAfterStart = await evaluate(
+    'document.activeElement?.getAttribute("aria-label") ?? null',
+  );
   assert(
     JSON.stringify(afterMiddleStart?.cards.map((card) => card.id)) ===
       JSON.stringify(["starting-soon", "later-two"]) &&
       afterMiddleStart.indicatorCount === 2 &&
       afterMiddleStart.activePage === 1,
     `Home should select the following tournament and keep both indicators synchronized after the middle card starts: ${JSON.stringify(afterMiddleStart)}.`,
+  );
+  assert(
+    JSON.stringify(transitionAnnouncements) ===
+      JSON.stringify(["Selected Upcoming match: Later Tournament Two. Match 2 of 2."]),
+    `The selected replacement match and position should be announced once after the scheduled start: ${JSON.stringify(transitionAnnouncements)}.`,
+  );
+  assert(
+    focusedControlAfterStart === focusedControl,
+    `The selected replacement match should not move screen-reader focus: ${focusedControlAfterStart}.`,
   );
   await assertHomeCarouselCardOpens("later-two", "The next remaining tournament after the middle card starts");
 

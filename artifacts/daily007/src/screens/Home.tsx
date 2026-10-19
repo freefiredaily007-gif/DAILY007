@@ -272,6 +272,8 @@ export default function Home() {
       : visibleItems.findIndex(
           (tournament) => String(tournament.id) === selectedTournamentIdRef.current,
         );
+    const selectedTournamentWasRemoved =
+      selectedTournamentIdRef.current !== null && selectedPage < 0;
     const nextPage = selectedPage >= 0
       ? selectedPage
       : Math.max(0, Math.min(pageRef.current, lastPage));
@@ -279,11 +281,17 @@ export default function Home() {
       pageRef.current = nextPage;
       setPage(nextPage);
     }
-    selectedTournamentIdRef.current = visibleItems[nextPage]
-      ? String(visibleItems[nextPage].id)
+    const nextTournament = visibleItems[nextPage];
+    selectedTournamentIdRef.current = nextTournament
+      ? String(nextTournament.id)
       : null;
     carouselRef.current?.scrollTo({ x: nextPage * carouselPageSize, animated: false });
-  }, [carouselTournamentOrder, carouselPageSize]);
+    if (selectedTournamentWasRemoved && screenReaderEnabled && nextTournament) {
+      AccessibilityInfo.announceForAccessibility(
+        `Selected Upcoming match: ${nextTournament.name ?? 'Match'}. Match ${nextPage + 1} of ${visibleItems.length}.`,
+      );
+    }
+  }, [carouselTournamentOrder, carouselPageSize, screenReaderEnabled]);
 
   const onCarouselScroll = (e: any) => {
     const x = e?.nativeEvent?.contentOffset?.x ?? 0;
