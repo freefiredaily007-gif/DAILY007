@@ -936,6 +936,91 @@ test("players see only their own withdrawal after another request is rejected", 
   });
 });
 
+test("players see only their own withdrawal after another request is approved and paid", async () => {
+  walletTestDb.reset();
+
+  await withServer(async (origin) => {
+    const firstCreated = await call(origin, TEST_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "approved-player@upi",
+    });
+    const secondCreated = await call(origin, TEST_SECOND_PLAYER_ID, "/withdrawals", "POST", {
+      coins: 250,
+      method: "bank",
+      account: "pending-player-account-9876",
+    });
+
+    assert.equal(firstCreated.status, 201);
+    assert.equal(secondCreated.status, 201);
+    const firstWithdrawalId = firstCreated.body.id as string;
+    const secondWithdrawalId = secondCreated.body.id as string;
+    assert.notEqual(firstWithdrawalId, secondWithdrawalId);
+
+    const approved = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/admin/withdrawals/${firstWithdrawalId}/approve`,
+      "POST",
+    );
+    assert.equal(approved.status, 200);
+    assert.equal(walletTestDb.withdrawals.get(firstWithdrawalId)?.status, "approved");
+    assert.equal(
+      walletTestDb.withdrawals.get(firstWithdrawalId)?.payout_status,
+      "manual_payout_required",
+    );
+
+    const paid = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/admin/withdrawals/${firstWithdrawalId}/payout`,
+      "POST",
+    );
+    assert.equal(paid.status, 200);
+    assert.equal(paid.body.payoutStatus, "paid");
+
+    const firstHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
+    const secondHistory = await call(origin, TEST_SECOND_PLAYER_ID, "/my/withdrawals", "GET");
+
+    assert.equal(firstHistory.status, 200);
+    assert.deepEqual(firstHistory.body, [{
+      id: firstWithdrawalId,
+      coins: 150,
+      method: "upi",
+      account: "approved-player@upi",
+      status: "approved",
+      payoutStatus: "paid",
+      reviewReason: null,
+      createdAt: walletTestDb.withdrawals.get(firstWithdrawalId)?.created_at.toISOString(),
+      reviewedAt: walletTestDb.withdrawals.get(firstWithdrawalId)?.reviewed_at?.toISOString(),
+    }]);
+    assert.equal(secondHistory.status, 200);
+    assert.deepEqual(secondHistory.body, [{
+      id: secondWithdrawalId,
+      coins: 250,
+      method: "bank",
+      account: "pending-player-account-9876",
+      status: "pending",
+      payoutStatus: "not_paid",
+      reviewReason: null,
+      createdAt: walletTestDb.withdrawals.get(secondWithdrawalId)?.created_at.toISOString(),
+      reviewedAt: null,
+    }]);
+
+    const firstHistoryJson = JSON.stringify(firstHistory.body);
+    const secondHistoryJson = JSON.stringify(secondHistory.body);
+    assert.equal(firstHistoryJson.includes(secondWithdrawalId), false);
+    assert.equal(firstHistoryJson.includes("pending-player-account-9876"), false);
+    assert.equal(firstHistoryJson.includes('"status":"pending"'), false);
+    assert.equal(firstHistoryJson.includes('"payoutStatus":"not_paid"'), false);
+    assert.equal(secondHistoryJson.includes(firstWithdrawalId), false);
+    assert.equal(secondHistoryJson.includes("approved-player@upi"), false);
+    assert.equal(secondHistoryJson.includes('"status":"approved"'), false);
+    assert.equal(secondHistoryJson.includes('"payoutStatus":"paid"'), false);
+    assert.equal(secondHistoryJson.includes('"payoutStatus":"manual_payout_required"'), false);
+  });
+});
+
 test("approved withdrawals stay manual and recording a payout is idempotent", async () => {
   walletTestDb.reset();
 
