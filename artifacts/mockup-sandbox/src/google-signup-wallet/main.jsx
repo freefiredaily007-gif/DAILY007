@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import App from "../../../daily007/src/App";
 import { currentUser, http } from "../../../daily007/src/lib/api";
 import storage from "./mocks/async-storage";
@@ -450,4 +451,8 @@ window.__daily007GoogleSignupWalletTest = {
   },
 };
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <SafeAreaProvider>
+    <App />
+  </SafeAreaProvider>,
+);

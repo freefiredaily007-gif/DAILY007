@@ -1817,6 +1817,28 @@ try {
     1,
     "Restoring after the server-side link must not submit the Google link again.",
   );
+  await clickSelector(
+    '[data-testid="mock-tab-profile"]',
+    "open Profile after restoring the password account in the fresh app lifecycle",
+  );
+  await waitForExpression(
+    `document.body.innerText.includes("Mock Password Player")
+      && document.body.innerText.includes("🪙 42")`,
+    "the restored password account name and balance on Profile after fresh app boot",
+  );
+  const profileAfterFreshBoot = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assertPasswordSession(profileAfterFreshBoot, "after opening Profile in the fresh app lifecycle");
+  assert.equal(
+    profileAfterFreshBoot.currentSession?.id,
+    freshBootSession.currentSession?.id,
+    "Opening Profile after relaunch must not change the active account identity.",
+  );
+  assert.equal(
+    profileAfterFreshBoot.currentSession?.token,
+    freshBootSession.currentSession?.token,
+    "Opening Profile after relaunch must not change the active Daily007 session token.",
+  );
+
   await assertWalletBalance("after reopening Daily007 following the failed Google-link session write");
   const walletAfterFreshBoot = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
   assertPasswordSession(walletAfterFreshBoot, "after opening Wallet in the fresh app lifecycle");
