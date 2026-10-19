@@ -27,6 +27,7 @@ const resumeOnly = process.argv.includes("--resume-only");
 const initialLoadFailureOnly = process.argv.includes("--initial-load-failure-only");
 const registrationInitialLoadFailureOnly = process.argv.includes("--registration-initial-load-failure-only");
 const tournamentDetailRegistrationFailureOnly = process.argv.includes("--tournament-detail-registration-failure-only");
+const squadSlotLayoutOnly = process.argv.includes("--squad-slot-layout-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
 const adminUsersInitialLoadFailureOnly = process.argv.includes("--admin-users-initial-load-failure-only");
@@ -4360,6 +4361,115 @@ async function checkTournamentDetailRegistrationFailure() {
     await evaluate("Boolean(document.querySelector('[data-testid=\"tournament-entry-status-unknown\"]')) === false"),
     "The unknown status guidance must clear after registration status is verified.",
   );
+}
+
+async function checkSquadSlotLayoutAtLargeText(width, fontScale) {
+  await setViewport(
+    width,
+    fontScale,
+    "tournament-resume-preview.html?squad-slots-layout-only=1",
+  );
+  await waitForCondition(
+    `window.__daily007LargeTextScale === ${fontScale} &&
+      document.querySelectorAll('[data-testid^="squad-slot-"]').length === 4`,
+    `four squad slots at ${width}px and ${fontScale}× Android text`,
+  );
+
+  const readLayout = () => evaluate(`(() => {
+    const row = document.querySelector('[data-testid="squad-slots-row"]');
+    const slots = [...document.querySelectorAll('[data-testid^="squad-slot-"]')];
+    const rect = (element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+        bottom: bounds.bottom,
+        width: bounds.width,
+        height: bounds.height,
+      };
+    };
+    return {
+      row: row ? { width: row.clientWidth, scrollWidth: row.scrollWidth, bounds: rect(row) } : null,
+      slots: slots.map((slot) => ({
+        bounds: rect(slot),
+        text: slot.textContent?.replace(/\\s+/g, " ").trim() ?? "",
+        textBounds: [...slot.querySelectorAll("*")]
+          .filter((node) => node.children.length === 0 && node.textContent?.trim())
+          .map(rect),
+      })),
+    };
+  })()`);
+  const assertEqualSlotBoxes = (layout, phase) => {
+    assert(layout.row && layout.slots.length === 4, `The four-slot ${phase} layout is missing a slot or row.`);
+    const widths = layout.slots.map(({ bounds }) => bounds.width);
+    const heights = layout.slots.map(({ bounds }) => bounds.height);
+    assert(
+      Math.max(...widths) - Math.min(...widths) < 1 &&
+        Math.max(...heights) - Math.min(...heights) < 1,
+      `The four ${phase} slot boxes must have equal width and height: ${JSON.stringify(layout.slots.map(({ bounds }) => bounds))}.`,
+    );
+    assert(
+      layout.row.scrollWidth <= layout.row.width + 1,
+      `The squad slots row must not scroll horizontally at ${width}px: ${JSON.stringify(layout.row)}.`,
+    );
+    for (const slot of layout.slots) {
+      assert(
+        slot.bounds.left >= -1 && slot.bounds.right <= width + 1 &&
+          slot.textBounds.every((bounds) =>
+            bounds.left >= slot.bounds.left - 1 &&
+            bounds.right <= slot.bounds.right + 1 &&
+            bounds.top >= slot.bounds.top - 1 &&
+            bounds.bottom <= slot.bounds.bottom + 1),
+        `Squad slot text is clipped at ${width}px and ${fontScale}× during ${phase}: ${JSON.stringify(slot)}.`,
+      );
+    }
+  };
+
+  const initialLayout = await readLayout();
+  assertEqualSlotBoxes(initialLayout, "unselected");
+  assert(
+    initialLayout.slots[0].text.includes("Captain") &&
+      initialLayout.slots.slice(1).every(({ text }) => text.includes("OPEN · SELECT")),
+    `Captain and all open-slot labels must remain visible at ${width}px and ${fontScale}× text: ${JSON.stringify(initialLayout.slots.map(({ text }) => text))}.`,
+  );
+  await assertPageHasNoHorizontalOverflow(width, `Squad slots at ${fontScale}× Android text`);
+
+  await clickSelector('[data-testid="squad-slot-1-2"]', "the second open squad slot");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"squad-join-select-1-2\"]'))",
+    "the selected slot's Join action",
+  );
+  const selectedLayout = await readLayout();
+  assertEqualSlotBoxes(selectedLayout, "selected");
+  const joinAction = await evaluate(`(() => {
+    const button = document.querySelector('[data-testid="squad-join-select-1-2"]');
+    if (!button) return null;
+    const rect = button.getBoundingClientRect();
+    const text = button.textContent?.replace(/\\s+/g, " ").trim() ?? "";
+    const textBounds = [...button.querySelectorAll("*")]
+      .filter((node) => node.children.length === 0 && node.textContent?.trim())
+      .map((node) => {
+        const bounds = node.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom };
+      });
+    return {
+      text,
+      bounds: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+      textBounds,
+    };
+  })()`);
+  assert(
+    joinAction?.text === "JOIN TEAM 01" &&
+      joinAction.textBounds.length > 0 &&
+      joinAction.textBounds.every((bounds) =>
+        bounds.left >= joinAction.bounds.left - 1 &&
+        bounds.right <= joinAction.bounds.right + 1 &&
+        bounds.top >= joinAction.bounds.top - 1 &&
+        bounds.bottom <= joinAction.bounds.bottom + 1),
+    `The selected Join action must remain fully legible at ${width}px and ${fontScale}× text: ${JSON.stringify(joinAction)}.`,
+  );
+  await assertPageHasNoHorizontalOverflow(width, `Selected squad Join action at ${fontScale}× Android text`);
 }
 
 async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
@@ -9290,6 +9400,8 @@ try {
       ? "tournament-resume-preview.html?manual-refresh-only=1&resume-while-refresh-only=1"
     : manualRefreshOnly || manualRefreshLargeTextOnly
       ? "tournament-resume-preview.html?manual-refresh-only=1"
+    : squadSlotLayoutOnly
+      ? "tournament-resume-preview.html?squad-slots-layout-only=1"
     : tournamentDetailRegistrationFailureOnly
       ? "tournament-resume-preview.html?detail-registration-failure-only=1"
     : registrationInitialLoadFailureOnly
@@ -9383,6 +9495,7 @@ try {
     initialLoadFailureOnly ||
     registrationInitialLoadFailureOnly ||
     tournamentDetailRegistrationFailureOnly ||
+    squadSlotLayoutOnly ||
     adminInitialLoadFailureOnly ||
     adminLargeTextInitialLoadFailureOnly ||
     adminUsersInitialLoadFailureOnly ||
@@ -9423,13 +9536,15 @@ try {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
+        : squadSlotLayoutOnly
+          ? 320
         : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminUsersEmptyStateOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
-        : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
+         : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly || squadSlotLayoutOnly
             || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminUsersEmptyStateOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
@@ -9471,6 +9586,8 @@ try {
           ? "Player registration lookup failure"
         : tournamentDetailRegistrationFailureOnly
           ? "Tournament-detail registration lookup failure"
+        : squadSlotLayoutOnly
+          ? "Squad slot layout at narrow Android widths and large text"
         : adminInitialLoadFailureOnly
           ? "Admin first-load failure"
         : adminUsersInitialLoadFailureOnly
@@ -9590,6 +9707,19 @@ try {
         `Browser errors during Admin Result Entry retry checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Result Entry stays open through failed and successful approved-player retries; requests are scoped and duplicate taps do not duplicate work.");
+    } else if (squadSlotLayoutOnly) {
+      for (const width of [320, 360, 390]) {
+        for (const fontScale of [1.5, 2]) {
+          await checkSquadSlotLayoutAtLargeText(width, fontScale);
+          assert(
+            browserErrors.length === 0,
+            `Browser errors during squad-slot checks at ${width}px and ${fontScale}× text: ${browserErrors.join(" | ")}`,
+          );
+          console.log(
+            `PASS ${width}px at ${fontScale}× Android text — four squad slots stay equal, Captain and OPEN · SELECT remain visible, and the selected Join action fits without horizontal overflow.`,
+          );
+        }
+      }
     } else if (tournamentDetailRegistrationFailureOnly) {
       await checkTournamentDetailRegistrationFailure();
       assert(

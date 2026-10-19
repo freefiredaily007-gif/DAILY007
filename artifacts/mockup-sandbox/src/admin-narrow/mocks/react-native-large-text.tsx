@@ -34,8 +34,10 @@ function getPreviewFontScale() {
   return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
-function scaleTextStyle(style: unknown) {
-  const scale = getPreviewFontScale();
+function scaleTextStyle(style: unknown, maxFontSizeMultiplier?: number) {
+  const scale = typeof maxFontSizeMultiplier === "number" && maxFontSizeMultiplier > 0
+    ? Math.min(getPreviewFontScale(), maxFontSizeMultiplier)
+    : getPreviewFontScale();
   const flattened = Native.StyleSheet.flatten(style as any) as Record<string, unknown> | undefined;
   const scaled: Record<string, number> = {};
   if (typeof flattened?.fontSize === "number") scaled.fontSize = flattened.fontSize * scale;
@@ -44,12 +46,12 @@ function scaleTextStyle(style: unknown) {
 }
 
 export const Text = React.forwardRef<any, any>((props, ref) => (
-  <Native.Text {...props} ref={ref} style={scaleTextStyle(props.style)} />
+  <Native.Text {...props} ref={ref} style={scaleTextStyle(props.style, props.maxFontSizeMultiplier)} />
 ));
 Text.displayName = "LargeTextPreviewText";
 
 export const TextInput = React.forwardRef<any, any>((props, ref) => (
-  <Native.TextInput {...props} ref={ref} style={scaleTextStyle(props.style)} />
+  <Native.TextInput {...props} ref={ref} style={scaleTextStyle(props.style, props.maxFontSizeMultiplier)} />
 ));
 TextInput.displayName = "LargeTextPreviewTextInput";
 

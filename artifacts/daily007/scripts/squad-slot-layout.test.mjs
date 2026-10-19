@@ -27,13 +27,25 @@ test("squad team cards render each team with four equal, responsive slot columns
   const gridStyle = screenSource.match(/squadSlotsRow:\s*\{([^}]+)\}/)?.[1] ?? "";
   const columnStyle = screenSource.match(/squadSlotColumn:\s*\{([^}]+)\}/)?.[1] ?? "";
   const slotStyle = screenSource.match(/squadSlot:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? "";
+  const compactRowStyle = screenSource.match(/squadSlotsRowCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
+  const compactSlotStyle = screenSource.match(/squadSlotCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
+  const compactActionAreaStyle = screenSource.match(/squadSlotActionAreaCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
+  const compactJoinStyle = screenSource.match(/squadSlotJoinButtonCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
 
   assert.match(gridStyle, /flexDirection:\s*'row'/);
   assert.match(gridStyle, /gap:\s*10/);
   assert.match(columnStyle, /flex:\s*1/);
+  assert.match(columnStyle, /flexBasis:\s*0/);
   assert.match(columnStyle, /minWidth:\s*0/);
   assert.match(slotStyle, /height:\s*76/);
   assert.match(slotStyle, /width:\s*'100%'/);
+  assert.match(screenSource, /const \{ width \} = useWindowDimensions\(\)/);
+  assert.match(screenSource, /PixelRatio\.getFontScale\(\) >= 1\.5/);
+  assert.match(screenSource, /width <= 400 && PixelRatio\.getFontScale\(\) >= 1\.5/);
+  assert.match(compactRowStyle, /gap:\s*6/);
+  assert.match(compactSlotStyle, /height:\s*92/);
+  assert.match(compactActionAreaStyle, /height:\s*68/);
+  assert.match(compactJoinStyle, /minHeight:\s*62/);
 });
 
 test("slot captions use the full Captain label and open slots show OPEN · SELECT", () => {
@@ -41,15 +53,15 @@ test("slot captions use the full Captain label and open slots show OPEN · SELEC
   assert.match(screenSource, /const slotTitle = isCaptainSlot \? 'Captain' : String\(slot\.slotNumber\)/);
   assert.match(screenSource, /'OPEN · SELECT'/);
   assert.match(screenSource, /squadSlotCrown/);
+  assert.match(screenSource, /maxFontSizeMultiplier=\{compactLargeText \? 1\.5 : undefined\}/);
+  assert.ok(screenSource.includes('JOIN{"\\n"}TEAM{"\\n"}{teamNumber}'));
+  assert.ok(screenSource.includes('JOIN{"\\n"}TEAM {teamNumber}'));
 });
 
 test("selecting an open slot shows a contextual join button and keeps the form inside that team card", () => {
-  const actionArea = screenSource.match(
-    /<View style=\{s\.squadSlotActionArea\}>[\s\S]*?<\/View>\s*<\/View>/,
-  )?.[0] ?? "";
-  assert.match(actionArea, /isSelected && slot\.canJoin/);
-  assert.match(actionArea, /accessibilityLabel=\{`Join Team \$\{teamNumber\}`\}/);
-  assert.match(actionArea, /squad-join-select-/);
+  assert.match(screenSource, /squadSlotActionArea,[\s\S]*?isSelected && slot\.canJoin/);
+  assert.match(screenSource, /accessibilityLabel=\{`Join Team \$\{teamNumber\}`\}/);
+  assert.match(screenSource, /squad-join-select-/);
   assert.match(screenSource, /selectedForTeam && selectedSlot\?\.canJoin && joinDetailsOpen/);
   assert.match(screenSource, /testID="squad-game-name"/);
   assert.match(screenSource, /testID="squad-game-uid"/);
@@ -64,8 +76,8 @@ test("the selected slot uses the requested cyan glow and the squad palette", () 
   assert.match(selectedStyle, /borderWidth:\s*2/);
   assert.match(selectedStyle, /boxShadow:\s*'0px 0px 12px rgba\(0, 240, 255, 0\.4\)'/);
   assert.match(selectedStyle, /shadowOpacity:\s*0\.4/);
-  assert.match(uiSource, /squadPanel:\s*'#0b1120'/);
-  assert.match(uiSource, /squadAccent:\s*'#00f0ff'/);
+  assert.match(uiSource, /squadPanel:\s*'#0A1230'/);
+  assert.match(uiSource, /squadAccent:\s*'#52D5FF'/);
 });
 
 test("captain removal still requires confirmation and keeps the no-refund warning", () => {

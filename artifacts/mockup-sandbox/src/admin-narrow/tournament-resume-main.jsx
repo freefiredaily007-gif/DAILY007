@@ -52,6 +52,7 @@ const sameTimeStartOnly = new URLSearchParams(location.search).has("same-time-st
 const initialLoadFailureOnly = new URLSearchParams(location.search).has("initial-load-failure-only");
 const registrationInitialLoadFailureOnly = new URLSearchParams(location.search).has("registration-initial-load-failure-only");
 const tournamentDetailRegistrationFailureOnly = new URLSearchParams(location.search).has("detail-registration-failure-only");
+const squadSlotsLayoutOnly = new URLSearchParams(location.search).has("squad-slots-layout-only");
 const adminInitialLoadFailureOnly = new URLSearchParams(location.search).has("admin-initial-load-failure-only");
 const adminResultEntryRetryOnly = new URLSearchParams(location.search).has("admin-result-entry-retry-only");
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -186,6 +187,19 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   const scheduledTournaments = [
     scheduledTournament("resume-boundary", firstScheduledTournamentName, scheduledStartMs),
   ];
+  if (squadSlotsLayoutOnly) {
+    Object.assign(scheduledTournaments[0], {
+      mode: "Battle Royale",
+      teamType: "Squad",
+      gameMode: "battle_royale",
+      totalSlots: 12,
+      filledSlots: 1,
+      filledPlayerSlots: 1,
+      totalPlayerSlots: 48,
+      entryCoins: 10,
+    });
+    globalThis.__daily007SquadSlotsLayoutPreview = true;
+  }
   if (scheduledStartOnly) {
     scheduledTournaments.push(
       scheduledTournament("resume-boundary-later", laterScheduledTournamentName, laterScheduledStartMs),
@@ -391,6 +405,10 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   };
 
   if (adminInitialLoadFailureOnly || adminResultEntryRetryOnly) renderAdmin();
+  else if (squadSlotsLayoutOnly) {
+    globalThis.__previewRouteParams = { id: "resume-boundary" };
+    root.render(React.createElement(TDetail));
+  }
   else if (tournamentDetailRegistrationFailureOnly) {
     globalThis.__previewRouteParams = { id: "resume-boundary" };
     root.render(React.createElement(TDetail));

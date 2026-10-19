@@ -706,8 +706,35 @@ export function useGetTournamentResults(_tournamentId: string, _options?: unknow
 export const getDaily007V2GetSquadSlotsQueryKey = (tournamentId: string) =>
   ["preview-squad-slots", tournamentId] as const;
 
+const squadSlotLayoutPreview = {
+  tournamentId: "resume-boundary",
+  teamSize: 4,
+  capacity: 12,
+  filledTeams: 1,
+  filledPlayers: 1,
+  registrationClosed: false,
+  alreadyRegistered: false,
+  myTeamNumber: null,
+  mySlotNumber: null,
+  teams: [{
+    teamNumber: 1,
+    legacy: false,
+    captainGameName: "Captain",
+    slots: [
+      { slotNumber: 1, occupied: true, gameName: "Captain", isCaptain: true, canJoin: false, canRemove: false, registrationId: null },
+      { slotNumber: 2, occupied: false, gameName: null, isCaptain: false, canJoin: true, canRemove: false, registrationId: null },
+      { slotNumber: 3, occupied: false, gameName: null, isCaptain: false, canJoin: true, canRemove: false, registrationId: null },
+      { slotNumber: 4, occupied: false, gameName: null, isCaptain: false, canJoin: true, canRemove: false, registrationId: null },
+    ],
+  }],
+};
+
 export function useDaily007V2GetSquadSlots(_tournamentId: string, _options?: unknown) {
-  return noQuery({ slots: [] });
+  const showLayoutFixture = Boolean(
+    (globalThis as typeof globalThis & { __daily007SquadSlotsLayoutPreview?: boolean })
+      .__daily007SquadSlotsLayoutPreview,
+  );
+  return noQuery(showLayoutFixture ? squadSlotLayoutPreview : { slots: [] });
 }
 
 export function useDaily007V2JoinSquadSlot() {

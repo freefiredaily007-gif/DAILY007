@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, Pressable } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, PixelRatio, Pressable, useWindowDimensions } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
   getGetTournamentResultsQueryKey,
@@ -59,6 +59,8 @@ function SquadSlotsPanel({
   const [busyKey, setBusyKey] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const { width } = useWindowDimensions();
+  const compactLargeText = width <= 400 && PixelRatio.getFontScale() >= 1.5;
   const slotsQuery = useDaily007V2GetSquadSlots(tournamentId, {
     query: {
       queryKey: getDaily007V2GetSquadSlotsQueryKey(tournamentId),
@@ -185,7 +187,7 @@ function SquadSlotsPanel({
               </View>
             </View>
 
-            <View style={s.squadSlotsRow}>
+            <View style={[s.squadSlotsRow, compactLargeText && s.squadSlotsRowCompact]} testID="squad-slots-row">
               {team.slots.map((slot) => {
                 const isSelected = selected?.teamNumber === team.teamNumber &&
                   selected.slotNumber === slot.slotNumber;
@@ -214,23 +216,33 @@ function SquadSlotsPanel({
                       testID={`squad-slot-${team.teamNumber}-${slot.slotNumber}`}
                       style={[
                         s.squadSlot,
+                        compactLargeText && s.squadSlotCompact,
                         isSelected && s.squadSlotSelected,
                         !slot.canJoin && !slot.occupied && s.squadSlotUnavailable,
                       ]}
                     >
-                      <View style={s.squadSlotTitleRow}>
-                        {isCaptainSlot ? <Text style={s.squadSlotCrown}>♛</Text> : null}
-                        <Text style={s.squadSlotLabel}>{slotTitle}</Text>
+                      <View style={[s.squadSlotTitleRow, compactLargeText && s.squadSlotTitleRowCompact]}>
+                        {isCaptainSlot && !compactLargeText ? <Text style={s.squadSlotCrown}>♛</Text> : null}
+                        <Text
+                          style={s.squadSlotLabel}
+                          maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+                        >
+                          {slotTitle}
+                        </Text>
                       </View>
                       <Text
                         numberOfLines={2}
                         style={slot.occupied ? s.squadSlotName : s.squadSlotOpen}
+                        maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
                       >
                         {slotStatus}
                       </Text>
                     </Pressable>
 
-                    <View style={s.squadSlotActionArea}>
+                    <View style={[
+                      s.squadSlotActionArea,
+                      compactLargeText && s.squadSlotActionAreaCompact,
+                    ]}>
                       {slot.canRemove ? (
                         <Pressable
                           accessibilityRole="button"
@@ -242,9 +254,17 @@ function SquadSlotsPanel({
                             slotNumber: slot.slotNumber,
                           })}
                           testID={`squad-remove-${team.teamNumber}-${slot.slotNumber}`}
-                          style={s.squadRemoveButton}
+                          style={[
+                            s.squadRemoveButton,
+                            compactLargeText && s.squadRemoveButtonCompact,
+                          ]}
                         >
-                          <Text style={s.squadRemoveButtonText}>REMOVE</Text>
+                          <Text
+                            style={s.squadRemoveButtonText}
+                            maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+                          >
+                            REMOVE
+                          </Text>
                         </Pressable>
                       ) : isSelected && slot.canJoin ? (
                         <Pressable
@@ -253,9 +273,19 @@ function SquadSlotsPanel({
                           accessibilityHint="Opens the player details and payment form for this team slot."
                           onPress={() => setJoinDetailsOpen(true)}
                           testID={`squad-join-select-${team.teamNumber}-${slot.slotNumber}`}
-                          style={s.squadSlotJoinButton}
+                          style={[
+                            s.squadSlotJoinButton,
+                            compactLargeText && s.squadSlotJoinButtonCompact,
+                          ]}
                         >
-                          <Text style={s.squadSlotJoinButtonText}>JOIN{"\n"}TEAM {teamNumber}</Text>
+                          <Text
+                            style={s.squadSlotJoinButtonText}
+                            maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+                          >
+                            {compactLargeText
+                              ? <>JOIN{"\n"}TEAM{"\n"}{teamNumber}</>
+                              : <>JOIN{"\n"}TEAM {teamNumber}</>}
+                          </Text>
                         </Pressable>
                       ) : (
                         <View style={s.squadSlotActionSpacer} />
@@ -973,12 +1003,14 @@ const s = StyleSheet.create({
   },
   squadJoinedText: { color: C.sub, fontSize: 8, fontWeight: '900', letterSpacing: 0.3 },
   squadSlotsRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  squadSlotColumn: { flex: 1, minWidth: 0 },
+  squadSlotColumn: { flex: 1, flexBasis: 0, minWidth: 0 },
   squadSlot: {
     width: '100%', height: 76, borderWidth: 1, borderColor: C.squadBorder, borderRadius: 12,
     backgroundColor: C.squadTile, paddingHorizontal: 3, paddingVertical: 7,
     alignItems: 'center', justifyContent: 'space-between',
   },
+  squadSlotsRowCompact: { gap: 6 },
+  squadSlotCompact: { height: 92 },
   squadSlotSelected: {
     borderColor: C.squadAccent, borderWidth: 2, backgroundColor: C.squadAccent + '18',
     ...(Platform.OS === 'web'
@@ -993,6 +1025,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3,
     minHeight: 14, width: '100%',
   },
+  squadSlotTitleRowCompact: { minHeight: 22, gap: 0 },
   squadSlotCrown: { color: C.gold, fontSize: 10, fontWeight: '900' },
   squadSlotLabel: { color: C.text, fontSize: 9, fontWeight: '900', textAlign: 'center' },
   squadSlotName: {
@@ -1004,11 +1037,13 @@ const s = StyleSheet.create({
     textAlign: 'center', lineHeight: 9, width: '100%',
   },
   squadSlotActionArea: { height: 38, width: '100%', marginTop: 4 },
+  squadSlotActionAreaCompact: { height: 68 },
   squadSlotActionSpacer: { flex: 1 },
   squadSlotJoinButton: {
     minHeight: 34, width: '100%', alignItems: 'center', justifyContent: 'center',
     backgroundColor: C.squadAccent, borderRadius: 8, paddingHorizontal: 1, paddingVertical: 3,
   },
+  squadSlotJoinButtonCompact: { minHeight: 62, paddingVertical: 4 },
   squadSlotJoinButtonText: {
     color: C.squadPanel, fontSize: 8, fontWeight: '900', textAlign: 'center', lineHeight: 9,
   },
@@ -1017,6 +1052,7 @@ const s = StyleSheet.create({
     backgroundColor: C.red + '22', borderColor: C.red + '66', borderWidth: 1,
     borderRadius: 8, paddingHorizontal: 1, paddingVertical: 3,
   },
+  squadRemoveButtonCompact: { minHeight: 62, paddingVertical: 4 },
   squadRemoveButtonText: { color: C.red, fontSize: 7, fontWeight: '900', textAlign: 'center' },
   squadConfirmPanel: {
     marginTop: 10, padding: 10, backgroundColor: C.bg, borderColor: C.gold + '66',
