@@ -70,7 +70,7 @@ test('the tournament card retains its title, status, values, slot counts, and Jo
   assert.match(matchCardSource, /<Badge text=\{s\.label\} color=\{s\.color\} \/>/);
   assert.match(matchCardSource, /ENTRY[\s\S]*t\?\.entryCoins \?\? 0/);
   assert.match(matchCardSource, /PRIZE POOL[\s\S]*t\?\.prizePool \?\? 0/);
-  assert.match(matchCardSource, /\{filled\}\/\{total\} \{slotUnit\}/);
+  assert.match(matchCardSource, /\{displayedFilled\}\/\{displayedTotal\} \{slotUnit\}/);
   assert.match(matchCardSource, /'JOIN NOW →'/);
   assert.match(
     tournamentsSource,

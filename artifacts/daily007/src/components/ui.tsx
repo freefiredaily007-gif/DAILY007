@@ -4,6 +4,7 @@ import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing, Image
 import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
 import { Feather } from '@expo/vector-icons';
 import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
+import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import {
   nativeTextScaleTextProps,
   type NativeTextScaleLayoutObserver,
@@ -508,6 +509,9 @@ export function MatchCard({
   const slotUnit = isIndividualSquad ? 'players' : t?.slotUnit === 'player' ? 'players' : 'teams';
   const displayedFilled = isIndividualSquad ? filledPlayers : filled;
   const displayedTotal = isIndividualSquad ? totalPlayers : total;
+  const schedule = getRoomCredentialSchedule(t?.startsAt);
+  const scheduledDate = schedule?.date ?? fmtDate(t?.date);
+  const scheduledTime = schedule?.startTime24 ?? t?.time;
   const { format, showFormatBanner, showBattleRoyalePoster } = formatPresentation;
   const usesArtCard = showFormatBanner || showBattleRoyalePoster;
   const statusUnknown = t?.joinedStatusUnknown === true;
@@ -582,8 +586,8 @@ export function MatchCard({
         {!showFormatBanner && <View style={mc.sep} />}
         <View style={[mc.metaRow, largeText && mc.metaRowLarge]}>
           <Text style={[mc.meta, largeText && mc.metaLarge]}>
-            📅 {fmtDate(t?.date)}{t?.time ? ' • ' : ''}
-            {t?.time ? <Text style={mc.metaTime}>{fmtTime12(t.time)} IST</Text> : null}
+            📅 {scheduledDate}{scheduledTime ? ' • ' : ''}
+            {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
           </Text>
           <Text style={[mc.meta, largeText && mc.metaLarge]}>{displayedFilled}/{displayedTotal} {slotUnit}</Text>
         </View>

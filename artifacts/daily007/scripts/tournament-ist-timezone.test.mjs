@@ -4,10 +4,12 @@ import test from "node:test";
 import { getRoomCredentialSchedule } from "../src/lib/roomCredentialTiming.ts";
 import { getTournamentLifecycleState } from "../src/lib/tournamentLifecycle.ts";
 
-const [homeSource, myMatchesSource, detailSource] = await Promise.all([
+const [homeSource, myMatchesSource, detailSource, tournamentsSource, uiSource] = await Promise.all([
   readFile(new URL("../src/screens/Home.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/screens/MyMatches.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/screens/TDetail.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/screens/Tournaments.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/components/ui.tsx", import.meta.url), "utf8"),
 ]);
 
 test("all tournament screens show the canonical IST date and time", () => {
@@ -42,6 +44,16 @@ test("all tournament screens show the canonical IST date and time", () => {
     /const schedule = getRoomCredentialSchedule\(t\.startsAt\);[\s\S]*?\$\{schedule\.date\} · \$\{fmtTime12\(schedule\.startTime24\)\} IST/,
     "Tournament Details must use the canonical start timestamp for both visible date and time",
   );
+  assert.match(
+    uiSource,
+    /const schedule = getRoomCredentialSchedule\(t\?\.startsAt\);[\s\S]*?const scheduledDate = schedule\?\.date \?\? fmtDate\(t\?\.date\);[\s\S]*?const scheduledTime = schedule\?\.startTime24 \?\? t\?\.time;/,
+    "shared MatchCard must prefer the canonical start timestamp over legacy date and time fields",
+  );
+  assert.match(
+    uiSource,
+    /📅 \{scheduledDate\}\{scheduledTime \? ' • ' : ''\}[\s\S]*?fmtTime12\(scheduledTime\)\} IST/,
+    "shared MatchCard must display the canonical IST date and time",
+  );
 });
 
 test("Pacific/Kiritimati device dates cannot shift the displayed tournament schedule", () => {
@@ -69,6 +81,17 @@ test("Pacific/Kiritimati device dates cannot shift the displayed tournament sche
     assert.match(homeSource, /getUpcomingHomeTournaments\(items, clockNow\)/);
     assert.match(myMatchesSource, /getTournamentLifecycleState\(r\.tournament, clockNow\)/);
     assert.match(detailSource, /getTournamentLifecycleState\(t, clockNow\)/);
+    assert.match(tournamentsSource, /const lifecycleOf = \(tournament: any\) => getTournamentLifecycleState\(tournament, clockNow\)/);
+    assert.match(
+      tournamentsSource,
+      /const state = lifecycleOf\(item\);\s*const cardItem = state === 'ongoing' && item\.status !== 'ongoing'\s*\?\s*\{ \.\.\.item, status: 'ongoing' \}\s*:\s*item;/,
+      "tournament cards must reflect the canonical lifecycle even when the server status is stale",
+    );
+    assert.match(
+      tournamentsSource,
+      /return \[\.\.\.releaseTransition, schedule\.startsAtMs\];[\s\S]*?if \(nextTransition <= now && listFocused\.current && AppState\.currentState === 'active'\) \{[\s\S]*?setClockNow\(now\);/,
+      "the list must update its lifecycle clock at the canonical start instant",
+    );
   } finally {
     if (previousTimezone === undefined) delete process.env.TZ;
     else process.env.TZ = previousTimezone;
