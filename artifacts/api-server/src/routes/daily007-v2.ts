@@ -1426,6 +1426,7 @@ router.put("/daily007/v2/admin/matches/:id/room", authenticate, async (req, res)
 });
 
 router.get("/daily007/v2/matches/:id/room", authenticate, async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   const matchId = requestId(req);
   if (!matchId) {
     fail(res, 400, "Match id must be a UUID.");

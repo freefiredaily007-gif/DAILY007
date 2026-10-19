@@ -897,6 +897,7 @@ function mayExposeRoom(row: RegistrationRow, nowMs = Date.now()): boolean {
 }
 
 router.get("/my/registrations", authenticate, async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   const account = req.daily007Account;
   if (!account) return fail(res, 401, "Authentication is required.");
   const result = await pool.query<RegistrationRow>(
@@ -1020,6 +1021,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
 });
 
 router.get("/admin/registrations", authenticate, async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   if (!requireTournamentAdmin(req, res)) return;
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
@@ -1475,6 +1477,7 @@ router.delete("/admin/registrations/:id", authenticate, async (req, res): Promis
 });
 
 router.get("/admin/tournaments/:id/room", authenticate, async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   if (!id) return fail(res, 400, "Tournament id must be a UUID.");
@@ -1493,6 +1496,7 @@ router.get("/admin/tournaments/:id/room", authenticate, async (req, res): Promis
 });
 
 router.put("/admin/tournaments/:id/room", authenticate, async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   if (!requireTournamentAdmin(req, res)) return;
   const id = idFrom(req);
   const body = req.body as unknown;

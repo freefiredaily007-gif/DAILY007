@@ -75,7 +75,7 @@ after(() => {
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
 });
 
-type JsonResult = { status: number; body: any };
+type JsonResult = { status: number; body: any; headers: Headers };
 
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
@@ -114,12 +114,12 @@ async function request(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: response.status, body: await response.json() };
+  return { status: response.status, body: await response.json(), headers: response.headers };
 }
 
 async function requestPublic(origin: string, path: string): Promise<JsonResult> {
   const response = await fetch(`${origin}${path}`);
-  return { status: response.status, body: await response.json() };
+  return { status: response.status, body: await response.json(), headers: response.headers };
 }
 
 function resetPublicTournamentAtReleaseTime(): void {
@@ -148,6 +148,63 @@ function assertPublicTournamentOmitsRoomCredentials(tournament: any): void {
   }
 }
 
+test("tournament admin registration details are not cached", async () => {
+  roomAccessTestDb.reset();
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+
+  await withServer(async (origin) => {
+    const response = await request(origin, "/admin/registrations", "GET", adminToken);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(Array.isArray(response.body), true);
+  });
+});
+
+test("tournament admin room credentials are not cached", async () => {
+  roomAccessTestDb.reset();
+  const adminToken = makeToken(TEST_ADMIN_ID, 0);
+  assert.ok(adminToken);
+
+  await withServer(async (origin) => {
+    const response = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/room`,
+      "GET",
+      adminToken,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(response.body, {
+      id: TEST_MATCH_ID,
+      roomId: "TEST-ROOM-820",
+      roomPassword: "fixture-only-password",
+      roomTime: "12:00 AM",
+      roomPublished: true,
+    });
+
+    const replacementCredentials = {
+      roomId: "NO-STORE-ROOM-820",
+      roomPassword: "no-store-fixture-password",
+    };
+    const saved = await request(
+      origin,
+      `/admin/tournaments/${TEST_MATCH_ID}/room`,
+      "PUT",
+      adminToken,
+      replacementCredentials,
+    );
+    assert.equal(saved.status, 200);
+    assert.equal(saved.headers.get("cache-control"), "no-store");
+    assert.deepEqual(saved.body, {
+      id: TEST_MATCH_ID,
+      roomPublished: true,
+      roomTime: "12:00 AM",
+      ...replacementCredentials,
+    });
+  });
+});
+
 test("compat registrations gate room credentials by release time and approval status", async () => {
   roomAccessTestDb.reset();
   setMatchStartInstant(new Date(Date.now() + ROOM_CREDENTIAL_REVEAL_LEAD_MS + 60_000));
@@ -164,6 +221,7 @@ test("compat registrations gate room credentials by release time and approval st
   await withServer(async (origin) => {
     const playerRegistrations = await request(origin, "/my/registrations", "GET", playerToken);
     assert.equal(playerRegistrations.status, 200);
+    assert.equal(playerRegistrations.headers.get("cache-control"), "no-store");
     assert.deepEqual(playerRegistrations.body.map((registration: any) => registration.id), [
       TEST_REGISTRATION_ID,
     ]);
@@ -212,6 +270,7 @@ test("compat registrations gate room credentials by release time and approval st
     setMatchStartInstant(new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS));
     const playerAtBoundary = await request(origin, "/my/registrations", "GET", playerToken);
     assert.equal(playerAtBoundary.status, 200);
+    assert.equal(playerAtBoundary.headers.get("cache-control"), "no-store");
     assert.equal(playerAtBoundary.body[0].roomId, "TEST-ROOM-820");
     assert.equal(playerAtBoundary.body[0].roomPassword, "fixture-only-password");
     assert.equal(playerAtBoundary.body[0].roomTime, "12:00 AM");
@@ -377,6 +436,7 @@ test("v2 room endpoint requires approval and an open release window", async () =
     setMatchStartInstant(new Date(boundaryNow + ROOM_CREDENTIAL_REVEAL_LEAD_MS));
     const approvedAtBoundary = await request(origin, path, "GET", playerToken);
     assert.equal(approvedAtBoundary.status, 200);
+    assert.equal(approvedAtBoundary.headers.get("cache-control"), "no-store");
     assert.deepEqual(approvedAtBoundary.body, {
       roomId: "TEST-ROOM-820",
       roomPassword: "fixture-only-password",
@@ -1123,6 +1183,7 @@ test("both admin room save APIs accept and preserve 200-character credentials", 
         adminToken,
       );
       assert.equal(readBack.status, 200);
+      assert.equal(readBack.headers.get("cache-control"), "no-store");
       assert.deepEqual(readBack.body, {
         id: TEST_MATCH_ID,
         roomId: credentials.roomId,
@@ -1138,6 +1199,7 @@ test("both admin room save APIs accept and preserve 200-character credentials", 
         playerToken,
       );
       assert.equal(v2PlayerRead.status, 200);
+      assert.equal(v2PlayerRead.headers.get("cache-control"), "no-store");
       assert.deepEqual(v2PlayerRead.body, credentials);
       assert.equal(v2PlayerRead.body.roomId.length, 200);
       assert.equal(v2PlayerRead.body.roomPassword.length, 200);
@@ -1149,6 +1211,7 @@ test("both admin room save APIs accept and preserve 200-character credentials", 
         playerToken,
       );
       assert.equal(compatibilityPlayerRead.status, 200);
+      assert.equal(compatibilityPlayerRead.headers.get("cache-control"), "no-store");
       assert.equal(compatibilityPlayerRead.body[0].roomId, credentials.roomId);
       assert.equal(compatibilityPlayerRead.body[0].roomPassword, credentials.roomPassword);
       assert.equal(compatibilityPlayerRead.body[0].tournament.roomId, credentials.roomId);
