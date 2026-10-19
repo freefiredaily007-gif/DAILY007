@@ -5,6 +5,7 @@ import {
   walletTransactionAmount,
   walletTransactionDescription,
 } from '../src/lib/wallet-transaction-display.ts';
+import { walletHistoryForUser } from '../src/lib/wallet-history-state.ts';
 import { completeDaily007VideoWatch } from '../../api-server/src/lib/daily007-video-rewards.ts';
 import ts from 'typescript';
 
@@ -149,6 +150,7 @@ function createWalletLoadHarness({ Api, refresh, walletUserId = 'wallet-player' 
     historyLoadVersion: { current: 0 },
     refresh,
     walletUserId,
+    walletHistoryForUser,
     ...setters,
   });
   const refreshHistoryDeclaration = findVariableDeclaration(walletSourceFile, 'refreshHistory');
@@ -464,7 +466,7 @@ test('Wallet labels a stale balance when refresh fails and replaces it after a s
   assert.match(state.balanceLoadError, /Could not refresh your available coin balance/);
   assert.match(state.balanceLoadError, /Showing the last known balance/);
   assert.equal(state.historyLoadError, '');
-  assert.deepEqual(state.history.items.map((item) => item.id), currentRewards.map((item) => item.id));
+  assert.deepEqual(state.history.items.map((item) => item.id), [...currentRewards].reverse().map((item) => item.id));
 
   serverBalance = 34;
   currentRewards = [
@@ -482,7 +484,7 @@ test('Wallet labels a stale balance when refresh fails and replaces it after a s
   assert.equal(displayedBalance, 34);
   assert.equal(state.balanceLoadError, '');
   assert.equal(state.historyLoadError, '');
-  assert.deepEqual(state.history.items.map((item) => item.id), currentRewards.map((item) => item.id));
+  assert.deepEqual(state.history.items.map((item) => item.id), [...currentRewards].reverse().map((item) => item.id));
   assert.equal(state.loading, false);
   assert.match(walletScreenSource, /testID="wallet-balance-error"/);
   assert.match(walletScreenSource, /testID="wallet-balance-retry"/);
@@ -557,7 +559,7 @@ test('Wallet labels retained transactions when history fails and replaces them a
   assert.equal(displayedBalance, 53);
   assert.equal(state.balanceLoadError, '');
   assert.equal(state.historyLoadError, '');
-  assert.deepEqual(state.history.items.map((item) => item.id), currentRewards.map((item) => item.id));
+  assert.deepEqual(state.history.items.map((item) => item.id), [...currentRewards].reverse().map((item) => item.id));
   assert.equal(state.history.transactionCursor, null);
   assert.equal(state.loading, false);
   assert.match(walletScreenSource, /testID="wallet-history-error"/);

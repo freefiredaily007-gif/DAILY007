@@ -243,7 +243,7 @@ export default function Wallet({
       if (!hasWithdrawals) auxiliaryFailures.push('withdrawal requests');
       if (!hasSettings) auxiliaryFailures.push('wallet settings');
       setError(auxiliaryFailures.length
-        ? `Could not refresh ${auxiliaryFailures.join(', ')}. Previously loaded details are still shown.`
+        ? `Could not refresh ${auxiliaryFailures.join(', ')}. Some wallet details may be outdated. Pull to refresh to retry.`
         : '');
 
       if (hasSettings) {
@@ -551,6 +551,7 @@ export default function Wallet({
                     text={balanceLoadError}
                     testID="wallet-balance-error"
                     accessibilityLabel={balanceLoadError}
+                    accessibilityLiveRegion={Platform.OS === 'ios' ? undefined : 'assertive'}
                   />
                   <Btn
                     title={loading ? 'REFRESHING BALANCE…' : 'RETRY BALANCE'}
