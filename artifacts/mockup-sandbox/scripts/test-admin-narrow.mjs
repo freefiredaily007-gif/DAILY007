@@ -5679,6 +5679,21 @@ async function assertAdminScheduledStartState({
         document.querySelector('[data-testid="admin-tournament-tab-' + status + '"]'),
       ])
     );
+    const isSelected = (status) => {
+      const tab = tabs[status];
+      if (!tab) return false;
+      if (
+        tab.getAttribute("aria-pressed") === "true" ||
+        tab.getAttribute("aria-selected") === "true"
+      ) return true;
+      const tabBorder = getComputedStyle(tab).borderColor;
+      return statuses
+        .filter((otherStatus) => otherStatus !== status)
+        .every((otherStatus) =>
+          tabs[otherStatus] &&
+          getComputedStyle(tabs[otherStatus]).borderColor !== tabBorder
+        );
+    };
     const actionIds = [
       "edit-tournament-resume-boundary",
       "delete-tournament-resume-boundary",
@@ -5694,9 +5709,7 @@ async function assertAdminScheduledStartState({
     const pageText = window.__daily007TournamentResume.getVisibleText();
     return {
       adminScreenVisible: Boolean(document.querySelector('[data-testid="admin-tournament-status-tabs"]')),
-      selectedTab: statuses.find((status) =>
-        tabs[status] && getComputedStyle(tabs[status]).borderColor === "rgb(255, 61, 61)"
-      ) ?? null,
+      selectedTab: statuses.find(isSelected) ?? null,
       counts: Object.fromEntries(
         statuses.map((status) => [status, tabs[status]?.getAttribute("aria-label") ?? null])
       ),
@@ -6099,8 +6112,13 @@ async function checkSimultaneousTournamentStarts() {
     "window.__daily007TournamentResume.getScheduledStartInfo().schedules",
   );
   assert(
-    adminSchedules.length === 2 && adminSchedules[0].startMs === adminSchedules[1].startMs,
-    `Admin tournaments must share an exact start instant: ${JSON.stringify(adminSchedules)}.`,
+    adminSchedules.length === 2 &&
+      adminSchedules[0].startMs === adminSchedules[1].startMs &&
+      adminSchedules[0].startsAt !== adminSchedules[1].startsAt &&
+      adminSchedules[0].startsAt.endsWith("+05:30") &&
+      adminSchedules[1].startsAt.endsWith("Z") &&
+      Date.parse(adminSchedules[0].startsAt) === Date.parse(adminSchedules[1].startsAt),
+    `Admin tournaments must use different offset strings for the same canonical start instant: ${JSON.stringify(adminSchedules)}.`,
   );
   await clickSelector('[data-testid="admin-tournament-tab-ongoing"]', "Admin Ongoing filter");
   await waitForCondition(
@@ -6121,6 +6139,7 @@ async function checkSimultaneousTournamentStarts() {
   tournamentReads = await evaluate(
     "window.__daily007TournamentResume.getTournamentReadCount()",
   );
+  await evaluate("window.__daily007TournamentResume.resetStartAnnouncementEvents()");
   await evaluate("window.__daily007TournamentResume.rememberFocus()");
   await evaluate("window.__daily007TournamentResume.advanceClockPastFirstStart()");
   await waitForCondition(
@@ -6158,6 +6177,13 @@ async function checkSimultaneousTournamentStarts() {
     (announcement.match(new RegExp(firstName, "g")) ?? []).length === 1 &&
       (announcement.match(new RegExp(secondName, "g")) ?? []).length === 1,
     `Each Admin tournament must be named exactly once: ${JSON.stringify(announcement)}.`,
+  );
+  const adminAnnouncementEvents = await evaluate(
+    "window.__daily007TournamentResume.getStartAnnouncementEvents()",
+  );
+  assert(
+    JSON.stringify(adminAnnouncementEvents) === JSON.stringify([expectedAnnouncement]),
+    `Admin must publish exactly one combined announcement for equivalent timestamp strings: ${JSON.stringify(adminAnnouncementEvents)}.`,
   );
   assert(
     await evaluate(`document.querySelector('[data-testid="tournament-start-announcement"]')?.getAttribute('aria-live') === 'polite'`),

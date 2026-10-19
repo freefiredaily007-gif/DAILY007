@@ -11,6 +11,13 @@ if (!rootElement) throw new Error("Tournament resume preview root is missing.");
 const root = createRoot(rootElement);
 let rememberedFocus = null;
 const loadAnnouncementEvents = [];
+const startAnnouncementEvents = [];
+const captureStartAnnouncement = () => {
+  const region = rootElement.querySelector('[data-testid="tournament-start-announcement"]');
+  const text = region?.textContent?.trim() ?? "";
+  if (!text || startAnnouncementEvents.at(-1) === text) return;
+  startAnnouncementEvents.push(text);
+};
 const captureLoadAnnouncement = (region) => {
   const testID = region.getAttribute("data-testid")
     ?? region.closest("[data-testid]")?.getAttribute("data-testid");
@@ -40,6 +47,7 @@ const loadAnnouncementObserver = new MutationObserver((mutations) => {
       : mutation.target.parentElement;
     if (target) inspectLoadAnnouncementNode(target);
     mutation.addedNodes.forEach(inspectLoadAnnouncementNode);
+    captureStartAnnouncement();
   }
 });
 loadAnnouncementObserver.observe(rootElement, {
@@ -121,8 +129,12 @@ const asIstTime = (timestamp) => {
   return `${String(hour12).padStart(2, "0")}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`;
 };
 
-const scheduledTournament = (id, name, startsAtMs) => {
-  const startsAt = asIstTimestamp(startsAtMs);
+const scheduledTournament = (
+  id,
+  name,
+  startsAtMs,
+  startsAt = asIstTimestamp(startsAtMs),
+) => {
   return {
     id,
     name,
@@ -299,6 +311,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getApprovedRegistrationRequests: () => [...approvedRegistrationRequests],
     releaseApprovedRegistrationRetry: () => releaseApprovedRegistrationRetry(),
     getLoadAnnouncementEvents: () => loadAnnouncementEvents.map((event) => ({ ...event })),
+    getStartAnnouncementEvents: () => [...startAnnouncementEvents],
+    resetStartAnnouncementEvents: () => { startAnnouncementEvents.splice(0); },
     resetTournamentReadCount: apiMocks.resetTournamentReadCount,
     getVisibleText: () => {
       const text = document.body.innerText || '';
@@ -382,6 +396,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
             "resume-boundary-later",
             laterScheduledTournamentName,
             laterScheduledStartMs,
+            sameTimeStartOnly
+              ? new Date(laterScheduledStartMs).toISOString()
+              : asIstTimestamp(laterScheduledStartMs),
           ),
         );
       }
