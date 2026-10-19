@@ -119,6 +119,25 @@ async function waitForBlockedPasswordAttemptSettlements(blockerPid: number, expe
   throw new Error(`Timed out waiting for ${expectedCount} password-change checks to overlap.`);
 }
 
+async function waitForSettledPasswordAttempts(
+  userIds: string[],
+): Promise<Array<{ user_id: string; failures: number; in_flight: number }>> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ user_id: string; failures: number; in_flight: number }>(
+      `SELECT user_id, failures, in_flight
+         FROM daily007_password_change_attempts
+        WHERE user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+    if (result.rows.length === userIds.length && result.rows.every(({ in_flight }) => in_flight === 0)) {
+      return result.rows;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for password-change attempts to settle for ${userIds.length} accounts.`);
+}
+
 after(async () => {
   await Promise.all(apiProcesses.map((apiProcess) => apiProcess.stop()));
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
@@ -159,11 +178,11 @@ test("password-change attempt limit survives process restart and is shared by co
   assert.deepEqual(nextAttempts.map(({ status }) => status).sort(), [401, 401, 401, 429, 429, 429]);
   assert.ok(nextAttempts.some(({ status, retryAfter }) => status === 429 && Number(retryAfter) > 0));
 
-  const storedLimit = await pool.query<{ failures: number; in_flight: number }>(
-    "SELECT failures, in_flight FROM daily007_password_change_attempts WHERE user_id = $1",
-    [userId],
+  const storedLimit = await waitForSettledPasswordAttempts([userId]);
+  assert.deepEqual(
+    { failures: storedLimit[0]?.failures, in_flight: storedLimit[0]?.in_flight },
+    { failures: 5, in_flight: 0 },
   );
-  assert.deepEqual(storedLimit.rows[0], { failures: 5, in_flight: 0 });
 
   await pool.query(
     "UPDATE daily007_password_change_attempts SET expires_at = now() - interval '1 second' WHERE user_id = $1",
@@ -172,6 +191,7 @@ test("password-change attempt limit survives process restart and is shared by co
   const recovered = await passwordChange(concurrentProcess.origin, token);
   assert.equal(recovered.status, 401, "the account should accept a password check after the window expires");
 
+  await waitForSettledPasswordAttempts([userId]);
   const afterExpiry = await pool.query<{ failures: number; in_flight: number; expires_at: Date }>(
     "SELECT failures, in_flight, expires_at FROM daily007_password_change_attempts WHERE user_id = $1",
     [userId],
@@ -226,23 +246,71 @@ test("exhausting one player's password-change attempts does not block another pl
   assert.equal(secondPlayerCheck.status, 200, "the second player's correct password check should remain available");
   assert.equal(secondPlayerCheck.retryAfter, null);
 
-  const attemptRows = await pool.query<{
-    user_id: string;
-    failures: number;
-    in_flight: number;
-  }>(
-    `SELECT user_id, failures, in_flight
-       FROM daily007_password_change_attempts
-      WHERE user_id = ANY($1::uuid[])`,
-    [[firstUserId, secondUserId]],
-  );
-  const attemptsByUser = new Map(attemptRows.rows.map(({ user_id, failures, in_flight }) => [
+  const attemptRows = await waitForSettledPasswordAttempts([firstUserId, secondUserId]);
+  const attemptsByUser = new Map(attemptRows.map(({ user_id, failures, in_flight }) => [
     user_id,
     { failures, in_flight },
   ]));
   assert.equal(attemptsByUser.size, 2);
   assert.deepEqual(attemptsByUser.get(firstUserId), { failures: 5, in_flight: 0 });
   assert.deepEqual(attemptsByUser.get(secondUserId), { failures: 0, in_flight: 0 });
+});
+
+test("a successful password change resets only that player's previous incorrect checks", async () => {
+  const firstUserId = randomUUID();
+  const secondUserId = randomUUID();
+  const firstPassword = "first-player-current-password";
+  const secondPassword = "second-player-current-password";
+  const firstCredentials = await hashPassword(firstPassword);
+  const secondCredentials = await hashPassword(secondPassword);
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES
+       ($1, 'First Reset Player', $2, $3, $4),
+       ($5, 'Second Reset Player', $6, $7, $8)`,
+    [
+      firstUserId,
+      `password-change-reset-first-${firstUserId}@example.test`,
+      firstCredentials.salt,
+      firstCredentials.hash,
+      secondUserId,
+      `password-change-reset-second-${secondUserId}@example.test`,
+      secondCredentials.salt,
+      secondCredentials.hash,
+    ],
+  );
+
+  const firstToken = makeToken(firstUserId, 0);
+  const secondToken = makeToken(secondUserId, 0);
+  assert.ok(firstToken);
+  assert.ok(secondToken);
+  const api = await startApiProcess();
+
+  const failedChecks = await Promise.all([
+    passwordChange(api.origin, firstToken),
+    passwordChange(api.origin, secondToken),
+  ]);
+  assert.deepEqual(failedChecks.map(({ status }) => status), [401, 401]);
+
+  const beforeSuccessfulChange = await waitForSettledPasswordAttempts([firstUserId, secondUserId]);
+  const attemptsBeforeChange = new Map(beforeSuccessfulChange.map(({ user_id, failures, in_flight }) => [
+    user_id,
+    { failures, in_flight },
+  ]));
+  assert.deepEqual(attemptsBeforeChange.get(firstUserId), { failures: 1, in_flight: 0 });
+  assert.deepEqual(attemptsBeforeChange.get(secondUserId), { failures: 1, in_flight: 0 });
+
+  const successfulChange = await passwordChange(api.origin, firstToken, firstPassword);
+  assert.equal(successfulChange.status, 200, "the first player's valid current password should permit a change");
+
+  const afterSuccessfulChange = await waitForSettledPasswordAttempts([firstUserId, secondUserId]);
+  const attemptsAfterChange = new Map(afterSuccessfulChange.map(({ user_id, failures, in_flight }) => [
+    user_id,
+    { failures, in_flight },
+  ]));
+  assert.deepEqual(attemptsAfterChange.get(firstUserId), { failures: 0, in_flight: 0 });
+  assert.deepEqual(attemptsAfterChange.get(secondUserId), { failures: 1, in_flight: 0 });
 });
 
 test("overlapping password checks keep separate retry rows and counters for two players", async () => {
@@ -330,14 +398,9 @@ test("overlapping password checks keep separate retry rows and counters for two 
   const results = await Promise.all(pendingChecks);
   assert.deepEqual(results.map(({ status }) => status), [401, 200]);
 
-  const attemptRows = await pool.query<{ user_id: string; failures: number; in_flight: number }>(
-    `SELECT user_id, failures, in_flight
-       FROM daily007_password_change_attempts
-      WHERE user_id = ANY($1::uuid[])`,
-    [[firstUserId, secondUserId]],
-  );
-  assert.equal(attemptRows.rows.length, 2, "each player should have exactly one limiter row");
-  const attemptsByUser = new Map(attemptRows.rows.map(({ user_id, failures, in_flight }) => [
+  const attemptRows = await waitForSettledPasswordAttempts([firstUserId, secondUserId]);
+  assert.equal(attemptRows.length, 2, "each player should have exactly one limiter row");
+  const attemptsByUser = new Map(attemptRows.map(({ user_id, failures, in_flight }) => [
     user_id,
     { failures, in_flight },
   ]));

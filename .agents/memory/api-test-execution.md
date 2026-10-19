@@ -46,3 +46,9 @@ When a fixture helper returns seeded rows for later edits, verify whether it ret
 **Why:** Editing a returned snapshot can leave the fixture unchanged, causing route assertions to inspect stale values.
 
 **How to apply:** After seeding, update the in-memory fixture collections directly unless the helper documents live-object semantics.
+
+For API handlers that send a response before asynchronous `finally` cleanup completes, wait for the persisted in-flight state to settle before asserting database counters.
+
+**Why:** A client can receive the response before the handler's awaited cleanup finishes, making immediate PostgreSQL assertions intermittently observe a reserved but unsettled attempt.
+
+**How to apply:** In isolated PostgreSQL integration tests, poll for the expected rows with zero in-flight work before checking settled counters.
