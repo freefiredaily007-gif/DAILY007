@@ -7185,16 +7185,54 @@ async function checkHomeRefreshOverlap() {
     `Overlapping triggers during the held poll must not duplicate its requests: ${JSON.stringify(failedPairCounts)}.`,
   );
   assert(
-    await evaluate(`window.__daily007HomeCarouselTest.failDeferredTournamentRead("Held Home tournament request failed")`),
-    "The held tournament request should reject for the failure case.",
+    await evaluate(`window.__daily007HomeCarouselTest.failDeferredRegistrationRead("Held Home registration request failed")`),
+    "The held registration request should reject for the failure case.",
   );
   assert(
-    await evaluate("window.__daily007HomeCarouselTest.releaseRegistrationRead()"),
-    "The paired registration request should settle despite its partner failing.",
+    await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+    "A further periodic refresh should be available while the tournament partner is still pending.",
+  );
+  await tapSelector(
+    '[data-testid="player-refresh-control-test-action"]',
+    "Home's manual refresh after the registration failure but before the tournament response",
+  );
+  await evaluate(`(() => {
+    const test = window.__daily007HomeCarouselTest;
+    test.setHomeAppState("background");
+    test.setHomeAppState("active");
+  })()`);
+  await delay(100);
+  const countsWhileTournamentIsStillHeld = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+    errorVisible: Boolean(document.querySelector('[data-testid="home-upcoming-refresh-error"]')),
+  })`);
+  assert(
+    countsWhileTournamentIsStillHeld.tournaments === beforeFailedPoll.tournaments + 1 &&
+      countsWhileTournamentIsStillHeld.registrations === beforeFailedPoll.registrations + 1 &&
+      !countsWhileTournamentIsStillHeld.errorVisible,
+    `A failed registration lookup must keep the paired refresh in flight until its tournament request settles: ${JSON.stringify(countsWhileTournamentIsStillHeld)}.`,
+  );
+  assert(
+    await evaluate("window.__daily007HomeCarouselTest.resolveDeferredTournamentRead()"),
+    "The paired tournament request should settle after the registration failure.",
   );
   await waitForCondition(
-    `document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText.includes("Held Home tournament request failed")`,
-    "Home to show the paired refresh failure while retaining its cards",
+    `document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText.includes("Held Home registration request failed")`,
+    "Home to show the registration failure after both requests settle",
+  );
+  const failedRegistrationPairState = await evaluate(`({
+    tournaments: window.__daily007HomeCarouselTest.getTournamentReadCount(),
+    registrations: window.__daily007HomeCarouselTest.getMyRegistrationReadCount(),
+    cards: document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length,
+    errorText: document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText ?? "",
+  })`);
+  assert(
+    failedRegistrationPairState.tournaments === beforeFailedPoll.tournaments + 1 &&
+      failedRegistrationPairState.registrations === beforeFailedPoll.registrations + 1 &&
+      failedRegistrationPairState.cards === 3 &&
+      failedRegistrationPairState.errorText.includes("Held Home registration request failed"),
+    `One paired request failure should show the registration error while preserving Home's cards: ${JSON.stringify(failedRegistrationPairState)}.`,
   );
 
   await tapSelector('[data-testid="player-refresh-control-test-action"]', "Home refresh after a failed pair");
@@ -7204,7 +7242,7 @@ async function checkHomeRefreshOverlap() {
       !document.querySelector('[data-testid="home-upcoming-refresh-error"]')`,
     "a later manual refresh to run and recover after the failed pair",
   );
-  console.log("PASS — Manual, periodic, and resume triggers share one held request pair, queue at most one resume refresh, and refresh again after a failed pair.");
+  console.log("PASS — Manual, periodic, and resume triggers share one held request pair; a registration failure waits for its tournament partner, then recovers on a later refresh.");
 }
 
 async function checkHomeQueuedRefreshWhenAway() {

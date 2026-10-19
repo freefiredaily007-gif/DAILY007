@@ -378,6 +378,7 @@ let homeCarouselRegistrationPreview = false;
 let deferredHomeRegistrationRead: {
   promise: Promise<any[]>;
   resolve: (registrations: any[]) => void;
+  reject: (error: Error) => void;
   claimed: boolean;
 } | null = null;
 export const walletPreviewCalls: { method: string; payload?: unknown }[] = [];
@@ -1089,10 +1090,12 @@ export function setNextMyRegistrationReadResponse(value: unknown) {
 
 export function deferNextHomeCarouselRegistrationRead() {
   let resolve!: (registrations: any[]) => void;
-  const promise = new Promise<any[]>((resolvePromise) => {
+  let reject!: (error: Error) => void;
+  const promise = new Promise<any[]>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  deferredHomeRegistrationRead = { promise, resolve, claimed: false };
+  deferredHomeRegistrationRead = { promise, resolve, reject, claimed: false };
 }
 
 export function releaseHomeCarouselRegistrationRead(registrations = myRegistrationPreview ?? []) {
@@ -1100,6 +1103,16 @@ export function releaseHomeCarouselRegistrationRead(registrations = myRegistrati
   if (!deferred) return false;
   deferredHomeRegistrationRead = null;
   deferred.resolve(registrations.map((registration) => ({ ...registration })));
+  return true;
+}
+
+export function failDeferredHomeCarouselRegistrationRead(
+  message = "Temporary registration refresh failure",
+) {
+  const deferred = deferredHomeRegistrationRead;
+  if (!deferred?.claimed) return false;
+  deferredHomeRegistrationRead = null;
+  deferred.reject(new Error(message));
   return true;
 }
 

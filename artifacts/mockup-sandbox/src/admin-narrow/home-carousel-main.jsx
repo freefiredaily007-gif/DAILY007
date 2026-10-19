@@ -334,6 +334,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
     deferNextRegistrationRead: apiMocks.deferNextHomeCarouselRegistrationRead,
     releaseRegistrationRead: apiMocks.releaseHomeCarouselRegistrationRead,
+    failDeferredRegistrationRead: apiMocks.failDeferredHomeCarouselRegistrationRead,
     deferNextTournamentRead: apiMocks.deferNextTournamentRead,
     resolveDeferredTournamentRead: () =>
       apiMocks.resolveDeferredTournamentRead(apiMocks.previewTournaments),
