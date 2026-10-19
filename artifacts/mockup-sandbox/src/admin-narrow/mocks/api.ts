@@ -540,6 +540,10 @@ const istDateSurfaceRegistration = {
 export function configurePlayerLargestTextPreview() {
   playerLargestTextPreview = true;
   (globalThis as any).__daily007LargestTextApiCalls = walletPreviewCalls;
+  (globalThis as any).__daily007HomeRefreshNoticeTest = {
+    getTournamentReadCount,
+    failNextTournamentRead,
+  };
 }
 
 export function getPlayerPreviewProfile() {

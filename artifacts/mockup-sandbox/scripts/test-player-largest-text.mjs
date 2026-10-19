@@ -20,6 +20,7 @@ const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position
 const profilePasswordConflictOnly = process.argv.includes("--profile-password-conflict-only");
 const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-only");
 const profileSavePersistenceOnly = process.argv.includes("--profile-save-persistence-only");
+const homeRefreshNoticeOnly = process.argv.includes("--home-refresh-notice-only");
 const browserErrors = [];
 const layoutFailures = [];
 const ignoredWebOnlyConsoleErrors = new Set([
@@ -743,6 +744,73 @@ async function checkEditProfileSavedDetailsAfterReopen(viewportWidth) {
   console.log(
     `PASS — Edit Profile at ${viewportWidth}px and 2× text; saved name, phone, and Free Fire UID remain after leaving and reopening the form.`,
   );
+}
+
+async function checkHomeRefreshNoticeStates() {
+  await waitForCondition(
+    "Boolean(window.__daily007HomeRefreshNoticeTest) && Boolean(document.querySelector('[data-testid=\"home-last-updated\"]')) && document.querySelectorAll('[data-testid^=\"home-upcoming-card-\"]').length > 0",
+    "Home to load tournament cards successfully without a refresh notice",
+  );
+  const loadedState = await evaluate(`(() => ({
+    cardCount: document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length,
+    lastUpdated: document.querySelector('[data-testid="home-last-updated"]')?.innerText ?? null,
+    refreshNotice: Boolean(document.querySelector('[data-testid="home-upcoming-refresh-error"]')),
+    textNodeWarnings: ${JSON.stringify(browserErrors)}.filter((message) => message.includes("Unexpected text node:")),
+  }))()`);
+  assert(
+    loadedState.cardCount > 0 && loadedState.lastUpdated && !loadedState.refreshNotice,
+    `A successful Home load must show cards and the last-updated time without a refresh notice: ${JSON.stringify(loadedState)}.`,
+  );
+  assert(
+    loadedState.textNodeWarnings.length === 0,
+    `A successful Home load must not emit a React Native Web text-node warning: ${JSON.stringify(loadedState.textNodeWarnings)}.`,
+  );
+
+  await evaluate(`window.__daily007HomeRefreshNoticeTest.failNextTournamentRead("Home tournament refresh failed.")`);
+  await clickSelector('[data-testid="player-refresh-control-test-action"]', "Home pull-to-refresh test action");
+  await waitForCondition(
+    "document.querySelector('[data-testid=\"home-upcoming-refresh-error\"]')?.innerText.includes('Home tournament refresh failed.') && Boolean(document.querySelector('[data-testid=\"home-upcoming-retry\"]'))",
+    "Home to show a warning and retry action after a later tournament request fails",
+  );
+  const failedRefreshState = await evaluate(`(() => ({
+    warningText: document.querySelector('[data-testid="home-upcoming-refresh-error"]')?.innerText ?? null,
+    retryLabel: document.querySelector('[data-testid="home-upcoming-retry"]')?.getAttribute("aria-label") ?? null,
+    textNodeWarnings: ${JSON.stringify(browserErrors)}.filter((message) => message.includes("Unexpected text node:")),
+  }))()`);
+  assert(
+    failedRefreshState.warningText?.includes("cards shown may be out of date") &&
+      failedRefreshState.warningText.includes("Home tournament refresh failed.") &&
+      failedRefreshState.retryLabel === "Retry tournament refresh",
+    `A failed later refresh must show the stale-card warning and a labeled retry: ${JSON.stringify(failedRefreshState)}.`,
+  );
+  assert(
+    failedRefreshState.textNodeWarnings.length === 0,
+    `The failed-refresh state must not emit a React Native Web text-node warning: ${JSON.stringify(failedRefreshState.textNodeWarnings)}.`,
+  );
+
+  await clickSelector('[data-testid="home-upcoming-retry"]', "Home tournament refresh retry");
+  await waitForCondition(
+    "!document.querySelector('[data-testid=\"home-upcoming-refresh-error\"]') && Boolean(document.querySelector('[data-testid=\"home-last-updated\"]'))",
+    "a successful Home retry to clear the refresh notice",
+  );
+  const recoveredState = await evaluate(`(() => ({
+    cardCount: document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length,
+    refreshNotice: Boolean(document.querySelector('[data-testid="home-upcoming-refresh-error"]')),
+    lastUpdated: document.querySelector('[data-testid="home-last-updated"]')?.innerText ?? null,
+    textNodeWarnings: ${JSON.stringify(browserErrors)}.filter((message) => message.includes("Unexpected text node:")),
+  }))()`);
+  assert(
+    recoveredState.cardCount > 0 && !recoveredState.refreshNotice && recoveredState.lastUpdated,
+    `A successful Home retry must retain cards, clear the notice, and restore the last-updated time: ${JSON.stringify(recoveredState)}.`,
+  );
+  assert(
+    recoveredState.textNodeWarnings.length === 0 && browserErrors.length === 0,
+    `Home refresh recovery must not leave a browser error or text-node warning: ${JSON.stringify({
+      textNodeWarnings: recoveredState.textNodeWarnings,
+      browserErrors,
+    })}.`,
+  );
+  console.log("PASS — Home has no refresh notice after a successful load, shows the retry notice after a failed refresh, and clears it after recovery without browser errors.");
 }
 
 async function checkScreen(screen, viewportWidth, fontScale = 2) {
@@ -2575,7 +2643,7 @@ try {
       "--remote-allow-origins=*",
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${temporaryProfile}`,
-      `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?screen=Home`,
+      `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?screen=Home${homeRefreshNoticeOnly ? "&manual-refresh-only=1" : ""}`,
     ],
     { stdio: "ignore" },
   );
@@ -2596,10 +2664,11 @@ try {
     mobile: true,
   });
   await delay(120);
-  if (!videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
+  if (homeRefreshNoticeOnly) await checkHomeRefreshNoticeStates();
+  if (!homeRefreshNoticeOnly && !videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
+  if (!homeRefreshNoticeOnly && !lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2667,7 +2736,8 @@ try {
     || videoCatalogPositionOnly
     || profilePasswordConflictOnly
     || profileSaveFailureOnly
-    || profileSavePersistenceOnly;
+    || profileSavePersistenceOnly
+    || homeRefreshNoticeOnly;
   for (const viewportWidth of (focusedVideoCheck ? [] : [375, 320])) {
     await cdp("Emulation.setDeviceMetricsOverride", {
       width: viewportWidth,
@@ -2749,7 +2819,9 @@ try {
     ].join("\n"));
   }
   console.log(
-    videoStartFailureOnly
+    homeRefreshNoticeOnly
+      ? "PASS — Home refresh notices appear only while stale tournament data needs recovery."
+      : videoStartFailureOnly
       ? "PASS — video-start failure is announced clearly without moving focus or offering a false reward retry."
       : lateVideoRewardResponseOnly
         ? "PASS — late video completion responses cannot affect the next playback, and its own retry still works."
