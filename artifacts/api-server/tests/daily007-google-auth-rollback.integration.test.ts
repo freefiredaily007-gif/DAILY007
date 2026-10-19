@@ -1149,6 +1149,100 @@ test("Google signup accepts lowercase five-letter referral codes with surroundin
   }
 });
 
+test("Google signup accepts lowercase long-form legacy referral codes in PostgreSQL", async () => {
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+  const referrerId = randomUUID();
+  const legacyReferralCode = referralCodeForUserId(referrerId);
+  const referralCodeInput = `  ${legacyReferralCode.toLowerCase()}  `;
+  assert.ok(legacyReferralCode.length > 5, "the registered legacy code should be long-form");
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash)
+       VALUES ($1, 'Long-Form Referral Owner', $2, 'owner-salt', 'owner-hash')`,
+      [referrerId, `legacy-referrer-${referrerId}@example.test`],
+    );
+    await pool.query(
+      "INSERT INTO daily007_v2_referral_codes (user_id, code) VALUES ($1, $2)",
+      [referrerId, legacyReferralCode],
+    );
+    await resetReferralRewardFailureTrigger("Welcome Signup Bonus");
+
+    await withServer(async (origin) => {
+      const signup = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, referralCodeInput);
+      assert.equal(signup.status, 201, "a lowercase long-form legacy code should be accepted");
+      assert.equal(signup.body.coins, 10);
+      assert.equal(typeof signup.body.token, "string");
+      assert.equal(typeof signup.body.id, "string");
+      const accountId = String(signup.body.id);
+
+      const shortCodeMatches = await pool.query<{ user_id: string }>(
+        "SELECT user_id FROM daily007_v2_referral_short_codes WHERE code = $1",
+        [legacyReferralCode],
+      );
+      assert.deepEqual(
+        shortCodeMatches.rows,
+        [],
+        "the test code must resolve through the separate legacy-code table",
+      );
+
+      const referrals = await pool.query<{
+        referrer_user_id: string;
+        referred_user_id: string;
+        code: string;
+      }>(
+        `SELECT referrer_user_id, referred_user_id, code
+           FROM daily007_v2_referrals
+          WHERE referred_user_id = $1`,
+        [accountId],
+      );
+      assert.deepEqual(
+        referrals.rows,
+        [{
+          referrer_user_id: referrerId,
+          referred_user_id: accountId,
+          code: legacyReferralCode,
+        }],
+        "PostgreSQL should store the canonical legacy code and correct referrer relationship",
+      );
+
+      const signupRewards = await pool.query<{
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+            AND reason IN ('Welcome Signup Bonus', 'Referral Signup Bonus')`,
+        [accountId],
+      );
+      assert.deepEqual(
+        signupRewards.rows,
+        [{
+          user_id: accountId,
+          amount: 10,
+          balance_after: 10,
+          reason: "Referral Signup Bonus",
+          idempotency_key: `daily007-referral-signup:${accountId}`,
+        }],
+        "the referred account should receive exactly one 10-coin signup reward",
+      );
+    });
+  } finally {
+    await resetReferralRewardFailureTrigger();
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = $1",
+      [GOOGLE_CLERK_USER_ID],
+    );
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [referrerId]);
+    resetMockGoogleUser();
+  }
+});
+
 test("a waiting Google sign-in recovers after a real referral reward transaction rollback", async () => {
   await resetReferralRewardFailureTrigger();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
