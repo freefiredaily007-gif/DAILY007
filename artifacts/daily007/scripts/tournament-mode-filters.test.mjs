@@ -38,7 +38,10 @@ import {
   startTournamentListRefreshPolling,
   TOURNAMENT_LIST_REFRESH_INTERVAL_MS,
 } from '../src/lib/tournamentLifecycle.ts';
-import { takeTournamentStartAnnouncement } from '../src/lib/tournamentStartAnnouncement.ts';
+import {
+  takeTournamentStartAnnouncement,
+  takeTournamentStartAnnouncements,
+} from '../src/lib/tournamentStartAnnouncement.ts';
 
 const homeSource = await readFile(
   new URL('../src/screens/Home.tsx', import.meta.url),
@@ -127,9 +130,10 @@ function loadLifecycleRefreshEffect(scope) {
   ).outputText;
 
   return new Function(
+    'takeTournamentStartAnnouncements',
     ...Object.keys(scope),
     `${javascript}\nreturn __effect;`,
-  )(...Object.values(scope));
+  )(takeTournamentStartAnnouncements, ...Object.values(scope));
 }
 
 function loadTournamentFocusEffect(scope) {
