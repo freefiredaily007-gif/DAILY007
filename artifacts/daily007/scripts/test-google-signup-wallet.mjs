@@ -1046,6 +1046,156 @@ try {
   assert.deepEqual(browserErrors, [], `Browser errors during password signup recovery: ${browserErrors.join(" | ")}`);
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=referral-password-signup-storage-failure`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-submit"]'))`,
+    "the authentication form for referral password signup storage recovery",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-referral-code"]'))`,
+    "the referral password signup fields",
+  );
+  await setInputValue('[data-testid="auth-name"]', "Referral Password Signup Player", "referral signup name");
+  await setInputValue('[data-testid="auth-email"]', "referral-signup@example.test", "referral signup email");
+  await setInputValue('[data-testid="auth-password"]', "testpass123", "referral signup password");
+  await setInputValue('[data-testid="auth-referral-code"]', "abcde", "password signup referral code");
+  await clickSelector('[data-testid="auth-submit"]', "create a referral password account with rejected session storage");
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the recoverable session-storage error after referral password registration",
+  );
+
+  const referralPasswordSignupFailure = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const readReferralSignupForm = () => evaluate(`(() => {
+    const inputs = {
+      name: document.querySelector('[data-testid="auth-name"]'),
+      email: document.querySelector('[data-testid="auth-email"]'),
+      password: document.querySelector('[data-testid="auth-password"]'),
+      referralCode: document.querySelector('[data-testid="auth-referral-code"]'),
+    };
+    const retryButton = document.querySelector('[data-testid="auth-submit"]');
+    return {
+      formVisible: Object.values(inputs).every(Boolean),
+      formValues: Object.fromEntries(
+        Object.entries(inputs).map(([key, input]) => [key, input?.value ?? ""]),
+      ),
+      fieldsReadOnly: Object.values(inputs).every(
+        (input) => input?.disabled === true || input?.readOnly === true,
+      ),
+      retryButtonLabel: retryButton?.getAttribute("aria-label") ?? retryButton?.innerText.trim() ?? "",
+      signedInTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
+    };
+  })()`);
+  const referralSignupValues = {
+    name: "Referral Password Signup Player",
+    email: "referral-signup@example.test",
+    password: "testpass123",
+    referralCode: "abcde",
+  };
+  assert.equal(referralPasswordSignupFailure.passwordSignupAttempts, 1);
+  assert.deepEqual(
+    referralPasswordSignupFailure.calls.filter(
+      (call) => call.method === "POST" && call.path === "/auth/register",
+    ).map((call) => call.body),
+    [{
+      name: referralSignupValues.name,
+      email: referralSignupValues.email,
+      password: referralSignupValues.password,
+      referralCode: referralSignupValues.referralCode,
+    }],
+    "The single registration request should include the entered referral code and signup details.",
+  );
+  assert.deepEqual(referralPasswordSignupFailure.storageWriteMetrics, {
+    sessionWriteAttempts: 1,
+    rejectedSessionWrites: 1,
+  });
+  assert.deepEqual(referralPasswordSignupFailure.sessionStorage, {});
+  assert.equal(referralPasswordSignupFailure.currentSession, null);
+  assert.equal(referralPasswordSignupFailure.activeAuthorization, null);
+  const referralPasswordSignupFirstRetryView = await readReferralSignupForm();
+  assert.equal(referralPasswordSignupFirstRetryView.formVisible, true);
+  assert.equal(referralPasswordSignupFirstRetryView.fieldsReadOnly, true);
+  assert.equal(referralPasswordSignupFirstRetryView.retryButtonLabel, "Retry saving session");
+  assert.deepEqual(referralPasswordSignupFirstRetryView.formValues, referralSignupValues);
+  assert.equal(referralPasswordSignupFirstRetryView.signedInTabCount, 0);
+
+  await clickSelector('[data-testid="auth-submit"]', "retry saving the referral password signup session");
+  await waitForExpression(
+    `document.body.innerText.includes("Daily007 could not save your session on this device. Check available storage and try again.")`,
+    "the repeated session-storage error after referral signup",
+  );
+  const repeatedReferralPasswordSignupFailure =
+    await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const referralPasswordSignupSecondRetryView = await readReferralSignupForm();
+  assert.equal(repeatedReferralPasswordSignupFailure.passwordSignupAttempts, 1);
+  assert.equal(
+    repeatedReferralPasswordSignupFailure.calls.filter(
+      (call) => call.method === "POST" && call.path === "/auth/register",
+    ).length,
+    1,
+    "The referral attribution and registration must not be submitted again during a session-save retry.",
+  );
+  assert.deepEqual(repeatedReferralPasswordSignupFailure.storageWriteMetrics, {
+    sessionWriteAttempts: 2,
+    rejectedSessionWrites: 2,
+  });
+  assert.deepEqual(repeatedReferralPasswordSignupFailure.sessionStorage, {});
+  assert.equal(repeatedReferralPasswordSignupFailure.currentSession, null);
+  assert.equal(referralPasswordSignupSecondRetryView.formVisible, true);
+  assert.equal(referralPasswordSignupSecondRetryView.fieldsReadOnly, true);
+  assert.equal(referralPasswordSignupSecondRetryView.retryButtonLabel, "Retry saving session");
+  assert.deepEqual(referralPasswordSignupSecondRetryView.formValues, referralSignupValues);
+  assert.equal(referralPasswordSignupSecondRetryView.signedInTabCount, 0);
+  assert.equal(repeatedReferralPasswordSignupFailure.unexpectedRequests.length, 0);
+
+  await clickSelector(
+    '[data-testid="auth-submit"]',
+    "retry saving the referral password signup session after the second failure",
+  );
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "Wallet after referral password signup session persistence succeeds",
+  );
+  await clickSelector('[data-testid="mock-tab-wallet"]', "open Wallet after referral password signup recovery");
+  await waitForExpression(
+    `document.body.innerText.includes("Referral Signup Bonus")
+      && Boolean(document.querySelector('[aria-label="Available coins: 10"]'))`,
+    "the referral signup reward in Wallet",
+  );
+  const referralPasswordSignupWalletView = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    return {
+      balanceLabel: document.querySelector('[aria-label^="Available coins:"]')?.getAttribute("aria-label") ?? "",
+      referralRewardCount: bodyText.split("Referral Signup Bonus").length - 1,
+    };
+  })()`);
+  const referralPasswordSignupRecovery =
+    await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const referralPasswordSignupCalls = referralPasswordSignupRecovery.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/register",
+  );
+  assert.equal(referralPasswordSignupCalls.length, 1);
+  assert.deepEqual(referralPasswordSignupCalls[0].body, {
+    name: referralSignupValues.name,
+    email: referralSignupValues.email,
+    password: referralSignupValues.password,
+    referralCode: referralSignupValues.referralCode,
+  });
+  assert.equal(referralPasswordSignupRecovery.storageWriteMetrics.rejectedSessionWrites, 2);
+  assert.ok(
+    referralPasswordSignupRecovery.storageWriteMetrics.sessionWriteAttempts >= 3,
+    "Session storage should be retried successfully after both injected failures.",
+  );
+  assert.equal(referralPasswordSignupRecovery.currentSession?.id, "mock-password-signup-player");
+  assert.equal(referralPasswordSignupRecovery.storedSession?.id, "mock-password-signup-player");
+  assert.equal(referralPasswordSignupRecovery.activeAuthorization, "Bearer mock-password-signup-session-token");
+  assert.equal(referralPasswordSignupWalletView.balanceLabel, "Available coins: 10");
+  assert.equal(referralPasswordSignupWalletView.referralRewardCount, 1);
+  assert.equal(referralPasswordSignupRecovery.unexpectedRequests.length, 0);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=password-signup-restart`,
   });
   await waitForExpression(

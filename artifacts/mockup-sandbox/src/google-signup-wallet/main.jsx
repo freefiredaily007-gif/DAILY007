@@ -41,6 +41,10 @@ const PASSWORD_SIGNUP_TOKEN = "mock-password-signup-session-token";
 const scenario = new URLSearchParams(window.location.search).get("scenario");
 const storageFailureScenario = scenario === "storage-write-failure";
 const passwordSignupStorageFailureScenario = scenario === "password-signup-storage-failure";
+const referralPasswordSignupStorageFailureScenario =
+  scenario === "referral-password-signup-storage-failure";
+const passwordSignupSessionStorageFailureScenario =
+  passwordSignupStorageFailureScenario || referralPasswordSignupStorageFailureScenario;
 const passwordSignupRestartScenario = scenario === "password-signup-restart";
 const profileLinkStorageRestartScenario = scenario === "profile-link-storage-restart";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
@@ -179,6 +183,10 @@ http.defaults.adapter = async (config) => {
     ...(scenario === "lowercase-referral" && method === "POST" && path === "/auth/google"
       ? { body: requestBody(config) }
       : {}),
+    ...(referralPasswordSignupStorageFailureScenario
+      && method === "POST" && path === "/auth/register"
+      ? { body: requestBody(config) }
+      : {}),
   };
   calls.push(call);
   persistRestartBackendState();
@@ -208,7 +216,7 @@ http.defaults.adapter = async (config) => {
     persistRestartBackendState();
     return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
   }
-  if (passwordSignupStorageFailureScenario && method === "POST" && path === "/auth/register") {
+  if (passwordSignupSessionStorageFailureScenario && method === "POST" && path === "/auth/register") {
     passwordAuthAttempts += 1;
     passwordSignupAttempts += 1;
     call.status = 200;
@@ -280,7 +288,7 @@ http.defaults.adapter = async (config) => {
   }
   if (method === "GET" && path === "/auth/me") {
     call.status = 200;
-    const account = passwordSignupStorageFailureScenario || passwordSignupRestartScenario
+    const account = passwordSignupSessionStorageFailureScenario || passwordSignupRestartScenario
       ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
         ? { ...PASSWORD_ACCOUNT, googleLinked: googleLinkedForPasswordAccount }
@@ -295,6 +303,7 @@ http.defaults.adapter = async (config) => {
   if (method === "GET" && path === "/wallet/transactions") {
     call.status = 200;
     const transactions = scenario === "lowercase-referral"
+      || referralPasswordSignupStorageFailureScenario
       ? [{
         id: "mock-referral-signup-bonus",
         amount: 10,
@@ -356,7 +365,7 @@ if (profileLinkStorageRestartScenario) {
   storage.clear();
 }
 if (storageFailureScenario) storage.failNextSessionWrite();
-if (passwordSignupStorageFailureScenario) storage.failSessionWrites(2);
+if (passwordSignupSessionStorageFailureScenario) storage.failSessionWrites(2);
 if (passwordSignupRestartScenario && passwordSignupRestartFirstLoad) storage.failNextSessionWrite();
 if (profileLinkScenario && (!profileLinkStorageRestartScenario || profileLinkStorageRestartFirstLoad)) {
   storage.seedSession({ ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN });
