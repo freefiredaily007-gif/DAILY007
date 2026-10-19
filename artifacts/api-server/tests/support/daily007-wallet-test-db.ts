@@ -556,19 +556,33 @@ class MemoryWalletDatabase {
           : {}),
       }));
     } else if (normalized.includes("FROM daily007_v2_withdrawals WHERE user_id = $1")) {
-      rows = [...this.withdrawals.values()]
+      let history = [...this.withdrawals.values()]
         .filter((item) => item.user_id === userId && item.status !== "deleted")
-        .map((item) => ({
-          id: item.id,
-          coins: item.coins,
-          method: item.method,
-          account: item.account,
-          status: item.status,
-          payoutStatus: item.payout_status,
-          reviewReason: item.review_reason,
-          createdAt: item.created_at,
-          reviewedAt: item.reviewed_at,
-        }));
+      if (/\bORDER BY created_at DESC\b/i.test(normalized)) {
+        const usesIdTieBreaker = /\bORDER BY created_at DESC,\s*id DESC\b/i.test(normalized);
+        history = history.sort((left, right) =>
+          right.created_at.getTime() - left.created_at.getTime() ||
+          (usesIdTieBreaker ? right.id.localeCompare(left.id) : 0),
+        );
+      }
+      const limit = normalized.match(/\bLIMIT\s+(\d+|\$\d+)\b/i);
+      if (limit) {
+        const limitValue = limit[1].startsWith("$")
+          ? Number(values[Number(limit[1].slice(1)) - 1])
+          : Number(limit[1]);
+        history = history.slice(0, limitValue);
+      }
+      rows = history.map((item) => ({
+        id: item.id,
+        coins: item.coins,
+        method: item.method,
+        account: item.account,
+        status: item.status,
+        payoutStatus: item.payout_status,
+        reviewReason: item.review_reason,
+        createdAt: item.created_at,
+        reviewedAt: item.reviewed_at,
+      }));
     } else {
       throw new Error(`Unexpected wallet test SQL: ${normalized}`);
     }

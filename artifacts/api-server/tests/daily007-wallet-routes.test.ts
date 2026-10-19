@@ -806,6 +806,42 @@ test("withdrawal limits reject invalid requests and rejection refunds a valid re
   });
 });
 
+test("withdrawal history keeps equal-timestamp requests in stable order across the 200-row limit", async () => {
+  walletTestDb.reset();
+  const createdAt = new Date("2026-10-19T12:00:00.000Z");
+  for (let sequence = 1; sequence <= 201; sequence += 1) {
+    const id = `20000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
+    walletTestDb.withdrawals.set(id, {
+      id,
+      user_id: TEST_PLAYER_ID,
+      coins: 150,
+      method: "upi",
+      account: "player@upi",
+      status: "approved",
+      payout_status: "paid",
+      review_reason: null,
+      reviewed_by: TEST_ADMIN_ID,
+      created_at: createdAt,
+      reviewed_at: createdAt,
+    });
+  }
+
+  await withServer(async (origin) => {
+    const firstHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
+    const repeatedHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
+    const expectedIds = Array.from({ length: 200 }, (_, index) =>
+      `20000000-0000-4000-8000-${String(201 - index).padStart(12, "0")}`,
+    );
+
+    assert.equal(firstHistory.status, 200);
+    assert.equal(repeatedHistory.status, 200);
+    assert.equal(firstHistory.body.length, 200);
+    assert.deepEqual(firstHistory.body.map((request: any) => request.id), expectedIds);
+    assert.deepEqual(repeatedHistory.body.map((request: any) => request.id), expectedIds);
+    assert.ok(!expectedIds.includes("20000000-0000-4000-8000-000000000001"));
+  });
+});
+
 test("players see only their own pending withdrawal and payout details", async () => {
   walletTestDb.reset();
 

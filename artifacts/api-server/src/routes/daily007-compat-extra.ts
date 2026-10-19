@@ -597,7 +597,7 @@ router.get("/my/withdrawals", authenticate, async (req, res): Promise<void> => {
     `SELECT id, coins, method, account, status, payout_status AS "payoutStatus",
             review_reason AS "reviewReason", created_at AS "createdAt",
             reviewed_at AS "reviewedAt"
-       FROM daily007_v2_withdrawals WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`, [id],
+       FROM daily007_v2_withdrawals WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 200`, [id],
   );
   res.json(result.rows);
 });
