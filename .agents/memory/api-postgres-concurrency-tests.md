@@ -93,6 +93,12 @@ To prove concurrent requests contend on a globally unique key, hold an uncommitt
 
 **How to apply:** Confirm both inserts are visible as lock waiters and linked to the blocker or each other before releasing it; then assert one insert succeeds, the other maps the unique violation to a conflict, and only one row persists.
 
+For idempotent API requests serialized by a PostgreSQL advisory lock, hold that same key in a separate transaction, start both requests, and verify both are lock waiters before releasing it.
+
+**Why:** Starting concurrent HTTP requests alone does not prove they overlapped at the idempotency boundary; holding the real key deterministically brings both to that point before either can commit.
+
+**How to apply:** Use the production key derivation in the test blocker, count both waiting statements through `pg_stat_activity` and `pg_blocking_pids()`, release the transaction, then assert successful equivalent responses and one durable effect.
+
 **Rule:** In fake-database race tests, model row locks at the same key granularity as production (for example, one lock per match and one per wallet owner); do not use a global mutex for independent rows.
 
 **Why:** A global fixture mutex can serialize requests that should overlap in production, masking races across different matches or records.

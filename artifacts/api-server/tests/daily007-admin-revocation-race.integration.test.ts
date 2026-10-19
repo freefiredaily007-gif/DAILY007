@@ -639,7 +639,11 @@ test("a retry after a lost admin coin-adjustment response does not repeat the cr
   const actorId = randomUUID();
   const targetId = randomUUID();
   const requestId = randomUUID();
-  const separateRequestId = randomUUID();
+  const idempotencyKey = `daily007-admin-adjustment:${actorId}:${requestId}`;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let idempotencyLockHeld = false;
+  let firstAttempt: Promise<JsonResponse> | undefined;
+  let overlappingRetry: Promise<JsonResponse> | undefined;
 
   try {
     await pool.query(
@@ -649,6 +653,14 @@ test("a retry after a lost admin coin-adjustment response does not repeat the cr
          ($3, 'Adjustment Target', $4, 'test-salt', 'test-hash', 'user', 100)`,
       [actorId, `adjust-admin-${actorId}@example.test`, targetId, `adjust-target-${targetId}@example.test`],
     );
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    idempotencyLockHeld = true;
+    await blocker.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [idempotencyKey],
+    );
+
     await withServer(async (origin) => {
       const firstRequest = {
         coinsDelta: 25,
@@ -656,36 +668,39 @@ test("a retry after a lost admin coin-adjustment response does not repeat the cr
         requestId,
       };
 
-      // The server commits successfully, but the simulated client discards the response.
-      await patchJson(origin, `/admin/users/${targetId}`, actorId, firstRequest);
-      const afterUnobservedCommit = await pool.query<{ wallet_coins: number }>(
-        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
-        [targetId],
+      firstAttempt = patchJson(origin, `/admin/users/${targetId}`, actorId, firstRequest);
+      overlappingRetry = patchJson(origin, `/admin/users/${targetId}`, actorId, firstRequest);
+      await waitForBlockedQueryCountBy(
+        "SELECT pg_advisory_xact_lock(hashtextextended",
+        "SELECT pg_advisory_xact_lock(hashtextextended",
+        2,
+        "both same-ID wallet adjustments to wait on the held idempotency lock",
       );
-      const ledgerAfterUnobservedCommit = await pool.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM daily007_v2_wallet_ledger WHERE user_id = $1",
-        [targetId],
-      );
-      assert.equal(afterUnobservedCommit.rows[0]?.wallet_coins, 125);
-      assert.equal(ledgerAfterUnobservedCommit.rows[0]?.count, "1");
 
-      const retry = await patchJson(origin, `/admin/users/${targetId}`, actorId, firstRequest);
-      assert.equal(retry.status, 200, JSON.stringify(retry.body));
-      assert.equal(retry.body.coins, 125);
+      await blocker!.query("COMMIT");
+      idempotencyLockHeld = false;
+      const [firstResponse, retryResponse] = await Promise.all([firstAttempt, overlappingRetry]);
+      for (const response of [firstResponse, retryResponse]) {
+        assert.equal(response.status, 200, JSON.stringify(response.body));
+        assert.equal(response.body.coins, 125);
+        assert.equal(response.body.id, targetId);
+      }
 
-      const separateAdjustment = await patchJson(origin, `/admin/users/${targetId}`, actorId, {
+      const conflictingReuse = await patchJson(origin, `/admin/users/${targetId}`, actorId, {
         ...firstRequest,
-        requestId: separateRequestId,
+        coinsDelta: 26,
       });
-      assert.equal(separateAdjustment.status, 200, JSON.stringify(separateAdjustment.body));
-      assert.equal(separateAdjustment.body.coins, 150);
+      assert.equal(conflictingReuse.status, 409, JSON.stringify(conflictingReuse.body));
+      assert.deepEqual(conflictingReuse.body, {
+        error: "This adjustment request ID was already used for a different request.",
+      });
     });
 
     const target = await pool.query<{ wallet_coins: number }>(
       "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
       [targetId],
     );
-    const firstLedgerEntry = await pool.query<{
+    const ledger = await pool.query<{
       amount: number;
       balance_after: number;
       reason: string;
@@ -693,40 +708,29 @@ test("a retry after a lost admin coin-adjustment response does not repeat the cr
     }>(
       `SELECT amount, balance_after, reason, idempotency_key
          FROM daily007_v2_wallet_ledger
-        WHERE user_id = $1 AND idempotency_key = $2`,
-      [targetId, `daily007-admin-adjustment:${actorId}:${requestId}`],
-    );
-    const separateLedgerEntry = await pool.query<{
-      amount: number;
-      balance_after: number;
-      reason: string;
-      idempotency_key: string;
-    }>(
-      `SELECT amount, balance_after, reason, idempotency_key
-         FROM daily007_v2_wallet_ledger
-        WHERE user_id = $1 AND idempotency_key = $2`,
-      [targetId, `daily007-admin-adjustment:${actorId}:${separateRequestId}`],
-    );
-    const ledgerCount = await pool.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+        WHERE user_id = $1`,
       [targetId],
     );
 
-    assert.equal(target.rows[0]?.wallet_coins, 150);
-    assert.equal(ledgerCount.rows[0]?.count, "2");
-    assert.deepEqual(firstLedgerEntry.rows[0], {
+    assert.equal(target.rows[0]?.wallet_coins, 125);
+    assert.deepEqual(ledger.rows, [{
       amount: 25,
       balance_after: 125,
       reason: "admin_adjustment:Admin added coins",
-      idempotency_key: `daily007-admin-adjustment:${actorId}:${requestId}`,
-    });
-    assert.deepEqual(separateLedgerEntry.rows[0], {
-      amount: 25,
-      balance_after: 150,
-      reason: "admin_adjustment:Admin added coins",
-      idempotency_key: `daily007-admin-adjustment:${actorId}:${separateRequestId}`,
-    });
+      idempotency_key: idempotencyKey,
+    }]);
   } finally {
+    if (blocker) {
+      if (idempotencyLockHeld) {
+        await blocker.query("ROLLBACK").catch(() => undefined);
+      }
+      blocker.release();
+    }
+    if (firstAttempt || overlappingRetry) {
+      await Promise.allSettled(
+        [firstAttempt, overlappingRetry].filter(Boolean) as Promise<JsonResponse>[],
+      );
+    }
     await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1", [targetId]);
     await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [[actorId, targetId]]);
   }
