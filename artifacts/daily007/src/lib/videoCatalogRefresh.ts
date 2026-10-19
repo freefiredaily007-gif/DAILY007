@@ -20,3 +20,15 @@ export function getVideoCatalogRefreshInterval(
 ): number | false {
   return shouldRefreshVideoCatalogOnFocus(state) ? intervalMs : false;
 }
+
+export function shouldPreserveVideoCatalogScroll({
+  isFetching,
+  isPlayerOpen,
+  scrollOffset,
+}: {
+  isFetching: boolean;
+  isPlayerOpen: boolean;
+  scrollOffset: number;
+}): boolean {
+  return isFetching && !isPlayerOpen && scrollOffset > 0;
+}

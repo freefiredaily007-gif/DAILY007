@@ -8,6 +8,7 @@ import { getCreditedVideoWatchSeconds } from "../src/lib/video-watch-progress.ts
 import {
   getVideoCatalogRefreshInterval,
   shouldRefreshVideoCatalogOnFocus,
+  shouldPreserveVideoCatalogScroll,
   VIDEO_CATALOG_REFRESH_INTERVAL_MS,
 } from "../src/lib/videoCatalogRefresh.ts";
 
@@ -1028,7 +1029,7 @@ test("a late start response from an ended playback cannot replace the replay ses
   assert.equal(startRequests.length, 2, "The stale response must not trigger a third session request.");
 });
 
-test("the visible catalog removes a video disabled while it stays open", async () => {
+test("the catalog preserves its scroll position when a video above it is removed on resume", async () => {
   assert.equal(VIDEO_CATALOG_REFRESH_INTERVAL_MS, 60_000);
   assert.equal(
     getVideoCatalogRefreshInterval({
@@ -1078,6 +1079,33 @@ test("the visible catalog removes a video disabled while it stays open", async (
     }),
     false,
   );
+  assert.equal(
+    shouldPreserveVideoCatalogScroll({
+      isFetching: true,
+      isPlayerOpen: false,
+      scrollOffset: 720,
+    }),
+    true,
+    "A mid-list refresh should capture the current scroll position before cards change.",
+  );
+  assert.equal(
+    shouldPreserveVideoCatalogScroll({
+      isFetching: true,
+      isPlayerOpen: false,
+      scrollOffset: 0,
+    }),
+    false,
+    "A catalog already at the top does not need position restoration.",
+  );
+  assert.equal(
+    shouldPreserveVideoCatalogScroll({
+      isFetching: true,
+      isPlayerOpen: true,
+      scrollOffset: 720,
+    }),
+    false,
+    "Catalog refreshes must not move the player screen.",
+  );
   assert.match(
     videoSource,
     /enabled: isFocused && isAppActive && !showPlayer,[\s\S]*?refetchInterval: getVideoCatalogRefreshInterval\(\{[\s\S]*?isPlayerOpen: showPlayer/,
@@ -1092,6 +1120,26 @@ test("the visible catalog removes a video disabled while it stays open", async (
     /const refreshCatalogIfFocused = \(\) => \{\s*if \(!active\) return;\s*if \(shouldRefreshVideoCatalogOnFocus\(\{[\s\S]*?isPlayerOpen: showPlayer,[\s\S]*?\}\)\) \{\s*void videosQuery\.refetch\(\)/,
   );
   assert.match(videoSource, /catalogRefreshes\.request\(refreshCatalogIfFocused\)/);
+  assert.match(
+    videoSource,
+    /if \(!shouldPreserveVideoCatalogScroll\(\{\s*isFetching: videosQuery\.isFetching,\s*isPlayerOpen: showPlayer,\s*scrollOffset: catalogScrollOffsetRef\.current,\s*\}\)\)\s*\{\s*return;\s*\}\s*catalogScrollRestorePendingRef\.current = true;/,
+    "A catalog refresh should capture its last scroll offset before the changed cards lay out.",
+  );
+  assert.match(
+    videoSource,
+    /y: catalogScrollOffsetRef\.current,\s*animated: false/,
+    "After the refresh, the ScrollView should restore the captured offset without animation.",
+  );
+  assert.match(
+    videoSource,
+    /if \(videosQuery\.isLoading \|\| videosQuery\.isFetching \|\| !catalogScrollRestorePendingRef\.current\)\s*\{\s*return undefined;\s*\}[\s\S]*?requestAnimationFrame\(\(\) => \{\s*catalogScrollRef\.current\?\.scrollTo\(\{\s*y: catalogScrollOffsetRef\.current,\s*animated: false,\s*\}\);\s*catalogScrollRestorePendingRef\.current = false;/,
+    "The saved offset should be applied after the refreshed cards finish loading and laying out.",
+  );
+  assert.match(
+    videoSource,
+    /const scrollOffset = event\.nativeEvent\.contentOffset\.y;\s*catalogScrollOffsetRef\.current = scrollOffset;\s*if \(shouldPreserveVideoCatalogScroll\(\{[\s\S]*?scrollOffset,\s*\}\)\)\s*\{\s*catalogScrollRestorePendingRef\.current = true;/,
+    "If a player scrolls while a refresh is already pending, keep the latest offset.",
+  );
   assert.match(videoSource, /Network\.addNetworkStateListener/);
   assert.match(videoSource, /Network\.getNetworkStateAsync\(\)/);
   assert.match(videoSource, /wasUsable === false && refreshOnReconnect/);
@@ -1133,8 +1181,13 @@ test("the visible catalog removes a video disabled while it stays open", async (
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  let activeVideos = [{ id: "disabled-video", title: "Video before admin disables it" }];
+  let activeVideos = Array.from({ length: 10 }, (_, index) => ({
+    id: `video-${index + 1}`,
+    title: `Tutorial ${index + 1}`,
+  }));
   let requestCount = 0;
+  let catalogScrollOffset = 0;
+  let catalogScrollRestoreOffset = null;
   const state = {
     isFocused: true,
     isAppActive: true,
@@ -1151,21 +1204,30 @@ test("the visible catalog removes a video disabled while it stays open", async (
     refetchIntervalInBackground: false,
   };
   const observer = new QueryObserver(queryClient, queryOptions);
-  const unsubscribe = observer.subscribe(() => {});
+  const unsubscribe = observer.subscribe(() => {
+    const shouldCaptureScroll = shouldPreserveVideoCatalogScroll({
+      isFetching: observer.getCurrentResult().isFetching,
+      isPlayerOpen: state.isPlayerOpen,
+      scrollOffset: catalogScrollOffset,
+    });
+    if (shouldCaptureScroll) catalogScrollRestoreOffset = catalogScrollOffset;
+  });
 
   await waitFor(
-    () => observer.getCurrentResult().data?.[0]?.id === "disabled-video",
+    () => observer.getCurrentResult().data?.length === 10,
     "The catalog query should load the initially active video.",
   );
-  // The Full Admin disables the listed video while the player catalog is backgrounded.
-  activeVideos = [];
+  // The player has scrolled well into the list. An Admin removes a card before
+  // that position while the app is backgrounded.
+  catalogScrollOffset = 720;
+  activeVideos = activeVideos.filter((video) => video.id !== "video-2");
   state.isAppActive = false;
   observer.setOptions({ ...queryOptions, refetchInterval: refreshInterval() });
   const requestsBeforeBackgroundWait = requestCount;
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(
-    observer.getCurrentResult().data?.[0]?.id,
-    "disabled-video",
+    observer.getCurrentResult().data?.length,
+    10,
     "The catalog should not poll or change its visible cards while the app is backgrounded.",
   );
   assert.equal(
@@ -1181,10 +1243,20 @@ test("the visible catalog removes a video disabled while it stays open", async (
   await observer.refetch();
   assert.ok(requestCount > requestsBeforeResume, "Resuming should trigger an immediate catalog request.");
   await waitFor(
-    () => observer.getCurrentResult().data?.length === 0,
-    "Resuming the app should promptly remove a video disabled by the admin.",
+    () => observer.getCurrentResult().data?.length === 9,
+    "Resuming the app should promptly remove the disabled card before the current position.",
   );
   assert.ok(requestCount >= 2);
+  assert.equal(
+    observer.getCurrentResult().data?.some((video) => video.id === "video-2"),
+    false,
+    "The refreshed catalog should no longer contain the disabled card.",
+  );
+  assert.equal(
+    catalogScrollRestoreOffset,
+    catalogScrollOffset,
+    "The refresh should restore the same nonzero position instead of resetting the list to the top.",
+  );
 
   activeVideos = [{ id: "player-disabled-video", title: "Video disabled while player is open" }];
   state.isPlayerOpen = true;
@@ -1197,7 +1269,7 @@ test("the visible catalog removes a video disabled while it stays open", async (
   assert.equal(requestCount, requestsWhenPlayerOpened, "Opening the player should stop catalog polling.");
   assert.equal(
     observer.getCurrentResult().data?.length,
-    0,
+    9,
     "The catalog should remain unchanged while the player is open.",
   );
 

@@ -48,6 +48,7 @@ import {
 import { openVideoInBrowser, openYouTubeVideo } from '../lib/video-links';
 import {
   getVideoCatalogRefreshInterval,
+  shouldPreserveVideoCatalogScroll,
   shouldRefreshVideoCatalogOnFocus,
 } from '../lib/videoCatalogRefresh';
 import {
@@ -283,6 +284,17 @@ export default function Video() {
     });
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!shouldPreserveVideoCatalogScroll({
+      isFetching: videosQuery.isFetching,
+      isPlayerOpen: showPlayer,
+      scrollOffset: catalogScrollOffsetRef.current,
+    })) {
+      return;
+    }
+    catalogScrollRestorePendingRef.current = true;
+  }, [showPlayer, videosQuery.isFetching]);
 
   useEffect(() => {
     if (showPlayer) return undefined;
@@ -777,7 +789,15 @@ export default function Video() {
           && (!videosQuery.isError || hasLoadedCatalog)
           && !catalogScrollRestorePendingRef.current
         ) {
-          catalogScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+          const scrollOffset = event.nativeEvent.contentOffset.y;
+          catalogScrollOffsetRef.current = scrollOffset;
+          if (shouldPreserveVideoCatalogScroll({
+            isFetching: videosQuery.isFetching,
+            isPlayerOpen: showPlayer,
+            scrollOffset,
+          })) {
+            catalogScrollRestorePendingRef.current = true;
+          }
         }
       }}
       scrollEventThrottle={16}
