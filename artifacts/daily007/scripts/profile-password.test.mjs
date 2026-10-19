@@ -51,7 +51,10 @@ function getBtnDisabledExpression() {
   assert.ok(btnDeclaration, "Expected the shared Btn implementation.");
   let disabledExpression;
   function visit(node) {
-    if (ts.isJsxOpeningElement(node) && node.tagName.getText(uiSourceFile) === "Pressable") {
+    if (
+      ts.isJsxOpeningElement(node)
+      && ["Pressable", "AnimatedPressable"].includes(node.tagName.getText(uiSourceFile))
+    ) {
       const attribute = node.attributes.properties.find(
         (property) => ts.isJsxAttribute(property) && property.name.getText(uiSourceFile) === "disabled",
       );
@@ -117,6 +120,40 @@ function loadProfileCallback(callbackName, scope) {
     ...Object.keys(scope),
     `${javascript}\nreturn __callback;`,
   )(...Object.values(scope));
+}
+
+function getPasswordModalRequestCloseHandlerName() {
+  let handlerName;
+  function visit(node) {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(profileSourceFile) === "Modal") {
+      const attributes = node.openingElement.attributes.properties;
+      const visibleAttribute = attributes.find(
+        (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(profileSourceFile) === "visible",
+      );
+      const visibleExpression =
+        visibleAttribute && ts.isJsxAttribute(visibleAttribute) && ts.isJsxExpression(visibleAttribute.initializer)
+          ? visibleAttribute.initializer.expression?.getText(profileSourceFile)
+          : undefined;
+      if (visibleExpression === "passwordModalVisible") {
+        const requestCloseAttribute = attributes.find(
+          (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(profileSourceFile) === "onRequestClose",
+        );
+        const requestCloseExpression =
+          requestCloseAttribute &&
+          ts.isJsxAttribute(requestCloseAttribute) &&
+          ts.isJsxExpression(requestCloseAttribute.initializer)
+            ? requestCloseAttribute.initializer.expression
+            : undefined;
+        if (requestCloseExpression && ts.isIdentifier(requestCloseExpression)) {
+          handlerName = requestCloseExpression.text;
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(profileSourceFile);
+  assert.ok(handlerName, "The password modal should expose its system-dismiss callback.");
+  return handlerName;
 }
 
 function loadApiError() {
@@ -337,7 +374,7 @@ test("canceling Profile password change closes and clears every field without ca
 
   assert.match(
     profileSource,
-    /<Btn title="CANCEL" kind="ghost" disabled=\{passwordBusy\} onPress=\{closePasswordModal\} \/>/,
+    /<Btn\s+testID="profile-password-cancel"\s+title="CANCEL"\s+kind="ghost"\s+disabled=\{passwordBusy\}\s+onPress=\{closePasswordModal\}\s*\/>/,
     "The visible Cancel action should use the exercised close handler.",
   );
   assert.match(profileSource, /onRequestClose=\{closePasswordModal\}/);
@@ -760,9 +797,82 @@ test("canceling after a rejected password change clears all entries before reope
   }
   assert.match(
     profileSource,
-    /<Btn title="CANCEL" kind="ghost" disabled=\{passwordBusy\} onPress=\{closePasswordModal\} \/>/,
+    /<Btn\s+testID="profile-password-cancel"\s+title="CANCEL"\s+kind="ghost"\s+disabled=\{passwordBusy\}\s+onPress=\{closePasswordModal\}\s*\/>/,
     "The visible Cancel action should use the tested close handler.",
   );
+});
+
+test("Android Back after a rejected password change closes and clears the form before reopening", async () => {
+  const state = {
+    modalVisible: false,
+    currentPassword: "",
+    newPassword: "",
+    confirmNewPassword: "",
+    passwordError: "",
+  };
+  let mutationCalls = 0;
+  const setters = {
+    setPasswordModalVisible: (value) => { state.modalVisible = value; },
+    setCurrentPassword: (value) => { state.currentPassword = value; },
+    setNewPassword: (value) => { state.newPassword = value; },
+    setConfirmNewPassword: (value) => { state.confirmNewPassword = value; },
+    setPasswordError: (value) => { state.passwordError = value; },
+    setPasswordMessage: () => {},
+  };
+  const openPasswordModal = loadProfileCallback("openPasswordModal", setters);
+  openPasswordModal();
+  state.currentPassword = "synthetic-current-entry";
+  state.newPassword = "synthetic-new-entry";
+  state.confirmNewPassword = state.newPassword;
+
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    currentPassword: state.currentPassword,
+    newPassword: state.newPassword,
+    confirmNewPassword: state.confirmNewPassword,
+    passwordChangeInFlight: { current: false },
+    changePassword: async () => {
+      mutationCalls += 1;
+      throw new Error("Mocked password request rejected.");
+    },
+    submitProfilePasswordChange,
+    apiError: () => "That current password does not match.",
+    ...setters,
+  });
+
+  await submitPasswordChange();
+  assert.equal(mutationCalls, 1, "The mocked rejected password request should run once.");
+  assert.equal(state.modalVisible, true, "A rejected change should leave the form open.");
+  assert.equal(state.passwordError, "That current password does not match.");
+  assert.equal(
+    [state.currentPassword, state.newPassword, state.confirmNewPassword].every((value) => value.length > 0),
+    true,
+    "The rejected form should still contain entries before Android Back dismisses it.",
+  );
+
+  const requestCloseHandlerName = getPasswordModalRequestCloseHandlerName();
+  assert.equal(requestCloseHandlerName, "closePasswordModal");
+  const onRequestClose = loadProfileCallback(requestCloseHandlerName, {
+    passwordBusy: false,
+    ...setters,
+  });
+  onRequestClose();
+
+  assert.equal(state.modalVisible, false, "Android Back should close the rejected password form.");
+  assert.equal(
+    [state.currentPassword, state.newPassword, state.confirmNewPassword].every((value) => value === ""),
+    true,
+    "Android Back should clear all three password fields.",
+  );
+  assert.equal(state.passwordError, "", "Android Back should clear the rejected-change error.");
+
+  openPasswordModal();
+  assert.equal(state.modalVisible, true, "The password form should be available to reopen.");
+  assert.equal(
+    [state.currentPassword, state.newPassword, state.confirmNewPassword].every((value) => value === ""),
+    true,
+    "Reopening after Android Back should show empty password fields.",
+  );
+  assert.equal(mutationCalls, 1, "Reopening must not send another password mutation.");
 });
 
 test("an expired-token 401 without the wrong-password code still expires the session on password change", async () => {
