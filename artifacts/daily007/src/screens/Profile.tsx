@@ -277,7 +277,7 @@ export default function Profile({
   };
 
   const closePasswordModal = () => {
-    if (passwordBusy) return;
+    if (passwordBusy || passwordChangeInFlight.current) return;
     setPasswordModalVisible(false);
     setCurrentPassword('');
     setNewPassword('');

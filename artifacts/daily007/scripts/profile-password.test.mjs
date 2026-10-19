@@ -352,6 +352,7 @@ test("canceling Profile password change closes and clears every field without ca
   });
   const closePasswordModal = loadProfileCallback("closePasswordModal", {
     passwordBusy: false,
+    passwordChangeInFlight: { current: false },
     changePassword: mockedMutation,
     ...setters,
   });
@@ -793,6 +794,7 @@ test("canceling after a rejected password change clears all entries before reope
   const openPasswordModal = loadProfileCallback("openPasswordModal", setters);
   const closePasswordModal = loadProfileCallback("closePasswordModal", {
     passwordBusy: false,
+    passwordChangeInFlight: { current: false },
     ...setters,
   });
   openPasswordModal();
@@ -854,7 +856,7 @@ test("canceling after a rejected password change clears all entries before reope
   );
 });
 
-test("Cancel and modal dismissal preserve password entries until a pending change settles", async () => {
+test("Android Back cannot dismiss a password form before its deferred request settles", async () => {
   const entries = {
     currentPassword: "synthetic-current-entry",
     newPassword: "synthetic-new-entry",
@@ -867,6 +869,7 @@ test("Cancel and modal dismissal preserve password entries until a pending chang
   };
   let passwordBusy = false;
   let mutationCalls = 0;
+  const passwordChangeInFlight = { current: false };
   let resolveRequestStarted;
   let rejectRequest;
   const requestStarted = new Promise((resolve) => { resolveRequestStarted = resolve; });
@@ -885,7 +888,7 @@ test("Cancel and modal dismissal preserve password entries until a pending chang
 
   const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
     ...entries,
-    passwordChangeInFlight: { current: false },
+    passwordChangeInFlight,
     changePassword: async () => {
       mutationCalls += 1;
       passwordBusy = true;
@@ -910,12 +913,36 @@ test("Cancel and modal dismissal preserve password entries until a pending chang
   assert.equal(profileSource.includes("onRequestClose={closePasswordModal}"), true);
 
   const submission = submitPasswordChange();
+  const immediateBack = loadProfileCallback("closePasswordModal", {
+    passwordBusy: false,
+    passwordChangeInFlight,
+    ...setters,
+  });
+  immediateBack();
+  assert.equal(
+    state.modalVisible,
+    true,
+    "Android Back must leave the form open when the synchronous in-flight ref is set but rendered busy state is stale.",
+  );
+  const immediateCancel = loadProfileCallback("closePasswordModal", {
+    passwordBusy: false,
+    passwordChangeInFlight,
+    ...setters,
+  });
+  immediateCancel();
+  assert.equal(
+    state.modalVisible,
+    true,
+    "Cancel must also leave the form open before the rendered busy state catches up.",
+  );
+  assert.equal(passwordBusy, true, "The mocked request should be pending even before a rendered busy-state update.");
   await requestStarted;
   assert.equal(mutationCalls, 1, "Submitting should start exactly one controlled request.");
   assert.equal(passwordBusy, true, "The mocked request should remain pending.");
 
   const closeWhilePending = loadProfileCallback("closePasswordModal", {
     passwordBusy,
+    passwordChangeInFlight,
     ...setters,
   });
   closeWhilePending(); // The visible Cancel handler must be safe even if invoked while disabled.
@@ -930,6 +957,7 @@ test("Cancel and modal dismissal preserve password entries until a pending chang
 
   const onRequestClose = loadProfileCallback(getPasswordModalRequestCloseHandlerName(), {
     passwordBusy,
+    passwordChangeInFlight,
     ...setters,
   });
   onRequestClose();
@@ -949,6 +977,7 @@ test("Cancel and modal dismissal preserve password entries until a pending chang
 
   const closeAfterSettle = loadProfileCallback("closePasswordModal", {
     passwordBusy,
+    passwordChangeInFlight,
     ...setters,
   });
   closeAfterSettle();
@@ -1012,6 +1041,7 @@ test("Android Back after a rejected password change closes and clears the form b
   assert.equal(requestCloseHandlerName, "closePasswordModal");
   const onRequestClose = loadProfileCallback(requestCloseHandlerName, {
     passwordBusy: false,
+    passwordChangeInFlight: { current: false },
     ...setters,
   });
   onRequestClose();
