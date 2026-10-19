@@ -29,6 +29,7 @@ const registrationInitialLoadFailureOnly = process.argv.includes("--registration
 const tournamentDetailRegistrationFailureOnly = process.argv.includes("--tournament-detail-registration-failure-only");
 const adminInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-only");
 const adminLargeTextInitialLoadFailureOnly = process.argv.includes("--admin-initial-load-failure-large-text-only");
+const adminUsersInitialLoadFailureOnly = process.argv.includes("--admin-users-initial-load-failure-only");
 const adminRetryConcurrencyOnly = process.argv.includes("--admin-retry-concurrency-only");
 const adminResultEntryRetryOnly = process.argv.includes("--admin-result-entry-retry-only");
 const manualRefreshOnly = process.argv.includes("--manual-refresh-only");
@@ -4507,6 +4508,80 @@ async function checkAdminInitialLoadFailure({ largeText = false } = {}) {
     !await evaluate("Boolean(document.querySelector('[data-testid=\"admin-tournament-load-error\"]'))")
       && !await evaluate("Boolean(document.querySelector('[data-testid=\"admin-tournament-refresh-retry\"]'))"),
     "A successful Admin retry must remove both the stale error announcement and its recovery action.",
+  );
+}
+
+async function checkAdminUsersInitialLoadFailure() {
+  await setViewport(390, 1, "admin-narrow-preview.html");
+  await waitForCondition(
+    `Boolean(document.querySelector('[data-testid="admin-tab-users"]'))`,
+    "the Admin Users tab to become available",
+  );
+  const fixtureBefore = JSON.stringify(await evaluate("window.__daily007AdminMutations.snapshot()"));
+  await evaluate(
+    `window.__daily007AdminMutations.failNextUserRead("Initial Admin Users request failed.")`,
+  );
+  await clickSelector('[data-testid="admin-tab-users"]', "Users tab for initial-load recovery");
+  await waitForCondition(
+    `document.body.innerText.includes("Could not load users and registrations: Initial Admin Users request failed.") && Boolean(document.querySelector('[data-testid="admin-users-load-retry"]'))`,
+    "the Admin Users request to fail with a visible error and direct Retry control",
+  );
+  await assertText("Users unavailable", "the Admin Users status after its first request fails");
+  assert(
+    !await evaluate(`document.body.innerText.includes("0 users")`)
+      && !await evaluate(`document.body.innerText.includes("ananya.champion.with.a.long.fake.address@example.invalid")`)
+      && !await evaluate(`document.body.innerText.includes("rohan.preview.player@example.invalid")`),
+    "A failed Admin Users request must not appear as a successful zero-user result or expose an unloaded account row.",
+  );
+  const errorState = await evaluate(`(() => {
+    const error = document.querySelector('[data-testid="admin-users-load-error"]');
+    const retry = document.querySelector('[data-testid="admin-users-load-retry"]');
+    return {
+      errorText: error?.innerText ?? null,
+      liveRegion: error?.getAttribute('aria-live') ?? null,
+      retryRole: retry?.getAttribute('role') ?? null,
+      retryLabel: retry?.getAttribute('aria-label') ?? null,
+      retryVisible: Boolean(retry && retry.getBoundingClientRect().width > 0 && retry.getBoundingClientRect().height > 0),
+      retryDisabled: retry?.disabled ?? null,
+    };
+  })()`);
+  assert(
+    errorState.errorText?.includes("Could not load users and registrations")
+      && errorState.liveRegion === "polite",
+    `The Admin Users load failure must be visible and politely announced: ${JSON.stringify(errorState)}.`,
+  );
+  assert(
+    errorState.retryRole === "button"
+      && errorState.retryLabel === "Retry loading users and registrations"
+      && errorState.retryVisible
+      && errorState.retryDisabled === false,
+    `Admin Users recovery must provide a visible, enabled Retry button with a clear label: ${JSON.stringify(errorState)}.`,
+  );
+
+  await clickSelector('[data-testid="admin-users-load-retry"]', "Admin Users Retry");
+  await waitForCondition(
+    `document.body.innerText.includes("ananya.champion.with.a.long.fake.address@example.invalid") && document.body.innerText.includes("2 joined") && document.body.innerText.includes("✓ 1 approved") && !document.body.innerText.includes("Could not load users and registrations")`,
+    "the successful retry to restore users and registration counts and clear the error",
+  );
+  await assertAdminRecordState(
+    "rohan.preview.player@example.invalid",
+    { includes: ["TOURNAMENT ADMIN", "· BLOCKED", "425000 COINS", "2 joined", "✓ 1 approved"] },
+    "the unchanged account and registration data after retry",
+  );
+  const fixtureAfter = JSON.stringify(await evaluate("window.__daily007AdminMutations.snapshot()"));
+  assert(
+    fixtureAfter === fixtureBefore,
+    "Retrying Admin Users must not change any account, permission, or registration data.",
+  );
+  const mutationCalls = await evaluate("window.__daily007AdminMutations.calls");
+  assert(
+    Array.isArray(mutationCalls) && mutationCalls.length === 0,
+    `Loading users and registrations must not issue account or permission mutations: ${JSON.stringify(mutationCalls)}.`,
+  );
+  assert(
+    !await evaluate(`Boolean(document.querySelector('[data-testid="admin-users-load-error"]'))`)
+      && !await evaluate(`Boolean(document.querySelector('[data-testid="admin-users-load-retry"]'))`),
+    "A successful Admin Users retry must remove the error and Retry control.",
   );
 }
 
@@ -9081,7 +9156,9 @@ try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
   temporaryProfile = await mkdtemp(path.join(os.tmpdir(), "daily007-admin-narrow-"));
-  const previewPath = adminFullAdminRecoveryOnly
+  const previewPath = adminUsersInitialLoadFailureOnly
+    ? "admin-narrow-preview.html"
+    : adminFullAdminRecoveryOnly
     ? "admin-narrow-preview.html?admin-full-admin-recovery-only=1&manual-refresh-only=1"
     : istDateSurfacesOnly
     ? "home-carousel-preview.html?ist-date-surfaces=1"
@@ -9190,6 +9267,7 @@ try {
     tournamentDetailRegistrationFailureOnly ||
     adminInitialLoadFailureOnly ||
     adminLargeTextInitialLoadFailureOnly ||
+    adminUsersInitialLoadFailureOnly ||
     adminRetryConcurrencyOnly ||
     adminResultEntryRetryOnly ||
     refreshReturnOnly ||
@@ -9227,13 +9305,13 @@ try {
       width: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 800
         : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
-           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
+           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 390
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 375 : 800,
       height: adminLandscapeOnly || adminLandscapeKeyboardOnly || adminLandscapeLargeTextOnly
         ? 360
         : homeCarouselOnly || singleHomeCardOnly || homeStartTransitionOnly || homeRetryOnly || homeInitialRetryOnly || homeRefreshOverlapOnly || homeQueuedAwayOnly || homeDisabledTournamentRefreshOnly || scheduledStartOnly || sameTimeStartOnly || istDateSurfacesOnly || adminActionsOnly || adminFullAdminRecoveryOnly || adminTournamentHomeRefreshOnly || adminTournamentEmptyFilterOnly || refreshReturnOnly || refreshCoalescingOnly || adminResultEntryRetryOnly
-           || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
+            || initialLoadFailureOnly || registrationInitialLoadFailureOnly || tournamentDetailRegistrationFailureOnly || adminInitialLoadFailureOnly || adminLargeTextInitialLoadFailureOnly || adminUsersInitialLoadFailureOnly || adminRetryConcurrencyOnly || manualRefreshOnly || manualRefreshLargeTextOnly
           ? 844
           : keyboardFormsOnly || adminKeyboardFormsOnly || adminNotificationKeyboardOnly || adminNotificationsAccessibilityOnly || adminSearchKeyboardOnly || adminSearchAccessibilityOnly ? 720 : 1000,
       deviceScaleFactor: 1,
@@ -9276,6 +9354,8 @@ try {
           ? "Tournament-detail registration lookup failure"
         : adminInitialLoadFailureOnly
           ? "Admin first-load failure"
+        : adminUsersInitialLoadFailureOnly
+          ? "Admin Users initial-load recovery"
         : adminLargeTextInitialLoadFailureOnly
           ? "Admin first-load failure at 1.5× text"
         : adminRetryConcurrencyOnly
@@ -9403,6 +9483,13 @@ try {
         `Browser errors during Player registration-failure checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — A successful Player tournament list remains available when the first registration lookup fails; joined status is clearly unknown and safely updates after retry.");
+    } else if (adminUsersInitialLoadFailureOnly) {
+      await checkAdminUsersInitialLoadFailure();
+      assert(
+        browserErrors.length === 0,
+        `Browser errors during Admin Users initial-load recovery checks: ${browserErrors.join(" | ")}`,
+      );
+      console.log("PASS — Failed Admin Users loads are distinct from an empty list; direct Retry reloads users and registrations without changing accounts or permissions.");
     } else if (adminLargeTextInitialLoadFailureOnly) {
       await checkAdminInitialLoadFailure({ largeText: true });
       assert(

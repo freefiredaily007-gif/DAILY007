@@ -21,6 +21,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const stackUserBalance = fontScale >= 1.5;
   const [users, setUsers] = useState<any[] | null>(null);
   const [regs, setRegs] = useState<any[] | null>(null);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersLoadError, setUsersLoadError] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const coinAdjustmentsInFlight = useRef(new Set<string>());
@@ -33,11 +35,13 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const pendingFullAdminRecovery = useRef<{ userId: string; userName: string } | null>(null);
 
   const load = async () => {
+    setUsersLoading(true);
     try {
       const [u, r] = await Promise.all([Api.adminUsers(), Api.adminRegistrations()]);
       const loadedUsers: any[] = u ?? [];
       setUsers(loadedUsers);
       setRegs(r ?? []);
+      setUsersLoadError(null);
       const pendingRecovery = pendingFullAdminRecovery.current;
       if (pendingRecovery) {
         pendingFullAdminRecovery.current = null;
@@ -50,11 +54,14 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         toast(status, 'success');
       }
     } catch (e) {
-      toast(`Could not load users and registrations: ${errMessage(e)}. Pull down to refresh and retry.`, 'error');
-      setUsers([]); setRegs([]);
+      const message = `Could not load users and registrations: ${errMessage(e)}.`;
+      setUsersLoadError(message);
+      toast(`${message} Use Retry to reload both lists.`, 'error');
+    } finally {
+      setUsersLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, []);
 
   useEffect(() => {
     const userId = focusRoleAfterRefresh.current;
@@ -227,13 +234,16 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
 
   const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
   const deleteBusy = Boolean(deleteEmailTarget && busy === deleteEmailTarget.$id);
+  const usersSummary = users === null
+    ? usersLoading ? 'Loading users…' : 'Users unavailable'
+    : `${filtered.length} users`;
   const deleteWarningMessage = deleteWarningTarget
     ? `${deleteWarningTarget.name} (${deleteWarningTarget.email}) and all of their Daily007 account data will be permanently removed, including wallet and payment history, withdrawals, tournament registrations, results, referrals, notifications, video claims, leaderboard entries, and uploaded payment proofs. Their teammates will remain Daily007 users but will be removed from these tournament rosters. Any linked Google sign-in to Daily007 will be removed, but their Google account itself will remain. This cannot be undone.`
     : '';
 
   return (
     <ScreenWrap onRefresh={load} keyboardShouldPersistTaps="handled">
-      <SectionTitle title="USER MANAGEMENT" sub={`${filtered.length} users`} />
+      <SectionTitle title="USER MANAGEMENT" sub={usersSummary} />
       <Card>
         <Text style={st.accessNote}>Full Admins assign Tournament Admin access directly here. Players cannot submit access requests.</Text>
         <TextInput
@@ -251,8 +261,25 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         resultIds={filtered.map((u) => String(u.$id)).sort().join('|')}
         ready={users !== null}
       />
+      {usersLoadError !== null && (
+        <Card>
+          <View testID="admin-users-load-error" accessibilityLiveRegion="polite">
+            <Text style={st.loadErrorTitle}>Could not load users and registrations</Text>
+            <Text style={st.loadErrorMessage}>{usersLoadError}</Text>
+            <Text style={st.loadErrorHint}>Retry reloads both lists without changing account data or permissions.</Text>
+          </View>
+          <Btn
+            title="RETRY"
+            loading={usersLoading}
+            accessibilityLabel="Retry loading users and registrations"
+            accessibilityHint="Reloads both lists without changing account data or permissions."
+            testID="admin-users-load-retry"
+            onPress={() => { void load(); }}
+          />
+        </Card>
+      )}
       {users === null ? (
-        <ActivityIndicator color={A.cyan} style={{ marginTop: 30 }} />
+        usersLoadError === null ? <ActivityIndicator color={A.cyan} style={{ marginTop: 30 }} /> : null
       ) : q.trim() && filtered.length === 0 ? (
         <Card>
           <Text style={st.noResults}>No users match this search.</Text>
@@ -439,6 +466,9 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
 const st = StyleSheet.create({
   search: { backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
   accessNote: { color: '#9aa3b2', fontSize: 11, lineHeight: 16, marginBottom: 8 },
+  loadErrorTitle: { color: A.red, fontSize: 14, lineHeight: 20, fontWeight: '900' },
+  loadErrorMessage: { color: A.text, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  loadErrorHint: { color: A.sub, fontSize: 11, lineHeight: 16, marginTop: 6, marginBottom: 12 },
   noResults: { color: '#e6e9ef', fontSize: 14, lineHeight: 20, fontWeight: '800' },
   noResultsHint: { color: '#9aa3b2', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 12 },
   name: { color: A.text, fontWeight: '900', fontSize: 14 },
