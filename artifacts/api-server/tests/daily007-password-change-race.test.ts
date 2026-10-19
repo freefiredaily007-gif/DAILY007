@@ -95,6 +95,66 @@ test("an overlong current password is rejected before password credential reads 
   });
 });
 
+test("empty, missing, and non-string current passwords are rejected before credential reads or writes", async () => {
+  const invalidCurrentPasswords: { label: string; body: Record<string, unknown> }[] = [
+    {
+      label: "empty",
+      body: {
+        currentPassword: "",
+        newPassword: "replacement-password-for-rejected-attempt",
+      },
+    },
+    {
+      label: "missing",
+      body: {
+        newPassword: "replacement-password-for-rejected-attempt",
+      },
+    },
+    {
+      label: "non-string",
+      body: {
+        currentPassword: 12345678,
+        newPassword: "replacement-password-for-rejected-attempt",
+      },
+    },
+  ];
+
+  await withServer(async (origin) => {
+    for (const invalidCurrentPassword of invalidCurrentPasswords) {
+      passwordChangeTestDb.reset();
+      const before = passwordChangeTestDb.snapshot();
+      const token = makeToken(PASSWORD_CHANGE_TEST_USER_ID, before.auth_version);
+      assert.ok(token);
+
+      const result = await request(
+        origin,
+        "/auth/me/password",
+        "PATCH",
+        invalidCurrentPassword.body,
+        token,
+      );
+
+      assert.equal(result.status, 400, `${invalidCurrentPassword.label}: validation error status`);
+      assert.equal(
+        result.body.error,
+        "Enter your current password and a new password of 8–200 characters.",
+        `${invalidCurrentPassword.label}: validation error message`,
+      );
+      assert.equal(
+        passwordChangeTestDb.credentialReadSnapshots.length,
+        0,
+        `${invalidCurrentPassword.label}: must not read stored password credentials`,
+      );
+      assert.equal(
+        passwordChangeTestDb.passwordWriteAttempts,
+        0,
+        `${invalidCurrentPassword.label}: must not attempt a password write`,
+      );
+      assert.deepEqual(passwordChangeTestDb.snapshot(), before);
+    }
+  });
+});
+
 test("invalid replacement passwords are rejected before password credential reads or writes", async () => {
   const invalidReplacements: { label: string; value: unknown }[] = [
     { label: "too-short", value: "short7" },
