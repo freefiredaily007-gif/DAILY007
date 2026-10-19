@@ -386,6 +386,51 @@ test("reports mismatched React runtime copies nested under a reachable dependenc
   );
 });
 
+test("reports mismatched React runtime copies nested under a sandbox dependency", async () => {
+  const sandboxRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const mobileRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const owner = await addInstalledPackage(
+    sandboxRoot,
+    "@workspace/preview-shared",
+    "1.0.0",
+  );
+  const runtimeCopies = [
+    ["react", "19.3.0"],
+    ["react-dom", "19.3.1"],
+  ].map(([packageName, version]) => ({
+    packageName,
+    version,
+    packageJsonPath: path.join(owner, "node_modules", packageName, "package.json"),
+  }));
+
+  for (const { packageName, version, packageJsonPath } of runtimeCopies) {
+    await mkdir(path.dirname(packageJsonPath), { recursive: true });
+    await writeFile(packageJsonPath, JSON.stringify({ name: packageName, version }));
+  }
+
+  assert.throws(
+    () => checkMobileReactTypes(sandboxRoot, mobileRoot),
+    (error) => {
+      for (const { packageName, version, packageJsonPath } of runtimeCopies) {
+        assert.ok(
+          error.message.includes(
+            `${packageName}: @workspace/preview-shared@1.0.0 resolves ${version} at ` +
+              `${packageJsonPath}; expected mockup sandbox line 19.2`,
+          ),
+          `diagnostic should include the owning package and exact path for ${packageName}`,
+        );
+      }
+      return true;
+    },
+  );
+});
+
 test("reports mismatched React runtimes in a pnpm peer dependency context", async () => {
   const sandboxRoot = await createProject({
     "@types/react": "19.2.18",
@@ -438,6 +483,65 @@ test("reports mismatched React runtimes in a pnpm peer dependency context", asyn
               "expected Daily007 line 19.2",
           ),
           `diagnostic should include the pnpm peer-context path for ${packageName}`,
+        );
+      }
+      return true;
+    },
+  );
+});
+
+test("reports mismatched React runtimes in a sandbox pnpm peer dependency context", async () => {
+  const sandboxRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const mobileRoot = await createProject({
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+  });
+  const packageRoot = path.join(
+    sandboxRoot,
+    "node_modules",
+    ".pnpm",
+    "preview-runtime@1.0.0_react@19.3.0_react-dom@19.3.1",
+    "node_modules",
+    "preview-runtime",
+  );
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "preview-runtime", version: "1.0.0" }),
+  );
+  const peerNodeModules = path.dirname(packageRoot);
+  const runtimeCopies = [
+    ["react", "19.3.0"],
+    ["react-dom", "19.3.1"],
+  ].map(([packageName, version]) => ({
+    packageName,
+    version,
+    packageJsonPath: path.join(peerNodeModules, packageName, "package.json"),
+  }));
+
+  for (const { packageName, version, packageJsonPath } of runtimeCopies) {
+    await mkdir(path.dirname(packageJsonPath), { recursive: true });
+    await writeFile(packageJsonPath, JSON.stringify({ name: packageName, version }));
+  }
+  await symlink(
+    packageRoot,
+    path.join(sandboxRoot, "node_modules", "preview-runtime"),
+    "dir",
+  );
+
+  assert.throws(
+    () => checkMobileReactTypes(sandboxRoot, mobileRoot),
+    (error) => {
+      for (const { packageName, version, packageJsonPath } of runtimeCopies) {
+        assert.ok(
+          error.message.includes(
+            `${packageName}: preview-runtime@1.0.0 resolves ${version} at ${packageJsonPath}; ` +
+              "expected mockup sandbox line 19.2",
+          ),
+          `diagnostic should include the sandbox pnpm peer-context path for ${packageName}`,
         );
       }
       return true;
