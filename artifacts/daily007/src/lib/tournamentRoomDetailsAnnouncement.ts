@@ -7,6 +7,7 @@ type RoomRegistration = {
 export type TournamentRoomDetailsRefreshTrigger =
   | 'focus'
   | 'scheduled'
+  | 'room-release'
   | 'resume'
   | 'connectivity'
   | 'manual';
@@ -39,7 +40,7 @@ export function createTournamentRoomDetailsAnnouncementTracker(): (
         credentialsAvailable;
 
       if (
-        trigger === 'scheduled' &&
+        (trigger === 'scheduled' || trigger === 'room-release') &&
         status === 'approved' &&
         credentialsAvailable &&
         (becameApproved || approvedCredentialsBecameAvailable) &&

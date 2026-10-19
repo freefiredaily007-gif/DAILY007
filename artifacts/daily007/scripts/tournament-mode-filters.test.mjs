@@ -259,8 +259,10 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     refreshingRequest: { current: false },
     failedManualRefresh: { current: false },
     missedStartCheckPending: { current: false },
+    listFocused: { current: true },
     activeLoad: { current: null },
     activeLoadTrigger: { current: null },
+    roomReleaseRefresh: { current: null },
   };
   const loadScope = {
     useCallback: (callback) => callback,
@@ -276,8 +278,11 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     refreshingRequest: refs.refreshingRequest,
     failedManualRefresh: refs.failedManualRefresh,
     missedStartCheckPending: refs.missedStartCheckPending,
+    listFocused: refs.listFocused,
+    AppState: { currentState: 'active' },
     activeLoad: refs.activeLoad,
     activeLoadTrigger: refs.activeLoadTrigger,
+    roomReleaseRefresh: refs.roomReleaseRefresh,
     setItems: (nextItems) => {
       state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
     },
@@ -299,10 +304,11 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     tournamentsSourceFile,
     loadScope,
   );
-  const load = evaluateTypeScriptExpression(
+  let load;
+  load = evaluateTypeScriptExpression(
     findVariableInitializer(tournamentsSourceFile, 'load'),
     tournamentsSourceFile,
-    { ...loadScope, loadLatest },
+    { ...loadScope, loadLatest, load: (...args) => load(...args) },
   );
   return { load, refs, screen, state };
 }
@@ -582,7 +588,9 @@ test('the tournament screen applies both route mode and team type filters', () =
 });
 
 test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data', () => {
-  const loadStart = tournamentsSource.indexOf('const loadLatest = useCallback(async () => {');
+  const loadStart = tournamentsSource.indexOf(
+    'const loadLatest = useCallback(async (trigger: TournamentLoadTrigger) => {',
+  );
   const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
   assert.ok(loadStart >= 0 && loadEnd > loadStart, 'the tournament loader should be present');
   assert.doesNotMatch(
@@ -592,7 +600,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*connectivityRefreshes\.setFocused\(true\);[\s\S]*?const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);[\s\S]*?if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*active = false;\s*listFocused\.current = false;\s*connectivityRefreshes\.setFocused\(false\);[\s\S]*?stopCompletionPolling\(\);\s*networkSubscription\.remove\(\);\s*\};\s*\}, \[completionRefresh, connectivityRefreshes, load\]\)\)/,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*listFocused\.current = true;\s*connectivityRefreshes\.setFocused\(true\);[\s\S]*?const stopCompletionPolling = startTournamentListRefreshPolling\([\s\S]*?listFocused\.current && AppState\.currentState === 'active'[\s\S]*?TOURNAMENT_LIST_REFRESH_INTERVAL_MS[\s\S]*?\);[\s\S]*?if \(AppState\.currentState === 'active'\) void load\('focus'\);\s*return \(\) => \{\s*active = false;\s*listFocused\.current = false;\s*missedStartCheckPending\.current = true;\s*connectivityRefreshes\.setFocused\(false\);[\s\S]*?stopCompletionPolling\(\);\s*networkSubscription\.remove\(\);\s*\};\s*\}, \[completionRefresh, connectivityRefreshes, load\]\)\)/,
   );
   assert.match(tournamentsSource, /Network\.addNetworkStateListener/);
   assert.match(tournamentsSource, /Network\.getNetworkStateAsync\(\)/);
@@ -606,7 +614,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /if \(nextTransition <= now && listFocused\.current && AppState\.currentState === 'active'\) \{[\s\S]*?setClockNow\(now\);\s*void load\('scheduled'\);\s*\}/,
+    /if \(nextTransition <= now && listFocused\.current && AppState\.currentState === 'active'\) \{[\s\S]*?setClockNow\(now\);\s*void load\(isRoomReleaseTransition \? 'room-release' : 'scheduled'\);\s*\}/,
   );
   assert.match(
     tournamentsSource,
@@ -1180,7 +1188,9 @@ test('a mode-filtered refresh updates tab accessibility labels and retains selec
   const tabControl = tournamentsSource.match(/<Pressable\s+key=\{value\}[\s\S]*?<\/Pressable>/)?.[0];
   assert.ok(tabControl, 'the lifecycle tab button should be present');
   assert.doesNotMatch(tabControl, /accessibilityLiveRegion/);
-  const loadStart = tournamentsSource.indexOf('const loadLatest = useCallback(async () => {');
+  const loadStart = tournamentsSource.indexOf(
+    'const loadLatest = useCallback(async (trigger: TournamentLoadTrigger) => {',
+  );
   const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
   const loadSource = tournamentsSource.slice(loadStart, loadEnd);
   assert.doesNotMatch(
@@ -1833,6 +1843,139 @@ test('an approved room refresh reveals credentials at T-5 without changing the s
 
   cleanup();
   assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test('a T-5 release queues a fresh request after a slow tournament poll settles', async () => {
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+  };
+  const startAtMs = Date.parse('2026-10-08T14:00:00.000Z');
+  const schedule = getRoomCredentialSchedule(new Date(startAtMs).toISOString());
+  assert.ok(schedule);
+  let fakeNow = schedule.releaseAtMs - 1_000;
+  const tournament = {
+    id: 'release-race',
+    gameMode: 'clash_squad',
+    teamType: 'Duo',
+    status: 'upcoming',
+    startsAt: new Date(startAtMs).toISOString(),
+  };
+  const requests = [];
+  const api = {
+    tournaments: () => {
+      const request = deferred();
+      requests.push({ tournaments: request });
+      return request.promise;
+    },
+    myRegistrations: () => {
+      const request = deferred();
+      requests.at(-1).registrations = request;
+      return request.promise;
+    },
+  };
+  const harness = createTournamentLoadHarness(api, () => fakeNow);
+  const resolveRequest = (index, { roomId = null, roomPassword = null } = {}) => {
+    requests[index].tournaments.resolve([tournament]);
+    requests[index].registrations.resolve([{
+      tournamentId: tournament.id,
+      status: 'approved',
+      roomPublished: true,
+      roomId,
+      roomPassword,
+    }]);
+  };
+
+  const initialLoad = harness.load();
+  await Promise.resolve();
+  resolveRequest(0);
+  await initialLoad;
+  assert.equal(requests.length, 1);
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      harness.state.items[0].myRegistration.roomId,
+      harness.state.items[0].myRegistration.roomPassword,
+    ),
+    false,
+  );
+
+  const completionRefresh = createTournamentRefreshSingleFlight();
+  const slowPoll = completionRefresh.run(() => harness.load('scheduled'));
+  await Promise.resolve();
+  assert.equal(requests.length, 2, 'the periodic poll should remain in flight at the release boundary');
+
+  const timers = [];
+  let scheduledRefresh;
+  const lifecycleEffect = loadLifecycleRefreshEffect({
+    items: harness.state.items,
+    listFocused: harness.refs.listFocused,
+    AppState: { currentState: 'active' },
+    lifecycleOf: (item) => getTournamentLifecycleState(item, harness.state.clockNow),
+    getRoomCredentialSchedule,
+    getNextRoomCredentialRefreshAtMs,
+    MAX_TIMEOUT_MS,
+    Platform: { OS: 'web' },
+    takeTournamentStartAnnouncement,
+    announcedTournamentStarts: { current: new Set() },
+    Date: { now: () => fakeNow },
+    setTimeout: (callback, delayMs) => {
+      const timer = { callback, delayMs };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout() {},
+    setClockNow: (value) => { harness.state.clockNow = value; },
+    setStartAnnouncement() {},
+    load: (trigger = 'scheduled') => {
+      scheduledRefresh = harness.load(trigger);
+      return scheduledRefresh;
+    },
+  });
+  const cleanup = lifecycleEffect();
+  assert.equal(timers[0].delayMs, 1_020);
+
+  fakeNow = schedule.releaseAtMs + 20;
+  timers[0].callback();
+  assert.equal(requests.length, 2, 'the release timer should wait rather than overlap the slow poll');
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      harness.state.items[0].myRegistration.roomId,
+      harness.state.items[0].myRegistration.roomPassword,
+    ),
+    false,
+    'credentials must stay hidden while the pre-release poll is still pending',
+  );
+
+  resolveRequest(1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 3, 'settling the old poll should start the queued release-time request');
+  assert.equal(
+    hasServerAuthorizedRoomCredentials(
+      harness.state.items[0].myRegistration.roomId,
+      harness.state.items[0].myRegistration.roomPassword,
+    ),
+    false,
+    'the stale poll response must not expose room credentials',
+  );
+
+  resolveRequest(2, {
+    roomId: 'ROOM-RELEASE-RACE',
+    roomPassword: 'PASS-RELEASE-RACE',
+  });
+  await Promise.all([slowPoll, scheduledRefresh]);
+  assert.deepEqual(
+    {
+      roomId: harness.state.items[0].myRegistration.roomId,
+      roomPassword: harness.state.items[0].myRegistration.roomPassword,
+    },
+    {
+      roomId: 'ROOM-RELEASE-RACE',
+      roomPassword: 'PASS-RELEASE-RACE',
+    },
+    'only the fresh approved-registration response should reveal the room details',
+  );
+  cleanup();
 });
 
 test('a registration approved after T-5 receives credentials through a scheduled retry', async () => {

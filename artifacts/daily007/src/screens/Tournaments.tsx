@@ -57,7 +57,13 @@ function announcePlayerLoadStatusOnIOS(message: string): void {
 const ROOM_DETAILS_AVAILABLE_ANNOUNCEMENT =
   'Room details are now available for your approved tournament entry.';
 
-type TournamentLoadTrigger = 'focus' | 'scheduled' | 'resume' | 'connectivity' | 'manual';
+type TournamentLoadTrigger =
+  | 'focus'
+  | 'scheduled'
+  | 'room-release'
+  | 'resume'
+  | 'connectivity'
+  | 'manual';
 
 export default function Tournaments() {
   const nav: any = useNavigation();
@@ -95,6 +101,7 @@ export default function Tournaments() {
   const loadRequests = useRef(createLatestRequestGuard());
   const activeLoad = useRef<Promise<void> | null>(null);
   const activeLoadTrigger = useRef<TournamentLoadTrigger | null>(null);
+  const roomReleaseRefresh = useRef<Promise<void> | null>(null);
   const refreshingRequest = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
@@ -198,8 +205,21 @@ export default function Tournaments() {
     }
   }, []);
 
-  const load = useCallback((trigger: TournamentLoadTrigger = 'focus') => {
+  const load = useCallback((trigger: TournamentLoadTrigger = 'focus'): Promise<void> => {
     const pending = activeLoad.current;
+    if (pending && trigger === 'room-release') {
+      if (activeLoadTrigger.current === 'room-release') return pending;
+      if (roomReleaseRefresh.current) return roomReleaseRefresh.current;
+
+      const startAfterPending = async (): Promise<void> => {
+        roomReleaseRefresh.current = null;
+        if (!listFocused.current || AppState.currentState !== 'active') return;
+        await load('room-release');
+      };
+      const refreshAfterPending: Promise<void> = pending.then(startAfterPending, startAfterPending);
+      roomReleaseRefresh.current = refreshAfterPending;
+      return refreshAfterPending;
+    }
     // Let a pull supersede a scheduled poll without duplicating an in-flight
     // focus, resume, or connectivity recovery request.
     const manualSupersedesScheduledPoll =
@@ -356,6 +376,13 @@ export default function Tournaments() {
     const timer = setTimeout(() => {
       const now = Date.now();
       if (nextTransition <= now && listFocused.current && AppState.currentState === 'active') {
+        const isRoomReleaseTransition = items.some((tournament) => {
+          const schedule = getRoomCredentialSchedule(tournament.startsAt);
+          const registrationStatus = String(tournament.myRegistration?.status ?? '').toLowerCase();
+          return schedule !== null &&
+            schedule.releaseAtMs === nextTransition &&
+            ['approved', 'pending'].includes(registrationStatus);
+        });
         const announcements = takeTournamentStartAnnouncements(
           items,
           (tournament) =>
@@ -376,7 +403,7 @@ export default function Tournaments() {
           }
         }
         setClockNow(now);
-        void load('scheduled');
+        void load(isRoomReleaseTransition ? 'room-release' : 'scheduled');
       }
     }, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextTransition - now + 20)));
     return () => clearTimeout(timer);
