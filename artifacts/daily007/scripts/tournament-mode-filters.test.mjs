@@ -227,6 +227,7 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     failedManualRefresh: { current: false },
     missedStartCheckPending: { current: false },
     activeLoad: { current: null },
+    activeLoadTrigger: { current: null },
   };
   const loadScope = {
     useCallback: (callback) => callback,
@@ -243,6 +244,7 @@ function createTournamentLoadHarness(api, now = () => Date.now()) {
     failedManualRefresh: refs.failedManualRefresh,
     missedStartCheckPending: refs.missedStartCheckPending,
     activeLoad: refs.activeLoad,
+    activeLoadTrigger: refs.activeLoadTrigger,
     setItems: (nextItems) => {
       state.items = typeof nextItems === 'function' ? nextItems(state.items) : nextItems;
     },
@@ -1469,6 +1471,43 @@ test('a slow tournament poll stays single-flight while manual refresh supersedes
   await pendingPoll;
 
   stopRestartedPolling();
+});
+
+test('manual refresh coalesces with an in-flight app-resume load', async () => {
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+  };
+  const requests = [];
+  const api = {
+    tournaments: () => {
+      const request = deferred();
+      requests.push({ tournaments: request });
+      return request.promise;
+    },
+    myRegistrations: () => {
+      const request = deferred();
+      requests.at(-1).registrations = request;
+      return request.promise;
+    },
+  };
+  const harness = createTournamentLoadHarness(api);
+
+  const resumeRefresh = harness.load('resume');
+  const manualRefresh = harness.load('manual');
+  assert.strictEqual(
+    manualRefresh,
+    resumeRefresh,
+    'a pull during app-resume recovery should share that request instead of starting a competing load',
+  );
+  await Promise.resolve();
+  assert.equal(requests.length, 1);
+
+  requests[0].tournaments.resolve([{ id: 'resumed-result', status: 'ongoing' }]);
+  requests[0].registrations.resolve([]);
+  await Promise.all([resumeRefresh, manualRefresh]);
+  assert.deepEqual(harness.state.items.map(({ id }) => id), ['resumed-result']);
 });
 
 test('scheduled lifecycle boundaries do not refresh the list while blurred or backgrounded', () => {

@@ -1,0 +1,31 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/tournament-pull-refresh-test
+- extendedWaitUntil:
+    visible:
+      id: tournament-pull-refresh-fixture
+    timeout: 15000
+- assertVisible: "Initial tournament 1"
+- extendedWaitUntil:
+    visible: "Scheduled poll response pending"
+    timeout: 45000
+- swipe:
+    start: 50%, 40%
+    end: 50%, 82%
+    duration: 900
+- extendedWaitUntil:
+    visible: "Manual response pending"
+    timeout: 10000
+- tapOn:
+    id: tournament-pull-refresh-resolve-manual
+- extendedWaitUntil:
+    visible: "Newest pull result"
+    timeout: 10000
+- tapOn:
+    id: tournament-pull-refresh-resolve-poll
+- extendedWaitUntil:
+    visible: "Scheduled poll response released"
+    timeout: 10000
+- assertVisible: "Newest pull result"
+- assertNotVisible: "Stale poll result"

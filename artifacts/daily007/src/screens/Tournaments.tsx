@@ -94,6 +94,7 @@ export default function Tournaments() {
   const failedManualRefresh = useRef(false);
   const loadRequests = useRef(createLatestRequestGuard());
   const activeLoad = useRef<Promise<void> | null>(null);
+  const activeLoadTrigger = useRef<TournamentLoadTrigger | null>(null);
   const refreshingRequest = useRef(false);
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
@@ -199,12 +200,19 @@ export default function Tournaments() {
 
   const load = useCallback((trigger: TournamentLoadTrigger = 'focus') => {
     const pending = activeLoad.current;
-    if (pending && trigger !== 'focus') return pending;
+    // Let a pull supersede a scheduled poll without duplicating an in-flight
+    // focus, resume, or connectivity recovery request.
+    const manualSupersedesScheduledPoll =
+      trigger === 'manual' && activeLoadTrigger.current === 'scheduled';
+    if (pending && trigger !== 'focus' && !manualSupersedesScheduledPoll) return pending;
 
     const promise = loadLatest(trigger);
     activeLoad.current = promise;
+    activeLoadTrigger.current = trigger;
     const clearActiveLoad = () => {
-      if (activeLoad.current === promise) activeLoad.current = null;
+      if (activeLoad.current !== promise) return;
+      activeLoad.current = null;
+      activeLoadTrigger.current = null;
     };
     void promise.then(clearActiveLoad, clearActiveLoad);
     return promise;

@@ -92,6 +92,9 @@ jobs:
       - name: Run join recovery regression tests
         run: pnpm --filter @workspace/daily007 run test:tournament-join-recovery
 
+      - name: Verify tournament pull-to-refresh native test coverage
+        run: pnpm --filter @workspace/daily007 run test:tournament-pull-refresh-native
+
       - name: Run JoinForm accessibility label regression tests
         run: pnpm --filter @workspace/daily007 run test:join-form
 

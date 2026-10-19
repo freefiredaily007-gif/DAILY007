@@ -190,6 +190,7 @@ run_maestro_suite() {
 
 if [ "$ANDROID_API_LEVEL" = 36 ]; then
   run_maestro_suite join-form-accessibility test:android-join-form-accessibility
+  run_maestro_suite tournament-pull-refresh test:android-tournament-pull-refresh
 else
   run_maestro_suite join-recovery test:android-join-recovery
   run_maestro_suite join-form-accessibility test:android-join-form-accessibility
