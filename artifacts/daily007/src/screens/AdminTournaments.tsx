@@ -7,6 +7,7 @@ import {
   View,
   StyleSheet,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
@@ -19,6 +20,7 @@ import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../c
 import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedResultAccessibility';
+import { shouldStackAdminTournamentCards } from '../lib/adminTournamentLayout';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import {
   takeTournamentStartAnnouncement,
@@ -91,6 +93,8 @@ function capacityFor(mode: string, teamType: string) {
 }
 
 export default function AdminTournaments() {
+  const { fontScale } = useWindowDimensions();
+  const stackLargeTournamentCards = shouldStackAdminTournamentCards(fontScale);
   const [list, setList] = useState<Tournament[] | null>(null);
   const [tab, setTab] = useState<TournamentAdminTab>('upcoming');
   const [form, setForm] = useState<any>(newTournamentForm);
@@ -836,16 +840,26 @@ export default function AdminTournaments() {
         );
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={st.tName}>{t.name}</Text>
+            <View
+              style={[
+                st.tournamentHeader,
+                stackLargeTournamentCards && st.tournamentHeaderLarge,
+              ]}
+            >
+              <Text style={[st.tName, stackLargeTournamentCards && st.tNameLarge]}>{t.name}</Text>
               <Chip label={statusLabel} color={finished ? C.gold : ongoing ? C.red : C.green} />
             </View>
             <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time} IST</Text>
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
             {tab === 'upcoming' && (
               <>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                  <View style={{ flex: 1 }}>
+                <View
+                  style={[
+                    st.tournamentActionRow,
+                    stackLargeTournamentCards && st.tournamentActionColumn,
+                  ]}
+                >
+                  <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
                     <Btn
                       title="EDIT"
                       small
@@ -863,7 +877,7 @@ export default function AdminTournaments() {
                       }}
                     />
                   </View>
-                  <View style={{ flex: 1 }}>
+                  <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
                     <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />
                   </View>
                 </View>
@@ -893,8 +907,14 @@ export default function AdminTournaments() {
                     />
                   </View>
                 )}
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: cancellable ? 8 : 10 }}>
-                  <View style={{ flex: 1 }}>
+                <View
+                  style={[
+                    st.tournamentActionRow,
+                    { marginTop: cancellable ? 8 : 10 },
+                    stackLargeTournamentCards && st.tournamentActionColumn,
+                  ]}
+                >
+                  <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
                     <Btn
                       title={expandedAction?.tournamentId === t.id && expandedAction.kind === 'room' ? 'CLOSE ROOM' : 'SHARE ROOM'}
                       small
@@ -904,7 +924,7 @@ export default function AdminTournaments() {
                       onPress={() => { void toggleTournamentAction(t, 'room'); }}
                     />
                   </View>
-                  <View style={{ flex: 1 }}>
+                  <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
                     <Btn
                       title={expandedAction?.tournamentId === t.id && expandedAction.kind === 'results' ? 'CLOSE' : 'INPUT RESULTS'}
                       small
@@ -1172,8 +1192,21 @@ const st = StyleSheet.create({
   loadRetry: { gap: 8, marginBottom: 10, alignItems: 'flex-start' },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
   area: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, padding: 12, minHeight: 60, marginBottom: 10, fontSize: 14 },
-  tName: { color: C.text, fontWeight: '900', flex: 1, fontSize: 14 },
+  tournamentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  tournamentHeaderLarge: { flexDirection: 'column', alignItems: 'stretch' },
+  tName: { color: C.text, fontWeight: '900', flex: 1, flexShrink: 1, minWidth: 0, fontSize: 14 },
+  tNameLarge: { width: '100%', flex: 0 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  tournamentActionRow: { flexDirection: 'row', gap: 8, marginTop: 10, minWidth: 0 },
+  tournamentActionColumn: { flexDirection: 'column', alignItems: 'stretch' },
+  tournamentActionSlot: { flex: 1, minWidth: 0 },
+  tournamentActionSlotFull: { flex: 0, width: '100%' },
   inrNote: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   resultLog: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
   resultTitle: { color: C.gold, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 5 },
