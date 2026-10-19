@@ -43,6 +43,11 @@ export default function Profile() {
   const [bootstrapBusy, setBootstrapBusy] = React.useState(false);
   const [statsRetrying, setStatsRetrying] = React.useState(false);
   const statsRetryInFlight = React.useRef(false);
+  const [googleStatus, setGoogleStatus] = React.useState<'checking' | 'linked' | 'unlinked' | 'unavailable'>('checking');
+  const [googleStatusError, setGoogleStatusError] = React.useState('');
+  const [googleStatusRetrying, setGoogleStatusRetrying] = React.useState(false);
+  const googleStatusRequest = React.useRef<Promise<void> | null>(null);
+  const googleStatusRevision = React.useRef(0);
   const [passwordModalVisible, setPasswordModalVisible] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
@@ -68,6 +73,41 @@ export default function Profile() {
   useFocusEffect(React.useCallback(() => {
     void refresh();
   }, [refresh]));
+  const loadGoogleStatus = React.useCallback((): Promise<void> => {
+    if (googleStatusRequest.current) return googleStatusRequest.current;
+    const revision = ++googleStatusRevision.current;
+    setGoogleStatus('checking');
+    setGoogleStatusError('');
+    setGoogleStatusRetrying(true);
+    const request = Api.googleLinkStatus()
+      .then((linked) => {
+        if (googleStatusRevision.current === revision) {
+          setGoogleStatus(linked ? 'linked' : 'unlinked');
+        }
+      })
+      .catch((error) => {
+        if (googleStatusRevision.current === revision) {
+          setGoogleStatus('unavailable');
+          setGoogleStatusError(apiError(error));
+        }
+      })
+      .finally(() => {
+        if (googleStatusRevision.current === revision) {
+          googleStatusRequest.current = null;
+          setGoogleStatusRetrying(false);
+        }
+      });
+    googleStatusRequest.current = request;
+    return request;
+  }, []);
+  useFocusEffect(React.useCallback(() => {
+    void loadGoogleStatus();
+    return () => {
+      googleStatusRevision.current += 1;
+      googleStatusRequest.current = null;
+      setGoogleStatusRetrying(false);
+    };
+  }, [loadGoogleStatus]));
   const statsLoading = !user?.statsError && user?.matches === undefined;
   const statsUnavailable = !!user?.statsError || statsLoading;
   const unavailableStatLabel = (statName: string) =>
@@ -265,22 +305,24 @@ export default function Profile() {
 
       <Card>
         <Text style={s.connectTitle}>
-          {user.googleLinked === true
+          {googleStatus === 'linked'
             ? 'GOOGLE CONNECTED'
-            : user.googleLinked === false
+            : googleStatus === 'unlinked'
               ? 'CONNECT GOOGLE'
               : 'GOOGLE CONNECTION'}
         </Text>
         <Text style={s.connectDescription}>
-          {user.googleLinked === true
+          {googleStatus === 'linked'
             ? 'Google sign-in is linked to this Daily007 account.'
-            : user.googleLinked === false
+            : googleStatus === 'unlinked'
               ? 'Link Google to this password account for quicker sign-in. Your Daily007 account and token stay the same.'
-              : 'Checking whether Google is already linked to this Daily007 account.'}
+              : googleStatus === 'unavailable'
+                ? 'Google connection status is unavailable. Retry the server check before trying to link Google.'
+                : 'Checking whether Google is already linked to this Daily007 account.'}
         </Text>
-        {user.googleLinked === true ? (
+        {googleStatus === 'linked' ? (
           <Text testID="profile-google-connected" style={s.connected}>Google connection confirmed.</Text>
-        ) : user.googleLinked === false ? (
+        ) : googleStatus === 'unlinked' ? (
           <>
             <GoogleSSOButton
               label="Connect Google"
@@ -288,8 +330,25 @@ export default function Profile() {
               onError={setGoogleLinkError}
               onSuccess={async () => {
                 setGoogleLinkError('');
-                await refresh();
+                await loadGoogleStatus();
               }}
+            />
+          </>
+        ) : googleStatus === 'unavailable' ? (
+          <>
+            <Text testID="profile-google-status-unavailable" style={s.statsError} accessibilityLiveRegion="polite">
+              Google connection status unavailable: {googleStatusError}
+            </Text>
+            <Btn
+              testID="profile-google-status-retry"
+              title={googleStatusRetrying ? 'CHECKING GOOGLE STATUS…' : 'RETRY GOOGLE STATUS'}
+              kind="ghost"
+              onPress={loadGoogleStatus}
+              disabled={googleStatusRetrying}
+              loading={googleStatusRetrying}
+              accessibilityLabel={googleStatusRetrying ? 'Checking Google connection status' : 'Retry Google connection status'}
+              accessibilityHint="Checks whether Google is linked without changing your Daily007 sign-in or token."
+              accessibilityState={{ disabled: googleStatusRetrying, busy: googleStatusRetrying }}
             />
           </>
         ) : (

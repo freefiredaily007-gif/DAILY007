@@ -401,6 +401,13 @@ export const Api = {
     { reviewNote },
   )),
   meAccount: currentAccount,
+  googleLinkStatus: async (): Promise<boolean> => {
+    const user = await currentAccount();
+    if (typeof user.googleLinked !== 'boolean') {
+      throw new Error('The server could not confirm your Google connection status.');
+    }
+    return user.googleLinked;
+  },
   me: async () => {
     const user = await currentAccount();
     try {

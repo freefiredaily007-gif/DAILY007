@@ -135,11 +135,18 @@ function prepareApiSession() {
   storedSession = JSON.stringify(savedSession);
 }
 
-function mockApiRequests(t, { statsFailure, statsResponse, client = http } = {}) {
+function mockApiRequests(t, {
+  accountFailure,
+  statsFailure,
+  statsResponse,
+  accountResponse,
+  client = http,
+} = {}) {
   const requests = [];
   t.mock.method(client, "get", async (path) => {
     requests.push(path);
     if (path === "/auth/me") {
+      if (accountFailure) throw accountFailure;
       return {
         data: {
           id: "verified-player",
@@ -151,6 +158,7 @@ function mockApiRequests(t, { statsFailure, statsResponse, client = http } = {})
           status: "active",
           coins: 17,
           walletCoins: 17,
+          ...accountResponse,
         },
       };
     }
@@ -163,6 +171,39 @@ function mockApiRequests(t, { statsFailure, statsResponse, client = http } = {})
   return requests;
 }
 
+test("Google-link status checks use /auth/me and retain the current Daily007 token", async (t) => {
+  prepareApiSession();
+  const requests = mockApiRequests(t, {
+    accountResponse: { googleLinked: true },
+  });
+
+  assert.equal(await Api.googleLinkStatus(), true);
+  assert.deepEqual(requests, ["/auth/me"]);
+  assert.equal((await getSession()).token, savedSession.token);
+});
+
+test("a temporary Google-link status failure rejects without clearing the Daily007 session", async (t) => {
+  prepareApiSession();
+  const requests = mockApiRequests(t, {
+    accountFailure: Object.assign(new Error("Temporary server error"), {
+      response: { status: 503 },
+    }),
+  });
+
+  await assert.rejects(Api.googleLinkStatus(), /Temporary server error/);
+  assert.deepEqual(requests, ["/auth/me"]);
+  assert.equal((await getSession()).token, savedSession.token);
+});
+
+test("a response without a confirmed Google-link boolean is not treated as unlinked", async (t) => {
+  prepareApiSession();
+  const requests = mockApiRequests(t);
+
+  await assert.rejects(Api.googleLinkStatus(), /could not confirm your Google connection status/);
+  assert.deepEqual(requests, ["/auth/me"]);
+  assert.equal((await getSession()).token, savedSession.token);
+});
+
 function createProfileScreen(
   user,
   {
@@ -172,6 +213,8 @@ function createProfileScreen(
     renderComponent = false,
     width = 402,
     fontScale = 1,
+    googleLinkStatus = async () => false,
+    useFocusEffect = () => {},
   } = {},
 ) {
   let profileDeclaration = null;
@@ -317,12 +360,15 @@ function createProfileScreen(
     },
     useApp: () => ({ user: getUser(), refresh, logout() {} }),
     useNavigation: () => ({ navigate() {} }),
-    useFocusEffect: () => {},
+    useFocusEffect,
     useDaily007ChangePassword: () => ({
       mutateAsync: async () => {},
       isPending: false,
     }),
-    Api: { adminBootstrapStatus: async () => ({ available: false }) },
+    Api: {
+      adminBootstrapStatus: async () => ({ available: false }),
+      googleLinkStatus,
+    },
     apiError: () => "Request failed.",
     PROFILE_PASSWORD_MAX_LENGTH: 200,
     submitProfilePasswordChange: async () => null,
@@ -899,6 +945,67 @@ test("Profile retries unavailable statistics once and replaces the markers after
   };
   visit(tree);
   assert.deepEqual(statCards, ["27", "11", "94", "🪙640"]);
+});
+
+test("Profile keeps unknown Google status separate from unlinked and allows retry after transient failures", async () => {
+  const user = {
+    id: "verified-player",
+    name: "Verified Player",
+    email: "verified@example.test",
+    coins: 17,
+    token: savedSession.token,
+  };
+  let calls = 0;
+  const focusCallbacks = [];
+  const react = createHookReact();
+  const renderProfile = createProfileScreen(user, {
+    react,
+    renderComponent: true,
+    googleLinkStatus: async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error("Temporary server error"), {
+          response: { status: 503 },
+        });
+      }
+      if (calls === 2) throw new Error("Network disconnected");
+      return false;
+    },
+    useFocusEffect: (callback) => focusCallbacks.push(callback),
+  });
+  const render = () => renderHookTree(renderProfile(), react);
+  const getStatusRetry = (tree) => findRenderedElement(
+    tree,
+    (node) => node.type === "button" && node.props["data-testid"] === "profile-google-status-retry",
+  );
+
+  let tree = render();
+  assert.equal(focusCallbacks.length, 2, "Profile should refresh account data and Google status on focus.");
+  focusCallbacks[1]();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  tree = render();
+  assert.match(renderedTextContent(tree), /Google connection status unavailable/);
+  assert.ok(getStatusRetry(tree), "An unavailable status should offer a server-check retry.");
+  assert.equal(
+    findRenderedElement(tree, (node) => node.props?.["data-testid"] === "profile-google-status-loading"),
+    null,
+  );
+
+  await getStatusRetry(tree).props.onClick();
+  tree = render();
+  assert.equal(calls, 2);
+  assert.match(renderedTextContent(tree), /Google connection status unavailable/);
+  assert.ok(getStatusRetry(tree), "A transient retry failure should remain retryable.");
+  assert.doesNotMatch(renderedTextContent(tree), /CONNECT GOOGLE/);
+
+  await getStatusRetry(tree).props.onClick();
+  tree = render();
+  assert.equal(calls, 3);
+  assert.match(renderedTextContent(tree), /CONNECT GOOGLE/);
+  assert.match(renderedTextContent(tree), /Link Google to this password account/);
+  assert.equal(getStatusRetry(tree), null);
+  assert.equal(user.token, savedSession.token, "Status retries must not alter the Daily007 token.");
 });
 
 test("Profile keeps the account and unavailable totals after a failed retry", async () => {
