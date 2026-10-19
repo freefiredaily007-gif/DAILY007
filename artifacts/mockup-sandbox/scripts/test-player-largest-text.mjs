@@ -1570,6 +1570,7 @@ async function checkVideoCatalogRetryPending() {
     const reload = document.querySelector('[data-testid="video-catalog-reload"]');
     reload?.focus();
     reload?.click();
+    reload?.click();
     return {
       focused: document.activeElement === reload,
       count: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
@@ -1592,6 +1593,9 @@ async function checkVideoCatalogRetryPending() {
       progress: progress?.textContent?.trim() ?? null,
       progressLiveRegion: progress?.getAttribute("aria-live") ?? null,
       focusedOnReload: document.activeElement === reload,
+      reloadAriaBusy: reload?.getAttribute("aria-busy") ?? null,
+      reloadLabel: reload?.getAttribute("aria-label") ?? null,
+      manualRefetches: window.__videoRewardPreviewCalls?.catalogRefetchCancelOptions.filter(Boolean).length ?? 0,
       errorStillVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
       progressBounds: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null,
       viewportWidth: document.documentElement.clientWidth,
@@ -1601,6 +1605,9 @@ async function checkVideoCatalogRetryPending() {
     pendingState.progress === "Reloading videos…"
       && pendingState.progressLiveRegion === "polite"
       && pendingState.focusedOnReload
+      && pendingState.reloadAriaBusy === "true"
+      && pendingState.reloadLabel === "Reloading videos"
+      && pendingState.manualRefetches === 1
       && pendingState.errorStillVisible
       && pendingState.progressBounds?.left >= 0
       && pendingState.progressBounds?.right <= pendingState.viewportWidth + 1,
@@ -1616,10 +1623,16 @@ async function checkVideoCatalogRetryPending() {
   const retryAfterFailure = await evaluate(`(() => ({
     reloadVisible: Boolean(document.querySelector('[data-testid="video-catalog-reload"]')),
     focusStayedOnReload: document.activeElement === document.querySelector('[data-testid="video-catalog-reload"]'),
+    reloadAriaBusy: document.querySelector('[data-testid="video-catalog-reload"]')?.getAttribute("aria-busy") ?? null,
+    reloadLabel: document.querySelector('[data-testid="video-catalog-reload"]')?.getAttribute("aria-label") ?? null,
     progressCleared: !document.querySelector('[data-testid="video-catalog-reload-progress"]'),
   }))()`);
   assert(
-    retryAfterFailure.reloadVisible && retryAfterFailure.focusStayedOnReload && retryAfterFailure.progressCleared,
+    retryAfterFailure.reloadVisible
+      && retryAfterFailure.focusStayedOnReload
+      && retryAfterFailure.reloadAriaBusy === "false"
+      && retryAfterFailure.reloadLabel === "Reload videos"
+      && retryAfterFailure.progressCleared,
     `A failed retry should restore a focused reload action and clear pending feedback: ${JSON.stringify(retryAfterFailure)}`,
   );
 
@@ -1636,7 +1649,7 @@ async function checkVideoCatalogRetryPending() {
       && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))`,
     "the refreshed catalog after the successful retry",
   );
-  console.log("PASS — catalog retry progress is polite, remains readable at 2× text without moving focus, clears after failure, and the retry recovers.");
+  console.log("PASS — the focused Reload control announces its busy state, ignores repeated taps, clears after failure, and recovers on retry.");
 }
 
 async function checkLateVideoCatalogResponseCannotUndoRetry() {
@@ -1644,42 +1657,19 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
   await navigateToScreen("VideoLateCatalogResponse", catalogError);
   await waitForCondition(
     `document.body.innerText.includes(${JSON.stringify(catalogError)})
-      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))`,
-    "catalog error before overlapping retries",
+      && Boolean(document.querySelector('[data-testid="video-catalog-reload"]'))
+      && typeof window.__resolveHeldVideoCatalogRefetch === "function"`,
+    "catalog error and held background refresh before the manual retry",
   );
 
-  await clickSelector('[data-testid="video-catalog-reload"]', "start the older held catalog reload");
-  await waitForCondition(
-    `typeof window.__resolveHeldVideoCatalogRefetch === "function"
-      && window.__videoRewardPreviewCalls?.catalogRefetchCancelOptions.filter(Boolean).length === 1`,
-    "the first overlapping catalog reload to remain pending",
-  );
-  const heldReload = await evaluate(`(() => ({
-    errorVisible: document.body.innerText.includes(${JSON.stringify(catalogError)}),
-    reloadVisible: document.querySelector('[data-testid="video-catalog-reload"]') !== null,
-    activeCard: document.querySelector('[data-testid="video-catalog-card-still-active-video"]') !== null,
-    inactiveCard: document.querySelector('[data-testid="video-catalog-card-unavailable-video"]') !== null,
-    manualRefetches: window.__videoRewardPreviewCalls?.catalogRefetchCancelOptions.filter(Boolean).length ?? 0,
-    heldResponse: typeof window.__resolveHeldVideoCatalogRefetch === "function",
-  }))()`);
-  assert(
-    heldReload.errorVisible
-      && heldReload.reloadVisible
-      && heldReload.activeCard
-      && heldReload.inactiveCard
-      && heldReload.manualRefetches === 1
-      && heldReload.heldResponse,
-    `The first reload should remain pending while its recovery control is available: ${JSON.stringify(heldReload)}`,
-  );
-
-  await clickSelector('[data-testid="video-catalog-reload"]', "start a newer catalog reload");
+  await clickSelector('[data-testid="video-catalog-reload"]', "manually retry while the background refresh is held");
   await waitForCondition(
     `!document.body.innerText.includes(${JSON.stringify(catalogError)})
       && Boolean(document.querySelector('[data-testid="video-catalog-card-still-active-video"]'))
       && !document.querySelector('[data-testid="video-catalog-card-unavailable-video"]')
       && Boolean(document.querySelector('[data-testid="video-catalog-recovered-announcement"]'))
-      && window.__videoRewardPreviewCalls?.catalogRefetchCancelOptions.filter(Boolean).length === 2`,
-    "the newer reload to succeed with only active videos",
+      && window.__videoRewardPreviewCalls?.catalogRefetchCancelOptions.filter(Boolean).length === 1`,
+    "the manual retry to succeed while the older background response remains held",
   );
   const latestSuccess = await evaluate(`(() => {
     const recovery = document.querySelector('[data-testid="video-catalog-recovered-announcement"]');
@@ -1692,6 +1682,7 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
       recoveryLiveRegion: recovery?.getAttribute("aria-live") ?? null,
       recoveryNodeExists: Boolean(recovery),
       manualRefetches: window.__videoRewardPreviewCalls?.catalogRefetchCancelOptions.filter(Boolean).length ?? 0,
+      olderResponseHeld: typeof window.__resolveHeldVideoCatalogRefetch === "function",
     };
   })()`);
   assert(
@@ -1701,8 +1692,9 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
       && latestSuccess.recoveryMessage === "Video catalog reloaded successfully."
       && latestSuccess.recoveryLiveRegion === "polite"
       && latestSuccess.recoveryNodeExists
-      && latestSuccess.manualRefetches === 2,
-    `The newest successful reload should show only active videos and remove the obsolete error: ${JSON.stringify(latestSuccess)}`,
+      && latestSuccess.manualRefetches === 1
+      && latestSuccess.olderResponseHeld,
+    `The successful manual retry should show only active videos while the older background response remains held: ${JSON.stringify(latestSuccess)}`,
   );
 
   const lateResponseReleased = await evaluate(`(() => {
@@ -1734,7 +1726,7 @@ async function checkLateVideoCatalogResponseCannotUndoRetry() {
       && finalCatalog.recoveryMessage === "Video catalog reloaded successfully."
       && finalCatalog.recoveryNodeStable
       && finalCatalog.resolvedLateResponses === 1
-      && finalCatalog.manualRefetches === 2,
+      && finalCatalog.manualRefetches === 1,
     `The late stale response must not undo the newer successful catalog state: ${JSON.stringify(finalCatalog)}`,
   );
   console.log("PASS — a late stale catalog response cannot restore the inactive video, old error, or duplicate recovery announcement.");

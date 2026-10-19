@@ -340,12 +340,8 @@ export function useDaily007ListVideos() {
       });
     }
     if (mode === "lateCatalogResponse") {
-      if (options?.cancelRefetch !== true) {
-        return { error: new Error("Temporary video catalog refresh failure.") };
-      }
-
       const requestSequence = ++lateCatalogRequestSequenceRef.current;
-      if (requestSequence === 1) {
+      if (options?.cancelRefetch !== true) {
         return new Promise<{ data: { videos: typeof rewardPreviewVideos } }>((resolve) => {
           const preview = globalThis as typeof globalThis & {
             __resolveHeldVideoCatalogRefetch?: () => void;

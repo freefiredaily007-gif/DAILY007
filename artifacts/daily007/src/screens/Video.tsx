@@ -186,6 +186,7 @@ export default function Video() {
   const [catalogErrorAnnouncementVersion, setCatalogErrorAnnouncementVersion] = useState(0);
   const [catalogRecoveryAnnouncementVersion, setCatalogRecoveryAnnouncementVersion] = useState(0);
   const [catalogReloadPending, setCatalogReloadPending] = useState(false);
+  const catalogReloadPendingRef = useRef(false);
   const catalogSearchInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const playbackCycleRef = useRef(0);
   const catalogReloadRequestSequenceRef = useRef(0);
@@ -194,6 +195,8 @@ export default function Video() {
   const catalogScrollRestorePendingRef = useRef(false);
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) ?? videos[0] ?? null;
   const reloadVideoCatalog = useCallback(async () => {
+    if (catalogReloadPendingRef.current) return;
+    catalogReloadPendingRef.current = true;
     const requestSequence = ++catalogReloadRequestSequenceRef.current;
     setCatalogReloadPending(true);
     try {
@@ -205,6 +208,7 @@ export default function Video() {
       }
       setCatalogRecoveryAnnouncementVersion((version) => version + 1);
     } finally {
+      catalogReloadPendingRef.current = false;
       if (requestSequence === catalogReloadRequestSequenceRef.current) {
         setCatalogReloadPending(false);
       }
@@ -1019,8 +1023,13 @@ export default function Video() {
                 testID="video-catalog-reload"
                 onPress={() => { void reloadVideoCatalog(); }}
                 accessibilityRole="button"
-                accessibilityLabel="Reload videos"
-                accessibilityState={{ busy: catalogReloadPending }}
+                accessibilityLabel={catalogReloadPending ? 'Reloading videos' : 'Reload videos'}
+                accessibilityHint={catalogReloadPending
+                  ? 'Wait for the current catalog reload to finish.'
+                  : 'Retries loading the video catalog.'}
+                accessibilityState={{ busy: catalogReloadPending, disabled: catalogReloadPending }}
+                aria-busy={catalogReloadPending}
+                tabIndex={0}
               >
                 <Feather name="refresh-cw" size={18} color={colors.primary} />
               </Pressable>
