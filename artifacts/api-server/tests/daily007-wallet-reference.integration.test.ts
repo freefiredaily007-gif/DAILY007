@@ -30,6 +30,7 @@ const fixture = {
   protectedDepositPlayerId: randomUUID(),
   approvedReferencePlayerId: randomUUID(),
   approvedReferenceRetryPlayerId: randomUUID(),
+  approvedReferenceSecondRetryPlayerId: randomUUID(),
   concurrentApprovalPlayerId: randomUUID(),
   racePlayerIds: [randomUUID(), randomUUID()] as const,
   adminId: randomUUID(),
@@ -45,6 +46,7 @@ after(async () => {
       fixture.protectedDepositPlayerId,
       fixture.approvedReferencePlayerId,
       fixture.approvedReferenceRetryPlayerId,
+      fixture.approvedReferenceSecondRetryPlayerId,
       fixture.concurrentApprovalPlayerId,
       ...fixture.racePlayerIds,
     ];
@@ -76,7 +78,8 @@ before(async () => {
        ($13, 'UPI Reference Second Admin', $14, 'test-salt', 'test-hash', 'admin', 0),
        ($15, 'UPI Reference Concurrent Approval Player', $16, 'test-salt', 'test-hash', 'user', 1100),
        ($19, 'Approved Reference Player', $20, 'test-salt', 'test-hash', 'user', 500),
-       ($21, 'Approved Reference Retry Player', $22, 'test-salt', 'test-hash', 'user', 350)`,
+       ($21, 'Approved Reference Retry Player', $22, 'test-salt', 'test-hash', 'user', 350),
+        ($23, 'Approved Reference Second Retry Player', $24, 'test-salt', 'test-hash', 'user', 275)`,
     [
       fixture.playerId,
       fixture.retryPlayerId,
@@ -100,6 +103,8 @@ before(async () => {
       `approved-reference-${fixture.approvedReferencePlayerId}@example.test`,
       fixture.approvedReferenceRetryPlayerId,
       `approved-reference-retry-${fixture.approvedReferenceRetryPlayerId}@example.test`,
+      fixture.approvedReferenceSecondRetryPlayerId,
+      `approved-reference-second-retry-${fixture.approvedReferenceSecondRetryPlayerId}@example.test`,
     ],
   );
   await pool.query(
@@ -384,20 +389,22 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
   const retryReference = normalizedReference.toLocaleLowerCase("en-US");
   const originalPlayerId = fixture.approvedReferencePlayerId;
   const retryPlayerId = fixture.approvedReferenceRetryPlayerId;
+  const secondRetryPlayerId = fixture.approvedReferenceSecondRetryPlayerId;
+  const retryPlayerIds = [retryPlayerId, secondRetryPlayerId];
   const coins = 125;
   const initialAccounts = await pool.query<{ id: string; wallet_coins: number }>(
     `SELECT id, wallet_coins
        FROM daily007_v2_users
       WHERE id = ANY($1::uuid[])
       ORDER BY id`,
-    [[originalPlayerId, retryPlayerId]],
+    [[originalPlayerId, ...retryPlayerIds]],
   );
   const initialRetryLedger = await pool.query(
-    `SELECT id, amount, balance_after, reason
+    `SELECT id, user_id, amount, balance_after, reason
        FROM daily007_v2_wallet_ledger
-      WHERE user_id = $1
-      ORDER BY created_at, id`,
-    [retryPlayerId],
+      WHERE user_id = ANY($1::uuid[])
+      ORDER BY user_id, created_at, id`,
+    [retryPlayerIds],
   );
   const originalStartingBalance = initialAccounts.rows.find(
     (account) => account.id === originalPlayerId,
@@ -405,8 +412,12 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
   const retryStartingBalance = initialAccounts.rows.find(
     (account) => account.id === retryPlayerId,
   )?.wallet_coins;
+  const secondRetryStartingBalance = initialAccounts.rows.find(
+    (account) => account.id === secondRetryPlayerId,
+  )?.wallet_coins;
   assert.equal(originalStartingBalance, 500);
   assert.equal(retryStartingBalance, 350);
+  assert.equal(secondRetryStartingBalance, 275);
   assert.deepEqual(initialRetryLedger.rows, []);
 
   await pool.query(
@@ -470,13 +481,67 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
       reference_normalized: normalizedReference,
     }]);
 
-    const retry = await call(origin, retryPlayerId, "/payments", "POST", {
-      coins,
-      payerUpiId: "retry-player@upi",
-      txnId: retryReference,
-    });
-    assert.equal(retry.status, 409);
-    assert.equal(retry.body.error, "This payment reference has already been submitted.");
+    let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+    let blockerTransactionOpen = false;
+    let retries: Promise<{ status: number; body: any }>[] = [];
+    try {
+      await pool.query(
+        `CREATE OR REPLACE FUNCTION daily007_test_pause_approved_reference_retries()
+         RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+           PERFORM pg_advisory_xact_lock(743181, 1);
+           RETURN NEW;
+         END;
+         $$`,
+      );
+      await pool.query(
+        `CREATE TRIGGER daily007_test_pause_approved_reference_retries
+         BEFORE INSERT ON daily007_v2_payments
+         FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_approved_reference_retries()`,
+      );
+
+      blocker = await pool.connect();
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      const blockerBackendPid = await backendPid(blocker);
+      await blocker.query("SELECT pg_advisory_xact_lock(743181, 1)");
+
+      retries = [
+        call(origin, retryPlayerId, "/payments", "POST", {
+          coins,
+          payerUpiId: "retry-player@upi",
+          txnId: retryReference,
+        }),
+        call(origin, secondRetryPlayerId, "/payments", "POST", {
+          coins,
+          payerUpiId: "second-retry-player@upi",
+          txnId: originalReference,
+        }),
+      ];
+      await waitForBlockedPaymentRequests(blockerBackendPid, 2);
+      await blocker.query("COMMIT");
+      blockerTransactionOpen = false;
+
+      const retryResponses = await Promise.all(retries);
+      assert.deepEqual(
+        retryResponses.map((response) => response.status),
+        [409, 409],
+      );
+      assert.ok(retryResponses.every(
+        (response) => response.body.error === "This payment reference has already been submitted.",
+      ));
+    } finally {
+      if (blockerTransactionOpen && blocker) {
+        await blocker.query("ROLLBACK");
+        blockerTransactionOpen = false;
+      }
+      await Promise.allSettled(retries);
+      blocker?.release();
+      await pool.query(
+        "DROP TRIGGER IF EXISTS daily007_test_pause_approved_reference_retries ON daily007_v2_payments",
+      );
+      await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_approved_reference_retries()");
+    }
 
     const finalPayments = await pool.query<{
       id: string;
@@ -501,7 +566,7 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
          FROM daily007_v2_users
         WHERE id = ANY($1::uuid[])
         ORDER BY id`,
-      [[originalPlayerId, retryPlayerId]],
+      [[originalPlayerId, ...retryPlayerIds]],
     );
     const finalOriginalBalance = finalAccounts.rows.find(
       (account) => account.id === originalPlayerId,
@@ -509,20 +574,24 @@ test("an approved deposit keeps its case- and Unicode-normalized UPI reference g
     const finalRetryBalance = finalAccounts.rows.find(
       (account) => account.id === retryPlayerId,
     )?.wallet_coins;
+    const finalSecondRetryBalance = finalAccounts.rows.find(
+      (account) => account.id === secondRetryPlayerId,
+    )?.wallet_coins;
     assert.equal(finalOriginalBalance, originalStartingBalance! + coins);
     assert.equal(finalRetryBalance, retryStartingBalance);
+    assert.equal(finalSecondRetryBalance, secondRetryStartingBalance);
 
     const finalRetryLedger = await pool.query(
-      `SELECT id, amount, balance_after, reason
+      `SELECT id, user_id, amount, balance_after, reason
          FROM daily007_v2_wallet_ledger
-        WHERE user_id = $1
-        ORDER BY created_at, id`,
-      [retryPlayerId],
+        WHERE user_id = ANY($1::uuid[])
+        ORDER BY user_id, created_at, id`,
+      [retryPlayerIds],
     );
     assert.deepEqual(
       finalRetryLedger.rows,
       initialRetryLedger.rows,
-      "The rejected duplicate must not change the retry player's ledger.",
+      "Concurrent duplicate retries must not change either retry player's ledger.",
     );
     const originalApprovalLedger = await pool.query<{
       amount: number;
