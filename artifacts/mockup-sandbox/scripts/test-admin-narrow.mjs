@@ -9531,6 +9531,104 @@ async function checkAdminFullAdminRoleRefreshRecovery() {
     recoveredRoleName === recoveredAccessibleRoleName,
     `The refreshed row should announce the server-confirmed Tournament Admin role: ${String(recoveredRoleName)}.`,
   );
+
+  await resetAdminMutationCalls();
+  await tapSelector(
+    '[data-testid="player-refresh-control-test-action"]',
+    "resetting the isolated recovery account to Full Admin",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(userEmail)})
+      && document.body.innerText.includes("FULL ADMIN")`,
+    "the recovery account to return to Full Admin before the absent-account case",
+  );
+  await assertAdminRecordState(
+    userEmail,
+    { includes: ["FULL ADMIN"], excludes: ["TOURNAMENT ADMIN", "PLAYER"] },
+    "the Full Admin account before it disappears from the refreshed list",
+  );
+
+  await failNextAdminMutation(
+    "adminSetUserRole",
+    "At least one full administrator must remain.",
+  );
+  const configuredSecondReadFailure = await evaluate(`(() => {
+    const tracker = window.__daily007AdminMutations;
+    if (!tracker?.failNextUserRead) return false;
+    tracker.failNextUserRead("Preview user-list refresh failure");
+    return true;
+  })()`);
+  assert(
+    configuredSecondReadFailure,
+    "Could not configure the user-list refresh failure for the absent-account recovery.",
+  );
+  await clickSelector(`[data-testid="change-user-role-${userId}"]`, "the Full Admin role action before account removal");
+  await clickSelector(
+    '[data-testid="confirm-tournament-admin-change"]',
+    "confirming the Full Admin role action before account removal",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify("Refresh failed: Preview user-list refresh failure.")})`,
+    "the role safeguard rejection and failed immediate user-list refresh before retry",
+  );
+  const removedRecoveryUser = await evaluate(`(() => {
+    const controls = window.__daily007AdminMutations;
+    if (typeof controls?.removeRecoveryPreviewUser !== "function") return false;
+    controls.removeRecoveryPreviewUser();
+    return true;
+  })()`);
+  assert(
+    removedRecoveryUser,
+    "Could not remove the recovery account from the isolated preview before retrying.",
+  );
+
+  await tapSelector(
+    '[data-testid="player-refresh-control-test-action"]',
+    "retrying the user list after the recovery account disappears",
+  );
+  await waitForCondition(
+    `(() => {
+      const toast = document.querySelector('[data-testid="admin-toast"]');
+      const roleNames = new Set([
+        ${JSON.stringify(initialAccessibleRoleName)},
+        ${JSON.stringify(recoveredAccessibleRoleName)},
+      ]);
+      const staleRoleRow = [...document.querySelectorAll("[aria-label]")]
+        .some((node) => roleNames.has(node.getAttribute("aria-label")));
+      return toast?.getAttribute("aria-label") === ${JSON.stringify(expectedStatus)} &&
+        toast?.getAttribute("aria-live") === "polite" &&
+        !document.body.innerText.includes(${JSON.stringify(userEmail)}) &&
+        !staleRoleRow;
+    })()`,
+    "the successful recovery with no user row or stale role",
+  );
+  const absentAccountRecoveryState = await evaluate(`(() => {
+    const toast = document.querySelector('[data-testid="admin-toast"]');
+    const roleNames = new Set([
+      ${JSON.stringify(initialAccessibleRoleName)},
+      ${JSON.stringify(recoveredAccessibleRoleName)},
+    ]);
+    return {
+      label: toast?.getAttribute("aria-label") ?? null,
+      live: toast?.getAttribute("aria-live") ?? null,
+      text: toast?.textContent?.replace(/^✓\s*/, "").trim() ?? "",
+      emailVisible: document.body.innerText.includes(${JSON.stringify(userEmail)}),
+      nameVisible: document.body.innerText.includes(${JSON.stringify(userName)}),
+      staleRoleRowVisibleOrAccessible: [...document.querySelectorAll("[aria-label]")]
+        .some((node) => roleNames.has(node.getAttribute("aria-label"))),
+    };
+  })()`);
+  assert(
+    absentAccountRecoveryState.label === expectedStatus &&
+      absentAccountRecoveryState.live === "polite" &&
+      absentAccountRecoveryState.text === expectedStatus &&
+      !absentAccountRecoveryState.text.includes("Full Admin") &&
+      !absentAccountRecoveryState.text.includes(userName) &&
+      !absentAccountRecoveryState.emailVisible &&
+      !absentAccountRecoveryState.nameVisible &&
+      !absentAccountRecoveryState.staleRoleRowVisibleOrAccessible,
+    `When the recovery account disappears, the success status must not imply a role and its old row must not remain visible or accessible: ${JSON.stringify(absentAccountRecoveryState)}.`,
+  );
 }
 
 try {
@@ -9990,7 +10088,7 @@ try {
         `Browser errors during Full Admin refresh-recovery checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        "PASS — After an external role change during a failed-refresh recovery, the refreshed row shows Tournament Admin and the polite status does not claim Full Admin.",
+        "PASS — Recovery reports a changed role accurately and stays role-neutral when the account disappears; no stale Full Admin row remains.",
       );
     } else if (adminActionsOnly) {
       await setViewport(390);

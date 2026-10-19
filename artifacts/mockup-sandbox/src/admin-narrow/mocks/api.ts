@@ -120,6 +120,7 @@ const previewFullAdminRecoveryUser = {
   role: "admin",
   createdAt: "2026-10-06T10:00:00.000Z",
 };
+let recoveryPreviewUserPresent = true;
 
 const previewNotificationRecipients = [
   {
@@ -427,6 +428,7 @@ const adminPreviewMutations = {
     nextAdminUsersReadError = null;
     emptyNextAdminUsersRead = false;
     previewFullAdminRecoveryUser.role = "admin";
+    recoveryPreviewUserPresent = true;
   },
   holdNextNotificationSend: () => {
     if (deferredAdminNotificationSend) {
@@ -462,6 +464,9 @@ const adminPreviewMutations = {
   },
   changeRecoveryPreviewRole: (role: "admin" | "tournament_admin" | "user") => {
     previewFullAdminRecoveryUser.role = role;
+  },
+  removeRecoveryPreviewUser: () => {
+    recoveryPreviewUserPresent = false;
   },
 };
 (globalThis as typeof globalThis & {
@@ -730,7 +735,7 @@ export const Api = {
       && new URLSearchParams(window.location.search).has("admin-full-admin-recovery-only");
     return [
       ...previewAdminUsers,
-      ...(recoveryPreviewEnabled ? [previewFullAdminRecoveryUser] : []),
+      ...(recoveryPreviewEnabled && recoveryPreviewUserPresent ? [previewFullAdminRecoveryUser] : []),
       ...(isAdminLargestTextPreview() ? previewNotificationRecipients : []),
     ].map((user) => ({ ...user }));
   },
