@@ -20,6 +20,7 @@ let activeChromium;
 let browserOutput = "";
 let socket;
 let messageId = 0;
+const phoneViewport = { width: 390, height: 844, deviceScaleFactor: 1, mobile: true };
 const previewGroups = [
   {
     config: "vite.admin-narrow.config.ts",
@@ -28,21 +29,25 @@ const previewGroups = [
         path: "/admin-narrow-preview.html",
         screen: "Admin",
         markers: ["ADMIN OPS", 'data-testid="admin-tab-users"'],
+        phoneMarkers: ["ADMIN OPS"],
       },
       {
         path: "/home-carousel-preview.html",
         screen: "Home carousel",
         markers: ["DAILY007 TOURNAMENTS", "GAME MODES"],
+        phoneMarkers: ["DAILY007 TOURNAMENTS", "GAME MODES"],
       },
       {
         path: "/keyboard-forms-preview.html",
         screen: "Wallet and Edit Profile",
         markers: ['data-testid="wallet-open-recharge"'],
+        phoneMarkers: ['data-testid="wallet-open-recharge"'],
       },
       {
         path: "/tournament-resume-preview.html",
         screen: "Tournament list",
         markers: ["IST Start Boundary", 'data-testid="tournament-tab-upcoming"'],
+        phoneMarkers: ['data-testid="tournament-tab-upcoming"'],
       },
     ],
   },
@@ -53,6 +58,7 @@ const previewGroups = [
         path: "/google-signup-wallet-preview.html",
         screen: "Google signup and Wallet",
         markers: ['data-testid="auth-password"', 'data-testid="continue-with-google"'],
+        phoneMarkers: ['data-testid="auth-password"', 'data-testid="continue-with-google"'],
       },
     ],
   },
@@ -63,12 +69,17 @@ const previewGroups = [
         path: "/player-largest-text-preview.html?screen=Home",
         screen: "Player Home",
         markers: ["GAME MODES", 'data-testid="home-mode-battle-royale"'],
+        phoneMarkers: ['data-testid="home-mode-battle-royale"'],
       },
       {
         path: "/player-largest-text-preview.html?screen=Video",
         screen: "Player Video",
         markers: [
           "Tutorial Videos (2)",
+          'data-testid="video-catalog-search"',
+          'data-testid="video-catalog-card-large-video-01"',
+        ],
+        phoneMarkers: [
           'data-testid="video-catalog-search"',
           'data-testid="video-catalog-card-large-video-01"',
         ],
@@ -82,6 +93,7 @@ const previewGroups = [
         path: "/player-join-form-largest-text-preview.html",
         screen: "Player Join Form",
         markers: ["Daily007 Squad Finals", 'data-testid="join-form-submit"'],
+        phoneMarkers: ["Daily007 Squad Finals", 'data-testid="join-form-submit"'],
       },
     ],
   },
@@ -92,6 +104,7 @@ const previewGroups = [
         path: "/signup-keyboard-preview.html",
         screen: "Signup",
         markers: ['data-testid="auth-password"', "SIGN UP"],
+        phoneMarkers: ['data-testid="auth-password"', "SIGN UP"],
       },
     ],
   },
@@ -267,6 +280,7 @@ async function startChromium(profilePath) {
   await cdp("Runtime.enable");
   await cdp("Page.enable");
   await cdp("Network.enable");
+  await cdp("Emulation.setDeviceMetricsOverride", phoneViewport);
 }
 
 async function checkPreview(url, entry) {
@@ -279,18 +293,82 @@ async function checkPreview(url, entry) {
   }
 
   const expectedMarkers = JSON.stringify(entry.markers);
+  const expectedPhoneMarkers = JSON.stringify(entry.phoneMarkers ?? entry.markers);
   const expectedUrl = JSON.stringify(url);
+  const expectedPhoneWidth = phoneViewport.width;
   const expression = `(() => {
     const text = document.body?.innerText ?? "";
     const html = document.body?.innerHTML ?? "";
+    const root = document.documentElement;
     const markers = ${expectedMarkers};
     const missing = markers.filter((marker) =>
       marker.startsWith('data-testid="') ? !html.includes(marker) : !text.includes(marker)
     );
+    const phoneMarkers = ${expectedPhoneMarkers};
+    const findMarkerElement = (marker) => {
+      const testId = marker.match(/^data-testid="([^"]+)"$/)?.[1];
+      if (testId) {
+        return [...document.querySelectorAll("[data-testid]")]
+          .find((element) => element.getAttribute("data-testid") === testId) ?? null;
+      }
+      if (!document.body) return null;
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue?.includes(marker)) return node.parentElement;
+      }
+      return null;
+    };
+    const layoutWidth = root?.clientWidth ?? 0;
+    const scrollWidth = Math.max(
+      root?.scrollWidth ?? 0,
+      document.body?.scrollWidth ?? 0,
+    );
+    const overflowPx = Math.max(0, scrollWidth - layoutWidth);
+    const markerLayouts = phoneMarkers.map((marker) => {
+      const element = findMarkerElement(marker);
+      if (!element) return { marker, visible: false, clipped: false };
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return {
+        marker,
+        visible: rect.width > 0 && rect.height > 0
+          && style.display !== "none"
+          && style.visibility !== "hidden"
+          && style.opacity !== "0",
+        clipped: rect.left < -1 || rect.right > layoutWidth + 1,
+        bounds: {
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+      };
+    });
+    const clippedMarkers = markerLayouts.filter((layout) => !layout.visible || layout.clipped);
+    const phoneViewportOk = Boolean(root && document.body)
+      && window.innerWidth === ${expectedPhoneWidth}
+      && Math.abs(layoutWidth - ${expectedPhoneWidth}) <= 1
+      && overflowPx <= 1
+      && clippedMarkers.length === 0;
     return {
       url: window.location.href,
       ready: window.location.href === ${expectedUrl} && missing.length === 0,
       missing,
+      phoneViewport: { width: window.innerWidth, height: window.innerHeight },
+      phoneMetrics: {
+        screenWidth: window.screen.width,
+        screenHeight: window.screen.height,
+        devicePixelRatio: window.devicePixelRatio,
+        visualWidth: window.visualViewport?.width ?? null,
+        visualScale: window.visualViewport?.scale ?? null,
+        layoutWidth,
+        scrollWidth,
+        metaViewport: document.querySelector('meta[name="viewport"]')?.content ?? null,
+      },
+      overflowPx,
+      clippedMarkers,
+      phoneViewportOk,
       hasViteError: Boolean(document.querySelector("vite-error-overlay"))
         || /Internal server error|Failed to resolve import/i.test(text),
       text: text.slice(0, 1_200),
@@ -315,6 +393,15 @@ async function checkPreview(url, entry) {
       throw new Error(`${entry.screen} preview displayed a Vite error:\n${state.text}`);
     }
     if (state.ready) {
+      if (!state.phoneViewportOk) {
+        throw new Error(
+          `${entry.screen} preview failed phone-width layout checks at ` +
+            `${state.phoneViewport?.width}×${state.phoneViewport?.height}: ` +
+            `${JSON.stringify(state.phoneMetrics)}; ` +
+            `${state.overflowPx}px page overflow; ` +
+            `clipped or hidden markers: ${JSON.stringify(state.clippedMarkers)}.`,
+        );
+      }
       await delay(150);
       if (browserErrors.length > 0) {
         throw new Error(
@@ -327,7 +414,7 @@ async function checkPreview(url, entry) {
         );
       }
       state = await evaluate(expression);
-      if (state.ready && !state.hasViteError) return;
+      if (state.ready && !state.hasViteError && state.phoneViewportOk) return;
     }
     await delay(100);
   }
@@ -395,7 +482,10 @@ try {
       const url = `http://127.0.0.1:${port}${entry.path}`;
       await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
       await checkPreview(url, entry);
-      console.log(`PASS ${group.config} ${entry.path} → ${entry.screen}`);
+      console.log(
+        `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
+          `${phoneViewport.width}×${phoneViewport.height}`,
+      );
     }
 
     await stopProcess(activeVite);
