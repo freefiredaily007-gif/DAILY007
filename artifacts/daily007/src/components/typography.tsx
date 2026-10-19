@@ -14,13 +14,13 @@ const InheritedTypography = createContext<{ fontSize: number | null; color: stri
 });
 
 const TEXT_COLOR = {
-  white: '#70B8FF',
-  yellow: '#FFD54D',
-  blue: '#F5F7FF',
-  deepBlue: '#173B6C',
+  white: '#F4F7FF',
+  yellow: '#FFD34F',
+  blue: '#9BCBFF',
+  deepBlue: '#1A2C5D',
 } as const;
 
-const BLUE_THEME_COLORS = new Set(['#4da3ff', '#70b8ff', '#7aa2f7']);
+const BLUE_THEME_COLORS = new Set(['#3388ff', '#6ebbff', '#70b8ff', '#7aa2f7']);
 const WHITE_THEME_COLORS = new Set(['#fff', '#ffffff', '#eef1f8', '#f4f2ef', '#e6e9ef', '#f5f7ff']);
 
 export function swapThemeColor(color: string) {
@@ -35,6 +35,8 @@ const PRESERVED_COLORS = new Set([
   '#2ecc71', '#86efac', '#c9f7d4',
   '#ff3d3d', '#ff4655', '#ff4b36', '#a05cff', '#d9b8ff',
   '#ff2e00', '#ff7b00', '#e4b557', '#f5f7fa', '#9ca6b2', '#7f8a97', '#ff655a',
+  '#3388ff', '#9b63ff', '#a77bff', '#ffd34f', '#43d7a4', '#ff7187',
+  '#070a18', '#0b1230', '#0d1631', '#142043', '#263765',
 ]);
 
 const scaleSize = (value: number) => Math.round(value * TYPE_SCALE * 10) / 10;
@@ -95,7 +97,7 @@ function paletteTextColor(color: unknown, style: TextStyle, role: 'text' | 'body
   if (role === 'supporting') return TEXT_COLOR.blue;
   if (role === 'body') return TEXT_COLOR.white;
 
-  if (profile?.hex === '#070a12') return profile.hex;
+  if (profile?.hex === '#070a12' || profile?.hex === '#070a18') return profile.hex;
   const isPureWhite = profile && profile.lightness > 0.98 && profile.saturation < 0.1;
   const isHeading = numericWeight(style) >= 700 && (
     (typeof style.fontSize === 'number' && style.fontSize >= 16) ||

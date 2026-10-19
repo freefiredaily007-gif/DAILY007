@@ -1,5 +1,10 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import colors from '../../constants/colors';
+
+const GOLD = colors.light.accent;
+const BLUE = colors.light.primary;
+const MUTED = colors.light.mutedForeground;
 
 // Golden wallet with rupee coin — active (gold gradient body + glowing coin)
 export function WalletIconActive({ size = 26 }: { size?: number }) {
@@ -42,9 +47,8 @@ export function WalletIconInactive({ size = 26 }: { size?: number }) {
   );
 }
 
-const GOLD = '#FFC107';
-const GOLD2 = '#FFA500';
-const GREY = '#777777';
+const GOLD2 = BLUE;
+const GREY = MUTED;
 
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', justifyContent: 'center' },

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
-import { AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
+import { A, AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { inr } from '../lib/coins';
 import { runOnceWhileInFlight } from '../lib/inFlightAction';
 
@@ -117,7 +117,7 @@ export default function AdminWallet() {
         ready={users !== null}
       />
       {users === null ? (
-        <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />
+        <ActivityIndicator color={A.cyan} style={{ marginTop: 30 }} />
       ) : filtered.length === 0 ? (
         <Card><Text style={st.empty}>No users found.</Text></Card>
       ) : filtered.map((u) => (
@@ -149,7 +149,7 @@ export default function AdminWallet() {
           }}>
             <Text style={{ flex: 1, minWidth: 0, color: '#e6e9ef', fontSize: 12.5, fontWeight: '700' }}>{t.title || t.note || 'Transaction'}</Text>
             <Text style={[
-              { color: Number(t.coins || 0) >= 0 ? '#22c55e' : '#ff3d3d', fontWeight: '900' },
+              { color: Number(t.coins || 0) >= 0 ? A.green : A.red, fontWeight: '900' },
               stackUserBalance && { alignSelf: 'flex-start' },
             ]}>
               {Number(t.coins || 0) >= 0 ? '+' : ''}{t.coins} COINS
@@ -192,6 +192,6 @@ const st = StyleSheet.create({
   search: { minHeight: 48, backgroundColor: '#0d1326', borderRadius: 10, color: '#e6e9ef', paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#232c47' },
   name: { color: '#e6e9ef', fontWeight: '900', fontSize: 14 },
   sub: { color: '#5b6478', fontSize: 11, marginTop: 2 },
-  coins: { color: '#FFC107', fontWeight: '900', fontSize: 15 },
-  empty: { color: '#5b6478', textAlign: 'center', paddingVertical: 10 },
+  coins: { color: A.gold, fontWeight: '900', fontSize: 15 },
+  empty: { color: A.sub, textAlign: 'center', paddingVertical: 10 },
 });

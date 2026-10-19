@@ -13,10 +13,10 @@ import {
 export { default as TimePicker } from './TimePicker';
 
 export const C = {
-  bg: '#070a12', bg2: '#0b1020', card: '#10162b', card2: '#141b33', border: '#1e2745',
-  squadPanel: '#0b1120', squadTile: '#070d19', squadBorder: '#1c2940', squadAccent: '#00f0ff',
-  neon: '#ff3d3d', orange: '#ff7a1a', gold: '#ffb020', green: '#2ecc71', blue: '#4da3ff',
-  purple: '#a05cff', red: '#ff5c5c', text: '#eef1f8', sub: '#9aa3b8', dim: '#5b6478', line: '#1e2745',
+  bg: '#070A18', bg2: '#0B1230', card: '#0D1631', card2: '#142043', border: '#263765',
+  squadPanel: '#0A1230', squadTile: '#0B1532', squadBorder: '#253765', squadAccent: '#52D5FF',
+  neon: '#3388FF', orange: '#9B63FF', gold: '#FFD34F', green: '#43D7A4', blue: '#6EBBFF',
+  purple: '#A77BFF', red: '#FF7187', text: '#F4F7FF', sub: '#AAB6D5', dim: '#7280A5', line: '#263765',
 };
 
 const UiSurfaceContext = createContext<'player' | 'admin'>('player');
@@ -230,11 +230,26 @@ export const Input = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof TextInput>
 >(function Input(props, ref) {
   const adminSurface = useAdminSurface();
+  const [focused, setFocused] = useState(false);
   return (
     <TextInput
       ref={ref}
       {...props}
-      style={[st.input, adminSurface && adminSt.input, props.style]}
+      onFocus={(event) => {
+        setFocused(true);
+        props.onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setFocused(false);
+        props.onBlur?.(event);
+      }}
+      style={[
+        st.input,
+        adminSurface && adminSt.input,
+        focused && st.inputFocused,
+        adminSurface && focused && adminSt.inputFocused,
+        props.style,
+      ]}
       placeholderTextColor={props.placeholderTextColor || C.dim}
     />
   );
@@ -708,36 +723,38 @@ export function CoinCapsule({
 }
 
 const st = StyleSheet.create({
-  btn: { paddingVertical: 13.5, borderRadius: 12, alignItems: 'center' },
-  btnText: { fontWeight: '900', letterSpacing: 1.2, fontSize: 14 },
+  btn: { paddingVertical: 13.5, paddingHorizontal: 14, minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  btnText: { fontFamily: 'Rajdhani_700Bold', fontWeight: '900', letterSpacing: 1, fontSize: 15 },
   card: {
-    backgroundColor: C.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: C.border,
-    // subtle top-edge metallic highlight
-    borderTopColor: '#2a3558',
+    backgroundColor: C.card, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: C.border,
+    borderTopColor: '#49619D',
     paddingVertical: 14.5,
+    shadowColor: C.blue, shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 4,
   },
   input: {
-    backgroundColor: C.card2, color: C.text, borderRadius: 10, paddingHorizontal: 12,
-    paddingVertical: 11, borderWidth: 1, borderColor: C.border, marginBottom: 10, fontSize: 14,
+    backgroundColor: C.card2, color: C.text, borderRadius: 12, paddingHorizontal: 13,
+    paddingVertical: 11, borderWidth: 1, borderColor: C.border, marginBottom: 10, minHeight: 48,
+    fontFamily: 'Rajdhani_600SemiBold', fontSize: 15,
   },
+  inputFocused: { borderColor: C.neon, shadowColor: C.neon, shadowOpacity: 0.28, shadowRadius: 9, shadowOffset: { width: 0, height: 0 }, elevation: 3 },
   msg: { borderRadius: 10, borderWidth: 1, padding: 12, marginTop: 10 },
   empty: { alignItems: 'center', padding: 34 },
   emptyIconWrap: {
     width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center',
     backgroundColor: C.card2, borderWidth: 2, borderColor: C.purple + '66', marginBottom: 14,
   },
-  emptyTitle: { color: C.text, fontWeight: '900', fontSize: 17, letterSpacing: 2 },
+  emptyTitle: { color: C.text, fontFamily: 'Orbitron_700Bold', fontWeight: '900', fontSize: 15, letterSpacing: 1.2 },
   emptyText: { color: C.dim, marginTop: 8, textAlign: 'center', fontSize: 13 },
   secRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 12 },
   secBar: { width: 4, height: 18, borderRadius: 2, marginRight: 8 },
-  secText: { color: C.text, fontSize: 16, fontWeight: '900', letterSpacing: 1.5, flex: 1, minWidth: 0 },
+  secText: { color: C.text, fontFamily: 'Rajdhani_700Bold', fontSize: 16, fontWeight: '900', letterSpacing: 1.2, flex: 1, minWidth: 0 },
    chip: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5.5, alignSelf: 'flex-start' },
   chipText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   kvRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border + '66' },
   kvK: { color: C.sub, fontSize: 13 },
   kvV: { fontWeight: '800', fontSize: 13 },
   capsule: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1408',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#171C2E',
     borderWidth: 1.5, borderColor: C.gold, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 7,
   },
   capsuleNarrow: { maxWidth: '100%', flexWrap: 'wrap' },
@@ -748,17 +765,18 @@ const st = StyleSheet.create({
 });
 
 const adminSt = StyleSheet.create({
-  btn: { borderRadius: 10, paddingVertical: 12.5, minWidth: 48, minHeight: 48, shadowOpacity: 0.2, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
-  btnText: { fontFamily: 'Inter_700Bold', fontSize: 12, letterSpacing: 0.9 },
-  card: { backgroundColor: '#11161f', borderRadius: 14, borderColor: 'rgba(77,163,255,0.09)', borderTopColor: 'rgba(255,176,32,0.24)', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
-  input: { backgroundColor: '#0e131b', borderColor: 'rgba(77,163,255,0.12)', borderRadius: 10, fontFamily: 'Inter_400Regular', fontSize: 13 },
+  btn: { borderRadius: 12, paddingVertical: 12.5, minWidth: 48, minHeight: 48, shadowColor: C.neon, shadowOpacity: 0.16, shadowRadius: 9, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  btnText: { fontFamily: 'Rajdhani_700Bold', fontSize: 13, letterSpacing: 0.9 },
+  card: { backgroundColor: '#101A37', borderRadius: 16, borderColor: 'rgba(94,155,255,0.18)', borderTopColor: 'rgba(255,211,79,0.28)', shadowColor: '#000', shadowOpacity: 0.24, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
+  input: { backgroundColor: '#0B1430', borderColor: 'rgba(94,155,255,0.2)', borderRadius: 12, fontFamily: 'Inter_400Regular', fontSize: 14 },
+  inputFocused: { borderColor: C.neon, shadowColor: C.neon, shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 2 },
   msg: { borderRadius: 10, padding: 11 },
   bodyText: { fontFamily: 'Inter_400Regular' },
   empty: { padding: 26 },
-  emptyIconWrap: { borderColor: C.orange + '55', backgroundColor: '#15140f' },
-  emptyTitle: { fontFamily: 'Inter_700Bold', letterSpacing: 1.5, fontSize: 14 },
+  emptyIconWrap: { borderColor: C.orange + '66', backgroundColor: '#151A36' },
+  emptyTitle: { fontFamily: 'Orbitron_700Bold', letterSpacing: 1.1, fontSize: 13 },
   secRow: { marginVertical: 10 },
-  secText: { fontFamily: 'Inter_700Bold', fontSize: 13, letterSpacing: 1.1 },
+  secText: { fontFamily: 'Rajdhani_700Bold', fontSize: 14, letterSpacing: 1 },
   chip: { borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5.5 },
   chipTouchTarget: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   chipText: { fontFamily: 'Inter_600SemiBold', fontSize: 10.5, letterSpacing: 0.55 },

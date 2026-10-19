@@ -15,57 +15,57 @@
 const colors = {
   light: {
     // Legacy aliases (kept for backward compatibility)
-    text: '#70B8FF',
-    tint: '#ff3d3d',
+    text: '#F4F7FF',
+    tint: '#3388FF',
 
     // Core surfaces
-    background: '#070a12',
-    foreground: '#70B8FF',
+    background: '#070A18',
+    foreground: '#F4F7FF',
 
     // Cards / elevated surfaces
-    card: '#10162b',
-    cardForeground: '#70B8FF',
+    card: '#0D1631',
+    cardForeground: '#F4F7FF',
 
     // Primary action color (buttons, links, active states)
-    primary: '#ff3d3d',
-    primaryForeground: '#070a12',
+    primary: '#3388FF',
+    primaryForeground: '#FFFFFF',
 
     // Secondary / less-emphasis interactive surfaces
-    secondary: '#141b33',
-    secondaryForeground: '#70B8FF',
+    secondary: '#142043',
+    secondaryForeground: '#E4EAFF',
 
     // Muted / subdued elements (dividers, timestamps, placeholders)
-    muted: '#0b1020',
-    mutedForeground: '#9aa3b8',
+    muted: '#0B1230',
+    mutedForeground: '#AAB6D5',
 
     // Accent highlights (badges, selected items, focus rings)
-    accent: '#ffb020',
-    accentForeground: '#070a12',
+    accent: '#FFD34F',
+    accentForeground: '#10152B',
 
     // Destructive actions (delete, error states)
-    destructive: '#ff5c5c',
-    destructiveForeground: '#070a12',
+    destructive: '#FF7187',
+    destructiveForeground: '#10152B',
 
     // Borders and input outlines
-    border: '#1e2745',
-    input: '#1e2745',
+    border: '#263765',
+    input: '#263765',
   },
 
   auth: {
-    background: '#090a0f',
-    backgroundSoft: '#0d1118',
-    panel: '#111720',
-    panelRaised: '#171e28',
-    border: '#343e49',
-    borderSoft: '#252d37',
-    highlight: '#59636e',
-    fire: '#ff2e00',
-    orange: '#ff7b00',
-    gold: '#e4b557',
+    background: '#070A18',
+    backgroundSoft: '#0B1230',
+    panel: '#0D1631',
+    panelRaised: '#121D3D',
+    border: '#2A3A70',
+    borderSoft: '#202E58',
+    highlight: '#617BC5',
+    fire: '#2587FF',
+    orange: '#935DFF',
+    gold: '#FFD34F',
     text: '#f5f7fa',
-    muted: '#9ca6b2',
-    placeholder: '#7f8a97',
-    danger: '#ff655a',
+    muted: '#AAB6D5',
+    placeholder: '#7E8DB7',
+    danger: '#FF7187',
   },
 
   // Border radius (in px). Sync from the sibling web artifact's --radius

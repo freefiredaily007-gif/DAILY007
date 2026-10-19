@@ -1,6 +1,9 @@
 import React, { type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { ReadableText as Text } from './typography';
+import colors from '../../constants/colors';
+
+const UI = colors.light;
 
 export function SessionVerificationPaused({
   onRetry,
@@ -31,7 +34,7 @@ export function SessionVerificationPaused({
         testID="session-verification-retry"
       >
         {retrying
-          ? <ActivityIndicator color="#070a12" />
+          ? <ActivityIndicator color={UI.primaryForeground} />
           : <Text style={styles.retryButtonText}>RETRY VERIFICATION</Text>}
       </Pressable>
       {children}
@@ -42,13 +45,13 @@ export function SessionVerificationPaused({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#070a12',
+    backgroundColor: UI.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
   title: {
-    color: '#FFD54D',
+    color: UI.accent,
     fontSize: 20,
     fontWeight: '900',
     textAlign: 'center',
@@ -64,7 +67,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   retryButton: {
-    backgroundColor: '#ff3d3d',
+    backgroundColor: UI.primary,
     borderRadius: 12,
     minWidth: 210,
     alignItems: 'center',
@@ -74,5 +77,5 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   retryButtonDisabled: { opacity: 0.72 },
-  retryButtonText: { color: '#070a12', fontWeight: '900', letterSpacing: 0.5 },
+  retryButtonText: { color: UI.primaryForeground, fontFamily: 'Rajdhani_700Bold', fontWeight: '900', letterSpacing: 0.5 },
 });

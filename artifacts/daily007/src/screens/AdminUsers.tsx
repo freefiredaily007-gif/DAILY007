@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, findNodeHandle, Platform, View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
-import { AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
+import { A, AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { useDaily007AdminDeleteUser } from '@workspace/api-client-react';
 
 type CoinAdjustment = {
@@ -252,7 +252,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         ready={users !== null}
       />
       {users === null ? (
-        <ActivityIndicator color="#ff3d3d" style={{ marginTop: 30 }} />
+        <ActivityIndicator color={A.cyan} style={{ marginTop: 30 }} />
       ) : q.trim() && filtered.length === 0 ? (
         <Card>
           <Text style={st.noResults}>No users match this search.</Text>
@@ -280,7 +280,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
               gap: stackUserBalance ? 4 : 0,
             }}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={st.name}>{u.name} {blocked && <Text style={{ color: '#ff3d3d', fontSize: 10 }}>· BLOCKED</Text>}</Text>
+                <Text style={st.name}>{u.name} {blocked && <Text style={{ color: A.red, fontSize: 10 }}>· BLOCKED</Text>}</Text>
                 <Text style={st.sub}>{u.email}</Text>
                 <View
                   ref={(node) => {
@@ -441,9 +441,9 @@ const st = StyleSheet.create({
   accessNote: { color: '#9aa3b2', fontSize: 11, lineHeight: 16, marginBottom: 8 },
   noResults: { color: '#e6e9ef', fontSize: 14, lineHeight: 20, fontWeight: '800' },
   noResultsHint: { color: '#9aa3b2', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 12 },
-  name: { color: '#e6e9ef', fontWeight: '900', fontSize: 14 },
-  role: { color: '#FFC107', fontSize: 9, fontWeight: '900', letterSpacing: 0.8, marginTop: 4 },
-  sub: { color: '#5b6478', fontSize: 11, marginTop: 2 },
-  coins: { color: '#FFC107', fontWeight: '900', fontSize: 15 },
-  stat: { color: '#9aa3b2', fontSize: 11, fontWeight: '700' },
+  name: { color: A.text, fontWeight: '900', fontSize: 14 },
+  role: { color: A.gold, fontSize: 9, fontWeight: '900', letterSpacing: 0.8, marginTop: 4 },
+  sub: { color: A.sub, fontSize: 11, marginTop: 2 },
+  coins: { color: A.gold, fontWeight: '900', fontSize: 15 },
+  stat: { color: A.sub, fontSize: 11, fontWeight: '700' },
 });

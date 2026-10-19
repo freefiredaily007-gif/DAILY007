@@ -1,30 +1,34 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ReadableText as Text } from './typography';
+import colors from '../../constants/colors';
+
+const GOLD = colors.light.accent;
+const MUTED = colors.light.mutedForeground;
 
 // Pure-RN tab icons — 24x24, matching Wallet/Video/Profile icons.
 
 /* ---------------- HOME: house badge ---------------- */
 
 export function HomeIconActive() {
-  return <HomeIcon color="#FFC107" glow />;
+  return <HomeIcon color={GOLD} glow />;
 }
 
 export function HomeIconInactive() {
-  return <HomeIcon color="#888888" />;
+  return <HomeIcon color={MUTED} />;
 }
 
 function HomeIcon({ color, glow }: { color: string; glow?: boolean }) {
   return (
     <View style={h.wrap}>
-      {glow && <View style={[h.glow, { backgroundColor: '#FFC10733' }]} />}
+      {glow && <View style={[h.glow, { backgroundColor: `${GOLD}33` }]} />}
       {/* roof: filled triangle */}
       <View style={[h.roof, {
         borderLeftColor: 'transparent', borderRightColor: 'transparent',
         borderBottomColor: color,
       }]} />
       {/* body */}
-      <View style={[h.body, { borderColor: color, backgroundColor: glow ? '#FFC10722' : 'transparent' }]}>
+      <View style={[h.body, { borderColor: color, backgroundColor: glow ? `${GOLD}22` : 'transparent' }]}>
         <View style={[h.door, { backgroundColor: color }]} />
       </View>
     </View>
@@ -49,18 +53,18 @@ const h = StyleSheet.create({
 /* ---------------- EARN: shield with ₹ + growth arrow ---------------- */
 
 export function EarnIconActive() {
-  return <EarnIcon color="#FFC107" glow />;
+  return <EarnIcon color={GOLD} glow />;
 }
 
 export function EarnIconInactive() {
-  return <EarnIcon color="#888888" />;
+  return <EarnIcon color={MUTED} />;
 }
 
 function EarnIcon({ color, glow }: { color: string; glow?: boolean }) {
   return (
     <View style={e.wrap}>
-      {glow && <View style={[e.glow, { backgroundColor: '#FFC10733' }]} />}
-      <View style={[e.shield, { borderColor: color, backgroundColor: glow ? '#FFC10722' : 'transparent' }]}>
+      {glow && <View style={[e.glow, { backgroundColor: `${GOLD}33` }]} />}
+      <View style={[e.shield, { borderColor: color, backgroundColor: glow ? `${GOLD}22` : 'transparent' }]}>
         <Text style={[e.rupee, { color }]}>{'₹'}</Text>
         <View style={[e.arrow, { borderLeftColor: 'transparent', borderBottomColor: color }]} />
       </View>

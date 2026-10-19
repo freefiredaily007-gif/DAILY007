@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, View, Platform } from 'react-native';
+import { FontAwesome } from '@expo/vector-icons';
 import { ReadableText as Text } from './typography';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -110,7 +111,7 @@ function GoogleButtonFrame({
     >
       {loading
         ? <Text style={[s.spinner, appearance === 'auth' && s.authSpinner]}>•••</Text>
-        : <View style={s.googleMark}><Text style={s.googleG}>G</Text></View>}
+        : <View style={s.googleMark}><FontAwesome accessible={false} name="google" size={18} color="#E4EAFF" /></View>}
       <Text style={[s.buttonText, appearance === 'auth' && s.authButtonText]}>
         {loading ? 'CONNECTING TO GOOGLE…' : label}
       </Text>
@@ -441,8 +442,7 @@ const s = StyleSheet.create({
   },
   disabled: { opacity: 0.55 },
   pressed: { opacity: 0.82 },
-  googleMark: { position: 'absolute', left: 16 },
-  googleG: { color: '#4285F4', fontSize: 19, fontWeight: '900' },
+  googleMark: { position: 'absolute', left: 16, width: 22, alignItems: 'center' },
   spinner: { position: 'absolute', left: 20, color: C.sub, fontWeight: '900' },
   buttonText: { color: C.text, fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
   authButtonText: {

@@ -1,21 +1,26 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import colors from '../../constants/colors';
+
+const ACTIVE = colors.light.primary;
+const INACTIVE = colors.light.mutedForeground;
+const BACKGROUND = colors.light.background;
 
 // YouTube-style play icon built with pure RN Views (no SVG dependency).
 // 24x24, aligned with the other tab icons.
 
-export function VideoIconActive({ color = '#FF0000' }: { color?: string }) {
+export function VideoIconActive({ color = ACTIVE }: { color?: string }) {
   return (
     <View style={[styles.frame, { borderColor: color, backgroundColor: color, shadowColor: color, shadowOpacity: 0.55, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 4 }]}>
-      <View style={[styles.triangle, { borderLeftColor: '#070A12' }]} />
+      <View style={[styles.triangle, { borderLeftColor: BACKGROUND }]} />
     </View>
   );
 }
 
 export function VideoIconInactive() {
   return (
-    <View style={[styles.frame, { borderColor: '#888888', backgroundColor: 'transparent' }]}>
-      <View style={[styles.triangle, { borderLeftColor: '#888888' }]} />
+    <View style={[styles.frame, { borderColor: INACTIVE, backgroundColor: 'transparent' }]}>
+      <View style={[styles.triangle, { borderLeftColor: INACTIVE }]} />
     </View>
   );
 }

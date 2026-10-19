@@ -25,6 +25,7 @@ import { setAuthTokenGetter, setBaseUrl } from '@workspace/api-client-react';
 import { ClerkLoaded, ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { getSession } from '../src/lib/api';
+import colors from '../constants/colors';
 
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
 if (domain) setBaseUrl(`https://${domain}`);
@@ -50,7 +51,7 @@ function setupWebPwa() {
   if (!head.querySelector('meta[name="theme-color"]')) {
     const themeColor = document.createElement('meta');
     themeColor.name = 'theme-color';
-    themeColor.content = '#070a12';
+    themeColor.content = colors.light.background;
     head.appendChild(themeColor);
   }
   if (!head.querySelector('link[rel="apple-touch-icon"]')) {

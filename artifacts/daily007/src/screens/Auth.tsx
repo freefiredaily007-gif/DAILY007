@@ -58,7 +58,7 @@ function AuthField({
   const [focused, setFocused] = useState(false);
   return (
     <View style={[s.field, focused && s.fieldFocused, wrapperStyle]}>
-      <Feather accessible={false} name={icon} size={17} color={focused ? AUTH.orange : AUTH.muted} />
+      <Feather accessible={false} name={icon} size={17} color={focused ? AUTH.fire : AUTH.muted} />
       <Input
         ref={inputRef}
         {...inputProps}
@@ -346,7 +346,7 @@ export default function Auth({
             <View style={s.badgeWrap}>
               <Animated.View style={[s.logoAura, logoHaloStyle]} />
               <LinearGradient
-                colors={[AUTH.orange, AUTH.fire, AUTH.orange]}
+                colors={[AUTH.gold, AUTH.fire, AUTH.orange]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={s.logoFrame}
@@ -690,7 +690,7 @@ const s = StyleSheet.create({
   logo: { alignItems: 'center', marginBottom: 17 },
   badgeWrap: { width: 112, height: 112, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   logoAura: {
-    position: 'absolute', inset: -5, borderRadius: 38, borderWidth: 2, borderColor: AUTH.orange,
+    position: 'absolute', inset: -5, borderRadius: 38, borderWidth: 2, borderColor: AUTH.gold,
     shadowColor: AUTH.fire, shadowOpacity: 0.55, shadowRadius: 20,
     shadowOffset: { width: 0, height: 0 }, elevation: 7,
   },
@@ -716,7 +716,7 @@ const s = StyleSheet.create({
   logoSubRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
   logoSub: { color: AUTH.muted, fontFamily: 'Rajdhani_600SemiBold', fontSize: 14 },
   formCard: {
-    backgroundColor: AUTH.panel, borderRadius: 20, borderWidth: 1, borderColor: AUTH.border,
+    backgroundColor: AUTH.panel, borderRadius: 22, borderWidth: 1, borderColor: AUTH.border,
     borderTopColor: AUTH.highlight, padding: 16, shadowColor: '#000000',
     shadowOpacity: 0.32, shadowRadius: 22, shadowOffset: { width: 0, height: 12 }, elevation: 8,
   },
@@ -744,7 +744,7 @@ const s = StyleSheet.create({
   },
   sessionHintCard: {
     flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 11, borderWidth: 1,
-    borderColor: AUTH.gold + '55', backgroundColor: '#19170f', paddingHorizontal: 10,
+    borderColor: AUTH.gold + '55', backgroundColor: '#151B35', paddingHorizontal: 10,
     paddingVertical: 8, marginBottom: 10,
   },
   sessionHint: { flex: 1, color: AUTH.gold, fontFamily: 'Rajdhani_600SemiBold', fontSize: 12, lineHeight: 16 },
@@ -778,7 +778,7 @@ const s = StyleSheet.create({
     backgroundColor: AUTH.panelRaised,
   },
   fieldFocused: {
-    borderColor: AUTH.orange, shadowColor: AUTH.fire, shadowOpacity: 0.3,
+    borderColor: AUTH.fire, shadowColor: AUTH.fire, shadowOpacity: 0.3,
     shadowRadius: 11, shadowOffset: { width: 0, height: 0 }, elevation: 4,
   },
   fieldInput: {
@@ -798,7 +798,7 @@ const s = StyleSheet.create({
     borderRadius: 15, marginTop: 5, shadowColor: AUTH.fire, shadowOpacity: 0.36,
     shadowRadius: 17, shadowOffset: { width: 0, height: 0 }, elevation: 8,
   },
-  submitGradient: { borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: AUTH.orange },
+  submitGradient: { borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: AUTH.gold },
   submitButton: {
     width: '100%', minHeight: 56, paddingVertical: 15, borderRadius: 13,
     backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center',
@@ -806,7 +806,7 @@ const s = StyleSheet.create({
     shadowRadius: 13, shadowOffset: { width: 0, height: 0 }, elevation: 5,
   },
   submitText: {
-    fontFamily: 'Rajdhani_700Bold', fontSize: 16, letterSpacing: 1.7,
+    fontFamily: 'Orbitron_700Bold', fontSize: 14, letterSpacing: 1.1,
     textAlign: 'center', width: '100%',
   },
   footRow: {

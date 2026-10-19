@@ -4,6 +4,7 @@ import * as Network from 'expo-network';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { ReadableText as Text } from './components/typography';
+import colors from '../constants/colors';
 import { NavigationContainer, DarkTheme, useNavigation, useRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -131,6 +132,7 @@ const queryClient = new QueryClient({
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+const UI = colors.light;
 
 function Tabs() {
   const { width, fontScale } = useWindowDimensions();
@@ -138,13 +140,13 @@ function Tabs() {
     <Tab.Navigator screenOptions={{
       headerShown: false,
       tabBarStyle: {
-        backgroundColor: '#0d1220ee', borderTopColor: '#2a3558', height: getPlayerTabBarHeight(fontScale, width), paddingBottom: 8.5, paddingTop: 6.5,
-        shadowColor: '#ff3d3d', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
+        backgroundColor: `${UI.muted}EE`, borderTopColor: UI.border, height: getPlayerTabBarHeight(fontScale, width), paddingBottom: 8.5, paddingTop: 6.5,
+        shadowColor: UI.primary, shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: -4 }, elevation: 12,
       },
-      tabBarActiveTintColor: '#FFD54D', tabBarInactiveTintColor: '#F5F7FF',
+      tabBarActiveTintColor: UI.accent, tabBarInactiveTintColor: UI.mutedForeground,
       tabBarLabelStyle: {
         width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center',
-        fontSize: 11.8, fontWeight: '900', letterSpacing: 0.5, fontFamily: 'Inter_700Bold',
+        fontSize: 12, fontWeight: '900', letterSpacing: 0.55, fontFamily: 'Rajdhani_700Bold',
       },
     }}>
       <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: 'HOME', tabBarIcon: ({ focused }) => focused ? <HomeIconActive /> : <HomeIconInactive /> }} />
@@ -168,8 +170,8 @@ function JoinFormRoute() {
       .then(setTournament)
       .catch((e) => setError(e?.message || 'Failed to load tournament'));
   }, [route.params?.id]);
-  if (error) return <View style={s.boot}><Text style={{ color: '#eef1f8' }}>{error}</Text></View>;
-  if (!tournament) return <View style={s.boot}><ActivityIndicator color="#ff4655" /></View>;
+  if (error) return <View style={s.boot}><Text style={{ color: UI.foreground }}>{error}</Text></View>;
+  if (!tournament) return <View style={s.boot}><ActivityIndicator color={UI.tint} /></View>;
   return <JoinForm tournament={tournament} user={user} registration={registration} onCancel={() => navigation.goBack()}
     onSubmit={async (payload) => {
       if (registration?.id) {
@@ -212,7 +214,14 @@ function JoinFormRoute() {
 }
 
 const navTheme = {
-  ...DarkTheme, colors: { ...DarkTheme.colors, background: '#070a12', card: '#10162b', border: '#1e2745', primary: '#ff3d3d', text: '#70B8FF' },
+  ...DarkTheme, colors: {
+    ...DarkTheme.colors,
+    background: UI.background,
+    card: UI.card,
+    border: UI.border,
+    primary: UI.primary,
+    text: UI.foreground,
+  },
 };
 
 function DailyApp({
@@ -454,14 +463,14 @@ function DailyApp({
   if (booting) return (
     <View style={s.boot}>
       <Text style={s.logo}>FF DAILY007</Text>
-      <ActivityIndicator color="#ff4655" size="large" style={{ marginTop: 20 }} />
+      <ActivityIndicator color={UI.tint} size="large" style={{ marginTop: 20 }} />
     </View>
   );
 
   if (logoutPending) return (
     <View style={s.boot} testID="logout-pending">
       <Text style={s.logo}>FF DAILY007</Text>
-      <ActivityIndicator color="#ff4655" size="large" style={{ marginTop: 20 }} />
+      <ActivityIndicator color={UI.tint} size="large" style={{ marginTop: 20 }} />
       <Text
         accessibilityRole="text"
         accessibilityLabel="Signing out of Daily007. Please wait."
@@ -546,10 +555,10 @@ function DailyApp({
       <QueryClientProvider client={queryClient}>
         <NavigationContainer theme={navTheme}>
           <Stack.Navigator screenOptions={{
-            headerStyle: { backgroundColor: '#0d1220' },
-            headerTintColor: '#70B8FF',
-            headerTitleStyle: { color: '#FFD54D', fontSize: 18, fontWeight: '700', fontFamily: 'Inter_700Bold' },
-            contentStyle: { backgroundColor: '#070a12' },
+            headerStyle: { backgroundColor: UI.muted },
+            headerTintColor: UI.tint,
+            headerTitleStyle: { color: UI.accent, fontSize: 18, fontWeight: '700', fontFamily: 'Rajdhani_700Bold' },
+            contentStyle: { backgroundColor: UI.background },
           }}>
             {rootNavigation === 'Admin' ? (
               <Stack.Screen name="Admin" component={AdminApp} options={{ headerShown: false }} />
@@ -586,9 +595,9 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  boot: { flex: 1, backgroundColor: '#070a12', alignItems: 'center', justifyContent: 'center' },
-  logo: { color: '#ff3d3d', fontSize: 30, fontWeight: '900', letterSpacing: 3, textShadowColor: '#ff3d3d66', textShadowRadius: 20 },
+  boot: { flex: 1, backgroundColor: UI.background, alignItems: 'center', justifyContent: 'center' },
+  logo: { color: UI.primary, fontSize: 30, fontWeight: '900', letterSpacing: 3, textShadowColor: `${UI.primary}66`, textShadowRadius: 20 },
   logoutPendingText: { color: '#F5F7FF', fontSize: 15, fontWeight: '600', marginTop: 16 },
   logoutNativeTestControls: { alignItems: 'center', marginTop: 12 },
-  logoutNativeTestButton: { borderWidth: 1, borderColor: '#70B8FF', borderRadius: 8, marginTop: 8, padding: 10 },
+  logoutNativeTestButton: { borderWidth: 1, borderColor: UI.tint, borderRadius: 10, marginTop: 8, padding: 10 },
 });
