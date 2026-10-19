@@ -2127,6 +2127,109 @@ test("a temporary Clerk verification outage lets a password account retry Google
   }
 });
 
+test("a temporary Clerk outage keeps an already-linked Google sign-in retryable", async () => {
+  signupTestDb.reset();
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withGoogleAuthServer(async (origin) => {
+      const { account, token } = await createPasswordAccount(origin, "google-signup@example.test");
+      account.wallet_coins = 73;
+      const referrer = [...signupTestDb.users.values()].find(
+        (user) => user.email === "referrer@example.test",
+      );
+      assert.ok(referrer);
+      signupTestDb.referrals.push({
+        id: "linked-signin-outage-referral",
+        referrer_user_id: referrer.id,
+        referred_user_id: account.id,
+        code: SIGNUP_TEST_REFERRAL_CODE,
+      });
+      signupTestDb.ledger.push({
+        id: "linked-signin-outage-wallet-entry",
+        user_id: account.id,
+        amount: 73,
+        balance_after: 73,
+        reason: "Wallet Recharge",
+        idempotency_key: "linked-signin-outage-wallet-entry",
+        details: { source: "test fixture" },
+        created_at: new Date(1),
+      });
+
+      const linked = await googleAuth(origin, token, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(linked.status, 200, "the password account should link before testing sign-in recovery");
+      assert.equal(linked.body.googleLinked, true);
+      assert.equal(linked.body.id, account.id);
+
+      const accountBeforeOutage = structuredClone(account);
+      const referralsBeforeOutage = structuredClone(signupTestDb.referrals);
+      const ledgerBeforeOutage = structuredClone(signupTestDb.ledger);
+      const userCountBeforeOutage = signupTestDb.users.size;
+      const expectedWalletHistory = ledgerBeforeOutage
+        .filter(({ user_id }) => user_id === account.id)
+        .map(({ amount, balance_after, reason }) => ({
+          amount,
+          balanceAfter: balance_after,
+          reason,
+        }));
+
+      failNextMockGoogleUserLookup();
+      const failedSignIn = await googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(failedSignIn.status, 503, "a temporary Clerk lookup failure should be retryable");
+      assert.equal(
+        failedSignIn.body.error,
+        "Unable to verify the Google identity with Clerk. Please try again.",
+      );
+      assert.equal(typeof failedSignIn.body.token, "undefined");
+      assert.equal(getMockGoogleUserLookupCount(), 2, "the failed sign-in should perform one Clerk lookup");
+      assert.deepEqual(account, accountBeforeOutage, "the linked account must be unchanged during the outage");
+      assert.equal(signupTestDb.users.size, userCountBeforeOutage, "the outage must not create another account");
+      assert.deepEqual(signupTestDb.referrals, referralsBeforeOutage, "the outage must preserve referrals");
+      assert.deepEqual(signupTestDb.ledger, ledgerBeforeOutage, "the outage must preserve Wallet history");
+
+      const walletAfterFailure = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(walletAfterFailure.status, 200, "the existing password session should survive the outage");
+      const failedAttemptHistory = await walletAfterFailure.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        failedAttemptHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+      );
+
+      const retriedSignIn = await googleAuth(origin, undefined, SIGNUP_TEST_REFERRAL_CODE);
+      assert.equal(retriedSignIn.status, 200, "the same linked Google identity should succeed after Clerk recovers");
+      assert.equal(retriedSignIn.body.googleLinked, true);
+      assert.equal(retriedSignIn.body.id, account.id, "retry must reuse the linked password account");
+      assert.equal(retriedSignIn.body.email, account.email);
+      assert.equal(retriedSignIn.body.coins, 73, "retry must return the persisted account balance");
+      assert.equal(typeof retriedSignIn.body.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 3);
+      assert.deepEqual(account, {
+        ...accountBeforeOutage,
+        auth_version: accountBeforeOutage.auth_version + 1,
+      }, "successful retry should only advance the sign-in version");
+      assert.equal(signupTestDb.users.size, userCountBeforeOutage);
+      assert.deepEqual(signupTestDb.referrals, referralsBeforeOutage);
+      assert.deepEqual(signupTestDb.ledger, ledgerBeforeOutage);
+
+      const walletAfterRetry = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${String(retriedSignIn.body.token)}` },
+      });
+      assert.equal(walletAfterRetry.status, 200, "the recovered Google session should be able to read Wallet");
+      const retriedWalletHistory = await walletAfterRetry.json() as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        retriedWalletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+        expectedWalletHistory,
+        "the recovered sign-in should retain the linked account's Wallet history",
+      );
+    });
+  } finally {
+    signupTestDb.reset();
+    resetMockGoogleUser();
+  }
+});
+
 test("a linked Google identity recovers sign-in after its verified email returns to the saved address", async () => {
   signupTestDb.reset();
   resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
