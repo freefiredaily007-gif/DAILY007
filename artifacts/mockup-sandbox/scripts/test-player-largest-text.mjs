@@ -1804,7 +1804,55 @@ async function checkVideoCatalogConnectivityRecovery() {
     playerState.calls === 3 && playerState.playerOpen,
     `Connectivity changes must not refresh the catalog while the player is open: ${JSON.stringify(playerState)}`,
   );
-  console.log("PASS — reconnect refreshes once across overlapping focus/resume events, keeps manual retry after failure, recovers the catalog, and stays idle while playing.");
+
+  await navigateToScreen("VideoConnectivityRecovery", "Tutorial Videos");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(catalogError)})
+      && window.__videoRewardPreviewCalls?.listRefetches >= 1`,
+    "the offline Video catalog before testing navigation during a queued reconnect refresh",
+  );
+  await delay(350);
+  const beforeLeavingVideo = await evaluate(
+    "window.__videoRewardPreviewCalls?.listRefetches ?? 0",
+  );
+  const navigationStarted = await evaluate(`(() => {
+    const controller = window.__daily007PreviewFocusController;
+    if (!controller?.navigateAway) return false;
+    window.__setPreviewNetworkState?.({
+      isConnected: false,
+      isInternetReachable: false,
+      type: "NONE",
+    });
+    window.__setPreviewNetworkState?.({
+      isConnected: true,
+      isInternetReachable: true,
+      type: "WIFI",
+    });
+    controller.navigateAway("Home");
+    return true;
+  })()`);
+  assert(navigationStarted, "The preview should be able to navigate away while the reconnect refresh is queued.");
+  await waitForCondition(
+    `document.body.innerText.includes("GAME MODES")
+      && !document.body.innerText.includes("Tutorial Videos")`,
+    "Home to replace the inactive Video screen",
+  );
+  await delay(450);
+  const afterLeavingVideo = await evaluate(`({
+    calls: window.__videoRewardPreviewCalls?.listRefetches ?? 0,
+    homeVisible: document.body.innerText.includes("GAME MODES"),
+    videoVisible: document.body.innerText.includes("Tutorial Videos"),
+  })`);
+  assert(
+    afterLeavingVideo.calls === beforeLeavingVideo
+      && afterLeavingVideo.homeVisible
+      && !afterLeavingVideo.videoVisible,
+    `A queued reconnect must not start a catalog request after navigating away: ${JSON.stringify({
+      beforeLeavingVideo,
+      afterLeavingVideo,
+    })}`,
+  );
+  console.log("PASS — connectivity recovery coalesces, keeps manual retry, stays idle in the player, and cancels a queued refresh on navigation away.");
 }
 
 async function checkVideoCatalogPositionSurvivesRefreshError() {
@@ -2873,7 +2921,7 @@ try {
             : videoCatalogRetryPendingOnly
               ? "PASS — catalog retry progress is announced without moving focus, clears after failure, and is followed by a successful recovery."
               : videoCatalogConnectivityOnly
-                ? "PASS — connectivity recovery is coalesced with focus and resume, retains manual retry on failure, and does not run in the player."
+                ? "PASS — connectivity recovery coalesces with focus and resume, retains manual retry, stays idle in the player, and is cancelled when leaving Video before the delay ends."
               : videoCatalogEmptySearchOnly
               ? "PASS — catalog recovery preserves a search with no remaining matches."
               : lateVideoCatalogResponseOnly

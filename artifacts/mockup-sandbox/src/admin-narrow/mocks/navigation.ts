@@ -35,6 +35,14 @@ function focusPreview() {
   }
 }
 
+function navigateAwayFromPreview(routeName: string) {
+  blurPreviewFocus();
+  const preview = globalThis as typeof globalThis & {
+    __daily007PreviewNavigate?: (routeName: string) => void;
+  };
+  preview.__daily007PreviewNavigate?.(routeName);
+}
+
 export function useFocusEffect(effect: () => void | (() => void)) {
   const focusLifecyclePreview = typeof window !== "undefined"
     && new URLSearchParams(window.location.search).has("resume-while-refresh-only");
@@ -46,6 +54,7 @@ export function useFocusEffect(effect: () => void | (() => void)) {
         triggerFocusCycle: () => void;
         blur: () => void;
         focus: () => void;
+        navigateAway: (routeName: string) => void;
       };
     };
     preview.__daily007PreviewFocusController ??= {
@@ -53,6 +62,7 @@ export function useFocusEffect(effect: () => void | (() => void)) {
       triggerFocusCycle: triggerPreviewFocusCycle,
       blur: blurPreviewFocus,
       focus: focusPreview,
+      navigateAway: navigateAwayFromPreview,
     };
     return preview.__daily007PreviewFocusController?.register(effect) ?? effect();
   }, [effect, focusLifecyclePreview]);
