@@ -507,6 +507,58 @@ test("the confirmation field cannot submit again until its password request sett
   assert.equal(passwordChangeInFlight.current, false);
 });
 
+for (const scenario of [
+  {
+    name: "missing current password",
+    invalid: { currentPassword: "", newPassword: "valid-new-password", confirmNewPassword: "valid-new-password" },
+    corrected: { currentPassword: "valid-current-password", newPassword: "valid-new-password", confirmNewPassword: "valid-new-password" },
+    message: "Enter your current Daily007 password.",
+  },
+  {
+    name: "invalid new password",
+    invalid: { currentPassword: "valid-current-password", newPassword: "short", confirmNewPassword: "short" },
+    corrected: { currentPassword: "valid-current-password", newPassword: "valid-new-password", confirmNewPassword: "valid-new-password" },
+    message: "Your new password must be 8–200 characters.",
+  },
+  {
+    name: "mismatched confirmation",
+    invalid: { currentPassword: "valid-current-password", newPassword: "valid-new-password", confirmNewPassword: "different-password" },
+    corrected: { currentPassword: "valid-current-password", newPassword: "valid-new-password", confirmNewPassword: "valid-new-password" },
+    message: "The new passwords do not match.",
+  },
+]) {
+  test(`Profile allows a retry after ${scenario.name} feedback`, async () => {
+    const passwordChangeInFlight = { current: false };
+    let mutationCalls = 0;
+    const errors = [];
+    const changePassword = async () => { mutationCalls += 1; };
+    const makeSubmitPasswordChange = (values) => loadProfileCallback("submitPasswordChange", {
+      ...values,
+      passwordChangeInFlight,
+      changePassword,
+      submitProfilePasswordChange,
+      apiError: () => "synthetic mutation error",
+      setPasswordError: (message) => { errors.push(message); },
+      setPasswordMessage: () => {},
+      setPasswordModalVisible: () => {},
+      setCurrentPassword: () => {},
+      setNewPassword: () => {},
+      setConfirmNewPassword: () => {},
+    });
+
+    await makeSubmitPasswordChange(scenario.invalid)();
+
+    assert.equal(errors.at(-1), scenario.message, "Profile should expose the expected local validation feedback.");
+    assert.equal(mutationCalls, 0, "Invalid local fields must not reach the mocked mutation.");
+    assert.equal(passwordChangeInFlight.current, false, "Local validation feedback must release the submit guard.");
+
+    await makeSubmitPasswordChange(scenario.corrected)();
+
+    assert.equal(mutationCalls, 1, "A later submit with corrected fields must reach the mocked mutation.");
+    assert.equal(passwordChangeInFlight.current, false, "The guard should release after the corrected submission.");
+  });
+}
+
 test("successful Profile password change closes and clears the form and announces success once", async () => {
   const currentPassword = "mock-current-password";
   const newPassword = "mock-new-password";
