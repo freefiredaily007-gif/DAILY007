@@ -4997,6 +4997,72 @@ async function checkAdminResultEntryRetry() {
     await evaluate(`Boolean(document.querySelector(${JSON.stringify(panelSelector)})) && document.querySelector(${JSON.stringify(retrySelector)})?.disabled === false`),
     "The retry control should become available again after the later failure.",
   );
+
+  await clickSelector(openSelector, "closing Result Entry before testing a tournament switch");
+  await waitForCondition(
+    `!document.querySelector(${JSON.stringify(panelSelector)})`,
+    "the active tournament's Result Entry panel to close before switching",
+  );
+  await clickSelector(openSelector, "reopening Result Entry for the first tournament");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 5
+      && document.body.innerText.includes("Loading approved registrations…")`,
+    "the first tournament's approved-player request to remain pending",
+  );
+
+  const otherTournamentId = "result-entry-retry-other";
+  const otherPanelSelector = `[data-testid="inline-results-entry-${otherTournamentId}"]`;
+  const otherOpenSelector = `[data-testid="finish-tournament-${otherTournamentId}"]`;
+  await clickSelector(otherOpenSelector, "opening Result Entry for a different tournament while the first request is pending");
+  await waitForCondition(
+    `window.__daily007TournamentResume.getApprovedRegistrationRequests().length === 6
+      && Boolean(document.querySelector(${JSON.stringify(otherPanelSelector)}))
+      && document.body.innerText.includes("Loading approved registrations…")`,
+    "the second tournament's approved-player request to remain pending",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.releaseSwitchedApprovedRegistrations()"),
+    "The newly active tournament's approved-player response should resolve first.",
+  );
+  await waitForCondition(
+    `document.body.innerText.includes("Other Tournament Player")
+      && document.body.innerText.includes("OTHER-RESULT-UID")
+      && !document.body.innerText.includes("Old Tournament Player")`,
+    "the second tournament's player to appear without the first tournament's player",
+  );
+  assert(
+    await evaluate("window.__daily007TournamentResume.releaseStaleApprovedRegistrations()"),
+    "The older tournament's approved-player response should resolve after the switch.",
+  );
+  await delay(100);
+
+  const switchedResultState = await evaluate(`({
+    activePanelVisible: Boolean(document.querySelector(${JSON.stringify(otherPanelSelector)})),
+    oldPanelVisible: Boolean(document.querySelector(${JSON.stringify(panelSelector)})),
+    newPlayerVisible: document.body.innerText.includes("Other Tournament Player")
+      && document.body.innerText.includes("OTHER-RESULT-UID"),
+    oldPlayerVisible: document.body.innerText.includes("Old Tournament Player")
+      || document.body.innerText.includes("OLD-RESULT-UID"),
+    requests: window.__daily007TournamentResume.getApprovedRegistrationRequests(),
+  })`);
+  assert(
+    switchedResultState.activePanelVisible
+      && !switchedResultState.oldPanelVisible
+      && switchedResultState.newPlayerVisible
+      && !switchedResultState.oldPlayerVisible,
+    `The late response must not replace the newly active tournament's players: ${JSON.stringify(switchedResultState)}.`,
+  );
+  assert(
+    JSON.stringify(switchedResultState.requests) === JSON.stringify([
+      tournamentId,
+      tournamentId,
+      tournamentId,
+      tournamentId,
+      tournamentId,
+      otherTournamentId,
+    ]),
+    `Each approved-player request must use the tournament ID that was active when it started: ${JSON.stringify(switchedResultState.requests)}.`,
+  );
 }
 
 async function triggerPlayerManualRefresh() {
@@ -9732,7 +9798,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during Admin Result Entry retry checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Result Entry stays open through failed and successful approved-player retries; requests are scoped and duplicate taps do not duplicate work.");
+      console.log("PASS — Result Entry retries remain scoped, and a late approved-player response cannot replace the newly selected tournament's players.");
     } else if (squadSlotLayoutOnly) {
       for (const width of [320, 360, 390]) {
         for (const fontScale of [1.5, 2]) {

@@ -949,7 +949,10 @@ export default function AdminTournaments() {
                       small
                       kind="gold"
                       testID={`finish-tournament-${t.id}`}
-                      disabled={roomBusy || resultBusy}
+                      disabled={
+                        roomBusy ||
+                        (resultBusy && approvedRegistrationsRequestId.current === null)
+                      }
                       onPress={() => { void toggleTournamentAction(t, 'results'); }}
                     />
                   </View>

@@ -219,6 +219,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
   }
   let approvedRegistrationRequests = [];
   let releaseApprovedRegistrationRetry = () => false;
+  let releaseStaleApprovedRegistrations = () => false;
+  let releaseSwitchedApprovedRegistrations = () => false;
   if (adminResultEntryRetryOnly) {
     const startedAt = fakeNow - 60 * 60 * 1000;
     apiMocks.previewTournaments.splice(
@@ -245,6 +247,34 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
               status: "approved",
               playerName: "Retry Fixture Player",
               gameUid: "RESULT-RETRY-UID",
+            }]);
+            return true;
+          };
+        });
+      }
+      if (requestIndex === 4) {
+        return new Promise((resolve) => {
+          releaseStaleApprovedRegistrations = () => {
+            resolve([{
+              id: "result-entry-old-registration",
+              tournamentId: "result-entry-retry-active",
+              status: "approved",
+              playerName: "Old Tournament Player",
+              gameUid: "OLD-RESULT-UID",
+            }]);
+            return true;
+          };
+        });
+      }
+      if (requestIndex === 5) {
+        return new Promise((resolve) => {
+          releaseSwitchedApprovedRegistrations = () => {
+            resolve([{
+              id: "result-entry-other-registration",
+              tournamentId: "result-entry-retry-other",
+              status: "approved",
+              playerName: "Other Tournament Player",
+              gameUid: "OTHER-RESULT-UID",
             }]);
             return true;
           };
@@ -310,6 +340,8 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     getMyRegistrationReadCount: apiMocks.getMyRegistrationReadCount,
     getApprovedRegistrationRequests: () => [...approvedRegistrationRequests],
     releaseApprovedRegistrationRetry: () => releaseApprovedRegistrationRetry(),
+    releaseStaleApprovedRegistrations: () => releaseStaleApprovedRegistrations(),
+    releaseSwitchedApprovedRegistrations: () => releaseSwitchedApprovedRegistrations(),
     getLoadAnnouncementEvents: () => loadAnnouncementEvents.map((event) => ({ ...event })),
     getStartAnnouncementEvents: () => [...startAnnouncementEvents],
     resetStartAnnouncementEvents: () => { startAnnouncementEvents.splice(0); },
