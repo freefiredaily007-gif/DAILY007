@@ -1155,8 +1155,20 @@ test("a PostgreSQL cursor wrap reaches an earlier tournament and caps each batch
   const failedLaterMatchId = fixture.laterMatchIds[0]!;
   const batchEndMatchId = fixture.laterMatchIds[99]!;
   const finalLaterMatchId = fixture.laterMatchIds[100]!;
+  const visibleSettings = {
+    __daily007VideoCatalogSeeded: true,
+    rechargeEnabled: "false",
+    coinToMoneyRate: "2.5",
+    paymentNote: "Existing payment instructions",
+  };
 
   try {
+    await pool.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET settings = EXCLUDED.settings`,
+      [JSON.stringify(visibleSettings)],
+    );
     await installCursorWrapFailure(failedLaterMatchId);
 
     await runDaily007AutoCancellationSweep();
@@ -1252,6 +1264,43 @@ test("a PostgreSQL cursor wrap reaches an earlier tournament and caps each batch
       [fixture.earlierMatchId],
     );
     assert.equal(finalEarlierRefunds.rows[0]?.count, 1);
+
+    await pool.query(
+      "UPDATE daily007_v2_registrations SET status = 'approved' WHERE id = $1",
+      [fixture.laterRegistrationIds[0]],
+    );
+    await pool.query(
+      "UPDATE daily007_v2_matches SET capacity = 1 WHERE id = $1",
+      [failedLaterMatchId],
+    );
+    const failedLaterRegistration = await pool.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_registrations WHERE id = $1",
+      [fixture.laterRegistrationIds[0]],
+    );
+    assert.equal(failedLaterRegistration.rows[0]?.status, "approved");
+    const remainingEligibleMatches = await pool.query<{ id: string }>(
+      `SELECT m.id
+         FROM daily007_v2_matches m
+        WHERE m.id = ANY($1::uuid[])
+          AND m.status <> 'cancelled'
+          AND (
+            SELECT count(*)
+              FROM daily007_v2_registrations r
+             WHERE r.match_id = m.id AND r.status IN ('approved', 'pending')
+          ) < m.capacity`,
+      [[fixture.earlierMatchId, ...fixture.laterMatchIds]],
+    );
+    assert.deepEqual(remainingEligibleMatches.rows, []);
+    await runDaily007AutoCancellationSweep();
+
+    const settingsAfterCursorReset = await pool.query<{
+      settings: Record<string, unknown>;
+    }>("SELECT settings FROM daily007_v2_settings WHERE id = 1");
+    assert.deepEqual(
+      settingsAfterCursorReset.rows[0]?.settings,
+      { ...visibleSettings, __daily007AutoCancelCursor: null },
+      "exhausting the saved cursor must reset only the cursor and preserve all visible settings",
+    );
   } finally {
     const cleanupErrors: unknown[] = [];
     for (const statement of [

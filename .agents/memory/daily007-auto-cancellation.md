@@ -14,3 +14,9 @@ description: Product rule for start-time cancellation and wallet refunds in Clas
 **Why:** The in-process sweep guard does not coordinate separate workers; a slower worker can otherwise overwrite newer batch progress or clear it during wraparound.
 
 **How to apply:** Compare candidate cursors atomically in the PostgreSQL JSONB update, and make cursor resets conditional on the expected prior position. Keep the batch size capped at 100 per worker.
+
+**Test note:** A wraparound exhaustion test must leave no eligible candidates anywhere in the scan, not just after the saved cursor. The sweep restarts from the beginning after clearing the cursor, and even a match with zero active registrations is still underfilled.
+
+**Why:** A test that leaves any underfilled match eligible observes a new cursor advance after the reset instead of the cleared cursor.
+
+**How to apply:** Before asserting a persisted null cursor, make all candidates full or cancelled and verify the first-page query would be empty after wraparound.
