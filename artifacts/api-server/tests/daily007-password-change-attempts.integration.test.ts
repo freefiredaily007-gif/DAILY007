@@ -273,7 +273,7 @@ test("exhausting one player's password-change attempts does not block another pl
   assert.deepEqual(attemptsByUser.get(secondUserId), { failures: 0, in_flight: 0 });
 });
 
-test("a successful password change resets only that player's previous incorrect checks", async () => {
+test("a successful password change survives an API restart and resets only that player's incorrect checks", async () => {
   const firstUserId = randomUUID();
   const secondUserId = randomUUID();
   const firstPassword = "first-player-current-password";
@@ -322,17 +322,20 @@ test("a successful password change resets only that player's previous incorrect 
   const successfulChange = await passwordChange(api.origin, firstToken, firstPassword);
   assert.equal(successfulChange.status, 200, "the first player's valid current password should permit a change");
 
+  await api.stop();
+  const restartedApi = await startApiProcess();
+
   const replacementPasswordLogin = await passwordLogin(
-    api.origin,
+    restartedApi.origin,
     firstEmail,
     TEST_REPLACEMENT_PASSWORD,
   );
-  assert.equal(replacementPasswordLogin.status, 200, "the replacement password should allow sign-in");
+  assert.equal(replacementPasswordLogin.status, 200, "the replacement password should allow sign-in after the API restarts");
   assert.equal(replacementPasswordLogin.body.id, firstUserId);
   assert.equal(typeof replacementPasswordLogin.body.token, "string");
 
-  const oldPasswordLogin = await passwordLogin(api.origin, firstEmail, firstPassword);
-  assert.equal(oldPasswordLogin.status, 401, "the previous password should no longer allow sign-in");
+  const oldPasswordLogin = await passwordLogin(restartedApi.origin, firstEmail, firstPassword);
+  assert.equal(oldPasswordLogin.status, 401, "the previous password should remain rejected after the API restarts");
   assert.equal(oldPasswordLogin.body.error, "Email or password is incorrect.");
   assert.equal(oldPasswordLogin.body.token, undefined);
 
