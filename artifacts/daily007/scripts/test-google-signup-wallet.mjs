@@ -630,6 +630,83 @@ try {
   assert.deepEqual(browserErrors, [], `Browser errors during the double-tap flow: ${browserErrors.join(" | ")}`);
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=password-first`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the pending-password-login scenario",
+  );
+  await setInputValue('[data-testid="auth-email"]', "password-player@example.test", "pending login email");
+  await setInputValue('[data-testid="auth-password"]', "Daily007-safe-password-123", "pending login password");
+  await clickSelector('[data-testid="auth-submit"]', "start the held password login");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.passwordAuthAttempts === 1 && state.inFlightPasswordLogins === 1)`,
+    "the password login held pending",
+  );
+
+  const passwordLoginPendingView = await evaluate(`(() => {
+    const google = document.querySelector('[data-testid="continue-with-google"]');
+    return {
+      googleDisabled: google?.disabled === true
+        || google?.getAttribute("aria-disabled") === "true",
+    };
+  })()`);
+  assert.equal(passwordLoginPendingView.googleDisabled, true,
+    "Continue with Google must be disabled while password authentication is pending.");
+
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "Continue with Google while password login is pending",
+  );
+  const passwordLoginConflict = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  assert.equal(passwordLoginConflict.passwordAuthAttempts, 1);
+  assert.equal(passwordLoginConflict.inFlightPasswordLogins, 1);
+  assert.equal(passwordLoginConflict.googleExchangeAttempts, 0,
+    "Google token exchange must not start while password authentication is pending.");
+  assert.equal(passwordLoginConflict.clerk.events.includes("start-sso"), false,
+    "The Google provider handoff must not start while password authentication is pending.");
+  assert.equal(
+    passwordLoginConflict.calls.filter((call) => call.method === "POST" && call.path === "/auth/google").length,
+    0,
+    "The blocked Google press must not enqueue a handoff for after password login.",
+  );
+  assert.equal(passwordLoginConflict.storedSession, null);
+  assert.equal(passwordLoginConflict.currentSession, null);
+  assert.equal(passwordLoginConflict.activeAuthorization, null);
+
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.resolveNextPasswordLogin()"),
+    true,
+    "The held password login should be available for release.",
+  );
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "signed-in tabs after the held password login succeeds",
+  );
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.inFlightPasswordLogins === 0
+      && state.currentSession?.id === "mock-password-player"
+      && state.storedSession?.token === "mock-password-account-token")`,
+    "the persisted password session after the login settles",
+  );
+  const completedPasswordLoginConflict = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  assert.equal(completedPasswordLoginConflict.passwordAuthAttempts, 1);
+  assert.equal(completedPasswordLoginConflict.googleExchangeAttempts, 0,
+    "The Google press must not start an exchange automatically after password login settles.");
+  assert.equal(completedPasswordLoginConflict.currentSession?.id, "mock-password-player");
+  assert.equal(completedPasswordLoginConflict.currentSession?.token, "mock-password-account-token");
+  assert.deepEqual(completedPasswordLoginConflict.sessionStorage, {
+    daily007_v2_session: JSON.stringify(completedPasswordLoginConflict.storedSession),
+  });
+  assert.equal(completedPasswordLoginConflict.unexpectedRequests.length, 0);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=auth-cancel`,
   });
   await waitForExpression(

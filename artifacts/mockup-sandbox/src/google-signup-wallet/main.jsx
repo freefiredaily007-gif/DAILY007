@@ -51,6 +51,7 @@ const passwordSignupSessionStorageFailureScenario =
 const passwordSignupRestartScenario = scenario === "password-signup-restart";
 const profileLinkStorageRestartScenario = scenario === "profile-link-storage-restart";
 const googleReferralRelaunchScenario = scenario === "lowercase-referral";
+const heldPasswordLoginScenario = scenario === "password-first";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
 const restartScenarioMarkerKey = "daily007-test-password-signup-scenario";
 const profileLinkRestartBackendStorageKey = "daily007-test-profile-link-backend";
@@ -112,9 +113,11 @@ const unexpectedRequests = passwordSignupRestartScenario
       ? (savedGoogleReferralRestartBackendState.unexpectedRequests ?? [])
       : [];
 const pendingGoogleExchangeResolvers = [];
+const pendingPasswordLoginResolvers = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
+let inFlightPasswordLogins = 0;
 let googleReferralSignupRequests =
   savedGoogleReferralRestartBackendState.googleReferralSignupRequests ?? 0;
 let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
@@ -246,6 +249,17 @@ http.defaults.adapter = async (config) => {
     persistRestartBackendState();
     return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
   }
+  if (heldPasswordLoginScenario && method === "POST" && path === "/auth/login") {
+    passwordAuthAttempts += 1;
+    inFlightPasswordLogins += 1;
+    return new Promise((resolve) => {
+      pendingPasswordLoginResolvers.push(() => {
+        inFlightPasswordLogins -= 1;
+        call.status = 200;
+        resolve(respond(config, { ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN }));
+      });
+    });
+  }
   if (passwordSignupRestartScenario && method === "POST" && path === "/auth/login") {
     passwordAuthAttempts += 1;
     const body = requestBody(config);
@@ -365,6 +379,8 @@ http.defaults.adapter = async (config) => {
     call.status = 200;
     const account = passwordSignupSessionStorageFailureScenario || passwordSignupRestartScenario
       ? PASSWORD_SIGNUP_ACCOUNT
+      : scenario === "password-first"
+        ? PASSWORD_ACCOUNT
       : profileLinkScenario && call.authorization === `Bearer ${PASSWORD_SIGNUP_TOKEN}`
         ? PASSWORD_SIGNUP_ACCOUNT
       : profileLinkScenario
@@ -471,6 +487,7 @@ window.__daily007GoogleSignupWalletTest = {
       googleExchangeAttempts,
       googleReferralSignupRequests,
       inFlightGoogleExchanges,
+      inFlightPasswordLogins,
       maxConcurrentGoogleExchanges,
       passwordAuthAttempts,
       passwordSignupAttempts,
@@ -484,6 +501,12 @@ window.__daily007GoogleSignupWalletTest = {
   },
   resolveNextGoogleExchange() {
     const resolve = pendingGoogleExchangeResolvers.shift();
+    if (!resolve) return false;
+    resolve();
+    return true;
+  },
+  resolveNextPasswordLogin() {
+    const resolve = pendingPasswordLoginResolvers.shift();
     if (!resolve) return false;
     resolve();
     return true;
