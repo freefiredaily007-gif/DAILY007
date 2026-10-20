@@ -105,6 +105,18 @@ const previewGroups = [
           { testId: "room-credential-copy-room-id", label: "Copy Room ID" },
           { testId: "room-credential-copy-password", label: "Copy Password" },
         ],
+        clipboardChecks: [
+          {
+            testId: "room-credential-copy-room-id",
+            value: "D7-PHONE-ROOM-48291",
+            feedback: "Room ID copied to clipboard.",
+          },
+          {
+            testId: "room-credential-copy-password",
+            value: "PHONE-PREVIEW-PASS-2026",
+            feedback: "Password copied to clipboard.",
+          },
+        ],
       },
       {
         path: "/keyboard-forms-preview.html",
@@ -460,6 +472,64 @@ async function checkPreviewInteraction(entry) {
   );
 }
 
+async function checkPreviewClipboard(entry) {
+  if (!entry.clipboardChecks || (entry.viewport ?? phoneViewport).width !== 320) return;
+  const expectedValues = [];
+  for (const { testId, value, feedback } of entry.clipboardChecks) {
+    const selector = JSON.stringify(`[data-testid="${testId}"]`);
+    const clicked = await evaluate(`(() => {
+      const control = document.querySelector(${selector});
+      if (!control) return false;
+      control.click();
+      return true;
+    })()`);
+    if (!clicked) {
+      throw new Error(`${entry.screen} preview could not activate clipboard control ${testId}.`);
+    }
+    expectedValues.push(value);
+
+    const expectedFeedback = JSON.stringify(feedback);
+    const expectedClipboardValues = JSON.stringify(expectedValues);
+    const expression = `(() => {
+      const button = document.querySelector(${selector});
+      const feedback = document.querySelector('[data-testid="room-credential-copy-feedback"]');
+      const rect = button?.getBoundingClientRect();
+      const writes = globalThis.__daily007ClipboardWrites ?? [];
+      const root = document.documentElement;
+      const layoutWidth = root?.clientWidth ?? 0;
+      return {
+        ready: feedback?.textContent?.trim() === ${expectedFeedback}
+          && JSON.stringify(writes) === JSON.stringify(${expectedClipboardValues}),
+        feedback: feedback?.textContent?.trim() ?? null,
+        writes,
+        buttonVisible: Boolean(button && rect && rect.width > 0 && rect.height > 0),
+        buttonInBounds: Boolean(rect && rect.left >= -1 && rect.right <= layoutWidth + 1),
+        buttonTargetSizeOk: Boolean(rect && rect.width >= 40 && rect.height >= 40),
+        viewportWidth: window.innerWidth,
+      };
+    })()`;
+    const deadline = Date.now() + 5_000;
+    let state;
+    while (Date.now() < deadline) {
+      state = await evaluate(expression);
+      if (state.ready) break;
+      await delay(50);
+    }
+    if (
+      !state?.ready
+      || !state.buttonVisible
+      || !state.buttonInBounds
+      || !state.buttonTargetSizeOk
+      || state.viewportWidth !== 320
+    ) {
+      throw new Error(
+        `${entry.screen} preview clipboard action failed at 320px for ${testId}: ` +
+          `${JSON.stringify(state)}.`,
+      );
+    }
+  }
+}
+
 async function checkPreview(url, entry) {
   await cdp("Page.stopLoading").catch(() => undefined);
   browserErrors.length = 0;
@@ -676,6 +746,7 @@ async function checkPreview(url, entry) {
       state = await evaluate(expression);
       if (state.ready && !state.hasViteError && state.phoneViewportOk) {
         await checkPreviewInteraction(entry);
+        await checkPreviewClipboard(entry);
         return;
       }
     }
