@@ -47,6 +47,11 @@ type LedgerEntry = {
   reason: string;
   id?: string;
   createdAt?: Date;
+  matchId?: string;
+  registrationId?: string;
+  tournamentTitle?: string;
+  placementRank?: number;
+  placementKills?: number;
 };
 
 type Notification = {
@@ -184,15 +189,36 @@ class MemoryWalletDatabase {
     id: string;
     userId: string;
     createdAt: Date;
+    reason?: string;
+    matchId?: string;
+    registrationId?: string;
+    tournamentTitle?: string;
+    placementRank?: number;
+    placementKills?: number;
   }>): void {
-    for (const { id, userId, createdAt } of entries) {
+    for (const {
+      id,
+      userId,
+      createdAt,
+      reason = "test_reward",
+      matchId,
+      registrationId,
+      tournamentTitle,
+      placementRank,
+      placementKills,
+    } of entries) {
       this.ledger.push({
         id,
         userId,
         amount: 1,
         balanceAfter: 1,
-        reason: "test_reward",
+        reason,
         createdAt: new Date(createdAt),
+        matchId,
+        registrationId,
+        tournamentTitle,
+        placementRank,
+        placementKills,
       });
     }
   }
@@ -473,11 +499,11 @@ class MemoryWalletDatabase {
           details: {},
           createdAt: item.createdAt!,
           cursorCreatedAt: item.createdAt!.toISOString(),
-          matchId: null,
-          registrationId: null,
-          tournamentTitle: null,
-          placementRank: null,
-          placementKills: null,
+          matchId: item.matchId ?? null,
+          registrationId: item.registrationId ?? null,
+          tournamentTitle: item.tournamentTitle ?? null,
+          placementRank: item.placementRank ?? null,
+          placementKills: item.placementKills ?? null,
         }));
       if (normalized.includes("(ledger.created_at, ledger.id) < ($2::timestamptz, $3::uuid)")) {
         const cursorTime = Date.parse(String(values[1]));

@@ -58,6 +58,12 @@ export function walletTransactionIsLeaderboardReward(item: WalletTransactionDisp
   return leaderboardRewardDescription(item) !== null;
 }
 
+export function walletPrizeMatchId(item: WalletTransactionDisplayItem): string | null {
+  if (item.reason !== "match_prize") return null;
+  const matchId = (item as WalletTransactionDisplayItem & { matchId?: unknown }).matchId;
+  return typeof matchId === "string" && matchId.trim() ? matchId.trim() : null;
+}
+
 export function walletTransactionDescription(item: WalletTransactionDisplayItem): string {
   const leaderboardDescription = leaderboardRewardDescription(item);
   if (leaderboardDescription) return leaderboardDescription;

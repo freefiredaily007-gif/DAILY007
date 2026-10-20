@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
@@ -24,6 +24,7 @@ import {
   walletTransactionDescription,
   walletTransactionIsLeaderboardReward,
   walletTransactionMatchesFilter,
+  walletPrizeMatchId,
   walletRejectedDepositReasonText,
   type WalletTransactionFilter,
 } from '../lib/wallet-transaction-display';
@@ -120,6 +121,7 @@ export default function Wallet({
 } = {}) {
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
+  const navigation: any = useNavigation();
   const { user, refresh } = useApp();
   const walletUserId = user?.id ?? user?.$id ?? null;
   const activeWalletUserId = useRef<string | null>(walletUserId);
@@ -693,6 +695,7 @@ export default function Wallet({
           const pos = item.amount > 0;
           const isCancellationRefund = item.reason === 'tournament_cancel_refund';
           const isMatchPrize = item.reason === 'match_prize';
+          const prizeMatchId = walletPrizeMatchId(item);
           const isLeaderboardReward = walletTransactionIsLeaderboardReward(item);
           const isRejectedDeposit = item.isRequest &&
             item.requestType === 'payment' &&
@@ -714,12 +717,14 @@ export default function Wallet({
             return <WalletCancellationRefundRow item={item} />;
           }
           const statusLabel = item.status === 'pending' ? 'PENDING ADMIN APPROVAL' : String(item.status ?? '').toUpperCase();
-          return (
+          const transactionCard = (
             <Card
-              {...(isMatchPrize || isLeaderboardReward ? {
+              {...(isLeaderboardReward || (isMatchPrize && !prizeMatchId) ? {
                 accessible: true,
                 accessibilityRole: 'text' as const,
                 accessibilityLabel: walletTransactionAccessibilityLabel(item),
+              } : prizeMatchId ? {
+                accessible: false,
               } : {})}
               testID={`wallet-transaction-${String(item.id ?? index)}`}
               style={[
@@ -780,6 +785,18 @@ export default function Wallet({
               </Text>
             </Card>
           );
+          return prizeMatchId ? (
+            <Pressable
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={walletTransactionAccessibilityLabel(item)}
+              accessibilityHint="Opens the tournament result."
+              testID={`wallet-prize-result-${String(item.id ?? index)}`}
+              onPress={() => navigation.getParent().push('TDetail', { id: prizeMatchId })}
+            >
+              {transactionCard}
+            </Pressable>
+          ) : transactionCard;
         }}
       />
 

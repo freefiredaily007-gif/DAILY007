@@ -391,6 +391,7 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
     return {
       ...transactionRow,
       ...(row.reason === "match_prize" ? {
+        ...(typeof matchId === "string" ? { matchId } : {}),
         ...(typeof registrationId === "string" ? { registrationId } : {}),
         ...(resolvedTournamentTitle ? { tournamentTitle: resolvedTournamentTitle } : {}),
         ...(placementRank !== null && placementRank !== undefined ? { placementRank } : {}),

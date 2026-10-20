@@ -696,6 +696,54 @@ test("wallet transaction pagination keeps equal-timestamp rows stable across pag
   });
 });
 
+test("wallet transaction history returns the saved match reference only for prize credits", async () => {
+  walletTestDb.reset();
+  const matchId = "70000000-0000-4000-8000-000000000001";
+  walletTestDb.seedWalletHistory([
+    {
+      id: "50000000-0000-4000-8000-000000000001",
+      userId: TEST_PLAYER_ID,
+      createdAt: new Date(Date.UTC(2026, 5, 1, 12)),
+      reason: "match_prize",
+      matchId,
+      registrationId: "80000000-0000-4000-8000-000000000001",
+      tournamentTitle: "Friday Battle",
+      placementRank: 2,
+      placementKills: 4,
+    },
+    {
+      id: "50000000-0000-4000-8000-000000000002",
+      userId: TEST_PLAYER_ID,
+      createdAt: new Date(Date.UTC(2026, 5, 1, 11)),
+      reason: "video_watch_reward",
+      matchId,
+    },
+  ]);
+
+  await withServer(async (origin) => {
+    const history = await call(origin, TEST_PLAYER_ID, "/wallet/transactions", "GET");
+
+    assert.equal(history.status, 200);
+    assert.deepEqual(
+      {
+        matchId: history.body[0].matchId,
+        registrationId: history.body[0].registrationId,
+        tournamentTitle: history.body[0].tournamentTitle,
+        placementRank: history.body[0].placementRank,
+        placementKills: history.body[0].placementKills,
+      },
+      {
+        matchId,
+        registrationId: "80000000-0000-4000-8000-000000000001",
+        tournamentTitle: "Friday Battle",
+        placementRank: 2,
+        placementKills: 4,
+      },
+    );
+    assert.equal(Object.hasOwn(history.body[1], "matchId"), false);
+  });
+});
+
 test("deposit display prefers the stored rupee amount over a changed conversion rate", () => {
   assert.equal(depositAmountInr(120, 300, 1), "₹300");
   assert.equal(depositAmountInr(120, undefined, 2.5), "₹300");
