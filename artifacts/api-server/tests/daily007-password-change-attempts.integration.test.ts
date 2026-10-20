@@ -1,13 +1,23 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import express from "express";
+import type { Server } from "node:http";
 import test, { after } from "node:test";
 import { pool } from "@workspace/db";
+import type { User as ClerkUser } from "@clerk/express";
+import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
+import daily007GoogleAuthRouter from "../src/routes/daily007-google-auth";
 import { hashPassword } from "../src/routes/daily007-v2";
 import { makeToken } from "../src/lib/daily007-session-token";
+import {
+  getMockGoogleUserLookupCount,
+  resetMockGoogleUser,
+} from "./support/daily007-google-auth-clerk-mock";
 
 const TEST_AUTH_SECRET = "daily007-password-change-attempts-test-secret";
 const TEST_REPLACEMENT_PASSWORD = "replacement-password-for-shared-attempt-test";
+const LINKED_GOOGLE_CLERK_USER_ID = "clerk-password-change-linked-google";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -79,6 +89,33 @@ async function startApiProcess(): Promise<ApiProcess> {
   };
   apiProcesses.push(apiProcess);
   return apiProcess;
+}
+
+async function withMockedGoogleAuthServer(run: (origin: string) => Promise<void>): Promise<void> {
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    Object.assign(req, {
+      auth: { userId: req.get("x-mock-clerk-user-id") ?? LINKED_GOOGLE_CLERK_USER_ID },
+    });
+    next();
+  });
+  app.use(daily007CompatCoreRouter);
+  app.use(daily007GoogleAuthRouter);
+
+  const server = await new Promise<Server>((resolve, reject) => {
+    const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
+    listeningServer.once("error", reject);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 }
 
 async function passwordChange(
@@ -346,6 +383,105 @@ test("a successful password change survives an API restart and resets only that 
   ]));
   assert.deepEqual(attemptsAfterChange.get(firstUserId), { failures: 0, in_flight: 0 });
   assert.deepEqual(attemptsAfterChange.get(secondUserId), { failures: 1, in_flight: 0 });
+});
+
+test("changing a Daily007 password preserves linked Google sign-in", async () => {
+  const userId = randomUUID();
+  const originalPassword = "linked-google-original-password";
+  const email = `password-change-google-${userId}@example.test`;
+  const originalCredentials = await hashPassword(originalPassword);
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Linked Google Password Player', $2, $3, $4)`,
+    [userId, email, originalCredentials.salt, originalCredentials.hash],
+  );
+
+  resetMockGoogleUser({
+    id: LINKED_GOOGLE_CLERK_USER_ID,
+    firstName: "Google",
+    lastName: "Player",
+    emailAddresses: [{
+      emailAddress: email,
+      verification: { status: "verified" },
+    }],
+    externalAccounts: [{
+      provider: "google",
+      emailAddress: email,
+      firstName: "Google",
+      lastName: "Player",
+      verification: { status: "verified" },
+    }],
+  } as ClerkUser);
+
+  const token = makeToken(userId, 0);
+  assert.ok(token);
+
+  try {
+    await withMockedGoogleAuthServer(async (origin) => {
+      const linkResponse = await fetch(`${origin}/auth/google`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer mocked-clerk-session",
+          "content-type": "application/json",
+          "X-Daily007-Token": token,
+        },
+        body: JSON.stringify({}),
+      });
+      const linked = await linkResponse.json() as Record<string, unknown>;
+      assert.equal(linkResponse.status, 200, "the password account should explicitly link its Google identity");
+      assert.equal(linked.googleLinked, true);
+      assert.equal(linked.id, userId);
+      assert.equal(getMockGoogleUserLookupCount(), 1);
+
+      const passwordUpdate = await passwordChange(origin, token, originalPassword);
+      assert.equal(passwordUpdate.status, 200, "the existing Daily007 password should authorize the update");
+
+      const storedAccount = await pool.query<{
+        clerk_user_id: string | null;
+        password_salt: string;
+        password_hash: string;
+      }>(
+        `SELECT clerk_user_id, password_salt, password_hash
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [userId],
+      );
+      assert.equal(storedAccount.rows[0]?.clerk_user_id, LINKED_GOOGLE_CLERK_USER_ID);
+      assert.notEqual(storedAccount.rows[0]?.password_salt, originalCredentials.salt);
+      assert.notEqual(storedAccount.rows[0]?.password_hash, originalCredentials.hash);
+
+      const replacementLogin = await passwordLogin(origin, email, TEST_REPLACEMENT_PASSWORD);
+      assert.equal(replacementLogin.status, 200, "the replacement Daily007 password should work");
+      assert.equal(replacementLogin.body.id, userId);
+
+      const previousLogin = await passwordLogin(origin, email, originalPassword);
+      assert.equal(previousLogin.status, 401, "the previous Daily007 password should no longer work");
+
+      const googleSignIn = await fetch(`${origin}/auth/google`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer mocked-clerk-session",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      const googleSession = await googleSignIn.json() as Record<string, unknown>;
+      assert.equal(googleSignIn.status, 200, "the linked Google identity should still sign in");
+      assert.equal(googleSession.id, userId, "Google sign-in should return the same Daily007 account");
+      assert.equal(typeof googleSession.token, "string");
+      assert.equal(getMockGoogleUserLookupCount(), 2, "sign-in should verify the identity through the mocked provider");
+
+      const linkAfterSignIn = await pool.query<{ clerk_user_id: string | null }>(
+        "SELECT clerk_user_id FROM daily007_v2_users WHERE id = $1",
+        [userId],
+      );
+      assert.equal(linkAfterSignIn.rows[0]?.clerk_user_id, LINKED_GOOGLE_CLERK_USER_ID);
+    });
+  } finally {
+    resetMockGoogleUser();
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
+  }
 });
 
 test("overlapping password checks keep separate retry rows and counters for two players", async () => {
