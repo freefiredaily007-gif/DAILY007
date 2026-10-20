@@ -999,7 +999,7 @@ test("automatic and manual PostgreSQL cancellations refund once for both modes a
   }
 });
 
-test("a later prior refund rolls back earlier PostgreSQL cancellation writes", async () => {
+test("a prior refund identifies its registration and rolls back PostgreSQL cancellation writes", async () => {
   const fixture = await createFixture();
   const matchId = fixture.matchIds[0];
 
@@ -1044,6 +1044,13 @@ test("a later prior refund rolls back earlier PostgreSQL cancellation writes", a
         JSON.stringify({ description: "Seeded prior registration refund" }),
       ],
     );
+    const adminId = fixture.payerIds[2];
+    await pool.query(
+      "UPDATE daily007_v2_users SET role = 'tournament_admin' WHERE id = $1",
+      [adminId],
+    );
+    const adminToken = makeToken(adminId, 0);
+    assert.ok(adminToken, "The isolated test should create a valid tournament-admin token.");
 
     const balancesBefore = await pool.query<{
       id: string;
@@ -1058,8 +1065,41 @@ test("a later prior refund rolls back earlier PostgreSQL cancellation writes", a
     if (outcome.status === "rejected") {
       assert.ok(outcome.reason instanceof TournamentCancellationError);
       assert.equal(outcome.reason.status, 409);
-      assert.match(outcome.reason.message, /already has a refund record/);
+      assert.equal(
+        outcome.reason.message,
+        `Registration ${laterRegistration.id} already has a refund record; cancellation was not applied.`,
+      );
     }
+
+    await withCompatServer(async (origin) => {
+      const response = await fetch(`${origin}/admin/tournaments/${matchId}/lifecycle`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      assert.equal(response.status, 409);
+      const responseBody = await response.json();
+      const expectedError =
+        `Registration ${laterRegistration.id} already has a refund record; cancellation was not applied.`;
+      assert.deepEqual(responseBody, { error: expectedError });
+
+      const serializedResponse = JSON.stringify(responseBody);
+      for (const privateValue of [
+        laterRegistration.captain_user_id,
+        `cancellation-player-${laterRegistration.captain_user_id}@example.test`,
+        "test-salt",
+        "test-hash",
+      ]) {
+        assert.equal(
+          serializedResponse.includes(privateValue),
+          false,
+          "The response may identify the registration but must not expose payer details or credentials.",
+        );
+      }
+    });
 
     const match = await pool.query<{ status: string; enabled: boolean }>(
       "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",

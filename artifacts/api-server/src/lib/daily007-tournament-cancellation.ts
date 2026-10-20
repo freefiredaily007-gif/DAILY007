@@ -185,7 +185,7 @@ export async function cancelUnderfilledTournamentTransaction(
       );
       if (priorRefund.rows[0]) {
         throw new TournamentCancellationError(
-          "A registration already has a refund record; cancellation was not applied.",
+          `Registration ${registration.id} already has a refund record; cancellation was not applied.`,
           409,
         );
       }
@@ -232,7 +232,7 @@ export async function cancelUnderfilledTournamentTransaction(
       );
       if (!ledger.rows[0]) {
         throw new TournamentCancellationError(
-          "This registration's refund was already recorded; cancellation was not applied.",
+          `The refund for registration ${registration.id} was already recorded; cancellation was not applied.`,
           409,
         );
       }
