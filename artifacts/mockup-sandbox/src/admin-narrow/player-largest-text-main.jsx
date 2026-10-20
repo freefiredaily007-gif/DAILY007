@@ -80,6 +80,9 @@ const titles = {
 const tabScreens = ["Home", "Video", "Earn", "Wallet", "Profile"];
 const tabLabels = ["HOME", "VIDEO", "EARN", "WALLET", "PROFILE"];
 const screenName = new URLSearchParams(window.location.search).get("screen") || "Home";
+const passwordChangePreviewMode = new URLSearchParams(window.location.search).get("password-change") === "lost-reply"
+  ? "lostReply"
+  : "conflict";
 const videoRewardPreviewMode = screenName === "VideoUnavailable"
   ? "unavailable"
   : screenName === "VideoTransient"
@@ -121,7 +124,7 @@ configurePlayerLargestTextPreview();
 configureWalletFormPreview();
 configureVideoRewardPreview(videoRewardPreviewMode);
 if (screenName === "VideoConnectivityRecovery") configurePreviewNetwork(false);
-configurePasswordChangePreview();
+configurePasswordChangePreview(passwordChangePreviewMode);
 if (videoRewardPreviewMode) window.__videoRewardPreview = true;
 
 function PreviewTabBar({ fontScale, width }) {

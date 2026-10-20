@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
-import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from "../src/lib/profilePassword.ts";
+import {
+  isProfilePasswordChangeOutcomeUncertain,
+  PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE,
+  PROFILE_PASSWORD_MAX_LENGTH,
+  submitProfilePasswordChange,
+} from "../src/lib/profilePassword.ts";
 import {
   customFetch,
   setAuthExpiredHandler,
@@ -71,6 +76,28 @@ function getBtnDisabledExpression() {
 
 const btnDisabledExpression = getBtnDisabledExpression();
 
+test("Profile distinguishes a lost password-change response from a server rejection", () => {
+  assert.equal(
+    isProfilePasswordChangeOutcomeUncertain(new TypeError("Failed to fetch")),
+    true,
+    "A transport error without an HTTP response has an unknown outcome.",
+  );
+  assert.equal(
+    isProfilePasswordChangeOutcomeUncertain({ response: { status: 401 } }),
+    false,
+    "A server rejection has a known outcome and should keep its real error message.",
+  );
+  assert.equal(
+    isProfilePasswordChangeOutcomeUncertain(new Error("That current password does not match.")),
+    false,
+    "An ordinary server message should not be relabeled as a connection failure.",
+  );
+  assert.equal(
+    PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE,
+    "Connection lost before Daily007 confirmed the change. Your password may already be updated. Keep this form open and press UPDATE PASSWORD again to safely confirm it.",
+  );
+});
+
 function evaluateBtnDisabled({ disabled, loading, preserveAccessibilityFocusWhileLoading }) {
   const javascript = ts.transpileModule(
     `const __disabled = (${btnDisabledExpression});`,
@@ -116,10 +143,15 @@ function loadProfileCallback(callbackName, scope) {
       },
     },
   ).outputText;
+  const dependencies = {
+    isProfilePasswordChangeOutcomeUncertain,
+    PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE,
+    ...scope,
+  };
   return new Function(
-    ...Object.keys(scope),
+    ...Object.keys(dependencies),
     `${javascript}\nreturn __callback;`,
-  )(...Object.values(scope));
+  )(...Object.values(dependencies));
 }
 
 function getPasswordModalRequestCloseHandlerName() {
@@ -290,8 +322,8 @@ test("Profile wires its password inputs to the shared 200-character limit", () =
 test("Profile exposes password-change API errors through one polite TalkBack announcement", () => {
   assert.match(
     profileSource,
-    /catch \(e\) \{\s*setPasswordError\(apiError\(e\)\);\s*\}/,
-    "A rejected password-change request should reach the visible password error.",
+    /catch \(e\) \{\s*setPasswordError\([\s\S]*?isProfilePasswordChangeOutcomeUncertain\(e\)[\s\S]*?PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE[\s\S]*?apiError\(e\)/,
+    "Profile should distinguish an uncertain connection outcome from a server rejection.",
   );
   const passwordErrorMarkup = profileSource.match(
     /<Text style=\{s\.modalError\}[^>]*>\{passwordError\}<\/Text>/,
@@ -653,6 +685,73 @@ test("successful Profile password change closes and clears the form and announce
     /\{!!passwordMessage && <Text style=\{s\.connected\} accessibilityLiveRegion="polite">\{passwordMessage\}<\/Text>\}/,
     "Profile should conditionally render the single polite success announcement.",
   );
+});
+
+test("a lost password-change reply keeps the form and a safe retry confirms success", async () => {
+  const currentPassword = "correct-current-password";
+  const newPassword = "replacement-password-after-lost-reply";
+  const state = {
+    modalVisible: true,
+    currentPassword,
+    newPassword,
+    confirmNewPassword: newPassword,
+    passwordError: "",
+    passwordMessage: "",
+  };
+  let activePassword = currentPassword;
+  const requests = [];
+  const visibility = [];
+  const submitPasswordChange = loadProfileCallback("submitPasswordChange", {
+    currentPassword,
+    newPassword,
+    confirmNewPassword: newPassword,
+    passwordChangeInFlight: { current: false },
+    changePassword: async ({ data }) => {
+      requests.push(data);
+      if (requests.length === 1) {
+        activePassword = data.newPassword;
+        throw new TypeError("Failed to fetch");
+      }
+      if (data.newPassword === activePassword) {
+        return { message: "Password change already applied." };
+      }
+      throw new Error("The requested password is not active.");
+    },
+    submitProfilePasswordChange,
+    apiError: (error) => error.message,
+    setPasswordError: (value) => { state.passwordError = value; },
+    setPasswordMessage: (value) => { state.passwordMessage = value; },
+    setPasswordModalVisible: (value) => {
+      state.modalVisible = value;
+      visibility.push(value);
+    },
+    setCurrentPassword: (value) => { state.currentPassword = value; },
+    setNewPassword: (value) => { state.newPassword = value; },
+    setConfirmNewPassword: (value) => { state.confirmNewPassword = value; },
+  });
+
+  await submitPasswordChange();
+
+  assert.equal(state.passwordError, PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE);
+  assert.equal(state.modalVisible, true, "The form should remain open when the reply is uncertain.");
+  assert.equal(state.currentPassword, currentPassword);
+  assert.equal(state.newPassword, newPassword);
+  assert.equal(state.confirmNewPassword, newPassword);
+  assert.deepEqual(visibility, [], "An uncertain reply should not close or reset the form.");
+
+  await submitPasswordChange();
+
+  assert.deepEqual(requests, [
+    { currentPassword, newPassword },
+    { currentPassword, newPassword },
+  ], "Recovery should retry the same password-change request.");
+  assert.equal(state.passwordError, "");
+  assert.equal(state.passwordMessage, "Password changed. Other sessions stay active until the next sign-in.");
+  assert.equal(state.modalVisible, false);
+  assert.equal(state.currentPassword, "");
+  assert.equal(state.newPassword, "");
+  assert.equal(state.confirmNewPassword, "");
+  assert.deepEqual(visibility, [false]);
 });
 
 test("wrong-current-password 401 keeps the form and session available for retry", async () => {

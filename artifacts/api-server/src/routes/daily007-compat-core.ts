@@ -482,9 +482,22 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
       return;
     }
 
+    const matchesStoredPassword = async (password: string, saltHex: string, hashHex: string) => {
+      const candidatePassword = await hashPassword(password, Buffer.from(saltHex, "hex"));
+      return passwordHashesMatch(
+        Buffer.from(candidatePassword.hash, "hex"),
+        Buffer.from(hashHex, "hex"),
+      );
+    };
     const candidate = await hashPassword(input.currentPassword, Buffer.from(stored.password_salt, "hex"));
     if (!passwordHashesMatch(Buffer.from(candidate.hash, "hex"), Buffer.from(stored.password_hash, "hex"))) {
       outcome = "incorrect";
+      // Confirm a replay after commit without changing the stored hash again;
+      // the stale current-password check still counts toward the attempt limit.
+      if (await matchesStoredPassword(input.newPassword, stored.password_salt, stored.password_hash)) {
+        res.json({ message: "Password change already applied. Other signed-in sessions remain active." });
+        return;
+      }
       fail(res, 401, "Current password is incorrect.", "CURRENT_PASSWORD_INCORRECT");
       return;
     }
@@ -499,6 +512,18 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
       [account.id, replacement.salt, replacement.hash, stored.password_salt, stored.password_hash],
     );
     if (!updated.rows[0]) {
+      const latestCredentials = await pool.query<{ password_salt: string; password_hash: string }>(
+        "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+        [account.id],
+      );
+      const latest = latestCredentials.rows[0];
+      if (
+        latest
+        && await matchesStoredPassword(input.newPassword, latest.password_salt, latest.password_hash)
+      ) {
+        res.json({ message: "Password change already applied. Other signed-in sessions remain active." });
+        return;
+      }
       fail(res, 409, "The password changed in another session. Sign in again and retry.");
       return;
     }

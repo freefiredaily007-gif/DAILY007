@@ -847,6 +847,7 @@ function addPreviewTournamentFromAdminPayload(payload: Record<string, unknown>) 
 
 export const Api = {
   me: async () => ({ ...previewAdmin }),
+  googleLinkStatus: async () => false,
   settings: async () => ({ settings: { ...settings } }),
   transactions: async () => playerLargestTextPreview
     ? [{

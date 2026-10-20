@@ -18,6 +18,7 @@ const videoCatalogEmptySearchOnly = process.argv.includes("--video-catalog-empty
 const lateVideoCatalogResponseOnly = process.argv.includes("--late-video-catalog-response-only");
 const videoCatalogPositionOnly = process.argv.includes("--video-catalog-position-only");
 const profilePasswordConflictOnly = process.argv.includes("--profile-password-conflict-only");
+const profilePasswordLostReplyOnly = process.argv.includes("--profile-password-lost-reply-only");
 const profileSaveFailureOnly = process.argv.includes("--profile-save-failure-only");
 const profileSavePersistenceOnly = process.argv.includes("--profile-save-persistence-only");
 const homeRefreshNoticeOnly = process.argv.includes("--home-refresh-notice-only");
@@ -214,6 +215,7 @@ async function waitForCondition(expression, description) {
 async function navigateToScreen(name, readyText, fontScale = 2) {
   const query = new URLSearchParams({ screen: name, fontScale: String(fontScale) });
   if (name === "VideoConnectivityRecovery") query.set("resume-while-refresh-only", "");
+  if (profilePasswordLostReplyOnly) query.set("password-change", "lost-reply");
   if (profileSavePersistenceOnly) query.set("profile-save-persistence-only", "");
   await cdp("Page.navigate", { url: `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?${query}` });
   await waitForCondition(
@@ -2769,6 +2771,100 @@ async function checkProfilePasswordConflictRetry() {
   console.log("PASS — password conflicts preserve the form and allow a successful retry.");
 }
 
+async function checkProfilePasswordLostReplyRecovery() {
+  const uncertainMessage =
+    "Connection lost before Daily007 confirmed the change. Your password may already be updated. Keep this form open and press UPDATE PASSWORD again to safely confirm it.";
+  const successMessage = "Password changed. Other sessions stay active until the next sign-in.";
+  const currentPassword = "correct-current-password";
+  const newPassword = "replacement-password";
+  const currentSelector = 'input[aria-label="Current Daily007 password"]';
+  const newSelector = 'input[aria-label="New Daily007 password"]';
+  const confirmSelector = 'input[placeholder="Confirm new password"]';
+
+  await clickSelector('[data-testid="profile-change-password"]', "Profile change password action");
+  await waitForCondition(
+    "Boolean(document.querySelector('[data-testid=\"profile-password-submit\"]'))",
+    "password-change dialog",
+  );
+  await setInputValue(currentSelector, currentPassword, "the current password");
+  await setInputValue(newSelector, newPassword, "the new password");
+  await setInputValue(confirmSelector, newPassword, "the confirmation password");
+  await evaluate(`document.querySelector('[data-testid="profile-password-submit"]')?.focus()`);
+  const focusedControlBeforeLostReply = await evaluate(
+    "document.activeElement?.getAttribute('data-testid') ?? null",
+  );
+  await clickSelector('[data-testid="profile-password-submit"]', "Profile password submit");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(uncertainMessage)})`,
+    "uncertain password-change message",
+  );
+
+  const afterLostReply = await evaluate(`(() => ({
+    messageVisible: document.body.innerText.includes(${JSON.stringify(uncertainMessage)}),
+    announcements: [...document.querySelectorAll('[aria-live]')]
+      .filter((node) => node.textContent?.trim() === ${JSON.stringify(uncertainMessage)})
+      .map((node) => node.getAttribute('aria-live')),
+    focusedControl: document.activeElement?.getAttribute('data-testid') ?? null,
+    currentPassword: document.querySelector(${JSON.stringify(currentSelector)})?.value ?? null,
+    newPassword: document.querySelector(${JSON.stringify(newSelector)})?.value ?? null,
+    confirmPassword: document.querySelector(${JSON.stringify(confirmSelector)})?.value ?? null,
+    requests: window.__daily007PasswordChangePreview?.requests ?? [],
+  }))()`);
+  assert(afterLostReply.messageVisible, "The ambiguous outcome should be explained in the Profile dialog.");
+  assert(
+    JSON.stringify(afterLostReply.announcements) === JSON.stringify(["polite"]),
+    "The uncertain outcome should use one polite announcement.",
+  );
+  assert(
+    afterLostReply.focusedControl === focusedControlBeforeLostReply,
+    "The uncertain outcome must not move focus away from the submit control.",
+  );
+  assert(
+    JSON.stringify({
+      currentPassword: afterLostReply.currentPassword,
+      newPassword: afterLostReply.newPassword,
+      confirmPassword: afterLostReply.confirmPassword,
+    }) === JSON.stringify({
+      currentPassword,
+      newPassword,
+      confirmPassword: newPassword,
+    }),
+    "All entered passwords should remain available for a safe retry.",
+  );
+  assert(afterLostReply.requests.length === 1, "The lost reply should follow exactly one committed request.");
+
+  await clickSelector('[data-testid="profile-password-submit"]', "safe password retry");
+  await waitForCondition(
+    `document.body.innerText.includes(${JSON.stringify(successMessage)})`,
+    "confirmed password-change success",
+  );
+  const recovered = await evaluate(`(() => ({
+    successVisible: document.body.innerText.includes(${JSON.stringify(successMessage)}),
+    passwordFieldsCleared: [
+      ${JSON.stringify(currentSelector)},
+      ${JSON.stringify(newSelector)},
+      ${JSON.stringify(confirmSelector)},
+    ].every((selector) => {
+      const input = document.querySelector(selector);
+      return !input || input.value === "";
+    }),
+    profileStillVisible: document.body.innerText.includes("PROFILE"),
+    requests: window.__daily007PasswordChangePreview?.requests ?? [],
+  }))()`);
+  assert(recovered.successVisible, "The retry should confirm the new password as active.");
+  assert(recovered.passwordFieldsCleared, "Confirmed recovery should clear the password entries.");
+  assert(recovered.profileStillVisible, "Recovery should keep the player in the signed-in Profile screen.");
+  assert(recovered.requests.length === 2, "The recovery should send one identical retry.");
+  assert(
+    JSON.stringify(recovered.requests) === JSON.stringify([
+      { currentPassword, newPassword },
+      { currentPassword, newPassword },
+    ]),
+    "The retry should reuse the exact original password-change request.",
+  );
+  console.log("PASS — a lost password-change reply is explained, and retry confirms success without losing the session.");
+}
+
 try {
   vitePort = await getFreePort();
   const debugPort = await getFreePort();
@@ -2815,7 +2911,7 @@ try {
       "--remote-allow-origins=*",
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${temporaryProfile}`,
-      `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?screen=Home${homeRefreshNoticeOnly ? "&manual-refresh-only=1" : ""}`,
+      `http://127.0.0.1:${vitePort}/player-largest-text-preview.html?screen=Home${homeRefreshNoticeOnly ? "&manual-refresh-only=1" : ""}${profilePasswordLostReplyOnly ? "&password-change=lost-reply" : ""}`,
     ],
     { stdio: "ignore" },
   );
@@ -2837,10 +2933,10 @@ try {
   });
   await delay(120);
   if (homeRefreshNoticeOnly) await checkHomeRefreshNoticeStates();
-  if (!homeRefreshNoticeOnly && !homeLayoutOnly && !videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
+  if (!homeRefreshNoticeOnly && !homeLayoutOnly && !videoStartFailureOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profilePasswordLostReplyOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkLateVideoRewardCompletion();
   }
-  if (!homeRefreshNoticeOnly && !homeLayoutOnly && !lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
+  if (!homeRefreshNoticeOnly && !homeLayoutOnly && !lateVideoRewardResponseOnly && !pendingVideoWatchStartOnly && !videoCatalogRefreshAnnouncementOnly && !videoCatalogRetryPendingOnly && !videoCatalogConnectivityOnly && !videoCatalogEmptySearchOnly && !lateVideoCatalogResponseOnly && !videoCatalogPositionOnly && !profilePasswordConflictOnly && !profilePasswordLostReplyOnly && !profileSaveFailureOnly && !profileSavePersistenceOnly) {
     await checkVideoWatchStartFailure();
     console.log("PASS — failed video starts stay politely announced, keep focus in place, and cannot create a claim retry.");
   }
@@ -2877,6 +2973,10 @@ try {
   if (profilePasswordConflictOnly) {
     await navigateToScreen("Profile", "PROFILE");
     await checkProfilePasswordConflictRetry();
+  }
+  if (profilePasswordLostReplyOnly) {
+    await navigateToScreen("Profile", "PROFILE");
+    await checkProfilePasswordLostReplyRecovery();
   }
   if (profileSaveFailureOnly) {
     for (const viewportWidth of [375, 320]) {
@@ -2926,6 +3026,7 @@ try {
     || lateVideoCatalogResponseOnly
     || videoCatalogPositionOnly
     || profilePasswordConflictOnly
+    || profilePasswordLostReplyOnly
     || profileSaveFailureOnly
     || profileSavePersistenceOnly
     || homeRefreshNoticeOnly;
@@ -3033,7 +3134,9 @@ try {
                 ? "PASS — a late catalog response cannot undo a newer successful retry."
                 : videoCatalogPositionOnly
                   ? "PASS — catalog recovery restores the prior scroll position after a player return error."
-                  : profilePasswordConflictOnly
+                    : profilePasswordLostReplyOnly
+                      ? "PASS — a lost password-change reply is explained, and retry confirms success without losing the session."
+                    : profilePasswordConflictOnly
                     ? "PASS — password conflicts preserve the form and allow a successful retry."
                     : profileSaveFailureOnly
                       ? "PASS — failed Edit Profile saves preserve all details and allow retry at 2× text."

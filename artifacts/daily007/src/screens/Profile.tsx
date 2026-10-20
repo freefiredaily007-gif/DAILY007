@@ -16,7 +16,12 @@ import {
 import { C, Card, Btn, Input, SectionTitle, KV } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { useDaily007ChangePassword } from '@workspace/api-client-react';
-import { PROFILE_PASSWORD_MAX_LENGTH, submitProfilePasswordChange } from '../lib/profilePassword';
+import {
+  isProfilePasswordChangeOutcomeUncertain,
+  PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE,
+  PROFILE_PASSWORD_MAX_LENGTH,
+  submitProfilePasswordChange,
+} from '../lib/profilePassword';
 import {
   nativeTextScaleTextProps,
   type NativeTextScaleLayoutObserver,
@@ -311,7 +316,11 @@ export default function Profile({
       setNewPassword('');
       setConfirmNewPassword('');
     } catch (e) {
-      setPasswordError(apiError(e));
+      setPasswordError(
+        isProfilePasswordChangeOutcomeUncertain(e)
+          ? PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE
+          : apiError(e),
+      );
     } finally {
       passwordChangeInFlight.current = false;
     }

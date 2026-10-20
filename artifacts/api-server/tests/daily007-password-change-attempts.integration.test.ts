@@ -122,16 +122,20 @@ async function passwordChange(
   origin: string,
   token: string,
   currentPassword = "incorrect-current-password",
+  options: { dropResponseAfterCommit?: boolean; newPassword?: string } = {},
 ): Promise<{ status: number; retryAfter: string | null }> {
   const response = await fetch(`${origin}/auth/me/password`, {
     method: "PATCH",
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
+      ...(options.dropResponseAfterCommit
+        ? { "x-test-drop-password-change-response": "after-commit" }
+        : {}),
     },
     body: JSON.stringify({
       currentPassword,
-      newPassword: TEST_REPLACEMENT_PASSWORD,
+      newPassword: options.newPassword ?? TEST_REPLACEMENT_PASSWORD,
     }),
   });
   await response.json();
@@ -383,6 +387,73 @@ test("a successful password change survives an API restart and resets only that 
   ]));
   assert.deepEqual(attemptsAfterChange.get(firstUserId), { failures: 0, in_flight: 0 });
   assert.deepEqual(attemptsAfterChange.get(secondUserId), { failures: 1, in_flight: 0 });
+});
+
+test("retry confirms a committed password change after the success reply is lost", async () => {
+  const userId = randomUUID();
+  const oldPassword = "password-before-lost-reply";
+  const email = `password-change-lost-reply-${userId}@example.test`;
+  const originalCredentials = await hashPassword(oldPassword);
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Lost Reply Player', $2, $3, $4)`,
+    [userId, email, originalCredentials.salt, originalCredentials.hash],
+  );
+
+  const token = makeToken(userId, 0);
+  assert.ok(token);
+  const api = await startApiProcess();
+
+  try {
+    let responseWasLost = false;
+    try {
+      await passwordChange(api.origin, token, oldPassword, { dropResponseAfterCommit: true });
+    } catch {
+      responseWasLost = true;
+    }
+    assert.equal(responseWasLost, true, "the test server should drop the successful response after committing");
+
+    await waitForSettledPasswordAttempts([userId]);
+    const accountAfterLostReply = await pool.query<{ password_salt: string; password_hash: string }>(
+      "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+      [userId],
+    );
+    assert.notEqual(accountAfterLostReply.rows[0]?.password_hash, originalCredentials.hash);
+    assert.notEqual(accountAfterLostReply.rows[0]?.password_salt, originalCredentials.salt);
+
+    const retry = await passwordChange(api.origin, token, oldPassword);
+    assert.equal(retry.status, 200, "the same request should confirm that its requested password is already active");
+    const attemptsAfterRetry = await waitForSettledPasswordAttempts([userId]);
+    assert.deepEqual(
+      { failures: attemptsAfterRetry[0]?.failures, in_flight: attemptsAfterRetry[0]?.in_flight },
+      { failures: 1, in_flight: 0 },
+      "confirming an already-applied change should still count the stale current-password check toward its limit",
+    );
+
+    const accountAfterRetry = await pool.query<{ password_salt: string; password_hash: string }>(
+      "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+      [userId],
+    );
+    assert.equal(accountAfterRetry.rows[0]?.password_hash, accountAfterLostReply.rows[0]?.password_hash);
+    assert.equal(accountAfterRetry.rows[0]?.password_salt, accountAfterLostReply.rows[0]?.password_salt);
+
+    const currentSession = await fetch(`${api.origin}/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const currentAccount = await currentSession.json() as Record<string, unknown>;
+    assert.equal(currentSession.status, 200, "the player's existing session should remain active through recovery");
+    assert.equal(currentAccount.id, userId);
+
+    const replacementLogin = await passwordLogin(api.origin, email, TEST_REPLACEMENT_PASSWORD);
+    assert.equal(replacementLogin.status, 200, "the new password should confirm the committed change");
+    assert.equal(replacementLogin.body.id, userId);
+
+    const oldPasswordLogin = await passwordLogin(api.origin, email, oldPassword);
+    assert.equal(oldPasswordLogin.status, 401, "the old password should no longer be active");
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
+  }
 });
 
 test("changing a Daily007 password preserves linked Google sign-in", async () => {
@@ -699,7 +770,12 @@ test("an older password check cannot settle into a newer retry window", async ()
       [userId],
     );
 
-    newCheck = passwordChange(api.origin, token);
+    newCheck = passwordChange(
+      api.origin,
+      token,
+      "incorrect-current-password",
+      { newPassword: "different-password-after-window-expiry" },
+    );
     const newResult = await newCheck;
     assert.equal(newResult.status, 401, "the new check should run in the fresh retry window");
     await waitForSettledPasswordAttempts([userId]);

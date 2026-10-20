@@ -1,5 +1,27 @@
 export const PROFILE_PASSWORD_MIN_LENGTH = 8;
 export const PROFILE_PASSWORD_MAX_LENGTH = 200;
+export const PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE =
+  "Connection lost before Daily007 confirmed the change. Your password may already be updated. Keep this form open and press UPDATE PASSWORD again to safely confirm it.";
+
+export function isProfilePasswordChangeOutcomeUncertain(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    name?: unknown;
+    response?: unknown;
+  };
+  if (candidate.response != null) return false;
+  if (candidate.name === "AbortError") return true;
+  if (
+    typeof candidate.code === "string"
+    && /ERR_NETWORK|ECONN|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|UND_ERR_SOCKET/i.test(candidate.code)
+  ) {
+    return true;
+  }
+  return typeof candidate.message === "string"
+    && /network|fetch|connection|socket|timeout|timed out|offline|load failed|request aborted/i.test(candidate.message);
+}
 
 type PasswordChangeRequest = {
   data: {

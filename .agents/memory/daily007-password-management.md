@@ -16,3 +16,9 @@ On the same device, TalkBack was confirmed to speak successful password-change f
 **Why:** The user confirmed both the conflict-recovery and success paths on Android, so future accessibility changes should preserve the verified behavior.
 
 **How to apply:** Keep each outcome in one polite live region. Do not move focus programmatically; preserve the form on failure and close and clear it after success.
+
+A retry after a missing password-change response may confirm that the requested new password is already active. Preserve the entered values and existing session, and still count the stale current-password check against the retry limit.
+
+**Why:** The server can commit before the client loses its reply; a safe identical retry removes ambiguity without account recreation or a new sign-in.
+
+**How to apply:** Explain transport failures as uncertain, keep the form open, and accept the identical retry only when its requested new password matches the stored credential.

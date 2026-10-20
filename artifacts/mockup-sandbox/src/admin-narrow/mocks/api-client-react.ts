@@ -520,6 +520,9 @@ type PasswordChangePreviewCalls = {
 };
 
 let passwordChangeConflictRemaining = 0;
+let passwordChangePreviewMode: "conflict" | "lostReply" = "conflict";
+let lostReplyPreviewUsed = false;
+let lostReplyPreviewPassword = "correct-current-password";
 
 function getPasswordChangePreviewCalls(): PasswordChangePreviewCalls {
   const preview = globalThis as typeof globalThis & {
@@ -529,8 +532,11 @@ function getPasswordChangePreviewCalls(): PasswordChangePreviewCalls {
   return preview.__daily007PasswordChangePreview;
 }
 
-export function configurePasswordChangePreview() {
-  passwordChangeConflictRemaining = 1;
+export function configurePasswordChangePreview(mode: "conflict" | "lostReply" = "conflict") {
+  passwordChangePreviewMode = mode;
+  passwordChangeConflictRemaining = mode === "conflict" ? 1 : 0;
+  lostReplyPreviewUsed = false;
+  lostReplyPreviewPassword = "correct-current-password";
   const preview = globalThis as typeof globalThis & {
     __daily007PasswordChangePreview?: PasswordChangePreviewCalls;
   };
@@ -545,6 +551,28 @@ export function useDaily007ChangePassword() {
         currentPassword: input.data.currentPassword,
         newPassword: input.data.newPassword,
       });
+      if (passwordChangePreviewMode === "lostReply") {
+        if (!lostReplyPreviewUsed) {
+          if (input.data.currentPassword !== lostReplyPreviewPassword) {
+            const error = new Error("Request failed with status code 401") as Error & {
+              response?: { data?: { error?: string } };
+            };
+            error.response = { data: { error: "Current password is incorrect." } };
+            throw error;
+          }
+          lostReplyPreviewPassword = input.data.newPassword;
+          lostReplyPreviewUsed = true;
+          throw new TypeError("Failed to fetch");
+        }
+        if (input.data.newPassword !== lostReplyPreviewPassword) {
+          const error = new Error("Request failed with status code 401") as Error & {
+            response?: { data?: { error?: string } };
+          };
+          error.response = { data: { error: "Current password is incorrect." } };
+          throw error;
+        }
+        return { message: "Password change already applied. Other signed-in sessions remain active." };
+      }
       if (passwordChangeConflictRemaining > 0) {
         passwordChangeConflictRemaining -= 1;
         const error = new Error("Request failed with status code 409") as Error & {

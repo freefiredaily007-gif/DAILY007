@@ -5,6 +5,23 @@ import daily007V2Router from "../../src/routes/daily007-v2";
 
 const app = express();
 app.use(express.json());
+app.use((request, response, next) => {
+  if (
+    request.method === "PATCH"
+    && request.path === "/auth/me/password"
+    && request.get("x-test-drop-password-change-response") === "after-commit"
+  ) {
+    const sendJson = response.json.bind(response);
+    response.json = ((body: unknown) => {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        response.socket?.destroy();
+        return response;
+      }
+      return sendJson(body);
+    }) as typeof response.json;
+  }
+  next();
+});
 app.use(daily007V2Router);
 app.use(daily007CompatCoreRouter);
 app.use((
