@@ -60,6 +60,7 @@ const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
 const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-edit-save-only");
 const adminTournamentLeapDayEditSaveOnly = process.argv.includes("--admin-tournament-leap-day-edit-save-only");
+const adminTournamentSummerEditSaveOnly = process.argv.includes("--admin-tournament-summer-edit-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const sameTimeStartOnly = process.argv.includes("--same-time-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
@@ -9173,7 +9174,11 @@ async function checkAdminTournamentEditSaveAtLargeText() {
   const name = "Clash Night 8";
   await setTournamentFormValue('input[placeholder="Tournament name *"]', name);
   await assertVisibleAdminControlsFit(320, "selected tournament edit form");
-  const date = adminTournamentLeapDayEditSaveOnly ? "2032-02-29" : "2031-12-31";
+  const date = adminTournamentSummerEditSaveOnly
+    ? "2031-07-15"
+    : adminTournamentLeapDayEditSaveOnly
+      ? "2032-02-29"
+      : "2031-12-31";
   const time = "11:45 PM";
   const imageUrl = "https://example.invalid/clash-night-8.png";
   const rules = "Bring your own device.\nNo scripts or exploits.";
@@ -9318,12 +9323,15 @@ async function checkAdminTournamentEditSaveAtLargeText() {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         bodyText: document.body.innerText,
         hasStartsAt: window.__daily007IstDateSurfacePreview?.hasStartsAt,
+        startOffsetMinutes: new Date(${JSON.stringify(expectedStartsAt)}).getTimezoneOffset(),
       })`);
       assert(
         playerScreenState?.timezone === timezoneId &&
           playerScreenState?.hasStartsAt === true &&
           playerScreenState?.bodyText.includes(expectedDateLabel) &&
-          playerScreenState?.bodyText.includes(`${time} IST`),
+          playerScreenState?.bodyText.includes(`${time} IST`) &&
+          (timezoneId !== "America/Los_Angeles" || !adminTournamentSummerEditSaveOnly ||
+            playerScreenState?.startOffsetMinutes === 420),
         `${screen} must retain the saved IST date and time in ${timezoneId}: ${JSON.stringify(playerScreenState)}.`,
       );
     }
@@ -9935,6 +9943,7 @@ try {
     adminTournamentHomeRefreshOnly ||
     adminTournamentEditSaveOnly ||
     adminTournamentLeapDayEditSaveOnly ||
+    adminTournamentSummerEditSaveOnly ||
     adminActionsOnly ||
     adminFullAdminRecoveryOnly ||
     adminLandscapeOnly
@@ -10028,7 +10037,7 @@ try {
           ? "Admin Wallet and Users search fields"
         : adminSearchAccessibilityOnly
           ? "Admin Wallet and Users search announcements"
-        : adminTournamentEditSaveOnly || adminTournamentLeapDayEditSaveOnly
+         : adminTournamentEditSaveOnly || adminTournamentLeapDayEditSaveOnly || adminTournamentSummerEditSaveOnly
           ? "Admin tournament editing at 320px with 1.5× text"
         : adminTournamentCreateSaveOnly
           ? "Admin tournament creation at 320px with 1.5× text"
@@ -10229,14 +10238,20 @@ try {
         `Browser errors during large-text tournament creation checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Tournament creation at 320px/1.5× submits every entered setting and shows success.");
-    } else if (adminTournamentEditSaveOnly || adminTournamentLeapDayEditSaveOnly) {
+    } else if (
+      adminTournamentEditSaveOnly ||
+      adminTournamentLeapDayEditSaveOnly ||
+      adminTournamentSummerEditSaveOnly
+    ) {
       await checkAdminTournamentEditSaveAtLargeText();
       assert(
         browserErrors.length === 0,
         `Browser errors during large-text tournament edit checks: ${browserErrors.join(" | ")}`,
       );
       console.log(
-        adminTournamentLeapDayEditSaveOnly
+        adminTournamentSummerEditSaveOnly
+          ? "PASS — Admin saves a July 15, 2031 IST schedule in Pacific/Kiritimati; Los Angeles is confirmed on daylight time while Home, Tournament Details, and My Matches show the saved date/time."
+          : adminTournamentLeapDayEditSaveOnly
           ? "PASS — Admin saves the February 29, 2032 IST schedule in Pacific/Kiritimati, and Home, Tournament Details, and My Matches show the same date/time in Kiritimati and Los Angeles."
           : "PASS — Admin saves the edited IST schedule in Pacific/Kiritimati, and Home, Tournament Details, and My Matches show the same date/time in Kiritimati and Los Angeles.",
       );
