@@ -407,3 +407,156 @@ test("overlapping password checks keep separate retry rows and counters for two 
   assert.deepEqual(attemptsByUser.get(firstUserId), { failures: 1, in_flight: 0 });
   assert.deepEqual(attemptsByUser.get(secondUserId), { failures: 0, in_flight: 0 });
 });
+
+test("an older password check cannot settle into a newer retry window", async () => {
+  const userId = randomUUID();
+  const credentials = await hashPassword("password-change-window-race-current-password");
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Retry Window Race Player', $2, $3, $4)`,
+    [userId, `password-change-window-race-${userId}@example.test`, credentials.salt, credentials.hash],
+  );
+  const token = makeToken(userId, 0);
+  assert.ok(token);
+
+  const lockKey = BigInt(`0x${randomUUID().replaceAll("-", "").slice(0, 15)}`).toString();
+  await pool.query(
+    `CREATE FUNCTION daily007_test_arm_old_password_attempt_settlement() RETURNS trigger AS $function$
+     BEGIN
+       UPDATE daily007_test_password_change_attempt_control
+          SET armed = FALSE, pause_settlement = TRUE
+        WHERE singleton = TRUE AND armed = TRUE;
+       RETURN NULL;
+     END;
+     $function$ LANGUAGE plpgsql`,
+  );
+  await pool.query(
+    `CREATE TRIGGER daily007_test_arm_old_password_attempt_settlement
+       AFTER INSERT ON daily007_password_change_attempts
+       FOR EACH STATEMENT
+       EXECUTE FUNCTION daily007_test_arm_old_password_attempt_settlement()`,
+  );
+  await pool.query(
+    `CREATE FUNCTION daily007_test_pause_old_password_attempt_settlement() RETURNS trigger AS $function$
+     DECLARE should_pause boolean;
+     BEGIN
+       SELECT pause_settlement
+         INTO should_pause
+         FROM daily007_test_password_change_attempt_control
+        WHERE singleton = TRUE;
+       IF should_pause THEN
+         PERFORM pg_advisory_xact_lock(${lockKey}::bigint);
+       END IF;
+       RETURN NULL;
+     END;
+     $function$ LANGUAGE plpgsql`,
+  );
+  await pool.query(
+    `CREATE TRIGGER daily007_test_pause_old_password_attempt_settlement
+       BEFORE UPDATE ON daily007_password_change_attempts
+       FOR EACH STATEMENT
+       EXECUTE FUNCTION daily007_test_pause_old_password_attempt_settlement()`,
+  );
+
+  const blocker = await pool.connect();
+  const api = await startApiProcess();
+  let blockerPid: number | undefined;
+  let oldCheck: Promise<{ status: number; retryAfter: string | null }> | undefined;
+  let newCheck: Promise<{ status: number; retryAfter: string | null }> | undefined;
+  try {
+    await blocker.query("SELECT pg_advisory_lock($1::bigint)", [lockKey]);
+    const blockerResult = await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    blockerPid = blockerResult.rows[0]?.pid;
+    assert.ok(blockerPid);
+
+    await pool.query(
+      `UPDATE daily007_test_password_change_attempt_control
+          SET armed = TRUE, pause_settlement = FALSE
+        WHERE singleton = TRUE`,
+    );
+    oldCheck = passwordChange(api.origin, token);
+    await waitForBlockedPasswordAttemptSettlements(blockerPid, 1);
+
+    const oldWindow = await pool.query<{
+      window_id: string; failures: number; in_flight: number;
+    }>(
+      `SELECT window_id, failures, in_flight
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1`,
+      [userId],
+    );
+    assert.equal(oldWindow.rows.length, 1);
+    assert.deepEqual(
+      { failures: oldWindow.rows[0]?.failures, in_flight: oldWindow.rows[0]?.in_flight },
+      { failures: 0, in_flight: 1 },
+      "the older check must be held before its retry-window settlement",
+    );
+    const oldWindowId = oldWindow.rows[0]?.window_id;
+    assert.ok(oldWindowId);
+
+    // The old route query is paused in a statement trigger, before it takes a
+    // row lock, so the test can expire the old window and admit a fresh check.
+    await pool.query(
+      `UPDATE daily007_test_password_change_attempt_control
+          SET pause_settlement = FALSE
+        WHERE singleton = TRUE`,
+    );
+    await pool.query(
+      "UPDATE daily007_password_change_attempts SET expires_at = now() - interval '1 second' WHERE user_id = $1",
+      [userId],
+    );
+
+    newCheck = passwordChange(api.origin, token);
+    const newResult = await newCheck;
+    assert.equal(newResult.status, 401, "the new check should run in the fresh retry window");
+    await waitForSettledPasswordAttempts([userId]);
+    const newWindow = await pool.query<{
+      window_id: string; failures: number; in_flight: number;
+    }>(
+      `SELECT window_id, failures, in_flight
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1`,
+      [userId],
+    );
+    assert.equal(newWindow.rows.length, 1);
+    assert.notEqual(newWindow.rows[0]?.window_id, oldWindowId, "expiry should create a distinct window");
+    assert.deepEqual(
+      { failures: newWindow.rows[0]?.failures, in_flight: newWindow.rows[0]?.in_flight },
+      { failures: 1, in_flight: 0 },
+      "the new check should settle only its own failure in the fresh window",
+    );
+
+    await blocker.query("SELECT pg_advisory_unlock($1::bigint)", [lockKey]);
+    const oldResult = await oldCheck;
+    assert.equal(oldResult.status, 401, "the older incorrect-password check should finish normally");
+    const finalWindow = await pool.query<{
+      window_id: string; failures: number; in_flight: number;
+    }>(
+      `SELECT window_id, failures, in_flight
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1`,
+      [userId],
+    );
+    assert.deepEqual(
+      finalWindow.rows[0],
+      newWindow.rows[0],
+      "the older completion must not change the newer window's identity or counters",
+    );
+  } finally {
+    await pool.query(
+      `UPDATE daily007_test_password_change_attempt_control
+          SET armed = FALSE, pause_settlement = FALSE
+        WHERE singleton = TRUE`,
+    );
+    await blocker.query("SELECT pg_advisory_unlock($1::bigint)", [lockKey]);
+    await Promise.allSettled([oldCheck, newCheck].filter(
+      (promise): promise is Promise<{ status: number; retryAfter: string | null }> => Boolean(promise),
+    ));
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_pause_old_password_attempt_settlement ON daily007_password_change_attempts");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_pause_old_password_attempt_settlement()");
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_arm_old_password_attempt_settlement ON daily007_password_change_attempts");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_arm_old_password_attempt_settlement()");
+    blocker.release();
+  }
+});

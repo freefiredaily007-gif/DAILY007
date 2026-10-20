@@ -23,3 +23,12 @@ CREATE TABLE daily007_password_change_attempts (
   expires_at timestamptz NOT NULL,
   CHECK (failures + in_flight <= 5)
 );
+
+CREATE TABLE daily007_test_password_change_attempt_control (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  armed boolean NOT NULL DEFAULT false,
+  pause_settlement boolean NOT NULL DEFAULT false
+);
+
+INSERT INTO daily007_test_password_change_attempt_control (singleton)
+VALUES (true);
