@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { PixelRatio, RefreshControl, View } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import {
@@ -21,6 +21,7 @@ import {
   useToast,
 } from '../components/adminKit';
 import { apiError } from '../lib/api';
+import { startVideoToggleRequest } from '../lib/adminVideoToggle';
 
 type ManagedVideo = {
   id: string;
@@ -50,8 +51,10 @@ export default function AdminVideos() {
   const [editUrl, setEditUrl] = useState('');
   const [pendingDelete, setPendingDelete] = useState<ManagedVideo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const pendingToggleVideoIdRef = useRef<string | null>(null);
+  const [pendingToggleVideoId, setPendingToggleVideoId] = useState<string | null>(null);
   const videos: ManagedVideo[] = (videosQuery.data?.videos ?? []) as ManagedVideo[];
-  const mutationsBusy = isCreating || isToggling || isSavingEdit || isDeleting;
+  const mutationsBusy = isCreating || isToggling || isSavingEdit || isDeleting || pendingToggleVideoId !== null;
   const enlargedText = PixelRatio.getFontScale() >= 1.3;
 
   const refreshVideos = async () => {
@@ -86,13 +89,24 @@ export default function AdminVideos() {
   };
 
   const toggleVideo = async (video: ManagedVideo) => {
-    setError('');
+    const request = startVideoToggleRequest(
+      video.id,
+      pendingToggleVideoIdRef,
+      setPendingToggleVideoId,
+      async () => {
+        setError('');
+        await setVideoActive({ id: video.id, data: { active: !video.active } });
+        toast(video.active ? 'Video hidden from players.' : 'Video is now available to players.', 'success');
+        await videosQuery.refetch();
+      },
+    );
+    if (!request) return;
+
     try {
-      await setVideoActive({ id: video.id, data: { active: !video.active } });
-      toast(video.active ? 'Video hidden from players.' : 'Video is now available to players.', 'success');
-      await videosQuery.refetch();
+      await request;
     } catch (cause) {
-      setError(apiError(cause));
+      const action = video.active ? 'hide' : 'activate';
+      setError(`Could not ${action} "${video.title}": ${apiError(cause)}`);
     }
   };
 
@@ -286,6 +300,15 @@ export default function AdminVideos() {
           ) : (
             <View style={styles.videoFooter}>
               <Text style={styles.videoReward}>1 coin per completed view · repeat views count</Text>
+              {pendingToggleVideoId === video.id ? (
+                <Text
+                  testID={`admin-video-toggle-pending-${video.id}`}
+                  accessibilityLiveRegion="polite"
+                  style={styles.togglePending}
+                >
+                  {video.active ? 'Hide request in progress. Please wait.' : 'Activation request in progress. Please wait.'}
+                </Text>
+              ) : null}
               <View style={[styles.videoActions, enlargedText && styles.videoActionsEnlarged]}>
                 <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
                   <Btn
@@ -303,7 +326,17 @@ export default function AdminVideos() {
                     kind={video.active ? 'ghost' : 'green'}
                     small
                     onPress={() => { void toggleVideo(video); }}
+                    loading={pendingToggleVideoId === video.id}
                     disabled={mutationsBusy}
+                    accessibilityLabel={
+                      pendingToggleVideoId === video.id
+                        ? `${video.active ? 'Hiding' : 'Activating'} ${video.title}. Request in progress.`
+                        : undefined
+                    }
+                    accessibilityState={{
+                      busy: pendingToggleVideoId === video.id,
+                      disabled: mutationsBusy,
+                    }}
                     testID={`admin-video-toggle-${video.id}`}
                   />
                 </View>
@@ -362,6 +395,7 @@ const styles = {
     paddingTop: 10,
   },
   videoReward: { color: A.sub, fontSize: 10, flex: 1 },
+  togglePending: { color: A.gold, fontSize: 11, fontWeight: '700' as const, lineHeight: 16 },
   videoActions: { flexDirection: 'row' as const, gap: 8 },
   videoActionsEnlarged: { flexWrap: 'wrap' as const },
   actionItem: { flex: 1 },

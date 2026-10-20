@@ -47,6 +47,7 @@
     "test:admin-tournaments-large-text": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/admin-tournaments-large-text.test.mjs",
     "test:admin-coin-adjustment-concurrency": "node --test scripts/admin-coin-adjustment-concurrency.test.mjs",
     "test:admin-payment-actions-concurrency": "node --test scripts/admin-payment-actions-concurrency.test.mjs",
+    "test:admin-video-hide-pending": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/admin-video-hide-pending.test.mjs",
     "test:admin-registration-csv": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-registration-csv.test.mjs",
     "test:admin-action-failure-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-action-failure-accessibility.test.mjs",
     "test:admin-financial-action-guard": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-financial-action-guard.test.mjs",
