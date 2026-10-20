@@ -1098,3 +1098,134 @@ test("a later prior refund rolls back earlier PostgreSQL cancellation writes", a
     await cleanupFixture(fixture);
   }
 });
+
+test("the Admin cancellation endpoint clearly reports when the automatic sweep wins", async () => {
+  const fixture = await createFixture();
+  const matchId = fixture.matchIds[0];
+  const adminId = fixture.payerIds[2];
+  const pauseKey = 740086n;
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let pauseLockHeld = false;
+  let automaticSweep: Promise<void> | undefined;
+  let adminResponse: Promise<Response> | undefined;
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_matches SET capacity = 1 WHERE id = $1",
+      [fixture.matchIds[1]],
+    );
+    await pool.query(
+      "UPDATE daily007_v2_users SET role = 'tournament_admin' WHERE id = $1",
+      [adminId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, '{}'::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+    );
+
+    const token = makeToken(adminId, 0);
+    assert.ok(token, "The isolated test should create a valid tournament-admin token.");
+
+    await pool.query(`
+      CREATE FUNCTION daily007_test_pause_auto_cancel_for_admin_race() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.match_id = '${matchId}'::uuid THEN
+          PERFORM pg_advisory_xact_lock(${pauseKey}::bigint);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await pool.query(`
+      CREATE TRIGGER daily007_test_pause_auto_cancel_for_admin_race
+      BEFORE INSERT ON daily007_v2_wallet_ledger
+      FOR EACH ROW EXECUTE FUNCTION daily007_test_pause_auto_cancel_for_admin_race()
+    `);
+
+    blocker = await pool.connect();
+    await blocker.query(`SELECT pg_advisory_lock(${pauseKey}::bigint)`);
+    pauseLockHeld = true;
+
+    await withCompatServer(async (origin) => {
+      automaticSweep = runDaily007AutoCancellationSweep();
+      const automaticPid = await waitForPausedRefundWrite();
+      adminResponse = fetch(`${origin}/admin/tournaments/${matchId}/lifecycle`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      await waitForBlockedCancellation(automaticPid);
+
+      await blocker!.query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`);
+      pauseLockHeld = false;
+
+      await automaticSweep;
+      const response = await adminResponse;
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), {
+        error: "Tournament is already cancelled.",
+      });
+    });
+
+    const match = await pool.query<{ status: string; enabled: boolean }>(
+      "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(match.rows, [{ status: "cancelled", enabled: false }]);
+
+    const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 125],
+        [fixture.payerIds[1], 240],
+        [fixture.payerIds[2], 300],
+      ]),
+    );
+
+    const refunds = await pool.query<{
+      registration_id: string;
+      amount: number;
+      count: number;
+    }>(
+      `SELECT registration_id, amount, count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'
+        GROUP BY registration_id, amount
+        ORDER BY registration_id`,
+      [matchId],
+    );
+    assert.deepEqual(
+      refunds.rows,
+      [
+        { registration_id: fixture.registrationIds[0], amount: 25, count: 1 },
+        { registration_id: fixture.registrationIds[1], amount: 40, count: 1 },
+      ].sort((left, right) => left.registration_id.localeCompare(right.registration_id)),
+    );
+  } finally {
+    if (blocker && pauseLockHeld) {
+      await blocker
+        .query(`SELECT pg_advisory_unlock(${pauseKey}::bigint)`)
+        .catch(() => undefined);
+    }
+    blocker?.release();
+    const pendingOperations: Promise<unknown>[] = [];
+    if (automaticSweep) pendingOperations.push(automaticSweep);
+    if (adminResponse) pendingOperations.push(adminResponse);
+    await Promise.allSettled(pendingOperations);
+    await pool.query(
+      "DROP TRIGGER IF EXISTS daily007_test_pause_auto_cancel_for_admin_race ON daily007_v2_wallet_ledger",
+    );
+    await pool.query(
+      "DROP FUNCTION IF EXISTS daily007_test_pause_auto_cancel_for_admin_race()",
+    );
+    await cleanupFixture(fixture);
+  }
+});
