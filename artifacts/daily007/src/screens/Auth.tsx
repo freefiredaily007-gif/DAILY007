@@ -686,7 +686,6 @@ export default function Auth({
               loading={busy}
               preserveAccessibilityFocusWhileLoading={true}
               scaleOnPress
-              staticStyle={!isSignup}
               textColor={AUTH.text}
               style={isSignup ? s.submitButton : s.loginSubmitButton}
               textStyle={isSignup ? s.submitText : s.loginSubmitText}

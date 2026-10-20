@@ -695,7 +695,6 @@ export default function AdminTournaments() {
           accessibilityLabel={showForm ? 'Close tournament creation form' : 'Add a new tournament'}
           accessibilityHint={showForm ? 'Close the form without saving.' : 'Open the form to enter tournament details.'}
           testID="admin-tournament-create-toggle"
-          staticStyle
           style={{ alignSelf: 'stretch', marginTop: 10, marginBottom: 12 }}
           onPress={() => {
             actionRequestId.current++;

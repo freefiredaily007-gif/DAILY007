@@ -95,7 +95,6 @@ export function Btn({
   textColor,
   textStyle,
   scaleOnPress = false,
-  staticStyle = false,
 }: {
   title: string; onPress?: () => void; disabled?: boolean;
   kind?: 'primary' | 'ghost' | 'danger' | 'purple' | 'gold'; small?: boolean; loading?: boolean;
@@ -108,11 +107,10 @@ export function Btn({
   textColor?: string;
   textStyle?: any;
   scaleOnPress?: boolean;
-  staticStyle?: boolean;
 }) {
   const adminSurface = useAdminSurface();
   const pressScale = useRef(new Animated.Value(1)).current;
-  const [staticStylePressed, setStaticStylePressed] = useState(false);
+  const [pressed, setPressed] = useState(false);
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
     primary: { bg: C.neon, fg: C.bg, glowColor: C.neon },
     danger: { bg: '#5a1622', fg: '#ff9aa5', border: '#ff5c5c55' },
@@ -121,17 +119,18 @@ export function Btn({
     ghost: { bg: 'transparent', fg: C.sub, border: C.border },
   };
   const k = map[kind] || map.primary;
+  // The RN Web Animated wrapper drops Pressable style callbacks, so keep styles concrete.
   return (
     <AnimatedPressable
       onPress={onPress}
       onPressIn={() => {
-        if (staticStyle) setStaticStylePressed(true);
+        setPressed(true);
         if (scaleOnPress) {
           Animated.spring(pressScale, { toValue: 0.975, useNativeDriver: true, speed: 36, bounciness: 5 }).start();
         }
       }}
       onPressOut={() => {
-        if (staticStyle) setStaticStylePressed(false);
+        setPressed(false);
         if (scaleOnPress) {
           Animated.spring(pressScale, { toValue: 1, useNativeDriver: true, speed: 36, bounciness: 5 }).start();
         }
@@ -142,16 +141,7 @@ export function Btn({
       accessibilityHint={accessibilityHint}
       accessibilityState={accessibilityState}
       testID={testID}
-      style={staticStyle ? [
-        st.btn,
-        adminSurface && adminSt.btn,
-        { backgroundColor: k.bg, opacity: disabled ? 0.4 : staticStylePressed ? 0.8 : 1 },
-        k.border && { borderWidth: 1, borderColor: k.border },
-        k.glowColor && !disabled && glow(k.glowColor, 8),
-        scaleOnPress && { transform: [{ scale: pressScale }] },
-        small && { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8 },
-        style,
-      ] : ({ pressed }) => [
+      style={[
         st.btn,
         adminSurface && adminSt.btn,
         { backgroundColor: k.bg, opacity: disabled ? 0.4 : pressed ? 0.8 : 1 },
