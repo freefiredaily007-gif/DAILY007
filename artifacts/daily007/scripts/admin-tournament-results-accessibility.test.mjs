@@ -630,3 +630,24 @@ test('completed tournaments include a read-only duplicate-placement audit with r
   assert.match(auditPanel, /award\.createdAt/);
   assert.match(auditPanel, /correctionGuidance/);
 });
+
+test('completed Admin results show read-only prize-credit reconciliation and every candidate classification', () => {
+  assert.match(screenSource, /useDaily007ListAdminPrizeCreditAudit/);
+  assert.match(screenSource, /getDaily007ListAdminPrizeCreditAuditQueryKey/);
+  assert.match(screenSource, /enabled: tab === 'completed'/);
+  assert.match(screenSource, /\{tab === 'completed' && \(\s*<Card testID="admin-prize-credit-audit"/);
+  assert.match(screenSource, /READ-ONLY · Candidates match the player, exact prize amount, and exact transaction timestamp/);
+  assert.match(screenSource, /admin-prize-credit-audit-loading/);
+  assert.match(screenSource, /admin-prize-credit-audit-retry/);
+  assert.match(screenSource, /prizeCreditAuditQuery\.refetch\(\)/);
+  assert.match(screenSource, /admin-prize-credit-audit-empty/);
+  assert.match(screenSource, /entry\.referenceIssues/);
+  assert.match(screenSource, /entry\.referencedResult/);
+  assert.match(screenSource, /candidateStatus === 'unique'/);
+  assert.match(screenSource, /candidateStatus === 'ambiguous'/);
+  assert.match(screenSource, /'UNMATCHED'/);
+  assert.match(screenSource, /entry\.candidates\.map/);
+  assert.match(screenSource, /candidate\.registrationId/);
+  assert.match(screenSource, /candidate\.prizeCoins/);
+  assert.match(screenSource, /candidate\.createdAt/);
+});

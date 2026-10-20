@@ -577,6 +577,15 @@ export function useDaily007ListAdminDuplicatePlacements() {
   });
 }
 
+export const getDaily007ListAdminPrizeCreditAuditQueryKey = () => [
+  "isolated-admin-preview",
+  "prize-credit-audit",
+];
+
+export function useDaily007ListAdminPrizeCreditAudit() {
+  return noQuery({ success: true, data: [] });
+}
+
 export function useDaily007ListAdminResultLogs() {
   const scale = Number(
     (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })

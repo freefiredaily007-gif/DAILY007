@@ -1907,6 +1907,62 @@ export const Daily007ListAdminDuplicatePlacementsResponse = zod.object({
 
 
 /**
+ * Read-only report of match-prize ledger rows with missing or inconsistent result references. Candidate awards require the same player, exact prize amount, and transaction timestamp.
+ * @summary Audit match prize credits against saved tournament results
+ */
+export const daily007ListAdminPrizeCreditAuditResponseDataItemCandidateCountMin = 0;
+
+
+export const daily007ListAdminPrizeCreditAuditResponseDataItemCandidatesItemPrizeCoinsMin = 0;
+
+
+export const daily007ListAdminPrizeCreditAuditResponseDataItemReferencedResultOnePrizeCoinsMin = 0;
+
+
+
+export const Daily007ListAdminPrizeCreditAuditResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "ledgerId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "amount": zod.number().int(),
+  "balanceAfter": zod.number().int(),
+  "createdAt": zod.coerce.date(),
+  "matchId": zod.string().uuid().nullable(),
+  "registrationId": zod.string().uuid().nullable(),
+  "referenceIssues": zod.array(zod.enum(['missing_match_reference', 'missing_registration_reference', 'registration_belongs_to_different_match', 'no_saved_award_for_registration', 'award_match_mismatch', 'player_mismatch', 'prize_amount_mismatch', 'transaction_timestamp_mismatch'])),
+  "candidateStatus": zod.enum(['unique', 'ambiguous', 'unmatched']),
+  "candidateCount": zod.number().int().min(daily007ListAdminPrizeCreditAuditResponseDataItemCandidateCountMin),
+  "candidates": zod.array(zod.object({
+  "awardId": zod.string().uuid(),
+  "matchId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "registrationId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "gameName": zod.string(),
+  "teamName": zod.string().nullable(),
+  "rank": zod.number().int().min(1),
+  "prizeCoins": zod.number().int().min(daily007ListAdminPrizeCreditAuditResponseDataItemCandidatesItemPrizeCoinsMin),
+  "createdAt": zod.coerce.date()
+})),
+  "referencedResult": zod.union([zod.object({
+  "awardId": zod.string().uuid(),
+  "matchId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "registrationId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "gameName": zod.string(),
+  "teamName": zod.string().nullable(),
+  "rank": zod.number().int().min(1),
+  "prizeCoins": zod.number().int().min(daily007ListAdminPrizeCreditAuditResponseDataItemReferencedResultOnePrizeCoinsMin),
+  "createdAt": zod.coerce.date()
+}),zod.null()])
+}))
+})
+
+
+/**
  * @summary Finalize saved results and distribute each reward exactly once
  */
 export const ConfirmTournamentResultsParams = zod.object({

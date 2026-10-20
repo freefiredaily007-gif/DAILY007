@@ -139,6 +139,69 @@ export interface AdminDuplicatePlacementsResponse {
   correctionGuidance: string;
 }
 
+export interface AdminPrizeCreditAuditAward {
+  awardId: string;
+  matchId: string;
+  tournamentName: string;
+  registrationId: string;
+  playerName: string;
+  gameName: string;
+  /** @nullable */
+  teamName: string | null;
+  /** @minimum 1 */
+  rank: number;
+  /** @minimum 0 */
+  prizeCoins: number;
+  createdAt: string;
+}
+
+export type AdminPrizeCreditAuditEntryReferenceIssuesItem = typeof AdminPrizeCreditAuditEntryReferenceIssuesItem[keyof typeof AdminPrizeCreditAuditEntryReferenceIssuesItem];
+
+
+export const AdminPrizeCreditAuditEntryReferenceIssuesItem = {
+  missing_match_reference: 'missing_match_reference',
+  missing_registration_reference: 'missing_registration_reference',
+  registration_belongs_to_different_match: 'registration_belongs_to_different_match',
+  no_saved_award_for_registration: 'no_saved_award_for_registration',
+  award_match_mismatch: 'award_match_mismatch',
+  player_mismatch: 'player_mismatch',
+  prize_amount_mismatch: 'prize_amount_mismatch',
+  transaction_timestamp_mismatch: 'transaction_timestamp_mismatch',
+} as const;
+
+export type AdminPrizeCreditAuditEntryCandidateStatus = typeof AdminPrizeCreditAuditEntryCandidateStatus[keyof typeof AdminPrizeCreditAuditEntryCandidateStatus];
+
+
+export const AdminPrizeCreditAuditEntryCandidateStatus = {
+  unique: 'unique',
+  ambiguous: 'ambiguous',
+  unmatched: 'unmatched',
+} as const;
+
+export interface AdminPrizeCreditAuditEntry {
+  ledgerId: string;
+  userId: string;
+  playerName: string;
+  amount: number;
+  balanceAfter: number;
+  createdAt: string;
+  /** @nullable */
+  matchId: string | null;
+  /** @nullable */
+  registrationId: string | null;
+  referenceIssues: AdminPrizeCreditAuditEntryReferenceIssuesItem[];
+  candidateStatus: AdminPrizeCreditAuditEntryCandidateStatus;
+  /** @minimum 0 */
+  candidateCount: number;
+  candidates: AdminPrizeCreditAuditAward[];
+  referencedResult: AdminPrizeCreditAuditAward | null;
+}
+
+export interface AdminPrizeCreditAuditResponse {
+  success: boolean;
+  data: AdminPrizeCreditAuditEntry[];
+}
+
 export type TournamentSlotStatus = typeof TournamentSlotStatus[keyof typeof TournamentSlotStatus];
 
 

@@ -1182,6 +1182,19 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AdminDuplicatePlacementsResponse" }
         "403": { description: Tournament administrator required }
+  /admin/results/prize-credit-audit:
+    get:
+      operationId: daily007ListAdminPrizeCreditAudit
+      summary: Audit match prize credits against saved tournament results
+      description: Read-only report of match-prize ledger rows with missing or inconsistent result references. Candidate awards require the same player, exact prize amount, and transaction timestamp.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Prize-credit reference audit with candidate classifications
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPrizeCreditAuditResponse" }
+        "403": { description: Tournament administrator required }
   /admin/tournaments/{id}/confirm-results:
     post:
       operationId: confirmTournamentResults
@@ -1299,6 +1312,62 @@ components:
           items: { $ref: "#/components/schemas/AdminDuplicatePlacement" }
         correctionGuidance: { type: string }
       required: [success, data, correctionGuidance]
+    AdminPrizeCreditAuditAward:
+      type: object
+      properties:
+        awardId: { type: string, format: uuid }
+        matchId: { type: string, format: uuid }
+        tournamentName: { type: string }
+        registrationId: { type: string, format: uuid }
+        playerName: { type: string }
+        gameName: { type: string }
+        teamName: { type: ["string", "null"] }
+        rank: { type: integer, minimum: 1 }
+        prizeCoins: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+      required: [awardId, matchId, tournamentName, registrationId, playerName, gameName, teamName, rank, prizeCoins, createdAt]
+    AdminPrizeCreditAuditEntry:
+      type: object
+      properties:
+        ledgerId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        playerName: { type: string }
+        amount: { type: integer }
+        balanceAfter: { type: integer }
+        createdAt: { type: string, format: date-time }
+        matchId: { type: ["string", "null"], format: uuid }
+        registrationId: { type: ["string", "null"], format: uuid }
+        referenceIssues:
+          type: array
+          items:
+            type: string
+            enum:
+              - missing_match_reference
+              - missing_registration_reference
+              - registration_belongs_to_different_match
+              - no_saved_award_for_registration
+              - award_match_mismatch
+              - player_mismatch
+              - prize_amount_mismatch
+              - transaction_timestamp_mismatch
+        candidateStatus: { type: string, enum: [unique, ambiguous, unmatched] }
+        candidateCount: { type: integer, minimum: 0 }
+        candidates:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPrizeCreditAuditAward" }
+        referencedResult:
+          oneOf:
+            - { $ref: "#/components/schemas/AdminPrizeCreditAuditAward" }
+            - { type: "null" }
+      required: [ledgerId, userId, playerName, amount, balanceAfter, createdAt, matchId, registrationId, referenceIssues, candidateStatus, candidateCount, candidates, referencedResult]
+    AdminPrizeCreditAuditResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPrizeCreditAuditEntry" }
+      required: [success, data]
     TournamentSlot:
       type: object
       properties:

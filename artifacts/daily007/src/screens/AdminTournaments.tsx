@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
+  getDaily007ListAdminPrizeCreditAuditQueryKey,
   getDaily007ListAdminDuplicatePlacementsQueryKey,
   getDaily007ListAdminResultLogsQueryKey,
+  useDaily007ListAdminPrizeCreditAudit,
   useDaily007ListAdminDuplicatePlacements,
   useDaily007ListAdminResultLogs,
   useUpdateTournamentLifecycle,
@@ -157,6 +159,13 @@ export default function AdminTournaments() {
     },
   });
   const duplicatePlacements = duplicatePlacementQuery.data?.data ?? [];
+  const prizeCreditAuditQuery = useDaily007ListAdminPrizeCreditAudit({
+    query: {
+      enabled: tab === 'completed',
+      queryKey: getDaily007ListAdminPrizeCreditAuditQueryKey(),
+    },
+  });
+  const prizeCreditAuditEntries = prizeCreditAuditQuery.data?.data ?? [];
   const resultLogs = resultLogsQuery.data?.data ?? [];
   const visibleTournaments = (list ?? []).filter(
     (tournament) => getTournamentLifecycleState(tournament, clockNow) === tab,
@@ -887,6 +896,129 @@ export default function AdminTournaments() {
           )}
         </Card>
       )}
+      {tab === 'completed' && (
+        <Card testID="admin-prize-credit-audit" style={st.prizeCreditAudit}>
+          <Text style={st.resultTitle}>PRIZE CREDIT RECONCILIATION</Text>
+          <Text
+            testID="admin-prize-credit-audit-read-only"
+            accessibilityRole="text"
+            style={st.auditReadOnly}
+          >
+            READ-ONLY · Candidates match the player, exact prize amount, and exact transaction timestamp. Nothing is changed.
+          </Text>
+          {prizeCreditAuditQuery.isLoading ? (
+            <Text
+              testID="admin-prize-credit-audit-loading"
+              accessibilityLiveRegion="polite"
+              style={st.resultLine}
+            >
+              Loading prize-credit report…
+            </Text>
+          ) : prizeCreditAuditQuery.isError ? (
+            <View style={{ marginTop: 8 }}>
+              <Msg
+                kind="err"
+                text={`Prize-credit report is unavailable: ${apiError(prizeCreditAuditQuery.error)}`}
+                accessibilityLiveRegion="polite"
+                testID="admin-prize-credit-audit-error"
+              />
+              <Btn
+                title="RETRY CREDIT AUDIT"
+                small
+                kind="ghost"
+                loading={prizeCreditAuditQuery.isFetching}
+                disabled={prizeCreditAuditQuery.isFetching}
+                accessibilityLabel="Retry prize-credit report"
+                accessibilityHint="Load the read-only reconciliation report again."
+                accessibilityState={{
+                  disabled: prizeCreditAuditQuery.isFetching,
+                  busy: prizeCreditAuditQuery.isFetching,
+                }}
+                testID="admin-prize-credit-audit-retry"
+                onPress={() => { void prizeCreditAuditQuery.refetch(); }}
+                style={{ marginTop: 6 }}
+              />
+            </View>
+          ) : prizeCreditAuditEntries.length === 0 ? (
+            <Text
+              testID="admin-prize-credit-audit-empty"
+              accessibilityLiveRegion="polite"
+              style={st.resultLine}
+            >
+              No prize credits with missing or inconsistent result references were found.
+            </Text>
+          ) : (
+            prizeCreditAuditEntries.map((entry) => {
+              const candidateStatusLabel = entry.candidateStatus === 'unique'
+                ? 'UNIQUE CANDIDATE'
+                : entry.candidateStatus === 'ambiguous'
+                  ? `AMBIGUOUS · ${entry.candidateCount} CANDIDATES`
+                  : 'UNMATCHED';
+              const issuesLabel = entry.referenceIssues
+                .map((issue) => issue.replace(/_/g, ' '))
+                .join(' · ')
+                .toUpperCase();
+              return (
+                <View
+                  key={entry.ledgerId}
+                  testID={`admin-prize-credit-audit-entry-${entry.ledgerId}`}
+                  style={st.prizeCreditEntry}
+                >
+                  <Text style={st.duplicatePlayer}>{entry.playerName}</Text>
+                  <Text style={st.resultLine}>Player account · {entry.userId}</Text>
+                  <Text style={st.duplicateSummary}>
+                    CREDIT · {entry.amount.toLocaleString()} COINS · BALANCE AFTER · {entry.balanceAfter.toLocaleString()}
+                  </Text>
+                  <Text style={st.resultLine}>Ledger entry · {entry.ledgerId}</Text>
+                  <Text style={st.resultLine}>Recorded · {formatAuditTimestamp(entry.createdAt)}</Text>
+                  <Text style={st.resultLine}>
+                    Stored match · {entry.matchId || 'MISSING'} · stored registration · {entry.registrationId || 'MISSING'}
+                  </Text>
+                  <Text style={st.auditIssue}>REFERENCE ISSUES · {issuesLabel}</Text>
+                  {entry.referencedResult ? (
+                    <View style={st.prizeCreditResult}>
+                      <Text style={st.resultTitle}>RESULT AT STORED REGISTRATION</Text>
+                      <Text style={st.duplicateTournamentName}>{entry.referencedResult.tournamentName}</Text>
+                      <Text style={st.resultLine}>
+                        Match · {entry.referencedResult.matchId} · registration · {entry.referencedResult.registrationId}
+                      </Text>
+                      <Text style={st.resultLine}>
+                        Rank {entry.referencedResult.rank} · prize {entry.referencedResult.prizeCoins.toLocaleString()} coins · saved {formatAuditTimestamp(entry.referencedResult.createdAt)}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={st.resultLine}>No saved result award was found at the stored registration reference.</Text>
+                  )}
+                  <Text style={st.auditCandidateStatus}>{candidateStatusLabel}</Text>
+                  {entry.candidates.length === 0 ? (
+                    <Text style={st.resultLine}>No saved award matches this player, amount, and timestamp.</Text>
+                  ) : (
+                    entry.candidates.map((candidate) => (
+                      <View
+                        key={candidate.awardId}
+                        testID={`admin-prize-credit-candidate-${entry.ledgerId}-${candidate.awardId}`}
+                        style={st.prizeCreditResult}
+                      >
+                        <Text style={st.duplicateTournamentName}>{candidate.tournamentName}</Text>
+                        <Text style={st.resultLine}>
+                          {candidate.playerName} · {candidate.gameName || 'Game name unavailable'}
+                          {candidate.teamName ? ` · ${candidate.teamName}` : ''}
+                        </Text>
+                        <Text style={st.resultLine}>
+                          Match · {candidate.matchId} · registration · {candidate.registrationId}
+                        </Text>
+                        <Text style={st.resultLine}>
+                          Rank {candidate.rank} · prize {candidate.prizeCoins.toLocaleString()} coins · saved {formatAuditTimestamp(candidate.createdAt)}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              );
+            })
+          )}
+        </Card>
+      )}
 
       {showForm && (
         <Card testID="admin-tournament-create-form" style={{ marginBottom: 14 }}>
@@ -1393,6 +1525,32 @@ const st = StyleSheet.create({
     backgroundColor: C.bg2,
   },
   duplicatePlayer: { color: C.text, fontSize: 12, fontWeight: '800', flexShrink: 1 },
+  prizeCreditAudit: {
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: C.bg2,
+    borderWidth: 1,
+    borderColor: C.purple,
+    borderRadius: 10,
+  },
+  prizeCreditEntry: {
+    marginTop: 9,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+  },
+  prizeCreditResult: {
+    marginTop: 7,
+    padding: 8,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bg2,
+  },
+  auditIssue: { color: C.orange, fontSize: 10, fontWeight: '800', lineHeight: 15, marginTop: 4 },
+  auditCandidateStatus: { color: C.gold, fontSize: 10, fontWeight: '900', letterSpacing: 0.4, marginTop: 8 },
   actionPanel: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
   actionTitle: { color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 0.8, marginBottom: 8 },
   actionStatus: { color: C.neon, fontSize: 10, fontWeight: '800', marginBottom: 6 },

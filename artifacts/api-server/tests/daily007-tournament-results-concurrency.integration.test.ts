@@ -2140,6 +2140,325 @@ test("duplicate-placement audit reports complete historical groups without chang
   }
 });
 
+test("prize-credit audit separates unique, ambiguous, and unmatched candidates without changing settlement data", async () => {
+  const fixture = await createFixture(6);
+  const secondaryMatchId = randomUUID();
+  const secondaryRegistrationId = randomUUID();
+  const awardIds = Array.from({ length: 6 }, () => randomUUID());
+  const ledgerIds = Array.from({ length: 6 }, () => randomUUID());
+  const transactionTime = new Date().toISOString();
+  const timestampMismatch = new Date(Date.parse(transactionTime) + 1000).toISOString();
+
+  const awards = [
+    {
+      id: awardIds[0]!,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[0].registrationId,
+      userId: fixture.players[0].userId,
+      rank: 1,
+      prizeCoins: 500,
+      createdAt: transactionTime,
+    },
+    {
+      id: awardIds[1]!,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[1].registrationId,
+      userId: fixture.players[1].userId,
+      rank: 1,
+      prizeCoins: 250,
+      createdAt: transactionTime,
+    },
+    {
+      id: awardIds[2]!,
+      matchId: secondaryMatchId,
+      registrationId: secondaryRegistrationId,
+      userId: fixture.players[1].userId,
+      rank: 1,
+      prizeCoins: 250,
+      createdAt: transactionTime,
+    },
+    {
+      id: awardIds[3]!,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[3].registrationId,
+      userId: fixture.players[3].userId,
+      rank: 2,
+      prizeCoins: 300,
+      createdAt: transactionTime,
+    },
+    {
+      id: awardIds[4]!,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[4].registrationId,
+      userId: fixture.players[4].userId,
+      rank: 1,
+      prizeCoins: 100,
+      createdAt: transactionTime,
+    },
+    {
+      id: awardIds[5]!,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[5].registrationId,
+      userId: fixture.players[5].userId,
+      rank: 1,
+      prizeCoins: 100,
+      createdAt: transactionTime,
+    },
+  ];
+  const ledgerRows = [
+    {
+      id: ledgerIds[0]!,
+      player: fixture.players[0],
+      amount: 500,
+      matchId: null,
+      registrationId: null,
+      createdAt: transactionTime,
+    },
+    {
+      id: ledgerIds[1]!,
+      player: fixture.players[1],
+      amount: 250,
+      matchId: null,
+      registrationId: null,
+      createdAt: transactionTime,
+    },
+    {
+      id: ledgerIds[2]!,
+      player: fixture.players[2],
+      amount: 123,
+      matchId: null,
+      registrationId: null,
+      createdAt: transactionTime,
+    },
+    {
+      id: ledgerIds[3]!,
+      player: fixture.players[3],
+      amount: 400,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[3].registrationId,
+      createdAt: transactionTime,
+    },
+    {
+      id: ledgerIds[4]!,
+      player: fixture.players[4],
+      amount: 100,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[4].registrationId,
+      createdAt: transactionTime,
+    },
+    {
+      id: ledgerIds[5]!,
+      player: fixture.players[5],
+      amount: 100,
+      matchId: fixture.matchId,
+      registrationId: fixture.players[5].registrationId,
+      createdAt: timestampMismatch,
+    },
+  ];
+
+  const captureState = async () => {
+    const playerIds = fixture.players.map((player) => player.userId);
+    const matchIds = [fixture.matchId, secondaryMatchId];
+    const [ledger, savedAwards, users, matches] = await Promise.all([
+      pool.query(
+        `SELECT id, user_id, amount, balance_after, reason, match_id, registration_id, created_at
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY id`,
+        [playerIds],
+      ),
+      pool.query(
+        `SELECT id, match_id, registration_id, user_id, rank, prize_coins, created_at
+           FROM daily007_v2_result_awards
+          WHERE user_id = ANY($1::uuid[])
+          ORDER BY id`,
+        [playerIds],
+      ),
+      pool.query(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id`,
+        [playerIds],
+      ),
+      pool.query(
+        `SELECT id, status, enabled
+           FROM daily007_v2_matches
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id`,
+        [matchIds],
+      ),
+    ]);
+    return {
+      ledger: ledger.rows,
+      awards: savedAwards.rows,
+      users: users.rows,
+      matches: matches.rows,
+    };
+  };
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_users SET role = 'tournament_admin' WHERE id = $1",
+      [fixture.adminId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, team_type, capacity, starts_at)
+       VALUES ($1, 'Prize candidate secondary match', 'solo', 'battle_royale', 'solo', 48,
+               now() - interval '2 hours')`,
+      [secondaryMatchId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, captain_name, captain_game_name,
+          captain_game_uid, team_name, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 'Test Player 2', 'TestGame2B', $4, '', 0, 'approved')`,
+      [
+        secondaryRegistrationId,
+        secondaryMatchId,
+        fixture.players[1].userId,
+        `uid-${secondaryRegistrationId}`,
+      ],
+    );
+    for (const award of awards) {
+      await pool.query(
+        `INSERT INTO daily007_v2_result_awards
+           (id, match_id, registration_id, user_id, rank, kills, prize_coins, created_at)
+         VALUES ($1, $2, $3, $4, $5, 3, $6, $7)`,
+        [
+          award.id,
+          award.matchId,
+          award.registrationId,
+          award.userId,
+          award.rank,
+          award.prizeCoins,
+          award.createdAt,
+        ],
+      );
+    }
+    for (const entry of ledgerRows) {
+      await pool.query(
+        `INSERT INTO daily007_v2_wallet_ledger
+           (id, user_id, amount, balance_after, reason, match_id, registration_id, created_at)
+         VALUES ($1, $2, $3, $4, 'match_prize', $5, $6, $7)`,
+        [
+          entry.id,
+          entry.player.userId,
+          entry.amount,
+          100 + entry.amount,
+          entry.matchId,
+          entry.registrationId,
+          entry.createdAt,
+        ],
+      );
+    }
+
+    const before = await captureState();
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/admin/results/prize-credit-audit`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      const responseBody = await response.text();
+      assert.equal(response.status, 200, `prize-credit audit response: ${responseBody}`);
+      const body = JSON.parse(responseBody) as {
+        success: boolean;
+        data: Array<{
+          ledgerId: string;
+          amount: number;
+          balanceAfter: number;
+          createdAt: string;
+          matchId: string | null;
+          registrationId: string | null;
+          referenceIssues: string[];
+          candidateCount: number;
+          candidateStatus: "unique" | "ambiguous" | "unmatched";
+          candidates: Array<{
+            awardId: string;
+            matchId: string;
+            tournamentName: string;
+            registrationId: string;
+            playerName: string;
+            gameName: string;
+            rank: number;
+            prizeCoins: number;
+            createdAt: string;
+          }>;
+          referencedResult: {
+            prizeCoins: number;
+            createdAt: string;
+          } | null;
+        }>;
+      };
+
+      assert.equal(body.success, true);
+      assert.equal(body.data.length, 5, "the consistent prize credit should not appear in the exception report");
+      const entries = new Map(body.data.map((entry) => [entry.ledgerId, entry]));
+      const unique = entries.get(ledgerIds[0]!);
+      assert.ok(unique);
+      assert.equal(unique.candidateStatus, "unique");
+      assert.equal(unique.candidateCount, 1);
+      assert.deepEqual(unique.referenceIssues.sort(), [
+        "missing_match_reference",
+        "missing_registration_reference",
+      ]);
+      assert.equal(unique.candidates[0]?.registrationId, fixture.players[0].registrationId);
+      assert.equal(unique.candidates[0]?.matchId, fixture.matchId);
+      assert.equal(Date.parse(unique.createdAt), Date.parse(transactionTime));
+
+      const ambiguous = entries.get(ledgerIds[1]!);
+      assert.ok(ambiguous);
+      assert.equal(ambiguous.candidateStatus, "ambiguous");
+      assert.equal(ambiguous.candidateCount, 2);
+      assert.deepEqual(
+        ambiguous.candidates.map((candidate) => candidate.registrationId).sort(),
+        [fixture.players[1].registrationId, secondaryRegistrationId].sort(),
+      );
+
+      const unmatched = entries.get(ledgerIds[2]!);
+      assert.ok(unmatched);
+      assert.equal(unmatched.candidateStatus, "unmatched");
+      assert.equal(unmatched.candidateCount, 0);
+      assert.deepEqual(unmatched.candidates, []);
+
+      const prizeMismatch = entries.get(ledgerIds[3]!);
+      assert.ok(prizeMismatch);
+      assert.ok(prizeMismatch.referenceIssues.includes("prize_amount_mismatch"));
+      assert.equal(prizeMismatch.referencedResult?.prizeCoins, 300);
+      assert.equal(prizeMismatch.candidateStatus, "unmatched");
+
+      const timeMismatch = entries.get(ledgerIds[5]!);
+      assert.ok(timeMismatch);
+      assert.ok(timeMismatch.referenceIssues.includes("transaction_timestamp_mismatch"));
+      assert.equal(timeMismatch.candidateStatus, "unmatched");
+
+      const denied = await fetch(`${origin}/admin/results/prize-credit-audit`, {
+        headers: authHeaders(fixture.players[0].userId),
+      });
+      assert.equal(denied.status, 403, "regular players must not access the prize-credit audit");
+    });
+    assert.deepEqual(await captureState(), before, "the report must not edit ledger entries, awards, balances, or tournament state");
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE id = ANY($1::uuid[])",
+      [ledgerIds],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_result_awards WHERE id = ANY($1::uuid[])",
+      [awardIds],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = $1",
+      [secondaryRegistrationId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_matches WHERE id = $1",
+      [secondaryMatchId],
+    );
+    await cleanupFixture(fixture);
+  }
+});
+
 test("public results stay draft when a cancelled tournament retains a winner award", async () => {
   const userId = randomUUID();
   const matchId = randomUUID();

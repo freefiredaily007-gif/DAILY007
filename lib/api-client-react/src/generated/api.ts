@@ -38,6 +38,7 @@ import type {
 
 import type {
   AdminDuplicatePlacementsResponse,
+  AdminPrizeCreditAuditResponse,
   AdminResultLogsResponse,
   Daily007AdminAccountRecoveryRequest,
   Daily007AdminAccountRecoveryReviewBody,
@@ -5636,6 +5637,84 @@ export function useDaily007ListAdminDuplicatePlacements<TData = Awaited<ReturnTy
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getDaily007ListAdminDuplicatePlacementsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007ListAdminPrizeCreditAuditUrl = () => {
+
+
+
+
+  return `/api/admin/results/prize-credit-audit`
+}
+
+/**
+ * Read-only report of match-prize ledger rows with missing or inconsistent result references. Candidate awards require the same player, exact prize amount, and transaction timestamp.
+ * @summary Audit match prize credits against saved tournament results
+ */
+export const daily007ListAdminPrizeCreditAudit = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminPrizeCreditAuditResponse> => {
+
+  return customFetch<AdminPrizeCreditAuditResponse>(getDaily007ListAdminPrizeCreditAuditUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007ListAdminPrizeCreditAuditQueryKey = () => {
+    return [
+    `/api/admin/results/prize-credit-audit`
+    ] as const;
+    }
+
+
+export const getDaily007ListAdminPrizeCreditAuditQueryOptions = <TData = Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007ListAdminPrizeCreditAuditQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>> = ({ signal }) => daily007ListAdminPrizeCreditAudit({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007ListAdminPrizeCreditAuditQueryResult = NonNullable<Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>>
+export type Daily007ListAdminPrizeCreditAuditQueryError = ErrorType<void>
+
+
+/**
+ * @summary Audit match prize credits against saved tournament results
+ */
+
+export function useDaily007ListAdminPrizeCreditAudit<TData = Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminPrizeCreditAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007ListAdminPrizeCreditAuditQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

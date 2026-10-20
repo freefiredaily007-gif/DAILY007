@@ -1830,6 +1830,164 @@ function configuredPrizeForRank(prizePool: number, prizeDistribution: string, ra
   return rank === 1 ? prizePool : 0;
 }
 
+router.get("/admin/results/prize-credit-audit", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  type PrizeCreditAuditAward = {
+    awardId: string;
+    matchId: string;
+    tournamentName: string;
+    registrationId: string;
+    playerName: string;
+    gameName: string;
+    teamName: string | null;
+    rank: number;
+    prizeCoins: number;
+    createdAt: string;
+  };
+  try {
+    const result = await roleTransaction(req, "tournament_admin", (client) =>
+      client.query<{
+        ledgerId: string;
+        userId: string;
+        playerName: string;
+        amount: number;
+        balanceAfter: number;
+        createdAt: Date | string;
+        matchId: string | null;
+        registrationId: string | null;
+        referenceIssues: string[];
+        candidateCount: number;
+        candidateStatus: "unique" | "ambiguous" | "unmatched";
+        candidates: PrizeCreditAuditAward[];
+        referencedResult: PrizeCreditAuditAward | null;
+      }>(
+        `WITH flagged_credits AS (
+           SELECT ledger.id AS "ledgerId", ledger.user_id AS "userId",
+                  player.name AS "playerName", ledger.amount,
+                  ledger.balance_after AS "balanceAfter", ledger.created_at AS "createdAt",
+                  ledger.match_id AS "matchId", ledger.registration_id AS "registrationId",
+                  array_remove(ARRAY[
+                    CASE WHEN ledger.match_id IS NULL
+                      THEN 'missing_match_reference' END,
+                    CASE WHEN ledger.registration_id IS NULL
+                      THEN 'missing_registration_reference' END,
+                    CASE WHEN registration.id IS NOT NULL
+                           AND ledger.match_id IS NOT NULL
+                           AND registration.match_id <> ledger.match_id
+                      THEN 'registration_belongs_to_different_match' END,
+                    CASE WHEN ledger.registration_id IS NOT NULL
+                           AND linked_award.id IS NULL
+                      THEN 'no_saved_award_for_registration' END,
+                    CASE WHEN linked_award.id IS NOT NULL
+                           AND ledger.match_id IS NOT NULL
+                           AND linked_award.match_id <> ledger.match_id
+                      THEN 'award_match_mismatch' END,
+                    CASE WHEN linked_award.id IS NOT NULL
+                           AND linked_award.user_id <> ledger.user_id
+                      THEN 'player_mismatch' END,
+                    CASE WHEN linked_award.id IS NOT NULL
+                           AND linked_award.prize_coins <> ledger.amount
+                      THEN 'prize_amount_mismatch' END,
+                    CASE WHEN linked_award.id IS NOT NULL
+                           AND linked_award.created_at <> ledger.created_at
+                      THEN 'transaction_timestamp_mismatch' END
+                  ]::text[], NULL::text) AS "referenceIssues",
+                  CASE WHEN linked_award.id IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                      'awardId', linked_award.id,
+                      'matchId', linked_award.match_id,
+                      'tournamentName', linked_match.title,
+                      'registrationId', linked_award.registration_id,
+                      'playerName', linked_registration.captain_name,
+                      'gameName', linked_registration.captain_game_name,
+                      'teamName', linked_registration.team_name,
+                      'rank', linked_award.rank,
+                      'prizeCoins', linked_award.prize_coins,
+                      'createdAt', linked_award.created_at
+                    )
+                  END AS "referencedResult"
+             FROM daily007_v2_wallet_ledger ledger
+             JOIN daily007_v2_users player ON player.id = ledger.user_id
+             LEFT JOIN daily007_v2_registrations registration
+               ON registration.id = ledger.registration_id
+             LEFT JOIN daily007_v2_result_awards linked_award
+               ON linked_award.registration_id = ledger.registration_id
+             LEFT JOIN daily007_v2_matches linked_match
+               ON linked_match.id = linked_award.match_id
+             LEFT JOIN daily007_v2_registrations linked_registration
+               ON linked_registration.id = linked_award.registration_id
+            WHERE ledger.reason = 'match_prize'
+              AND NOT (
+                ledger.match_id IS NOT NULL
+                AND ledger.registration_id IS NOT NULL
+                AND registration.match_id = ledger.match_id
+                AND linked_award.id IS NOT NULL
+                AND linked_award.match_id = ledger.match_id
+                AND linked_award.user_id = ledger.user_id
+                AND linked_award.prize_coins = ledger.amount
+                AND linked_award.created_at = ledger.created_at
+              )
+         )
+         SELECT flagged.*,
+                candidate_match.candidate_count AS "candidateCount",
+                CASE
+                  WHEN candidate_match.candidate_count = 1 THEN 'unique'
+                  WHEN candidate_match.candidate_count > 1 THEN 'ambiguous'
+                  ELSE 'unmatched'
+                END AS "candidateStatus",
+                candidate_match.candidates
+           FROM flagged_credits flagged
+           CROSS JOIN LATERAL (
+             SELECT count(candidate.id)::int AS candidate_count,
+                    COALESCE(
+                      jsonb_agg(
+                        jsonb_build_object(
+                          'awardId', candidate.id,
+                          'matchId', candidate.match_id,
+                          'tournamentName', tournament.title,
+                          'registrationId', candidate.registration_id,
+                          'playerName', registration.captain_name,
+                          'gameName', registration.captain_game_name,
+                          'teamName', registration.team_name,
+                          'rank', candidate.rank,
+                          'prizeCoins', candidate.prize_coins,
+                          'createdAt', candidate.created_at
+                        )
+                        ORDER BY tournament.starts_at DESC, candidate.rank ASC, candidate.id ASC
+                      ),
+                      '[]'::jsonb
+                    ) AS candidates
+               FROM daily007_v2_result_awards candidate
+               JOIN daily007_v2_matches tournament ON tournament.id = candidate.match_id
+               JOIN daily007_v2_registrations registration
+                 ON registration.id = candidate.registration_id
+              WHERE candidate.user_id = flagged."userId"
+                AND candidate.prize_coins = flagged.amount
+                AND candidate.created_at = flagged."createdAt"
+           ) candidate_match
+          ORDER BY flagged."createdAt" DESC, flagged."ledgerId" DESC`,
+      ),
+    );
+    const toIsoTimestamp = (value: Date | string): string =>
+      value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+    const normalizeAward = (award: PrizeCreditAuditAward): PrizeCreditAuditAward => ({
+      ...award,
+      createdAt: toIsoTimestamp(award.createdAt),
+    });
+    res.json({
+      success: true,
+      data: result.rows.map((row) => ({
+        ...row,
+        createdAt: toIsoTimestamp(row.createdAt),
+        candidates: row.candidates.map(normalizeAward),
+        referencedResult: row.referencedResult ? normalizeAward(row.referencedResult) : null,
+      })),
+    });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
 router.get("/admin/results/duplicate-placements", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   const result = await pool.query<{
