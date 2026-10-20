@@ -78,6 +78,7 @@ export function newAdminAdjustmentRequestId(): string {
 
 // Deliberately distinct from the legacy hosted app's AsyncStorage keys.
 const KEY = 'daily007_v2_session';
+const SIGNED_OUT_SESSION_RECORD = JSON.stringify({ __daily007SignedOut: true });
 let current: User | null = null;
 let sessionExpiredHandler: ((reason?: SessionExpiredReason) => void) | null = null;
 let sessionRevision = 0;
@@ -222,6 +223,23 @@ export function setSession(u: User | null): void | Promise<void> {
     .catch(() => {
       throw new SessionPersistenceError();
     });
+}
+
+export function clearSessionForLogout(): Promise<void> {
+  ++sessionRevision;
+  activateSession(null);
+
+  const operation = sessionPersistenceQueue.catch(() => {}).then(async () => {
+    try {
+      await AsyncStorage.removeItem(KEY);
+    } catch {
+      // Keep a durable signed-out value so a failed removal cannot restore the
+      // previous account when the app starts again.
+      await AsyncStorage.setItem(KEY, SIGNED_OUT_SESSION_RECORD);
+    }
+  });
+  sessionPersistenceQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export async function setSessionForAuthAttempt(

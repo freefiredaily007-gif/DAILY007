@@ -11,6 +11,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   Api,
   captureSessionIdentity,
+  clearSessionForLogout,
   currentUser,
   getSession,
   isSessionIdentityCurrent,
@@ -458,6 +459,7 @@ function DailyApp({
     setPendingGoogleLinkSession(null);
     try {
       let retryClearFailed = false;
+      let sessionClearFailed = false;
       const accountId = user?.id ?? user?.$id;
       const clerkSignOutFailed = await logoutDaily007(signOutClerk, async () => {
         try {
@@ -465,13 +467,23 @@ function DailyApp({
         } catch {
           retryClearFailed = true;
         }
-        await setSession(null);
+        try {
+          await clearSessionForLogout();
+        } catch {
+          sessionClearFailed = true;
+        }
       });
       if (clerkSignOutFailed) {
         Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
       }
       if (retryClearFailed) {
         Alert.alert('Sign-out issue', 'Daily007 signed out, but the saved video coin retry could not be cleared from this device.');
+      }
+      if (sessionClearFailed) {
+        Alert.alert(
+          'Sign-out issue',
+          'Daily007 signed out, but device storage could not save the sign-out. Free some storage and sign out again before reopening the app.',
+        );
       }
     } finally {
       setUser(null);

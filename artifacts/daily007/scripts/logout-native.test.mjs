@@ -56,6 +56,16 @@ test("local logout finishes before Clerk and reports either Clerk outcome", asyn
   }
 });
 
+test("explicit logout uses the durable failure-safe session clear", () => {
+  const logoutStart = app.indexOf("const logout = useCallback(async () => {");
+  const logoutEnd = app.indexOf("}, [signOutClerk, user?.id, user?.$id]);", logoutStart);
+  const logoutSource = app.slice(logoutStart, logoutEnd);
+
+  assert.ok(logoutStart >= 0 && logoutEnd > logoutStart);
+  assert.match(logoutSource, /await clearSessionForLogout\(\);/);
+  assert.doesNotMatch(logoutSource, /await setSession\(null\);/);
+});
+
 test("pending logout hides signed-in and auth screens while rejecting repeated requests", () => {
   const logoutStart = app.indexOf("const logout = useCallback(async () => {");
   const duplicateGuard = app.indexOf("if (logoutInFlight.current) return;", logoutStart);

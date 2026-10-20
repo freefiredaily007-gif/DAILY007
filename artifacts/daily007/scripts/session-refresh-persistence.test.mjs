@@ -3,6 +3,7 @@ import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
 
 const SESSION_KEY = "daily007_v2_session";
+const SIGNED_OUT_SESSION_RECORD = JSON.stringify({ __daily007SignedOut: true });
 let storedSession = null;
 let sessionRemoveCalls = 0;
 let blockedSetItem = null;
@@ -85,6 +86,7 @@ const {
   Api,
   captureSessionRevision,
   captureSessionIdentity,
+  clearSessionForLogout,
   currentUser,
   getSession,
   http,
@@ -412,6 +414,90 @@ test("a saved-session read finishing after logout cannot restore the old session
   assert.equal(await restore, null);
   assert.equal(currentUser(), null);
   assert.equal(storedSession, null);
+});
+
+test("explicit logout cannot restore the saved account after storage removal fails", async (t) => {
+  const savedAccount = {
+    id: "logout-removal-failure-account",
+    name: "Signed Out Player",
+    email: "signed-out@example.test",
+    token: "logout-removal-failure-token",
+    role: "user",
+  };
+  await setSession(null);
+  await setSession(savedAccount);
+  nextRemoveItemError = new Error("Temporary AsyncStorage remove failure.");
+
+  await clearSessionForLogout();
+  assert.equal(currentUser(), null, "logout must clear the in-memory account immediately");
+  assert.equal(http.defaults.headers.common.Authorization, undefined);
+  assert.equal(
+    storedSession,
+    SIGNED_OUT_SESSION_RECORD,
+    "a signed-out marker must replace the old token if removal fails",
+  );
+
+  const restartedApi = await import("../src/lib/api.ts?fresh-explicit-logout-relaunch");
+  const requests = [];
+  t.mock.method(restartedApi.http, "get", async (url) => {
+    requests.push(url);
+    throw new Error(`Unexpected API request after logout: ${url}`);
+  });
+  t.after(async () => {
+    nextRemoveItemError = null;
+    await restartedApi.setSession(null);
+    await setSession(null);
+  });
+
+  const restored = await restoreDaily007Session(
+    restartedApi.getSession,
+    restartedApi.Api.me,
+    restartedApi.setSession,
+  );
+  assert.deepEqual(restored, { status: "empty" });
+  assert.equal(restartedApi.currentUser(), null);
+  assert.deepEqual(requests, [], "the signed-out account must not be verified or used for API requests");
+  assert.equal(storedSession, null, "startup should retry and complete the pending storage cleanup");
+});
+
+test("cleanup after a failed explicit logout cannot overwrite a later sign-in", async () => {
+  const oldAccount = { id: "logout-cleanup-old", token: "logout-cleanup-old-token", role: "user" };
+  const newAccount = { id: "logout-cleanup-new", token: "logout-cleanup-new-token", role: "admin" };
+  await setSession(null);
+  await setSession(oldAccount);
+  nextRemoveItemError = new Error("Temporary AsyncStorage remove failure.");
+  await clearSessionForLogout();
+  assert.equal(storedSession, SIGNED_OUT_SESSION_RECORD);
+
+  const restartedApi = await import("../src/lib/api.ts?fresh-explicit-logout-cleanup-race");
+  const blockedRemoval = blockNextStorageRemoval();
+  const cleanup = restartedApi.getSession();
+  let signIn;
+
+  try {
+    await blockedRemoval.entered.promise;
+    signIn = restartedApi.setSession(newAccount);
+    blockedRemoval.release.resolve();
+
+    await Promise.all([cleanup, signIn]);
+    assert.equal(restartedApi.currentUser(), newAccount);
+    assert.equal(
+      restartedApi.http.defaults.headers.common.Authorization,
+      `Bearer ${newAccount.token}`,
+      "only the later sign-in may install an authorization header",
+    );
+    assert.equal(
+      http.defaults.headers.common.Authorization,
+      undefined,
+      "the original API module must not retain an authorization header",
+    );
+    assert.deepEqual(JSON.parse(storedSession), newAccount);
+  } finally {
+    blockedRemoval.release.resolve();
+    await Promise.allSettled([cleanup, signIn].filter(Boolean));
+    await restartedApi.setSession(null);
+    await setSession(null);
+  }
 });
 
 test("a saved-session read finishing after a new sign-in keeps the newer session", async () => {
