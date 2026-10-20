@@ -5,6 +5,7 @@ import type { Server } from "node:http";
 import express from "express";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
+import { cancelUnderfilledTournamentAndRefund } from "../src/lib/daily007-tournament-cancellation";
 import router from "../src/routes/daily007-compat-extra";
 
 const TEST_AUTH_SECRET = "wallet-history-postgres-test-secret-at-least-32-chars";
@@ -27,12 +28,15 @@ const fixture = {
   playerId: randomUUID(),
   otherPlayerId: randomUUID(),
   unauthenticatedPlayerId: randomUUID(),
+  adjustedPlayerId: randomUUID(),
   knownTournamentId: randomUUID(),
   missingTournamentId: randomUUID(),
   structuredTournamentId: randomUUID(),
   structuredMissingTournamentId: randomUUID(),
   prizeMatchId: randomUUID(),
   prizeRegistrationId: randomUUID(),
+  adjustedTournamentId: randomUUID(),
+  adjustedRegistrationId: randomUUID(),
   malformedTournamentId: "not-a-valid-uuid",
 };
 
@@ -51,12 +55,25 @@ after(async () => {
       [fixture.unauthenticatedPlayerId],
     );
     await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.adjustedPlayerId],
+    );
+    await pool.query(
       "DELETE FROM daily007_v2_registrations WHERE id = $1",
       [fixture.prizeRegistrationId],
     );
     await pool.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = $1",
+      [fixture.adjustedRegistrationId],
+    );
+    await pool.query(
       "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
-      [[fixture.knownTournamentId, fixture.structuredTournamentId, fixture.prizeMatchId]],
+      [[
+        fixture.knownTournamentId,
+        fixture.structuredTournamentId,
+        fixture.prizeMatchId,
+        fixture.adjustedTournamentId,
+      ]],
     );
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id IN ($1, $2)",
@@ -65,6 +82,10 @@ after(async () => {
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id = $1",
       [fixture.unauthenticatedPlayerId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = $1",
+      [fixture.adjustedPlayerId],
     );
   } finally {
     if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
@@ -258,6 +279,117 @@ test("Wallet history rejects missing and invalid sessions without returning seed
     await pool.query(
       "DELETE FROM daily007_v2_users WHERE id = $1",
       [fixture.unauthenticatedPlayerId],
+    );
+  }
+});
+
+test("Wallet history keeps a manual credit separate from an actual cancellation refund", async () => {
+  const description = "Admin wallet adjustment — entry fee correction";
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, wallet_coins)
+     VALUES ($1, 'Adjusted Wallet history player', $2, 'test-salt', 'test-hash', 112)`,
+    [fixture.adjustedPlayerId, `wallet-history-adjusted-${fixture.adjustedPlayerId}@example.test`],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_matches
+       (id, title, mode, game_mode, capacity, starts_at, status)
+     VALUES ($1, 'Entry Fee Correction Cup', 'clash', 'clash_squad', 2,
+             now() - interval '2 hours', 'open')`,
+    [fixture.adjustedTournamentId],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_registrations
+       (id, match_id, captain_user_id, captain_name, captain_game_uid,
+        entry_coins_paid, status)
+     VALUES ($1, $2, $3, 'Adjusted Wallet history player', 'adjusted-wallet-uid', 25, 'approved')`,
+    [fixture.adjustedRegistrationId, fixture.adjustedTournamentId, fixture.adjustedPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_wallet_ledger
+       (user_id, amount, balance_after, reason, match_id, registration_id,
+        details, created_at)
+     VALUES ($1, 12, 112, 'admin_credit:entry fee correction', $2, $3, $4::jsonb,
+             now() - interval '1 second')`,
+    [
+      fixture.adjustedPlayerId,
+      fixture.adjustedTournamentId,
+      fixture.adjustedRegistrationId,
+      JSON.stringify({ description }),
+    ],
+  );
+
+  try {
+    const cancellation = await cancelUnderfilledTournamentAndRefund(fixture.adjustedTournamentId);
+    assert.deepEqual(cancellation, {
+      id: fixture.adjustedTournamentId,
+      status: "cancelled",
+      registrationsRefunded: 1,
+      accountsRefunded: 1,
+      coinsRefunded: 25,
+    });
+
+    await withServer(async (origin) => {
+      const token = makeToken(fixture.adjustedPlayerId, 0);
+      assert.ok(token, "the isolated test player should receive a Daily007 session token");
+      const response = await fetch(`${origin}/wallet/transactions`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const body = await response.json() as Array<{
+        amount: number;
+        balanceAfter: number;
+        reason: string;
+        description: string;
+        details?: { tournamentId?: string; tournamentTitle?: string };
+      }>;
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        body.map(({ amount, balanceAfter, reason, description: entryDescription, details }) => ({
+          amount,
+          balanceAfter,
+          reason,
+          description: entryDescription,
+          tournamentId: details?.tournamentId,
+          tournamentTitle: details?.tournamentTitle,
+        })),
+        [
+          {
+            amount: 25,
+            balanceAfter: 137,
+            reason: "tournament_cancel_refund",
+            description: "Entry fee refunded — Entry Fee Correction Cup (tournament cancelled)",
+            tournamentId: fixture.adjustedTournamentId,
+            tournamentTitle: "Entry Fee Correction Cup",
+          },
+          {
+            amount: 12,
+            balanceAfter: 112,
+            reason: "admin_credit:entry fee correction",
+            description,
+            tournamentId: undefined,
+            tournamentTitle: undefined,
+          },
+        ],
+        "Wallet history must retain the manual adjustment and tournament refund as distinct, correctly described entries",
+      );
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.adjustedPlayerId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_registrations WHERE id = $1",
+      [fixture.adjustedRegistrationId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_matches WHERE id = $1",
+      [fixture.adjustedTournamentId],
+    );
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE id = $1",
+      [fixture.adjustedPlayerId],
     );
   }
 });

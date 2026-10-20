@@ -14,7 +14,18 @@ CREATE TABLE daily007_v2_users (
 
 CREATE TABLE daily007_v2_matches (
   id uuid PRIMARY KEY,
-  title text NOT NULL
+  title text NOT NULL,
+  mode text NOT NULL DEFAULT 'clash',
+  game_mode text,
+  team_type text,
+  capacity integer NOT NULL DEFAULT 2,
+  starts_at timestamptz NOT NULL DEFAULT now(),
+  status text NOT NULL DEFAULT 'open',
+  enabled boolean NOT NULL DEFAULT true,
+  is_full boolean NOT NULL DEFAULT false,
+  room_id text,
+  room_password text,
+  room_published boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE daily007_v2_registrations (
@@ -45,6 +56,7 @@ CREATE TABLE daily007_v2_wallet_ledger (
   reason text NOT NULL,
   match_id uuid REFERENCES daily007_v2_matches(id),
   registration_id uuid,
+  idempotency_key text UNIQUE,
   details jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
