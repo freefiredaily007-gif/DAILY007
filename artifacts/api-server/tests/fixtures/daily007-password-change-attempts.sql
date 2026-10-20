@@ -27,7 +27,9 @@ CREATE TABLE daily007_password_change_attempts (
 CREATE TABLE daily007_test_password_change_attempt_control (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
   armed boolean NOT NULL DEFAULT false,
-  pause_settlement boolean NOT NULL DEFAULT false
+  pause_settlement boolean NOT NULL DEFAULT false,
+  settlement_released boolean NOT NULL DEFAULT false,
+  settlement_finished boolean NOT NULL DEFAULT false
 );
 
 INSERT INTO daily007_test_password_change_attempt_control (singleton)
