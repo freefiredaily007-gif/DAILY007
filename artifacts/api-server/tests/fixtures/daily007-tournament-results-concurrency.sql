@@ -117,7 +117,8 @@ CREATE TABLE daily007_v2_wallet_ledger (
   match_id uuid REFERENCES daily007_v2_matches(id),
   registration_id uuid REFERENCES daily007_v2_registrations(id),
   idempotency_key text UNIQUE,
-  details jsonb
+  details jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE daily007_v2_squad_teams (

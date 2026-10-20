@@ -142,6 +142,24 @@ async function requestWithdrawal(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function adjustWalletCoins(
+  origin: string,
+  adminId: string,
+  targetId: string,
+  coinsDelta: number,
+): Promise<RegistrationResponse> {
+  const response = await fetch(`${origin}/admin/users/${targetId}`, {
+    method: "PATCH",
+    headers: authHeaders(adminId),
+    body: JSON.stringify({
+      coinsDelta,
+      note: "concurrent wallet adjustment",
+      requestId: randomUUID(),
+    }),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
 async function editTeam(
   origin: string,
   userId: string,
@@ -1586,6 +1604,187 @@ async function runConcurrentJoinWithdrawalRace(firstOperation: "join" | "withdra
   }
 }
 
+async function runConcurrentAdjustmentWithdrawalRace(
+  firstOperation: "admin" | "withdrawal",
+  adjustmentDelta = 40,
+): Promise<void> {
+  let fixtureForCleanup: WalletRaceFixture | undefined;
+  let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let adminId: string | undefined;
+  const submissions: Promise<RegistrationResponse>[] = [];
+
+  try {
+    const fixture = await createFixture("solo", { startingWalletCoins: 250 });
+    fixtureForCleanup = fixture;
+    adminId = await createFullAdminActor();
+    await pool.query(
+      `INSERT INTO daily007_v2_settings (id, settings)
+       VALUES (1, '{"withdrawalEnabled":"true","minWithdrawal":"100","maxWithdrawal":"5000"}'::jsonb)
+       ON CONFLICT (id) DO UPDATE SET settings = daily007_v2_settings.settings ||
+         '{"withdrawalEnabled":"true","minWithdrawal":"100","maxWithdrawal":"5000"}'::jsonb`,
+    );
+
+    const blocker = await pool.connect();
+    blockerForCleanup = blocker;
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [fixture.userId],
+      );
+      const blockerPid = await backendPid(blocker);
+      const walletLockQuery = "FROM daily007_v2_users WHERE id = $1 FOR UPDATE";
+      const submitAdjustment = () =>
+        adjustWalletCoins(origin, adminId!, fixture.userId, adjustmentDelta);
+      const submitWithdrawal = () => requestWithdrawal(origin, fixture.userId, 100);
+
+      const firstSubmission = firstOperation === "admin" ? submitAdjustment() : submitWithdrawal();
+      submissions.push(firstSubmission);
+      await waitForBlockedRequests(blockerPid, 1, walletLockQuery, "wallet");
+
+      const secondSubmission = firstOperation === "admin" ? submitWithdrawal() : submitAdjustment();
+      submissions.push(secondSubmission);
+      try {
+        await waitForBlockedRequests(blockerPid, 2, walletLockQuery, "wallet");
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const [firstResponse, secondResponse] = await Promise.all(submissions);
+      const adjustmentResponse = firstOperation === "admin" ? firstResponse : secondResponse;
+      const withdrawalResponse = firstOperation === "admin" ? secondResponse : firstResponse;
+      const withdrawalCanComplete =
+        firstOperation === "admin" ? fixture.startingWalletCoins + adjustmentDelta >= 100 : true;
+      const adjustmentCanComplete = firstOperation === "admin" || 150 + adjustmentDelta >= 0;
+      const expectedFinalBalance = firstOperation === "admin"
+        ? fixture.startingWalletCoins + adjustmentDelta - (withdrawalCanComplete ? 100 : 0)
+        : 150 + (adjustmentCanComplete ? adjustmentDelta : 0);
+      assert.equal(
+        adjustmentResponse.status,
+        adjustmentCanComplete ? 200 : 409,
+        JSON.stringify(adjustmentResponse.body),
+      );
+      assert.equal(
+        withdrawalResponse.status,
+        withdrawalCanComplete ? 201 : 409,
+        JSON.stringify(withdrawalResponse.body),
+      );
+      if (adjustmentCanComplete) {
+        assert.equal(
+          adjustmentResponse.body.coins,
+          firstOperation === "admin"
+            ? fixture.startingWalletCoins + adjustmentDelta
+            : 150 + adjustmentDelta,
+        );
+      } else {
+        assert.deepEqual(adjustmentResponse.body, {
+          error: "Adjustment would make the wallet negative or exceed its supported range.",
+        });
+      }
+      if (withdrawalCanComplete) {
+        assert.equal(withdrawalResponse.body.coins, 100);
+        assert.equal(
+          withdrawalResponse.body.walletCoins,
+          firstOperation === "admin" ? fixture.startingWalletCoins + adjustmentDelta - 100 : 150,
+        );
+      } else {
+        assert.deepEqual(withdrawalResponse.body, { error: "Insufficient wallet balance." });
+      }
+
+      const account = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [fixture.userId],
+      );
+      assert.deepEqual(account.rows, [{ wallet_coins: expectedFinalBalance }]);
+
+      const withdrawals = await pool.query<{
+        id: string;
+        coins: number;
+        status: string;
+      }>(
+        `SELECT id, coins, status
+           FROM daily007_v2_withdrawals
+          WHERE user_id = $1`,
+        [fixture.userId],
+      );
+      assert.deepEqual(
+        withdrawals.rows,
+        withdrawalCanComplete
+          ? [{ id: withdrawalResponse.body.id, coins: 100, status: "pending" }]
+          : [],
+      );
+
+      const ledger = await pool.query<{
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY created_at, id`,
+        [fixture.userId],
+      );
+      const expectedLedger = firstOperation === "admin"
+        ? [
+            {
+              amount: adjustmentDelta,
+              balance_after: fixture.startingWalletCoins + adjustmentDelta,
+              reason: "admin_adjustment:concurrent wallet adjustment",
+            },
+            ...(withdrawalCanComplete
+              ? [{
+                  amount: -100,
+                  balance_after: fixture.startingWalletCoins + adjustmentDelta - 100,
+                  reason: "withdrawal_reserved",
+                }]
+              : []),
+          ]
+        : [
+            { amount: -100, balance_after: 150, reason: "withdrawal_reserved" },
+            ...(adjustmentCanComplete
+              ? [{
+                  amount: adjustmentDelta,
+                  balance_after: 150 + adjustmentDelta,
+                  reason: "admin_adjustment:concurrent wallet adjustment",
+                }]
+              : []),
+          ];
+      assert.deepEqual(ledger.rows, expectedLedger);
+
+      let expectedBalance = fixture.startingWalletCoins;
+      for (const entry of ledger.rows) {
+        expectedBalance += entry.amount;
+        assert.equal(
+          entry.balance_after,
+          expectedBalance,
+          "each ledger balance must continue from the prior balance in the observed lock order",
+        );
+      }
+      assert.equal(expectedBalance, expectedFinalBalance);
+    });
+  } finally {
+    try {
+      if (blockerForCleanup && blockerTransactionOpen) {
+        await blockerForCleanup.query("ROLLBACK");
+        blockerTransactionOpen = false;
+      }
+    } finally {
+      blockerForCleanup?.release();
+      await Promise.allSettled(submissions);
+      if (fixtureForCleanup) await cleanupFixture(fixtureForCleanup);
+      if (adminId) await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
+    }
+  }
+}
+
 async function runConcurrentDuoRetryRace(): Promise<void> {
   let fixtureForCleanup: WalletRaceFixture | undefined;
   let blockerForCleanup: Awaited<ReturnType<typeof pool.connect>> | undefined;
@@ -1962,6 +2161,12 @@ test("a 20-coin wallet accepts only the first 13- or 17-coin join in either lock
 test("a 110-coin wallet cannot fund a 13-coin join and 100-coin withdrawal in either lock order", async () => {
   await runConcurrentJoinWithdrawalRace("join");
   await runConcurrentJoinWithdrawalRace("withdrawal");
+});
+
+test("an Admin coin adjustment and a withdrawal preserve the wallet balance chain in either lock order", async () => {
+  await runConcurrentAdjustmentWithdrawalRace("admin");
+  await runConcurrentAdjustmentWithdrawalRace("withdrawal");
+  await runConcurrentAdjustmentWithdrawalRace("admin", -200);
 });
 
 test("concurrent duo retries keep one registration, fee debit, and winning teammate roster", () =>
