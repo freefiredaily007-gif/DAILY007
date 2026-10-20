@@ -359,6 +359,78 @@ test("Google sign-in can be retried after the provider rejects an attempt", asyn
   ]);
 });
 
+test("rapid Google sign-in taps share one pending provider flow and account exchange", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  const successes = [];
+  const events = [];
+  const inFlight = { current: false };
+  let loading = false;
+  let providerAttempts = 0;
+  let accountExchanges = 0;
+  let activeSession = null;
+  let settleProvider;
+  const pendingProvider = new Promise((resolve) => {
+    settleProvider = resolve;
+  });
+
+  async function attemptSignIn() {
+    await runGoogleSSOAttempt({
+      inFlight,
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => activeSession,
+        async startSSOFlow() {
+          providerAttempts += 1;
+          return pendingProvider;
+        },
+        async exchangeToken(token) {
+          accountExchanges += 1;
+          events.push(`exchange:${token}`);
+          return { account: "daily007-player" };
+        },
+      }),
+      setLoading(value) {
+        loading = value;
+        loadingChanges.push(value);
+      },
+      showError: (message) => errors.push(message),
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+  }
+
+  const originalAttempt = attemptSignIn();
+  assert.equal(loading, true);
+  assert.equal(inFlight.current, true);
+  assert.equal(providerAttempts, 1);
+
+  await attemptSignIn();
+  assert.equal(loading, true, "the ignored tap must not clear the original attempt's busy state");
+  assert.equal(inFlight.current, true);
+  assert.equal(providerAttempts, 1, "the second tap must not start another provider flow");
+  assert.equal(accountExchanges, 0, "no account exchange should occur before the provider settles");
+
+  settleProvider({
+    createdSessionId: "single-provider-session",
+    async setActive({ session }) {
+      activeSession = createSession(session, events);
+    },
+  });
+  await originalAttempt;
+
+  assert.equal(loading, false, "the Google button should be available after the attempt settles");
+  assert.equal(inFlight.current, false);
+  assert.equal(providerAttempts, 1);
+  assert.equal(accountExchanges, 1);
+  assert.deepEqual(loadingChanges, [true, false]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(successes, [{ account: "daily007-player" }]);
+  assert.deepEqual(events, [
+    "token:single-provider-session",
+    "exchange:verified-clerk-jwt",
+  ]);
+});
+
 test("Google sign-in can be retried when Clerk token retrieval rejects", async () => {
   const loadingChanges = [];
   const errors = [];
@@ -599,16 +671,20 @@ test("Profile Google-link provider and server failures announce once and preserv
   const profileButton = profileSource.match(
     /<GoogleSSOButton\s+label="Connect Google"[\s\S]*?\/>/,
   )?.[0];
+  const profileGoogleError = profileSource.match(
+    /\{!!googleLinkError && \([\s\S]*?<\/Text>\s*\)\}/,
+  )?.[0];
   assert.ok(profileButton, "Profile should render its Google-link button");
+  assert.ok(profileGoogleError, "Profile should display Google-link errors");
   assert.match(profileButton, /dailyToken=\{user\.token\}/);
   assert.match(profileButton, /onError=\{setGoogleLinkError\}/);
   assert.match(
-    profileSource,
-    /\{!!googleLinkError && <Text style=\{s\.statsError\}>{googleLinkError}<\/Text>\}/,
+    profileGoogleError,
+    /<Text testID="profile-google-link-error" style=\{s\.statsError\}>\s*\{googleLinkError\}\s*<\/Text>/,
     "Profile should display the same error without adding a second live-region announcement",
   );
   assert.doesNotMatch(
-    profileSource.match(/\{!!googleLinkError[\s\S]*?\}/)?.[0] ?? "",
+    profileGoogleError,
     /accessibilityLiveRegion/,
   );
   assert.match(
@@ -899,8 +975,8 @@ test("the React Native button and callback route use the isolated handoff and me
   );
   assert.match(
     authSource,
-    /accessibilityLiveRegion=\{err && !\(Platform\.OS === 'android' && sessionSaveError\)\s*\?\s*'assertive'\s*:\s*undefined\}/,
-    "Android's session-save announcement should not be duplicated by its live region",
+    /accessibilityLiveRegion=\{err && Platform\.OS !== 'ios'\s*&& !\(Platform\.OS === 'android' && sessionSaveError\)\s*\?\s*'assertive'\s*:\s*undefined\}/,
+    "native session-save announcements should not be duplicated by the live region",
   );
   assert.match(uiSource, /accessibilityLabel=\{accessibilityLabel\}/);
   assert.match(uiSource, /accessibilityLiveRegion=\{accessibilityLiveRegion\}/);
@@ -915,13 +991,13 @@ test("the React Native button and callback route use the isolated handoff and me
   );
   assert.match(
     authSource,
-    /<Input\s+ref=\{referralInputRef\}[\s\S]*?testID="auth-referral-code"[\s\S]*?value=\{refCode\}[\s\S]*?onChangeText=\{setRefCode\}[\s\S]*?editable=\{!authInputsDisabled\}/,
+    /<AuthField\s+icon="gift"[\s\S]*?inputRef=\{referralInputRef\}[\s\S]*?testID="auth-referral-code"[\s\S]*?value=\{refCode\}[\s\S]*?onChangeText=\{setRefCode\}[\s\S]*?editable=\{!authInputsDisabled\}/,
     "prefilled referral codes should remain editable on signup",
   );
   const referralInput = authSource.match(
-    /<Input\s+ref=\{referralInputRef\}[\s\S]*?style=\{s\.signupInput\}\s*\/>/,
+    /<AuthField\s+icon="gift"[\s\S]*?inputRef=\{referralInputRef\}[\s\S]*?testID="auth-referral-code"[\s\S]*?editable=\{!authInputsDisabled\}[\s\S]*?onSubmitEditing=\{\(\) => emailInputRef\.current\?\.focus\(\)\}\s*\/>/,
   )?.[0];
-  assert.ok(referralInput, "the referral code should remain a native text input after an error");
+  assert.ok(referralInput, "the referral code should remain an editable auth field after an error");
   assert.match(referralInput, /\baccessible\b/,
     "TalkBack should be able to focus the referral-code input");
   assert.match(referralInput, /accessibilityLabel="Referral Code, optional"/,
