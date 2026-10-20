@@ -124,3 +124,9 @@ On 2026-10-09, the user confirmed on Android TalkBack that missing-session, simu
 **How to apply:** Keep recovery simulations development-only and local. After changing recovery error handling, recheck all three paths with TalkBack; do not treat source assertions or browser behavior as proof of native speech.
 
 On 2026-10-17, the user confirmed that Google sign-up progress, success, failure/retry, and focus checks passed with Android TalkBack and iOS VoiceOver; exact spoken wording was not recorded.
+
+On 2026-10-20, the user confirmed that after a wrong-password login, Google sign-in became available again and completed successfully on Android.
+
+**Why:** Browser automation cannot confirm native touch behavior or the provider handoff after password authentication fails.
+
+**How to apply:** Treat this recovery sequence as device-confirmed; retest after changing Auth busy-state wiring or the native Google callback.
