@@ -25,6 +25,7 @@ const appConfig = JSON.parse(
 );
 export const EXPECTED_DAILY007_WEB_RELEASE_MARKER =
   appConfig.expo?.extra?.daily007WebReleaseMarker;
+export const EXPECTED_DAILY007_PWA_NAME = appConfig.expo?.displayName;
 if (
   typeof EXPECTED_DAILY007_WEB_RELEASE_MARKER !== 'string'
   || !EXPECTED_DAILY007_WEB_RELEASE_MARKER.trim()
@@ -38,6 +39,20 @@ if (!EXPECTED_DAILY007_WEB_RELEASE_MARKER.startsWith(`${appConfig.expo?.version}
     'PWA smoke check failed: expo.extra.daily007WebReleaseMarker must begin with the app version followed by "+web.".',
   );
 }
+if (typeof EXPECTED_DAILY007_PWA_NAME !== 'string' || !EXPECTED_DAILY007_PWA_NAME.trim()) {
+  throw new Error('PWA smoke check failed: app.json must define expo.displayName.');
+}
+
+const EXPECTED_PWA_ICON_ASSETS = new Map([
+  ['192x192', {
+    filename: 'icon-192.png',
+    bytes: await readFile(new URL('../public/icons/icon-192.png', import.meta.url)),
+  }],
+  ['512x512', {
+    filename: 'icon-512.png',
+    bytes: await readFile(new URL('../public/icons/icon-512.png', import.meta.url)),
+  }],
+]);
 
 function mimeType(response) {
   return (response.headers.get('content-type') || '')
@@ -253,8 +268,17 @@ function isWithinScope(url, scopeUrl) {
 }
 
 function validateInstallManifest(manifest, manifestUrl) {
-  requiredManifestString(manifest, 'name');
-  requiredManifestString(manifest, 'short_name');
+  const name = requiredManifestString(manifest, 'name');
+  const shortName = requiredManifestString(manifest, 'short_name');
+  for (const [field, value] of [['name', name], ['short_name', shortName]]) {
+    if (value !== EXPECTED_DAILY007_PWA_NAME) {
+      throw new Error(
+        `PWA smoke check failed for release "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}": ` +
+        `manifest field "${field}" is "${value}", expected "${EXPECTED_DAILY007_PWA_NAME}" ` +
+        'from app.json expo.displayName.',
+      );
+    }
+  }
 
   const idUrl = manifestFieldUrl(manifest, 'id', manifestUrl);
   const expectedIdUrl = new URL(EXPECTED_DAILY007_PWA_ID, manifestUrl);
@@ -281,7 +305,7 @@ function validateInstallManifest(manifest, manifestUrl) {
     );
   }
 
-  return { idUrl, startUrl, scopeUrl };
+  return { idUrl, startUrl, scopeUrl, name, shortName };
 }
 
 async function verifyStartUrl(
@@ -414,7 +438,7 @@ async function verifyStartUrl(
   }
 }
 
-async function verifyPng(fetchImpl, label, url, requestTimeoutMs) {
+async function verifyPng(fetchImpl, label, url, size, requestTimeoutMs) {
   const response = await checkedGet(fetchImpl, label, url, ['image/png'], { requestTimeoutMs });
   const bytes = new Uint8Array(
     await readResponse(response, label, url, () => response.arrayBuffer()),
@@ -423,6 +447,27 @@ async function verifyPng(fetchImpl, label, url, requestTimeoutMs) {
   if (signature.some((byte, index) => bytes[index] !== byte)) {
     throw new Error(
       `PWA smoke check failed: ${label} at ${url.href} is not a valid PNG file. Rebuild or restore the published Daily007 icon asset.`,
+    );
+  }
+  const [expectedWidth, expectedHeight] = size.split('x').map(Number);
+  const width = bytes.length >= 24
+    ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(16)
+    : 0;
+  const height = bytes.length >= 24
+    ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(20)
+    : 0;
+  if (width !== expectedWidth || height !== expectedHeight) {
+    throw new Error(
+      `PWA smoke check failed for release "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}": ` +
+      `${label} at ${url.href} is ${width}x${height}, expected ${size}.`,
+    );
+  }
+
+  const suppliedAsset = EXPECTED_PWA_ICON_ASSETS.get(size);
+  if (!suppliedAsset || !Buffer.from(bytes).equals(suppliedAsset.bytes)) {
+    throw new Error(
+      `PWA smoke check failed for release "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}": ` +
+      `${label} at ${url.href} does not match supplied public/icons/${suppliedAsset?.filename ?? `icon-${size}.png`}.`,
     );
   }
 }
@@ -523,8 +568,8 @@ export async function checkPublishedPwa(
     { requestTimeoutMs },
   );
   await Promise.all([
-    verifyPng(fetchImpl, '192x192 icon', icon192Url, requestTimeoutMs),
-    verifyPng(fetchImpl, '512x512 icon', icon512Url, requestTimeoutMs),
+    verifyPng(fetchImpl, '192x192 icon', icon192Url, '192x192', requestTimeoutMs),
+    verifyPng(fetchImpl, '512x512 icon', icon512Url, '512x512', requestTimeoutMs),
   ]);
 
   return {
@@ -534,6 +579,8 @@ export async function checkPublishedPwa(
     webBundleUrl,
     manifestUrl: manifestUrl.href,
     manifestId: installSettings.idUrl.href,
+    name: installSettings.name,
+    shortName: installSettings.shortName,
     startUrl: installSettings.startUrl.href,
     scope: installSettings.scopeUrl.href,
     display: manifest.display,
@@ -1133,16 +1180,22 @@ if (isCliEntry()) {
         console.log('beforeinstallprompt: fired');
         console.log('Android Chrome "Install app" menu: not verified; that UI requires a real Android device.');
       } else {
-        console.log('PASS: Daily007 published PWA files are available.');
+        console.log('PASS: Daily007 published manifest and PWA assets match the current web release.');
         console.log(`Page: ${result.pageUrl}`);
         console.log(`Origin: ${result.origin}`);
         console.log(`Web release: ${result.webReleaseMarker}`);
         console.log(`Web bundle: ${result.webBundleUrl}`);
         console.log(`Manifest: ${result.manifestUrl}`);
+        console.log(`Published manifest launcher label: ${result.shortName}`);
+        console.log(`Published manifest install name: ${result.name}`);
         console.log(`Service worker: ${result.serviceWorkerUrl}`);
-        for (const icon of result.iconUrls) console.log(`Icon: ${icon}`);
+        for (const icon of result.iconUrls) console.log(`Published icon matches supplied artwork: ${icon}`);
+        console.log('Android-installed launcher: not inspected; this check verifies published files only.');
       }
     } catch (cause) {
+      if (!browserMode && !installabilityMode) {
+        console.error(`Release checked: ${EXPECTED_DAILY007_WEB_RELEASE_MARKER}`);
+      }
       console.error(cause instanceof Error ? cause.message : String(cause));
       process.exitCode = 1;
     }

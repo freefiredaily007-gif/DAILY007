@@ -9,6 +9,7 @@ import {
   checkPublishedPwaInBrowser,
   checkPublishedPwaInstallability,
   EXPECTED_DAILY007_PWA_ID,
+  EXPECTED_DAILY007_PWA_NAME,
   EXPECTED_DAILY007_WEB_RELEASE_MARKER,
 } from './pwa-published-smoke.mjs';
 
@@ -34,6 +35,7 @@ async function withPublishedPwaFixture(
     stallPath,
     wrongContentTypePath,
     manifestOverrides = {},
+    iconOverrides = {},
     redirects = {},
     appPagePaths = ['/daily007/'],
     appPageContents = {},
@@ -42,6 +44,10 @@ async function withPublishedPwaFixture(
   run,
 ) {
   const fixtureManifest = { ...manifest, ...manifestOverrides };
+  const fixtureIcons = {
+    '192x192': iconOverrides['192x192'] ?? icon192,
+    '512x512': iconOverrides['512x512'] ?? icon512,
+  };
   const page = injectPwaHead(
     html.replace('</body>', `<script src="${appBundlePath}" defer></script></body>`),
     fixtureManifest,
@@ -94,12 +100,12 @@ async function withPublishedPwaFixture(
     }
     if (pathname === '/daily007/icons/icon-192.png') {
       response.writeHead(200, { 'content-type': 'image/png' });
-      response.end(icon192);
+      response.end(fixtureIcons['192x192']);
       return;
     }
     if (pathname === '/daily007/icons/icon-512.png') {
       response.writeHead(200, { 'content-type': 'image/png' });
-      response.end(icon512);
+      response.end(fixtureIcons['512x512']);
       return;
     }
     response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
@@ -161,6 +167,8 @@ test('checks the published page references, manifest, service worker, and both i
     assert.equal(result.startUrl, `${fixtureOrigin}/daily007/`);
     assert.equal(result.scope, `${fixtureOrigin}/daily007/`);
     assert.equal(result.display, 'standalone');
+    assert.equal(result.name, EXPECTED_DAILY007_PWA_NAME);
+    assert.equal(result.shortName, EXPECTED_DAILY007_PWA_NAME);
     assert.equal(result.webReleaseMarker, EXPECTED_DAILY007_WEB_RELEASE_MARKER);
     assert.equal(result.webBundleUrl, `${new URL(url).origin}${appBundlePath}`);
     assert.match(result.serviceWorkerUrl, /\/daily007\/sw\.js$/);
@@ -168,6 +176,48 @@ test('checks the published page references, manifest, service worker, and both i
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-192.png')));
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-512.png')));
   });
+});
+
+test('requires both published launcher names to match the configured Daily007 name', async (t) => {
+  for (const field of ['name', 'short_name']) {
+    await t.test(field, async () => {
+      await withPublishedPwaFixture({
+        manifestOverrides: { [field]: 'Wrong App Name' },
+      }, async (url) => {
+        await assert.rejects(
+          checkPublishedPwa(url),
+          (error) => error instanceof Error
+            && error.message.includes(`release "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}"`)
+            && error.message.includes(`manifest field "${field}" is "Wrong App Name"`)
+            && error.message.includes(`expected "${EXPECTED_DAILY007_PWA_NAME}"`),
+        );
+      });
+    });
+  }
+});
+
+test('rejects a published launcher icon that differs from the supplied release artwork', async (t) => {
+  for (const [size, sourceIcon, filename] of [
+    ['192x192', icon192, 'icon-192.png'],
+    ['512x512', icon512, 'icon-512.png'],
+  ]) {
+    await t.test(size, async () => {
+      const incorrectIcon = Buffer.from(sourceIcon);
+      incorrectIcon[incorrectIcon.length - 1] ^= 0xff;
+
+      await withPublishedPwaFixture({
+        iconOverrides: { [size]: incorrectIcon },
+      }, async (url) => {
+        await assert.rejects(
+          checkPublishedPwa(url),
+          (error) => error instanceof Error
+            && error.message.includes(`release "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}"`)
+            && error.message.includes(`${size} icon`)
+            && error.message.includes(`does not match supplied public/icons/${filename}`),
+        );
+      });
+    });
+  }
 });
 
 test('desktop Chrome reports the installability signal separately from cache behavior', async () => {
