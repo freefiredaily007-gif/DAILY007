@@ -4,13 +4,16 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
-import { checkPublishedPwa } from './pwa-published-smoke.mjs';
+import { checkPublishedPwa, checkPublishedPwaInBrowser } from './pwa-published-smoke.mjs';
 
 const require = createRequire(import.meta.url);
 const { injectPwaHead } = require('./pwa-html.js');
 const manifest = JSON.parse(
   await readFile(join(import.meta.dirname, '../public/manifest.json'), 'utf8'),
 );
+const serviceWorkerSource = await readFile(join(import.meta.dirname, '../public/sw.js'), 'utf8');
+const icon192 = await readFile(join(import.meta.dirname, '../public/icons/icon-192.png'));
+const icon512 = await readFile(join(import.meta.dirname, '../public/icons/icon-512.png'));
 const html = '<!doctype html><html><head><title>Daily007</title></head><body></body></html>';
 
 async function withPublishedPwaFixture(
@@ -43,12 +46,17 @@ async function withPublishedPwaFixture(
           ? 'text/html; charset=utf-8'
           : 'application/javascript; charset=utf-8',
       });
-      response.end('self.addEventListener("install", () => {});');
+      response.end(serviceWorkerSource);
       return;
     }
-    if (pathname === '/daily007/icons/icon-192.png' || pathname === '/daily007/icons/icon-512.png') {
+    if (pathname === '/daily007/icons/icon-192.png') {
       response.writeHead(200, { 'content-type': 'image/png' });
-      response.end(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      response.end(icon192);
+      return;
+    }
+    if (pathname === '/daily007/icons/icon-512.png') {
+      response.writeHead(200, { 'content-type': 'image/png' });
+      response.end(icon512);
       return;
     }
     response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
@@ -113,6 +121,21 @@ test('checks the published page references, manifest, service worker, and both i
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-512.png')));
   });
 });
+
+test('published browser check confirms a clean worker install, app-shell cache, and offline shell navigation', async () => {
+  await withPublishedPwaFixture({}, async (url) => {
+    const result = await checkPublishedPwaInBrowser(url);
+    assert.equal(result.pageUrl, `${new URL(url).origin}/daily007/`);
+    assert.equal(result.scope, `${new URL(url).origin}/daily007/`);
+    assert.equal(result.offlineStatus, 200);
+    assert.equal(result.offlineServedByServiceWorker, true);
+    assert.deepEqual(
+      result.cachedResources.map((resource) => resource.label),
+      ['app page', 'manifest', '192x192 icon', '512x512 icon'],
+    );
+    assert.ok(result.cacheNames.length > 0);
+  });
+}, { timeout: 90_000 });
 
 test('rejects valid JSON with missing or invalid install-critical manifest fields', async (t) => {
   const cases = [

@@ -1,5 +1,10 @@
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const HTML_CONTENT_TYPES = ['text/html'];
 const JSON_CONTENT_TYPES = ['application/json', 'application/manifest+json'];
@@ -220,27 +225,445 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
   };
 }
 
+function browserSmokeUrl(input) {
+  let url;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error('PWA browser smoke check failed at published URL: provide a valid Daily007 URL (https://…).');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('PWA browser smoke check failed at published URL: the URL must use HTTP or HTTPS.');
+  }
+  url.search = '';
+  url.hash = '';
+  if (!url.pathname.endsWith('/')) url.pathname += '/';
+  return url;
+}
+
+async function getFreePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('could not allocate a local Chromium debugging port');
+  }
+  await new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+  return address.port;
+}
+
+async function waitForBrowserEndpoint(url, browserProcess, output) {
+  const deadline = Date.now() + 20_000;
+  let lastError;
+  while (Date.now() < deadline) {
+    if (browserProcess.exitCode !== null) {
+      throw new Error(`Chromium exited with code ${browserProcess.exitCode}.${output()}`);
+    }
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(100);
+  }
+  throw new Error(`Chromium DevTools did not become ready: ${lastError?.message || 'timed out'}.${output()}`);
+}
+
+function cdpConnection(webSocketUrl) {
+  const socket = new WebSocket(webSocketUrl);
+  const pending = new Map();
+  const listeners = new Set();
+  let nextId = 0;
+  let opened = false;
+
+  const ready = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out connecting to Chromium DevTools')), 10_000);
+    socket.addEventListener('open', () => {
+      opened = true;
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+    socket.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error('Chromium DevTools WebSocket failed'));
+    }, { once: true });
+  });
+
+  socket.addEventListener('message', ({ data }) => {
+    const message = JSON.parse(String(data));
+    for (const listener of listeners) listener(message);
+    if (!message.id) return;
+    const request = pending.get(message.id);
+    if (!request) return;
+    pending.delete(message.id);
+    if (message.error) request.reject(new Error(message.error.message));
+    else request.resolve(message.result);
+  });
+
+  return {
+    ready,
+    close() {
+      if (opened) socket.close();
+    },
+    onMessage(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    send(method, params = {}, sessionId) {
+      const id = ++nextId;
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        socket.send(JSON.stringify({
+          id,
+          method,
+          params,
+          ...(sessionId ? { sessionId } : {}),
+        }));
+      });
+    },
+    async evaluate(expression) {
+      const response = await this.send('Runtime.evaluate', {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      if (response.exceptionDetails) {
+        throw new Error(
+          response.exceptionDetails.exception?.description ?? response.exceptionDetails.text,
+        );
+      }
+      return response.result?.value;
+    },
+  };
+}
+
+async function waitForBrowserCondition(connection, expression, stage, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      if (await connection.evaluate(expression)) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(100);
+  }
+  throw new Error(
+    `${stage} did not complete within ${timeoutMs}ms${lastError ? `: ${lastError.message}` : '.'}`,
+  );
+}
+
+function stageError(stage, cause) {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return new Error(`PWA browser smoke check failed at ${stage}: ${detail}`, { cause });
+}
+
+async function checkedBrowserStage(stage, action) {
+  try {
+    return await action();
+  } catch (error) {
+    throw stageError(stage, error);
+  }
+}
+
+/**
+ * Launches a brand-new Chromium profile and verifies the published PWA's
+ * service-worker control, app-shell cache, and offline navigation behavior.
+ * This is deliberately separate from checkPublishedPwa's manifest/installability
+ * validation.
+ */
+export async function checkPublishedPwaInBrowser(
+  input,
+  { chromiumPath = process.env.CHROMIUM_PATH || 'chromium' } = {},
+) {
+  const pageUrl = browserSmokeUrl(input);
+  const debugPort = await getFreePort();
+  const profilePath = await mkdtemp(path.join(os.tmpdir(), 'daily007-pwa-smoke-'));
+  let browser;
+  let connection;
+  let browserOutput = '';
+  let offlineNavigationUrl;
+  let offlineDocumentResponse;
+
+  const output = () => browserOutput.trim() ? `\nChromium output:\n${browserOutput.trim()}` : '';
+  try {
+    await checkedBrowserStage('fresh Chromium startup', async () => {
+      browser = spawn(chromiumPath, [
+        '--headless=new',
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--remote-allow-origins=*',
+        `--remote-debugging-port=${debugPort}`,
+        `--user-data-dir=${profilePath}`,
+        'about:blank',
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      browser.stdout.on('data', (chunk) => { browserOutput += chunk.toString(); });
+      browser.stderr.on('data', (chunk) => { browserOutput += chunk.toString(); });
+
+      const versionResponse = await waitForBrowserEndpoint(
+        `http://127.0.0.1:${debugPort}/json/version`,
+        browser,
+        output,
+      );
+      const version = await versionResponse.json();
+      const targetsResponse = await fetch(`http://127.0.0.1:${debugPort}/json/list`);
+      if (!targetsResponse.ok) {
+        throw new Error(`Chromium page targets returned HTTP ${targetsResponse.status}`);
+      }
+      const targets = await targetsResponse.json();
+      const pageTarget = targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl)
+        || (version.webSocketDebuggerUrl ? {
+          webSocketDebuggerUrl: version.webSocketDebuggerUrl,
+        } : null);
+      if (!pageTarget?.webSocketDebuggerUrl) {
+        throw new Error('Chromium did not expose a DevTools page target');
+      }
+      connection = cdpConnection(pageTarget.webSocketDebuggerUrl);
+      await connection.ready;
+      await connection.send('Page.enable');
+      await connection.send('Runtime.enable');
+      await connection.send('Network.enable');
+      connection.onMessage((message) => {
+        if (
+          message.method === 'Network.responseReceived'
+          && message.params.type === 'Document'
+          && message.params.response.url === offlineNavigationUrl
+        ) {
+          offlineDocumentResponse = message.params.response;
+        }
+      });
+    });
+
+    await checkedBrowserStage(`published page load (${pageUrl.href})`, async () => {
+      await connection.send('Page.navigate', { url: pageUrl.href });
+      await waitForBrowserCondition(
+        connection,
+        'document.readyState === "complete" && location.href.startsWith(' +
+          `${JSON.stringify(pageUrl.href)})`,
+        'published page load',
+      );
+    });
+
+    const worker = await checkedBrowserStage('service-worker activation and page control', async () => {
+      await waitForBrowserCondition(
+        connection,
+        `(async () => {
+          const registration = await navigator.serviceWorker.getRegistration(location.href);
+          return registration?.active?.state === "activated" && Boolean(navigator.serviceWorker.controller);
+        })()`,
+        'service worker activation and page control',
+      );
+      return connection.evaluate(`(async () => {
+        const registration = await navigator.serviceWorker.getRegistration(location.href);
+        return {
+          scope: registration.scope,
+          scriptURL: registration.active.scriptURL,
+          state: registration.active.state,
+          controllerScriptURL: navigator.serviceWorker.controller?.scriptURL ?? null,
+        };
+      })()`);
+    });
+
+    const shell = await checkedBrowserStage('app-shell cache inventory', async () => {
+      const data = await connection.evaluate(`(async () => {
+        const link = document.querySelector('link[rel~="manifest"]');
+        if (!link?.href) throw new Error("published page has no manifest link");
+        const manifestUrl = new URL(link.href);
+        if (manifestUrl.origin !== location.origin) throw new Error("manifest is not on the published page origin");
+        const response = await fetch(manifestUrl);
+        if (!response.ok) throw new Error("manifest fetch returned HTTP " + response.status);
+        let manifest;
+        try { manifest = await response.json(); }
+        catch { throw new Error("manifest response is not valid JSON"); }
+        if (!Array.isArray(manifest.icons)) throw new Error("manifest has no icons array");
+        const iconForSize = (size) => {
+          const icon = manifest.icons.find((item) =>
+            typeof item?.sizes === "string" && item.sizes.trim().split(/\\s+/).includes(size));
+          if (!icon?.src) throw new Error("manifest has no " + size + " icon reference");
+          const url = new URL(icon.src, manifestUrl);
+          if (url.origin !== location.origin) throw new Error(size + " icon is not on the published page origin");
+          return { size, url: url.href };
+        };
+        const scope = new URL((await navigator.serviceWorker.getRegistration(location.href)).scope);
+        return {
+          scope: scope.href,
+          resources: [
+            { label: "app page", url: scope.href, contentType: "text/html" },
+            { label: "manifest", url: manifestUrl.href, contentType: "application/json" },
+            { label: "192x192 icon", ...iconForSize("192x192"), contentType: "image/png" },
+            { label: "512x512 icon", ...iconForSize("512x512"), contentType: "image/png" },
+          ],
+          cacheNames: await caches.keys(),
+        };
+      })()`);
+      if (!data?.resources || !data.cacheNames?.length) {
+        throw new Error('service worker did not create an app-shell cache');
+      }
+      return data;
+    });
+
+    const cachedResources = [];
+    for (const resource of shell.resources) {
+      const cached = await checkedBrowserStage(`cached ${resource.label}`, async () => {
+        const result = await connection.evaluate(`(async () => {
+          const response = await caches.match(${JSON.stringify(resource.url)});
+          if (!response) return { error: "no Cache Storage entry" };
+          return {
+            status: response.status,
+            contentType: (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
+          };
+        })()`);
+        if (result?.error) throw new Error(`${resource.url}: ${result.error}`);
+        if (result?.status !== 200) {
+          throw new Error(`${resource.url}: expected cached HTTP 200, received ${result?.status ?? 'no response'}`);
+        }
+        const allowedTypes = resource.label === 'manifest'
+          ? ['application/json', 'application/manifest+json']
+          : [resource.contentType];
+        if (!allowedTypes.includes(result.contentType)) {
+          throw new Error(
+            `${resource.url}: expected cached ${allowedTypes.join(' or ')}, received ${result.contentType || 'no content type'}`,
+          );
+        }
+        return { ...resource, status: result.status, actualContentType: result.contentType };
+      });
+      cachedResources.push(cached);
+    }
+
+    offlineNavigationUrl = new URL('__daily007_pwa_offline_smoke__', worker.scope).href;
+    await checkedBrowserStage('offline navigation to cached shell', async () => {
+      await connection.send('Network.emulateNetworkConditions', {
+        offline: true,
+        latency: 0,
+        downloadThroughput: 0,
+        uploadThroughput: 0,
+        connectionType: 'none',
+      });
+      const targets = await connection.send('Target.getTargets');
+      const workerTarget = targets.targetInfos?.find((target) =>
+        target.type === 'service_worker' && target.url.startsWith(worker.scriptURL),
+      );
+      if (!workerTarget) {
+        throw new Error(`could not find the active service-worker target for ${worker.scriptURL}`);
+      }
+      const attached = await connection.send('Target.attachToTarget', {
+        targetId: workerTarget.targetId,
+        flatten: true,
+      });
+      if (!attached.sessionId) {
+        throw new Error('Chromium did not provide a service-worker debugging session');
+      }
+      await connection.send('Network.enable', {}, attached.sessionId);
+      await connection.send('Network.emulateNetworkConditions', {
+        offline: true,
+        latency: 0,
+        downloadThroughput: 0,
+        uploadThroughput: 0,
+        connectionType: 'none',
+      }, attached.sessionId);
+      await waitForBrowserCondition(
+        connection,
+        'navigator.onLine === false',
+        'Chromium offline mode',
+        5_000,
+      );
+      await connection.send('Page.navigate', { url: offlineNavigationUrl });
+      await waitForBrowserCondition(
+        connection,
+        `document.readyState === "complete" && location.href === ${JSON.stringify(offlineNavigationUrl)} &&
+          Boolean(document.documentElement && document.body)`,
+        'offline nested-route document load',
+      );
+      if (!offlineDocumentResponse) {
+        throw new Error('Chromium reported no document response for the offline navigation');
+      }
+      if (offlineDocumentResponse.status !== 200 || !offlineDocumentResponse.fromServiceWorker) {
+        throw new Error(
+          `expected an HTTP 200 document served by the service worker, received HTTP ${offlineDocumentResponse.status}` +
+          `${offlineDocumentResponse.fromServiceWorker ? ' from the service worker' : ' without service-worker control'} ` +
+          `(status text: ${offlineDocumentResponse.statusText || 'none'}, URL: ${offlineDocumentResponse.url})`,
+        );
+      }
+    });
+
+    return {
+      pageUrl: pageUrl.href,
+      scope: worker.scope,
+      serviceWorkerUrl: worker.scriptURL,
+      controllerScriptURL: worker.controllerScriptURL,
+      cacheNames: shell.cacheNames,
+      cachedResources,
+      offlineNavigationUrl,
+      offlineStatus: offlineDocumentResponse.status,
+      offlineServedByServiceWorker: offlineDocumentResponse.fromServiceWorker,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('PWA browser smoke check failed at ')) {
+      throw error;
+    }
+    throw stageError('browser smoke run', error);
+  } finally {
+    connection?.close();
+    if (browser && browser.exitCode === null) {
+      browser.kill('SIGTERM');
+      await Promise.race([
+        new Promise((resolve) => browser.once('exit', resolve)),
+        delay(2_000),
+      ]);
+      if (browser.exitCode === null) browser.kill('SIGKILL');
+    }
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+
 function isCliEntry() {
   return process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
 
 if (isCliEntry()) {
-  const input = process.argv.slice(2).find((argument) => argument !== '--')
+  const args = process.argv.slice(2).filter((argument) => argument !== '--');
+  const browserMode = args.includes('--browser');
+  const input = args.find((argument) => argument !== '--browser')
     || process.env.DAILY007_PUBLISHED_URL;
   if (!input) {
     console.error(
-      'Usage: pnpm --filter @workspace/daily007 run test:pwa:published -- <published-url>\n' +
+      `Usage: pnpm --filter @workspace/daily007 run test:pwa:published${browserMode ? ':browser' : ''} -- <published-url>\n` +
       'Or set DAILY007_PUBLISHED_URL to the published Daily007 URL.',
     );
     process.exitCode = 2;
   } else {
     try {
-      const result = await checkPublishedPwa(input);
-      console.log('PASS: Daily007 published PWA files are available.');
+      const result = browserMode
+        ? await checkPublishedPwaInBrowser(input)
+        : await checkPublishedPwa(input);
+      console.log(browserMode
+        ? 'PASS: Daily007 published PWA worker control, app-shell cache, and offline navigation verified.'
+        : 'PASS: Daily007 published PWA files are available.');
       console.log(`Page: ${result.pageUrl}`);
-      console.log(`Manifest: ${result.manifestUrl}`);
-      console.log(`Service worker: ${result.serviceWorkerUrl}`);
-      for (const icon of result.iconUrls) console.log(`Icon: ${icon}`);
+      if (browserMode) {
+        console.log(`Scope: ${result.scope}`);
+        console.log(`Service worker: ${result.serviceWorkerUrl} (activated and controlling)`);
+        for (const resource of result.cachedResources) {
+          console.log(`Cached ${resource.label}: ${resource.url}`);
+        }
+        console.log(
+          `Offline navigation: ${result.offlineNavigationUrl} (HTTP ${result.offlineStatus}, service worker)`,
+        );
+      } else {
+        console.log(`Manifest: ${result.manifestUrl}`);
+        console.log(`Service worker: ${result.serviceWorkerUrl}`);
+        for (const icon of result.iconUrls) console.log(`Icon: ${icon}`);
+      }
     } catch (cause) {
       console.error(cause instanceof Error ? cause.message : String(cause));
       process.exitCode = 1;
