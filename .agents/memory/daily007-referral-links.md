@@ -22,3 +22,9 @@ On 2026-10-14, the user confirmed Android's native share chooser opened after re
 **Why:** The Android Share API was previously covered only by a mock, so native chooser behavior needed real-device confirmation.
 
 **How to apply:** Preserve the invite content and visible recovery state when clipboard copying fails; keep the Android Maestro flow as regression coverage.
+
+On 2026-10-20, the user confirmed that with Daily007 fully closed, opening `daily007://signup?ref=TEST01` on Android launched Sign Up with `TEST01` applied.
+
+**Why:** Source tests cannot confirm that Android launches the app from an external custom-scheme link before Auth consumes the initial URL.
+
+**How to apply:** Preserve the native-intent rewrite from legacy signup links to the Auth entry route, and repeat a real cold-start check after changing Expo Router or referral URL handling.
