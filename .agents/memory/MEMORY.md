@@ -102,3 +102,4 @@
 - [Task concurrency](task-concurrency.md) — work one assigned task at a time; let an in-flight merge finish instead of forcing another task transition.
 - [Daily007 GitHub write access](daily007-github-write-access.md) — a Git pane “Active” badge and configured remote did not prove shell write authorization; verify before public pushes.
 - [Daily007 Chrome PWA install](daily007-pwa-install.md) — Chrome on Android 16 offered installation and the installed app opened without browser controls.
+- [Expo component test compatibility](expo-component-test-compatibility.md) — check React and react-test-renderer versions before bundling component tests; mismatches can fail before rendering.
