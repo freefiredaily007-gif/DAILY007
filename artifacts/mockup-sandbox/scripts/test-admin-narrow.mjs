@@ -9313,6 +9313,56 @@ async function checkAdminTournamentEditSaveAtLargeText() {
       );
     }
   }
+  for (const timezoneId of timezones) {
+    await cdp("Emulation.setTimezoneOverride", { timezoneId });
+    await cdp("Page.navigate", {
+      url: `http://127.0.0.1:${vitePort}/home-carousel-preview.html?admin-tournament-edit-home-refresh=1`,
+    });
+    const timezoneCondition = `Intl.DateTimeFormat().resolvedOptions().timeZone === ${JSON.stringify(timezoneId)}`;
+    const homeCardSelector = '[data-testid="home-upcoming-card-starting-soon"]';
+    const homeCardTextExpression =
+      `document.querySelector(${JSON.stringify(homeCardSelector)})?.innerText ?? ""`;
+    await waitForCondition(
+      `${timezoneCondition} &&
+        window.__daily007HomeCarouselTest?.ready === true &&
+        document.querySelectorAll('[data-testid^="home-upcoming-card-"]').length === 3 &&
+        window.__daily007HomeCarouselTest.getHomePollCount() === 1`,
+      `Home to load its existing schedule in ${timezoneId}`,
+    );
+    const initialHomeCardText = await evaluate(homeCardTextExpression);
+    assert(
+      !initialHomeCardText.includes(expectedDateLabel) && !initialHomeCardText.includes(`${time} IST`),
+      `Home should retain the old tournament schedule until the refresh runs in ${timezoneId}: ${initialHomeCardText}`,
+    );
+
+    const tournamentReadsBeforeRefresh = await evaluate(
+      "window.__daily007HomeCarouselTest.getTournamentReadCount()",
+    );
+    assert(
+      await evaluate("window.__daily007HomeCarouselTest.applySavedAdminEditOnNextHomeRefresh()"),
+      "Home should queue the persisted Admin response for its next tournament refresh.",
+    );
+    assert(
+      await evaluate("window.__daily007HomeCarouselTest.fireHomePoll()"),
+      "Home's scheduled polling callback should be active after the Admin schedule edit.",
+    );
+    await waitForCondition(
+      `window.__daily007HomeCarouselTest.getTournamentReadCount() === ${tournamentReadsBeforeRefresh + 1} &&
+        (${homeCardTextExpression}).includes(${JSON.stringify(expectedDateLabel)}) &&
+        (${homeCardTextExpression}).includes(${JSON.stringify(`${time} IST`)})`,
+      `Home to show the saved IST schedule after refresh in ${timezoneId}`,
+    );
+    const refreshedHomeCard = await evaluate(`({
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      text: ${homeCardTextExpression},
+    })`);
+    assert(
+      refreshedHomeCard?.timezone === timezoneId &&
+        refreshedHomeCard.text.includes(expectedDateLabel) &&
+        refreshedHomeCard.text.includes(`${time} IST`),
+      `Home must show the saved IST date and time in ${timezoneId}: ${JSON.stringify(refreshedHomeCard)}.`,
+    );
+  }
 }
 
 let vitePort;
@@ -10169,7 +10219,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during large-text tournament edit checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Admin saves the edited IST schedule in Pacific/Kiritimati, and Tournament Details and My Matches show the same date/time in Kiritimati and Los Angeles.");
+      console.log("PASS — Admin saves the edited IST schedule in Pacific/Kiritimati, and Home, Tournament Details, and My Matches show the same date/time in Kiritimati and Los Angeles.");
     } else if (adminFullAdminRecoveryOnly) {
       await checkAdminFullAdminRoleRefreshRecovery();
       assert(

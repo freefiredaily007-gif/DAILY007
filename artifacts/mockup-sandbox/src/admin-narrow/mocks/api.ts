@@ -354,6 +354,8 @@ export async function setSessionForIdentity(
 
 let tournamentReadCount = 0;
 let tournamentDetailReadCount = 0;
+let savedAdminEditedHomeSchedule: { date: string; time: string; startsAt: string } | null = null;
+let applySavedAdminEditOnNextHomeRead = false;
 let nextTournamentReadError: string | null = null;
 let nextMyRegistrationReadError: string | null = null;
 let nextAdminUsersReadError: string | null = null;
@@ -520,6 +522,34 @@ export function updateTournamentPreview(updates: Record<string, unknown>) {
     );
   }
   return updatedTournament ? { ...updatedTournament } : null;
+}
+
+export function configureAdminEditedTournamentHomeRefreshPreview() {
+  const serialized = window.sessionStorage.getItem("daily007-admin-edited-tournament-home-refresh");
+  const saved = serialized ? JSON.parse(serialized) as Record<string, unknown> : null;
+  if (
+    !saved ||
+    typeof saved.date !== "string" ||
+    typeof saved.time !== "string" ||
+    typeof saved.startsAt !== "string" ||
+    !Number.isFinite(Date.parse(saved.startsAt))
+  ) {
+    throw new Error("The Admin-edited tournament response is missing a valid schedule.");
+  }
+  savedAdminEditedHomeSchedule = {
+    date: saved.date,
+    time: saved.time,
+    startsAt: saved.startsAt,
+  };
+  applySavedAdminEditOnNextHomeRead = false;
+}
+
+export function applySavedAdminEditOnNextHomeRefresh() {
+  if (!savedAdminEditedHomeSchedule) {
+    throw new Error("The saved Admin-edited tournament schedule is not configured for Home.");
+  }
+  applySavedAdminEditOnNextHomeRead = true;
+  return true;
 }
 const largestTextRegistrations = [
   {
@@ -908,6 +938,14 @@ export const Api = {
     if (deferredTournamentRead && !deferredTournamentRead.claimed) {
       deferredTournamentRead.claimed = true;
       return deferredTournamentRead.promise;
+    }
+    if (applySavedAdminEditOnNextHomeRead && savedAdminEditedHomeSchedule) {
+      const homeTournament = previewTournaments.find((tournament) => String(tournament.id) === "starting-soon");
+      if (!homeTournament) {
+        throw new Error("The Home schedule preview is missing its tournament to refresh.");
+      }
+      Object.assign(homeTournament, savedAdminEditedHomeSchedule);
+      applySavedAdminEditOnNextHomeRead = false;
     }
     const createdPreviewTournaments = previewTournaments.filter((tournament) =>
       String(tournament.id).startsWith("preview-created-admin-"));

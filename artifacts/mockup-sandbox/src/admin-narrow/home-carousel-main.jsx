@@ -22,6 +22,7 @@ const accessibilityAnnouncements = [];
 let fakeScreenReaderEnabled = false;
 const previewParams = new URLSearchParams(window.location.search);
 const adminTournamentHomeRefreshPreview = previewParams.get("admin-tournament-home-refresh") === "1";
+const adminTournamentEditHomeRefreshPreview = previewParams.get("admin-tournament-edit-home-refresh") === "1";
 const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const singleHomeCardPreview = previewParams.get("single-card") === "1";
@@ -240,6 +241,9 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     apiMocks.previewTournaments.length,
     ...(singleHomeCardPreview ? homeTournaments.slice(0, 1) : homeTournaments),
   );
+  if (adminTournamentEditHomeRefreshPreview) {
+    apiMocks.configureAdminEditedTournamentHomeRefreshPreview();
+  }
   if (homeInitialRetryScenario === "registration-empty") {
     apiMocks.previewTournaments.splice(0, apiMocks.previewTournaments.length);
   }
@@ -367,6 +371,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
       if (!existing) apiMocks.previewTournaments.push(tournament);
       return String(tournament.id);
     },
+    applySavedAdminEditOnNextHomeRefresh: apiMocks.applySavedAdminEditOnNextHomeRefresh,
     setNextRegistrationResponse: apiMocks.setNextMyRegistrationReadResponse,
     failNextTournamentRead: apiMocks.failNextTournamentRead,
     failNextRegistrationRead: apiMocks.failNextHomeCarouselRegistrationRead,
