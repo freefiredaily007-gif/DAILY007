@@ -373,6 +373,7 @@ let playerPreviewProfile = {
 };
 let istDateSurfacePreview = false;
 let myMatchesPhonePreview = false;
+let tournamentDetailPhonePreview = false;
 let myRegistrationReadCount = 0;
 let myRegistrationPreview: any[] | null = null;
 let homeCarouselRegistrationPreview = false;
@@ -575,6 +576,38 @@ const istDateSurfaceRegistration = {
   teamName: "New Year Test Team",
   tournament: { ...istDateSurfaceTournament },
 };
+const tournamentDetailPhoneTournament = {
+  id: "phone-preview-tournament-detail",
+  name: "Daily007 International Championship Tournament Details Phone Preview",
+  mode: "Clash Squad",
+  gameMode: "clash_squad",
+  teamType: "Squad",
+  teamSize: 4,
+  date: "",
+  time: "",
+  startsAt: "",
+  entryCoins: 20,
+  prizePool: 500,
+  totalSlots: 12,
+  filledSlots: 2,
+  filledPlayerSlots: 5,
+  totalPlayerSlots: 48,
+  status: "ongoing",
+  enabled: true,
+  map: "Bermuda",
+  version: "Latest",
+  capacityLabel: "12 teams",
+  rules: "Local phone-width fixture for Tournament Details.",
+};
+const tournamentDetailPhoneRegistration = {
+  id: "phone-preview-tournament-detail-registration",
+  tournamentId: tournamentDetailPhoneTournament.id,
+  status: "approved",
+  roomPublished: true,
+  roomId: "D7-PHONE-ROOM-48291",
+  roomPassword: "PHONE-PREVIEW-PASS-2026",
+  teamName: "Daily007 Championship Squad",
+};
 
 export function configurePlayerLargestTextPreview() {
   playerLargestTextPreview = true;
@@ -604,6 +637,19 @@ export function configureIstDateSurfacePreview(
     Reflect.deleteProperty(istDateSurfaceRegistration.tournament, "startsAt");
   }
   return { ...istDateSurfaceTournament };
+}
+
+export function configureTournamentDetailPhonePreview() {
+  tournamentDetailPhonePreview = true;
+  const startsAt = new Date(Date.now() - 60 * 60 * 1000);
+  tournamentDetailPhoneTournament.startsAt = startsAt.toISOString();
+  tournamentDetailPhoneTournament.date = startsAt.toISOString().slice(0, 10);
+  const hour = startsAt.getUTCHours();
+  const hour12 = hour % 12 || 12;
+  tournamentDetailPhoneTournament.time =
+    `${String(hour12).padStart(2, "0")}:${String(startsAt.getUTCMinutes()).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`;
+  myRegistrationReadCount = 0;
+  return { ...tournamentDetailPhoneTournament };
 }
 
 export function configureMyMatchesPhonePreview() {
@@ -844,7 +890,9 @@ export const Api = {
   },
   tournament: async (id: string) => {
     tournamentDetailReadCount += 1;
-    const tournament = istDateSurfacePreview && String(id) === istDateSurfaceTournament.id
+    const tournament = tournamentDetailPhonePreview && String(id) === tournamentDetailPhoneTournament.id
+      ? tournamentDetailPhoneTournament
+      : istDateSurfacePreview && String(id) === istDateSurfaceTournament.id
       ? istDateSurfaceTournament
       : [...largestTextTournaments, ...previewTournaments].find((item) => String(item.id) === String(id));
     if (!tournament) throw new Error(`Preview tournament ${id} was not found.`);
@@ -889,6 +937,12 @@ export const Api = {
     }
     if (istDateSurfacePreview) {
       return [{ ...istDateSurfaceRegistration, tournament: { ...istDateSurfaceTournament } }];
+    }
+    if (tournamentDetailPhonePreview) {
+      return [{
+        ...tournamentDetailPhoneRegistration,
+        tournament: { ...tournamentDetailPhoneTournament },
+      }];
     }
     if (myMatchesPhonePreview) {
       return myRegistrationPreview?.map((registration) => ({

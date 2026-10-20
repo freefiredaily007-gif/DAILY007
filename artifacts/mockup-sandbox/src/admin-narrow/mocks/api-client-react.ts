@@ -695,8 +695,27 @@ export const getGetTournamentParticipantsQueryKey = (tournamentId: string) =>
 export const getGetTournamentResultsQueryKey = (tournamentId: string) =>
   ["preview-tournament-results", tournamentId] as const;
 
-const previewTournamentParticipants = { entries: [], total: 0 };
+let previewTournamentParticipants: { participants: Array<Record<string, unknown>> } = {
+  participants: [],
+};
 const previewTournamentResults = { status: "pending", entries: [] };
+export function configureTournamentDetailPhonePreview() {
+  previewTournamentParticipants = {
+    participants: [
+      {
+        teamName: "Daily007 Championship Squad",
+        players: [
+          "Captain With A Long International Tournament Name",
+          "Player Two",
+          "Player Three",
+          "Player Four",
+        ],
+        status: "approved",
+      },
+    ],
+  };
+}
+
 const refetchPreviewTournamentParticipants = async () => ({
   data: previewTournamentParticipants,
   isSuccess: true,

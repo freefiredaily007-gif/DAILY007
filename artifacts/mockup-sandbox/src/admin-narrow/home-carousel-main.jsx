@@ -27,6 +27,7 @@ const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const singleHomeCardPreview = previewParams.get("single-card") === "1";
 const homeStartSelectionPreview = previewParams.get("home-start-selection") === "1";
 const myMatchesPhonePreview = previewParams.get("my-matches-phone") === "1";
+const tournamentDetailPhonePreview = previewParams.get("tournament-detail-phone") === "1";
 const homeInitialRetryScenario = previewParams.get("home-initial-retry");
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
@@ -137,6 +138,19 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     }
     apiMocks.configureMyMatchesPhonePreview();
     const screenModule = await import("../../../daily007/src/screens/MyMatches");
+    root.render(React.createElement(screenModule.default));
+    return;
+  }
+
+  if (tournamentDetailPhonePreview) {
+    if (requestedScreen !== "TDetail") {
+      throw new Error("The Tournament Details phone preview requires screen=TDetail.");
+    }
+    const tournament = apiMocks.configureTournamentDetailPhonePreview();
+    const apiClientMocks = await import("./mocks/api-client-react");
+    apiClientMocks.configureTournamentDetailPhonePreview();
+    globalThis.__previewRouteParams = { id: tournament.id };
+    const screenModule = await import("../../../daily007/src/screens/TDetail");
     root.render(React.createElement(screenModule.default));
     return;
   }
