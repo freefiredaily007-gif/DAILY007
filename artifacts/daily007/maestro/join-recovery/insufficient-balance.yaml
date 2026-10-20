@@ -54,18 +54,38 @@ appId: host.exp.exponent
     text: "Insufficient wallet balance: this entry costs 75 coins."
 - assertVisible:
     text: "Submit attempts: 1"
+- scrollUntilVisible:
+    element:
+      id: join-form-captain-game-name
+    direction: UP
 - assertVisible:
     id: join-form-captain-game-name
     text: "Native Test Captain"
+- scrollUntilVisible:
+    element:
+      id: join-form-captain-game-uid
+    direction: DOWN
 - assertVisible:
     id: join-form-captain-game-uid
     text: "123456789"
+- scrollUntilVisible:
+    element:
+      id: join-form-team-name
+    direction: DOWN
 - assertVisible:
     id: join-form-team-name
     text: "Retry Squad"
+- scrollUntilVisible:
+    element:
+      id: join-form-teammate-name-1
+    direction: DOWN
 - assertVisible:
     id: join-form-teammate-name-1
     text: "Native Teammate"
+- scrollUntilVisible:
+    element:
+      id: join-form-teammate-uid-1
+    direction: DOWN
 - assertVisible:
     id: join-form-teammate-uid-1
     text: "987654321"
@@ -92,18 +112,38 @@ appId: host.exp.exponent
     visible:
       text: "Submit attempts: 2"
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: join-form-captain-game-name
+    direction: UP
 - assertVisible:
     id: join-form-captain-game-name
     text: "Native Test Captain"
+- scrollUntilVisible:
+    element:
+      id: join-form-captain-game-uid
+    direction: DOWN
 - assertVisible:
     id: join-form-captain-game-uid
     text: "123456789"
+- scrollUntilVisible:
+    element:
+      id: join-form-team-name
+    direction: DOWN
 - assertVisible:
     id: join-form-team-name
     text: "Retry Squad"
+- scrollUntilVisible:
+    element:
+      id: join-form-teammate-name-1
+    direction: DOWN
 - assertVisible:
     id: join-form-teammate-name-1
     text: "Native Teammate"
+- scrollUntilVisible:
+    element:
+      id: join-form-teammate-uid-1
+    direction: DOWN
 - assertVisible:
     id: join-form-teammate-uid-1
     text: "987654321"
