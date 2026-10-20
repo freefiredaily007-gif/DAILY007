@@ -9,6 +9,7 @@ let blockedSetItem = null;
 let blockedGetItem = null;
 let blockedRemoveItem = null;
 let nextGetItemError = null;
+let nextRemoveItemError = null;
 const storage = {
   async getItem(key) {
     assert.equal(key, SESSION_KEY);
@@ -44,6 +45,11 @@ const storage = {
       blockedRemoveItem = null;
       block.entered.resolve();
       await block.release.promise;
+    }
+    if (nextRemoveItemError) {
+      const error = nextRemoveItemError;
+      nextRemoveItemError = null;
+      throw error;
     }
     storedSession = null;
   },
@@ -124,6 +130,53 @@ test("a saved-session record without a token is removed", async () => {
   assert.equal(currentUser(), null);
 });
 
+test("failed cleanup of malformed and tokenless sessions stays inactive and retries after storage recovers", async (t) => {
+  const invalidRecords = [
+    ["malformed", "{broken saved session"],
+    ["tokenless", JSON.stringify({ id: "missing-token-account", name: "Incomplete" })],
+  ];
+
+  for (const [name, invalidRecord] of invalidRecords) {
+    await t.test(name, async (subtest) => {
+      await setSession(null);
+      sessionRemoveCalls = 0;
+      storedSession = invalidRecord;
+      nextRemoveItemError = new Error("Temporary AsyncStorage remove failure.");
+      let verificationCalls = 0;
+      const verifyWithApi = async () => {
+        verificationCalls += 1;
+        return { id: "unexpected-account", token: "unexpected-token" };
+      };
+      subtest.after(async () => {
+        nextRemoveItemError = null;
+        await setSession(null);
+      });
+
+      await assert.rejects(
+        restoreDaily007Session(getSession, verifyWithApi, setSession),
+        /Temporary AsyncStorage remove failure/,
+      );
+      assert.equal(currentUser(), null, "failed invalid-session cleanup must not activate a session");
+      assert.equal(
+        http.defaults.headers.common.Authorization,
+        undefined,
+        "the invalid token must not become an Authorization header",
+      );
+      assert.equal(storedSession, invalidRecord, "failed storage cleanup must leave the record available for retry");
+      assert.equal(sessionRemoveCalls, 1);
+      assert.equal(verificationCalls, 0, "API verification must not run for an unreadable invalid session");
+
+      const retry = await restoreDaily007Session(getSession, verifyWithApi, setSession);
+      assert.deepEqual(retry, { status: "empty" });
+      assert.equal(storedSession, null, "a later retry should remove the invalid record");
+      assert.equal(currentUser(), null);
+      assert.equal(http.defaults.headers.common.Authorization, undefined);
+      assert.equal(sessionRemoveCalls, 2);
+      assert.equal(verificationCalls, 0);
+    });
+  }
+});
+
 test("invalid saved-session cleanup cannot overwrite a newer sign-in", async () => {
   const newAccount = { id: "new-cleanup-account", token: "new-cleanup-token", role: "user" };
   await setSession(null);
@@ -139,6 +192,43 @@ test("invalid saved-session cleanup cannot overwrite a newer sign-in", async () 
   await Promise.all([restore, signIn]);
   assert.equal(currentUser(), newAccount);
   assert.deepEqual(JSON.parse(storedSession), newAccount);
+});
+
+test("a failed invalid-session cleanup cannot displace a concurrent newer sign-in", async (t) => {
+  const invalidRecord = "{not valid JSON";
+  const newAccount = { id: "new-after-cleanup-error", token: "new-after-cleanup-token", role: "user" };
+  await setSession(null);
+  storedSession = invalidRecord;
+  nextRemoveItemError = new Error("Temporary AsyncStorage remove failure.");
+  const blockedRemoval = blockNextStorageRemoval();
+  const restore = getSession();
+  let signIn;
+
+  try {
+    await blockedRemoval.entered.promise;
+    assert.equal(currentUser(), null);
+    assert.equal(http.defaults.headers.common.Authorization, undefined);
+
+    signIn = setSession(newAccount);
+    assert.equal(currentUser(), null, "the new session must wait for durable persistence");
+    blockedRemoval.release.resolve();
+    const [restoreResult, signInResult] = await Promise.all([restore, signIn]);
+
+    assert.equal(restoreResult, null, "stale cleanup must not restore the invalid record");
+    assert.equal(signInResult, undefined);
+    assert.equal(currentUser(), newAccount);
+    assert.equal(
+      http.defaults.headers.common.Authorization,
+      `Bearer ${newAccount.token}`,
+      "only the newer persisted token may be installed for API requests",
+    );
+    assert.deepEqual(JSON.parse(storedSession), newAccount);
+  } finally {
+    blockedRemoval.release.resolve();
+    nextRemoveItemError = null;
+    await Promise.allSettled([restore, signIn].filter(Boolean));
+    await setSession(null);
+  }
 });
 
 test("a refresh write already in progress cannot restore the session after logout", async () => {
