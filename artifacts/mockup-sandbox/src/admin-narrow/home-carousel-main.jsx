@@ -21,6 +21,10 @@ const screenReaderListeners = new Set();
 const accessibilityAnnouncements = [];
 let fakeScreenReaderEnabled = false;
 const previewParams = new URLSearchParams(window.location.search);
+const requestedFontScale = Number(previewParams.get("fontScale"));
+if (Number.isFinite(requestedFontScale) && requestedFontScale >= 1) {
+  globalThis.__daily007LargeTextScale = requestedFontScale;
+}
 const adminTournamentHomeRefreshPreview = previewParams.get("admin-tournament-home-refresh") === "1";
 const adminTournamentEditHomeRefreshPreview = previewParams.get("admin-tournament-edit-home-refresh") === "1";
 const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";

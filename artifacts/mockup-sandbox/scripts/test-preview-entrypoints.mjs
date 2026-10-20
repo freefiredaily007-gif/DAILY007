@@ -21,6 +21,7 @@ let browserOutput = "";
 let socket;
 let messageId = 0;
 const phoneViewport = { width: 390, height: 844, deviceScaleFactor: 1, mobile: true };
+const tournamentDetailOnly = process.argv.includes("--tournament-detail-only");
 const previewGroups = [
   {
     config: "vite.admin-narrow.config.ts",
@@ -68,6 +69,8 @@ const previewGroups = [
         path: "/home-carousel-preview.html?screen=TDetail&tournament-detail-phone=1",
         screen: "Tournament Details",
         viewport: { ...phoneViewport, width: 320 },
+        largeTextViewport: { ...phoneViewport, width: 390 },
+        largeTextScales: [1.5, 2],
         markers: [
           "Daily007 International Championship Tournament Details Phone Preview",
           "SCHEDULED START:",
@@ -90,6 +93,17 @@ const previewGroups = [
           'data-testid="participant-count-heading"',
           "Daily007 Championship Squad",
           "Captain With A Long International Tournament Name",
+        ],
+        textMarkers: [
+          "SCHEDULED START:",
+          "D7-PHONE-ROOM-48291",
+          "PHONE-PREVIEW-PASS-2026",
+          "Daily007 Championship Squad",
+          "Captain With A Long International Tournament Name",
+        ],
+        interactiveMarkers: [
+          { testId: "room-credential-copy-room-id", label: "Copy Room ID" },
+          { testId: "room-credential-copy-password", label: "Copy Password" },
         ],
       },
       {
@@ -457,8 +471,11 @@ async function checkPreview(url, entry) {
 
   const expectedMarkers = JSON.stringify(entry.markers);
   const expectedPhoneMarkers = JSON.stringify(entry.phoneMarkers ?? entry.markers);
+  const expectedTextMarkers = JSON.stringify(entry.textMarkers ?? []);
+  const expectedInteractiveMarkers = JSON.stringify(entry.interactiveMarkers ?? []);
   const expectedUrl = JSON.stringify(url);
   const expectedPhoneWidth = (entry.viewport ?? phoneViewport).width;
+  const expectedFontScale = entry.fontScale ?? 1;
   const expression = `(() => {
     const text = document.body?.innerText ?? "";
     const html = document.body?.innerHTML ?? "";
@@ -468,6 +485,8 @@ async function checkPreview(url, entry) {
       marker.startsWith('data-testid="') ? !html.includes(marker) : !text.includes(marker)
     );
     const phoneMarkers = ${expectedPhoneMarkers};
+    const textMarkers = ${expectedTextMarkers};
+    const interactiveMarkers = ${expectedInteractiveMarkers};
     const findMarkerElement = (marker) => {
       const testId = marker.match(/^data-testid="([^"]+)"$/)?.[1];
       if (testId) {
@@ -488,6 +507,8 @@ async function checkPreview(url, entry) {
       document.body?.scrollWidth ?? 0,
     );
     const overflowPx = Math.max(0, scrollWidth - layoutWidth);
+    const fontScale = Number(globalThis.__daily007LargeTextScale ?? 1);
+    const fontScaleOk = Math.abs(fontScale - ${expectedFontScale}) < 0.001;
     const markerLayouts = phoneMarkers.map((marker) => {
       const element = findMarkerElement(marker);
       if (!element) return { marker, visible: false, clipped: false };
@@ -509,6 +530,51 @@ async function checkPreview(url, entry) {
       };
     });
     const clippedMarkers = markerLayouts.filter((layout) => !layout.visible || layout.clipped);
+    const overflowingTextMarkers = textMarkers
+      .map((marker) => {
+        const element = findMarkerElement(marker);
+        if (!element) return { marker, missing: true };
+        return {
+          marker,
+          missing: false,
+          overflowX: element.scrollWidth > element.clientWidth + 1,
+          overflowY: element.scrollHeight > element.clientHeight + 1,
+          scrollWidth: element.scrollWidth,
+          clientWidth: element.clientWidth,
+          scrollHeight: element.scrollHeight,
+          clientHeight: element.clientHeight,
+        };
+      })
+      .filter((layout) => layout.missing || layout.overflowX || layout.overflowY);
+    const unusableInteractiveMarkers = interactiveMarkers
+      .map(({ testId, label }) => {
+        const element = [...document.querySelectorAll("[data-testid]")]
+          .find((candidate) => candidate.getAttribute("data-testid") === testId);
+        if (!element) return { testId, missing: true };
+        const rect = element.getBoundingClientRect();
+        return {
+          testId,
+          missing: false,
+          role: element.getAttribute("role"),
+          label: element.getAttribute("aria-label"),
+          disabled: element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true",
+          smallTarget: rect.width < 40 || rect.height < 40,
+          wrongLabel: element.getAttribute("aria-label") !== label,
+          bounds: {
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        };
+      })
+      .filter((control) =>
+        control.missing
+        || control.role !== "button"
+        || control.disabled
+        || control.smallTarget
+        || control.wrongLabel
+      );
     const overflowingElements = [...document.querySelectorAll("body *")]
       .map((element) => {
         const rect = element.getBoundingClientRect();
@@ -537,7 +603,10 @@ async function checkPreview(url, entry) {
       && window.innerWidth === ${expectedPhoneWidth}
       && Math.abs(layoutWidth - ${expectedPhoneWidth}) <= 1
       && overflowPx <= 1
-      && clippedMarkers.length === 0;
+      && fontScaleOk
+      && clippedMarkers.length === 0
+      && overflowingTextMarkers.length === 0
+      && unusableInteractiveMarkers.length === 0;
     return {
       url: window.location.href,
       ready: window.location.href === ${expectedUrl} && missing.length === 0,
@@ -547,11 +616,14 @@ async function checkPreview(url, entry) {
         screenWidth: window.screen.width,
         screenHeight: window.screen.height,
         devicePixelRatio: window.devicePixelRatio,
+        fontScale,
         visualWidth: window.visualViewport?.width ?? null,
         visualScale: window.visualViewport?.scale ?? null,
         layoutWidth,
         scrollWidth,
         overflowingElements,
+        overflowingTextMarkers,
+        unusableInteractiveMarkers,
         metaViewport: document.querySelector('meta[name="viewport"]')?.content ?? null,
       },
       overflowPx,
@@ -643,6 +715,11 @@ try {
   await startChromium(path.join(temporaryRoot, "chromium-profile"));
 
   for (const group of previewGroups) {
+    const entries = tournamentDetailOnly
+      ? group.entries.filter((entry) => entry.screen === "Tournament Details")
+      : group.entries;
+    if (entries.length === 0) continue;
+
     const port = await getFreePort();
     activeViteOutput = "";
     activeVite = spawn(
@@ -669,15 +746,29 @@ try {
     activeVite.stdout.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
     activeVite.stderr.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
 
-    for (const entry of group.entries) {
-      const url = `http://127.0.0.1:${port}${entry.path}`;
-      await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
-      await cdp("Emulation.setDeviceMetricsOverride", entry.viewport ?? phoneViewport);
-      await checkPreview(url, entry);
-      console.log(
-        `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
-          `${(entry.viewport ?? phoneViewport).width}×${(entry.viewport ?? phoneViewport).height}`,
-      );
+    for (const entry of entries) {
+      const variants = [
+        { viewport: entry.viewport ?? phoneViewport, fontScale: null },
+        ...(entry.largeTextScales ?? []).map((fontScale) => ({
+          viewport: entry.largeTextViewport ?? entry.viewport ?? phoneViewport,
+          fontScale,
+        })),
+      ];
+      for (const variant of variants) {
+        const previewUrl = new URL(entry.path, `http://127.0.0.1:${port}`);
+        if (variant.fontScale !== null) {
+          previewUrl.searchParams.set("fontScale", String(variant.fontScale));
+        }
+        const url = previewUrl.toString();
+        await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
+        await cdp("Emulation.setDeviceMetricsOverride", variant.viewport);
+        await checkPreview(url, { ...entry, viewport: variant.viewport, fontScale: variant.fontScale });
+        console.log(
+          `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
+            `${variant.viewport.width}×${variant.viewport.height}` +
+            (variant.fontScale === null ? "" : `, ${variant.fontScale}× text`),
+        );
+      }
     }
 
     await stopProcess(activeVite);
