@@ -26,6 +26,7 @@ const dateSurfacePreview = previewParams.get("ist-date-surfaces") === "1";
 const longHomeCardNamesPreview = previewParams.get("long-names") === "1";
 const singleHomeCardPreview = previewParams.get("single-card") === "1";
 const homeStartSelectionPreview = previewParams.get("home-start-selection") === "1";
+const myMatchesPhonePreview = previewParams.get("my-matches-phone") === "1";
 const homeInitialRetryScenario = previewParams.get("home-initial-retry");
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
@@ -130,6 +131,16 @@ const istTime = (timestamp) => {
 };
 
 void import("./mocks/api.ts").then(async (apiMocks) => {
+  if (myMatchesPhonePreview) {
+    if (requestedScreen !== "MyMatches") {
+      throw new Error("The My Matches phone preview requires screen=MyMatches.");
+    }
+    apiMocks.configureMyMatchesPhonePreview();
+    const screenModule = await import("../../../daily007/src/screens/MyMatches");
+    root.render(React.createElement(screenModule.default));
+    return;
+  }
+
   if (dateSurfacePreview && requestedScreen !== "Home") {
     if (requestedScreen !== "MyMatches" && requestedScreen !== "TDetail") {
       throw new Error(`Unsupported IST date preview screen: ${requestedScreen}`);

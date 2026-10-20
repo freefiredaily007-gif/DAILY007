@@ -38,6 +38,33 @@ const previewGroups = [
         phoneMarkers: ["DAILY007 TOURNAMENTS", "GAME MODES"],
       },
       {
+        path: "/home-carousel-preview.html?screen=MyMatches&my-matches-phone=1",
+        screen: "My Matches",
+        markers: ["MY MATCHES", 'data-testid="my-matches-tab-completed"'],
+        phoneMarkers: ["MY MATCHES", 'data-testid="my-matches-tab-completed"'],
+        interaction: {
+          selector: '[data-testid="my-matches-tab-completed"]',
+          markers: [
+            "Daily007 International Championship Grand Finals",
+            'data-testid="my-matches-result-1-0"',
+            'data-testid="my-matches-result-name-1-0"',
+            'data-testid="my-matches-result-details-1-0"',
+            'data-testid="my-matches-result-prize-1-0"',
+            'data-testid="room-credential-copy-room-id"',
+            'data-testid="room-credential-copy-password"',
+          ],
+          phoneMarkers: [
+            "Daily007 International Championship Grand Finals",
+            'data-testid="my-matches-result-1-0"',
+            'data-testid="my-matches-result-name-1-0"',
+            'data-testid="my-matches-result-details-1-0"',
+            'data-testid="my-matches-result-prize-1-0"',
+            'data-testid="room-credential-copy-room-id"',
+            'data-testid="room-credential-copy-password"',
+          ],
+        },
+      },
+      {
         path: "/keyboard-forms-preview.html",
         screen: "Wallet and Edit Profile",
         markers: ['data-testid="wallet-open-recharge"'],
@@ -283,6 +310,114 @@ async function startChromium(profilePath) {
   await cdp("Emulation.setDeviceMetricsOverride", phoneViewport);
 }
 
+async function checkPreviewInteraction(entry) {
+  const interaction = entry.interaction;
+  if (!interaction) return;
+  const selector = JSON.stringify(interaction.selector);
+  const clicked = await evaluate(`(() => {
+    const control = document.querySelector(${selector});
+    if (!control) return false;
+    control.click();
+    return true;
+  })()`);
+  if (!clicked) {
+    throw new Error(`${entry.screen} preview could not find interaction control ${interaction.selector}.`);
+  }
+
+  const markers = JSON.stringify(interaction.markers);
+  const phoneMarkers = JSON.stringify(interaction.phoneMarkers ?? interaction.markers);
+  const expectedPhoneWidth = phoneViewport.width;
+  const expression = `(() => {
+    const text = document.body?.innerText ?? "";
+    const html = document.body?.innerHTML ?? "";
+    const root = document.documentElement;
+    const markers = ${markers};
+    const phoneMarkers = ${phoneMarkers};
+    const findMarkerElement = (marker) => {
+      const testId = marker.match(/^data-testid="([^"]+)"$/)?.[1];
+      if (testId) {
+        return [...document.querySelectorAll("[data-testid]")]
+          .find((element) => element.getAttribute("data-testid") === testId) ?? null;
+      }
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue?.includes(marker)) return node.parentElement;
+      }
+      return null;
+    };
+    const missing = markers.filter((marker) =>
+      marker.startsWith('data-testid="') ? !html.includes(marker) : !text.includes(marker)
+    );
+    const layoutWidth = root?.clientWidth ?? 0;
+    const scrollWidth = Math.max(root?.scrollWidth ?? 0, document.body?.scrollWidth ?? 0);
+    const clippedMarkers = phoneMarkers.map((marker) => {
+      const element = findMarkerElement(marker);
+      if (!element) return { marker, visible: false, clipped: false };
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return {
+        marker,
+        visible: rect.width > 0 && rect.height > 0
+          && style.display !== "none"
+          && style.visibility !== "hidden"
+          && style.opacity !== "0",
+        clipped: rect.left < -1 || rect.right > layoutWidth + 1,
+        bounds: {
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+        },
+      };
+    }).filter((marker) => !marker.visible || marker.clipped);
+    return {
+      ready: missing.length === 0,
+      missing,
+      clippedMarkers,
+      layoutWidth,
+      scrollWidth,
+      overflowPx: Math.max(0, scrollWidth - layoutWidth),
+      phoneViewportOk: Boolean(root && document.body)
+        && window.innerWidth === ${expectedPhoneWidth}
+        && Math.abs(layoutWidth - ${expectedPhoneWidth}) <= 1
+        && Math.max(0, scrollWidth - layoutWidth) <= 1
+        && clippedMarkers.length === 0,
+      text: text.slice(0, 1_200),
+    };
+  })()`;
+
+  const deadline = Date.now() + 10_000;
+  let state;
+  while (Date.now() < deadline) {
+    if (browserErrors.length > 0) {
+      throw new Error(
+        `${entry.screen} preview raised a browser error:\n${browserErrors.join("\n")}`,
+      );
+    }
+    if (externalRequests.length > 0) {
+      throw new Error(
+        `${entry.screen} preview attempted external requests:\n${externalRequests.join("\n")}`,
+      );
+    }
+    state = await evaluate(expression);
+    if (state.ready) {
+      if (!state.phoneViewportOk) {
+        throw new Error(
+          `${entry.screen} preview interaction failed phone-width layout checks: ` +
+            `${JSON.stringify(state)}.`,
+        );
+      }
+      return;
+    }
+    await delay(100);
+  }
+  throw new Error(
+    `${entry.screen} preview interaction did not render its expected content.` +
+      ` Missing: ${state?.missing?.join(", ") ?? interaction.markers.join(", ")}.` +
+      `\nPage text:\n${state?.text ?? "Page did not respond."}`,
+  );
+}
+
 async function checkPreview(url, entry) {
   await cdp("Page.stopLoading").catch(() => undefined);
   browserErrors.length = 0;
@@ -439,7 +574,10 @@ async function checkPreview(url, entry) {
         );
       }
       state = await evaluate(expression);
-      if (state.ready && !state.hasViteError && state.phoneViewportOk) return;
+      if (state.ready && !state.hasViteError && state.phoneViewportOk) {
+        await checkPreviewInteraction(entry);
+        return;
+      }
     }
     await delay(100);
   }

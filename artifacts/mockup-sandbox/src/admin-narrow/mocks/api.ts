@@ -372,6 +372,7 @@ let playerPreviewProfile = {
   gameUid: "12345678901234567890",
 };
 let istDateSurfacePreview = false;
+let myMatchesPhonePreview = false;
 let myRegistrationReadCount = 0;
 let myRegistrationPreview: any[] | null = null;
 let homeCarouselRegistrationPreview = false;
@@ -605,6 +606,87 @@ export function configureIstDateSurfacePreview(
   return { ...istDateSurfaceTournament };
 }
 
+export function configureMyMatchesPhonePreview() {
+  myMatchesPhonePreview = true;
+  const firstStart = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const secondStart = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+  myRegistrationPreview = [
+    {
+      id: "phone-preview-registration-finals",
+      tournamentId: "phone-preview-finals",
+      status: "approved",
+      roomPublished: true,
+      roomId: "D7-GRAND-FINALS-ROOM-48291",
+      roomPassword: "FINAL-ROOM-PASSWORD-2026",
+      tournament: {
+        id: "phone-preview-finals",
+        name: "Daily007 International Championship Grand Finals",
+        mode: "Battle Royale",
+        teamType: "Squad",
+        date: firstStart.slice(0, 10),
+        time: "07:30 PM",
+        startsAt: firstStart,
+        status: "completed",
+        enabled: true,
+        results: [
+          {
+            rank: 1,
+            gameName: "International Championship Winner",
+            teamName: "Daily007 Grand Finals Squad",
+            kills: 8,
+            prizeCoins: 300,
+          },
+          {
+            rank: 2,
+            gameName: "Runner Up Champion",
+            teamName: "Phoenix Tournament Team",
+            kills: 5,
+            prizeCoins: 150,
+          },
+          {
+            rank: 3,
+            gameName: "Third Place Competitor",
+            teamName: "Storm Breakers",
+            kills: 3,
+            prizeCoins: 50,
+          },
+        ],
+      },
+    },
+    {
+      id: "phone-preview-registration-weekly",
+      tournamentId: "phone-preview-weekly",
+      status: "approved",
+      teamName: "Weekend Winners",
+      tournament: {
+        id: "phone-preview-weekly",
+        name: "Weekend Free Fire Solo Showdown",
+        mode: "Lone Wolf",
+        teamType: "Solo",
+        date: secondStart.slice(0, 10),
+        time: "06:00 PM",
+        startsAt: secondStart,
+        status: "completed",
+        enabled: true,
+        results: [
+          {
+            rank: 1,
+            gameName: "Solo Showdown Champion",
+            kills: 6,
+            prizeCoins: 120,
+          },
+          {
+            rank: 2,
+            gameName: "Solo Showdown Finalist",
+            kills: 4,
+            prizeCoins: 60,
+          },
+        ],
+      },
+    },
+  ];
+}
+
 export function configureAdminTournamentEmptyFilterPreview() {
   const upcomingTournament = previewTournaments.find(
     (tournament) => String(tournament.id) === "preview-upcoming",
@@ -807,6 +889,12 @@ export const Api = {
     }
     if (istDateSurfacePreview) {
       return [{ ...istDateSurfaceRegistration, tournament: { ...istDateSurfaceTournament } }];
+    }
+    if (myMatchesPhonePreview) {
+      return myRegistrationPreview?.map((registration) => ({
+        ...registration,
+        tournament: { ...registration.tournament },
+      })) ?? [];
     }
     if (playerLargestTextPreview) {
       return largestTextRegistrations.map((registration) => ({ ...registration }));
