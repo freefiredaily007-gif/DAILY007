@@ -393,7 +393,7 @@ test("a successful password change survives an API restart and resets only that 
   assert.deepEqual(attemptsAfterChange.get(secondUserId), { failures: 1, in_flight: 0 });
 });
 
-test("a rejected password change leaves the original password usable after an API restart", async () => {
+test("exhausting rejected password changes does not block the original password after an API restart", async () => {
   const userId = randomUUID();
   const originalPassword = "original-password-after-rejected-change";
   const email = `password-change-rejected-restart-${userId}@example.test`;
@@ -410,9 +410,27 @@ test("a rejected password change leaves the original password usable after an AP
   const api = await startApiProcess();
 
   try {
-    const rejectedChange = await passwordChange(api.origin, token, "definitely-wrong-current-password");
-    assert.equal(rejectedChange.status, 401, "an incorrect current password must reject the change");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const rejectedChange = await passwordChange(
+        api.origin,
+        token,
+        "definitely-wrong-current-password",
+      );
+      assert.equal(
+        rejectedChange.status,
+        401,
+        `incorrect current password attempt ${attempt + 1} must reject the change`,
+      );
+    }
+
     await waitForSettledPasswordAttempts([userId]);
+    const rateLimitedChange = await passwordChange(
+      api.origin,
+      token,
+      "definitely-wrong-current-password",
+    );
+    assert.equal(rateLimitedChange.status, 429, "the next password change must be blocked at the attempt limit");
+    assert.ok(Number(rateLimitedChange.retryAfter) > 0);
 
     const beforeRestart = await pool.query<{ password_salt: string; password_hash: string }>(
       "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
@@ -421,13 +439,74 @@ test("a rejected password change leaves the original password usable after an AP
     assert.equal(beforeRestart.rows[0]?.password_salt, originalCredentials.salt);
     assert.equal(beforeRestart.rows[0]?.password_hash, originalCredentials.hash);
 
+    const cooldownBeforeRestart = await pool.query<{
+      failures: number;
+      in_flight: number;
+      expires_at: Date;
+    }>(
+      `SELECT failures, in_flight, expires_at
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1`,
+      [userId],
+    );
+    assert.deepEqual(
+      {
+        failures: cooldownBeforeRestart.rows[0]?.failures,
+        in_flight: cooldownBeforeRestart.rows[0]?.in_flight,
+      },
+      { failures: 5, in_flight: 0 },
+      "the password-change cooldown should be exhausted before restart",
+    );
+    assert.ok(cooldownBeforeRestart.rows[0]?.expires_at.getTime() > Date.now());
+
     await api.stop();
     const restartedApi = await startApiProcess();
 
+    const cooldownAfterRestart = await pool.query<{
+      failures: number;
+      in_flight: number;
+      expires_at: Date;
+    }>(
+      `SELECT failures, in_flight, expires_at
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1`,
+      [userId],
+    );
+    assert.deepEqual(
+      {
+        failures: cooldownAfterRestart.rows[0]?.failures,
+        in_flight: cooldownAfterRestart.rows[0]?.in_flight,
+      },
+      { failures: 5, in_flight: 0 },
+      "restarting the API must preserve the active password-change cooldown",
+    );
+    assert.equal(
+      cooldownAfterRestart.rows[0]?.expires_at.getTime(),
+      cooldownBeforeRestart.rows[0]?.expires_at.getTime(),
+      "restarting the API must not change the password-change cooldown expiry",
+    );
+
     const originalPasswordLogin = await passwordLogin(restartedApi.origin, email, originalPassword);
-    assert.equal(originalPasswordLogin.status, 200, "the original password should still sign in after restart");
+    assert.equal(
+      originalPasswordLogin.status,
+      200,
+      "the correct password must still sign in while password changes are rate-limited",
+    );
     assert.equal(originalPasswordLogin.body.id, userId);
     assert.equal(typeof originalPasswordLogin.body.token, "string");
+    const signedInToken = originalPasswordLogin.body.token as string;
+
+    const stillRateLimitedChange = await passwordChange(
+      restartedApi.origin,
+      signedInToken,
+      originalPassword,
+    );
+    assert.equal(
+      stillRateLimitedChange.status,
+      429,
+      "sign-in must work without clearing the active password-change cooldown",
+    );
+    assert.ok(Number(stillRateLimitedChange.retryAfter) > 0);
 
     const replacementPasswordLogin = await passwordLogin(
       restartedApi.origin,
@@ -444,6 +523,30 @@ test("a rejected password change leaves the original password usable after an AP
     );
     assert.equal(afterRestart.rows[0]?.password_salt, originalCredentials.salt);
     assert.equal(afterRestart.rows[0]?.password_hash, originalCredentials.hash);
+
+    const cooldownAfterSignIns = await pool.query<{
+      failures: number;
+      in_flight: number;
+      expires_at: Date;
+    }>(
+      `SELECT failures, in_flight, expires_at
+         FROM daily007_password_change_attempts
+        WHERE user_id = $1`,
+      [userId],
+    );
+    assert.deepEqual(
+      {
+        failures: cooldownAfterSignIns.rows[0]?.failures,
+        in_flight: cooldownAfterSignIns.rows[0]?.in_flight,
+      },
+      { failures: 5, in_flight: 0 },
+      "sign-in must not consume or reset the password-change cooldown",
+    );
+    assert.equal(
+      cooldownAfterSignIns.rows[0]?.expires_at.getTime(),
+      cooldownBeforeRestart.rows[0]?.expires_at.getTime(),
+      "sign-in must not extend the password-change cooldown",
+    );
   } finally {
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
   }
