@@ -1,0 +1,22 @@
+appId: host.exp.Exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/wallet-admin-credit-refund-test
+- extendedWaitUntil:
+    visible:
+      id: wallet-credit-refund-fixture-banner
+    timeout: 15000
+- assertVisible:
+    id: wallet-credit-refund-verification
+- assertVisible:
+    text: "Wallet loaded one separate manual credit and one cancellation refund"
+- assertVisible:
+    id: wallet-transaction-manual-credit
+- assertVisible:
+    text: "Admin wallet adjustment — entry fee correction"
+- assertVisible:
+    text: "+12"
+- assertVisible:
+    id: wallet-cancellation-refund-row
+- assertVisible:
+    text: "Entry fee refunded — Entry Fee Correction Cup (tournament cancelled). +25 coins credited. Date: 2030-02-03 10:21. Balance after: 137 coins."

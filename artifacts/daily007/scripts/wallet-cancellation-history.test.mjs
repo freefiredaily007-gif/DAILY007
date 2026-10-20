@@ -20,6 +20,18 @@ const nativeTestSource = await readFile(
   new URL('../src/screens/WalletCancellationRefundNativeTest.tsx', import.meta.url),
   'utf8',
 );
+const creditRefundScreenTestSource = await readFile(
+  new URL('../src/screens/WalletAdminCreditRefundNativeTest.tsx', import.meta.url),
+  'utf8',
+);
+const creditRefundRouteSource = await readFile(
+  new URL('../app/wallet-admin-credit-refund-test.tsx', import.meta.url),
+  'utf8',
+);
+const creditRefundMaestroFlow = await readFile(
+  new URL('../maestro/wallet-admin-credit-refund/separate-entries.yaml', import.meta.url),
+  'utf8',
+);
 const maestroFlow = await readFile(
   new URL('../maestro/wallet-cancellation-refund/accessibility-label.yaml', import.meta.url),
   'utf8',
@@ -75,6 +87,32 @@ test('Wallet displays the tournament name, refund reason, and exact signed amoun
   assert.match(refundRowSource, /testID = 'wallet-cancellation-refund-row'/);
 });
 
+test('Wallet screen renders a manual credit and cancellation refund as separate history rows', () => {
+  assert.match(creditRefundScreenTestSource, /reason: 'admin_credit:entry fee correction'/);
+  assert.match(creditRefundScreenTestSource, /amount: 12/);
+  assert.match(creditRefundScreenTestSource, /Admin wallet adjustment — entry fee correction/);
+  assert.match(creditRefundScreenTestSource, /reason: 'tournament_cancel_refund'/);
+  assert.match(creditRefundScreenTestSource, /amount: 25/);
+  assert.match(creditRefundScreenTestSource, /Entry fee refunded — Entry Fee Correction Cup \(tournament cancelled\)/);
+  assert.match(creditRefundScreenTestSource, /<Wallet onHistoryChange=\{observeHistory\} \/>/);
+  assert.match(creditRefundScreenTestSource, /'Wallet loaded one separate manual credit and one cancellation refund'/);
+  assert.match(creditRefundScreenTestSource, /verifyEntries\(items\)/);
+  assert.match(creditRefundRouteSource, /WalletAdminCreditRefundNativeTest/);
+  assert.match(creditRefundMaestroFlow, /wallet-admin-credit-refund-test/);
+  assert.match(creditRefundMaestroFlow, /id: wallet-transaction-manual-credit/);
+  assert.match(creditRefundMaestroFlow, /Admin wallet adjustment — entry fee correction/);
+  assert.match(creditRefundMaestroFlow, /text: "\+12"/);
+  assert.match(creditRefundMaestroFlow, /id: wallet-cancellation-refund-row/);
+  assert.match(
+    creditRefundMaestroFlow,
+    /Entry fee refunded — Entry Fee Correction Cup \(tournament cancelled\)\. \+25 coins credited\. Date: 2030-02-03 10:21\. Balance after: 137 coins\./,
+  );
+  assert.match(
+    packageSource.scripts['test:android-wallet-admin-credit-refund'],
+    /^maestro test --test-output-dir=.* maestro\/wallet-admin-credit-refund$/,
+  );
+});
+
 test('Wallet displays each prize tournament and saved placement in one accessible history item', () => {
   const prize = {
     amount: 100,
@@ -93,7 +131,7 @@ test('Wallet displays each prize tournament and saved placement in one accessibl
   assert.match(walletScreenSource, /const isMatchPrize = item\.reason === 'match_prize'/);
   assert.match(
     walletScreenSource,
-    /isMatchPrize \|\| isLeaderboardReward \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
+    /isLeaderboardReward \|\| \(isMatchPrize && !prizeMatchId\) \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
   );
 });
 
@@ -136,7 +174,7 @@ test('Wallet clearly displays and announces each retried leaderboard reward', ()
   assert.match(walletScreenSource, /const isLeaderboardReward = walletTransactionIsLeaderboardReward\(item\)/);
   assert.match(
     walletScreenSource,
-    /isMatchPrize \|\| isLeaderboardReward \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
+    /isLeaderboardReward \|\| \(isMatchPrize && !prizeMatchId\) \? \{\s*accessible: true,\s*accessibilityRole: 'text' as const,\s*accessibilityLabel: walletTransactionAccessibilityLabel\(item\)/,
   );
   assert.match(
     walletScreenSource,
