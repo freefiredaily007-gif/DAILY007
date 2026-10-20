@@ -5,6 +5,7 @@ import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
+import { tournamentInstantFromStored } from "../src/lib/daily007-schedule-time";
 import compatCoreRouter from "../src/routes/daily007-compat-core";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
 
@@ -4235,5 +4236,106 @@ test("a failed first-place payout rolls back completely and the winner can retry
     } finally {
       await cleanupFixture(fixture);
     }
+  }
+});
+
+test("compatibility tournament create and edit preserve the IST schedule through database reloads", async () => {
+  const fixture = await createFixture();
+  const title = `IST API round-trip ${randomUUID()}`;
+  const createdSchedule = {
+    date: "2999-01-01",
+    time: "02:30 AM",
+    storedStart: "2999-01-01T02:30:00.000Z",
+    canonicalStart: "2998-12-31T21:00:00.000Z",
+  };
+  const editedSchedule = {
+    date: "3000-01-01",
+    time: "01:15 AM",
+    storedStart: "3000-01-01T01:15:00.000Z",
+    canonicalStart: "2999-12-31T19:45:00.000Z",
+  };
+
+  const assertReturnedSchedule = (
+    value: unknown,
+    expected: typeof createdSchedule,
+    context: string,
+  ): { id: string; date: string; time: string; startsAt: string } => {
+    assert.ok(value && typeof value === "object", `${context} should return a tournament object`);
+    const tournament = value as Record<string, unknown>;
+    assert.equal(tournament.date, expected.date, `${context} should preserve the entered IST date`);
+    assert.equal(tournament.time, expected.time, `${context} should preserve the entered IST time`);
+    assert.equal(tournament.startsAt, expected.canonicalStart, `${context} should return the intended UTC instant`);
+    return tournament as { id: string; date: string; time: string; startsAt: string };
+  };
+  const assertPersistedSchedule = async (
+    tournamentId: string,
+    expected: typeof createdSchedule,
+    context: string,
+  ): Promise<void> => {
+    const stored = await pool.query<{ starts_at: Date | string }>(
+      "SELECT starts_at FROM daily007_v2_matches WHERE id = $1",
+      [tournamentId],
+    );
+    assert.ok(stored.rows[0], `${context} should remain stored in the database`);
+    assert.equal(
+      new Date(stored.rows[0].starts_at).toISOString(),
+      expected.storedStart,
+      `${context} should retain the entered IST wall time in the legacy stored column`,
+    );
+    assert.equal(
+      tournamentInstantFromStored(stored.rows[0].starts_at).toISOString(),
+      expected.canonicalStart,
+      `${context} should resolve from the stored value to the intended instant`,
+    );
+  };
+
+  try {
+    await withServer(async (origin) => {
+      const createResponse = await fetch(`${origin}/tournaments`, {
+        method: "POST",
+        headers: authHeaders(fixture.adminId),
+        body: JSON.stringify({
+          name: title,
+          mode: "Battle Royale",
+          teamType: "Solo",
+          date: createdSchedule.date,
+          time: createdSchedule.time,
+          entryCoins: 0,
+          prizePool: 0,
+          rules: "Timezone round-trip integration test.",
+          banner: "br",
+          imageUrl: null,
+          prizeDist: "1st: 0 coins",
+        }),
+      });
+      const createBody = await createResponse.text();
+      assert.equal(createResponse.status, 201, `tournament creation should succeed: ${createBody}`);
+      const created = assertReturnedSchedule(JSON.parse(createBody) as unknown, createdSchedule, "create response");
+      await assertPersistedSchedule(created.id, createdSchedule, "created tournament");
+
+      const createdReloadResponse = await fetch(`${origin}/tournaments/${created.id}`);
+      assert.equal(createdReloadResponse.status, 200);
+      assertReturnedSchedule(await createdReloadResponse.json() as unknown, createdSchedule, "create reload");
+
+      const editResponse = await fetch(`${origin}/tournaments/${created.id}`, {
+        method: "PATCH",
+        headers: authHeaders(fixture.adminId),
+        body: JSON.stringify({
+          date: editedSchedule.date,
+          time: editedSchedule.time,
+        }),
+      });
+      const editBody = await editResponse.text();
+      assert.equal(editResponse.status, 200, `tournament edit should succeed: ${editBody}`);
+      assertReturnedSchedule(JSON.parse(editBody) as unknown, editedSchedule, "edit response");
+      await assertPersistedSchedule(created.id, editedSchedule, "edited tournament");
+
+      const editedReloadResponse = await fetch(`${origin}/tournaments/${created.id}`);
+      assert.equal(editedReloadResponse.status, 200);
+      assertReturnedSchedule(await editedReloadResponse.json() as unknown, editedSchedule, "edit reload");
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_matches WHERE title = $1", [title]);
+    await cleanupFixture(fixture);
   }
 });
