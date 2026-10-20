@@ -57,12 +57,14 @@ type ConcurrentSweepFixture = {
   matchIds: string[];
   registrationIds: string[];
   payerId: string;
+  startsAt: string;
 };
 
 type SweepWorkerEvent = {
   type: string;
   count?: number;
   id?: string;
+  candidateIds?: string[];
 };
 
 const SWEEP_WORKER_BUNDLE = "/tmp/daily007-auto-cancel-sweep-worker.cjs";
@@ -425,9 +427,11 @@ async function createConcurrentSweepFixture(): Promise<ConcurrentSweepFixture> {
   );
   const registrationIds = matchIds.map(() => randomUUID());
   const payerId = randomUUID();
-  const startsAt = matchIds.map(
-    (_, index) => new Date(Date.now() - 60 * 60 * 1000 + index * 1_000).toISOString(),
-  );
+  const startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  // Reverse insertion order so the shared-time UUID tie-break, not heap order, determines batches.
+  const insertionOrderMatchIds = [...matchIds].reverse();
+  const insertionOrderRegistrationIds = [...registrationIds].reverse();
+  const startsAtValues = insertionOrderMatchIds.map(() => startsAt);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -442,17 +446,17 @@ async function createConcurrentSweepFixture(): Promise<ConcurrentSweepFixture> {
        SELECT id, 'Concurrent Cursor Candidate', 'clash', 'clash_squad', 2,
               starts_at, 'open', true, false, NULL, NULL, false
          FROM unnest($1::uuid[], $2::timestamptz[]) AS candidates(id, starts_at)`,
-      [matchIds, startsAt],
+      [insertionOrderMatchIds, startsAtValues],
     );
     await client.query(
       `INSERT INTO daily007_v2_registrations
          (id, match_id, captain_user_id, entry_coins_paid, status)
        SELECT registration_id, match_id, $3, 1, 'approved'
          FROM unnest($1::uuid[], $2::uuid[]) AS registrations(registration_id, match_id)`,
-      [registrationIds, matchIds, payerId],
+      [insertionOrderRegistrationIds, insertionOrderMatchIds, payerId],
     );
     await client.query("COMMIT");
-    return { matchIds, registrationIds, payerId };
+    return { matchIds, registrationIds, payerId, startsAt };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -914,7 +918,7 @@ test("a pending registration that fills the final seat before the cancellation l
   }
 });
 
-test("concurrent PostgreSQL sweeps cannot move the saved cursor backwards", async () => {
+test("concurrent PostgreSQL sweeps preserve same-time cursor order without moving backwards", async () => {
   const fixture = await createConcurrentSweepFixture();
   const slowWorker = startSweepWorker(fixture.matchIds[99]);
   let fastWorker: ReturnType<typeof startSweepWorker> | undefined;
@@ -923,16 +927,28 @@ test("concurrent PostgreSQL sweeps cannot move the saved cursor backwards", asyn
     await pool.query(
       "INSERT INTO daily007_v2_settings (id, settings) VALUES (1, '{}'::jsonb)",
     );
+    const sharedStartTimes = await pool.query<{ count: number }>(
+      `SELECT count(DISTINCT starts_at)::integer AS count
+         FROM daily007_v2_matches
+        WHERE id = ANY($1::uuid[])`,
+      [fixture.matchIds],
+    );
+    assert.equal(
+      sharedStartTimes.rows[0]?.count,
+      1,
+      "all candidates must have the same scheduled time",
+    );
     const slowBatch = await slowWorker.waitForEvent(
       (event) => event.type === "batch-selected",
     );
     assert.equal(slowBatch.count, 100);
+    assert.deepEqual(slowBatch.candidateIds, fixture.matchIds.slice(0, 100));
     await slowWorker.waitForEvent(
       (event) => event.type === "cursor-paused" && event.id === fixture.matchIds[99],
     );
-    assert.equal(
-      (await storedCursor())?.id,
-      fixture.matchIds[98],
+    assert.deepEqual(
+      await storedCursor(),
+      { id: fixture.matchIds[98], startsAt: fixture.startsAt },
       "the slow worker must pause after saving only its 99th candidate",
     );
 
@@ -941,10 +957,11 @@ test("concurrent PostgreSQL sweeps cannot move the saved cursor backwards", asyn
       (event) => event.type === "batch-selected",
     );
     assert.equal(fastBatch.count, 100);
+    assert.deepEqual(fastBatch.candidateIds, fixture.matchIds.slice(100));
     await fastWorker.done;
-    assert.equal(
-      (await storedCursor())?.id,
-      fixture.matchIds[199],
+    assert.deepEqual(
+      await storedCursor(),
+      { id: fixture.matchIds[199], startsAt: fixture.startsAt },
       "the fast worker must commit progress through the second batch",
     );
 
@@ -952,9 +969,9 @@ test("concurrent PostgreSQL sweeps cannot move the saved cursor backwards", asyn
     slowWorker.child.stdin.end();
     await slowWorker.done;
 
-    assert.equal(
-      (await storedCursor())?.id,
-      fixture.matchIds[199],
+    assert.deepEqual(
+      await storedCursor(),
+      { id: fixture.matchIds[199], startsAt: fixture.startsAt },
       "the slow worker's stale cursor must not overwrite newer saved progress",
     );
 

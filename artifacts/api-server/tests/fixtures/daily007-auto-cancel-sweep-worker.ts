@@ -16,7 +16,12 @@ function report(event: Record<string, unknown>): void {
 queryPool.query = async (text, values) => {
   if (text.includes('SELECT m.id, m.starts_at AS "startsAt"')) {
     const result = await originalQuery(text, values);
-    report({ type: "batch-selected", count: result.rows.length });
+    const candidates = result.rows as Array<{ id: string }>;
+    report({
+      type: "batch-selected",
+      count: candidates.length,
+      candidateIds: candidates.map(({ id }) => id),
+    });
     return result;
   }
 
