@@ -179,6 +179,25 @@ try {
     path.join(daily007Root, "src/components/GoogleSSOButton.tsx"),
     "utf8",
   );
+  const authScreenSource = await readFile(
+    path.join(daily007Root, "src/screens/Auth.tsx"),
+    "utf8",
+  );
+  assert.match(
+    authScreenSource,
+    /if \(Platform\.OS === 'ios' && err\) \{\s*AccessibilityInfo\.announceForAccessibility\(err\);/,
+    "iOS should explicitly announce Auth errors once when the message changes.",
+  );
+  assert.match(
+    authScreenSource,
+    /accessibilityLiveRegion=\{err && Platform\.OS !== 'ios'\s*&&/,
+    "Auth errors should use live regions on Android and web, not as the iOS announcement path.",
+  );
+  assert.match(
+    authScreenSource,
+    /preserveAccessibilityFocusWhileLoading=\{true\}/,
+    "The login action should retain screen-reader focus while authentication is pending.",
+  );
   assert.match(
     googleButtonSource,
     /function announceGoogleStatus\(message: string\)\s*\{\s*if \(Platform\.OS !== 'web'\)\s*\{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
@@ -1270,6 +1289,12 @@ try {
 
   await setInputValue('[data-testid="auth-email"]', "password-signup@example.test", "existing account login email after reload");
   await setInputValue('[data-testid="auth-password"]', "incorrectpass123", "incorrect existing account password");
+  const wrongPasswordSubmitFocusedBefore = await evaluate(`(() => {
+    const submit = document.querySelector('[data-testid="auth-submit"]');
+    submit?.focus();
+    return document.activeElement === submit;
+  })()`);
+  assert.equal(wrongPasswordSubmitFocusedBefore, true, "The login action should be focusable before submission.");
   await clickSelector('[data-testid="auth-submit"]', "reject an incorrect password for the existing signup account");
   await waitForExpression(
     `document.body.innerText.includes("Email or password is incorrect.")`,
@@ -1280,10 +1305,24 @@ try {
     loginErrorVisible: document.body.innerText.includes("Email or password is incorrect."),
     protectedTabCount: document.querySelectorAll('[data-testid^="mock-tab-"]').length,
     signupFormVisible: document.body.innerText.includes("PLAYER PROFILE"),
+    errorAccessibleLabel: document.querySelector('[data-testid="auth-error"] [aria-live="assertive"]')
+      ?.getAttribute("aria-label") ?? null,
+    errorLiveRegion: document.querySelector('[data-testid="auth-error"] [aria-live="assertive"]')
+      ?.getAttribute("aria-live") ?? null,
+    loginActionFocused: document.activeElement === document.querySelector('[data-testid="auth-submit"]'),
   }))()`);
   assert.equal(rejectedRestartLoginView.loginErrorVisible, true, "The incorrect-password error must remain visible.");
   assert.equal(rejectedRestartLoginView.protectedTabCount, 0, "An incorrect password must not expose protected tabs.");
   assert.equal(rejectedRestartLoginView.signupFormVisible, false, "An incorrect password must not return to signup.");
+  assert.equal(
+    rejectedRestartLoginView.errorAccessibleLabel,
+    "Email or password is incorrect.",
+    "The wrong-password message should expose a clear accessible label.",
+  );
+  assert.equal(rejectedRestartLoginView.errorLiveRegion, "assertive",
+    "The web Auth error should use its assertive live region.");
+  assert.equal(rejectedRestartLoginView.loginActionFocused, true,
+    "The wrong-password response should not move focus away from the Login action.");
   assert.equal(rejectedRestartLogin.passwordSignupAttempts, 1, "A failed login must not register the account again.");
   assert.equal(rejectedRestartLogin.passwordAuthAttempts, 2);
   assert.equal(rejectedRestartLogin.passwordSignupLoginCredentialMatched, false);
@@ -2409,9 +2448,13 @@ try {
   assert.equal(lowercaseReferralReport.unexpectedRequests.length, 0);
 
   const callsBeforeReferralRelaunch = lowercaseReferralReport.calls.length;
+  const referralPageTimeOrigin = await evaluate("performance.timeOrigin");
   await cdp("Page.reload", { ignoreCache: true });
   await waitForExpression(
-    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    `performance.timeOrigin !== ${referralPageTimeOrigin}
+      && Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))
+      && window.__daily007GoogleSignupWalletTest.snapshot()
+        .then((state) => state.storedSession?.token === "mock-daily007-session-token")`,
     "signed-in tabs restored after the referred Google signup relaunch",
   );
   await clickSelector(

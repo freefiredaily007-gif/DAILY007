@@ -177,6 +177,12 @@ export default function Auth({
   }, [sessionSaveErrorAnnouncement]);
 
   React.useEffect(() => {
+    if (Platform.OS === 'ios' && err) {
+      AccessibilityInfo.announceForAccessibility(err);
+    }
+  }, [err]);
+
+  React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
       const invite = referralSignupFromUrl(url, {
         platform: Platform.OS === 'web' ? 'web' : 'native',
@@ -448,7 +454,8 @@ export default function Auth({
           text={err}
           testID={authErrorTestID}
           accessibilityLabel={err || undefined}
-          accessibilityLiveRegion={err && !(Platform.OS === 'android' && sessionSaveError)
+          accessibilityLiveRegion={err && Platform.OS !== 'ios'
+            && !(Platform.OS === 'android' && sessionSaveError)
             ? 'assertive'
             : undefined}
         />
@@ -671,7 +678,7 @@ export default function Auth({
               disabled={googleBusy || (!isSignup && loginRetryRemaining > 0)}
               onPress={submit}
               loading={busy}
-              preserveAccessibilityFocusWhileLoading={isSignup}
+              preserveAccessibilityFocusWhileLoading={true}
               scaleOnPress
               textColor={AUTH.text}
               textStyle={s.submitText}
