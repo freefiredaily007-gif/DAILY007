@@ -35,29 +35,46 @@ const workflowSource = await readFile(
   'utf8',
 );
 
-test('the Android route uses a local-only withdrawal fixture and compares pasted text exactly', () => {
+test('the Android route uses two local fixtures and compares each pasted value exactly', () => {
   assert.match(nativeFixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
+  const fixtureAccounts = [...nativeFixtureSource.matchAll(/account: '([^']+)'/g)]
+    .map((match) => match[1]);
+  assert.equal(fixtureAccounts.length, 2);
+  assert.ok(
+    fixtureAccounts[1].length > fixtureAccounts[0].length,
+    'The second synthetic UPI ID must be longer than the original.',
+  );
   assert.ok(
     nativeFixtureSource.includes("account: 'upi-copy-fixture@daily007.invalid'"),
     'The fixture should use a non-sensitive synthetic UPI ID.',
   );
-  assert.match(nativeFixtureSource, /\(Api as any\)\.adminWithdrawals = async \(\) => \[FIXTURE\]/);
+  assert.ok(
+    nativeFixtureSource.includes("account: 'longer.clipboard-check-2026@daily007.invalid'"),
+    'The longer fixture should be synthetic and distinct from the original fixture.',
+  );
+  assert.match(nativeFixtureSource, /const FIXTURES = \[/);
+  assert.match(nativeFixtureSource, /\(Api as any\)\.adminWithdrawals = async \(\) => FIXTURES/);
   assert.match(nativeFixtureSource, /\(Api as any\)\.adminPayments = async \(\) => \[\]/);
-  assert.match(nativeFixtureSource, /testOnlyRedactAccount: true/);
+  assert.equal((nativeFixtureSource.match(/testOnlyRedactAccount: true/g) ?? []).length, 2);
   assert.match(nativeFixtureSource, /secureTextEntry/);
-  assert.match(nativeFixtureSource, /value === FIXTURE\.account/);
+  assert.match(nativeFixtureSource, /pastedValues\[fixture\.id\] === fixture\.account/);
+  assert.match(nativeFixtureSource, /withdrawal-upi-paste-destination-\$\{index \+ 1\}/);
   assert.match(nativeFixtureSource, /<AdminPayments \/>/);
   assert.match(screenSource, /p\.testOnlyRedactAccount \? 'Test fixture hidden' : p\.account/);
   assert.doesNotMatch(nativeFixtureSource, /adminMarkWithdrawalPaid|adminWithdrawalAction|adminPaymentAction/);
 });
 
-test('the Android flow copies from AdminPayments, pastes through Android, and reports only a safe result', () => {
+test('the Android flow copies and pastes both fixtures and reports only safe results', () => {
   assert.match(maestroFlow, /withdrawal-upi-copy-test/);
   assert.match(maestroFlow, /copy-withdrawal-upi-withdrawal-upi-copy-fixture/);
-  assert.match(maestroFlow, /longPressOn:/);
+  assert.match(maestroFlow, /copy-withdrawal-upi-withdrawal-upi-copy-fixture-long/);
+  assert.match(maestroFlow, /withdrawal-upi-paste-destination-1/);
+  assert.match(maestroFlow, /withdrawal-upi-paste-destination-2/);
+  assert.equal((maestroFlow.match(/longPressOn:/g) ?? []).length, 2);
   assert.match(maestroFlow, /text: "Paste"/);
-  assert.match(maestroFlow, /Pasted value matches exactly/);
-  assert.doesNotMatch(maestroFlow, /upi-copy-fixture@daily007\.invalid|takeScreenshot|screenshot|approve|payout/i);
+  assert.match(maestroFlow, /First fixture pasted value matches exactly/);
+  assert.match(maestroFlow, /Longer fixture pasted value matches exactly/);
+  assert.doesNotMatch(maestroFlow, /upi-copy-fixture@daily007\.invalid|clipboard-check-2026|takeScreenshot|screenshot|approve|payout/i);
   assert.ok(packageSource.includes('"test:android-withdrawal-upi-copy"'));
   assert.ok(packageSource.includes('maestro/withdrawal-upi-copy'));
   assert.match(
