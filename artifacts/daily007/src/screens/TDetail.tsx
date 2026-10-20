@@ -57,6 +57,7 @@ function SquadSlotsPanel({
   const [gameUid, setGameUid] = useState('');
   const [pendingRemoval, setPendingRemoval] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
   const [busyKey, setBusyKey] = useState('');
+  const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const { width } = useWindowDimensions();
@@ -189,18 +190,28 @@ function SquadSlotsPanel({
 
             <View style={[s.squadSlotsRow, compactLargeText && s.squadSlotsRowCompact]} testID="squad-slots-row">
               {team.slots.map((slot) => {
+                const slotIsOccupied = Boolean(slot.occupied);
+                const canSelectSlot = !slotIsOccupied && slot.canJoin;
                 const isSelected = selected?.teamNumber === team.teamNumber &&
                   selected.slotNumber === slot.slotNumber;
+                const slotKey = `${team.teamNumber}-${slot.slotNumber}`;
+                const isHovered = hoveredSlotKey === slotKey && canSelectSlot;
                 const isCaptainSlot = slot.slotNumber === 1;
                 const slotTitle = isCaptainSlot ? 'Captain' : String(slot.slotNumber);
-                const slotStatus = slot.occupied
+                const slotStatus = slotIsOccupied
                   ? slot.gameName || 'Registered player'
                   : 'OPEN · SELECT';
                 return (
                   <View key={slot.slotNumber} style={s.squadSlotColumn}>
                     <Pressable
+                      onHoverIn={() => {
+                        if (canSelectSlot) setHoveredSlotKey(slotKey);
+                      }}
+                      onHoverOut={() => {
+                        setHoveredSlotKey((current) => current === slotKey ? null : current);
+                      }}
                       onPress={() => {
-                        if (slot.canJoin) {
+                        if (canSelectSlot) {
                           setSelected({ teamNumber: team.teamNumber, slotNumber: slot.slotNumber });
                           setJoinDetailsOpen(false);
                           setGameName('');
@@ -209,22 +220,39 @@ function SquadSlotsPanel({
                           setMessage('');
                         }
                       }}
-                      disabled={!slot.canJoin || Boolean(busyKey)}
+                      disabled={!canSelectSlot || Boolean(busyKey)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Team ${team.teamNumber}, ${slotTitle}, ${slot.occupied ? slot.gameName || 'occupied' : 'open'}${slot.canJoin ? ', available to join' : ''}`}
-                      accessibilityState={{ disabled: !slot.canJoin, selected: isSelected }}
+                      accessibilityLabel={`Team ${team.teamNumber}, ${slotTitle}, ${slotIsOccupied ? slot.gameName || 'occupied' : 'open'}${canSelectSlot ? ', available to join' : ''}`}
+                      accessibilityState={{ disabled: !canSelectSlot || Boolean(busyKey), selected: isSelected && canSelectSlot }}
                       testID={`squad-slot-${team.teamNumber}-${slot.slotNumber}`}
                       style={[
                         s.squadSlot,
+                        slotIsOccupied ? s.squadSlotOccupied : s.squadSlotAvailable,
                         compactLargeText && s.squadSlotCompact,
-                        isSelected && s.squadSlotSelected,
-                        !slot.canJoin && !slot.occupied && s.squadSlotUnavailable,
+                        isSelected && canSelectSlot && s.squadSlotSelected,
+                        isHovered && s.squadSlotHovered,
+                        !slot.canJoin && !slotIsOccupied && s.squadSlotUnavailable,
+                        Platform.OS === 'web'
+                          ? { cursor: canSelectSlot && !busyKey ? 'pointer' : 'not-allowed' } as any
+                          : undefined,
                       ]}
                     >
                       <View style={[s.squadSlotTitleRow, compactLargeText && s.squadSlotTitleRowCompact]}>
-                        {isCaptainSlot && !compactLargeText ? <Text style={s.squadSlotCrown}>♛</Text> : null}
+                        {isCaptainSlot && !compactLargeText ? (
+                          <Text
+                            style={[
+                              s.squadSlotCrown,
+                              slotIsOccupied ? s.squadSlotCrownOccupied : s.squadSlotCrownOpen,
+                            ]}
+                          >
+                            ♛
+                          </Text>
+                        ) : null}
                         <Text
-                          style={s.squadSlotLabel}
+                          style={[
+                            s.squadSlotLabel,
+                            slotIsOccupied ? s.squadSlotLabelOccupied : s.squadSlotLabelOpen,
+                          ]}
                           maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
                         >
                           {slotTitle}
@@ -232,7 +260,7 @@ function SquadSlotsPanel({
                       </View>
                       <Text
                         numberOfLines={2}
-                        style={slot.occupied ? s.squadSlotName : s.squadSlotOpen}
+                        style={slotIsOccupied ? s.squadSlotName : s.squadSlotOpen}
                         maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
                       >
                         {slotStatus}
@@ -1015,16 +1043,28 @@ const s = StyleSheet.create({
     backgroundColor: C.squadTile, paddingHorizontal: 3, paddingVertical: 7,
     alignItems: 'center', justifyContent: 'space-between',
   },
+  squadSlotAvailable: {
+    borderColor: '#2ecc71', backgroundColor: 'rgba(46, 204, 113, 0.12)',
+  },
+  squadSlotOccupied: {
+    borderColor: '#e74c3c', backgroundColor: 'rgba(231, 76, 60, 0.14)',
+  },
   squadSlotsRowCompact: { gap: 6 },
   squadSlotCompact: { height: 92 },
   squadSlotSelected: {
-    borderColor: C.squadAccent, borderWidth: 2, backgroundColor: C.squadAccent + '18',
+    borderColor: '#2ecc71', borderWidth: 2, backgroundColor: 'rgba(46, 204, 113, 0.24)',
     ...(Platform.OS === 'web'
-      ? { boxShadow: '0px 0px 12px rgba(0, 240, 255, 0.4)' }
+      ? { boxShadow: '0px 0px 12px rgba(46, 204, 113, 0.42)' }
       : {
-        shadowColor: C.squadAccent, shadowOpacity: 0.4, shadowRadius: 6,
+        shadowColor: '#2ecc71', shadowOpacity: 0.4, shadowRadius: 6,
         shadowOffset: { width: 0, height: 0 }, elevation: 8,
       }),
+  },
+  squadSlotHovered: {
+    borderColor: '#58e68b', backgroundColor: 'rgba(46, 204, 113, 0.24)',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0px 0px 10px rgba(46, 204, 113, 0.32)' }
+      : { elevation: 4 }),
   },
   squadSlotUnavailable: { opacity: 0.62 },
   squadSlotTitleRow: {
@@ -1032,14 +1072,18 @@ const s = StyleSheet.create({
     minHeight: 14, width: '100%',
   },
   squadSlotTitleRowCompact: { minHeight: 22, gap: 0 },
-  squadSlotCrown: { color: C.gold, fontSize: 10, fontWeight: '900' },
-  squadSlotLabel: { color: C.text, fontSize: 9, fontWeight: '900', textAlign: 'center' },
+  squadSlotCrown: { fontSize: 10, fontWeight: '900' },
+  squadSlotCrownOpen: { color: '#2ecc71' },
+  squadSlotCrownOccupied: { color: '#e74c3c' },
+  squadSlotLabel: { fontSize: 9, fontWeight: '900', textAlign: 'center' },
+  squadSlotLabelOpen: { color: '#2ecc71' },
+  squadSlotLabelOccupied: { color: '#e74c3c' },
   squadSlotName: {
-    color: C.text, fontSize: 8, fontWeight: '800', marginTop: 2, textAlign: 'center',
+    color: '#e74c3c', fontSize: 8, fontWeight: '800', marginTop: 2, textAlign: 'center',
     lineHeight: 10, width: '100%',
   },
   squadSlotOpen: {
-    color: C.squadAccent, fontSize: 8, fontWeight: '900', marginTop: 2,
+    color: '#2ecc71', fontSize: 8, fontWeight: '900', marginTop: 2,
     textAlign: 'center', lineHeight: 9, width: '100%',
   },
   squadSlotActionArea: { height: 38, width: '100%', marginTop: 4 },

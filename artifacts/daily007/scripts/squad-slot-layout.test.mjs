@@ -68,13 +68,44 @@ test("selecting an open slot shows a contextual join button and keeps the form i
   assert.doesNotMatch(screenSource, /\{selected && selectedSlot\?\.canJoin \?\s*\(\s*<Card style=\{\{ marginTop: 4 \}\}/);
 });
 
-test("the selected slot uses the requested cyan glow and the squad palette", () => {
+test("open and occupied slots use live green and red availability styles", () => {
+  const availableStyle = screenSource.match(
+    /squadSlotAvailable:\s*\{([\s\S]*?)\n\s*\},/,
+  )?.[1] ?? "";
+  const occupiedStyle = screenSource.match(
+    /squadSlotOccupied:\s*\{([\s\S]*?)\n\s*\},/,
+  )?.[1] ?? "";
+
+  assert.match(screenSource, /const slotIsOccupied = Boolean\(slot\.occupied\)/);
+  assert.match(screenSource, /const canSelectSlot = !slotIsOccupied && slot\.canJoin/);
+  assert.match(screenSource, /slotIsOccupied \? s\.squadSlotOccupied : s\.squadSlotAvailable/);
+  assert.match(
+    screenSource,
+    /const slotStatus = slotIsOccupied\s*\?\s*slot\.gameName \|\| 'Registered player'\s*:\s*'OPEN · SELECT'/,
+  );
+  assert.match(screenSource, /style=\{slotIsOccupied \? s\.squadSlotName : s\.squadSlotOpen\}/);
+  assert.match(screenSource, /disabled={!canSelectSlot \|\| Boolean\(busyKey\)}/);
+  assert.match(screenSource, /cursor: canSelectSlot && !busyKey \? 'pointer' : 'not-allowed'/);
+  assert.match(screenSource, /onHoverIn=\{\(\) => \{\s*if \(canSelectSlot\) setHoveredSlotKey\(slotKey\);/);
+  assert.match(screenSource, /isHovered && s\.squadSlotHovered/);
+  assert.match(availableStyle, /borderColor:\s*'#2ecc71'/);
+  assert.match(availableStyle, /backgroundColor:\s*'rgba\(46, 204, 113, 0\.12\)'/);
+  assert.match(occupiedStyle, /borderColor:\s*'#e74c3c'/);
+  assert.match(occupiedStyle, /backgroundColor:\s*'rgba\(231, 76, 60, 0\.14\)'/);
+
+  const openTextStyle = screenSource.match(/squadSlotOpen:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? "";
+  const joinedTextStyle = screenSource.match(/squadSlotName:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? "";
+  assert.match(openTextStyle, /color:\s*'#2ecc71'/);
+  assert.match(joinedTextStyle, /color:\s*'#e74c3c'/);
+});
+
+test("selected open slots keep the green glow while the surrounding Squad palette remains intact", () => {
   const selectedStyle = screenSource.match(
     /squadSlotSelected:\s*\{([\s\S]*?)\n\s*\},/,
   )?.[1] ?? "";
-  assert.match(selectedStyle, /borderColor:\s*C\.squadAccent/);
+  assert.match(selectedStyle, /borderColor:\s*'#2ecc71'/);
   assert.match(selectedStyle, /borderWidth:\s*2/);
-  assert.match(selectedStyle, /boxShadow:\s*'0px 0px 12px rgba\(0, 240, 255, 0\.4\)'/);
+  assert.match(selectedStyle, /boxShadow:\s*'0px 0px 12px rgba\(46, 204, 113, 0\.42\)'/);
   assert.match(selectedStyle, /shadowOpacity:\s*0\.4/);
   assert.match(uiSource, /squadPanel:\s*'#0A1230'/);
   assert.match(uiSource, /squadAccent:\s*'#52D5FF'/);
