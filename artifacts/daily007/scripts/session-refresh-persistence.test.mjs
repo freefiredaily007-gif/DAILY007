@@ -97,10 +97,12 @@ const { restoreDaily007Session } = await import("../src/lib/session-verification
 
 function deferred() {
   let resolve;
-  const promise = new Promise((resolvePromise) => {
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function blockNextStorageWrite() {
@@ -334,6 +336,58 @@ test("a blocked-account 403 expires the matching saved session with a blocked re
     assert.equal(expiredReason, "blocked");
     assert.equal(currentUser(), null);
     assert.equal(storedSession, null);
+  } finally {
+    setSessionExpiredHandler(null);
+    await setSession(null);
+  }
+});
+
+test("a delayed blocked-account 403 for an older request cannot affect a newer sign-in", async () => {
+  const oldAccount = { id: "old-blocked-account", token: "old-blocked-token", role: "user" };
+  const newAccount = { id: "new-active-account", token: "new-active-token", role: "admin" };
+  await setSession(oldAccount);
+
+  const rejectedInterceptor = http.interceptors.response.handlers
+    .find((handler) => typeof handler.rejected === "function")
+    ?.rejected;
+  assert.equal(typeof rejectedInterceptor, "function");
+
+  const requestStarted = deferred();
+  const delayedResponse = deferred();
+  const olderRequest = http.get("/auth/me", {
+    adapter: (config) => {
+      requestStarted.resolve(config);
+      return delayedResponse.promise;
+    },
+  });
+  const requestConfig = await requestStarted.promise;
+  assert.equal(
+    requestConfig.headers.get("Authorization"),
+    `Bearer ${oldAccount.token}`,
+    "the pending request must carry the older account's token",
+  );
+
+  const expiredReasons = [];
+  setSessionExpiredHandler((reason) => expiredReasons.push(reason));
+
+  try {
+    await setSession(newAccount);
+    assert.equal(currentUser(), newAccount);
+    assert.deepEqual(JSON.parse(storedSession), newAccount);
+
+    const blockedError = {
+      config: requestConfig,
+      response: {
+        status: 403,
+        data: { error: "This account is blocked." },
+      },
+    };
+    delayedResponse.reject(blockedError);
+
+    await assert.rejects(olderRequest, (error) => error === blockedError);
+    assert.deepEqual(expiredReasons, [], "the newer account must not receive a blocked-account notice");
+    assert.equal(currentUser(), newAccount, "the newer in-memory session must remain active");
+    assert.deepEqual(JSON.parse(storedSession), newAccount, "the newer saved session must remain active");
   } finally {
     setSessionExpiredHandler(null);
     await setSession(null);
