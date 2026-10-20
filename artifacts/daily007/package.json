@@ -8,7 +8,7 @@
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:pwa": "node --test scripts/pwa-html.test.mjs",
+    "test:pwa": "node --test scripts/pwa-html.test.mjs scripts/pwa-service-worker.test.mjs",
     "test:video-watch-progress": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-watch-progress.test.mjs",
     "test:video-catalog-screen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-catalog-screen.test.mjs",
     "test:video-unavailable-screen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/video-unavailable-screen.test.mjs",
