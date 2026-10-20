@@ -44,10 +44,10 @@ test('large-text layout keeps management actions and scrolling available', () =>
   assert.match(screenSource, /<KeyboardAwareScrollViewCompat[\s\S]*?visibleTournaments\.map/);
 });
 
-test('Upcoming Admin tournaments exposes a clear action for the existing create form', () => {
+test('Upcoming Admin tournaments exposes a visible Add New Tournament action for the existing form', () => {
   assert.match(
     screenSource,
-    /tab === 'upcoming' && \(\s*<Btn\s+title=\{showForm \? 'CLOSE CREATE FORM' : 'CREATE TOURNAMENT'\}[\s\S]*?accessibilityLabel=\{showForm \? 'Close tournament creation form' : 'Create a new tournament'\}[\s\S]*?testID="admin-tournament-create-toggle"[\s\S]*?alignSelf: 'stretch'/,
+    /tab === 'upcoming' && \(\s*<Btn\s+title=\{showForm \? 'CLOSE CREATE FORM' : 'ADD NEW TOURNAMENT'\}[\s\S]*?accessibilityLabel=\{showForm \? 'Close tournament creation form' : 'Add a new tournament'\}[\s\S]*?testID="admin-tournament-create-toggle"[\s\S]*?staticStyle[\s\S]*?alignSelf: 'stretch'/,
   );
   assert.match(screenSource, /setShowForm\(!showForm\)/);
   assert.match(screenSource, /testID="admin-tournament-create-form"/);

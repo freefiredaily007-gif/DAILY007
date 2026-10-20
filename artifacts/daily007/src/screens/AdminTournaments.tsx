@@ -691,10 +691,11 @@ export default function AdminTournaments() {
       <Text style={st.hint}>Set room details and enter results here. Publishing rank 1 credits the prize and completes the match.</Text>
       {tab === 'upcoming' && (
         <Btn
-          title={showForm ? 'CLOSE CREATE FORM' : 'CREATE TOURNAMENT'}
-          accessibilityLabel={showForm ? 'Close tournament creation form' : 'Create a new tournament'}
+          title={showForm ? 'CLOSE CREATE FORM' : 'ADD NEW TOURNAMENT'}
+          accessibilityLabel={showForm ? 'Close tournament creation form' : 'Add a new tournament'}
           accessibilityHint={showForm ? 'Close the form without saving.' : 'Open the form to enter tournament details.'}
           testID="admin-tournament-create-toggle"
+          staticStyle
           style={{ alignSelf: 'stretch', marginTop: 10, marginBottom: 12 }}
           onPress={() => {
             actionRequestId.current++;
