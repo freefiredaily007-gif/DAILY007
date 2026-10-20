@@ -435,3 +435,73 @@ test("concurrent PostgreSQL registration rejections refund a paid entry only onc
     await cleanupFixture(fixture);
   }
 });
+
+test("a PostgreSQL rejection queued behind tournament cancellation returns 409 without refunding the paid entry", async () => {
+  const fixture = await createFixture(false, 93);
+  let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
+  let blockerTransactionOpen = false;
+  let rejection: Promise<RegistrationResponse> | undefined;
+
+  try {
+    const { registrationId, adminIds } = await seedPaidRegistrationForConcurrentRejection(fixture);
+    const before = await snapshotFixture(fixture);
+    blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    blockerTransactionOpen = true;
+    await blocker.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [fixture.matchId]);
+    const blockerPidResult = await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    const blockerPid = blockerPidResult.rows[0]?.pid;
+    assert.ok(blockerPid, "the cancellation transaction must have a PostgreSQL backend");
+
+    await withServer(async (origin) => {
+      try {
+        rejection = rejectRegistration(origin, registrationId, adminIds[0]);
+        await waitForBlockedRejectionRequests(blockerPid, 1);
+
+        await blocker!.query(
+          "UPDATE daily007_v2_matches SET status = 'cancelled' WHERE id = $1",
+          [fixture.matchId],
+        );
+        await blocker!.query("COMMIT");
+        blockerTransactionOpen = false;
+
+        const response = await rejection;
+        assert.deepEqual(
+          response,
+          {
+            status: 409,
+            body: { error: "Registrations cannot be changed after a tournament is cancelled." },
+          },
+          "the queued rejection must observe the committed cancellation",
+        );
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker!.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+        if (rejection) await Promise.allSettled([rejection]);
+      }
+    });
+
+    const after = await snapshotFixture(fixture);
+    assert.equal(after.match[0]?.status, "cancelled", "the cancellation must remain committed");
+    assert.deepEqual(after.users, before.users, "the queued rejection must not change the player's wallet");
+    assert.deepEqual(
+      after.registrations,
+      before.registrations,
+      "the queued rejection must leave the paid registration unchanged",
+    );
+    assert.deepEqual(after.roster, before.roster, "the queued rejection must not change roster state");
+    assert.deepEqual(after.ledger, before.ledger, "the queued rejection must not add a refund ledger entry");
+    assert.equal(
+      after.users.find((user) => user.id === fixture.playerId)?.wallet_coins,
+      93,
+      "the player's paid-entry balance must remain unchanged",
+    );
+  } finally {
+    if (blockerTransactionOpen) await blocker?.query("ROLLBACK");
+    blocker?.release();
+    if (rejection) await Promise.allSettled([rejection]);
+    await cleanupFixture(fixture);
+  }
+});
