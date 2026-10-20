@@ -311,6 +311,90 @@ function captureCancellation(
   );
 }
 
+test("cancelling an underfilled tournament refunds paid entries but not free entries", async () => {
+  const fixture = await createFixture();
+  const matchId = fixture.matchIds[0];
+  const paidRegistrationId = fixture.registrationIds[0];
+  const freeRegistrationId = fixture.registrationIds[1];
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_registrations SET entry_coins_paid = 0 WHERE id = $1",
+      [freeRegistrationId],
+    );
+
+    const activeRegistrations = await pool.query<{
+      id: string;
+      entry_coins_paid: number;
+    }>(
+      `SELECT id, entry_coins_paid
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND status IN ('approved', 'pending')
+        ORDER BY id`,
+      [matchId],
+    );
+    assert.deepEqual(
+      activeRegistrations.rows.map(({ id, entry_coins_paid }) => ({
+        id,
+        entryCoinsPaid: entry_coins_paid,
+      })),
+      [
+        { id: paidRegistrationId, entryCoinsPaid: 25 },
+        { id: freeRegistrationId, entryCoinsPaid: 0 },
+      ].sort((left, right) => left.id.localeCompare(right.id)),
+    );
+
+    const result = await cancelUnderfilledTournamentAndRefund(matchId, false);
+    assert.deepEqual(result, {
+      id: matchId,
+      status: "cancelled",
+      registrationsRefunded: 1,
+      accountsRefunded: 1,
+      coinsRefunded: 25,
+    });
+
+    const match = await pool.query<{ status: string; enabled: boolean }>(
+      "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(match.rows, [{ status: "cancelled", enabled: false }]);
+
+    const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 125],
+        [fixture.payerIds[1], 200],
+        [fixture.payerIds[2], 300],
+      ]),
+    );
+
+    const refunds = await pool.query<{
+      registration_id: string;
+      user_id: string;
+      amount: number;
+      reason: string;
+    }>(
+      `SELECT registration_id, user_id, amount, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'
+        ORDER BY registration_id`,
+      [matchId],
+    );
+    assert.deepEqual(refunds.rows, [{
+      registration_id: paidRegistrationId,
+      user_id: fixture.payerIds[0],
+      amount: 25,
+      reason: "tournament_cancel_refund",
+    }]);
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 test("cancelling one tournament completes while a different PostgreSQL tournament row is locked", async () => {
   const fixture = await createFixture();
   let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
