@@ -31,6 +31,7 @@ test('keeps the source manifest on the protected Daily007 app identity', () => {
 async function withPublishedPwaFixture(
   {
     missingPath,
+    stallPath,
     wrongContentTypePath,
     manifestOverrides = {},
     redirects = {},
@@ -59,6 +60,7 @@ async function withPublishedPwaFixture(
       response.end('Not Found');
       return;
     }
+    if (pathname === stallPath) return;
 
     if (Object.hasOwn(redirects, pathname)) {
       response.writeHead(302, { location: redirects[pathname] });
@@ -112,9 +114,11 @@ async function withPublishedPwaFixture(
   try {
     await run(`http://127.0.0.1:${address.port}/daily007/`, { requests });
   } finally {
-    await new Promise((resolve, reject) => {
+    const closed = new Promise((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
     });
+    server.closeAllConnections();
+    await closed;
   }
 }
 
@@ -222,6 +226,56 @@ test('uses cache-busted page and bundle requests to reject an older published re
       'the application bundle request should be cache-busted',
     );
   });
+});
+
+test('times out stalled published PWA resources with a resource-specific error', async (t) => {
+  const cases = [
+    {
+      name: 'published page',
+      stallPath: '/daily007/',
+      resource: 'published page',
+    },
+    {
+      name: 'JavaScript bundle',
+      stallPath: appBundlePath,
+      resource: 'web app JavaScript bundle',
+    },
+    {
+      name: 'manifest',
+      stallPath: '/daily007/manifest.json',
+      resource: 'manifest',
+    },
+    {
+      name: 'manifest start_url',
+      stallPath: '/daily007/launch/',
+      manifestOverrides: { start_url: './launch/' },
+      resource: 'manifest field "start_url"',
+    },
+    {
+      name: 'service worker',
+      stallPath: '/daily007/sw.js',
+      resource: 'service worker',
+    },
+    {
+      name: 'icon',
+      stallPath: '/daily007/icons/icon-192.png',
+      resource: '192x192 icon',
+    },
+  ];
+
+  for (const { name, stallPath, manifestOverrides, resource } of cases) {
+    await t.test(name, async () => {
+      await withPublishedPwaFixture({ stallPath, manifestOverrides }, async (url) => {
+        await assert.rejects(
+          checkPublishedPwa(url, fetch, { requestTimeoutMs: 40 }),
+          (error) => error instanceof Error
+            && error.message.includes('timed out after 40ms')
+            && error.message.includes(resource)
+            && error.message.includes(stallPath),
+        );
+      });
+    });
+  }
 });
 
 test('fetches the resolved manifest start_url and accepts an in-scope redirect', async () => {

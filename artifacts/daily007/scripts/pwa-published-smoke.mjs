@@ -15,6 +15,8 @@ const JAVASCRIPT_CONTENT_TYPES = [
 ];
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_START_URL_REDIRECTS = 10;
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const responseTimeouts = new WeakMap();
 // Keep this value in sync with public/manifest.json. Change both only when
 // intentionally changing the identity of the installed Daily007 app.
 export const EXPECTED_DAILY007_PWA_ID = './';
@@ -68,17 +70,29 @@ function sameOriginUrl(reference, baseUrl, label) {
 
 async function checkedGet(fetchImpl, label, url, acceptedContentTypes, options = {}) {
   let response;
+  const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const fetchOptions = { ...options };
+  delete fetchOptions.requestTimeoutMs;
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     response = await fetchImpl(url, {
       method: 'GET',
       redirect: 'follow',
-      ...options,
+      ...fetchOptions,
+      signal,
     });
   } catch (cause) {
+    if (signal.aborted) {
+      throw new Error(
+        `PWA smoke check failed: timed out after ${timeoutMs}ms while fetching ${label} at ${url.href}.`,
+        { cause },
+      );
+    }
     throw new Error(
       `PWA smoke check failed: could not fetch ${label} at ${url.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
     );
   }
+  responseTimeouts.set(response, { signal, timeoutMs });
 
   const actualType = mimeType(response);
   if (response.status !== 200 || !acceptedContentTypes.includes(actualType)) {
@@ -88,6 +102,23 @@ async function checkedGet(fetchImpl, label, url, acceptedContentTypes, options =
     );
   }
   return response;
+}
+
+async function readResponse(response, label, url, read) {
+  try {
+    return await read();
+  } catch (cause) {
+    const timeout = responseTimeouts.get(response);
+    if (timeout?.signal.aborted) {
+      throw new Error(
+        `PWA smoke check failed: timed out after ${timeout.timeoutMs}ms while reading ${label} at ${url.href}.`,
+        { cause },
+      );
+    }
+    throw new Error(
+      `PWA smoke check failed: could not read ${label} at ${url.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
+    );
+  }
 }
 
 function manifestReference(html) {
@@ -131,7 +162,7 @@ function cacheBustedUrl(url) {
   return result;
 }
 
-async function verifyWebRelease(fetchImpl, html, pageUrl) {
+async function verifyWebRelease(fetchImpl, html, pageUrl, requestTimeoutMs) {
   const scripts = scriptReferences(html)
     .map((reference) => {
       try {
@@ -157,6 +188,7 @@ async function verifyWebRelease(fetchImpl, html, pageUrl) {
       {
         cache: 'no-store',
         headers: { 'cache-control': 'no-cache', pragma: 'no-cache' },
+        requestTimeoutMs,
       },
     );
     const finalUrl = response.url ? new URL(response.url) : freshUrl;
@@ -165,14 +197,12 @@ async function verifyWebRelease(fetchImpl, html, pageUrl) {
         `PWA smoke check failed: the web app JavaScript bundle redirected outside the published page's origin to ${finalUrl.href}.`,
       );
     }
-    let bundle;
-    try {
-      bundle = await response.text();
-    } catch (cause) {
-      throw new Error(
-        `PWA smoke check failed: could not read the web app JavaScript bundle at ${finalUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
-      );
-    }
+    const bundle = await readResponse(
+      response,
+      'web app JavaScript bundle',
+      finalUrl,
+      () => response.text(),
+    );
     if (bundle.includes(EXPECTED_DAILY007_WEB_RELEASE_MARKER)) {
       return scriptUrl.href;
     }
@@ -254,19 +284,38 @@ function validateInstallManifest(manifest, manifestUrl) {
   return { idUrl, startUrl, scopeUrl };
 }
 
-async function verifyStartUrl(fetchImpl, startUrl, scopeUrl, expectedManifestUrl, expectedWorkerUrl) {
+async function verifyStartUrl(
+  fetchImpl,
+  startUrl,
+  scopeUrl,
+  expectedManifestUrl,
+  expectedWorkerUrl,
+  requestTimeoutMs,
+) {
   let currentUrl = startUrl;
   let redirectsFollowed = 0;
 
   while (true) {
     let response;
+    const signal = AbortSignal.timeout(requestTimeoutMs);
     try {
-      response = await fetchImpl(currentUrl, { method: 'GET', redirect: 'manual' });
+      response = await fetchImpl(currentUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        signal,
+      });
     } catch (cause) {
+      if (signal.aborted) {
+        throw new Error(
+          `PWA smoke check failed: timed out after ${requestTimeoutMs}ms while fetching manifest field "start_url" at ${currentUrl.href}.`,
+          { cause },
+        );
+      }
       throw new Error(
         `PWA smoke check failed: could not fetch manifest field "start_url" at ${currentUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
       );
     }
+    responseTimeouts.set(response, { signal, timeoutMs: requestTimeoutMs });
 
     if (REDIRECT_STATUSES.has(response.status)) {
       const location = response.headers.get('location');
@@ -328,14 +377,12 @@ async function verifyStartUrl(fetchImpl, startUrl, scopeUrl, expectedManifestUrl
       );
     }
 
-    let startPageHtml;
-    try {
-      startPageHtml = await response.text();
-    } catch (cause) {
-      throw new Error(
-        `PWA smoke check failed: could not read the Daily007 page at manifest field "start_url" ${finalUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
-      );
-    }
+    const startPageHtml = await readResponse(
+      response,
+      'manifest field "start_url"',
+      finalUrl,
+      () => response.text(),
+    );
 
     let startPageManifestUrl;
     let startPageWorkerUrl;
@@ -367,9 +414,11 @@ async function verifyStartUrl(fetchImpl, startUrl, scopeUrl, expectedManifestUrl
   }
 }
 
-async function verifyPng(fetchImpl, label, url) {
-  const response = await checkedGet(fetchImpl, label, url, ['image/png']);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+async function verifyPng(fetchImpl, label, url, requestTimeoutMs) {
+  const response = await checkedGet(fetchImpl, label, url, ['image/png'], { requestTimeoutMs });
+  const bytes = new Uint8Array(
+    await readResponse(response, label, url, () => response.arrayBuffer()),
+  );
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (signature.some((byte, index) => bytes[index] !== byte)) {
     throw new Error(
@@ -378,7 +427,14 @@ async function verifyPng(fetchImpl, label, url) {
   }
 }
 
-export async function checkPublishedPwa(input, fetchImpl = fetch) {
+export async function checkPublishedPwa(
+  input,
+  fetchImpl = fetch,
+  { requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {},
+) {
+  if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+    throw new Error('PWA smoke check failed: requestTimeoutMs must be a positive finite number.');
+  }
   let baseUrl;
   try {
     baseUrl = new URL(input);
@@ -401,20 +457,39 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
     {
       cache: 'no-store',
       headers: { 'cache-control': 'no-cache', pragma: 'no-cache' },
+      requestTimeoutMs,
     },
   );
-  const pageHtml = await pageResponse.text();
+  const pageHtml = await readResponse(
+    pageResponse,
+    'published page',
+    freshPageUrl,
+    () => pageResponse.text(),
+  );
   const pageUrl = new URL(pageResponse.url || baseUrl.href);
-  const webBundleUrl = await verifyWebRelease(fetchImpl, pageHtml, pageUrl);
+  const webBundleUrl = await verifyWebRelease(fetchImpl, pageHtml, pageUrl, requestTimeoutMs);
 
   const manifestUrl = sameOriginUrl(manifestReference(pageHtml), pageUrl, 'manifest');
   const workerUrl = sameOriginUrl(serviceWorkerReference(pageHtml), pageUrl, 'service-worker');
-  const manifestResponse = await checkedGet(fetchImpl, 'manifest', manifestUrl, JSON_CONTENT_TYPES);
+  const manifestResponse = await checkedGet(
+    fetchImpl,
+    'manifest',
+    manifestUrl,
+    JSON_CONTENT_TYPES,
+    { requestTimeoutMs },
+  );
 
   let manifest;
   try {
-    manifest = await manifestResponse.json();
-  } catch {
+    const manifestText = await readResponse(
+      manifestResponse,
+      'manifest',
+      manifestUrl,
+      () => manifestResponse.text(),
+    );
+    manifest = JSON.parse(manifestText);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('timed out after')) throw error;
     throw new Error(
       `PWA smoke check failed: the manifest at ${manifestUrl.href} did not contain valid JSON.`,
     );
@@ -432,6 +507,7 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
     installSettings.scopeUrl,
     manifestUrl,
     workerUrl,
+    requestTimeoutMs,
   );
 
   const icon192 = iconForSize(manifest, '192x192');
@@ -439,10 +515,16 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
   const icon192Url = sameOriginUrl(icon192.src, manifestUrl, '192x192 icon');
   const icon512Url = sameOriginUrl(icon512.src, manifestUrl, '512x512 icon');
 
-  await checkedGet(fetchImpl, 'service worker', workerUrl, JAVASCRIPT_CONTENT_TYPES);
+  await checkedGet(
+    fetchImpl,
+    'service worker',
+    workerUrl,
+    JAVASCRIPT_CONTENT_TYPES,
+    { requestTimeoutMs },
+  );
   await Promise.all([
-    verifyPng(fetchImpl, '192x192 icon', icon192Url),
-    verifyPng(fetchImpl, '512x512 icon', icon512Url),
+    verifyPng(fetchImpl, '192x192 icon', icon192Url, requestTimeoutMs),
+    verifyPng(fetchImpl, '512x512 icon', icon512Url, requestTimeoutMs),
   ]);
 
   return {
