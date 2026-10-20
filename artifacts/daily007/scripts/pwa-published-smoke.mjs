@@ -13,6 +13,8 @@ const JAVASCRIPT_CONTENT_TYPES = [
   'text/javascript',
   'application/x-javascript',
 ];
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_START_URL_REDIRECTS = 10;
 
 function mimeType(response) {
   return (response.headers.get('content-type') || '')
@@ -154,6 +156,119 @@ function validateInstallManifest(manifest, manifestUrl) {
   return { idUrl, startUrl, scopeUrl };
 }
 
+async function verifyStartUrl(fetchImpl, startUrl, scopeUrl, expectedManifestUrl, expectedWorkerUrl) {
+  let currentUrl = startUrl;
+  let redirectsFollowed = 0;
+
+  while (true) {
+    let response;
+    try {
+      response = await fetchImpl(currentUrl, { method: 'GET', redirect: 'manual' });
+    } catch (cause) {
+      throw new Error(
+        `PWA smoke check failed: could not fetch manifest field "start_url" at ${currentUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
+      );
+    }
+
+    if (REDIRECT_STATUSES.has(response.status)) {
+      const location = response.headers.get('location');
+      if (!location) {
+        throw new Error(
+          `PWA smoke check failed: manifest field "start_url" at ${currentUrl.href} returned HTTP ${response.status} without a Location header.`,
+        );
+      }
+
+      let nextUrl;
+      try {
+        nextUrl = new URL(location, currentUrl);
+      } catch {
+        throw new Error(
+          `PWA smoke check failed: manifest field "start_url" at ${currentUrl.href} returned an invalid redirect URL.`,
+        );
+      }
+
+      if (!isWithinScope(nextUrl, scopeUrl)) {
+        const boundary = nextUrl.origin !== scopeUrl.origin
+          ? `the published app origin (${scopeUrl.origin})`
+          : `manifest field "scope" (${scopeUrl.href})`;
+        throw new Error(
+          `PWA smoke check failed: manifest field "start_url" redirects outside ${boundary} to ${nextUrl.href}.`,
+        );
+      }
+
+      redirectsFollowed += 1;
+      if (redirectsFollowed > MAX_START_URL_REDIRECTS) {
+        throw new Error(
+          `PWA smoke check failed: manifest field "start_url" exceeded ${MAX_START_URL_REDIRECTS} redirects while fetching ${startUrl.href}.`,
+        );
+      }
+      currentUrl = nextUrl;
+      continue;
+    }
+
+    let finalUrl;
+    try {
+      finalUrl = response.url ? new URL(response.url) : currentUrl;
+    } catch {
+      throw new Error(
+        `PWA smoke check failed: manifest field "start_url" at ${currentUrl.href} returned an invalid final URL.`,
+      );
+    }
+    if (!isWithinScope(finalUrl, scopeUrl)) {
+      const boundary = finalUrl.origin !== scopeUrl.origin
+        ? `the published app origin (${scopeUrl.origin})`
+        : `manifest field "scope" (${scopeUrl.href})`;
+      throw new Error(
+        `PWA smoke check failed: manifest field "start_url" resolved outside ${boundary} to ${finalUrl.href}.`,
+      );
+    }
+
+    const actualType = mimeType(response);
+    if (response.status !== 200 || !HTML_CONTENT_TYPES.includes(actualType)) {
+      throw new Error(
+        `PWA smoke check failed: manifest field "start_url" at ${finalUrl.href} returned HTTP ${response.status} with ${actualType || 'no content type'}; expected HTTP 200 and text/html.`,
+      );
+    }
+
+    let startPageHtml;
+    try {
+      startPageHtml = await response.text();
+    } catch (cause) {
+      throw new Error(
+        `PWA smoke check failed: could not read the Daily007 page at manifest field "start_url" ${finalUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
+      );
+    }
+
+    let startPageManifestUrl;
+    let startPageWorkerUrl;
+    try {
+      startPageManifestUrl = sameOriginUrl(
+        manifestReference(startPageHtml),
+        finalUrl,
+        'start_url manifest',
+      );
+      startPageWorkerUrl = sameOriginUrl(
+        serviceWorkerReference(startPageHtml),
+        finalUrl,
+        'start_url service-worker',
+      );
+    } catch (cause) {
+      throw new Error(
+        `PWA smoke check failed: manifest field "start_url" at ${finalUrl.href} did not return the Daily007 app page: ${cause instanceof Error ? cause.message : String(cause)}.`,
+      );
+    }
+    if (
+      startPageManifestUrl.href !== expectedManifestUrl.href
+      || startPageWorkerUrl.href !== expectedWorkerUrl.href
+    ) {
+      throw new Error(
+        `PWA smoke check failed: manifest field "start_url" at ${finalUrl.href} returned a different PWA page; expected the Daily007 manifest and service worker.`,
+      );
+    }
+    return;
+  }
+}
+
 async function verifyPng(fetchImpl, label, url) {
   const response = await checkedGet(fetchImpl, label, url, ['image/png']);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -201,6 +316,14 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
     );
   }
   const installSettings = validateInstallManifest(manifest, manifestUrl);
+
+  await verifyStartUrl(
+    fetchImpl,
+    installSettings.startUrl,
+    installSettings.scopeUrl,
+    manifestUrl,
+    workerUrl,
+  );
 
   const icon192 = iconForSize(manifest, '192x192');
   const icon512 = iconForSize(manifest, '512x512');

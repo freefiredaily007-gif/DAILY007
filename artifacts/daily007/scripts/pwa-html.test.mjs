@@ -17,22 +17,37 @@ const icon512 = await readFile(join(import.meta.dirname, '../public/icons/icon-5
 const html = '<!doctype html><html><head><title>Daily007</title></head><body></body></html>';
 
 async function withPublishedPwaFixture(
-  { missingPath, wrongContentTypePath, manifestOverrides = {} } = {},
+  {
+    missingPath,
+    wrongContentTypePath,
+    manifestOverrides = {},
+    redirects = {},
+    appPagePaths = ['/daily007/'],
+    appPageContents = {},
+  } = {},
   run,
 ) {
   const fixtureManifest = { ...manifest, ...manifestOverrides };
   const page = injectPwaHead(html, fixtureManifest, '/daily007/');
+  const requests = [];
   const server = createServer((request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
+    requests.push({ method: request.method, pathname });
     if (pathname === missingPath) {
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       response.end('Not Found');
       return;
     }
 
-    if (pathname === '/daily007/') {
+    if (Object.hasOwn(redirects, pathname)) {
+      response.writeHead(302, { location: redirects[pathname] });
+      response.end();
+      return;
+    }
+
+    if (appPagePaths.includes(pathname)) {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      response.end(page);
+      response.end(appPageContents[pathname] ?? page);
       return;
     }
     if (pathname === '/daily007/manifest.json') {
@@ -69,7 +84,7 @@ async function withPublishedPwaFixture(
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   try {
-    await run(`http://127.0.0.1:${address.port}/daily007/`);
+    await run(`http://127.0.0.1:${address.port}/daily007/`, { requests });
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
@@ -120,6 +135,104 @@ test('checks the published page references, manifest, service worker, and both i
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-192.png')));
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-512.png')));
   });
+});
+
+test('fetches the resolved manifest start_url and accepts an in-scope redirect', async () => {
+  const launchPath = '/daily007/launch/';
+  await withPublishedPwaFixture({
+    manifestOverrides: { start_url: './launch/' },
+    redirects: { [launchPath]: '/daily007/' },
+  }, async (url, { requests }) => {
+    const result = await checkPublishedPwa(url);
+    assert.equal(result.startUrl, `${new URL(url).origin}${launchPath}`);
+    assert.ok(
+      requests.some((request) => request.pathname === launchPath),
+      'the resolved start_url should be requested',
+    );
+    assert.ok(
+      requests.some((request) => request.pathname === '/daily007/'),
+      'the in-scope redirect destination should be requested',
+    );
+  });
+});
+
+test('rejects an unreachable published start_url with a field-specific error', async () => {
+  const launchPath = '/daily007/unreachable-launch/';
+  await withPublishedPwaFixture({
+    manifestOverrides: { start_url: './unreachable-launch/' },
+  }, async (url) => {
+    const fetchWithUnreachableLaunch = (input, options) => {
+      if (new URL(input).pathname === launchPath) {
+        throw new TypeError('connect ECONNREFUSED');
+      }
+      return fetch(input, options);
+    };
+    await assert.rejects(
+      checkPublishedPwa(url, fetchWithUnreachableLaunch),
+      /PWA smoke check failed: could not fetch manifest field "start_url".*connect ECONNREFUSED/,
+    );
+  });
+});
+
+test('rejects a published start_url that returns an HTTP error', async () => {
+  const launchPath = '/daily007/missing-launch/';
+  await withPublishedPwaFixture({
+    manifestOverrides: { start_url: './missing-launch/' },
+    missingPath: launchPath,
+  }, async (url) => {
+    await assert.rejects(
+      checkPublishedPwa(url),
+      /PWA smoke check failed: manifest field "start_url" .* returned HTTP 404/,
+    );
+  });
+});
+
+test('rejects an in-scope HTML page that is not the Daily007 app', async () => {
+  const launchPath = '/daily007/not-the-app/';
+  await withPublishedPwaFixture({
+    manifestOverrides: { start_url: './not-the-app/' },
+    appPagePaths: ['/daily007/', launchPath],
+    appPageContents: {
+      [launchPath]: '<!doctype html><html><head><title>Not found</title></head><body>Error</body></html>',
+    },
+  }, async (url) => {
+    await assert.rejects(
+      checkPublishedPwa(url),
+      /manifest field "start_url".*did not return the Daily007 app page/,
+    );
+  });
+});
+
+test('rejects start_url redirects outside the published origin or manifest scope', async (t) => {
+  const launchPath = '/daily007/launch-redirect/';
+  const cases = [
+    {
+      name: 'scope',
+      destination: '/outside-daily007/',
+      message: /manifest field "start_url" redirects outside manifest field "scope"/,
+    },
+    {
+      name: 'origin',
+      destination: 'https://outside.example/launch/',
+      message: /manifest field "start_url" redirects outside the published app origin/,
+    },
+  ];
+
+  for (const { name, destination, message } of cases) {
+    await t.test(`rejects a redirect outside the app ${name}`, async () => {
+      await withPublishedPwaFixture({
+        manifestOverrides: { start_url: './launch-redirect/' },
+        redirects: { [launchPath]: destination },
+      }, async (url, { requests }) => {
+        await assert.rejects(checkPublishedPwa(url), message);
+        assert.equal(
+          requests.some((request) => request.pathname === '/outside-daily007/'),
+          false,
+          'the checker should reject the redirect before requesting an out-of-scope destination',
+        );
+      });
+    });
+  }
 });
 
 test('published browser check confirms a clean worker install, app-shell cache, and offline shell navigation', async () => {
