@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,24 @@ const MAX_START_URL_REDIRECTS = 10;
 // Keep this value in sync with public/manifest.json. Change both only when
 // intentionally changing the identity of the installed Daily007 app.
 export const EXPECTED_DAILY007_PWA_ID = './';
+const appConfig = JSON.parse(
+  await readFile(fileURLToPath(new URL('../app.json', import.meta.url)), 'utf8'),
+);
+export const EXPECTED_DAILY007_WEB_RELEASE_MARKER =
+  appConfig.expo?.extra?.daily007WebReleaseMarker;
+if (
+  typeof EXPECTED_DAILY007_WEB_RELEASE_MARKER !== 'string'
+  || !EXPECTED_DAILY007_WEB_RELEASE_MARKER.trim()
+) {
+  throw new Error(
+    'PWA smoke check failed: app.json must define expo.extra.daily007WebReleaseMarker.',
+  );
+}
+if (!EXPECTED_DAILY007_WEB_RELEASE_MARKER.startsWith(`${appConfig.expo?.version}+web.`)) {
+  throw new Error(
+    'PWA smoke check failed: expo.extra.daily007WebReleaseMarker must begin with the app version followed by "+web.".',
+  );
+}
 
 function mimeType(response) {
   return (response.headers.get('content-type') || '')
@@ -48,10 +66,14 @@ function sameOriginUrl(reference, baseUrl, label) {
   return resolved;
 }
 
-async function checkedGet(fetchImpl, label, url, acceptedContentTypes) {
+async function checkedGet(fetchImpl, label, url, acceptedContentTypes, options = {}) {
   let response;
   try {
-    response = await fetchImpl(url, { method: 'GET', redirect: 'follow' });
+    response = await fetchImpl(url, {
+      method: 'GET',
+      redirect: 'follow',
+      ...options,
+    });
   } catch (cause) {
     throw new Error(
       `PWA smoke check failed: could not fetch ${label} at ${url.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
@@ -95,6 +117,70 @@ function serviceWorkerReference(html) {
   } catch {
     throw new Error('PWA smoke check failed: the service-worker registration URL is malformed.');
   }
+}
+
+function scriptReferences(html) {
+  return (html.match(/<script\b[^>]*>/gi) || [])
+    .map((tag) => readAttribute(tag, 'src'))
+    .filter((reference) => typeof reference === 'string' && reference.trim());
+}
+
+function cacheBustedUrl(url) {
+  const result = new URL(url);
+  result.searchParams.set('_daily007_release_check', String(Date.now()));
+  return result;
+}
+
+async function verifyWebRelease(fetchImpl, html, pageUrl) {
+  const scripts = scriptReferences(html)
+    .map((reference) => {
+      try {
+        return new URL(reference, pageUrl);
+      } catch {
+        return null;
+      }
+    })
+    .filter((url) => url?.origin === pageUrl.origin);
+  if (scripts.length === 0) {
+    throw new Error(
+      'PWA smoke check failed: the published page has no same-origin JavaScript bundle reference.',
+    );
+  }
+
+  for (const scriptUrl of scripts) {
+    const freshUrl = cacheBustedUrl(scriptUrl);
+    const response = await checkedGet(
+      fetchImpl,
+      'web app JavaScript bundle',
+      freshUrl,
+      JAVASCRIPT_CONTENT_TYPES,
+      {
+        cache: 'no-store',
+        headers: { 'cache-control': 'no-cache', pragma: 'no-cache' },
+      },
+    );
+    const finalUrl = response.url ? new URL(response.url) : freshUrl;
+    if (finalUrl.origin !== pageUrl.origin) {
+      throw new Error(
+        `PWA smoke check failed: the web app JavaScript bundle redirected outside the published page's origin to ${finalUrl.href}.`,
+      );
+    }
+    let bundle;
+    try {
+      bundle = await response.text();
+    } catch (cause) {
+      throw new Error(
+        `PWA smoke check failed: could not read the web app JavaScript bundle at ${finalUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}.`,
+      );
+    }
+    if (bundle.includes(EXPECTED_DAILY007_WEB_RELEASE_MARKER)) {
+      return scriptUrl.href;
+    }
+  }
+
+  throw new Error(
+    `PWA smoke check failed: the cache-busted JavaScript bundles referenced by the published page do not contain the current Daily007 release marker "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}". The public site is serving an older web release.`,
+  );
 }
 
 function iconForSize(manifest, size) {
@@ -306,9 +392,20 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
   baseUrl.hash = '';
   if (!baseUrl.pathname.endsWith('/')) baseUrl.pathname += '/';
 
-  const pageResponse = await checkedGet(fetchImpl, 'published page', baseUrl, HTML_CONTENT_TYPES);
+  const freshPageUrl = cacheBustedUrl(baseUrl);
+  const pageResponse = await checkedGet(
+    fetchImpl,
+    'published page',
+    freshPageUrl,
+    HTML_CONTENT_TYPES,
+    {
+      cache: 'no-store',
+      headers: { 'cache-control': 'no-cache', pragma: 'no-cache' },
+    },
+  );
   const pageHtml = await pageResponse.text();
   const pageUrl = new URL(pageResponse.url || baseUrl.href);
+  const webBundleUrl = await verifyWebRelease(fetchImpl, pageHtml, pageUrl);
 
   const manifestUrl = sameOriginUrl(manifestReference(pageHtml), pageUrl, 'manifest');
   const workerUrl = sameOriginUrl(serviceWorkerReference(pageHtml), pageUrl, 'service-worker');
@@ -350,6 +447,9 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
 
   return {
     pageUrl: pageUrl.href,
+    origin: pageUrl.origin,
+    webReleaseMarker: EXPECTED_DAILY007_WEB_RELEASE_MARKER,
+    webBundleUrl,
     manifestUrl: manifestUrl.href,
     manifestId: installSettings.idUrl.href,
     startUrl: installSettings.startUrl.href,
@@ -786,6 +886,7 @@ if (isCliEntry()) {
         : 'PASS: Daily007 published PWA files are available.');
       console.log(`Page: ${result.pageUrl}`);
       if (browserMode) {
+        console.log(`Origin: ${new URL(result.pageUrl).origin}`);
         console.log(`Scope: ${result.scope}`);
         console.log(`Service worker: ${result.serviceWorkerUrl} (activated and controlling)`);
         for (const resource of result.cachedResources) {
@@ -795,6 +896,9 @@ if (isCliEntry()) {
           `Offline navigation: ${result.offlineNavigationUrl} (HTTP ${result.offlineStatus}, service worker)`,
         );
       } else {
+        console.log(`Origin: ${result.origin}`);
+        console.log(`Web release: ${result.webReleaseMarker}`);
+        console.log(`Web bundle: ${result.webBundleUrl}`);
         console.log(`Manifest: ${result.manifestUrl}`);
         console.log(`Service worker: ${result.serviceWorkerUrl}`);
         for (const icon of result.iconUrls) console.log(`Icon: ${icon}`);

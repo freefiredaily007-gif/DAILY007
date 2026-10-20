@@ -4,6 +4,9 @@
     "displayName": "Daily007",
     "slug": "daily007",
     "version": "1.0.1",
+    "extra": {
+      "daily007WebReleaseMarker": "1.0.1+web.20261020"
+    },
     "platforms": [
       "ios",
       "android",

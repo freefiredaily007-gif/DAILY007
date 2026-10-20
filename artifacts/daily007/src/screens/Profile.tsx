@@ -38,9 +38,13 @@ export default function Profile({
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const configuredAppVersion = Constants.expoConfig?.version ?? '—';
   const displayedAppVersion = Application.nativeApplicationVersion ?? configuredAppVersion;
+  const webReleaseMarker = Constants.expoConfig?.extra?.daily007WebReleaseMarker;
   const appVersion = Platform.OS === 'web'
-    ? `${displayedAppVersion}+web.20261020`
+    ? (typeof webReleaseMarker === 'string' ? webReleaseMarker : 'Web release marker unavailable')
     : displayedAppVersion;
+  const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
+    ? window.location.origin
+    : null;
   const configuredBuild = Platform.OS === 'ios'
     ? Constants.expoConfig?.ios?.buildNumber
     : Constants.expoConfig?.android?.versionCode;
@@ -535,6 +539,7 @@ export default function Profile({
       <SectionTitle accent={C.blue}>APP INFO</SectionTitle>
       <Card testID="profile-app-metadata">
         <KV k="App version" v={appVersion} />
+        {appOrigin && <KV k="App origin" v={appOrigin} />}
         <KV k={buildLabel} v={appBuild} />
       </Card>
       <Btn title="LOGOUT" kind="danger" onPress={logout} />

@@ -8,6 +8,7 @@ import {
   checkPublishedPwa,
   checkPublishedPwaInBrowser,
   EXPECTED_DAILY007_PWA_ID,
+  EXPECTED_DAILY007_WEB_RELEASE_MARKER,
 } from './pwa-published-smoke.mjs';
 
 const require = createRequire(import.meta.url);
@@ -19,6 +20,8 @@ const serviceWorkerSource = await readFile(join(import.meta.dirname, '../public/
 const icon192 = await readFile(join(import.meta.dirname, '../public/icons/icon-192.png'));
 const icon512 = await readFile(join(import.meta.dirname, '../public/icons/icon-512.png'));
 const html = '<!doctype html><html><head><title>Daily007</title></head><body></body></html>';
+const appBundlePath = '/daily007/assets/entry.js';
+const currentAppBundle = `globalThis.daily007Release = "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}";`;
 
 test('keeps the source manifest on the protected Daily007 app identity', () => {
   assert.equal(manifest.id, EXPECTED_DAILY007_PWA_ID);
@@ -32,15 +35,24 @@ async function withPublishedPwaFixture(
     redirects = {},
     appPagePaths = ['/daily007/'],
     appPageContents = {},
+    appBundleContent = currentAppBundle,
   } = {},
   run,
 ) {
   const fixtureManifest = { ...manifest, ...manifestOverrides };
-  const page = injectPwaHead(html, fixtureManifest, '/daily007/');
+  const page = injectPwaHead(
+    html.replace('</body>', `<script src="${appBundlePath}" defer></script></body>`),
+    fixtureManifest,
+    '/daily007/',
+  );
   const requests = [];
   const server = createServer((request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
-    requests.push({ method: request.method, pathname });
+    requests.push({
+      method: request.method,
+      pathname,
+      search: new URL(request.url, 'http://localhost').search,
+    });
     if (pathname === missingPath) {
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       response.end('Not Found');
@@ -70,6 +82,11 @@ async function withPublishedPwaFixture(
           : 'application/javascript; charset=utf-8',
       });
       response.end(serviceWorkerSource);
+      return;
+    }
+    if (pathname === appBundlePath) {
+      response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8' });
+      response.end(appBundleContent);
       return;
     }
     if (pathname === '/daily007/icons/icon-192.png') {
@@ -133,15 +150,46 @@ test('checks the published page references, manifest, service worker, and both i
   await withPublishedPwaFixture({}, async (url) => {
     const result = await checkPublishedPwa(url);
     const fixtureOrigin = new URL(result.manifestUrl).origin;
+    assert.equal(result.origin, fixtureOrigin);
     assert.match(result.manifestUrl, /\/daily007\/manifest\.json$/);
     assert.equal(result.manifestId, `${fixtureOrigin}/daily007/`);
     assert.equal(result.startUrl, `${fixtureOrigin}/daily007/`);
     assert.equal(result.scope, `${fixtureOrigin}/daily007/`);
     assert.equal(result.display, 'standalone');
+    assert.equal(result.webReleaseMarker, EXPECTED_DAILY007_WEB_RELEASE_MARKER);
+    assert.equal(result.webBundleUrl, `${new URL(url).origin}${appBundlePath}`);
     assert.match(result.serviceWorkerUrl, /\/daily007\/sw\.js$/);
     assert.equal(result.iconUrls.length, 2);
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-192.png')));
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-512.png')));
+  });
+});
+
+test('uses cache-busted page and bundle requests to reject an older published release', async () => {
+  await withPublishedPwaFixture({
+    appBundleContent: 'globalThis.daily007Release = "1.0.0+web.20261019";',
+  }, async (url, { requests }) => {
+    await assert.rejects(
+      checkPublishedPwa(url),
+      (error) => error instanceof Error
+        && error.message.includes('cache-busted JavaScript bundles referenced')
+        && error.message.includes(`"${EXPECTED_DAILY007_WEB_RELEASE_MARKER}"`)
+        && error.message.includes('older web release'),
+    );
+    assert.ok(
+      requests.some((request) =>
+        request.pathname === '/daily007/'
+        && new URLSearchParams(request.search).has('_daily007_release_check'),
+      ),
+      'the published page request should be cache-busted',
+    );
+    assert.ok(
+      requests.some((request) =>
+        request.pathname === appBundlePath
+        && new URLSearchParams(request.search).has('_daily007_release_check'),
+      ),
+      'the application bundle request should be cache-busted',
+    );
   });
 });
 
