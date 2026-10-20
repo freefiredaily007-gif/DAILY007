@@ -58,7 +58,7 @@ export function RoomCredentialsPanel({
   useLayoutEffect(() => {
     copyRequestGuard.current.invalidateRequests();
     setCopyFeedback(null);
-  }, [credentialsReady, id, password]);
+  }, [id, password]);
 
   const copy = async (label: string, value: string) => {
     const requestId = copyRequestGuard.current.beginRequest();

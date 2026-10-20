@@ -335,7 +335,7 @@ test("changing either room credential clears old success and failure feedback be
   );
   assert.ok(resetEffect, "credential changes must invalidate pending copies and clear feedback");
   const dependencies = resetEffect[2].split(",").map((dependency) => dependency.trim());
-  assert.deepEqual(dependencies, ["credentialsReady", "id", "password"]);
+  assert.deepEqual(dependencies, ["id", "password"]);
   const requestGuard = createRoomCredentialCopyRequestGuard();
   const pendingRequestId = requestGuard.beginRequest();
   const resetFeedback = new Function(
@@ -401,11 +401,73 @@ test("changing either room credential clears old success and failure feedback be
   assert.match(panelSource, /testID="room-credential-copy-feedback"/);
 });
 
+test("unchanged room credentials preserve success and failure feedback across refreshes", () => {
+  const resetEffect = panelSource.match(
+    /useLayoutEffect\(\(\) => \{\s*(copyRequestGuard\.current\.invalidateRequests\(\);\s*setCopyFeedback\(null\);)\s*\}, \[([^\]]+)\]\);/,
+  );
+  assert.ok(resetEffect, "the copy feedback reset should track room credential values");
+  const dependencies = resetEffect[2].split(",").map((dependency) => dependency.trim());
+  assert.deepEqual(dependencies, ["id", "password"]);
+  const resetFeedback = new Function(
+    "copyRequestGuard",
+    "setCopyFeedback",
+    resetEffect[1],
+  );
+
+  for (const previousFeedback of [
+    { kind: "success", message: "Room ID copied to clipboard." },
+    { kind: "failure", message: "Could not copy Password. Please try again." },
+  ]) {
+    const requestGuard = createRoomCredentialCopyRequestGuard();
+    const pendingRequestId = requestGuard.beginRequest();
+    let credentials = {
+      id: "FAKE-ROOM-401",
+      password: "FAKE-PASS-401",
+      refreshedAt: "before-refresh",
+    };
+    let visibleFeedback = previousFeedback;
+    const announcements = [previousFeedback.message];
+
+    const refreshedCredentials = {
+      ...credentials,
+      id: `${credentials.id}`,
+      password: `${credentials.password}`,
+      refreshedAt: "after-refresh",
+    };
+    const credentialsChanged = dependencies.some(
+      (dependency) => credentials[dependency] !== refreshedCredentials[dependency],
+    );
+    credentials = refreshedCredentials;
+    if (credentialsChanged) {
+      resetFeedback(
+        { current: requestGuard },
+        (nextFeedback) => { visibleFeedback = nextFeedback; },
+      );
+    }
+
+    assert.equal(visibleFeedback, previousFeedback);
+    assert.deepEqual(announcements, [previousFeedback.message]);
+    assert.equal(
+      requestGuard.isCurrentRequest(pendingRequestId),
+      true,
+      "unchanged credentials must not invalidate an in-flight copy",
+    );
+    assert.equal(credentials.refreshedAt, "after-refresh");
+  }
+
+  assert.doesNotMatch(
+    resetEffect[1],
+    /AccessibilityInfo\.announceForAccessibility/,
+    "refreshing unchanged credentials must not send a new accessibility announcement",
+  );
+});
+
 test("credential changes suppress deferred clipboard success and failure from old values", async () => {
   const resetEffect = panelSource.match(
     /useLayoutEffect\(\(\) => \{\s*(copyRequestGuard\.current\.invalidateRequests\(\);\s*setCopyFeedback\(null\);)\s*\}, \[([^\]]+)\]\);/,
   );
   assert.ok(resetEffect, "the credential commit must invalidate in-flight copy requests");
+  const dependencies = resetEffect[2].split(",").map((dependency) => dependency.trim());
   const resetOnCredentialChange = new Function(
     "copyRequestGuard",
     "setCopyFeedback",
@@ -430,7 +492,7 @@ test("credential changes suppress deferred clipboard success and failure from ol
     credentialsReady: true,
   };
   const applyCredentialChange = (nextCredentials) => {
-    const changed = ["credentialsReady", "id", "password"].some(
+    const changed = dependencies.some(
       (key) => credentials[key] !== nextCredentials[key],
     );
     credentials = nextCredentials;
