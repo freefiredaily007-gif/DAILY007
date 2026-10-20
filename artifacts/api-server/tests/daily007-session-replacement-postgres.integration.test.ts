@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import test, { after } from "node:test";
 import express from "express";
@@ -29,7 +30,17 @@ type LoginResponse = {
   body: Record<string, unknown>;
 };
 
+type ApiProcess = {
+  origin: string;
+  child: ChildProcessWithoutNullStreams;
+  stop: () => Promise<void>;
+};
+
+const API_SERVER_BUNDLE = "/tmp/daily007-session-replacement-server.cjs";
+const apiProcesses: ApiProcess[] = [];
+
 after(async () => {
+  await Promise.all(apiProcesses.map((apiProcess) => apiProcess.stop()));
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
   await pool.end();
@@ -64,6 +75,63 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
       server.close((error) => error ? reject(error) : resolve());
     });
   }
+}
+
+async function startApiProcess(): Promise<ApiProcess> {
+  const child = spawn(process.execPath, [API_SERVER_BUNDLE], {
+    env: process.env,
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  let output = "";
+  const origin = await new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("Timed out waiting for the session-replacement API process."));
+    }, 10_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+      const ready = output.match(/READY:(\d+)/);
+      if (ready) {
+        clearTimeout(timeout);
+        resolve(`http://127.0.0.1:${ready[1]}`);
+      }
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Session-replacement API process exited before starting (code ${code}). ${output}`));
+    });
+  });
+
+  let stopPromise: Promise<void> | undefined;
+  const apiProcess: ApiProcess = {
+    origin,
+    child,
+    stop: () => {
+      if (stopPromise) return stopPromise;
+      stopPromise = new Promise<void>((resolve, reject) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          resolve();
+          return;
+        }
+        const timeout = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error("Timed out stopping the session-replacement API process."));
+        }, 10_000);
+        child.once("exit", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        child.kill("SIGTERM");
+      });
+      return stopPromise;
+    },
+  };
+  apiProcesses.push(apiProcess);
+  return apiProcess;
 }
 
 async function login(
@@ -227,49 +295,50 @@ test("both authenticated API surfaces reject a token after its account is blocke
   );
 
   try {
-    await withServer(async (origin) => {
-      const loggedIn = await login(
-        origin,
-        "/daily007/v2/auth/login",
-        email,
-        password,
-        "198.51.100.120",
-      );
-      assert.equal(loggedIn.status, 200);
-      assert.equal(typeof loggedIn.body.token, "string");
-      const token = loggedIn.body.token as string;
+    const originalProcess = await startApiProcess();
+    const loggedIn = await login(
+      originalProcess.origin,
+      "/daily007/v2/auth/login",
+      email,
+      password,
+      "198.51.100.120",
+    );
+    assert.equal(loggedIn.status, 200);
+    assert.equal(typeof loggedIn.body.token, "string");
+    const token = loggedIn.body.token as string;
 
-      const routes = [
-        { label: "Daily007 v2", path: "/daily007/v2/auth/me" },
-        { label: "compatibility", path: "/auth/me" },
-      ];
-      for (const route of routes) {
-        const activeResponse = await authenticatedGet(origin, route.path, token);
-        assert.equal(activeResponse.status, 200, `${route.label} accepts the active account token`);
-      }
+    const routes = [
+      { label: "Daily007 v2", path: "/daily007/v2/auth/me" },
+      { label: "compatibility", path: "/auth/me" },
+    ];
+    for (const route of routes) {
+      const activeResponse = await authenticatedGet(originalProcess.origin, route.path, token);
+      assert.equal(activeResponse.status, 200, `${route.label} accepts the active account token`);
+    }
 
-      await pool.query(
-        "UPDATE daily007_v2_users SET status = 'blocked' WHERE id = $1",
-        [userId],
-      );
+    await pool.query(
+      "UPDATE daily007_v2_users SET status = 'blocked' WHERE id = $1",
+      [userId],
+    );
+    await originalProcess.stop();
 
-      for (const route of routes) {
-        const blockedResponse = await authenticatedGet(origin, route.path, token);
-        assert.equal(blockedResponse.status, 403, `${route.label} rejects the pre-block token`);
-        assert.deepEqual(blockedResponse.body, { error: "This account is blocked." });
-      }
+    const restartedProcess = await startApiProcess();
+    for (const route of routes) {
+      const blockedResponse = await authenticatedGet(restartedProcess.origin, route.path, token);
+      assert.equal(blockedResponse.status, 403, `${route.label} rejects the pre-block token after restart`);
+      assert.deepEqual(blockedResponse.body, { error: "This account is blocked." });
+    }
 
-      const blockedAccount = await pool.query<{
-        status: string;
-        auth_version: number;
-      }>(
-        "SELECT status, auth_version FROM daily007_v2_users WHERE id = $1",
-        [userId],
-      );
-      assert.deepEqual(blockedAccount.rows[0], {
-        status: "blocked",
-        auth_version: 1,
-      });
+    const blockedAccount = await pool.query<{
+      status: string;
+      auth_version: number;
+    }>(
+      "SELECT status, auth_version FROM daily007_v2_users WHERE id = $1",
+      [userId],
+    );
+    assert.deepEqual(blockedAccount.rows[0], {
+      status: "blocked",
+      auth_version: 1,
     });
   } finally {
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
