@@ -7,6 +7,7 @@ import { hashPassword } from "../src/routes/daily007-v2";
 import { makeToken } from "../src/lib/daily007-session-token";
 
 const TEST_AUTH_SECRET = "daily007-password-change-attempts-test-secret";
+const TEST_REPLACEMENT_PASSWORD = "replacement-password-for-shared-attempt-test";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -93,11 +94,27 @@ async function passwordChange(
     },
     body: JSON.stringify({
       currentPassword,
-      newPassword: "replacement-password-for-shared-attempt-test",
+      newPassword: TEST_REPLACEMENT_PASSWORD,
     }),
   });
   await response.json();
   return { status: response.status, retryAfter: response.headers.get("retry-after") };
+}
+
+async function passwordLogin(
+  origin: string,
+  email: string,
+  password: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${origin}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  return {
+    status: response.status,
+    body: await response.json() as Record<string, unknown>,
+  };
 }
 
 async function waitForBlockedPasswordAttemptSettlements(blockerPid: number, expectedCount: number): Promise<void> {
@@ -261,6 +278,7 @@ test("a successful password change resets only that player's previous incorrect 
   const secondUserId = randomUUID();
   const firstPassword = "first-player-current-password";
   const secondPassword = "second-player-current-password";
+  const firstEmail = `password-change-reset-first-${firstUserId}@example.test`;
   const firstCredentials = await hashPassword(firstPassword);
   const secondCredentials = await hashPassword(secondPassword);
   await pool.query(
@@ -271,7 +289,7 @@ test("a successful password change resets only that player's previous incorrect 
        ($5, 'Second Reset Player', $6, $7, $8)`,
     [
       firstUserId,
-      `password-change-reset-first-${firstUserId}@example.test`,
+      firstEmail,
       firstCredentials.salt,
       firstCredentials.hash,
       secondUserId,
@@ -303,6 +321,20 @@ test("a successful password change resets only that player's previous incorrect 
 
   const successfulChange = await passwordChange(api.origin, firstToken, firstPassword);
   assert.equal(successfulChange.status, 200, "the first player's valid current password should permit a change");
+
+  const replacementPasswordLogin = await passwordLogin(
+    api.origin,
+    firstEmail,
+    TEST_REPLACEMENT_PASSWORD,
+  );
+  assert.equal(replacementPasswordLogin.status, 200, "the replacement password should allow sign-in");
+  assert.equal(replacementPasswordLogin.body.id, firstUserId);
+  assert.equal(typeof replacementPasswordLogin.body.token, "string");
+
+  const oldPasswordLogin = await passwordLogin(api.origin, firstEmail, firstPassword);
+  assert.equal(oldPasswordLogin.status, 401, "the previous password should no longer allow sign-in");
+  assert.equal(oldPasswordLogin.body.error, "Email or password is incorrect.");
+  assert.equal(oldPasswordLogin.body.token, undefined);
 
   const afterSuccessfulChange = await waitForSettledPasswordAttempts([firstUserId, secondUserId]);
   const attemptsAfterChange = new Map(afterSuccessfulChange.map(({ user_id, failures, in_flight }) => [

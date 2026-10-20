@@ -15,6 +15,15 @@ CREATE TABLE daily007_v2_users (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE daily007_login_rate_limits (
+  client_ip_hash text PRIMARY KEY,
+  attempts integer NOT NULL CHECK (attempts >= 1),
+  expires_at timestamptz NOT NULL
+);
+
+CREATE INDEX daily007_login_rate_limits_expires_at_idx
+  ON daily007_login_rate_limits (expires_at);
+
 CREATE TABLE daily007_password_change_attempts (
   user_id uuid PRIMARY KEY REFERENCES daily007_v2_users(id) ON DELETE CASCADE,
   window_id uuid NOT NULL,
