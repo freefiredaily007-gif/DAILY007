@@ -20,6 +20,30 @@ test("each emulator action invokes one persistent Bash process, not independent 
   assert.match(workflow, /id: emulator_api_36[\s\S]*?Capture Android 36 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_36\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 36 5554/);
 });
 
+test("published PWA cache and offline smoke is a blocking workflow check separate from manifest installability", () => {
+  assert.match(workflow, /^  published-pwa-cache-smoke:\n/m);
+  assert.match(workflow, /name: Published PWA cache and offline check/);
+  const publishedPwaJob = workflow
+    .split("\n  published-pwa-cache-smoke:\n")[1]
+    ?.split("\n  tournament-join-recovery:\n")[0];
+  assert.ok(publishedPwaJob, "The published PWA cache job should exist in the release workflow.");
+  assert.match(
+    publishedPwaJob,
+    /DAILY007_PUBLISHED_URL: https:\/\/daily-007-source-1-zip\.replit\.app\/?/,
+  );
+  assert.match(
+    publishedPwaJob,
+    /run: pnpm --filter @workspace\/daily007 run test:pwa:published:browser -- "\$DAILY007_PUBLISHED_URL"/,
+  );
+  assert.match(publishedPwaJob, /CHROMIUM_PATH: \$\{\{ steps\.chromium\.outputs\.chrome-path \}\}/);
+  assert.match(publishedPwaJob, /Manifest installability checks remain the separate test:pwa:published command\./);
+  assert.doesNotMatch(publishedPwaJob, /continue-on-error:\s*true|test:pwa:published:browser[^\n]*\|\|\s*true/);
+  assert.doesNotMatch(
+    publishedPwaJob,
+    /run: pnpm --filter @workspace\/daily007 run test:pwa:published --/,
+  );
+});
+
 async function runSetupDiagnostics(api, testScriptStarted = false) {
   const dir = await mkdtemp(join(tmpdir(), "daily007-emulator-setup-"));
   const bin = join(dir, "bin");
@@ -214,7 +238,7 @@ for (const api of [35, 36]) {
     assert.match(result.calls, new RegExp(`adb shell .*127\\.0\\.0\\.1 ${metroPort}`));
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
-    assert.equal(suites.length, api === 35 ? 12 : 1);
+    assert.equal(suites.length, api === 35 ? 14 : 2);
     if (api === 35) {
       assert.match(result.calls, /test:android-google-link-retry/);
       assert.match(result.calls, /test:android-wallet-payment-history/);
