@@ -67,10 +67,13 @@ const previewGroups = [
       {
         path: "/home-carousel-preview.html?screen=TDetail&tournament-detail-phone=1",
         screen: "Tournament Details",
+        viewport: { ...phoneViewport, width: 320 },
         markers: [
           "Daily007 International Championship Tournament Details Phone Preview",
           "SCHEDULED START:",
           "ROOM DETAILS",
+          "D7-PHONE-ROOM-48291",
+          "PHONE-PREVIEW-PASS-2026",
           'data-testid="room-credential-copy-room-id"',
           'data-testid="room-credential-copy-password"',
           'data-testid="participant-count-heading"',
@@ -80,6 +83,8 @@ const previewGroups = [
         phoneMarkers: [
           "SCHEDULED START:",
           "ROOM DETAILS",
+          "D7-PHONE-ROOM-48291",
+          "PHONE-PREVIEW-PASS-2026",
           'data-testid="room-credential-copy-room-id"',
           'data-testid="room-credential-copy-password"',
           'data-testid="participant-count-heading"',
@@ -349,7 +354,7 @@ async function checkPreviewInteraction(entry) {
 
   const markers = JSON.stringify(interaction.markers);
   const phoneMarkers = JSON.stringify(interaction.phoneMarkers ?? interaction.markers);
-  const expectedPhoneWidth = phoneViewport.width;
+  const expectedPhoneWidth = (entry.viewport ?? phoneViewport).width;
   const expression = `(() => {
     const text = document.body?.innerText ?? "";
     const html = document.body?.innerHTML ?? "";
@@ -453,7 +458,7 @@ async function checkPreview(url, entry) {
   const expectedMarkers = JSON.stringify(entry.markers);
   const expectedPhoneMarkers = JSON.stringify(entry.phoneMarkers ?? entry.markers);
   const expectedUrl = JSON.stringify(url);
-  const expectedPhoneWidth = phoneViewport.width;
+  const expectedPhoneWidth = (entry.viewport ?? phoneViewport).width;
   const expression = `(() => {
     const text = document.body?.innerText ?? "";
     const html = document.body?.innerHTML ?? "";
@@ -667,10 +672,11 @@ try {
     for (const entry of group.entries) {
       const url = `http://127.0.0.1:${port}${entry.path}`;
       await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
+      await cdp("Emulation.setDeviceMetricsOverride", entry.viewport ?? phoneViewport);
       await checkPreview(url, entry);
       console.log(
         `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
-          `${phoneViewport.width}×${phoneViewport.height}`,
+          `${(entry.viewport ?? phoneViewport).width}×${(entry.viewport ?? phoneViewport).height}`,
       );
     }
 
