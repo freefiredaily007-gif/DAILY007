@@ -805,6 +805,115 @@ test("a match that fills its final seat before the cancellation lock is not refu
   }
 });
 
+test("a pending registration that fills the final seat before the cancellation lock is not refunded", async () => {
+  const fixture = await createFixture();
+  const matchId = fixture.matchIds[0];
+  const finalSeatRegistrationId = randomUUID();
+  const originalBalances = new Map([
+    [fixture.payerIds[0], 120],
+    [fixture.payerIds[1], 80],
+    [fixture.payerIds[2], 70],
+  ]);
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let finalSeatCommitted = false;
+  let sweep: Promise<void> | undefined;
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_matches SET capacity = 1 WHERE id = $1",
+      [fixture.matchIds[1]],
+    );
+    await blocker.query("BEGIN");
+    blockerTransactionOpen = true;
+    await blocker.query(
+      "SELECT id FROM daily007_v2_matches WHERE id = $1 FOR NO KEY UPDATE",
+      [matchId],
+    );
+    const blockerPidResult = await blocker.query<{ pid: number }>(
+      "SELECT pg_backend_pid() AS pid",
+    );
+    const blockerPid = Number(blockerPidResult.rows[0]?.pid);
+    assert.ok(Number.isInteger(blockerPid));
+
+    sweep = runDaily007AutoCancellationSweep();
+    await waitForBlockedQuery(
+      "FOR UPDATE OF m",
+      blockerPid,
+      "the automatic cancellation transaction to wait for the match lock",
+    );
+
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 0, 'pending')`,
+      [finalSeatRegistrationId, matchId, fixture.payerIds[2]],
+    );
+    finalSeatCommitted = true;
+    await blocker.query("COMMIT");
+    blockerTransactionOpen = false;
+    await sweep;
+    sweep = undefined;
+
+    const match = await pool.query<{ status: string; capacity: number }>(
+      "SELECT status, capacity FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(match.rows, [{ status: "open", capacity: 3 }]);
+
+    const finalSeat = await pool.query<{ status: string }>(
+      "SELECT status FROM daily007_v2_registrations WHERE id = $1",
+      [finalSeatRegistrationId],
+    );
+    assert.deepEqual(finalSeat.rows, [{ status: "pending" }]);
+
+    const activeRegistrations = await pool.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND status IN ('approved', 'pending')`,
+      [matchId],
+    );
+    assert.equal(
+      activeRegistrations.rows[0]?.count,
+      3,
+      "the pending final-seat registration must count toward match capacity",
+    );
+
+    const refunds = await pool.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = ANY($1::uuid[]) AND reason = 'tournament_cancel_refund'`,
+      [fixture.matchIds],
+    );
+    assert.equal(
+      refunds.rows[0]?.count,
+      0,
+      "the sweep must not create cancellation refunds when the final seat is pending",
+    );
+
+    const balances = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(balances.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      originalBalances,
+      "the sweep must leave every payer balance unchanged",
+    );
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    if (sweep) await sweep;
+    blocker.release();
+    if (finalSeatCommitted) {
+      await pool.query(
+        "DELETE FROM daily007_v2_registrations WHERE id = $1",
+        [finalSeatRegistrationId],
+      );
+    }
+    await cleanupFixture(fixture);
+  }
+});
+
 test("concurrent PostgreSQL sweeps cannot move the saved cursor backwards", async () => {
   const fixture = await createConcurrentSweepFixture();
   const slowWorker = startSweepWorker(fixture.matchIds[99]);
