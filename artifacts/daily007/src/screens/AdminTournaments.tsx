@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import {
+  getDaily007ListAdminDuplicatePlacementsQueryKey,
   getDaily007ListAdminResultLogsQueryKey,
+  useDaily007ListAdminDuplicatePlacements,
   useDaily007ListAdminResultLogs,
   useUpdateTournamentLifecycle,
 } from '@workspace/api-client-react';
@@ -60,6 +62,13 @@ function configuredPrizeForRank(tournament: Tournament, rank: number): number {
     if (Number(match[1]) === rank) return Number(match[2].replace(/,/g, ''));
   }
   return rank === 1 ? Number(tournament.prizePool) || 0 : 0;
+}
+
+function formatAuditTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const istDate = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
+  return `${istDate.toISOString().slice(0, 16).replace('T', ' ')} IST`;
 }
 
 function confirmDestructiveAction(
@@ -141,6 +150,13 @@ export default function AdminTournaments() {
       queryKey: getDaily007ListAdminResultLogsQueryKey(resultLogsParams),
     },
   });
+  const duplicatePlacementQuery = useDaily007ListAdminDuplicatePlacements({
+    query: {
+      enabled: tab === 'completed',
+      queryKey: getDaily007ListAdminDuplicatePlacementsQueryKey(),
+    },
+  });
+  const duplicatePlacements = duplicatePlacementQuery.data?.data ?? [];
   const resultLogs = resultLogsQuery.data?.data ?? [];
   const visibleTournaments = (list ?? []).filter(
     (tournament) => getTournamentLifecycleState(tournament, clockNow) === tab,
@@ -758,6 +774,119 @@ export default function AdminTournaments() {
           accessibilityLiveRegion="polite"
         />
       )}
+      {tab === 'completed' && (
+        <Card testID="admin-duplicate-placement-audit" style={st.duplicateAudit}>
+          <Text style={st.resultTitle}>DUPLICATE PLACEMENT AUDIT</Text>
+          <Text
+            testID="admin-duplicate-placement-read-only"
+            accessibilityRole="text"
+            style={st.auditReadOnly}
+          >
+            READ-ONLY REPORT · This does not change saved results, prizes, or player balances.
+          </Text>
+          {duplicatePlacementQuery.isLoading ? (
+            <Text
+              testID="admin-duplicate-placement-loading"
+              accessibilityLiveRegion="polite"
+              style={st.resultLine}
+            >
+              Loading duplicate placement report…
+            </Text>
+          ) : duplicatePlacementQuery.isError ? (
+            <View style={{ marginTop: 8 }}>
+              <Msg
+                kind="err"
+                text={`Duplicate placement report is unavailable: ${apiError(duplicatePlacementQuery.error)}`}
+                accessibilityLiveRegion="polite"
+                testID="admin-duplicate-placement-error"
+              />
+              <Btn
+                title="RETRY AUDIT"
+                small
+                kind="ghost"
+                loading={duplicatePlacementQuery.isFetching}
+                disabled={duplicatePlacementQuery.isFetching}
+                accessibilityLabel="Retry duplicate placement report"
+                accessibilityHint="Load the read-only report again."
+                accessibilityState={{
+                  disabled: duplicatePlacementQuery.isFetching,
+                  busy: duplicatePlacementQuery.isFetching,
+                }}
+                testID="admin-duplicate-placement-retry"
+                onPress={() => { void duplicatePlacementQuery.refetch(); }}
+                style={{ marginTop: 6 }}
+              />
+            </View>
+          ) : duplicatePlacements.length === 0 ? (
+            <Text
+              testID="admin-duplicate-placement-empty"
+              accessibilityLiveRegion="polite"
+              style={st.resultLine}
+            >
+              No duplicate placements found.
+            </Text>
+          ) : (
+            <>
+              <Text style={st.auditGuidance}>
+                {duplicatePlacements.length} tournament/rank collision{duplicatePlacements.length === 1 ? '' : 's'} found.
+                {' '}{duplicatePlacementQuery.data?.correctionGuidance}
+              </Text>
+              {duplicatePlacements.map((collision) => (
+                <View
+                  key={`${collision.tournamentId}-${collision.rank}`}
+                  testID={`admin-duplicate-placement-${collision.tournamentId}-${collision.rank}`}
+                  style={st.duplicateGroup}
+                >
+                  <Text style={st.duplicateTournamentName}>{collision.tournamentName}</Text>
+                  <Text style={st.resultLine}>Tournament ID · {collision.tournamentId}</Text>
+                  <Text style={st.resultLine}>
+                    {formatAuditTimestamp(collision.startsAt)} · {collision.tournamentStatus.toUpperCase()}
+                  </Text>
+                  <Text style={st.duplicateSummary}>
+                    RANK {collision.rank} · {collision.registrationCount} SAVED PLACEMENTS · {collision.totalPrizeCoins} COINS TOTAL
+                  </Text>
+                  <Text style={st.resultLine}>
+                    Prize pool · {collision.prizePool.toLocaleString()} coins · {collision.prizeDistribution}
+                  </Text>
+                  {collision.awards.map((award) => {
+                    const playerLabel = award.gameName || award.playerName || 'Player';
+                    const savedAt = formatAuditTimestamp(award.createdAt);
+                    const awardLabel = [
+                      `Rank ${collision.rank}`,
+                      `player ${award.playerName}`,
+                      `game name ${award.gameName || 'not available'}`,
+                      award.teamName ? `team ${award.teamName}` : '',
+                      `registration ${award.registrationId}`,
+                      `prize ${award.prizeCoins.toLocaleString()} coins`,
+                      `${award.kills} kills`,
+                      `saved ${savedAt}`,
+                    ].filter(Boolean).join('; ');
+                    return (
+                      <View
+                        key={award.awardId}
+                        accessible
+                        accessibilityRole="text"
+                        accessibilityLabel={awardLabel}
+                        testID={`admin-duplicate-placement-award-${award.registrationId}`}
+                        style={st.duplicateAward}
+                      >
+                        <Text style={st.duplicatePlayer}>{playerLabel}</Text>
+                        <Text style={st.resultLine}>Profile · {award.playerName}</Text>
+                        {!!award.teamName && <Text style={st.resultLine}>Team · {award.teamName}</Text>}
+                        <Text style={st.resultLine}>Registration ID · {award.registrationId}</Text>
+                        <Text style={st.duplicateSummary}>
+                          RANK {collision.rank} · PRIZE {award.prizeCoins.toLocaleString()} COINS · {award.kills} KILLS
+                        </Text>
+                        <Text style={st.resultLine}>Saved · {savedAt}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+            </>
+          )}
+        </Card>
+      )}
 
       {showForm && (
         <Card testID="admin-tournament-create-form" style={{ marginBottom: 14 }}>
@@ -1235,6 +1364,35 @@ const st = StyleSheet.create({
   winnerName: { color: C.text, fontSize: 13, fontWeight: '900' },
   resultSettlement: { color: C.green, fontSize: 10, fontWeight: '800', marginTop: 3, marginBottom: 4 },
   resultLine: { color: C.sub, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  duplicateAudit: {
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: C.bg2,
+    borderWidth: 1,
+    borderColor: C.orange,
+    borderRadius: 10,
+  },
+  auditReadOnly: { color: C.green, fontSize: 10, fontWeight: '800', lineHeight: 15 },
+  auditGuidance: { color: C.sub, fontSize: 10, lineHeight: 15, marginTop: 6 },
+  duplicateGroup: {
+    marginTop: 9,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+  },
+  duplicateTournamentName: { color: C.text, fontSize: 13, fontWeight: '900', flexShrink: 1 },
+  duplicateSummary: { color: C.gold, fontSize: 10, fontWeight: '800', lineHeight: 15, marginTop: 4 },
+  duplicateAward: {
+    marginTop: 8,
+    padding: 9,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bg2,
+  },
+  duplicatePlayer: { color: C.text, fontSize: 12, fontWeight: '800', flexShrink: 1 },
   actionPanel: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
   actionTitle: { color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 0.8, marginBottom: 8 },
   actionStatus: { color: C.neon, fontSize: 10, fontWeight: '800', marginBottom: 6 },

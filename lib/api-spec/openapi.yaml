@@ -1169,6 +1169,19 @@ paths:
         "200": { description: Draft saved; no wallet credits are made }
         "400": { description: Invalid result entry }
         "403": { description: Administrator required }
+  /admin/results/duplicate-placements:
+    get:
+      operationId: daily007ListAdminDuplicatePlacements
+      summary: Audit historical duplicate tournament placements
+      description: Read-only report of tournament result awards where multiple registrations share the same rank.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Read-only duplicate placement audit with tournament and saved award details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDuplicatePlacementsResponse" }
+        "403": { description: Tournament administrator required }
   /admin/tournaments/{id}/confirm-results:
     post:
       operationId: confirmTournamentResults
@@ -1248,6 +1261,44 @@ components:
           type: array
           items: { $ref: "#/components/schemas/AdminResultLog" }
       required: [success, data]
+    AdminDuplicatePlacementAward:
+      type: object
+      properties:
+        awardId: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        playerName: { type: string }
+        gameName: { type: ["string", "null"] }
+        teamName: { type: ["string", "null"] }
+        kills: { type: integer, minimum: 0 }
+        prizeCoins: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+      required: [awardId, registrationId, userId, playerName, gameName, teamName, kills, prizeCoins, createdAt]
+    AdminDuplicatePlacement:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid }
+        tournamentName: { type: string }
+        startsAt: { type: string, format: date-time }
+        tournamentStatus: { type: string }
+        prizePool: { type: integer, minimum: 0 }
+        prizeDistribution: { type: string }
+        rank: { type: integer, minimum: 1 }
+        registrationCount: { type: integer, minimum: 2 }
+        totalPrizeCoins: { type: string }
+        awards:
+          type: array
+          items: { $ref: "#/components/schemas/AdminDuplicatePlacementAward" }
+      required: [tournamentId, tournamentName, startsAt, tournamentStatus, prizePool, prizeDistribution, rank, registrationCount, totalPrizeCoins, awards]
+    AdminDuplicatePlacementsResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/AdminDuplicatePlacement" }
+        correctionGuidance: { type: string }
+      required: [success, data, correctionGuidance]
     TournamentSlot:
       type: object
       properties:

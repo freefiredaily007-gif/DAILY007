@@ -90,7 +90,10 @@ test('iOS VoiceOver announces new tournament, room, and result errors without mo
   assert.match(announcementEffect, /AccessibilityInfo\.announceForAccessibilityWithOptions/);
   assert.match(announcementEffect, /queue: true/);
   assert.doesNotMatch(announcementEffect, /setAccessibilityFocus|\.focus\(/);
-  assert.match(screenSource, /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/);
+  assert.match(
+    screenSource,
+    /<Msg\s+kind="err"\s+text=\{err\}\s+accessibilityLiveRegion=\{\s*Platform\.OS === 'android' && err === CUSTOM_BANNER_URL_ERROR \? undefined : 'polite'\s*\}\s*\/>/,
+  );
   assert.match(screenSource, /text=\{roomError\} accessibilityLiveRegion="polite"/);
   assert.match(screenSource, /text=\{resultError\} accessibilityLiveRegion="polite"/);
 });
@@ -318,8 +321,8 @@ test('room save and removal outcomes announce once without moving focus', () => 
 test('tournament and room-management errors use polite live regions', () => {
   assert.match(
     screenSource,
-    /<Msg kind="err" text=\{err\} accessibilityLiveRegion="polite" \/>/,
-    'Tournament create, update, and delete errors must be announced.',
+    /<Msg\s+kind="err"\s+text=\{err\}\s+accessibilityLiveRegion=\{\s*Platform\.OS === 'android' && err === CUSTOM_BANNER_URL_ERROR \? undefined : 'polite'\s*\}\s*\/>/,
+    'Tournament errors must use their intentional platform-specific live-region behavior.',
   );
   assert.match(
     screenSource,
@@ -599,4 +602,31 @@ test('published result rows announce rank, player or team, kills, and prize sepa
 
 test('the shared text input forwards its accessibility props to the native input', () => {
   assert.match(typographySource, /<NativeTextInput\s+ref=\{ref\}\s+\{\.\.\.props\}/);
+});
+
+test('completed tournaments include a read-only duplicate-placement audit with retry and empty states', () => {
+  const auditStart = screenSource.indexOf('<Card testID="admin-duplicate-placement-audit"');
+  const auditEnd = screenSource.indexOf('{showForm && (', auditStart);
+  assert.ok(auditStart >= 0, 'The completed results screen should render the duplicate-placement audit.');
+  assert.ok(auditEnd > auditStart, 'The audit panel should stay separate from tournament creation.');
+  const auditPanel = screenSource.slice(auditStart, auditEnd);
+
+  assert.match(screenSource, /useDaily007ListAdminDuplicatePlacements/);
+  assert.match(screenSource, /enabled: tab === 'completed'/);
+  assert.match(screenSource, /\{tab === 'completed' && \(\s*<Card testID="admin-duplicate-placement-audit"/);
+  assert.match(auditPanel, /READ-ONLY REPORT/);
+  assert.match(auditPanel, /admin-duplicate-placement-loading/);
+  assert.match(auditPanel, /duplicatePlacementQuery\.isError/);
+  assert.match(auditPanel, /admin-duplicate-placement-retry/);
+  assert.match(auditPanel, /duplicatePlacementQuery\.refetch\(\)/);
+  assert.match(auditPanel, /admin-duplicate-placement-empty/);
+  assert.match(auditPanel, /collision\.tournamentName/);
+  assert.match(auditPanel, /collision\.startsAt/);
+  assert.match(auditPanel, /collision\.rank/);
+  assert.match(auditPanel, /collision\.awards\.map/);
+  assert.match(auditPanel, /award\.registrationId/);
+  assert.match(auditPanel, /award\.prizeCoins/);
+  assert.match(auditPanel, /award\.kills/);
+  assert.match(auditPanel, /award\.createdAt/);
+  assert.match(auditPanel, /correctionGuidance/);
 });

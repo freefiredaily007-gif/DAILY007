@@ -37,6 +37,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdminDuplicatePlacementsResponse,
   AdminResultLogsResponse,
   Daily007AdminAccountRecoveryRequest,
   Daily007AdminAccountRecoveryReviewBody,
@@ -5568,6 +5569,84 @@ export const useSaveTournamentResultDraft = <TError = ErrorType<void>,
       > => {
       return useMutation(getSaveTournamentResultDraftMutationOptions(options));
     }
+
+export const getDaily007ListAdminDuplicatePlacementsUrl = () => {
+
+
+
+
+  return `/api/admin/results/duplicate-placements`
+}
+
+/**
+ * Read-only report of tournament result awards where multiple registrations share the same rank.
+ * @summary Audit historical duplicate tournament placements
+ */
+export const daily007ListAdminDuplicatePlacements = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminDuplicatePlacementsResponse> => {
+
+  return customFetch<AdminDuplicatePlacementsResponse>(getDaily007ListAdminDuplicatePlacementsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007ListAdminDuplicatePlacementsQueryKey = () => {
+    return [
+    `/api/admin/results/duplicate-placements`
+    ] as const;
+    }
+
+
+export const getDaily007ListAdminDuplicatePlacementsQueryOptions = <TData = Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007ListAdminDuplicatePlacementsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>> = ({ signal }) => daily007ListAdminDuplicatePlacements({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007ListAdminDuplicatePlacementsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>>
+export type Daily007ListAdminDuplicatePlacementsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Audit historical duplicate tournament placements
+ */
+
+export function useDaily007ListAdminDuplicatePlacements<TData = Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListAdminDuplicatePlacements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007ListAdminDuplicatePlacementsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getConfirmTournamentResultsUrl = (id: string,) => {
 

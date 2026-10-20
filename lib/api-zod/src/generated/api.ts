@@ -1864,6 +1864,49 @@ export const SaveTournamentResultDraftResponse = zod.unknown()
 
 
 /**
+ * Read-only report of tournament result awards where multiple registrations share the same rank.
+ * @summary Audit historical duplicate tournament placements
+ */
+export const daily007ListAdminDuplicatePlacementsResponseDataItemPrizePoolMin = 0;
+
+
+export const daily007ListAdminDuplicatePlacementsResponseDataItemRegistrationCountMin = 2;
+
+export const daily007ListAdminDuplicatePlacementsResponseDataItemAwardsItemKillsMin = 0;
+
+export const daily007ListAdminDuplicatePlacementsResponseDataItemAwardsItemPrizeCoinsMin = 0;
+
+
+
+export const Daily007ListAdminDuplicatePlacementsResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "tournamentId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "tournamentStatus": zod.string(),
+  "prizePool": zod.number().int().min(daily007ListAdminDuplicatePlacementsResponseDataItemPrizePoolMin),
+  "prizeDistribution": zod.string(),
+  "rank": zod.number().int().min(1),
+  "registrationCount": zod.number().int().min(daily007ListAdminDuplicatePlacementsResponseDataItemRegistrationCountMin),
+  "totalPrizeCoins": zod.string(),
+  "awards": zod.array(zod.object({
+  "awardId": zod.string().uuid(),
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "gameName": zod.string().nullable(),
+  "teamName": zod.string().nullable(),
+  "kills": zod.number().int().min(daily007ListAdminDuplicatePlacementsResponseDataItemAwardsItemKillsMin),
+  "prizeCoins": zod.number().int().min(daily007ListAdminDuplicatePlacementsResponseDataItemAwardsItemPrizeCoinsMin),
+  "createdAt": zod.coerce.date()
+}))
+})),
+  "correctionGuidance": zod.string()
+})
+
+
+/**
  * @summary Finalize saved results and distribute each reward exactly once
  */
 export const ConfirmTournamentResultsParams = zod.object({

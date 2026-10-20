@@ -101,6 +101,44 @@ export interface AdminResultLogsResponse {
   data: AdminResultLog[];
 }
 
+export interface AdminDuplicatePlacementAward {
+  awardId: string;
+  registrationId: string;
+  userId: string;
+  playerName: string;
+  /** @nullable */
+  gameName: string | null;
+  /** @nullable */
+  teamName: string | null;
+  /** @minimum 0 */
+  kills: number;
+  /** @minimum 0 */
+  prizeCoins: number;
+  createdAt: string;
+}
+
+export interface AdminDuplicatePlacement {
+  tournamentId: string;
+  tournamentName: string;
+  startsAt: string;
+  tournamentStatus: string;
+  /** @minimum 0 */
+  prizePool: number;
+  prizeDistribution: string;
+  /** @minimum 1 */
+  rank: number;
+  /** @minimum 2 */
+  registrationCount: number;
+  totalPrizeCoins: string;
+  awards: AdminDuplicatePlacementAward[];
+}
+
+export interface AdminDuplicatePlacementsResponse {
+  success: boolean;
+  data: AdminDuplicatePlacement[];
+  correctionGuidance: string;
+}
+
 export type TournamentSlotStatus = typeof TournamentSlotStatus[keyof typeof TournamentSlotStatus];
 
 

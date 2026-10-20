@@ -565,6 +565,18 @@ export const getDaily007ListAdminResultLogsQueryKey = () => [
   "result-logs",
 ];
 
+export const getDaily007ListAdminDuplicatePlacementsQueryKey = () => [
+  "isolated-admin-preview",
+  "duplicate-placements",
+];
+
+export function useDaily007ListAdminDuplicatePlacements() {
+  return noQuery({
+    data: [],
+    correctionGuidance: "This isolated preview report is read-only.",
+  });
+}
+
 export function useDaily007ListAdminResultLogs() {
   const scale = Number(
     (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })
