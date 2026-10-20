@@ -59,6 +59,7 @@
     "test:admin-role-rejection-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/admin-role-rejection-accessibility.test.mjs",
     "test:admin-user-deletion-accessibility": "node --test scripts/admin-user-deletion-accessibility.test.mjs",
     "test:role-change-navigation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/role-change-navigation.test.mjs",
+    "test:button-visibility": "node --test scripts/button-visibility.test.mjs",
     "test:leaderboard-refresh-policy": "node --test scripts/leaderboard-refresh-policy.test.mjs",
     "test:leaderboard-accessibility": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/leaderboard-accessibility.test.mjs",
     "test:leaderboard-native-text-scale": "node --test scripts/leaderboard-native-text-scale.test.mjs",
