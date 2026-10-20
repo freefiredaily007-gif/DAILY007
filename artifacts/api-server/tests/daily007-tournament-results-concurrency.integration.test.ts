@@ -337,6 +337,21 @@ async function createFixture(playerCount = 2): Promise<TournamentFixture> {
   }
 }
 
+async function prepareCancellationRaceFixture(fixture: TournamentFixture): Promise<void> {
+  await pool.query(
+    `UPDATE daily007_v2_users
+        SET wallet_coins = 75
+      WHERE id = ANY($1::uuid[])`,
+    [fixture.players.map((player) => player.userId)],
+  );
+  await pool.query(
+    `UPDATE daily007_v2_registrations
+        SET entry_coins_paid = 25
+      WHERE match_id = $1`,
+    [fixture.matchId],
+  );
+}
+
 async function createSharedPlayerPayoutFixture(): Promise<SharedPlayerPayoutFixture> {
   const playerId = randomUUID();
   const fixture: SharedPlayerPayoutFixture = {
@@ -2222,6 +2237,7 @@ test("public results stay draft when a cancelled tournament retains a winner awa
 test("a result that locks first prevents a queued cancellation from overriding the declared winner", async () => {
   const fixture = await createFixture();
   const winner = fixture.players[0];
+  await prepareCancellationRaceFixture(fixture);
   const blocker = await pool.connect();
   let blockerTransactionOpen = false;
 
@@ -2268,6 +2284,7 @@ test("a result that locks first prevents a queued cancellation from overriding t
         "A tournament with a declared winner cannot be cancelled.",
         "the cancellation policy must recheck the committed winner after waiting for the match lock",
       );
+      assert.equal(published.body.walletCoins, 575);
 
       const standings = await publicStandings(origin, fixture.matchId);
       assert.equal(standings.status, 200);
@@ -2279,6 +2296,45 @@ test("a result that locks first prevents a queued cancellation from overriding t
         gameName: "TestGame1",
         teamName: null,
       }]);
+
+      const [winnerState, otherPlayerState] = await Promise.all([
+        captureSettlementState(fixture, winner),
+        captureSettlementState(fixture, fixture.players[1]),
+      ]);
+      assert.deepEqual(winnerState, {
+        walletCoins: 575,
+        awards: [{
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 12,
+          prize_coins: 500,
+        }],
+        stats: { matches: 1, wins: 1, kills: 12, prize_coins: 500 },
+        ledger: [{ amount: 500, balance_after: 575, reason: "match_prize" }],
+        match: { enabled: false, status: "open" },
+      });
+      assert.deepEqual(otherPlayerState, {
+        walletCoins: 75,
+        awards: [{
+          registration_id: winner.registrationId,
+          user_id: winner.userId,
+          rank: 1,
+          kills: 12,
+          prize_coins: 500,
+        }],
+        stats: null,
+        ledger: [],
+        match: { enabled: false, status: "open" },
+      });
+
+      const cancellationLedger = await pool.query(
+        `SELECT id
+           FROM daily007_v2_wallet_ledger
+          WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(cancellationLedger.rows, [], "a rejected cancellation must not record entry-fee refunds");
     });
   } finally {
     if (blockerTransactionOpen) await blocker.query("ROLLBACK");
@@ -2290,6 +2346,7 @@ test("a result that locks first prevents a queued cancellation from overriding t
 test("a cancellation that locks first rejects queued results and public standings hide a retained winner award", async () => {
   const fixture = await createFixture();
   const winner = fixture.players[0];
+  await prepareCancellationRaceFixture(fixture);
   const blocker = await pool.connect();
   let blockerTransactionOpen = false;
 
@@ -2333,9 +2390,9 @@ test("a cancellation that locks first rejects queued results and public standing
       assert.deepEqual(cancellation.body.data, {
         id: fixture.matchId,
         status: "cancelled",
-        registrationsRefunded: 0,
-        accountsRefunded: 0,
-        coinsRefunded: 0,
+        registrationsRefunded: 2,
+        accountsRefunded: 2,
+        coinsRefunded: 50,
       });
       assert.equal(published.status, 409);
       assert.equal(
@@ -2344,12 +2401,51 @@ test("a cancellation that locks first rejects queued results and public standing
         "the queued result must follow the existing cancellation policy",
       );
 
-      const rejectedResultState = await captureSettlementState(fixture, winner);
-      assert.deepEqual(rejectedResultState.match, { enabled: false, status: "cancelled" });
-      assert.equal(rejectedResultState.walletCoins, 100);
-      assert.equal(rejectedResultState.stats, null);
-      assert.deepEqual(rejectedResultState.ledger, []);
-      assert.deepEqual(rejectedResultState.awards, []);
+      const [winnerState, otherPlayerState] = await Promise.all([
+        captureSettlementState(fixture, winner),
+        captureSettlementState(fixture, fixture.players[1]),
+      ]);
+      for (const [player, state] of [
+        [winner, winnerState],
+        [fixture.players[1], otherPlayerState],
+      ] as const) {
+        assert.deepEqual(state, {
+          walletCoins: 100,
+          awards: [],
+          stats: null,
+          ledger: [{
+            amount: 25,
+            balance_after: 100,
+            reason: "tournament_cancel_refund",
+          }],
+          match: { enabled: false, status: "cancelled" },
+        }, `only the original entry fee should be refunded for ${player.registrationId}`);
+      }
+
+      const refunds = await pool.query<{
+        user_id: string;
+        registration_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT user_id, registration_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE match_id = $1
+          ORDER BY user_id`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(
+        refunds.rows,
+        fixture.players.map((player) => ({
+          user_id: player.userId,
+          registration_id: player.registrationId,
+          amount: 25,
+          balance_after: 100,
+          reason: "tournament_cancel_refund",
+        })).sort((left, right) => left.user_id.localeCompare(right.user_id)),
+        "cancellation must write exactly one refund ledger entry per paid registration",
+      );
 
       // Retain a fixture-owned award to verify public standings remain hidden
       // even when a cancelled tournament has a stored winner row.
