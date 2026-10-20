@@ -6,9 +6,9 @@
 
 ## Executive summary
 
-The application typechecks, the Daily007 app and PWA test suites pass, and all 40 API test scripts pass after updating stale test fixtures to match the current API contract. A 402×874 preview of the unauthenticated login screen rendered successfully. A live development health check returned 200; unauthenticated account and tournament-create requests returned 401.
+The application typechecks, the Daily007 app and PWA test suites pass, and all 40 API test scripts pass after updating stale test fixtures to match the current API contract. A 402×874 preview of the unauthenticated login screen rendered successfully. A live development health check returned 200; unauthenticated account and tournament-create requests returned 401. The current dependency audit's remaining high-severity reports are mapped below; vulnerable upstream versions without releases are locally patched and separately regression-checked.
 
-**This audit does not certify launch readiness.** High-severity dependency findings remain untriaged, the sensitive-data scan could not complete because of a scanner schema error, and authenticated native/production workflows were not tested. Two static-analysis path-traversal findings were manually reviewed and appear to be scanner false positives, but still need formal disposition.
+**This audit does not certify launch readiness.** The sensitive-data scan could not complete because of a scanner schema error, and authenticated native/production workflows were not tested. Two static-analysis path-traversal findings were manually reviewed and appear to be scanner false positives, but still need formal disposition.
 
 ## 1. Application inventory
 
@@ -67,10 +67,14 @@ The latest five Git commits do not provide a useful pre-redesign snapshot for a 
 
 ## 3. Security and configuration findings
 
-### Dependency audit — launch follow-up required
+### Dependency audit — triaged and targeted fixes applied
 
-- **22 high, 8 moderate, and 2 low** dependency findings were reported.
-- No dependencies were changed. The findings need reachability and compatibility review before upgrades; some fixes may require major-version changes. Do not apply blanket upgrades without rerunning the full suite.
+- The earlier audit snapshot reported **22 high, 8 moderate, and 2 low** findings. The current lockfile initially returned **3 high** findings; after the `markdown-it` fix, `pnpm audit --json` reports **2 high** findings and no moderate or low findings. The count changed as the lockfile and advisory data evolved; the current residual reports are mapped below by dependency path.
+- **High — `braces@3.0.3`**: `@workspace/api-server > http-proxy-middleware > micromatch > braces`. This is a production dependency path. No fixed npm release is available (3.0.3 is latest); `patchedDependencies` applies a targeted depth limit to parsing and recursive AST walkers to prevent stack exhaustion.
+- **High — `node-forge@1.4.0`**: `@workspace/daily007 > @clerk/expo > expo > @expo/cli > node-forge`. The affected node-forge is reached through Expo CLI/code-signing tooling, not the shipped app runtime. No fixed npm release is available (1.4.0 is latest); `patchedDependencies` checks nested `DigestAlgorithm` element counts in RSA signature verification.
+- **High — `markdown-it@14.3.1`**: `@workspace/api-spec > orval > typedoc > markdown-it`. This is a code-generation/build-tool path, not a production runtime dependency. The compatible fix is `14.3.3` in the same major line, enforced by the workspace override.
+- Both local backports are applied to the exact transitive packages through pnpm's patched snapshots. The audit tool is version-based and does not inspect patch contents, so it will continue to report these two upstream versions until fixed releases are published. Confirm the patched snapshot and regression behavior rather than suppressing those advisories.
+- Priority: retain the `braces` backport for the API server's production path; retain the `node-forge` backport in the Expo tooling graph; keep the `markdown-it` same-major override to prevent the fixed build-tool issue from returning.
 
 ### SAST — review required
 
@@ -108,7 +112,7 @@ No production UI, API, authentication, database schema, financial logic, applica
 
 ## 5. Remaining launch blockers and manual work
 
-1. Triage the 22 high-severity dependency findings and apply only compatible, tested fixes.
+1. Keep the two local dependency backports verified until upstream fixed releases replace them; pnpm audit cannot confirm patch contents.
 2. Rerun the sensitive-data scan after resolving its schema failure.
 3. Formally disposition the two SAST path-traversal findings, including symlink handling.
 4. On a staging build, sign in as a normal player and each applicable Admin role; exercise Google sign-in, logout/session persistence, tournament creation/edit/join, registrations, room access, results, wallet/payment review, profile, and logout.

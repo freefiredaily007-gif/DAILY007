@@ -126,6 +126,8 @@ overrides:
   esbuild>@esbuild/win32-x64: '-'
   # orval pins js-yaml to an exact version older than the CVE fix (>=4.3.2)
   js-yaml: 4.3.2
+  # Keep Orval's TypeDoc markdown parser on the patched 14.x release.
+  typedoc>markdown-it: 14.3.3
   lightningcss>lightningcss-android-arm64: '-'
   lightningcss>lightningcss-darwin-arm64: '-'
   lightningcss>lightningcss-darwin-x64: '-'

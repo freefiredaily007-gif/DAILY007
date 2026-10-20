@@ -7,4 +7,6 @@ description: Verify security patches when pnpm audit still flags the upstream pa
 
 **Why:** fixed upstream npm releases may not exist yet, so a local backport can close the code vulnerability before the advisory database recognizes a safe version.
 
-**How to apply:** report both facts accurately: the vulnerable version remains in audit output, and whether the patched runtime path passes the security regression test.
+**How to apply:** report both facts accurately: the vulnerable version remains in audit output, and whether the patched runtime path passes the security regression test. Exercise it through the actual transitive parent and assert the public behavior (for example, ordinary input still works and deeply nested input is rejected) without overfitting the exact exception class or output representation.
+
+**Why:** patch internals can reject unsafe input with a different exception type than a harness assumes, and package APIs can return different forms depending on options; security tests should validate the boundary users depend on.
