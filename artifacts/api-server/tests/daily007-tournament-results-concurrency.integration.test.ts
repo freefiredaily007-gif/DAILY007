@@ -3339,6 +3339,184 @@ test("concurrent tournament payouts preserve one player's wallet history and acc
   }
 });
 
+test("simultaneous results across tournaments cannot both consume the player's last lifetime match slot", async () => {
+  const fixture = await createSharedPlayerPayoutFixture();
+  const player = fixture.registrations[0];
+  assert.ok(player, "the shared player registration is required");
+  const blocker = await pool.connect();
+  let blockerTransactionOpen = false;
+  let submissions: Promise<ResultResponse>[] = [];
+  const resultsToSubmit = [
+    { rank: 1, kills: 7, prizeCoins: 300 },
+    { rank: 2, kills: 3, prizeCoins: 200 },
+  ] as const;
+
+  try {
+    await seedExistingPlayerHistory(player);
+    await setPlayerStats(player, {
+      matches: MAX_SUPPORTED_DATABASE_INT - 1,
+      wins: 1,
+      kills: 42,
+      prize_coins: 500,
+    });
+
+    await withServer(async (origin) => {
+      await blocker.query("BEGIN");
+      blockerTransactionOpen = true;
+      await blocker.query(
+        "SELECT id FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+        [fixture.playerId],
+      );
+      const blockerPid = await backendPid(blocker);
+
+      submissions = resultsToSubmit.map((result, index) =>
+        submitResult(
+          origin,
+          fixture.adminId,
+          fixture.matchIds[index]!,
+          fixture.registrations[index]!,
+          result.rank,
+          result.kills,
+        ),
+      );
+
+      try {
+        const waitingRequests = await waitForBlockedWalletPayoutRequests(blockerPid, 2);
+        assert.equal(waitingRequests.length, 2);
+        await blocker.query("COMMIT");
+        blockerTransactionOpen = false;
+      } finally {
+        if (blockerTransactionOpen) {
+          await blocker.query("ROLLBACK");
+          blockerTransactionOpen = false;
+        }
+      }
+
+      const results = await Promise.all(submissions);
+      assert.deepEqual(
+        results.map((result) => result.status).sort(),
+        [201, 409],
+        `only one tournament can use the remaining lifetime match slot: ${JSON.stringify(results)}`,
+      );
+      const successfulIndex = results.findIndex((result) => result.status === 201);
+      const rejectedIndex = results.findIndex((result) => result.status === 409);
+      assert.notEqual(successfulIndex, -1);
+      assert.notEqual(rejectedIndex, -1);
+      const successfulResult = results[successfulIndex]!;
+      const rejectedResult = results[rejectedIndex]!;
+      const successfulSubmission = resultsToSubmit[successfulIndex]!;
+      const successfulRegistration = fixture.registrations[successfulIndex]!;
+      const rejectedRegistration = fixture.registrations[rejectedIndex]!;
+
+      assert.deepEqual(
+        {
+          registrationId: successfulResult.body.registrationId,
+          userId: successfulResult.body.userId,
+          prizeCoins: successfulResult.body.prizeCoins,
+          walletCoins: successfulResult.body.walletCoins,
+        },
+        {
+          registrationId: successfulRegistration.registrationId,
+          userId: fixture.playerId,
+          prizeCoins: successfulSubmission.prizeCoins,
+          walletCoins: 1000 + successfulSubmission.prizeCoins,
+        },
+      );
+      assert.equal(
+        rejectedResult.body.error,
+        "Player lifetime matches would exceed the supported range.",
+      );
+
+      const awards = await pool.query<{
+        match_id: string;
+        registration_id: string;
+        user_id: string;
+        rank: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT match_id, registration_id, user_id, rank, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE registration_id = ANY($1::uuid[])
+          ORDER BY registration_id`,
+        [fixture.registrations.map((registration) => registration.registrationId)],
+      );
+      assert.deepEqual(awards.rows, [{
+        match_id: fixture.matchIds[successfulIndex],
+        registration_id: successfulRegistration.registrationId,
+        user_id: fixture.playerId,
+        rank: successfulSubmission.rank,
+        kills: successfulSubmission.kills,
+        prize_coins: successfulSubmission.prizeCoins,
+      }], "only the successful result may create an award");
+      assert.equal(
+        awards.rows.some((award) => award.registration_id === rejectedRegistration.registrationId),
+        false,
+        "the rejected tournament must not retain a partial award",
+      );
+
+      const wallet = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [fixture.playerId],
+      );
+      assert.deepEqual(wallet.rows, [{ wallet_coins: 1000 + successfulSubmission.prizeCoins }]);
+
+      const ledger = await pool.query<{
+        match_id: string | null;
+        registration_id: string | null;
+        amount: number;
+        balance_after: number;
+        reason: string;
+      }>(
+        `SELECT match_id, registration_id, amount, balance_after, reason
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = $1
+          ORDER BY balance_after`,
+        [fixture.playerId],
+      );
+      assert.deepEqual(ledger.rows, [
+        {
+          match_id: null,
+          registration_id: null,
+          amount: 500,
+          balance_after: 1000,
+          reason: "match_prize",
+        },
+        {
+          match_id: fixture.matchIds[successfulIndex],
+          registration_id: successfulRegistration.registrationId,
+          amount: successfulSubmission.prizeCoins,
+          balance_after: 1000 + successfulSubmission.prizeCoins,
+          reason: "match_prize",
+        },
+      ], "the rejected result must not create a wallet-ledger credit");
+
+      const stats = await pool.query<{
+        matches: number;
+        wins: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT matches, wins, kills, prize_coins
+           FROM daily007_v2_user_stats
+          WHERE user_id = $1`,
+        [fixture.playerId],
+      );
+      assert.deepEqual(stats.rows, [{
+        matches: MAX_SUPPORTED_DATABASE_INT,
+        wins: 1 + (successfulSubmission.rank === 1 ? 1 : 0),
+        kills: 42 + successfulSubmission.kills,
+        prize_coins: 500 + successfulSubmission.prizeCoins,
+      }], "the accepted result must consume the final match slot exactly once");
+    });
+  } finally {
+    if (blockerTransactionOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    await Promise.allSettled(submissions);
+    await cleanupSharedPlayerPayoutFixture(fixture);
+  }
+});
+
 test("failed runner-up payout preserves the earlier winner and permits one retry", async () => {
   const fixture = await createFixture();
   const [winner, runnerUp] = fixture.players;
