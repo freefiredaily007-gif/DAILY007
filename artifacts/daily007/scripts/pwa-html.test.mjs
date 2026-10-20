@@ -4,7 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
-import { checkPublishedPwa, checkPublishedPwaInBrowser } from './pwa-published-smoke.mjs';
+import {
+  checkPublishedPwa,
+  checkPublishedPwaInBrowser,
+  EXPECTED_DAILY007_PWA_ID,
+} from './pwa-published-smoke.mjs';
 
 const require = createRequire(import.meta.url);
 const { injectPwaHead } = require('./pwa-html.js');
@@ -15,6 +19,10 @@ const serviceWorkerSource = await readFile(join(import.meta.dirname, '../public/
 const icon192 = await readFile(join(import.meta.dirname, '../public/icons/icon-192.png'));
 const icon512 = await readFile(join(import.meta.dirname, '../public/icons/icon-512.png'));
 const html = '<!doctype html><html><head><title>Daily007</title></head><body></body></html>';
+
+test('keeps the source manifest on the protected Daily007 app identity', () => {
+  assert.equal(manifest.id, EXPECTED_DAILY007_PWA_ID);
+});
 
 async function withPublishedPwaFixture(
   {
@@ -271,6 +279,11 @@ test('rejects valid JSON with missing or invalid install-critical manifest field
       field: 'id',
       manifestOverrides: { id: 'https://other.example/daily007/' },
       message: /manifest field "id" reference must use the published page's origin/,
+    },
+    {
+      field: 'id',
+      manifestOverrides: { id: './different-app/' },
+      message: /Daily007 app identity mismatch.*Expected manifest field "id".*but it resolves to.*For an intentional identity change/,
     },
     {
       field: 'start_url',

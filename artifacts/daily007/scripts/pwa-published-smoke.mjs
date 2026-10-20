@@ -15,6 +15,9 @@ const JAVASCRIPT_CONTENT_TYPES = [
 ];
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_START_URL_REDIRECTS = 10;
+// Keep this value in sync with public/manifest.json. Change both only when
+// intentionally changing the identity of the installed Daily007 app.
+export const EXPECTED_DAILY007_PWA_ID = './';
 
 function mimeType(response) {
   return (response.headers.get('content-type') || '')
@@ -138,6 +141,15 @@ function validateInstallManifest(manifest, manifestUrl) {
   requiredManifestString(manifest, 'short_name');
 
   const idUrl = manifestFieldUrl(manifest, 'id', manifestUrl);
+  const expectedIdUrl = new URL(EXPECTED_DAILY007_PWA_ID, manifestUrl);
+  if (idUrl.href !== expectedIdUrl.href) {
+    throw new Error(
+      `PWA smoke check failed: Daily007 app identity mismatch. ` +
+      `Expected manifest field "id" to resolve to ${expectedIdUrl.href}, ` +
+      `but it resolves to ${idUrl.href}. For an intentional identity change, ` +
+      `update EXPECTED_DAILY007_PWA_ID in scripts/pwa-published-smoke.mjs and public/manifest.json together.`,
+    );
+  }
   const startUrl = manifestFieldUrl(manifest, 'start_url', manifestUrl);
   const scopeUrl = manifestFieldUrl(manifest, 'scope', manifestUrl);
   if (!isWithinScope(startUrl, scopeUrl)) {
