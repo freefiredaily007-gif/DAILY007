@@ -31,6 +31,7 @@ const fixture = {
 const playerIds = [fixture.firstPlayerId, fixture.secondPlayerId];
 const firstPayoutAccount = `withdrawal-owner-${fixture.firstPlayerId}@upi`;
 const secondPayoutAccount = `withdrawal-owner-${fixture.secondPlayerId}-bank`;
+const secondReviewReason = "Payout account details could not be verified.";
 
 type ApiResponse = { status: number; body: any };
 
@@ -138,7 +139,7 @@ async function seedFixture(): Promise<void> {
   );
 }
 
-test("PostgreSQL withdrawal history exposes reviewed payout details only to the owning player", async () => {
+test("PostgreSQL withdrawal history exposes approved and rejected payout details only to each owner", async () => {
   await seedFixture();
 
   await withServer(async (origin) => {
@@ -165,6 +166,26 @@ test("PostgreSQL withdrawal history exposes reviewed payout details only to the 
       "POST",
     );
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    const rejected = await call(
+      origin,
+      fixture.adminId,
+      `/admin/withdrawals/${secondWithdrawalId}/reject`,
+      "POST",
+      { reason: secondReviewReason },
+    );
+    assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
+    assert.equal(rejected.body.status, "rejected");
+    assert.equal(rejected.body.review_reason, secondReviewReason);
+
+    const repeatedRejection = await call(
+      origin,
+      fixture.adminId,
+      `/admin/withdrawals/${secondWithdrawalId}/reject`,
+      "POST",
+      { reason: secondReviewReason },
+    );
+    assert.equal(repeatedRejection.status, 200, JSON.stringify(repeatedRejection.body));
+    assert.equal(repeatedRejection.body.alreadyReviewed, true);
 
     const [firstHistory, secondHistory] = await Promise.all([
       call(origin, fixture.firstPlayerId, "/my/withdrawals", "GET"),
@@ -191,10 +212,10 @@ test("PostgreSQL withdrawal history exposes reviewed payout details only to the 
     assert.equal(secondWithdrawal.coins, 250);
     assert.equal(secondWithdrawal.method, "bank");
     assert.equal(secondWithdrawal.account, secondPayoutAccount);
-    assert.equal(secondWithdrawal.status, "pending");
+    assert.equal(secondWithdrawal.status, "rejected");
     assert.equal(secondWithdrawal.payoutStatus, "not_paid");
-    assert.equal(secondWithdrawal.reviewReason, null);
-    assert.equal(secondWithdrawal.reviewedAt, null);
+    assert.equal(secondWithdrawal.reviewReason, secondReviewReason);
+    assert.equal(Date.parse(secondWithdrawal.reviewedAt) > 0, true);
 
     const firstHistoryJson = JSON.stringify(firstHistory.body);
     const secondHistoryJson = JSON.stringify(secondHistory.body);
@@ -204,5 +225,25 @@ test("PostgreSQL withdrawal history exposes reviewed payout details only to the 
     assert.equal(secondHistoryJson.includes(firstPayoutAccount), false);
     assert.equal(secondHistoryJson.includes('"status":"approved"'), false);
     assert.equal(secondHistoryJson.includes('"payoutStatus":"manual_payout_required"'), false);
+    assert.equal(firstHistoryJson.includes(secondReviewReason), false);
+    assert.equal(firstHistoryJson.includes('"status":"rejected"'), false);
+
+    const refundRows = await pool.query<{ refund_count: number; refund_amount: number; balance_after: number }>(
+      `SELECT count(*)::int AS refund_count,
+              COALESCE(sum(amount), 0)::int AS refund_amount,
+              COALESCE(max(balance_after), 0)::int AS balance_after
+         FROM daily007_v2_wallet_ledger
+        WHERE user_id = $1 AND reason = 'withdrawal_rejected_refund'`,
+      [fixture.secondPlayerId],
+    );
+    assert.equal(refundRows.rows[0]?.refund_count, 1);
+    assert.equal(refundRows.rows[0]?.refund_amount, 250);
+    assert.equal(refundRows.rows[0]?.balance_after, 900);
+
+    const secondWallet = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [fixture.secondPlayerId],
+    );
+    assert.equal(secondWallet.rows[0]?.wallet_coins, 900);
   });
 });
