@@ -9164,16 +9164,16 @@ async function checkAdminTournamentEditSaveAtLargeText() {
 
   await clickTournamentFormControl("Clash Squad", "edited Clash Squad mode");
   await clickTournamentFormControl("Duo", "edited Duo format");
-  await clickTournamentFormControl("9", "edited tournament start hour");
-  await clickTournamentFormControl("35", "edited tournament start minute");
+  await clickTournamentFormControl("11", "edited tournament start hour");
+  await clickTournamentFormControl("45", "edited tournament start minute");
   await clickTournamentFormControl("PM", "edited tournament start period");
   await clickTournamentFormControl("CS banner", "edited Clash Squad banner");
 
   const name = "Clash Night 8";
   await setTournamentFormValue('input[placeholder="Tournament name *"]', name);
   await assertVisibleAdminControlsFit(320, "selected tournament edit form");
-  const date = "2031-06-17";
-  const time = "9:35 PM";
+  const date = "2031-12-31";
+  const time = "11:45 PM";
   const imageUrl = "https://example.invalid/clash-night-8.png";
   const rules = "Bring your own device.\nNo scripts or exploits.";
   const prizeDist = "1st: 700 coins\n2nd: 300 coins";
@@ -9185,7 +9185,7 @@ async function checkAdminTournamentEditSaveAtLargeText() {
   await setTournamentFormValue('textarea[placeholder="Prize distribution (e.g. 1st: 500 coins)"]', prizeDist);
 
   await assertText("2 team slots · 4 players", "selected Clash Squad Duo capacity");
-  await assertText("Selected: 9:35 PM", "selected edited tournament start time");
+  await assertText("Selected: 11:45 PM", "selected edited tournament start time");
   await assertAdminFormControlBounds(320, "populated tournament edit form");
   await assertPageHasNoHorizontalOverflow(320, "populated tournament edit form");
   await assertVisibleTextFits(
@@ -9267,7 +9267,7 @@ async function checkAdminTournamentEditSaveAtLargeText() {
   const savedSchedule = await evaluate(`JSON.parse(
     window.sessionStorage.getItem("daily007-admin-edited-tournament-home-refresh") ?? "null"
   )`);
-  const expectedStartsAt = new Date(`${date}T21:35:00+05:30`).toISOString();
+  const expectedStartsAt = new Date(`${date}T23:45:00+05:30`).toISOString();
   assert(
     savedSchedule?.date === date &&
       savedSchedule?.time === time &&
