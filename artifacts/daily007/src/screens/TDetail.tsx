@@ -395,6 +395,7 @@ export default function TDetail() {
   const { user } = useApp();
   const tournamentId = String(id ?? '');
   const [t, setT] = useState<any>(null);
+  const latestDetail = useRef<{ tournamentId: string; detail: any } | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
@@ -476,7 +477,12 @@ export default function TDetail() {
     detailLoadInFlight.current = true;
     try {
       setErr('');
-      const tournamentDetails = await fetchTournamentDetailSnapshot(String(id), api);
+      const currentId = String(id);
+      const previousDetail = latestDetail.current?.tournamentId === currentId
+        ? latestDetail.current.detail
+        : null;
+      const tournamentDetails = await fetchTournamentDetailSnapshot(currentId, api, previousDetail);
+      latestDetail.current = { tournamentId: currentId, detail: tournamentDetails };
       setT(tournamentDetails);
     } catch (e: any) {
       setErr(e?.message || 'Failed to load');

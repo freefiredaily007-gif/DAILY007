@@ -256,7 +256,7 @@ test('Admin tabs stay readable and the selected section scrolls into view at enl
   );
   assert.match(
     adminAppSource,
-    /navLabel: \{[^}]*fontSize: 10\.5[^}]*textAlign: 'center'/,
+    /navLabel: \{[^}]*fontSize: 11[^}]*textAlign: 'center'/,
     'Section names should remain legible and centered at enlarged Android text sizes.',
   );
   assert.match(adminAppSource, /navItemOffsets\.current\[n\.key\] = event\.nativeEvent\.layout\.x/);

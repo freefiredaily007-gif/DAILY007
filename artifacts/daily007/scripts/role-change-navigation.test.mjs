@@ -1056,8 +1056,13 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   assert.match(appSource, /if \(!user\) return <Auth\s+notice=\{authNotice\}/);
   assert.match(
     authSource,
-    /testID="auth-session-notice"[\s\S]*?accessibilityRole="text"[\s\S]*?accessibilityLabel=\{notice\}[\s\S]*?accessibilityLiveRegion="polite"[\s\S]*?>\s*\{notice\}\s*<\/Text>/,
-    "The Auth screen must expose one polite TalkBack announcement for the sign-in explanation.",
+    /testID="auth-session-notice"[\s\S]*?accessibilityRole="text"[\s\S]*?accessibilityLabel=\{notice\}[\s\S]*?accessibilityLiveRegion=\{Platform\.OS === 'ios' \? undefined : 'polite'\}[\s\S]*?>\s*\{notice\}\s*<\/Text>/,
+    "The Auth screen must expose one polite Android announcement and keep iOS on its native announcement path.",
+  );
+  assert.match(
+    authSource,
+    /if \(Platform\.OS === 'ios' && notice\) \{\s*AccessibilityInfo\.announceForAccessibility\(notice\);\s*\}/,
+    "iOS must announce the sign-in explanation through the native accessibility API.",
   );
   assert.equal(
     (authSource.match(/testID="auth-session-notice"/g) ?? []).length,

@@ -46,6 +46,7 @@
 - [Daily007 tournament artwork](daily007-tournament-artwork.md) — map Battle Royale posters to existing tournament cards, including Home’s upcoming carousel, not its game-mode card or a new selector.
 - [Daily007 Tournament Admin scope](daily007-tournament-admin.md) — restricted admins manage tournaments, registrations, rooms, results, and winner payouts, not general coin operations.
 - [Daily007 tournament detail returns](daily007-tournament-detail-back.md) — push detail routes from filtered lists so Android Back returns to the exact list entry.
+- [Daily007 tournament detail recovery](daily007-tournament-detail-recovery.md) — first-load status failure keeps details but disables joining; later failure preserves a confirmed registration snapshot.
 - [TDetail Android resume verification](daily007-tournament-detail-android-resume.md) — Android 16 confirmed no background polling, one focused resume refresh, and no refresh for an unfocused route.
 - [TDetail iOS resume verification](daily007-tournament-detail-ios-resume.md) — iOS confirmed no background polling, one focused resume refresh, and no refresh for an unfocused route.
 - [Daily007 Home carousel paging](daily007-carousel-paging.md) — use viewport-width page wrappers with pagingEnabled; React Native Web ignores snapToInterval.

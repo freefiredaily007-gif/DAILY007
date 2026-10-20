@@ -8,6 +8,7 @@ import {
   LEADERBOARD_REFRESH_POLICY,
   refetchLeaderboardOnFocus,
 } from "../src/lib/leaderboardRefreshPolicy.ts";
+import { leaderboardRewardAccessibilityLabel } from "../src/lib/leaderboardStandings.ts";
 
 const leaderboardSource = readFileSync(
   new URL("../src/screens/LeaderboardDetails.tsx", import.meta.url),
@@ -68,6 +69,7 @@ function renderRewardPanel(cycle, period) {
     styles: {},
     cycle,
     period,
+    leaderboardRewardAccessibilityLabel,
     accent: cycle === "weekly" ? "#weekly" : "#monthly",
     C: { gold: "#gold", sub: "#silver", orange: "#orange" },
   };

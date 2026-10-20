@@ -8,6 +8,7 @@ type TournamentDetailApi = {
 export async function fetchTournamentDetailSnapshot(
   tournamentId: string,
   api: TournamentDetailApi,
+  previousSnapshot?: Record<string, unknown> | null,
 ) {
   const [tournamentResult, registrationsResult] = await Promise.allSettled([
     Promise.resolve().then(() => api.tournament(tournamentId)),
@@ -15,20 +16,17 @@ export async function fetchTournamentDetailSnapshot(
   ]);
 
   if (tournamentResult.status === 'rejected') throw tournamentResult.reason;
-  if (
-    registrationsResult.status === 'rejected' ||
-    !Array.isArray(registrationsResult.value)
-  ) {
+  const registrationStatusKnown =
+    registrationsResult.status === 'fulfilled' &&
+    Array.isArray(registrationsResult.value);
+  if (!registrationStatusKnown && previousSnapshot?.registrationStatusKnown === true) {
     throw new Error(
       'Could not verify your entry status. Your last confirmed status is shown. Pull to refresh to try again.',
     );
   }
-
-  const registrations =
-    registrationsResult.status === 'fulfilled'
-      ? registrationsResult.value as any[]
-      : [];
-  const registrationStatusKnown = registrationsResult.status === 'fulfilled';
+  const registrations = registrationStatusKnown
+    ? registrationsResult.value as any[]
+    : [];
   const registration = registrations.find((item: any) =>
     String(item.tournamentId) === String(tournamentId) &&
     ['approved', 'pending'].includes(String(item.status ?? '').toLowerCase()),

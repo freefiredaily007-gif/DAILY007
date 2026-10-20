@@ -35,6 +35,8 @@ export function setSession(): never {
   throw new SessionPersistenceError();
 }
 
+export function setDevSessionPersistenceFailuresForTest(_count: number): void {}
+
 export function captureSessionRevision(): number {
   return 0;
 }

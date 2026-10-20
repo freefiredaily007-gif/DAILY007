@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
+import { runOnceWhileInFlight } from "../src/lib/inFlightAction.ts";
 
 const screens = [
   ["AdminWallet", "../src/screens/AdminWallet.tsx"],
@@ -67,8 +68,10 @@ function loadSubmitAdjustment(source, screenName) {
     },
     busy: null,
     coinAdjustmentsInFlight: { current: inFlight },
+    inFlightActions: inFlight,
     errMessage: (error) => String(error),
     load: () => Promise.resolve(),
+    runOnceWhileInFlight,
     setBusy: () => {},
     setRetryAdjustment: () => {},
     toast: () => {},
@@ -97,10 +100,11 @@ for (const [screenName, sourcePath] of screens) {
       note: "Admin added coins",
       requestId: "first-request",
     };
+    const inFlightKey = screenName === "AdminWallet" ? "wallet:player-1" : "player-1";
 
     const firstSubmission = harness.submitAdjustment(adjustment);
     assert.equal(harness.calls.length, 1);
-    assert.ok(harness.inFlight.has("player-1"));
+    assert.ok(harness.inFlight.has(inFlightKey));
 
     await harness.submitAdjustment({
       ...adjustment,
@@ -114,7 +118,7 @@ for (const [screenName, sourcePath] of screens) {
 
     harness.resolveFirstRequest();
     await firstSubmission;
-    assert.equal(harness.inFlight.has("player-1"), false);
+    assert.equal(harness.inFlight.has(inFlightKey), false);
 
     await harness.submitAdjustment({
       ...adjustment,

@@ -916,7 +916,7 @@ test("malformed and rejected registration snapshots preserve the last confirmed 
   let visibleError = "";
   const refreshDetail = async () => {
     try {
-      visibleDetail = await fetchTournamentDetailSnapshot("match-1", api);
+      visibleDetail = await fetchTournamentDetailSnapshot("match-1", api, visibleDetail);
       visibleError = "";
     } catch (error) {
       visibleError = error instanceof Error ? error.message : String(error);
@@ -954,7 +954,7 @@ test("malformed and rejected registration snapshots preserve the last confirmed 
 
   assert.match(
     detailSource,
-    /const tournamentDetails = await fetchTournamentDetailSnapshot\(String\(id\), api\);\s*setT\(tournamentDetails\);/,
+    /const currentId = String\(id\);\s*const previousDetail = latestDetail\.current\?\.tournamentId === currentId\s*\? latestDetail\.current\.detail\s*:\s*null;\s*const tournamentDetails = await fetchTournamentDetailSnapshot\(currentId, api, previousDetail\);\s*latestDetail\.current = \{ tournamentId: currentId, detail: tournamentDetails \};\s*setT\(tournamentDetails\);/,
     "TDetail must only replace its displayed snapshot after the helper resolves.",
   );
   assert.match(detailSource, /catch \(e: any\) \{\s*setErr\(e\?\.message \|\| 'Failed to load'\);\s*\}/);

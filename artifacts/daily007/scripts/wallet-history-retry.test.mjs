@@ -10,7 +10,7 @@ const walletSource = await readFile(
 test('Wallet history failures keep a dedicated error and retryable state', () => {
   assert.match(walletSource, /const \[historyLoadError, setHistoryLoadError\] = useState\(''\)/);
   assert.match(walletSource, /if \(requestIsCurrent\(\)\) \{\s*setHistoryLoadError\(apiError\(e\)\);\s*return false;/);
-  assert.match(walletSource, /setHistoryLoadError\(''\);\s*return true;/);
+  assert.match(walletSource, /if \(hasTransactions\) \{\s*setHistoryLoadError\(''\);/);
   assert.match(walletSource, /testID="wallet-history-error"/);
   assert.match(walletSource, /testID="wallet-history-retry"/);
   assert.match(walletSource, /accessibilityLabel=\{loading \? 'Retrying transaction history' : 'Retry transaction history'\}/);

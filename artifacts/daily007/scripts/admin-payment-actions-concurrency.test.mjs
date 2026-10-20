@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
+import { runOnceWhileInFlight } from "../src/lib/inFlightAction.ts";
 
 const screenSource = await readFile(
   new URL("../src/screens/AdminPayments.tsx", import.meta.url),
@@ -87,7 +88,9 @@ function createHarness(rejectKind = "payment") {
     payoutTarget: "withdrawal-1",
     rejectBusy: false,
     rejectTarget: { id: "request-1", kind: rejectKind, userName: "Player One" },
+    inFlightActions: inFlight,
     requestMutationsInFlight: { current: inFlight },
+    runOnceWhileInFlight,
     setAll: (update) => update(scope.all),
     setBusyId: () => {},
     setErr: () => {},

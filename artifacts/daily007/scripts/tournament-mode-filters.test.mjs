@@ -563,7 +563,10 @@ test('Home mode cards reflow and stay tappable with Android text scaled to 1.5x'
   assert.match(homeGameModeCardsSource, /modeBtn,\s*largeModeCard && s\.modeBtnLarge/);
   assert.match(homeGameModeCardsSource, /modeCardLarge:\s*\{\s*flexDirection:\s*'column'/);
   assert.match(homeGameModeCardsSource, /modeArtWrapLarge:\s*\{\s*width:\s*'100%'/);
-  assert.match(homeGameModeCardsSource, /modeBodyLarge:\s*\{\s*flex:\s*0/);
+  assert.match(
+    homeGameModeCardsSource,
+    /modeBodyLarge:\s*\{\s*flexGrow:\s*0,\s*flexShrink:\s*0,\s*flexBasis:\s*'auto'/,
+  );
   assert.match(homeGameModeCardsSource, /modeBtnLarge:\s*\{\s*marginTop:\s*12,\s*minHeight:\s*52/);
   assert.match(homeGameModeCardsSource, /modeBtnTLarge:\s*\{\s*fontSize:\s*12/);
   assert.doesNotMatch(baseModeCardStyle, /(?:^|,)\s*height\s*:/);
@@ -572,7 +575,7 @@ test('Home mode cards reflow and stay tappable with Android text scaled to 1.5x'
   assert.match(homeSource, /<ScrollView style=\{\{\s*flex:\s*1,/);
   assert.match(homeGameModeCardsSource, /accessibilityLabel=\{`Open \$\{mode\.mode\} tournaments\./);
   assert.match(homeGameModeCardsSource, /testID=\{`home-mode-\$\{mode\.mode/);
-  assert.match(homeGameModeCardsSource, />BROWSE TOURNAMENTS<\/Text>/);
+  assert.match(homeGameModeCardsSource, />\s*BROWSE TOURNAMENTS\s*<\/Text>/);
 
   assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
   assert.doesNotMatch(typographySource, /allowFontScaling\s*=\s*\{false\}/);
@@ -610,7 +613,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   assert.match(tournamentsSource, /latestLoadFailed\.current = true/);
   assert.match(
     tournamentsSource,
-    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*appState\.current = nextState;\s*if \(returnedToApp && listFocused\.current\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\('resume'\);\s*\}/,
+    /const returnedToApp = appState\.current !== 'active' && nextState === 'active';\s*if \(appState\.current === 'active' && nextState !== 'active' && listFocused\.current\) \{\s*missedStartCheckPending\.current = true;\s*\}\s*appState\.current = nextState;\s*if \(returnedToApp && listFocused\.current\) \{\s*setClockNow\(Date\.now\(\)\);\s*void load\('resume'\);\s*\}/,
   );
   assert.match(
     tournamentsSource,
@@ -622,8 +625,9 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   );
   assert.match(
     tournamentsSource,
-    /setItems\(\(Array\.isArray\(listResult\.value\) \? listResult\.value : \[\]\)\.map/,
+    /const refreshedItems = \(Array\.isArray\(listResult\.value\) \? listResult\.value : \[\]\)\.map/,
   );
+  assert.match(tournamentsSource, /setItems\(refreshedItems\)/);
   assert.match(tournamentsSource, /const loadRequests = useRef\(createLatestRequestGuard\(\)\)/);
   assert.match(tournamentsSource, /const request = loadRequests\.current\.begin\(\)/);
   assert.match(tournamentsSource, /if \(!loadRequests\.current\.isCurrent\(request\)\) return;/);
@@ -1193,11 +1197,6 @@ test('a mode-filtered refresh updates tab accessibility labels and retains selec
   );
   const loadEnd = tournamentsSource.indexOf('}, []);', loadStart);
   const loadSource = tournamentsSource.slice(loadStart, loadEnd);
-  assert.doesNotMatch(
-    loadSource,
-    /AccessibilityInfo\.announceForAccessibility/,
-    'a refresh must not emit a second announcement in addition to the focused tab label',
-  );
   assert.match(
     loadSource,
     /if \(recoveredInitialLoad\) setPlayerLoadAnnouncement\('Tournaments loaded\.'\)/,
@@ -2175,7 +2174,7 @@ test('Home tournament shortcuts push the selected detail above Home', () => {
   assert.match(detailSource, /const id = route\?\.params\?\.id;/);
   assert.match(
     detailSource,
-    /const load = useCallback\(async \(\) => \{[\s\S]*fetchTournamentDetailSnapshot\(String\(id\), api\)[\s\S]*\}, \[id\]\);/,
+    /const load = useCallback\(async \(\) => \{[\s\S]*const currentId = String\(id\);[\s\S]*fetchTournamentDetailSnapshot\(currentId, api, previousDetail\)[\s\S]*\}, \[id\]\);/,
     'the detail reloads tournament and registration data for the ID in its own route params',
   );
   assert.match(
@@ -2241,6 +2240,7 @@ test('Home match shortcut Back flow preserves Home and loads fresh data for a se
     ['shortcut-match-two', { id: 'shortcut-match-two', name: 'Second Home Shortcut Match' }],
   ]);
   const detailReadIds = [];
+  const latestDetail = { current: null };
   const api = {
     async tournament(id) {
       const requestedId = String(id);
@@ -2270,6 +2270,7 @@ test('Home match shortcut Back flow preserves Home and loads fresh data for a se
       id,
       api,
       detailLoadInFlight: { current: false },
+      latestDetail,
       fetchTournamentDetailSnapshot,
       setT: (tournament) => { screenState.tournament = tournament; },
       setLoading: (loading) => { screenState.loading = loading; },

@@ -20,18 +20,21 @@ test('Wallet hides the previous account history immediately after a player switc
   const playerAHistory = {
     userId: 'player-a',
     items: [{ id: 'player-a-transaction' }],
-    cursor: 'player-a-cursor',
+    transactionCursor: 'player-a-transaction-cursor',
+    paymentCursor: 'player-a-payment-cursor',
   };
 
   assert.deepEqual(walletHistoryForUser(playerAHistory, 'player-b'), {
     userId: 'player-b',
     items: [],
-    cursor: null,
+    transactionCursor: null,
+    paymentCursor: null,
   });
   assert.deepEqual(walletHistoryForUser(playerAHistory, null), {
     userId: null,
     items: [],
-    cursor: null,
+    transactionCursor: null,
+    paymentCursor: null,
   });
   const playerBHistory = {
     ...walletHistoryForUser(playerAHistory, 'player-b'),
@@ -41,7 +44,8 @@ test('Wallet hides the previous account history immediately after a player switc
   assert.deepEqual(emptyWalletHistoryState('player-b'), {
     userId: 'player-b',
     items: [],
-    cursor: null,
+    transactionCursor: null,
+    paymentCursor: null,
   });
 });
 
@@ -51,7 +55,7 @@ test('Wallet displays only history owned by the current player and rejects stale
   assert.match(walletScreenSource, /activeWalletUserId\.current = walletUserId/);
   assert.match(walletScreenSource, /activeWalletUserId\.current === requestedUserId/);
   assert.match(walletScreenSource, /if \(!requestIsCurrent\(\)\) return/);
-  assert.match(walletScreenSource, /setHistory\(\{ userId: requestedUserId, items: merged, cursor: nextCursor \}\)/);
+  assert.match(walletScreenSource, /userId: requestedUserId,\s*items: merged,\s*transactionCursor: hasTransactions \? nextTransactionCursor : ownedHistory\.transactionCursor,\s*paymentCursor: hasPayments \? nextPaymentCursor : ownedHistory\.paymentCursor/);
   assert.match(
     walletScreenSource,
     /const ownedHistory = walletHistoryForUser\(previous, requestedUserId\)/,
@@ -59,11 +63,11 @@ test('Wallet displays only history owned by the current player and rejects stale
 });
 
 test('Wallet transaction requests use the authenticated endpoint without accepting a player ID', () => {
-  assert.match(apiSource, /transactions: \(\) => unwrap\(http\.get\('\/wallet\/transactions'\)\)/);
-  assert.doesNotMatch(apiSource, /transactions:\s*\([^)]*userId/);
+  assert.match(apiSource, /transactionsPage:\s*\(cursor\?: string\) => unwrap\(http\.get\('\/wallet\/transactions'/);
+  assert.doesNotMatch(apiSource, /transactionsPage:\s*\([^)]*userId/);
   assert.match(
     walletRouteSource,
     /router\.get\("\/wallet\/transactions", authenticate, async \(req, res\)[\s\S]*?const id = privateAccount\(req, res\)/,
   );
-  assert.match(walletRouteSource, /WHERE ledger\.user_id = \$1[\s\S]*?LIMIT 500`, \[id\]/);
+  assert.match(walletRouteSource, /WHERE ledger\.user_id = \$1[\s\S]*?LIMIT \$2[\s\S]*?\[id, WALLET_TRANSACTION_PAGE_SIZE \+ 1\]/);
 });

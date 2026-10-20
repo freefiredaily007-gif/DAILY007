@@ -154,7 +154,7 @@ test('the Video screen persists before claiming and restores a catalog retry wit
   );
   const logoutStart = appSource.indexOf('const logout = useCallback(async () => {');
   const logoutClear = appSource.indexOf('await clearPendingVideoRewardRetry(accountId)', logoutStart);
-  const logoutSessionClear = appSource.indexOf('await setSession(null)', logoutStart);
+  const logoutSessionClear = appSource.indexOf('await clearSessionForLogout()', logoutStart);
   assert.ok(
     logoutStart >= 0 && logoutClear > logoutStart && logoutSessionClear > logoutClear,
     'Logout should clear the account-scoped retry before removing the signed-in session.',

@@ -9,6 +9,8 @@ import {
   walletRejectedDepositReasonText,
   walletTransactionAmount,
   walletTransactionDescription,
+  walletTransactionIsLeaderboardReward,
+  walletPrizeMatchId,
 } from '../src/lib/wallet-transaction-display.ts';
 import { depositAmountInr } from '../src/lib/coins.ts';
 
@@ -180,6 +182,8 @@ function renderWalletTransaction(item) {
     {
       React,
       WalletRejectedDepositRow: Row,
+      walletPrizeMatchId,
+      walletTransactionIsLeaderboardReward,
       walletTransactionDescription,
       walletTransactionAmount,
       depositAmountInr,
@@ -263,17 +267,17 @@ test('Wallet shows fallback and accessible rejection reasons for legacy API reco
   const walletRequestItems = evaluateExpression(
     findVariableInitializer(walletScreenSourceFile, 'pendingPays'),
     walletScreenSourceFile,
-    { pays: olderApiRecords },
+    { hasPayments: true, pays: olderApiRecords },
   );
 
-  assert.match(walletScreenSource, /data=\{txns\}/);
+  assert.match(walletScreenSource, /data=\{visibleTxns\}/);
   assert.match(
     walletScreenSource,
-    /setHistory\(\{ userId: requestedUserId, items: merged, cursor: nextCursor \}\)/,
+    /transactionCursor: hasTransactions \? nextTransactionCursor : ownedHistory\.transactionCursor/,
   );
   assert.match(
     walletScreenSource,
-    /const merged = \[\.\.\.pendingPays, \.\.\.pendingWds, \.\.\.data\]/,
+    /const merged = \[[\s\S]*pendingPays \?\? previousPayments[\s\S]*pendingWds \?\? previousWithdrawals[\s\S]*hasTransactions \? data : previousTransactions[\s\S]*\]\.sort/,
   );
   assert.equal(walletRequestItems.length, olderApiRecords.length);
 
@@ -304,6 +308,7 @@ test('Wallet preserves the meaning of a nonblank administrator rejection reason'
     findVariableInitializer(walletScreenSourceFile, 'pendingPays'),
     walletScreenSourceFile,
     {
+      hasPayments: true,
       pays: [{
         id: 'administrator-reason',
         status: 'rejected',
