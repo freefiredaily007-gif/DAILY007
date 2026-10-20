@@ -122,20 +122,24 @@ async function passwordChange(
   origin: string,
   token: string,
   currentPassword = "incorrect-current-password",
-  options: { dropResponseAfterCommit?: boolean; newPassword?: string } = {},
+  options: { dropResponseCount?: number; newPassword?: string; requestId?: string } = {},
 ): Promise<{ status: number; retryAfter: string | null }> {
   const response = await fetch(`${origin}/auth/me/password`, {
     method: "PATCH",
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
-      ...(options.dropResponseAfterCommit
-        ? { "x-test-drop-password-change-response": "after-commit" }
+      ...(options.dropResponseCount
+        ? {
+            "x-test-drop-password-change-response": "after-commit",
+            "x-test-drop-password-change-response-count": String(options.dropResponseCount),
+          }
         : {}),
     },
     body: JSON.stringify({
       currentPassword,
       newPassword: options.newPassword ?? TEST_REPLACEMENT_PASSWORD,
+      requestId: options.requestId ?? randomUUID(),
     }),
   });
   await response.json();
@@ -445,7 +449,7 @@ test("a rejected password change leaves the original password usable after an AP
   }
 });
 
-test("retry confirms a committed password change after the success reply is lost", async () => {
+test("the same password-change request recovers after multiple success replies are lost", async () => {
   const userId = randomUUID();
   const oldPassword = "password-before-lost-reply";
   const email = `password-change-lost-reply-${userId}@example.test`;
@@ -459,18 +463,56 @@ test("retry confirms a committed password change after the success reply is lost
 
   const token = makeToken(userId, 0);
   assert.ok(token);
-  const api = await startApiProcess();
+  let api = await startApiProcess();
+  const requestId = randomUUID();
 
   try {
-    let responseWasLost = false;
-    try {
-      await passwordChange(api.origin, token, oldPassword, { dropResponseAfterCommit: true });
-    } catch {
-      responseWasLost = true;
-    }
-    assert.equal(responseWasLost, true, "the test server should drop the successful response after committing");
+    for (let lostReply = 0; lostReply < 6; lostReply += 1) {
+      let responseWasLost = false;
+      try {
+        await passwordChange(api.origin, token, oldPassword, {
+          ...([0, 3].includes(lostReply) ? { dropResponseCount: 3 } : {}),
+          requestId,
+        });
+      } catch {
+        responseWasLost = true;
+      }
+      assert.equal(
+        responseWasLost,
+        true,
+        `the test server should drop successful response ${lostReply + 1} after commit`,
+      );
 
-    await waitForSettledPasswordAttempts([userId]);
+      const settledAttempts = await waitForSettledPasswordAttempts([userId]);
+      assert.deepEqual(
+        { failures: settledAttempts[0]?.failures, in_flight: settledAttempts[0]?.in_flight },
+        { failures: 0, in_flight: 0 },
+        "an exact replay must not consume the incorrect-current-password budget",
+      );
+      if (lostReply === 2) {
+        await api.stop();
+        api = await startApiProcess();
+      }
+    }
+
+    const alteredReplay = await passwordChange(
+      api.origin,
+      token,
+      "different-current-password-for-the-same-operation",
+      { requestId },
+    );
+    assert.equal(
+      alteredReplay.status,
+      401,
+      "reusing an operation ID with a different current password must not confirm the completed change",
+    );
+    const attemptsAfterAlteredReplay = await waitForSettledPasswordAttempts([userId]);
+    assert.deepEqual(
+      { failures: attemptsAfterAlteredReplay[0]?.failures, in_flight: attemptsAfterAlteredReplay[0]?.in_flight },
+      { failures: 1, in_flight: 0 },
+      "a different current-password payload must still consume the attempt budget",
+    );
+
     const accountAfterLostReply = await pool.query<{ password_salt: string; password_hash: string }>(
       "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
       [userId],
@@ -478,13 +520,13 @@ test("retry confirms a committed password change after the success reply is lost
     assert.notEqual(accountAfterLostReply.rows[0]?.password_hash, originalCredentials.hash);
     assert.notEqual(accountAfterLostReply.rows[0]?.password_salt, originalCredentials.salt);
 
-    const retry = await passwordChange(api.origin, token, oldPassword);
+    const retry = await passwordChange(api.origin, token, oldPassword, { requestId });
     assert.equal(retry.status, 200, "the same request should confirm that its requested password is already active");
     const attemptsAfterRetry = await waitForSettledPasswordAttempts([userId]);
     assert.deepEqual(
       { failures: attemptsAfterRetry[0]?.failures, in_flight: attemptsAfterRetry[0]?.in_flight },
       { failures: 1, in_flight: 0 },
-      "confirming an already-applied change should still count the stale current-password check toward its limit",
+      "confirming the same completed request must not add another incorrect-password failure",
     );
 
     const accountAfterRetry = await pool.query<{ password_salt: string; password_hash: string }>(

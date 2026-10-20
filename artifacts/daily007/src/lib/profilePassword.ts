@@ -27,6 +27,7 @@ type PasswordChangeRequest = {
   data: {
     currentPassword: string;
     newPassword: string;
+    requestId?: string;
   };
 };
 
@@ -34,6 +35,7 @@ type ProfilePasswordChangeOptions = {
   currentPassword: string;
   newPassword: string;
   confirmNewPassword: string;
+  requestId?: string;
   changePassword: (request: PasswordChangeRequest) => Promise<unknown>;
 };
 
@@ -41,6 +43,7 @@ export async function submitProfilePasswordChange({
   currentPassword,
   newPassword,
   confirmNewPassword,
+  requestId,
   changePassword,
 }: ProfilePasswordChangeOptions): Promise<string | null> {
   if (!currentPassword || currentPassword.length > PROFILE_PASSWORD_MAX_LENGTH) {
@@ -56,6 +59,12 @@ export async function submitProfilePasswordChange({
     return 'The new passwords do not match.';
   }
 
-  await changePassword({ data: { currentPassword, newPassword } });
+  await changePassword({
+    data: {
+      currentPassword,
+      newPassword,
+      ...(requestId ? { requestId } : {}),
+    },
+  });
   return null;
 }

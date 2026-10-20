@@ -5,6 +5,8 @@ CREATE TABLE daily007_v2_users (
   clerk_user_id text UNIQUE,
   password_salt text NOT NULL,
   password_hash text NOT NULL,
+  password_change_request_id uuid,
+  password_change_request_fingerprint text,
   auth_version integer NOT NULL DEFAULT 0,
   phone text,
   game_uid text,

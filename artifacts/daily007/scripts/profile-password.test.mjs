@@ -75,6 +75,11 @@ function getBtnDisabledExpression() {
 }
 
 const btnDisabledExpression = getBtnDisabledExpression();
+let profileRequestIdSequence = 0;
+const profileTestCrypto = {
+  randomUUID: () =>
+    `00000000-0000-4000-8000-${String(++profileRequestIdSequence).padStart(12, "0")}`,
+};
 
 test("Profile distinguishes a lost password-change response from a server rejection", () => {
   assert.equal(
@@ -146,6 +151,8 @@ function loadProfileCallback(callbackName, scope) {
   const dependencies = {
     isProfilePasswordChangeOutcomeUncertain,
     PROFILE_PASSWORD_CHANGE_UNCERTAIN_MESSAGE,
+    Crypto: profileTestCrypto,
+    passwordChangeRequest: { current: null },
     ...scope,
   };
   return new Function(
@@ -224,6 +231,7 @@ async function runSubmission(
   newPassword,
   confirmNewPassword = newPassword,
   currentPassword = "current-test-value",
+  requestId,
 ) {
   const requests = [];
   const changePassword = async (request) => {
@@ -234,11 +242,27 @@ async function runSubmission(
     currentPassword,
     newPassword,
     confirmNewPassword,
+    requestId,
     changePassword,
   });
 
   return { result, requests, currentPassword, newPassword, confirmNewPassword };
 }
+
+test("includes the stable request ID with the password-change payload", async () => {
+  const requestId = "6bb2f24a-1b03-4ea0-a05e-b73f47e68936";
+  const { result, requests, currentPassword, newPassword } = await runSubmission(
+    "replacement-password",
+    "replacement-password",
+    "current-test-value",
+    requestId,
+  );
+
+  assert.equal(result, null);
+  assert.deepEqual(requests, [{
+    data: { currentPassword, newPassword, requestId },
+  }]);
+});
 
 for (const length of [8, 200]) {
   test(`submits a ${length}-character password exactly once`, async () => {
@@ -624,7 +648,8 @@ test("successful Profile password change closes and clears the form and announce
       calls.validMutationPayload =
         data.currentPassword === currentPassword
         && data.newPassword === newPassword
-        && Object.keys(data).sort().join(",") === "currentPassword,newPassword";
+        && typeof data.requestId === "string"
+        && Object.keys(data).sort().join(",") === "currentPassword,newPassword,requestId";
     },
     submitProfilePasswordChange,
     apiError: () => "Password change failed.",
@@ -741,10 +766,12 @@ test("a lost password-change reply keeps the form and a safe retry confirms succ
 
   await submitPasswordChange();
 
+  const requestId = requests[0]?.requestId;
+  assert.match(requestId ?? "", /^[0-9a-f-]{36}$/i, "The request should include a UUID operation ID.");
   assert.deepEqual(requests, [
-    { currentPassword, newPassword },
-    { currentPassword, newPassword },
-  ], "Recovery should retry the same password-change request.");
+    { currentPassword, newPassword, requestId },
+    { currentPassword, newPassword, requestId },
+  ], "Recovery should retry the same password-change request and operation ID.");
   assert.equal(state.passwordError, "");
   assert.equal(state.passwordMessage, "Password changed. Other sessions stay active until the next sign-in.");
   assert.equal(state.modalVisible, false);
@@ -852,9 +879,22 @@ test("wrong-current-password 401 keeps the form and session available for retry"
     await submitForCurrentPassword("correct-current-password")();
 
     assert.deepEqual(calls.mutationPayloads, [
-      { currentPassword: incorrectCurrentPassword, newPassword },
-      { currentPassword: "correct-current-password", newPassword },
+      {
+        currentPassword: incorrectCurrentPassword,
+        newPassword,
+        requestId: calls.mutationPayloads[0]?.requestId,
+      },
+      {
+        currentPassword: "correct-current-password",
+        newPassword,
+        requestId: calls.mutationPayloads[1]?.requestId,
+      },
     ], "Retrying should only require correcting the current password.");
+    assert.notEqual(
+      calls.mutationPayloads[0]?.requestId,
+      calls.mutationPayloads[1]?.requestId,
+      "changing the submitted current password should begin a new request operation",
+    );
     assert.deepEqual(calls.requests.map(({ url, method }) => ({ url, method })), [
       { url: "https://daily007.test/api/auth/me/password", method: "PATCH" },
       { url: "https://daily007.test/api/auth/me/password", method: "PATCH" },

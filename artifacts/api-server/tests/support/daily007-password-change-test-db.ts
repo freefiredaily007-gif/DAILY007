@@ -10,6 +10,8 @@ type PasswordChangeTestUser = {
   auth_version: number;
   password_salt: string;
   password_hash: string;
+  password_change_request_id: string | null;
+  password_change_request_fingerprint: string | null;
 };
 
 type Credentials = Pick<PasswordChangeTestUser, "password_salt" | "password_hash">;
@@ -35,6 +37,8 @@ class MemoryPasswordChangeDatabase {
     auth_version: 6,
     password_salt: "",
     password_hash: "",
+    password_change_request_id: null,
+    password_change_request_fingerprint: null,
   };
   passwordCredentialReadAttempts = 0;
   credentialReadSnapshots: Credentials[] = [];
@@ -60,6 +64,8 @@ class MemoryPasswordChangeDatabase {
       auth_version: 6,
       password_salt: "",
       password_hash: "",
+      password_change_request_id: null,
+      password_change_request_fingerprint: null,
     });
     this.passwordCredentialReadAttempts = 0;
     this.credentialReadSnapshots = [];
@@ -169,7 +175,8 @@ class MemoryPasswordChangeDatabase {
       };
     }
 
-    if (normalized === "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1") {
+    if (normalized ===
+      "SELECT password_salt, password_hash, password_change_request_id, password_change_request_fingerprint FROM daily007_v2_users WHERE id = $1") {
       this.passwordCredentialReadAttempts += 1;
       if (userId !== this.user.id) return { rows: [] };
       const credentials = {
@@ -177,6 +184,11 @@ class MemoryPasswordChangeDatabase {
         password_hash: this.user.password_hash,
       };
       this.credentialReadSnapshots.push(structuredClone(credentials));
+      const credentialsWithRequestId = {
+        ...credentials,
+        password_change_request_id: this.user.password_change_request_id,
+        password_change_request_fingerprint: this.user.password_change_request_fingerprint,
+      };
       const readGate = this.credentialReadGate;
 
       if (!readGate || this.expectedCredentialReads === 0) {
@@ -184,7 +196,7 @@ class MemoryPasswordChangeDatabase {
       }
       if (this.credentialReadSnapshots.length > this.expectedCredentialReads) {
         if (this.successfulPasswordWrites > 0 && this.passwordWriteAttempts > this.successfulPasswordWrites) {
-          return { rows: [credentials] as T[] };
+          return { rows: [credentialsWithRequestId] as T[] };
         }
         throw new Error("More password credential reads occurred than the test expected.");
       }
@@ -194,13 +206,13 @@ class MemoryPasswordChangeDatabase {
         this.releaseCredentialReadGate?.();
       }
       await readGate;
-      return { rows: [credentials] as T[] };
+      return { rows: [credentialsWithRequestId] as T[] };
     }
 
     if (normalized ===
-      "UPDATE daily007_v2_users SET password_salt = $2, password_hash = $3 WHERE id = $1 AND password_salt = $4 AND password_hash = $5 RETURNING id") {
+      "UPDATE daily007_v2_users SET password_salt = $2, password_hash = $3, password_change_request_id = $6, password_change_request_fingerprint = $7 WHERE id = $1 AND password_salt = $4 AND password_hash = $5 RETURNING id") {
       this.passwordWriteAttempts += 1;
-      const [replacementSalt, replacementHash, originalSalt, originalHash] = values.slice(1).map(String);
+      const [replacementSalt, replacementHash, originalSalt, originalHash] = values.slice(1, 5).map(String);
       if (userId !== this.user.id ||
           this.user.password_salt !== originalSalt ||
           this.user.password_hash !== originalHash) {
@@ -208,6 +220,8 @@ class MemoryPasswordChangeDatabase {
       }
       this.user.password_salt = replacementSalt;
       this.user.password_hash = replacementHash;
+      this.user.password_change_request_id = values[5] == null ? null : String(values[5]);
+      this.user.password_change_request_fingerprint = values[6] == null ? null : String(values[6]);
       this.successfulPasswordWrites += 1;
       return { rows: [{ id: this.user.id }] as T[] };
     }

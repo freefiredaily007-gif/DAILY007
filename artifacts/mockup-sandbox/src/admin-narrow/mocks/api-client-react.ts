@@ -516,7 +516,7 @@ export function useDaily007SubmitYoutubeSubscribeClaim() {
 }
 
 type PasswordChangePreviewCalls = {
-  requests: { currentPassword: string; newPassword: string }[];
+  requests: { currentPassword: string; newPassword: string; requestId: string }[];
 };
 
 let passwordChangeConflictRemaining = 0;
@@ -546,10 +546,13 @@ export function configurePasswordChangePreview(mode: "conflict" | "lostReply" = 
 export function useDaily007ChangePassword() {
   return {
     ...noMutation(),
-    mutateAsync: async (input: { data: { currentPassword: string; newPassword: string } }) => {
+    mutateAsync: async (input: {
+      data: { currentPassword: string; newPassword: string; requestId?: string };
+    }) => {
       getPasswordChangePreviewCalls().requests.push({
         currentPassword: input.data.currentPassword,
         newPassword: input.data.newPassword,
+        requestId: input.data.requestId ?? "",
       });
       if (passwordChangePreviewMode === "lostReply") {
         if (!lostReplyPreviewUsed) {

@@ -1903,6 +1903,7 @@ components:
       properties:
         currentPassword: { type: string, minLength: 1, maxLength: 200 }
         newPassword: { type: string, minLength: 8, maxLength: 200 }
+        requestId: { type: string, format: uuid }
       required: [currentPassword, newPassword]
     Daily007ChangePasswordResult:
       type: object

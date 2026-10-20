@@ -1,6 +1,7 @@
 // Profile — avatar, stats, edit profile, notifications, leaderboard, logout
 import React from 'react';
 import { View, ScrollView, StyleSheet, Modal, Platform, useWindowDimensions } from 'react-native';
+import * as Crypto from 'expo-crypto';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { ReadableText as Text } from '../components/typography';
@@ -89,6 +90,7 @@ export default function Profile({
   const [passwordError, setPasswordError] = React.useState('');
   const [passwordMessage, setPasswordMessage] = React.useState('');
   const passwordChangeInFlight = React.useRef(false);
+  const passwordChangeRequest = React.useRef<{ fingerprint: string; requestId: string } | null>(null);
 
   React.useEffect(() => {
     let active = true;
@@ -277,6 +279,7 @@ export default function Profile({
   };
 
   const openPasswordModal = () => {
+    passwordChangeRequest.current = null;
     setCurrentPassword('');
     setNewPassword('');
     setConfirmNewPassword('');
@@ -287,6 +290,7 @@ export default function Profile({
 
   const closePasswordModal = () => {
     if (passwordBusy || passwordChangeInFlight.current) return;
+    passwordChangeRequest.current = null;
     setPasswordModalVisible(false);
     setCurrentPassword('');
     setNewPassword('');
@@ -298,12 +302,19 @@ export default function Profile({
     if (passwordChangeInFlight.current) return;
     passwordChangeInFlight.current = true;
     setPasswordError('');
+    const fingerprint = JSON.stringify([currentPassword, newPassword]);
+    const request = passwordChangeRequest.current?.fingerprint === fingerprint
+      ? passwordChangeRequest.current
+      : { fingerprint, requestId: Crypto.randomUUID() };
+    passwordChangeRequest.current = request;
+    const requestId = request.requestId;
 
     try {
       const validationError = await submitProfilePasswordChange({
         currentPassword,
         newPassword,
         confirmNewPassword,
+        requestId,
         changePassword,
       });
       if (validationError) {
@@ -311,6 +322,7 @@ export default function Profile({
         return;
       }
       setPasswordMessage('Password changed. Other sessions stay active until the next sign-in.');
+      passwordChangeRequest.current = null;
       setPasswordModalVisible(false);
       setCurrentPassword('');
       setNewPassword('');

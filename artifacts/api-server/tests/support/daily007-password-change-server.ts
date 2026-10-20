@@ -5,15 +5,19 @@ import daily007V2Router from "../../src/routes/daily007-v2";
 
 const app = express();
 app.use(express.json());
+let passwordChangeResponsesToDrop = 0;
 app.use((request, response, next) => {
-  if (
-    request.method === "PATCH"
-    && request.path === "/auth/me/password"
-    && request.get("x-test-drop-password-change-response") === "after-commit"
-  ) {
+  if (request.method === "PATCH" && request.path === "/auth/me/password") {
+    if (request.get("x-test-drop-password-change-response") === "after-commit") {
+      const requestedCount = Number(request.get("x-test-drop-password-change-response-count") ?? 1);
+      if (Number.isSafeInteger(requestedCount) && requestedCount > 0) {
+        passwordChangeResponsesToDrop = Math.max(passwordChangeResponsesToDrop, requestedCount);
+      }
+    }
     const sendJson = response.json.bind(response);
     response.json = ((body: unknown) => {
-      if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.statusCode >= 200 && response.statusCode < 300 && passwordChangeResponsesToDrop > 0) {
+        passwordChangeResponsesToDrop -= 1;
         response.socket?.destroy();
         return response;
       }

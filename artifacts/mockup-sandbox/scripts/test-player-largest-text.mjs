@@ -2762,7 +2762,17 @@ async function checkProfilePasswordConflictRetry() {
   const requests = await evaluate("window.__daily007PasswordChangePreview?.requests ?? []");
   assert(requests.length === 2, "the corrected form should submit a second request.");
   assert(
-    JSON.stringify(requests[1]) === JSON.stringify({
+    requests[1]?.currentPassword === "correct-current-password"
+      && requests[1]?.newPassword === "replacement-password"
+      && Boolean(requests[1]?.requestId)
+      && requests[1]?.requestId !== requests[0]?.requestId,
+    "the corrected password form should send its values with a fresh operation ID.",
+  );
+  assert(
+    JSON.stringify({
+      currentPassword: requests[1]?.currentPassword,
+      newPassword: requests[1]?.newPassword,
+    }) === JSON.stringify({
       currentPassword: "correct-current-password",
       newPassword: "replacement-password",
     }),
@@ -2856,7 +2866,15 @@ async function checkProfilePasswordLostReplyRecovery() {
   assert(recovered.profileStillVisible, "Recovery should keep the player in the signed-in Profile screen.");
   assert(recovered.requests.length === 2, "The recovery should send one identical retry.");
   assert(
-    JSON.stringify(recovered.requests) === JSON.stringify([
+    Boolean(recovered.requests[0]?.requestId)
+      && recovered.requests[0]?.requestId === recovered.requests[1]?.requestId,
+    "The uncertain retry must reuse the same operation ID as the original request.",
+  );
+  assert(
+    JSON.stringify(recovered.requests.map(({ currentPassword: requestCurrent, newPassword: requestNew }) => ({
+      currentPassword: requestCurrent,
+      newPassword: requestNew,
+    }))) === JSON.stringify([
       { currentPassword, newPassword },
       { currentPassword, newPassword },
     ]),

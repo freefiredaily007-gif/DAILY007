@@ -11,7 +11,12 @@ import {
   verifyDaily007LoginPassword,
 } from "../lib/daily007-login-password";
 import { checkDaily007LoginThrottle } from "../lib/daily007-login-throttle";
-import { parsePasswordChangeInput, passwordHashesMatch } from "../lib/daily007-password-change";
+import {
+  createPasswordChangeRequestFingerprint,
+  parsePasswordChangeInput,
+  passwordChangeRequestFingerprintsMatch,
+  passwordHashesMatch,
+} from "../lib/daily007-password-change";
 import {
   cancelUnderfilledTournamentAndRefund,
   tournamentCancellationError,
@@ -91,7 +96,7 @@ async function reservePasswordChangeAttempt(userId: string): Promise<PasswordCha
 async function finishPasswordChangeAttempt(
   userId: string,
   windowId: string,
-  outcome: "incorrect" | "correct" | "abandoned",
+  outcome: "incorrect" | "correct" | "replayed" | "abandoned",
 ): Promise<void> {
   await pool.query(
     `UPDATE daily007_password_change_attempts
@@ -458,6 +463,14 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     fail(res, 400, "Enter your current password and a new password of 8–200 characters.");
     return;
   }
+  const requestFingerprintSecret = process.env.DAILY007_AUTH_SECRET || process.env.SESSION_SECRET;
+  if (input.requestId && (!requestFingerprintSecret || requestFingerprintSecret.length < 32)) {
+    fail(res, 503, "Daily007 password-change recovery is temporarily unavailable.");
+    return;
+  }
+  const requestFingerprint = input.requestId
+    ? createPasswordChangeRequestFingerprint(account.id, input, requestFingerprintSecret!)
+    : null;
 
   const attempt = await reservePasswordChangeAttempt(account.id);
   if (!attempt.allowed) {
@@ -470,10 +483,15 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     return;
   }
 
-  let outcome: "incorrect" | "correct" | "abandoned" = "abandoned";
+  let outcome: "incorrect" | "correct" | "replayed" | "abandoned" = "abandoned";
   try {
-    const credentials = await pool.query<{ password_salt: string; password_hash: string }>(
-      "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+    const credentials = await pool.query<{
+      password_salt: string;
+      password_hash: string;
+      password_change_request_id: string | null;
+      password_change_request_fingerprint: string | null;
+    }>(
+      "SELECT password_salt, password_hash, password_change_request_id, password_change_request_fingerprint FROM daily007_v2_users WHERE id = $1",
       [account.id],
     );
     const stored = credentials.rows[0];
@@ -491,13 +509,35 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     };
     const candidate = await hashPassword(input.currentPassword, Buffer.from(stored.password_salt, "hex"));
     if (!passwordHashesMatch(Buffer.from(candidate.hash, "hex"), Buffer.from(stored.password_hash, "hex"))) {
-      outcome = "incorrect";
-      // Confirm a replay after commit without changing the stored hash again;
-      // the stale current-password check still counts toward the attempt limit.
-      if (await matchesStoredPassword(input.newPassword, stored.password_salt, stored.password_hash)) {
+      const isSameCompletedRequest =
+        input.requestId != null &&
+        stored.password_change_request_id === input.requestId &&
+        passwordChangeRequestFingerprintsMatch(
+          requestFingerprint,
+          stored.password_change_request_fingerprint,
+        );
+      if (
+        isSameCompletedRequest
+        && await matchesStoredPassword(input.newPassword, stored.password_salt, stored.password_hash)
+      ) {
+      // A matching request ID and keyed payload fingerprint are recorded
+      // atomically with the password update. Confirming that exact committed
+      // operation does not consume another incorrect-password failure.
+        outcome = "replayed";
         res.json({ message: "Password change already applied. Other signed-in sessions remain active." });
         return;
       }
+      // Keep the pre-existing response behavior for older clients that do not
+      // send a request ID; their replay still counts toward the attempt limit.
+      if (
+        input.requestId == null
+        && await matchesStoredPassword(input.newPassword, stored.password_salt, stored.password_hash)
+      ) {
+        outcome = "incorrect";
+        res.json({ message: "Password change already applied. Other signed-in sessions remain active." });
+        return;
+      }
+      outcome = "incorrect";
       fail(res, 401, "Current password is incorrect.", "CURRENT_PASSWORD_INCORRECT");
       return;
     }
@@ -506,19 +546,45 @@ router.patch("/auth/me/password", authenticate, async (req, res): Promise<void> 
     const replacement = await hashPassword(input.newPassword);
     const updated = await pool.query<{ id: string }>(
       `UPDATE daily007_v2_users
-          SET password_salt = $2, password_hash = $3
+          SET password_salt = $2, password_hash = $3,
+              password_change_request_id = $6,
+              password_change_request_fingerprint = $7
         WHERE id = $1 AND password_salt = $4 AND password_hash = $5
         RETURNING id`,
-      [account.id, replacement.salt, replacement.hash, stored.password_salt, stored.password_hash],
+      [
+        account.id,
+        replacement.salt,
+        replacement.hash,
+        stored.password_salt,
+        stored.password_hash,
+        input.requestId ?? null,
+        requestFingerprint,
+      ],
     );
     if (!updated.rows[0]) {
-      const latestCredentials = await pool.query<{ password_salt: string; password_hash: string }>(
-        "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+      const latestCredentials = await pool.query<{
+        password_salt: string;
+        password_hash: string;
+        password_change_request_id: string | null;
+        password_change_request_fingerprint: string | null;
+      }>(
+        "SELECT password_salt, password_hash, password_change_request_id, password_change_request_fingerprint FROM daily007_v2_users WHERE id = $1",
         [account.id],
       );
       const latest = latestCredentials.rows[0];
       if (
         latest
+        && (
+          (
+            input.requestId != null &&
+            latest.password_change_request_id === input.requestId &&
+            passwordChangeRequestFingerprintsMatch(
+              requestFingerprint,
+              latest.password_change_request_fingerprint,
+            )
+          )
+          || input.requestId == null
+        )
         && await matchesStoredPassword(input.newPassword, latest.password_salt, latest.password_hash)
       ) {
         res.json({ message: "Password change already applied. Other signed-in sessions remain active." });

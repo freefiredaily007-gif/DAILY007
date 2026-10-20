@@ -17,8 +17,8 @@ On the same device, TalkBack was confirmed to speak successful password-change f
 
 **How to apply:** Keep each outcome in one polite live region. Do not move focus programmatically; preserve the form on failure and close and clear it after success.
 
-A retry after a missing password-change response may confirm that the requested new password is already active. Preserve the entered values and existing session, and still count the stale current-password check against the retry limit.
+A password-change retry is exempt from failed-attempt accounting only when it repeats the same request ID and full submitted password payload as a successfully committed change; a keyed fingerprint is stored with that update. Distinct or altered requests still use the shared limiter.
 
-**Why:** The server can commit before the client loses its reply; a safe identical retry removes ambiguity without account recreation or a new sign-in.
+**Why:** The app must recover if multiple success replies are lost, without turning replay recognition into a way to evade current-password throttling.
 
-**How to apply:** Explain transport failures as uncertain, keep the form open, and accept the identical retry only when its requested new password matches the stored credential.
+**How to apply:** Reuse the client operation ID only while retrying unchanged form values. Preserve the current session and keep all other incorrect-password checks subject to the existing limiter.
