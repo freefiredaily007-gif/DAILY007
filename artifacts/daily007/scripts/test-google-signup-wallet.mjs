@@ -2460,6 +2460,93 @@ try {
   await assertWalletBalance("after Profile refreshes a Google link made on another device");
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=referral-response-lost`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the interrupted referred signup",
+  );
+  await clickSignupTab();
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="auth-referral-code"]'))`,
+    "the referral input before the interrupted Google signup",
+  );
+  await setInputValue(
+    '[data-testid="auth-referral-code"]',
+    "abcde",
+    "referral code for the interrupted Google signup",
+  );
+  await clickSelector('[data-testid="continue-with-google"]', "Google signup whose committed response is lost");
+  await waitForExpression(
+    `document.body.innerText.includes("Could not reach Daily007. Check your connection and try again.")`,
+    "retry guidance after the referred signup commits but its response is lost",
+  );
+  const interruptedReferralSignup = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  const lostReferralResponse = interruptedReferralSignup.calls.find(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(interruptedReferralSignup.googleExchangeAttempts, 1);
+  assert.equal(interruptedReferralSignup.googleReferralSignupCommitted, true,
+    "the mock server should commit the account and reward before losing its response");
+  assert.equal(interruptedReferralSignup.googleReferralRewardCount, 1);
+  assert.equal(lostReferralResponse?.serverCommitted, true);
+  assert.equal(lostReferralResponse?.status, undefined);
+  assert.deepEqual(lostReferralResponse?.failure, {
+    type: "network",
+    message: "Network Error",
+    code: "ERR_NETWORK",
+  });
+  assert.deepEqual(lostReferralResponse?.body, { referralCode: "abcde" });
+  assert.equal(interruptedReferralSignup.storedSession, null,
+    "the client should not create a session from a response it never received");
+
+  await clickSelector('[data-testid="continue-with-google"]', "retry the interrupted referred Google signup");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "the signed-in player tabs after retrying the committed referred signup",
+  );
+  await clickSelector('[data-testid="mock-tab-wallet"]', "Wallet after the interrupted referred signup retry");
+  await waitForExpression(
+    `document.body.innerText.includes("Referral Signup Bonus")
+      && Boolean(document.querySelector('[aria-label="Available coins: 10"]'))`,
+    "the one referral signup reward after recovering the lost response",
+  );
+  const recoveredReferralSignup = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  const recoveredReferralWallet = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    return {
+      referralRewardCount: bodyText.split("Referral Signup Bonus").length - 1,
+      welcomeRewardCount: bodyText.split("Welcome Signup Bonus").length - 1,
+      balanceLabel: document.querySelector('[aria-label="Available coins: 10"]')
+        ?.getAttribute("aria-label") ?? null,
+    };
+  })()`);
+  const interruptedSignupCalls = recoveredReferralSignup.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(interruptedSignupCalls.length, 2);
+  assert.equal(interruptedSignupCalls[1].status, 200);
+  assert.equal(interruptedSignupCalls[1].accountReused, true,
+    "retry should recover the committed account instead of creating another");
+  assert.deepEqual(interruptedSignupCalls[1].body, { referralCode: "abcde" });
+  assert.equal(
+    interruptedSignupCalls[0].authorization,
+    interruptedSignupCalls[1].authorization,
+    "retry should use the same verified Google identity",
+  );
+  assert.equal(recoveredReferralSignup.googleReferralSignupRequests, 2);
+  assert.equal(recoveredReferralSignup.googleReferralRewardCount, 1,
+    "the retry must not credit a second referral signup reward");
+  assert.equal(recoveredReferralWallet.balanceLabel, "Available coins: 10");
+  assert.equal(recoveredReferralWallet.referralRewardCount, 1);
+  assert.equal(recoveredReferralWallet.welcomeRewardCount, 0);
+  assert.equal(recoveredReferralSignup.unexpectedRequests.length, 0);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=lowercase-referral`,
   });
   await waitForExpression(

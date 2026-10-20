@@ -51,6 +51,7 @@ const passwordSignupSessionStorageFailureScenario =
 const passwordSignupRestartScenario = scenario === "password-signup-restart";
 const profileLinkStorageRestartScenario = scenario === "profile-link-storage-restart";
 const googleReferralRelaunchScenario = scenario === "lowercase-referral";
+const googleReferralResponseLostScenario = scenario === "referral-response-lost";
 const heldPasswordLoginScenario = scenario === "password-first";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
 const restartScenarioMarkerKey = "daily007-test-password-signup-scenario";
@@ -120,6 +121,8 @@ let maxConcurrentGoogleExchanges = 0;
 let inFlightPasswordLogins = 0;
 let googleReferralSignupRequests =
   savedGoogleReferralRestartBackendState.googleReferralSignupRequests ?? 0;
+let googleReferralSignupCommitted = false;
+let googleReferralRewardCount = 0;
 let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
 let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 0;
 let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
@@ -227,7 +230,8 @@ http.defaults.adapter = async (config) => {
     authorization: authorizationHeader(config),
     daily007Token: daily007TokenHeader(config),
     cacheControl: cacheControlHeader(config),
-    ...(scenario === "lowercase-referral" && method === "POST" && path === "/auth/google"
+    ...((scenario === "lowercase-referral" || googleReferralResponseLostScenario)
+      && method === "POST" && path === "/auth/google"
       ? { body: requestBody(config) }
       : {}),
     ...(referralPasswordSignupStorageFailureScenario
@@ -310,7 +314,9 @@ http.defaults.adapter = async (config) => {
   }
   if (method === "POST" && path === "/auth/google") {
     googleExchangeAttempts += 1;
-    if (googleReferralRelaunchScenario) googleReferralSignupRequests += 1;
+    if (googleReferralRelaunchScenario || googleReferralResponseLostScenario) {
+      googleReferralSignupRequests += 1;
+    }
     if (heldGoogleExchangeScenario) {
       inFlightGoogleExchanges += 1;
       maxConcurrentGoogleExchanges = Math.max(maxConcurrentGoogleExchanges, inFlightGoogleExchanges);
@@ -346,6 +352,28 @@ http.defaults.adapter = async (config) => {
         code: "ERR_NETWORK",
         request: { url: config.url, method },
       });
+    }
+    if (googleReferralResponseLostScenario) {
+      if (!googleReferralSignupCommitted) {
+        googleReferralSignupCommitted = true;
+        googleReferralRewardCount += 1;
+      }
+      call.serverCommitted = googleReferralSignupCommitted;
+      call.accountReused = googleExchangeAttempts > 1 && googleReferralSignupCommitted;
+      if (googleExchangeAttempts === 1) {
+        call.failure = {
+          type: "network",
+          message: "Network Error",
+          code: "ERR_NETWORK",
+        };
+        throw Object.assign(new Error("Network Error"), {
+          config,
+          code: "ERR_NETWORK",
+          request: { url: config.url, method },
+        });
+      }
+      call.status = 200;
+      return respond(config, { ...ACCOUNT, token: DAILY007_TOKEN });
     }
     if (!storageFailureScenario && !profileLinkScenario &&
         scenario !== "lowercase-referral" && googleExchangeAttempts === 1) {
@@ -395,7 +423,7 @@ http.defaults.adapter = async (config) => {
   }
   if (method === "GET" && path === "/wallet/transactions") {
     call.status = 200;
-    const transactions = scenario === "lowercase-referral"
+    const transactions = scenario === "lowercase-referral" || googleReferralResponseLostScenario
       || referralPasswordSignupStorageFailureScenario
       ? [{
         id: "mock-referral-signup-bonus",
@@ -486,6 +514,8 @@ window.__daily007GoogleSignupWalletTest = {
       storageWriteMetrics: storage.writeMetrics(),
       googleExchangeAttempts,
       googleReferralSignupRequests,
+      googleReferralSignupCommitted,
+      googleReferralRewardCount,
       inFlightGoogleExchanges,
       inFlightPasswordLogins,
       maxConcurrentGoogleExchanges,
