@@ -41,6 +41,7 @@ type CancellationFixture = {
   matchIds: [string, string];
   payerIds: [string, string, string];
   registrationIds: [string, string, string];
+  extraRegistrationIds?: string[];
 };
 
 type CursorWrapFixture = {
@@ -222,7 +223,7 @@ async function cleanupFixture(fixture: CancellationFixture): Promise<void> {
     );
     await client.query(
       "DELETE FROM daily007_v2_registrations WHERE id = ANY($1::uuid[])",
-      [fixture.registrationIds],
+      [[...fixture.registrationIds, ...(fixture.extraRegistrationIds ?? [])]],
     );
     await client.query(
       "DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
@@ -914,6 +915,150 @@ test("a pending registration that fills the final seat before the cancellation l
         [finalSeatRegistrationId],
       );
     }
+    await cleanupFixture(fixture);
+  }
+});
+
+test("an inactive registration's earlier refund does not block the sweep or its later candidates", async () => {
+  const fixture = await createFixture();
+  const inactiveRegistrationId = randomUUID();
+  const firstMatchId = fixture.matchIds[0];
+  const laterMatchId = fixture.matchIds[1];
+  const inactivePayerId = fixture.payerIds[2];
+  fixture.extraRegistrationIds = [inactiveRegistrationId];
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 12, 'rejected')`,
+      [inactiveRegistrationId, firstMatchId, inactivePayerId],
+    );
+    const priorRefund = await pool.query<{ wallet_coins: number }>(
+      `UPDATE daily007_v2_users
+          SET wallet_coins = wallet_coins + 12
+        WHERE id = $1
+        RETURNING wallet_coins`,
+      [inactivePayerId],
+    );
+    assert.equal(priorRefund.rows[0]?.wallet_coins, 82);
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, match_id, registration_id,
+          idempotency_key, details)
+       VALUES ($1, 12, 82, 'registration_refund', $2, $3, $4, $5::jsonb)`,
+      [
+        inactivePayerId,
+        firstMatchId,
+        inactiveRegistrationId,
+        `daily007:test-sweep-inactive-refund:${inactiveRegistrationId}`,
+        JSON.stringify({ description: "Prior refund for a rejected registration" }),
+      ],
+    );
+
+    await runDaily007AutoCancellationSweep();
+
+    const matches = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM daily007_v2_matches
+        WHERE id = ANY($1::uuid[])
+        ORDER BY starts_at, id`,
+      [fixture.matchIds],
+    );
+    assert.deepEqual(matches.rows, [
+      { id: firstMatchId, status: "cancelled" },
+      { id: laterMatchId, status: "cancelled" },
+    ]);
+
+    const refunds = await pool.query<{
+      match_id: string;
+      registration_id: string;
+      user_id: string;
+      amount: number;
+      reason: string;
+      count: number;
+    }>(
+      `SELECT match_id, registration_id, user_id, amount, reason,
+              count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = ANY($1::uuid[])
+          AND reason IN ('registration_refund', 'tournament_cancel_refund')
+        GROUP BY match_id, registration_id, user_id, amount, reason
+        ORDER BY match_id, registration_id, reason`,
+      [fixture.matchIds],
+    );
+    assert.deepEqual(
+      new Map(refunds.rows.map((refund) => [
+        `${refund.match_id}:${refund.registration_id}:${refund.reason}`,
+        { ...refund, count: refund.count },
+      ])),
+      new Map([
+        [
+          `${firstMatchId}:${fixture.registrationIds[0]}:tournament_cancel_refund`,
+          {
+            match_id: firstMatchId,
+            registration_id: fixture.registrationIds[0],
+            user_id: fixture.payerIds[0],
+            amount: 25,
+            reason: "tournament_cancel_refund",
+            count: 1,
+          },
+        ],
+        [
+          `${firstMatchId}:${fixture.registrationIds[1]}:tournament_cancel_refund`,
+          {
+            match_id: firstMatchId,
+            registration_id: fixture.registrationIds[1],
+            user_id: fixture.payerIds[1],
+            amount: 40,
+            reason: "tournament_cancel_refund",
+            count: 1,
+          },
+        ],
+        [
+          `${firstMatchId}:${inactiveRegistrationId}:registration_refund`,
+          {
+            match_id: firstMatchId,
+            registration_id: inactiveRegistrationId,
+            user_id: inactivePayerId,
+            amount: 12,
+            reason: "registration_refund",
+            count: 1,
+          },
+        ],
+        [
+          `${laterMatchId}:${fixture.registrationIds[2]}:tournament_cancel_refund`,
+          {
+            match_id: laterMatchId,
+            registration_id: fixture.registrationIds[2],
+            user_id: inactivePayerId,
+            amount: 18,
+            reason: "tournament_cancel_refund",
+            count: 1,
+          },
+        ],
+      ]),
+      "active entries and the later candidate must each be refunded once without refunding the inactive entry again",
+    );
+
+    const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 145],
+        [fixture.payerIds[1], 120],
+        [inactivePayerId, 100],
+      ]),
+      "the rejected entry's prior refund must not be repeated while both active refunds and the later candidate are paid",
+    );
+    assert.equal(
+      (await storedCursor())?.id,
+      laterMatchId,
+      "the sweep must advance beyond the match with the inactive registration",
+    );
+  } finally {
     await cleanupFixture(fixture);
   }
 });
