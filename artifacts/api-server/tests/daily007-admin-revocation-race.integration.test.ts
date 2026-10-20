@@ -1249,6 +1249,162 @@ test("concurrent approvals of one leaderboard period pay each rank only once", a
   }
 });
 
+test("a sequential retry after leaderboard finalization returns no payouts or duplicate ledger entries", async () => {
+  const adminId = randomUUID();
+  const winnerIds = [randomUUID(), randomUUID(), randomUUID()] as const;
+  const winnerNames = [
+    "Sequential Retry Winner 1",
+    "Sequential Retry Winner 2",
+    "Sequential Retry Winner 3",
+  ];
+  const startingBalances = [11, 12, 13] as const;
+  const periodId = randomUUID();
+  const rewards = [
+    { rank: 1, coins: 40 },
+    { rank: 2, coins: 20 },
+    { rank: 3, coins: 10 },
+  ];
+  const standings = winnerIds.map((userId, index) => ({
+    rank: index + 1,
+    userId,
+    name: winnerNames[index],
+    points: 30 - index * 10,
+    earnings: 0,
+    wins: 3 - index,
+    kills: 4 - index,
+    matches: 5 - index,
+  }));
+  const expectedBalances = winnerIds
+    .map((id, index) => ({
+      id,
+      wallet_coins: startingBalances[index] + rewards[index].coins,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const expectedPayouts = rewards.map(({ rank, coins }) => ({
+    rank,
+    userId: winnerIds[rank - 1],
+    name: winnerNames[rank - 1],
+    coins,
+    balanceAfter: startingBalances[rank - 1] + coins,
+  }));
+  const expectedLedgerEntries = rewards.map(({ rank, coins }) => ({
+    rank,
+    user_id: winnerIds[rank - 1],
+    amount: coins,
+    balance_after: startingBalances[rank - 1] + coins,
+    reason: `Weekly Leaderboard Rank #${rank} Reward`,
+    idempotency_key: `leaderboard-cycle:${periodId}:rank:${rank}`,
+  }));
+
+  const readPayoutState = async () => {
+    const [balances, ledger] = await Promise.all([
+      pool.query<{ id: string; wallet_coins: number }>(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id`,
+        [winnerIds],
+      ),
+      pool.query<{
+        rank: number;
+        user_id: string;
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string;
+      }>(
+        `SELECT (details->>'rank')::integer AS rank, user_id, amount, balance_after,
+                reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE user_id = ANY($1::uuid[])
+            AND details->>'periodId' = $2
+          ORDER BY (details->>'rank')::integer`,
+        [winnerIds, periodId],
+      ),
+    ]);
+    return { balances: balances.rows, ledger: ledger.rows };
+  };
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES
+         ($1, 'Sequential Retry Admin', $2, 'test-salt', 'test-hash', 'admin', 0),
+         ($3, $4, $5, 'test-salt', 'test-hash', 'user', $6),
+         ($7, $8, $9, 'test-salt', 'test-hash', 'user', $10),
+         ($11, $12, $13, 'test-salt', 'test-hash', 'user', $14)`,
+      [
+        adminId,
+        `sequential-retry-admin-${adminId}@example.test`,
+        winnerIds[0],
+        winnerNames[0],
+        `sequential-retry-winner-one-${winnerIds[0]}@example.test`,
+        startingBalances[0],
+        winnerIds[1],
+        winnerNames[1],
+        `sequential-retry-winner-two-${winnerIds[1]}@example.test`,
+        startingBalances[1],
+        winnerIds[2],
+        winnerNames[2],
+        `sequential-retry-winner-three-${winnerIds[2]}@example.test`,
+        startingBalances[2],
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_leaderboard_periods
+         (id, cycle_type, starts_at, ends_at, status, final_standings, payout_configuration)
+       VALUES ($1, 'weekly', '2020-01-01T00:00:00Z', '2020-01-08T00:00:00Z',
+               'pending_approval', $2::jsonb, $3::jsonb)`,
+      [periodId, JSON.stringify(standings), JSON.stringify(rewards)],
+    );
+
+    await withServer(async (origin) => {
+      const approvalPath = `/daily007/v2/admin/leaderboards/periods/${periodId}/approve`;
+      const firstApproval = await postJson(origin, approvalPath, adminId, {});
+      assert.equal(firstApproval.status, 200, JSON.stringify(firstApproval.body));
+      assert.equal(firstApproval.body.periodId, periodId);
+      assert.equal(firstApproval.body.cycleType, "weekly");
+      assert.equal(firstApproval.body.alreadyApproved, false);
+      assert.deepEqual(firstApproval.body.payouts, expectedPayouts);
+
+      const stateAfterFirstApproval = await readPayoutState();
+      assert.deepEqual(stateAfterFirstApproval.balances, expectedBalances);
+      assert.deepEqual(stateAfterFirstApproval.ledger, expectedLedgerEntries);
+
+      const sequentialRetry = await postJson(origin, approvalPath, adminId, {});
+      assert.equal(sequentialRetry.status, 200, JSON.stringify(sequentialRetry.body));
+      assert.equal(sequentialRetry.body.periodId, periodId);
+      assert.equal(sequentialRetry.body.alreadyApproved, true);
+      assert.equal(sequentialRetry.body.approvedBy, adminId);
+      assert.equal(sequentialRetry.body.approvedAt, firstApproval.body.approvedAt);
+      assert.deepEqual(sequentialRetry.body.payouts, []);
+
+      const stateAfterRetry = await readPayoutState();
+      assert.deepEqual(stateAfterRetry, stateAfterFirstApproval);
+    });
+  } finally {
+    const cleanupErrors: unknown[] = [];
+    for (const cleanup of [
+      () => pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [winnerIds]),
+      () => pool.query("DELETE FROM daily007_v2_leaderboard_periods WHERE id = $1", [periodId]),
+      () => pool.query(
+        "DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+        [[adminId, ...winnerIds]],
+      ),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Failed to clean up the sequential approval retry fixture.");
+    }
+  }
+});
+
 test("concurrent approvals of separate leaderboard cycles add both rewards to the same winner", async () => {
   const weeklyAdminId = randomUUID();
   const monthlyAdminId = randomUUID();
