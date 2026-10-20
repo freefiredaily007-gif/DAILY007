@@ -100,6 +100,55 @@ function iconForSize(manifest, size) {
   return icon;
 }
 
+function requiredManifestString(manifest, field) {
+  const value = manifest[field];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(
+      `PWA smoke check failed: manifest field "${field}" must be a non-empty string.`,
+    );
+  }
+  return value;
+}
+
+function manifestFieldUrl(manifest, field, manifestUrl) {
+  return sameOriginUrl(
+    requiredManifestString(manifest, field),
+    manifestUrl,
+    `manifest field "${field}"`,
+  );
+}
+
+function isWithinScope(url, scopeUrl) {
+  if (url.origin !== scopeUrl.origin) return false;
+  const scopePath = scopeUrl.pathname.endsWith('/')
+    ? scopeUrl.pathname
+    : `${scopeUrl.pathname}/`;
+  return url.pathname === scopeUrl.pathname || url.pathname.startsWith(scopePath);
+}
+
+function validateInstallManifest(manifest, manifestUrl) {
+  requiredManifestString(manifest, 'name');
+  requiredManifestString(manifest, 'short_name');
+
+  const idUrl = manifestFieldUrl(manifest, 'id', manifestUrl);
+  const startUrl = manifestFieldUrl(manifest, 'start_url', manifestUrl);
+  const scopeUrl = manifestFieldUrl(manifest, 'scope', manifestUrl);
+  if (!isWithinScope(startUrl, scopeUrl)) {
+    throw new Error(
+      'PWA smoke check failed: manifest field "start_url" must resolve within manifest field "scope".',
+    );
+  }
+
+  const display = requiredManifestString(manifest, 'display');
+  if (!['fullscreen', 'minimal-ui', 'standalone'].includes(display)) {
+    throw new Error(
+      'PWA smoke check failed: manifest field "display" must be "fullscreen", "minimal-ui", or "standalone" for an installable app.',
+    );
+  }
+
+  return { idUrl, startUrl, scopeUrl };
+}
+
 async function verifyPng(fetchImpl, label, url) {
   const response = await checkedGet(fetchImpl, label, url, ['image/png']);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -146,6 +195,7 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
       `PWA smoke check failed: the manifest at ${manifestUrl.href} must contain an icons array.`,
     );
   }
+  const installSettings = validateInstallManifest(manifest, manifestUrl);
 
   const icon192 = iconForSize(manifest, '192x192');
   const icon512 = iconForSize(manifest, '512x512');
@@ -161,6 +211,10 @@ export async function checkPublishedPwa(input, fetchImpl = fetch) {
   return {
     pageUrl: pageUrl.href,
     manifestUrl: manifestUrl.href,
+    manifestId: installSettings.idUrl.href,
+    startUrl: installSettings.startUrl.href,
+    scope: installSettings.scopeUrl.href,
+    display: manifest.display,
     serviceWorkerUrl: workerUrl.href,
     iconUrls: [icon192Url.href, icon512Url.href],
   };

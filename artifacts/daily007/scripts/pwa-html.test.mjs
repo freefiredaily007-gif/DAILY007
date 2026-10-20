@@ -13,8 +13,12 @@ const manifest = JSON.parse(
 );
 const html = '<!doctype html><html><head><title>Daily007</title></head><body></body></html>';
 
-async function withPublishedPwaFixture({ missingPath, wrongContentTypePath } = {}, run) {
-  const page = injectPwaHead(html, manifest, '/daily007/');
+async function withPublishedPwaFixture(
+  { missingPath, wrongContentTypePath, manifestOverrides = {} } = {},
+  run,
+) {
+  const fixtureManifest = { ...manifest, ...manifestOverrides };
+  const page = injectPwaHead(html, fixtureManifest, '/daily007/');
   const server = createServer((request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === missingPath) {
@@ -30,7 +34,7 @@ async function withPublishedPwaFixture({ missingPath, wrongContentTypePath } = {
     }
     if (pathname === '/daily007/manifest.json') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-      response.end(JSON.stringify(manifest));
+      response.end(JSON.stringify(fixtureManifest));
       return;
     }
     if (pathname === '/daily007/sw.js') {
@@ -97,12 +101,80 @@ test('rejects malformed exported HTML and invalid PWA theme colors', () => {
 test('checks the published page references, manifest, service worker, and both icons', async () => {
   await withPublishedPwaFixture({}, async (url) => {
     const result = await checkPublishedPwa(url);
+    const fixtureOrigin = new URL(result.manifestUrl).origin;
     assert.match(result.manifestUrl, /\/daily007\/manifest\.json$/);
+    assert.equal(result.manifestId, `${fixtureOrigin}/daily007/`);
+    assert.equal(result.startUrl, `${fixtureOrigin}/daily007/`);
+    assert.equal(result.scope, `${fixtureOrigin}/daily007/`);
+    assert.equal(result.display, 'standalone');
     assert.match(result.serviceWorkerUrl, /\/daily007\/sw\.js$/);
     assert.equal(result.iconUrls.length, 2);
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-192.png')));
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-512.png')));
   });
+});
+
+test('rejects valid JSON with missing or invalid install-critical manifest fields', async (t) => {
+  const cases = [
+    {
+      field: 'name',
+      manifestOverrides: { name: undefined },
+      message: /manifest field "name" must be a non-empty string/,
+    },
+    {
+      field: 'short_name',
+      manifestOverrides: { short_name: '   ' },
+      message: /manifest field "short_name" must be a non-empty string/,
+    },
+    {
+      field: 'id',
+      manifestOverrides: { id: undefined },
+      message: /manifest field "id" must be a non-empty string/,
+    },
+    {
+      field: 'id',
+      manifestOverrides: { id: 'https://other.example/daily007/' },
+      message: /manifest field "id" reference must use the published page's origin/,
+    },
+    {
+      field: 'start_url',
+      manifestOverrides: { start_url: undefined },
+      message: /manifest field "start_url" must be a non-empty string/,
+    },
+    {
+      field: 'start_url',
+      manifestOverrides: { start_url: 'https://other.example/app/' },
+      message: /manifest field "start_url" reference must use the published page's origin/,
+    },
+    {
+      field: 'scope',
+      manifestOverrides: { scope: undefined },
+      message: /manifest field "scope" must be a non-empty string/,
+    },
+    {
+      field: 'scope',
+      manifestOverrides: { scope: './restricted/' },
+      message: /manifest field "start_url" must resolve within manifest field "scope"/,
+    },
+    {
+      field: 'display',
+      manifestOverrides: { display: undefined },
+      message: /manifest field "display" must be a non-empty string/,
+    },
+    {
+      field: 'display',
+      manifestOverrides: { display: 'browser' },
+      message: /manifest field "display" must be "fullscreen", "minimal-ui", or "standalone"/,
+    },
+  ];
+
+  for (const { field, manifestOverrides, message } of cases) {
+    await t.test(`identifies an invalid ${field} field`, async () => {
+      await withPublishedPwaFixture({ manifestOverrides }, async (url) => {
+        await assert.rejects(checkPublishedPwa(url), message);
+      });
+    });
+  }
 });
 
 test('reports a missing published PWA file with its URL and expected response', async () => {
