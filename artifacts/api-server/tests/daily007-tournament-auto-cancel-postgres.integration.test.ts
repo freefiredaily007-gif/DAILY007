@@ -629,6 +629,7 @@ test("a PostgreSQL cursor write preserves the video seed marker and visible sett
 test("a match that fills its final seat before the cancellation lock is not refunded", async () => {
   const fixture = await createFixture();
   const matchId = fixture.matchIds[0];
+  const followingMatchId = fixture.matchIds[1];
   const finalSeatRegistrationId = randomUUID();
   const [firstPayerId, secondPayerId, finalPayerId] = fixture.payerIds;
   const originalBalances = new Map([
@@ -642,9 +643,23 @@ test("a match that fills its final seat before the cancellation lock is not refu
   let sweep: Promise<void> | undefined;
 
   try {
-    await pool.query(
-      "UPDATE daily007_v2_matches SET capacity = 1 WHERE id = $1",
-      [fixture.matchIds[1]],
+    const followingCandidate = await pool.query<{
+      capacity: number;
+      active_registrations: number;
+    }>(
+      `SELECT m.capacity,
+              (SELECT count(*)::integer
+                 FROM daily007_v2_registrations r
+                WHERE r.match_id = m.id AND r.status IN ('approved', 'pending'))
+                AS active_registrations
+         FROM daily007_v2_matches m
+        WHERE m.id = $1`,
+      [followingMatchId],
+    );
+    assert.deepEqual(
+      followingCandidate.rows,
+      [{ capacity: 2, active_registrations: 1 }],
+      "the following match must remain underfilled when the sweep selects candidates",
     );
     await blocker.query("BEGIN");
     blockerTransactionOpen = true;
@@ -677,11 +692,37 @@ test("a match that fills its final seat before the cancellation lock is not refu
     await sweep;
     sweep = undefined;
 
-    const match = await pool.query<{ status: string; capacity: number }>(
-      "SELECT status, capacity FROM daily007_v2_matches WHERE id = $1",
-      [matchId],
+    const matches = await pool.query<{
+      id: string;
+      status: string;
+      capacity: number;
+      refund_count: number;
+    }>(
+      `SELECT m.id, m.status, m.capacity,
+              count(ledger.id)::integer AS refund_count
+         FROM daily007_v2_matches m
+         LEFT JOIN daily007_v2_wallet_ledger ledger
+           ON ledger.match_id = m.id
+          AND ledger.reason = 'tournament_cancel_refund'
+        WHERE m.id = ANY($1::uuid[])
+        GROUP BY m.id
+        ORDER BY m.starts_at, m.id`,
+      [[matchId, followingMatchId]],
     );
-    assert.deepEqual(match.rows, [{ status: "open", capacity: 3 }]);
+    assert.deepEqual(matches.rows, [
+      {
+        id: matchId,
+        status: "open",
+        capacity: 3,
+        refund_count: 0,
+      },
+      {
+        id: followingMatchId,
+        status: "cancelled",
+        capacity: 2,
+        refund_count: 1,
+      },
+    ]);
 
     const activeRegistrations = await pool.query<{ count: number }>(
       `SELECT count(*)::integer AS count
@@ -699,14 +740,56 @@ test("a match that fills its final seat before the cancellation lock is not refu
     );
     assert.equal(refunds.rows[0]?.count, 0);
 
-    const balances = await pool.query<{ id: string; wallet_coins: number }>(
+    const firstMatchBalances = await pool.query<{ id: string; wallet_coins: number }>(
       "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
-      [fixture.payerIds],
+      [[firstPayerId, secondPayerId]],
     );
     assert.deepEqual(
-      new Map(balances.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
-      originalBalances,
+      new Map(firstMatchBalances.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [firstPayerId, originalBalances.get(firstPayerId)],
+        [secondPayerId, originalBalances.get(secondPayerId)],
+      ]),
       "no payer wallet may change when the match fills before cancellation locks it",
+    );
+
+    const followingPayer = await pool.query<{ wallet_coins: number }>(
+      "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+      [finalPayerId],
+    );
+    assert.equal(
+      followingPayer.rows[0]?.wallet_coins,
+      88,
+      "the following underfilled match must refund its entry fee in the same sweep",
+    );
+
+    const followingRefund = await pool.query<{
+      user_id: string;
+      amount: number;
+      balance_after: number;
+      reason: string;
+      registration_id: string;
+      idempotency_key: string;
+    }>(
+      `SELECT user_id, amount, balance_after, reason, registration_id, idempotency_key
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'`,
+      [followingMatchId],
+    );
+    assert.deepEqual(followingRefund.rows, [
+      {
+        user_id: finalPayerId,
+        amount: 18,
+        balance_after: 88,
+        reason: "tournament_cancel_refund",
+        registration_id: fixture.registrationIds[2],
+        idempotency_key: `daily007:tournament-cancel:${followingMatchId}:${fixture.registrationIds[2]}`,
+      },
+    ]);
+    assert.equal(
+      (await storedCursor())?.id,
+      followingMatchId,
+      "the sweep cursor must advance beyond the full match to the following candidate",
     );
   } finally {
     if (blockerTransactionOpen) await blocker.query("ROLLBACK");
