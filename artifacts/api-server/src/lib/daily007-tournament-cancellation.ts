@@ -165,7 +165,7 @@ export async function cancelUnderfilledTournamentTransaction(
     }>(
       `SELECT id, captain_user_id, entry_coins_paid
          FROM daily007_v2_registrations
-        WHERE match_id = $1 AND status IN ('approved', 'pending', 'removed')
+        WHERE match_id = $1 AND status IN ('approved', 'pending')
         ORDER BY captain_user_id, id
         FOR UPDATE`,
       [matchId],
