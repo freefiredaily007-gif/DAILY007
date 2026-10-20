@@ -74,7 +74,9 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
   const teamSize = Number(t.teamSize) || (teamType.toLowerCase() === 'squad' ? 4 : teamType.toLowerCase() === 'duo' ? 2 : 1);
   const isTeam = teamSize > 1;
   const seatLayout = getTournamentSeatLayout(t);
-  const slotUnit = String(t.slotUnit || (gameMode.toLowerCase() === 'battle royale' && teamSize === 1 ? 'player' : 'team'));
+  const slotUnit = seatLayout?.groupKind === 'player'
+    ? 'player'
+    : String(t.slotUnit || (gameMode.toLowerCase() === 'battle royale' && teamSize === 1 ? 'player' : 'team'));
   const totalSlots = Number(t.totalSlots ?? (slotUnit === 'player' ? 48 : gameMode.toLowerCase() === 'battle royale' ? (teamType.toLowerCase() === 'duo' ? 24 : 12) : 2));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const remainingSlots = Math.max(0, Number(t.availableSlots ?? totalSlots - filledSlots));

@@ -196,7 +196,7 @@ test("the profile name is read-only and game, team, and teammate details have se
 
   assert.match(
     joinFormSource,
-    /const payload = buildJoinFormPayload\(\{\s*captainProfileName,\s*captainGameName:\s*captainGameName\.trim\(\),\s*captainGameUid:\s*captainGameUid\.trim\(\),\s*teamName,\s*members,\s*\}\);[\s\S]*?await onSubmit\(editing \? \{ \.\.\.payload, expectedTeam \} : payload\)/,
+    /const payload = buildJoinFormPayload\(\{\s*captainProfileName,\s*captainGameName:\s*captainGameName\.trim\(\),\s*captainGameUid:\s*captainGameUid\.trim\(\),\s*teamName,\s*members,\s*\}\);[\s\S]*?await onSubmit\(editing[\s\S]*?seatGroupNumber \? \{ \.\.\.payload, seatGroupNumber \} : payload\)/,
   );
 });
 
@@ -508,7 +508,7 @@ test("a stale team edit shows the latest saved team and keeps the current form v
   assert.match(joinFormSource, /value=\{captainGameUid\}/);
   assert.match(joinFormSource, /value=\{teamName\}/);
   assert.match(joinFormSource, /value=\{member\.name\}/);
-  assert.match(joinFormSource, /editing \? \{ \.\.\.payload, expectedTeam \} : payload/);
+  assert.match(joinFormSource, /await onSubmit\(editing[\s\S]*?seatGroupNumber \? \{ \.\.\.payload, seatGroupNumber \} : payload\)/);
 });
 
 test("optional teammate UIDs may be blank, while duplicate UIDs identify both conflicting fields", () => {

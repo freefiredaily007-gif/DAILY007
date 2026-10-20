@@ -48,10 +48,10 @@ test("squad team cards render each team with four equal, responsive slot columns
   assert.match(compactJoinStyle, /minHeight:\s*62/);
 });
 
-test("slot captions use the full Captain label and open slots show OPEN · SELECT", () => {
+test("slot captions use the full Captain label and open slots show OPEN • SELECT", () => {
   assert.match(screenSource, /const isCaptainSlot = slot\.slotNumber === 1/);
   assert.match(screenSource, /const slotTitle = isCaptainSlot \? 'Captain' : String\(slot\.slotNumber\)/);
-  assert.match(screenSource, /'OPEN · SELECT'/);
+  assert.match(screenSource, /'OPEN • SELECT'/);
   assert.match(screenSource, /squadSlotCrown/);
   assert.match(screenSource, /maxFontSizeMultiplier=\{compactLargeText \? 1\.5 : undefined\}/);
   assert.ok(screenSource.includes('JOIN{"\\n"}TEAM{"\\n"}{teamNumber}'));
@@ -81,7 +81,7 @@ test("open and occupied slots use live green and red availability styles", () =>
   assert.match(screenSource, /slotIsOccupied \? s\.squadSlotOccupied : s\.squadSlotAvailable/);
   assert.match(
     screenSource,
-    /const slotStatus = slotIsOccupied\s*\?\s*slot\.gameName \|\| 'Registered player'\s*:\s*'OPEN · SELECT'/,
+    /const slotStatus = slotIsOccupied\s*\?\s*slot\.gameName \|\| 'Registered player'\s*:\s*'OPEN • SELECT'/,
   );
   assert.match(screenSource, /style=\{slotIsOccupied \? s\.squadSlotName : s\.squadSlotOpen\}/);
   assert.match(screenSource, /disabled={!canSelectSlot \|\| Boolean\(busyKey\)}/);

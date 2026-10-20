@@ -191,12 +191,13 @@ test("public tournament participants include approved and pending teams but omit
       assert.equal(response.status, 200);
       const payload = await response.json() as {
         tournamentId: string;
-        participants: { teamName: string; players: string[]; status: string }[];
+        participants: { groupNumber: number | null; teamName: string; players: string[]; status: string }[];
       };
 
       assert.equal(payload.tournamentId, TEST_MATCH_ID);
       assert.deepEqual(payload.participants, [
         {
+          groupNumber: 1,
           teamName: approved.registration.team_name,
           players: [
             approved.registration.captain_game_name,
@@ -205,6 +206,7 @@ test("public tournament participants include approved and pending teams but omit
           status: "approved",
         },
         {
+          groupNumber: 2,
           teamName: pending.registration.team_name,
           players: [
             pending.registration.captain_game_name,
@@ -259,7 +261,7 @@ test("public tournament participants stop showing a pending team after admin rej
       assert.equal(beforeResponse.status, 200);
       const before = await beforeResponse.json() as {
         tournamentId: string;
-        participants: { teamName: string; players: string[]; status: string }[];
+        participants: { groupNumber: number | null; teamName: string; players: string[]; status: string }[];
       };
       assert.equal(before.tournamentId, TEST_MATCH_ID);
       assert.deepEqual(
@@ -288,6 +290,7 @@ test("public tournament participants stop showing a pending team after admin rej
       };
       assert.equal(after.tournamentId, TEST_MATCH_ID);
       assert.deepEqual(after.participants, [{
+        groupNumber: 1,
         teamName: approved.registration.team_name,
         players: [
           approved.registration.captain_game_name,
@@ -337,12 +340,13 @@ test("public participant with no saved teammates still contains its captain once
       assert.equal(response.status, 200);
       const payload = await response.json() as {
         tournamentId: string;
-        participants: { teamName: string | null; players: unknown[]; status: string }[];
+        participants: { groupNumber: number | null; teamName: string | null; players: unknown[]; status: string }[];
       };
 
       assert.equal(payload.tournamentId, TEST_MATCH_ID);
       assert.deepEqual(payload.participants, [
         {
+          groupNumber: 1,
           teamName: captainOnly.registration.team_name,
           players: [captainOnly.registration.captain_game_name],
           status: "approved",
@@ -454,11 +458,12 @@ test("public participants show only saved teammates in roster order for a partia
       assert.equal(response.status, 200);
       const payload = await response.json() as {
         tournamentId: string;
-        participants: { teamName: string | null; players: unknown[]; status: string }[];
+        participants: { groupNumber: number | null; teamName: string | null; players: unknown[]; status: string }[];
       };
 
       assert.equal(payload.tournamentId, TEST_MATCH_ID);
       assert.deepEqual(payload.participants, [{
+        groupNumber: 1,
         teamName: partial.registration.team_name,
         players: [
           partial.registration.captain_game_name,
@@ -862,11 +867,12 @@ for (const request of registrationRequests) {
         assert.equal(participantsResponse.status, 200);
         const participants = await participantsResponse.json() as {
           tournamentId: string;
-          participants: { teamName: string; players: string[]; status: string }[];
+          participants: { groupNumber: number | null; teamName: string; players: string[]; status: string }[];
         };
 
         assert.equal(participants.tournamentId, TEST_MATCH_ID);
         assert.deepEqual(participants.participants, [{
+          groupNumber: 1,
           teamName: TEAM_NAME,
           players: [
             CAPTAIN_GAME_NAME,

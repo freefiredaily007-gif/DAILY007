@@ -346,7 +346,7 @@ paths:
     post:
       operationId: daily007V2RegisterMatch
       summary: Register the authenticated account for a match
-      description: Requires captainName (real name), captainGameName (Free Fire in-game name), and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty in-game name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
+      description: Requires captainName, captainGameName, and a nonempty captainGameUid. Duo and squad registrations require the number of teammates matching the selected format; solo registrations omit teammates. seatGroupNumber persists the requested team or player-slot group. The authenticated account is always the captain. Capacity, group assignment, and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -356,8 +356,16 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "201": { description: Registration and post-debit wallet balance }
-        "200": { description: Existing registration receipt returned idempotently; no additional debit }
+        "201":
+          description: Registration, assigned team/player group, and post-debit wallet balance.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007V2RegistrationResponse" }
+        "200":
+          description: Existing registration receipt returned idempotently; no additional debit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007V2RegistrationResponse" }
         "400":
           description: Invalid input. Recognized registration validation failures may include the field or fields to correct.
           content:
@@ -1514,9 +1522,9 @@ components:
           description: Optional exact team/player slot group. When omitted, the API assigns the first available group.
         teammates:
           type: array
-          minItems: 3
+          minItems: 0
           maxItems: 3
-          description: Required in squad and clash modes; omitted for solo. Each teammate name is required, UID is optional.
+          description: The server validates the exact teammate count for the selected tournament mode. Each supplied teammate name is required; UID is optional.
           items:
             type: object
             additionalProperties: false
@@ -1528,6 +1536,21 @@ components:
                   - { type: "null" }
             required: [name]
       required: [captainName, captainGameName, captainGameUid]
+    Daily007V2RegistrationResponse:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid }
+        seatGroupNumber:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Persisted team or player-slot group number.
+        entryCoinsPaid: { type: integer, minimum: 0 }
+        walletCoins: { type: integer, minimum: 0 }
+        registeredCount: { type: integer, minimum: 0 }
+        capacity: { type: integer, minimum: 1 }
+        isFull: { type: boolean }
+        alreadyRegistered: { type: boolean }
+      required: [registrationId, seatGroupNumber, entryCoinsPaid, walletCoins, registeredCount, capacity, isFull, alreadyRegistered]
     Daily007GoogleSignInBody:
       type: object
       additionalProperties: false

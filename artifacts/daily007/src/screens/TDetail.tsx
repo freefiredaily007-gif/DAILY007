@@ -34,6 +34,7 @@ import {
 } from '../lib/tournament-winner-details';
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
+import { getTournamentSeatRefreshInterval } from '../lib/tournamentSeatRefresh';
 
 const claimRoomDetailsAvailabilityAnnouncement =
   createRoomCredentialAvailabilityAnnouncementTracker();
@@ -45,6 +46,7 @@ function SquadSlotsPanel({
   onGoWallet,
   onJoined,
   onRefetchAvailable,
+  refreshInterval,
 }: {
   tournamentId: string;
   entryCoins: number;
@@ -52,6 +54,7 @@ function SquadSlotsPanel({
   onGoWallet: () => void;
   onJoined: () => Promise<void>;
   onRefetchAvailable: (refetch: (() => Promise<unknown>) | null) => void;
+  refreshInterval: number | false;
 }) {
   const [selected, setSelected] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
   const [joinDetailsOpen, setJoinDetailsOpen] = useState(false);
@@ -69,6 +72,7 @@ function SquadSlotsPanel({
       queryKey: getDaily007V2GetSquadSlotsQueryKey(tournamentId),
       enabled: Boolean(tournamentId),
       refetchOnMount: 'always',
+      refetchInterval: refreshInterval,
       retry: 1,
     },
   });
@@ -437,15 +441,23 @@ export default function TDetail() {
   const [roomDetailsAnnouncementVersion, setRoomDetailsAnnouncementVersion] = useState<number>(0);
   const retryParticipantsInFlight = useRef(false);
   const participantsScreenFocusedRef = useRef(false);
+  const participantsScreenHasBlurredRef = useRef(false);
   const participantsRetryFocusVersion = useRef(0);
   const detailLoadInFlight = useRef(false);
   const squadSlotsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
+  const seatRefreshStatus = t ? getTournamentLifecycleState(t, clockNow) : t?.status;
+  const seatRefreshInterval = getTournamentSeatRefreshInterval(
+    isFocused,
+    isAppActive,
+    seatRefreshStatus ?? t?.status,
+  );
   const participantsQuery = useGetTournamentParticipants(tournamentId, {
     query: {
       queryKey: getGetTournamentParticipantsQueryKey(tournamentId),
       enabled: Boolean(id),
       refetchOnMount: 'always',
+      refetchInterval: seatRefreshInterval,
       retry: 1,
     },
   });
@@ -473,15 +485,19 @@ export default function TDetail() {
 
   useFocusEffect(
     useCallback(() => {
+      const shouldRefreshParticipants = participantsScreenHasBlurredRef.current;
+      participantsScreenHasBlurredRef.current = false;
       participantsScreenFocusedRef.current = true;
       participantsRetryFocusVersion.current += 1;
       setParticipantsRetryAnnouncement('');
+      if (shouldRefreshParticipants) void participantsQuery.refetch();
       return () => {
+        participantsScreenHasBlurredRef.current = true;
         participantsScreenFocusedRef.current = false;
         participantsRetryFocusVersion.current += 1;
         setParticipantsRetryAnnouncement('');
       };
-    }, [tournamentId]),
+    }, [participantsQuery.refetch, tournamentId]),
   );
 
   useEffect(() => {
@@ -748,6 +764,7 @@ export default function TDetail() {
             onGoWallet={() => nav.navigate('Wallet')}
             onJoined={refreshNonSquadData}
             onRefetchAvailable={registerSquadSlotsRefetch}
+            refreshInterval={seatRefreshInterval}
           />
         </>
       ) : null}
@@ -757,6 +774,7 @@ export default function TDetail() {
           <SectionTitle accent={C.orange}>TOURNAMENT SLOTS</SectionTitle>
           <ModeSeatSlotsPanel
             key={tournamentId}
+            tournamentId={tournamentId}
             layout={seatLayout}
             participants={participants}
             loading={participantsQuery.isFetching || retryingParticipants}

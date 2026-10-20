@@ -643,7 +643,7 @@ export const Daily007V2ConfigureMatchResponse = zod.unknown()
 
 
 /**
- * Requires captainName (real name), captainGameName (Free Fire in-game name), and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty in-game name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
+ * Requires captainName, captainGameName, and a nonempty captainGameUid. Duo and squad registrations require the number of teammates matching the selected format; solo registrations omit teammates. seatGroupNumber persists the requested team or player-slot group. The authenticated account is always the captain. Capacity, group assignment, and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
  * @summary Register the authenticated account for a match
  */
 export const Daily007V2RegisterMatchParams = zod.object({
@@ -661,7 +661,7 @@ export const daily007V2RegisterMatchBodyTeammatesItemNameMax = 100;
 
 export const daily007V2RegisterMatchBodyTeammatesItemUidOneMax = 128;
 
-export const daily007V2RegisterMatchBodyTeammatesMin = 3;
+export const daily007V2RegisterMatchBodyTeammatesMin = 0;
 export const daily007V2RegisterMatchBodyTeammatesMax = 3;
 
 
@@ -674,10 +674,29 @@ export const Daily007V2RegisterMatchBody = zod.object({
   "teammates": zod.array(zod.object({
   "name": zod.string().min(1).max(daily007V2RegisterMatchBodyTeammatesItemNameMax),
   "uid": zod.union([zod.string().min(1).max(daily007V2RegisterMatchBodyTeammatesItemUidOneMax),zod.null()]).optional()
-})).min(daily007V2RegisterMatchBodyTeammatesMin).max(daily007V2RegisterMatchBodyTeammatesMax).optional().describe('Required in squad and clash modes; omitted for solo. Each teammate name is required, UID is optional.')
+})).min(daily007V2RegisterMatchBodyTeammatesMin).max(daily007V2RegisterMatchBodyTeammatesMax).optional().describe('The server validates the exact teammate count for the selected tournament mode. Each supplied teammate name is required; UID is optional.')
 })
 
-export const Daily007V2RegisterMatchResponse = zod.unknown()
+
+export const daily007V2RegisterMatchResponseEntryCoinsPaidMin = 0;
+
+export const daily007V2RegisterMatchResponseWalletCoinsMin = 0;
+
+export const daily007V2RegisterMatchResponseRegisteredCountMin = 0;
+
+
+
+
+export const Daily007V2RegisterMatchResponse = zod.object({
+  "registrationId": zod.string().uuid(),
+  "seatGroupNumber": zod.number().int().min(1).nullable().describe('Persisted team or player-slot group number.'),
+  "entryCoinsPaid": zod.number().int().min(daily007V2RegisterMatchResponseEntryCoinsPaidMin),
+  "walletCoins": zod.number().int().min(daily007V2RegisterMatchResponseWalletCoinsMin),
+  "registeredCount": zod.number().int().min(daily007V2RegisterMatchResponseRegisteredCountMin),
+  "capacity": zod.number().int().min(1),
+  "isFull": zod.boolean(),
+  "alreadyRegistered": zod.boolean()
+})
 
 
 /**

@@ -76,6 +76,7 @@ import type {
   Daily007V2RegisterMatch400,
   Daily007V2RegisterMatch409,
   Daily007V2RegistrationBody,
+  Daily007V2RegistrationResponse,
   Daily007V2SetRoomBody,
   Daily007V2SquadJoinBody,
   Daily007V2SquadJoinResponse,
@@ -1700,11 +1701,11 @@ export const getDaily007V2RegisterMatchUrl = (id: string,) => {
 }
 
 /**
- * Requires captainName (real name), captainGameName (Free Fire in-game name), and a nonempty captainGameUid (game identity, distinct from account ID). Team modes require exactly three teammate objects with a nonempty in-game name; uid is optional. The authenticated account is always the captain. Capacity and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
+ * Requires captainName, captainGameName, and a nonempty captainGameUid. Duo and squad registrations require the number of teammates matching the selected format; solo registrations omit teammates. seatGroupNumber persists the requested team or player-slot group. The authenticated account is always the captain. Capacity, group assignment, and wallet debit are transactional. A repeated registration returns the original receipt without another debit.
  * @summary Register the authenticated account for a match
  */
 export const daily007V2RegisterMatch = async (id: string,
-    daily007V2RegistrationBody: Daily007V2RegistrationBody, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+    daily007V2RegistrationBody: Daily007V2RegistrationBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2RegistrationResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1720,7 +1721,7 @@ export const daily007V2RegisterMatch = async (id: string,
     }
     return headers;
   };
-return customFetch<void>(getDaily007V2RegisterMatchUrl(id),
+return customFetch<Daily007V2RegistrationResponse>(getDaily007V2RegisterMatchUrl(id),
   {
     ...options,
     method: 'POST',

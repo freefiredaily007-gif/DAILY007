@@ -39,7 +39,7 @@ test("the fixture mounts the production forms and captures their real action pay
   assert.match(fixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
   assert.match(routeSource, /FormResumeNativeTest/);
   assert.match(profileSource, /updateProfile\(\{ name: name\.trim\(\), phone: phone\.trim\(\), gameUid: gameUid\.trim\(\) \}\)/);
-  assert.match(joinSource, /await onSubmit\(editing \? \{ \.\.\.payload, expectedTeam \} : payload\)/);
+  assert.match(joinSource, /await onSubmit\(editing[\s\S]*?seatGroupNumber \? \{ \.\.\.payload, seatGroupNumber \} : payload\)/);
 });
 
 test("the Android flow backgrounds and resumes each filled form before saving or joining", () => {

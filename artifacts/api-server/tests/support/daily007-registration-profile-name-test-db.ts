@@ -41,6 +41,7 @@ export type CapturedRegistration = {
   captain_game_name: string;
   captain_game_uid: string;
   team_name: string;
+  assigned_group_number: number | null;
   entry_coins_paid: number;
   status: "approved" | "pending" | "rejected";
   created_at: Date;
@@ -223,6 +224,7 @@ class RegistrationProfileTestDatabase {
       captain_game_name: `${labelSlug}FireCaptain`,
       captain_game_uid: `FF-${labelSlug.toUpperCase()}-CAPTAIN-UID`,
       team_name: `${label} Fire`,
+      assigned_group_number: null,
       entry_coins_paid: this.match.entry_coins,
       status,
       created_at: new Date(),
@@ -715,7 +717,46 @@ class RegistrationProfileTestDatabase {
     ) {
       result = String(values[0]) === this.match.id ? [structuredClone(this.match)] : [];
     } else if (
-      normalized.startsWith("SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.entry_coins_paid, l.balance_after")
+      normalized.startsWith("SELECT r.id AS registration_id, r.assigned_group_number, r.status")
+    ) {
+      const matchId = String(values[0]);
+      const active = this.registrations
+        .filter((registration) =>
+          registration.match_id === matchId && ["approved", "pending"].includes(registration.status),
+        )
+        .sort((left, right) =>
+          left.created_at.getTime() - right.created_at.getTime() || left.id.localeCompare(right.id),
+        );
+      const occupied = new Set(active
+        .map((registration) => registration.assigned_group_number)
+        .filter((groupNumber): groupNumber is number => groupNumber !== null));
+      const capacity = [this.match, ...this.additionalMatches]
+        .find((match) => match.id === matchId)?.capacity ?? active.length;
+      const available = Array.from({ length: capacity }, (_, index) => index + 1)
+        .filter((groupNumber) => !occupied.has(groupNumber));
+      const assigned = new Map<string, number | null>();
+      for (const registration of active) {
+        assigned.set(
+          registration.id,
+          registration.assigned_group_number ?? available.shift() ?? null,
+        );
+      }
+      result = active.flatMap((registration) => {
+        const roster = this.roster
+          .filter((member) => member.registration_id === registration.id)
+          .sort((left, right) => left.position - right.position);
+        return (roster.length ? roster : [null]).map((member) => ({
+          registration_id: registration.id,
+          assigned_group_number: assigned.get(registration.id) ?? null,
+          status: registration.status,
+          team_name: registration.team_name,
+          captain_game_name: registration.captain_game_name,
+          position: member?.position ?? null,
+          member_name: member?.member_name ?? null,
+        }));
+      });
+    } else if (
+      normalized.startsWith("SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.assigned_group_number")
     ) {
       const registration = this.registrations.find((candidate) =>
         candidate.match_id === String(values[0]) &&
@@ -733,6 +774,7 @@ class RegistrationProfileTestDatabase {
             captain_game_name: registration.captain_game_name,
             captain_game_uid: registration.captain_game_uid,
             team_name: registration.team_name,
+            assigned_group_number: registration.assigned_group_number,
             entry_coins_paid: registration.entry_coins_paid,
             balance_after: entry.balance_after,
             capacity: match.capacity,
@@ -741,6 +783,25 @@ class RegistrationProfileTestDatabase {
             registration_status: registration.status,
           }]
         : [];
+    } else if (normalized.startsWith("WITH active AS ( SELECT id, assigned_group_number, created_at FROM daily007_v2_registrations")) {
+      const matchId = String(values[0]);
+      const capacity = Number(values[1]);
+      const active = this.registrations
+        .filter((registration) =>
+          registration.match_id === matchId && ["approved", "pending"].includes(registration.status),
+        )
+        .sort((left, right) => left.created_at.getTime() - right.created_at.getTime() || left.id.localeCompare(right.id));
+      const usedGroups = new Set(active
+        .map((registration) => registration.assigned_group_number)
+        .filter((groupNumber): groupNumber is number => groupNumber !== null));
+      const freeGroups = Array.from({ length: capacity }, (_, index) => index + 1)
+        .filter((groupNumber) => !usedGroups.has(groupNumber));
+      for (const registration of active) {
+        if (registration.assigned_group_number === null) {
+          registration.assigned_group_number = freeGroups.shift() ?? null;
+        }
+      }
+      result = [];
     } else if (normalized.startsWith("SELECT starts_at > clock_timestamp()")) {
       result = [{ upcoming: true }];
     } else if (normalized.startsWith(
@@ -773,6 +834,16 @@ class RegistrationProfileTestDatabase {
       ).length;
       result = [{ count: String(count) }];
     } else if (
+      normalized.startsWith("SELECT assigned_group_number FROM daily007_v2_registrations")
+    ) {
+      result = this.registrations
+        .filter((registration) =>
+          registration.match_id === String(values[0]) &&
+          ["approved", "pending"].includes(registration.status) &&
+          registration.assigned_group_number !== null,
+        )
+        .map((registration) => ({ assigned_group_number: registration.assigned_group_number }));
+    } else if (
       normalized === "SELECT status FROM daily007_v2_users WHERE id = $1 FOR SHARE"
     ) {
       const user = [this.user, ...this.additionalUsers].find((candidate) =>
@@ -799,6 +870,7 @@ class RegistrationProfileTestDatabase {
         captainGameName,
         captainGameUid,
         teamName,
+        assignedGroupNumber,
         entryCoinsPaid,
       ] = values;
       const id = `74000000-0000-4000-8000-${String(this.registrations.length + 10).padStart(12, "0")}`;
@@ -810,6 +882,7 @@ class RegistrationProfileTestDatabase {
         captain_game_name: String(captainGameName),
         captain_game_uid: String(captainGameUid),
         team_name: String(teamName),
+        assigned_group_number: Number(assignedGroupNumber),
         entry_coins_paid: Number(entryCoinsPaid),
         status: "approved",
         created_at: new Date(),

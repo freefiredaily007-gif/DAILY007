@@ -260,9 +260,10 @@ test("PostgreSQL list and detail keep an approved captain-only team in filled an
     const participantResponse = await fetch(`${origin}/tournaments/${matchId}/participants`);
     assert.equal(participantResponse.status, 200);
     const participantPayload = await participantResponse.json() as {
-      participants: { teamName: string; status: string; players: string[] }[];
+      participants: { groupNumber: number | null; teamName: string; status: string; players: string[] }[];
     };
     assert.deepEqual(participantPayload.participants, [{
+      groupNumber: 1,
       teamName: "Captain-only Team",
       status: "approved",
       players: ["CaptainOnlyFire"],

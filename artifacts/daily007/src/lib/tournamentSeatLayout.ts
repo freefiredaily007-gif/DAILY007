@@ -20,8 +20,10 @@ export function getTournamentSeatLayout(tournament: {
   teamType?: unknown;
   teamSize?: unknown;
 }): TournamentSeatLayout | null {
-  const rawMode = normalized(tournament.gameMode ?? tournament.mode);
-  const gameMode = rawMode === 'br' || rawMode === 'battle_royale' || rawMode === 'battle_royale_mode'
+  const explicitGameMode = normalized(tournament.gameMode);
+  const rawMode = explicitGameMode || normalized(tournament.mode);
+  const gameMode = rawMode === 'br' || rawMode === 'battle_royale' || rawMode === 'battle_royale_mode' ||
+    (!explicitGameMode && ['solo', 'duo', 'squad'].includes(rawMode))
     ? 'battle_royale'
     : rawMode === 'clash' || rawMode === 'cs' || rawMode === 'clash_squad'
       ? 'clash_squad'

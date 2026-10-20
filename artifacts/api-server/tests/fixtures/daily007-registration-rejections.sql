@@ -36,12 +36,18 @@ CREATE TABLE daily007_v2_registrations (
   captain_game_name text NOT NULL DEFAULT '',
   captain_game_uid text NOT NULL,
   team_name text NOT NULL DEFAULT '',
+  assigned_group_number integer,
   entry_coins_paid integer NOT NULL,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (match_id, captain_user_id),
   CHECK (entry_coins_paid >= 0),
+  CHECK (assigned_group_number IS NULL OR assigned_group_number > 0),
   CHECK (length(btrim(captain_game_uid)) > 0)
 );
+CREATE UNIQUE INDEX daily007_v2_registration_active_group_once
+  ON daily007_v2_registrations (match_id, assigned_group_number)
+  WHERE assigned_group_number IS NOT NULL AND status IN ('approved', 'pending');
 
 CREATE TABLE daily007_v2_result_awards (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

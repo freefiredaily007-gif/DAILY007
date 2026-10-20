@@ -459,11 +459,31 @@ export interface Daily007V2RegistrationBody {
      */
   seatGroupNumber?: number;
   /**
-     * Required in squad and clash modes; omitted for solo. Each teammate name is required, UID is optional.
-     * @minItems 3
+     * The server validates the exact teammate count for the selected tournament mode. Each supplied teammate name is required; UID is optional.
+     * @minItems 0
      * @maxItems 3
      */
   teammates?: Daily007V2RegistrationBodyTeammatesItem[];
+}
+
+export interface Daily007V2RegistrationResponse {
+  registrationId: string;
+  /**
+     * Persisted team or player-slot group number.
+     * @minimum 1
+     * @nullable
+     */
+  seatGroupNumber: number | null;
+  /** @minimum 0 */
+  entryCoinsPaid: number;
+  /** @minimum 0 */
+  walletCoins: number;
+  /** @minimum 0 */
+  registeredCount: number;
+  /** @minimum 1 */
+  capacity: number;
+  isFull: boolean;
+  alreadyRegistered: boolean;
 }
 
 export interface Daily007GoogleSignInBody {

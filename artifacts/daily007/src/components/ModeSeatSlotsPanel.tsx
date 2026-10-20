@@ -17,6 +17,7 @@ export function ModeSeatSlotsPanel({
   loading,
   unavailable,
   canSelect,
+  tournamentId,
   onRetry,
   onJoinGroup,
 }: {
@@ -25,6 +26,7 @@ export function ModeSeatSlotsPanel({
   loading: boolean;
   unavailable: boolean;
   canSelect: boolean;
+  tournamentId: string;
   onRetry: () => void;
   onJoinGroup: (groupNumber: number) => void;
 }) {
@@ -72,7 +74,7 @@ export function ModeSeatSlotsPanel({
           selected,
         }}
         disabled={occupied || !canSelect}
-        testID={`mode-seat-${groupNumber}-${slotIndex + 1}`}
+        testID={`mode-seat-${tournamentId}-${groupNumber}-${slotIndex + 1}`}
         onHoverIn={() => {
           if (!occupied && canSelect) setHoveredSeat(seatKey);
         }}
