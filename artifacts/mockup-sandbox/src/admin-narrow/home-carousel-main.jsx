@@ -30,21 +30,34 @@ const homeInitialRetryScenario = previewParams.get("home-initial-retry");
 const dateSurfacePhase = previewParams.get("ist-date-phase") ?? "before";
 const dateSurfaceScenario = previewParams.get("ist-date-scenario") ?? "new-year";
 const requestedScreen = previewParams.get("screen") ?? "Home";
+const dateSurfaceEditedSchedule = dateSurfaceScenario === "admin-edited";
+const editedTournamentSchedule = dateSurfaceEditedSchedule
+  ? JSON.parse(window.sessionStorage.getItem("daily007-admin-edited-tournament-home-refresh") ?? "null")
+  : null;
+if (dateSurfaceEditedSchedule && !editedTournamentSchedule) {
+  throw new Error("The Admin-edited tournament schedule is missing from the preview session.");
+}
 const dateSurfaceDateOnly = dateSurfaceScenario === "date-only";
 const dateSurfaceFormatterTimestamp = dateSurfaceScenario.startsWith("timestamp-");
-const dateSurfaceDate = dateSurfaceFormatterTimestamp || dateSurfaceDateOnly
+const dateSurfaceDate = dateSurfaceEditedSchedule
+  ? editedTournamentSchedule.date
+  : dateSurfaceFormatterTimestamp || dateSurfaceDateOnly
   ? previewParams.get("ist-date-value") ?? (dateSurfaceDateOnly ? "2030-01-01" : "")
   : dateSurfaceScenario === "positive-offset"
     ? "2029-12-31"
     : "2030-01-01";
-const dateSurfaceStartAt = dateSurfaceFormatterTimestamp
+const dateSurfaceStartAt = dateSurfaceEditedSchedule
+  ? editedTournamentSchedule.startsAt
+  : dateSurfaceFormatterTimestamp
   ? dateSurfaceDate
   : dateSurfaceScenario === "positive-offset"
     ? "2029-12-31T17:00:00.000Z"
     : dateSurfaceDateOnly
       ? new Date(`${dateSurfaceDate}T00:00:00`).toISOString()
       : "2029-12-31T18:45:00.000Z";
-const dateSurfaceTime = dateSurfaceDateOnly || dateSurfaceFormatterTimestamp ? "12:15 AM" : null;
+const dateSurfaceTime = dateSurfaceEditedSchedule
+  ? editedTournamentSchedule.time
+  : dateSurfaceDateOnly || dateSurfaceFormatterTimestamp ? "12:15 AM" : null;
 const scheduledStartMs = dateSurfacePreview
   ? Date.parse(dateSurfaceStartAt)
   : Math.ceil((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
@@ -123,7 +136,7 @@ void import("./mocks/api.ts").then(async (apiMocks) => {
     }
     const shiftedStart = new Date(scheduledStartMs + 5.5 * 60 * 60 * 1000);
     const previewSchedule = {
-      date: dateSurfaceDateOnly || dateSurfaceFormatterTimestamp
+      date: dateSurfaceEditedSchedule || dateSurfaceDateOnly || dateSurfaceFormatterTimestamp
         ? dateSurfaceDate
         : shiftedStart.toISOString().slice(0, 10),
       time: dateSurfaceTime ?? istTime(scheduledStartMs),

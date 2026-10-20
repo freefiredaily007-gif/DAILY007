@@ -496,8 +496,28 @@ const largestTextTournaments = previewTournaments.map((tournament) => ({
   name: longTournamentName,
 }));
 export function updateTournamentPreview(updates: Record<string, unknown>) {
-  if (previewTournaments[0]) Object.assign(previewTournaments[0], updates);
-  if (largestTextTournaments[0]) Object.assign(largestTextTournaments[0], updates);
+  const date = String(updates.date ?? "");
+  const time = String(updates.time ?? "");
+  const timeParts = /^(\d{1,2}):(\d{2})\s+(AM|PM)$/i.exec(time);
+  const startsAt = /^\d{4}-\d{2}-\d{2}$/.test(date) && timeParts
+    ? new Date(
+        `${date}T${String(Number(timeParts[1]) % 12 + (timeParts[3].toUpperCase() === "PM" ? 12 : 0)).padStart(2, "0")}:${timeParts[2]}:00+05:30`,
+      )
+    : null;
+  const normalizedUpdates = startsAt && Number.isFinite(startsAt.getTime())
+    ? { ...updates, startsAt: startsAt.toISOString() }
+    : updates;
+  const updatedTournament = previewTournaments[0]
+    ? Object.assign(previewTournaments[0], normalizedUpdates)
+    : null;
+  if (largestTextTournaments[0]) Object.assign(largestTextTournaments[0], normalizedUpdates);
+  if (updatedTournament) {
+    window.sessionStorage.setItem(
+      "daily007-admin-edited-tournament-home-refresh",
+      JSON.stringify(updatedTournament),
+    );
+  }
+  return updatedTournament ? { ...updatedTournament } : null;
 }
 const largestTextRegistrations = [
   {
@@ -867,6 +887,7 @@ export const Api = {
       id,
       payload: { ...payload },
     });
+    updateTournamentPreview(payload);
     return {};
   },
   createTournament: async (payload: Record<string, unknown>) => {

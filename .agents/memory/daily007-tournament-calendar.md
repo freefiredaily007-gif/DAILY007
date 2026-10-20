@@ -7,4 +7,4 @@ Show scheduled tournament dates and times in IST regardless of browser timezone,
 
 **Why:** A New Year boundary must remain the same moment across Home, My Matches, and Tournament Details. Relying on persisted status alone left Tournament Details showing Upcoming after the start.
 
-**How to apply:** Use the shared IST schedule formatter for visible start values and the shared lifecycle calculation for transitions. Test timestamps on both sides of a boundary in IST, a browser timezone behind India, and one ahead of India.
+**How to apply:** Use the shared IST schedule formatter for visible start values and the shared lifecycle calculation for transitions. Test timestamps on both sides of a boundary in IST, a browser timezone behind India, and one ahead of India. For fixed-year UI fixtures, expect the year in the label whenever that year differs from the current IST year.

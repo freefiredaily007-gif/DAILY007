@@ -9173,6 +9173,7 @@ async function checkAdminTournamentEditSaveAtLargeText() {
   await setTournamentFormValue('input[placeholder="Tournament name *"]', name);
   await assertVisibleAdminControlsFit(320, "selected tournament edit form");
   const date = "2031-06-17";
+  const time = "9:35 PM";
   const imageUrl = "https://example.invalid/clash-night-8.png";
   const rules = "Bring your own device.\nNo scripts or exploits.";
   const prizeDist = "1st: 700 coins\n2nd: 300 coins";
@@ -9243,7 +9244,7 @@ async function checkAdminTournamentEditSaveAtLargeText() {
       mode: "Clash Squad",
       teamType: "Duo",
       date,
-      time: "9:35 PM",
+      time,
       entryCoins: 35,
       prizePool: 1000,
       totalSlots: 2,
@@ -9262,6 +9263,56 @@ async function checkAdminTournamentEditSaveAtLargeText() {
   assert(successState?.successVisible, "The successful tournament update message was not visible.");
   assert(successState.formClosed, "The tournament edit form remained open after success.");
   assert(successState.width === 320, "The tournament edit flow left the 320px viewport.");
+
+  const savedSchedule = await evaluate(`JSON.parse(
+    window.sessionStorage.getItem("daily007-admin-edited-tournament-home-refresh") ?? "null"
+  )`);
+  const expectedStartsAt = new Date(`${date}T21:35:00+05:30`).toISOString();
+  assert(
+    savedSchedule?.date === date &&
+      savedSchedule?.time === time &&
+      savedSchedule?.startsAt === expectedStartsAt,
+    `The saved Admin edit should include the selected IST schedule and its canonical start instant: ${JSON.stringify(savedSchedule)}.`,
+  );
+
+  const expectedDateLabel = `${date.slice(8, 10)} ${new Intl.DateTimeFormat("en", {
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`)).toUpperCase()} ${date.slice(0, 4)}`;
+  const timezones = ["Pacific/Kiritimati", "America/Los_Angeles"];
+  for (const timezoneId of timezones) {
+    await cdp("Emulation.setTimezoneOverride", { timezoneId });
+    for (const screen of ["TDetail", "MyMatches"]) {
+      const params = new URLSearchParams({
+        "ist-date-surfaces": "1",
+        "ist-date-scenario": "admin-edited",
+        screen,
+      });
+      await cdp("Page.navigate", {
+        url: `http://127.0.0.1:${vitePort}/home-carousel-preview.html?${params}`,
+      });
+      const timezoneCondition = `Intl.DateTimeFormat().resolvedOptions().timeZone === ${JSON.stringify(timezoneId)}`;
+      await waitForCondition(
+        `${timezoneCondition} &&
+          window.__daily007IstDateSurfacePreview?.ready === true &&
+          document.body.innerText.includes(${JSON.stringify(expectedDateLabel)}) &&
+          document.body.innerText.includes(${JSON.stringify(`${time} IST`)})`,
+        `${screen} to show the saved IST schedule in ${timezoneId}`,
+      );
+      const playerScreenState = await evaluate(`({
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        bodyText: document.body.innerText,
+        hasStartsAt: window.__daily007IstDateSurfacePreview?.hasStartsAt,
+      })`);
+      assert(
+        playerScreenState?.timezone === timezoneId &&
+          playerScreenState?.hasStartsAt === true &&
+          playerScreenState?.bodyText.includes(expectedDateLabel) &&
+          playerScreenState?.bodyText.includes(`${time} IST`),
+        `${screen} must retain the saved IST date and time in ${timezoneId}: ${JSON.stringify(playerScreenState)}.`,
+      );
+    }
+  }
 }
 
 let vitePort;
@@ -9279,7 +9330,7 @@ async function checkIstDateSurfaces(port) {
       id: "new-year",
       timezoneIds: ["America/Los_Angeles", "Asia/Kolkata"],
       date: "01 JAN 2030",
-      homeDate: "01 JAN",
+      homeDate: currentIstYear === 2030 ? "01 JAN" : "01 JAN 2030",
       time: "12:15 AM IST",
     },
     {
@@ -9313,7 +9364,7 @@ async function checkIstDateSurfaces(port) {
       id: "positive-offset",
       timezoneIds: ["Pacific/Kiritimati"],
       date: "31 DEC 2029",
-      homeDate: "31 DEC",
+      homeDate: currentIstYear === 2029 ? "31 DEC" : "31 DEC 2029",
       time: "10:30 PM IST",
     },
     {
@@ -9429,7 +9480,7 @@ async function checkIstDateSurfaces(port) {
             : state.text.includes(scenario.date) && state.text.includes(scenario.time);
           assert(
             dateIsCorrect,
-            `${screen} must preserve the ${scenario.date} IST calendar date and ${scenario.time} start in ${timezoneId}.`,
+            `${screen} must preserve the ${scenario.date} IST calendar date and ${scenario.time} start in ${timezoneId}; rendered text: ${JSON.stringify(state?.text)}.`,
           );
           states.set(screen, state.lifecycle);
         }
@@ -10118,7 +10169,7 @@ try {
         browserErrors.length === 0,
         `Browser errors during large-text tournament edit checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Editing an existing tournament at 320px/1.5× submits every changed setting and closes on success.");
+      console.log("PASS — Admin saves the edited IST schedule in Pacific/Kiritimati, and Tournament Details and My Matches show the same date/time in Kiritimati and Los Angeles.");
     } else if (adminFullAdminRecoveryOnly) {
       await checkAdminFullAdminRoleRefreshRecovery();
       assert(
