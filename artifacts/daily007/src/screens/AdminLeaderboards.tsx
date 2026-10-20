@@ -273,7 +273,13 @@ export default function AdminLeaderboards() {
         "success",
       );
     } catch (cause) {
-      setError(apiError(cause));
+      const reason = apiError(cause).replace(/[.!?]+$/, "");
+      const cycleType = approvals?.periods.find((period) => period.id === periodId)?.cycleType;
+      const message =
+        `Could not confirm ${cycleType ?? "leaderboard"} payout: ${reason}. ` +
+        "The cycle may still be pending; retry CONFIRM & PAY to check its status.";
+      setError(message);
+      toast(message, "error");
     }
   };
 

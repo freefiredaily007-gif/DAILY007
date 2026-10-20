@@ -8,7 +8,14 @@ const screenSource = await readFile(
   "utf8",
 );
 
-function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
+function loadAdminLeaderboards(
+  serverSchedules,
+  {
+    failSaveAttempts = 0,
+    approvalPeriods = [],
+    failApprovalAttempts = 0,
+  } = {},
+) {
   const sourceFile = ts.createSourceFile(
     "AdminLeaderboards.tsx",
     screenSource,
@@ -40,7 +47,9 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
   let effectIndex = 0;
   const saveCalls = [];
   const toastCalls = [];
+  const approvalCalls = [];
   let failedSaveAttempts = failSaveAttempts;
+  let failedApprovalAttempts = failApprovalAttempts;
 
   const React = {
     createElement(type, props, ...children) {
@@ -79,7 +88,9 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
     data: undefined,
     error: null,
     isLoading: false,
+    refetchCalls: 0,
     async refetch() {
+      this.refetchCalls += 1;
       this.data = makeAdminResponse();
       return { data: this.data };
     },
@@ -110,11 +121,42 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
     },
   };
   const approvalsQuery = {
-    data: { periods: [] },
+    data: { periods: structuredClone(approvalPeriods) },
     error: null,
     isLoading: false,
+    refetchCalls: 0,
     async refetch() {
+      this.refetchCalls += 1;
       return { data: this.data };
+    },
+  };
+  const approvalMutation = {
+    async mutateAsync({ periodId }) {
+      approvalCalls.push(periodId);
+      if (failedApprovalAttempts > 0) {
+        failedApprovalAttempts -= 1;
+        throw new Error("Leaderboard approval is temporarily unavailable.");
+      }
+      const period = approvalsQuery.data.periods.find((candidate) => candidate.id === periodId);
+      if (!period) throw new Error("Pending leaderboard cycle was not found.");
+      approvalsQuery.data = {
+        periods: approvalsQuery.data.periods.filter((candidate) => candidate.id !== periodId),
+      };
+      return {
+        periodId,
+        cycleType: period.cycleType,
+        alreadyApproved: false,
+        payouts: period.rewards.map((reward) => {
+          const standing = period.standings.find((candidate) => candidate.rank === reward.rank);
+          return {
+            rank: reward.rank,
+            userId: standing.userId,
+            name: standing.name,
+            coins: reward.coins,
+            balanceAfter: 100 + reward.coins,
+          };
+        }),
+      };
     },
   };
 
@@ -131,7 +173,7 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
     useRef: React.useRef,
     useState: React.useState,
     useDaily007AdminApproveLeaderboardPeriod: () => ({
-      mutateAsync: async () => ({}),
+      mutateAsync: approvalMutation.mutateAsync,
       isPending: false,
     }),
     useDaily007AdminGetLeaderboardApprovals: () => approvalsQuery,
@@ -169,7 +211,18 @@ function loadAdminLeaderboards(serverSchedules, { failSaveAttempts = 0 } = {}) {
     return AdminLeaderboards();
   }
 
-  return { render, inputType, buttonType, textType, serverSchedules, saveCalls, toastCalls };
+  return {
+    render,
+    inputType,
+    buttonType,
+    textType,
+    serverSchedules,
+    saveCalls,
+    toastCalls,
+    approvalCalls,
+    approvalsQuery,
+    adminQuery,
+  };
 }
 
 function descendants(node, found = []) {
@@ -180,6 +233,13 @@ function descendants(node, found = []) {
     descendants(node.props?.children, found);
   }
   return found;
+}
+
+function textContent(node) {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textContent).join("");
+  return textContent(node.props?.children);
 }
 
 function formInputs(app) {
@@ -364,4 +424,85 @@ test("Full Admin keeps six-digit prize entries after a failed save and retries t
     false,
     "the successful retry should clear the failure message",
   );
+});
+
+test("Full Admin keeps a failed leaderboard approval pending and retries it successfully", async () => {
+  const approvalPeriod = {
+    id: "weekly-pending-cycle",
+    cycleType: "weekly",
+    status: "pending_approval",
+    startsAt: "2026-08-24T00:00:00.000Z",
+    endsAt: "2026-08-31T00:00:00.000Z",
+    standings: [{
+      rank: 1,
+      userId: "weekly-winner",
+      name: "Weekly Winner",
+      points: 24,
+    }],
+    rewards: [{ rank: 1, coins: 40 }],
+  };
+  const app = loadAdminLeaderboards(structuredClone(initialSchedules), {
+    approvalPeriods: [approvalPeriod],
+    failApprovalAttempts: 1,
+  });
+  const findButton = (title) =>
+    descendants(app.render()).find(
+      (element) => element.type === app.buttonType && element.props.title === title,
+    );
+  const findVisibleError = () =>
+    descendants(app.render()).find(
+      (element) =>
+        element.type === app.textType &&
+        typeof element.props.children === "string" &&
+        element.props.children.includes("Could not confirm weekly payout"),
+    );
+
+  const reviewButton = findButton("REVIEW APPROVAL");
+  assert.ok(reviewButton, "the pending weekly cycle should be available to review");
+  await pressAndSettle(reviewButton);
+  assert.ok(findButton("CONFIRM & PAY"), "review should open the confirmation actions");
+
+  await pressAndSettle(findButton("CONFIRM & PAY"));
+
+  const failedApprovalMessage =
+    "Could not confirm weekly payout: Leaderboard approval is temporarily unavailable. " +
+    "The cycle may still be pending; retry CONFIRM & PAY to check its status.";
+  assert.equal(findVisibleError()?.props.children, failedApprovalMessage);
+  assert.deepEqual(app.toastCalls, [{ message: failedApprovalMessage, kind: "error" }]);
+  assert.deepEqual(app.approvalCalls, [approvalPeriod.id]);
+  assert.equal(app.approvalsQuery.data.periods.length, 1);
+  assert.equal(app.approvalsQuery.data.periods[0].id, approvalPeriod.id);
+  assert.equal(app.approvalsQuery.refetchCalls, 0);
+  assert.equal(app.adminQuery.refetchCalls, 0);
+  assert.ok(findButton("CONFIRM & PAY"), "the same cycle should stay ready for another attempt");
+  assert.equal(findButton("CONFIRM & PAY").props.disabled, false);
+
+  await pressAndSettle(findButton("CONFIRM & PAY"));
+
+  assert.deepEqual(app.approvalCalls, [approvalPeriod.id, approvalPeriod.id]);
+  assert.equal(app.approvalsQuery.refetchCalls, 1);
+  assert.equal(app.adminQuery.refetchCalls, 1);
+  assert.deepEqual(app.approvalsQuery.data.periods, []);
+  assert.equal(findButton("CONFIRM & PAY"), undefined);
+  assert.equal(findVisibleError(), undefined, "the successful retry should clear the failure");
+  assert.ok(
+    descendants(app.render()).some(
+      (element) =>
+        element.type === app.textType &&
+        element.props.children === "No weekly or monthly cycles are waiting for approval.",
+    ),
+    "the refreshed pending list should no longer contain the approved cycle",
+  );
+  assert.ok(
+    descendants(app.render()).some(
+      (element) =>
+        element.type === app.textType &&
+        textContent(element).includes("WEEKLY APPROVAL RESULT"),
+    ),
+    "the successful retry should display the approval result",
+  );
+  assert.deepEqual(app.toastCalls, [
+    { message: failedApprovalMessage, kind: "error" },
+    { message: "weekly leaderboard payout approved.", kind: "success" },
+  ]);
 });
