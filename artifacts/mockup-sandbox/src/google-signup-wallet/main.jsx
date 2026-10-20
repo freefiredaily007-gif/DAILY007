@@ -52,6 +52,7 @@ const passwordSignupRestartScenario = scenario === "password-signup-restart";
 const profileLinkStorageRestartScenario = scenario === "profile-link-storage-restart";
 const googleReferralRelaunchScenario = scenario === "lowercase-referral";
 const googleReferralResponseLostScenario = scenario === "referral-response-lost";
+const googleWelcomeResponseLostScenario = scenario === "welcome-response-lost";
 const heldPasswordLoginScenario = scenario === "password-first";
 const passwordGoogleRetryScenario = scenario === "password-google-retry";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
@@ -125,6 +126,9 @@ let googleReferralSignupRequests =
   savedGoogleReferralRestartBackendState.googleReferralSignupRequests ?? 0;
 let googleReferralSignupCommitted = false;
 let googleReferralRewardCount = 0;
+let googleWelcomeSignupRequests = 0;
+let googleWelcomeSignupCommitted = false;
+let googleWelcomeRewardCount = 0;
 let passwordAuthAttempts = savedRestartBackendState.passwordAuthAttempts ?? 0;
 let passwordSignupAttempts = savedRestartBackendState.passwordSignupAttempts ?? 0;
 let passwordSignupRegistered = savedRestartBackendState.passwordSignupRegistered ?? false;
@@ -232,7 +236,8 @@ http.defaults.adapter = async (config) => {
     authorization: authorizationHeader(config),
     daily007Token: daily007TokenHeader(config),
     cacheControl: cacheControlHeader(config),
-    ...((scenario === "lowercase-referral" || googleReferralResponseLostScenario)
+    ...((scenario === "lowercase-referral" || googleReferralResponseLostScenario
+      || googleWelcomeResponseLostScenario)
       && method === "POST" && path === "/auth/google"
       ? { body: requestBody(config) }
       : {}),
@@ -332,6 +337,7 @@ http.defaults.adapter = async (config) => {
     if (googleReferralRelaunchScenario || googleReferralResponseLostScenario) {
       googleReferralSignupRequests += 1;
     }
+    if (googleWelcomeResponseLostScenario) googleWelcomeSignupRequests += 1;
     if (heldGoogleExchangeScenario) {
       inFlightGoogleExchanges += 1;
       maxConcurrentGoogleExchanges = Math.max(maxConcurrentGoogleExchanges, inFlightGoogleExchanges);
@@ -375,6 +381,28 @@ http.defaults.adapter = async (config) => {
       }
       call.serverCommitted = googleReferralSignupCommitted;
       call.accountReused = googleExchangeAttempts > 1 && googleReferralSignupCommitted;
+      if (googleExchangeAttempts === 1) {
+        call.failure = {
+          type: "network",
+          message: "Network Error",
+          code: "ERR_NETWORK",
+        };
+        throw Object.assign(new Error("Network Error"), {
+          config,
+          code: "ERR_NETWORK",
+          request: { url: config.url, method },
+        });
+      }
+      call.status = 200;
+      return respond(config, { ...ACCOUNT, token: DAILY007_TOKEN });
+    }
+    if (googleWelcomeResponseLostScenario) {
+      if (!googleWelcomeSignupCommitted) {
+        googleWelcomeSignupCommitted = true;
+        googleWelcomeRewardCount += 1;
+      }
+      call.serverCommitted = googleWelcomeSignupCommitted;
+      call.accountReused = googleExchangeAttempts > 1 && googleWelcomeSignupCommitted;
       if (googleExchangeAttempts === 1) {
         call.failure = {
           type: "network",
@@ -531,6 +559,9 @@ window.__daily007GoogleSignupWalletTest = {
       googleReferralSignupRequests,
       googleReferralSignupCommitted,
       googleReferralRewardCount,
+      googleWelcomeSignupRequests,
+      googleWelcomeSignupCommitted,
+      googleWelcomeRewardCount,
       inFlightGoogleExchanges,
       inFlightPasswordLogins,
       maxConcurrentGoogleExchanges,

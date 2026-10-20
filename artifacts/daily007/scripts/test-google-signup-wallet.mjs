@@ -2654,6 +2654,95 @@ try {
   assert.equal(recoveredReferralSignup.unexpectedRequests.length, 0);
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=welcome-response-lost`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for the interrupted non-referred signup",
+  );
+  await clickSignupTab();
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "Google signup whose committed welcome response is lost",
+  );
+  await waitForExpression(
+    `document.body.innerText.includes("Could not reach Daily007. Check your connection and try again.")`,
+    "retry guidance after a non-referred signup commits but its response is lost",
+  );
+  const interruptedWelcomeSignup = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  const lostWelcomeResponse = interruptedWelcomeSignup.calls.find(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(interruptedWelcomeSignup.googleExchangeAttempts, 1);
+  assert.equal(interruptedWelcomeSignup.googleWelcomeSignupRequests, 1);
+  assert.equal(interruptedWelcomeSignup.googleWelcomeSignupCommitted, true,
+    "the mock server should commit the account and welcome reward before losing its response");
+  assert.equal(interruptedWelcomeSignup.googleWelcomeRewardCount, 1);
+  assert.equal(lostWelcomeResponse?.serverCommitted, true);
+  assert.equal(lostWelcomeResponse?.status, undefined);
+  assert.deepEqual(lostWelcomeResponse?.failure, {
+    type: "network",
+    message: "Network Error",
+    code: "ERR_NETWORK",
+  });
+  assert.equal(Boolean(lostWelcomeResponse?.body?.referralCode), false,
+    "the interrupted signup must not send a referral code");
+  assert.equal(interruptedWelcomeSignup.storedSession, null,
+    "the client should not create a session from a response it never received");
+
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "retry the interrupted non-referred Google signup",
+  );
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))`,
+    "the signed-in player tabs after retrying the committed non-referred signup",
+  );
+  await clickSelector('[data-testid="mock-tab-wallet"]', "Wallet after the interrupted welcome signup retry");
+  await waitForExpression(
+    `document.body.innerText.includes("Welcome Signup Bonus")
+      && Boolean(document.querySelector('[aria-label="Available coins: 10"]'))`,
+    "the one welcome signup reward after recovering the lost response",
+  );
+  const recoveredWelcomeSignup = await evaluate(
+    "window.__daily007GoogleSignupWalletTest.snapshot()",
+  );
+  const recoveredWelcomeWallet = await evaluate(`(() => {
+    const bodyText = document.body.innerText;
+    return {
+      welcomeRewardCount: bodyText.split("Welcome Signup Bonus").length - 1,
+      referralRewardCount: bodyText.split("Referral Signup Bonus").length - 1,
+      balanceLabel: document.querySelector('[aria-label="Available coins: 10"]')
+        ?.getAttribute("aria-label") ?? null,
+    };
+  })()`);
+  const interruptedWelcomeCalls = recoveredWelcomeSignup.calls.filter(
+    (call) => call.method === "POST" && call.path === "/auth/google",
+  );
+  assert.equal(interruptedWelcomeCalls.length, 2);
+  assert.equal(interruptedWelcomeCalls[1].status, 200);
+  assert.equal(interruptedWelcomeCalls[1].accountReused, true,
+    "retry should recover the committed account instead of creating another");
+  assert.equal(Boolean(interruptedWelcomeCalls[0].body?.referralCode), false);
+  assert.equal(Boolean(interruptedWelcomeCalls[1].body?.referralCode), false);
+  assert.equal(
+    interruptedWelcomeCalls[0].authorization,
+    interruptedWelcomeCalls[1].authorization,
+    "retry should use the same verified Google identity",
+  );
+  assert.equal(recoveredWelcomeSignup.googleWelcomeSignupRequests, 2);
+  assert.equal(recoveredWelcomeSignup.googleWelcomeRewardCount, 1,
+    "retry must not credit a second welcome signup reward");
+  assert.equal(recoveredWelcomeSignup.currentSession?.id, "mock-daily007-google-player");
+  assert.equal(recoveredWelcomeSignup.storedSession?.id, "mock-daily007-google-player");
+  assert.equal(recoveredWelcomeWallet.balanceLabel, "Available coins: 10");
+  assert.equal(recoveredWelcomeWallet.welcomeRewardCount, 1);
+  assert.equal(recoveredWelcomeWallet.referralRewardCount, 0);
+  assert.equal(recoveredWelcomeSignup.unexpectedRequests.length, 0);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=lowercase-referral`,
   });
   await waitForExpression(

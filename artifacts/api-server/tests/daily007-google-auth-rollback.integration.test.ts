@@ -2008,6 +2008,103 @@ test("a committed referred Google signup can be retried after its response is lo
   }
 });
 
+test("a committed non-referred Google signup can be retried after its response is lost", async () => {
+  await resetReferralRewardFailureTrigger("Referral Signup Bonus");
+  resetMockGoogleUser(VERIFIED_GOOGLE_USER as unknown as MockGoogleUser);
+
+  try {
+    await withServer(async (origin) => {
+      const proxy = await createResponseDroppingProxy(origin);
+      try {
+        await assert.rejects(
+          googleSignIn(proxy.origin, GOOGLE_CLERK_USER_ID, null),
+          "the client should observe the completed signup response as lost",
+        );
+        assert.equal(
+          proxy.lastUpstreamStatus,
+          201,
+          "the API should have committed the new account before the proxy drops its response",
+        );
+
+        const committedAccountResult = await pool.query<{
+          id: string;
+          wallet_coins: number;
+          clerk_user_id: string;
+        }>(
+          `SELECT id, wallet_coins, clerk_user_id
+             FROM daily007_v2_users
+            WHERE clerk_user_id = $1`,
+          [GOOGLE_CLERK_USER_ID],
+        );
+        assert.equal(committedAccountResult.rows.length, 1);
+        const committedAccount = committedAccountResult.rows[0]!;
+        assert.equal(committedAccount.wallet_coins, 10);
+        assert.equal(committedAccount.clerk_user_id, GOOGLE_CLERK_USER_ID);
+
+        const retry = await googleSignIn(origin, GOOGLE_CLERK_USER_ID, null);
+        assert.equal(retry.status, 200, "the same Google identity should recover its committed account");
+        assert.equal(retry.body.id, committedAccount.id, "retry should return the original account");
+        assert.equal(retry.body.coins, 10);
+        assert.equal(typeof retry.body.token, "string");
+
+        const accountCount = await pool.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM daily007_v2_users WHERE clerk_user_id = $1",
+          [GOOGLE_CLERK_USER_ID],
+        );
+        assert.equal(accountCount.rows[0]?.count, 1, "retry must not create a second Google account");
+
+        const referrals = await pool.query(
+          "SELECT id FROM daily007_v2_referrals WHERE referred_user_id = $1",
+          [committedAccount.id],
+        );
+        assert.deepEqual(referrals.rows, [], "a non-referred signup must not create a referral relationship");
+
+        const signupRewards = await pool.query<{
+          amount: number;
+          balance_after: number;
+          reason: string;
+          idempotency_key: string;
+        }>(
+          `SELECT amount, balance_after, reason, idempotency_key
+             FROM daily007_v2_wallet_ledger
+            WHERE user_id = $1
+              AND reason IN ('Referral Signup Bonus', 'Welcome Signup Bonus')
+            ORDER BY created_at, id`,
+          [committedAccount.id],
+        );
+        assert.deepEqual(signupRewards.rows, [{
+          amount: 10,
+          balance_after: 10,
+          reason: "Welcome Signup Bonus",
+          idempotency_key: `daily007-welcome-signup:${committedAccount.id}`,
+        }], "the account must retain exactly one welcome reward and no referral reward");
+
+        const walletResponse = await fetch(`${origin}/wallet/transactions`, {
+          headers: { authorization: `Bearer ${String(retry.body.token)}` },
+        });
+        assert.equal(walletResponse.status, 200);
+        const walletHistory = await walletResponse.json() as Array<Record<string, unknown>>;
+        assert.deepEqual(
+          walletHistory.map(({ amount, balanceAfter, reason }) => ({ amount, balanceAfter, reason })),
+          [{ amount: 10, balanceAfter: 10, reason: "Welcome Signup Bonus" }],
+          "Wallet history should show one 10-coin welcome bonus and no referral bonus after retry",
+        );
+      } finally {
+        await proxy.close();
+      }
+    });
+  } finally {
+    await pool.query("DROP TRIGGER IF EXISTS daily007_test_referral_reward_failure ON daily007_v2_wallet_ledger");
+    await pool.query("DROP FUNCTION IF EXISTS daily007_test_fail_first_referral_reward()");
+    await pool.query("DROP SEQUENCE IF EXISTS daily007_test_referral_reward_failure_seq");
+    await pool.query(
+      "DELETE FROM daily007_v2_users WHERE clerk_user_id = $1",
+      [GOOGLE_CLERK_USER_ID],
+    );
+    resetMockGoogleUser();
+  }
+});
+
 test("a failed referral signup and same-identity retry leave the referrer's wallet unchanged", async () => {
   const referrerId = randomUUID();
   try {
