@@ -14,6 +14,7 @@ import {
 } from '../lib/joinFormValidation';
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 import { requestTeamEditCancel } from '../lib/teamEditCancel';
+import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
 
 type Member = { name: string; uid: string };
 type TeamEditSnapshot = {
@@ -63,14 +64,16 @@ function isTeamEditSnapshot(value: unknown): value is TeamEditSnapshot {
       typeof (member as Record<string, unknown>).uid === 'string');
 }
 
-export default function JoinForm({ tournament: t, user, registration, onCancel, onSubmit }: {
-  tournament: any; user: User; registration?: any; onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
+export default function JoinForm({ tournament: t, user, registration, seatGroupNumber, onCancel, onSubmit }: {
+  tournament: any; user: User; registration?: any; seatGroupNumber?: number;
+  onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
 }) {
   const editing = !!registration?.id;
   const teamType = String(t.teamType || 'Solo');
   const gameMode = String(t.mode || 'Battle Royale');
   const teamSize = Number(t.teamSize) || (teamType.toLowerCase() === 'squad' ? 4 : teamType.toLowerCase() === 'duo' ? 2 : 1);
   const isTeam = teamSize > 1;
+  const seatLayout = getTournamentSeatLayout(t);
   const slotUnit = String(t.slotUnit || (gameMode.toLowerCase() === 'battle royale' && teamSize === 1 ? 'player' : 'team'));
   const totalSlots = Number(t.totalSlots ?? (slotUnit === 'player' ? 48 : gameMode.toLowerCase() === 'battle royale' ? (teamType.toLowerCase() === 'duo' ? 24 : 12) : 2));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
@@ -207,7 +210,9 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
         teamName,
         members,
       });
-      await onSubmit(editing ? { ...payload, expectedTeam } : payload);
+      await onSubmit(editing
+        ? { ...payload, expectedTeam }
+        : seatGroupNumber ? { ...payload, seatGroupNumber } : payload);
     } catch (e: any) {
       const responseData = e?.response?.data;
       const serverFieldErrors = getRegistrationServerFieldErrors(responseData, {
@@ -294,6 +299,17 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
           </Text>
         </Card>
       )}
+      {!editing && seatGroupNumber ? (
+        <Card style={{ marginTop: 12 }} testID="join-form-selected-seat">
+          <Text style={st.capacityLabel}>SELECTED {seatLayout?.groupKind === 'team' ? 'TEAM' : 'PLAYER SLOT'}</Text>
+          <Text style={st.capacity}>
+            {seatLayout?.groupKind === 'team'
+              ? `TEAM ${String(seatGroupNumber).padStart(2, '0')}`
+              : `PLAYER ${seatLayout?.directDuel ? seatGroupNumber : String(seatGroupNumber).padStart(2, '0')}`}
+          </Text>
+          <Text style={st.sub}>This group is claimed only after the server confirms your registration.</Text>
+        </Card>
+      ) : null}
 
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>{editing

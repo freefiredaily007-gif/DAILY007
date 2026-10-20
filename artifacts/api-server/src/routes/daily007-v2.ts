@@ -38,6 +38,7 @@ const REGISTRATION_CONFLICT_CODES = {
   matchClosed: "MATCH_CLOSED",
   matchFull: "MATCH_FULL",
   registrationRejected: "REGISTRATION_REJECTED",
+  seatUnavailable: "SEAT_UNAVAILABLE",
   tournamentDisabled: "TOURNAMENT_DISABLED",
 } as const;
 type RegistrationConflictCode = typeof REGISTRATION_CONFLICT_CODES[keyof typeof REGISTRATION_CONFLICT_CODES];
@@ -73,6 +74,44 @@ export type Daily007MutationClient = {
     values?: unknown[],
   ): Promise<{ rows: T[]; rowCount?: number | null }>;
 };
+
+async function backfillRegistrationGroups(
+  client: Daily007MutationClient,
+  matchId: string,
+  capacity: number,
+): Promise<void> {
+  await client.query(
+    `WITH active AS (
+       SELECT id, assigned_group_number, created_at
+         FROM daily007_v2_registrations
+        WHERE match_id = $1 AND status IN ('approved', 'pending')
+     ),
+     available AS (
+       SELECT slots.group_number,
+              row_number() OVER (ORDER BY slots.group_number) AS ordinal
+         FROM generate_series(1, $2::integer) AS slots(group_number)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM active
+           WHERE active.assigned_group_number = slots.group_number
+        )
+     ),
+     unassigned AS (
+       SELECT id, row_number() OVER (ORDER BY created_at, id) AS ordinal
+         FROM active
+        WHERE assigned_group_number IS NULL
+     ),
+     assignments AS (
+       SELECT unassigned.id, available.group_number
+         FROM unassigned
+         JOIN available USING (ordinal)
+     )
+     UPDATE daily007_v2_registrations AS registration
+        SET assigned_group_number = assignments.group_number
+       FROM assignments
+      WHERE registration.id = assignments.id`,
+    [matchId, capacity],
+  );
+}
 declare global {
   namespace Express {
     interface Request {
@@ -1078,6 +1117,19 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           status: 409,
         });
       }
+      const requestedSeatGroupNumber = body.seatGroupNumber;
+      if (
+        requestedSeatGroupNumber !== undefined &&
+        (typeof requestedSeatGroupNumber !== "number" ||
+          !Number.isSafeInteger(requestedSeatGroupNumber) ||
+          requestedSeatGroupNumber < 1 ||
+          requestedSeatGroupNumber > match.capacity)
+      ) {
+        throw registrationFieldError(`seatGroupNumber must be a whole number from 1 to ${match.capacity}.`, {
+          seatGroupNumber: `Choose a seat from 1 to ${match.capacity}.`,
+        });
+      }
+      await backfillRegistrationGroups(client, matchId, match.capacity);
 
       const userResult = await client.query<{ wallet_coins: number; status: string }>(
         "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
@@ -1092,10 +1144,12 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
 
       // Match row serialization makes this lookup race-safe for simultaneous retries.
       const existing = await client.query<{
-        id: string; captain_game_name: string; captain_game_uid: string; team_name: string | null; entry_coins_paid: number;
+        id: string; captain_game_name: string; captain_game_uid: string; team_name: string | null;
+        assigned_group_number: number | null; entry_coins_paid: number;
         balance_after: number; capacity: number; status: string; is_full: boolean; registration_status: string;
       }>(
-        `SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.entry_coins_paid, l.balance_after,
+        `SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.assigned_group_number,
+                r.entry_coins_paid, l.balance_after,
                 m.capacity, m.status, m.is_full, r.status AS registration_status
            FROM daily007_v2_registrations r
            JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
@@ -1127,6 +1181,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           captainGameName: prior.captain_game_name,
           captainGameUid: prior.captain_game_uid,
           teamName: prior.team_name ?? "",
+          seatGroupNumber: prior.assigned_group_number,
           teammates: savedRoster.rows,
           entryCoinsPaid: prior.entry_coins_paid,
           walletCoins: prior.balance_after,
@@ -1247,6 +1302,32 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           code: REGISTRATION_CONFLICT_CODES.matchFull,
         });
       }
+      const occupiedGroupsResult = await client.query<{ assigned_group_number: number | null }>(
+        `SELECT assigned_group_number
+           FROM daily007_v2_registrations
+          WHERE match_id = $1 AND status IN ('approved', 'pending')
+            AND assigned_group_number IS NOT NULL`,
+        [matchId],
+      );
+      const occupiedGroups = new Set(
+        occupiedGroupsResult.rows.map((row) => Number(row.assigned_group_number)),
+      );
+      const seatGroupNumber = requestedSeatGroupNumber === undefined
+        ? Array.from({ length: match.capacity }, (_, index) => index + 1)
+            .find((groupNumber) => !occupiedGroups.has(groupNumber))
+        : requestedSeatGroupNumber;
+      if (seatGroupNumber === undefined) {
+        throw Object.assign(new Error("This match is full."), {
+          status: 409,
+          code: REGISTRATION_CONFLICT_CODES.matchFull,
+        });
+      }
+      if (occupiedGroups.has(seatGroupNumber)) {
+        throw Object.assign(new Error("That seat or team has just been taken. Choose another open slot."), {
+          status: 409,
+          code: REGISTRATION_CONFLICT_CODES.seatUnavailable,
+        });
+      }
       if (balance < match.entry_coins) {
         throw Object.assign(new Error(`Insufficient wallet balance: this entry costs ${match.entry_coins} coins.`), {
           status: 409,
@@ -1255,9 +1336,10 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       }
       const registrationResult = await client.query<{ id: string }>(
         `INSERT INTO daily007_v2_registrations
-           (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name, entry_coins_paid, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'approved') RETURNING id`,
-        [matchId, account.id, captainName, captainGameName, captainGameUid, submittedTeamName, match.entry_coins],
+           (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid, team_name,
+            assigned_group_number, entry_coins_paid, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'approved') RETURNING id`,
+        [matchId, account.id, captainName, captainGameName, captainGameUid, submittedTeamName, seatGroupNumber, match.entry_coins],
       );
       const registrationId = registrationResult.rows[0].id;
       if (teammates.length > 0) {
@@ -1289,6 +1371,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         captainGameName,
         captainGameUid,
         teamName: submittedTeamName,
+        seatGroupNumber,
         teammates,
         entryCoinsPaid: match.entry_coins,
         walletCoins: newBalance,
@@ -1312,6 +1395,15 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       return;
     }
     if ((error as { code?: string }).code === "23505") {
+      if ((error as { constraint?: string }).constraint === "daily007_v2_registration_active_group_once") {
+        fail(
+          res,
+          409,
+          "That seat or team has just been taken. Choose another open slot.",
+          REGISTRATION_CONFLICT_CODES.seatUnavailable,
+        );
+        return;
+      }
       fail(res, 409, "This account is already registered for the match.", REGISTRATION_CONFLICT_CODES.alreadyRegistered);
       return;
     }

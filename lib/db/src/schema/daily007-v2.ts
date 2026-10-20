@@ -161,6 +161,7 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   captainGameName: text("captain_game_name").notNull().default(""),
   captainGameUid: text("captain_game_uid").notNull(),
   teamName: text("team_name").notNull().default(""),
+  assignedGroupNumber: integer("assigned_group_number"),
   entryCoinsPaid: integer("entry_coins_paid").notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -169,7 +170,11 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   check("daily007_v2_registration_paid_nonnegative", sql`${table.entryCoinsPaid} >= 0`),
   check("daily007_v2_registration_status_valid_v2", sql`${table.status} IN ('pending', 'approved', 'rejected', 'removed')`),
   check("daily007_v2_registration_game_uid_nonempty", sql`length(btrim(${table.captainGameUid})) > 0`),
+  check("daily007_v2_registration_group_number_positive", sql`${table.assignedGroupNumber} IS NULL OR ${table.assignedGroupNumber} > 0`),
   index("daily007_v2_registrations_match_idx").on(table.matchId),
+  uniqueIndex("daily007_v2_registration_active_group_once")
+    .on(table.matchId, table.assignedGroupNumber)
+    .where(sql`${table.assignedGroupNumber} IS NOT NULL AND ${table.status} IN ('approved', 'pending')`),
 ]);
 
 export const daily007RosterTable = pgTable("daily007_v2_roster", {

@@ -51,6 +51,7 @@ async function sendRegistration(
   gameUid: string,
   team?: TeamRegistration,
   matchId = TEST_MATCH_ID,
+  seatGroupNumber?: number,
 ) {
   const token = makeToken(playerId, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
@@ -63,6 +64,7 @@ async function sendRegistration(
     body: JSON.stringify({
       captainGameName: `Captain ${playerId.slice(-1)}`,
       captainGameUid: gameUid,
+      ...(seatGroupNumber === undefined ? {} : { seatGroupNumber }),
       ...(team ? { teamName: team.teamName } : {}),
       teammates: team?.teammates ?? [],
     }),
@@ -72,6 +74,52 @@ async function sendRegistration(
     body: await response.json() as Record<string, unknown>,
   };
 }
+
+test("exact seat-group selection is persisted and an occupied group cannot be charged twice", async () => {
+  registrationCapacityTestDb.reset();
+  registrationCapacityTestDb.match.capacity = 4;
+
+  await withServer(async (origin) => {
+    const first = await sendRegistration(origin, FIRST_PLAYER_ID, "FF-SELECTED-001", undefined, TEST_MATCH_ID, 3);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.seatGroupNumber, 3);
+    assert.equal(
+      registrationCapacityTestDb.registrations.find((registration) =>
+        registration.captain_user_id === FIRST_PLAYER_ID,
+      )?.assigned_group_number,
+      3,
+    );
+
+    const conflict = await sendRegistration(origin, SECOND_PLAYER_ID, "FF-SELECTED-002", undefined, TEST_MATCH_ID, 3);
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.code, "SEAT_UNAVAILABLE");
+    assert.match(String(conflict.body.error), /seat or team.*taken/i);
+    assert.equal(registrationCapacityTestDb.users.get(SECOND_PLAYER_ID)?.wallet_coins, 100);
+    assert.equal(registrationCapacityTestDb.ledger.filter((entry) => entry.user_id === SECOND_PLAYER_ID).length, 0);
+
+    const available = await sendRegistration(origin, SECOND_PLAYER_ID, "FF-SELECTED-003", undefined, TEST_MATCH_ID, 2);
+    assert.equal(available.status, 201);
+    assert.equal(available.body.seatGroupNumber, 2);
+    assert.equal(registrationCapacityTestDb.users.get(SECOND_PLAYER_ID)?.wallet_coins, 93);
+  });
+});
+
+test("an omitted seat group is assigned automatically and invalid requested groups are rejected", async () => {
+  registrationCapacityTestDb.reset();
+  registrationCapacityTestDb.match.capacity = 4;
+
+  await withServer(async (origin) => {
+    const assigned = await sendRegistration(origin, FIRST_PLAYER_ID, "FF-AUTO-GROUP");
+    assert.equal(assigned.status, 201);
+    assert.equal(assigned.body.seatGroupNumber, 2);
+
+    const beforeBalance = registrationCapacityTestDb.users.get(SECOND_PLAYER_ID)?.wallet_coins;
+    const invalid = await sendRegistration(origin, SECOND_PLAYER_ID, "FF-INVALID-GROUP", undefined, TEST_MATCH_ID, 5);
+    assert.equal(invalid.status, 400);
+    assert.equal(registrationCapacityTestDb.users.get(SECOND_PLAYER_ID)?.wallet_coins, beforeBalance);
+    assert.equal(registrationCapacityTestDb.ledger.filter((entry) => entry.user_id === SECOND_PLAYER_ID).length, 0);
+  });
+});
 
 test("simultaneous joins cannot charge both players for the last tournament slot", async () => {
   registrationCapacityTestDb.reset();

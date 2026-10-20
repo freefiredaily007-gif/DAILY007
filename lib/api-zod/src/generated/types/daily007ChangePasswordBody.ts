@@ -34,4 +34,5 @@ export interface Daily007ChangePasswordBody {
      * @maxLength 200
      */
   newPassword: string;
+  requestId?: string;
 }

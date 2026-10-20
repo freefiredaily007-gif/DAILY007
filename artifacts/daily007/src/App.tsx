@@ -168,6 +168,10 @@ function JoinFormRoute() {
   const route: any = useRoute();
   const { user, refresh } = useApp();
   const registration = route.params?.registration;
+  const requestedSeatGroupNumber = Number(route.params?.seatGroupNumber);
+  const seatGroupNumber = Number.isSafeInteger(requestedSeatGroupNumber) && requestedSeatGroupNumber > 0
+    ? requestedSeatGroupNumber
+    : undefined;
   const [tournament, setTournament] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -177,7 +181,7 @@ function JoinFormRoute() {
   }, [route.params?.id]);
   if (error) return <View style={s.boot}><Text style={{ color: UI.foreground }}>{error}</Text></View>;
   if (!tournament) return <View style={s.boot}><ActivityIndicator color={UI.tint} /></View>;
-  return <JoinForm tournament={tournament} user={user} registration={registration} onCancel={() => navigation.goBack()}
+  return <JoinForm tournament={tournament} user={user} registration={registration} seatGroupNumber={seatGroupNumber} onCancel={() => navigation.goBack()}
     onSubmit={async (payload) => {
       if (registration?.id) {
         if (String(registration.tournamentId) !== String(tournament.id)) {

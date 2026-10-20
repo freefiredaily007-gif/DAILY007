@@ -689,6 +689,7 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
 });
 
 type PublicTournamentParticipant = {
+  groupNumber: number | null;
   teamName: string | null;
   players: string[];
   status: "approved" | "pending";
@@ -741,6 +742,7 @@ async function getPublicTournamentParticipants(tournamentId: string): Promise<Pu
       let team = byTeam.get(Number(row.team_number));
       if (!team) {
         team = {
+          groupNumber: Number(row.team_number),
           teamName: row.team_name,
           players: [],
           status: row.status,
@@ -754,13 +756,15 @@ async function getPublicTournamentParticipants(tournamentId: string): Promise<Pu
   }
   const result = await pool.query<{
     registration_id: string;
+    assigned_group_number: number | null;
     status: "approved" | "pending";
     team_name: string | null;
     captain_game_name: string;
     position: number | null;
     member_name: string | null;
   }>(
-    `SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name,
+    `SELECT r.id AS registration_id, r.assigned_group_number, r.status,
+            NULLIF(BTRIM(r.team_name), '') AS team_name,
             r.captain_game_name, roster.position, roster.member_name
        FROM daily007_v2_registrations r
        LEFT JOIN daily007_v2_roster roster ON roster.registration_id = r.id
@@ -773,6 +777,9 @@ async function getPublicTournamentParticipants(tournamentId: string): Promise<Pu
     let participant = byRegistration.get(row.registration_id);
     if (!participant) {
       participant = {
+        groupNumber: row.assigned_group_number === null
+          ? null
+          : Number(row.assigned_group_number),
         teamName: row.team_name?.trim() || null,
         players: row.captain_game_name.trim() ? [row.captain_game_name.trim()] : [],
         status: row.status,
@@ -782,7 +789,22 @@ async function getPublicTournamentParticipants(tournamentId: string): Promise<Pu
     const teammateName = row.member_name?.trim();
     if (row.position !== null && teammateName) participant.players.push(teammateName);
   }
-  return [...byRegistration.values()];
+  const participants = [...byRegistration.values()];
+  const capacity = resolvedMode?.capacity ?? participants.length;
+  const usedGroups = new Set(
+    participants
+      .map((participant) => participant.groupNumber)
+      .filter((groupNumber): groupNumber is number =>
+        groupNumber !== null && Number.isSafeInteger(groupNumber) &&
+        groupNumber >= 1 && groupNumber <= capacity),
+  );
+  const availableGroups = Array.from({ length: capacity }, (_, index) => index + 1)
+    .filter((groupNumber) => !usedGroups.has(groupNumber));
+  for (const participant of participants) {
+    if (participant.groupNumber !== null) continue;
+    participant.groupNumber = availableGroups.shift() ?? null;
+  }
+  return participants;
 }
 
 router.get("/tournaments/:id/participants", async (req, res): Promise<void> => {

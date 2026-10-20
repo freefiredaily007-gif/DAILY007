@@ -494,7 +494,10 @@ export const Api = {
     return registrations;
   },
   join: (id: string, b: object) => {
-    const payload = b as { playerName?: string; captainGameName?: string; gameUid?: string; teamName?: string; teamMembers?: string };
+    const payload = b as {
+      playerName?: string; captainGameName?: string; gameUid?: string; teamName?: string;
+      teamMembers?: string; seatGroupNumber?: number;
+    };
     let members: { name?: string; uid?: string }[] = [];
     try {
       members = payload.teamMembers ? JSON.parse(payload.teamMembers) : [];
@@ -508,6 +511,9 @@ export const Api = {
       captainGameName: String(payload.captainGameName ?? '').trim(),
       captainGameUid: String(payload.gameUid ?? captain.uid ?? '').trim(),
       teamName: String(payload.teamName ?? '').trim(),
+      ...(Number.isSafeInteger(payload.seatGroupNumber) && Number(payload.seatGroupNumber) > 0
+        ? { seatGroupNumber: Number(payload.seatGroupNumber) }
+        : {}),
       ...(isTeam ? {
         teammates: members.slice(1).map((member) => ({
           name: String(member.name ?? '').trim(),

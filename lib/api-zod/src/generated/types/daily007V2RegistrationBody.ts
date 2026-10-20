@@ -41,6 +41,11 @@ export interface Daily007V2RegistrationBody {
      */
   captainGameUid: string;
   /**
+     * Optional exact team/player slot group. When omitted, the API assigns the first available group.
+     * @minimum 1
+     */
+  seatGroupNumber?: number;
+  /**
      * Required in squad and clash modes; omitted for solo. Each teammate name is required, UID is optional.
      * @minItems 3
      * @maxItems 3

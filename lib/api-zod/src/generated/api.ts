@@ -85,7 +85,8 @@ export const daily007ChangePasswordBodyNewPasswordMax = 200;
 
 export const Daily007ChangePasswordBody = zod.object({
   "currentPassword": zod.string().min(1).max(daily007ChangePasswordBodyCurrentPasswordMax),
-  "newPassword": zod.string().min(daily007ChangePasswordBodyNewPasswordMin).max(daily007ChangePasswordBodyNewPasswordMax)
+  "newPassword": zod.string().min(daily007ChangePasswordBodyNewPasswordMin).max(daily007ChangePasswordBodyNewPasswordMax),
+  "requestId": zod.string().uuid().optional()
 })
 
 export const Daily007ChangePasswordResponse = zod.object({
@@ -655,6 +656,7 @@ export const daily007V2RegisterMatchBodyCaptainGameNameMax = 100;
 
 export const daily007V2RegisterMatchBodyCaptainGameUidMax = 128;
 
+
 export const daily007V2RegisterMatchBodyTeammatesItemNameMax = 100;
 
 export const daily007V2RegisterMatchBodyTeammatesItemUidOneMax = 128;
@@ -668,6 +670,7 @@ export const Daily007V2RegisterMatchBody = zod.object({
   "captainName": zod.string().min(1).max(daily007V2RegisterMatchBodyCaptainNameMax),
   "captainGameName": zod.string().min(1).max(daily007V2RegisterMatchBodyCaptainGameNameMax),
   "captainGameUid": zod.string().min(1).max(daily007V2RegisterMatchBodyCaptainGameUidMax),
+  "seatGroupNumber": zod.number().int().min(1).optional().describe('Optional exact team/player slot group. When omitted, the API assigns the first available group.'),
   "teammates": zod.array(zod.object({
   "name": zod.string().min(1).max(daily007V2RegisterMatchBodyTeammatesItemNameMax),
   "uid": zod.union([zod.string().min(1).max(daily007V2RegisterMatchBodyTeammatesItemUidOneMax),zod.null()]).optional()
@@ -1699,9 +1702,13 @@ export const GetTournamentParticipantsParams = zod.object({
   "id": zod.coerce.string().uuid()
 })
 
+
+
+
 export const GetTournamentParticipantsResponse = zod.object({
   "tournamentId": zod.string().uuid(),
   "participants": zod.array(zod.object({
+  "groupNumber": zod.number().int().min(1).nullable().describe('Persistent team or player-slot group assignment for an active registration.'),
   "teamName": zod.string().nullable(),
   "players": zod.array(zod.string()).describe('Free Fire in-game names, with the captain first.'),
   "status": zod.enum(['approved', 'pending'])

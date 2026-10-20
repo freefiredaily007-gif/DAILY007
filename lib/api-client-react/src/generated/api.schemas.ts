@@ -228,6 +228,12 @@ export const TournamentParticipantStatus = {
 } as const;
 
 export interface TournamentParticipant {
+  /**
+     * Persistent team or player-slot group assignment for an active registration.
+     * @minimum 1
+     * @nullable
+     */
+  groupNumber: number | null;
   /** @nullable */
   teamName: string | null;
   /** Free Fire in-game names, with the captain first. */
@@ -447,6 +453,11 @@ export interface Daily007V2RegistrationBody {
      * @maxLength 128
      */
   captainGameUid: string;
+  /**
+     * Optional exact team/player slot group. When omitted, the API assigns the first available group.
+     * @minimum 1
+     */
+  seatGroupNumber?: number;
   /**
      * Required in squad and clash modes; omitted for solo. Each teammate name is required, UID is optional.
      * @minItems 3
@@ -1331,6 +1342,7 @@ export const Daily007V2RegisterMatch409Code = {
   MATCH_CLOSED: 'MATCH_CLOSED',
   MATCH_FULL: 'MATCH_FULL',
   REGISTRATION_REJECTED: 'REGISTRATION_REJECTED',
+  SEAT_UNAVAILABLE: 'SEAT_UNAVAILABLE',
   TOURNAMENT_DISABLED: 'TOURNAMENT_DISABLED',
 } as const;
 

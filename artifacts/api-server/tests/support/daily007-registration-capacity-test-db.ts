@@ -31,6 +31,7 @@ type TestRegistration = {
   captain_game_name: string;
   captain_game_uid: string;
   team_name: string;
+  assigned_group_number: number | null;
   entry_coins_paid: number;
   status: "approved" | "pending" | "rejected";
 };
@@ -191,6 +192,7 @@ class RegistrationCapacityTestDatabase {
       captain_game_name: "Existing Captain",
       captain_game_uid: "FF-EXISTING-001",
       team_name: "",
+      assigned_group_number: 1,
       entry_coins_paid: 7,
       status: "approved",
     }];
@@ -375,7 +377,7 @@ class RegistrationCapacityTestDatabase {
       const match = this.matchById(String(values[0]));
       rows = match ? [structuredClone(match)] : [];
     } else if (normalized.startsWith(
-      "SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.entry_coins_paid, l.balance_after",
+      "SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.assigned_group_number",
     )) {
       const registration = this.registrations.find((item) =>
         item.match_id === String(values[0]) && item.captain_user_id === String(values[1]),
@@ -388,6 +390,7 @@ class RegistrationCapacityTestDatabase {
           captain_game_name: registration.captain_game_name,
           captain_game_uid: registration.captain_game_uid,
           team_name: registration.team_name,
+          assigned_group_number: registration.assigned_group_number,
           entry_coins_paid: registration.entry_coins_paid,
           balance_after: entry.balance_after,
           capacity: match?.capacity,
@@ -395,6 +398,22 @@ class RegistrationCapacityTestDatabase {
           is_full: match?.is_full,
           registration_status: registration.status,
         }];
+      }
+    } else if (normalized.startsWith("WITH active AS ( SELECT id, assigned_group_number, created_at FROM daily007_v2_registrations")) {
+      const matchId = String(values[0]);
+      const capacity = Number(values[1]);
+      const active = this.registrations.filter((registration) =>
+        registration.match_id === matchId && ["approved", "pending"].includes(registration.status),
+      );
+      const usedGroups = new Set(active
+        .map((registration) => registration.assigned_group_number)
+        .filter((groupNumber): groupNumber is number => groupNumber !== null));
+      const freeGroups = Array.from({ length: capacity }, (_, index) => index + 1)
+        .filter((groupNumber) => !usedGroups.has(groupNumber));
+      for (const registration of active) {
+        if (registration.assigned_group_number === null) {
+          registration.assigned_group_number = freeGroups.shift() ?? null;
+        }
       }
     } else if (normalized.startsWith("SELECT starts_at > clock_timestamp()")) {
       const match = this.matchById(String(values[0]));
@@ -421,6 +440,14 @@ class RegistrationCapacityTestDatabase {
         ["approved", "pending"].includes(registration.status),
       ).length;
       rows = [{ count: String(count) }];
+    } else if (normalized.startsWith("SELECT assigned_group_number FROM daily007_v2_registrations")) {
+      rows = this.registrations
+        .filter((registration) =>
+          registration.match_id === String(values[0]) &&
+          ["approved", "pending"].includes(registration.status) &&
+          registration.assigned_group_number !== null,
+        )
+        .map((registration) => ({ assigned_group_number: registration.assigned_group_number }));
     } else if (normalized.startsWith(
       "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
     )) {
@@ -431,7 +458,7 @@ class RegistrationCapacityTestDatabase {
         this.failNextRegistrationInsertWithUniqueViolation = false;
         throw Object.assign(new Error("Injected duplicate registration."), { code: "23505" });
       }
-      const [matchId, userId, captainName, captainGameName, captainGameUid, teamName, entryCoinsPaid] = values;
+      const [matchId, userId, captainName, captainGameName, captainGameUid, teamName, assignedGroupNumber, entryCoinsPaid] = values;
       const id = `54000000-0000-4000-8000-${String(this.nextRegistrationNumber++).padStart(12, "0")}`;
       this.registrations.push({
         id,
@@ -441,6 +468,7 @@ class RegistrationCapacityTestDatabase {
         captain_game_name: String(captainGameName),
         captain_game_uid: String(captainGameUid),
         team_name: String(teamName),
+        assigned_group_number: Number(assignedGroupNumber),
         entry_coins_paid: Number(entryCoinsPaid),
         status: "approved",
       });

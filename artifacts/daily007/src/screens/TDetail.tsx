@@ -17,6 +17,7 @@ import { C, Btn, Card, Chip, Input, KV, Msg, Badge, SectionTitle, GCard, fmtDate
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { useApp } from '../App';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
+import { ModeSeatSlotsPanel } from '../components/ModeSeatSlotsPanel';
 import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
@@ -32,6 +33,7 @@ import {
   resolveTournamentWinnerState,
 } from '../lib/tournament-winner-details';
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
+import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
 
 const claimRoomDetailsAvailabilityAnnouncement =
   createRoomCredentialAvailabilityAnnouncementTracker();
@@ -200,7 +202,7 @@ function SquadSlotsPanel({
                 const slotTitle = isCaptainSlot ? 'Captain' : String(slot.slotNumber);
                 const slotStatus = slotIsOccupied
                   ? slot.gameName || 'Registered player'
-                  : 'OPEN · SELECT';
+                  : 'OPEN • SELECT';
                 return (
                   <View key={slot.slotNumber} style={s.squadSlotColumn}>
                     <Pressable
@@ -633,7 +635,10 @@ export default function TDetail() {
   const joined = registrationStatusKnown && Boolean(t.joined);
   const teamType = String(t.teamType || '').toLowerCase();
   const mode = String(t.mode || '').toLowerCase();
-  const individualSquad = teamType === 'squad' && (mode.includes('battle royale') || mode === 'battle_royale');
+  const seatLayout = getTournamentSeatLayout(t);
+  const individualSquad = seatLayout?.individualSquad ??
+    (teamType === 'squad' && (mode.includes('battle royale') || mode === 'battle_royale'));
+  const individualPlayerSlots = seatLayout?.groupKind === 'player';
   const teamTournament = Number(t.teamSize ?? 1) > 1;
   const participants = participantsQuery.data?.participants ?? [];
   const participantListUnavailable = participantsQuery.isError || (retryingParticipants && participantsQuery.isFetching);
@@ -641,11 +646,13 @@ export default function TDetail() {
   const participantCountAccessibilityLabel = participantListUnavailable
     ? `Joined ${teamTournament ? 'teams' : 'players'}. Count unavailable.`
     : `Joined ${teamTournament ? 'teams' : 'players'}: ${participants.length}.`;
-  const totalSlots = Number(t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
+  const totalSlots = Number(seatLayout?.groupCount ?? t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const teamSlotSummary = getTournamentTeamSlotSummary(t);
   const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * Number(t.teamSize ?? 1));
-  const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * Number(t.teamSize ?? 1));
+  const totalPlayers = Number(seatLayout
+    ? seatLayout.groupCount * seatLayout.slotsPerGroup
+    : t.totalPlayerSlots ?? totalSlots * Number(t.teamSize ?? 1));
   const tournamentStatus = isCompleted ? 'completed' : String(t.status || '').toLowerCase();
   const winnerState = resolveTournamentWinnerState(
     resultsQuery.isLoading ||
@@ -705,7 +712,7 @@ export default function TDetail() {
           <Text style={s.statSub}>{inr(t.prizePool)}</Text>
         </View>
         <View style={s.stat}>
-           <Text style={s.statK}>{individualSquad || t.slotUnit === 'player' ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
+           <Text style={s.statK}>{individualSquad || individualPlayerSlots ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
            <Text style={[s.statV, { color: C.blue }]}>{individualSquad ? `${filledPlayers}/${totalPlayers}` : `${filledSlots}/${totalSlots}`}</Text>
            <Text
              testID={individualSquad ? 'tournament-team-slot-count' : undefined}
@@ -741,6 +748,29 @@ export default function TDetail() {
             onGoWallet={() => nav.navigate('Wallet')}
             onJoined={refreshNonSquadData}
             onRefetchAvailable={registerSquadSlotsRefetch}
+          />
+        </>
+      ) : null}
+
+      {seatLayout && !individualSquad ? (
+        <>
+          <SectionTitle accent={C.orange}>TOURNAMENT SLOTS</SectionTitle>
+          <ModeSeatSlotsPanel
+            key={tournamentId}
+            layout={seatLayout}
+            participants={participants}
+            loading={participantsQuery.isFetching || retryingParticipants}
+            unavailable={participantsQuery.isError && !participantsQuery.data}
+            canSelect={
+              registrationStatusKnown &&
+              !joined &&
+              !full &&
+              st.key !== 'ongoing' &&
+              !isCompleted &&
+              !['closed', 'cancelled'].includes(tournamentStatus)
+            }
+            onRetry={() => { void retryParticipants(); }}
+            onJoinGroup={(seatGroupNumber) => nav.navigate('JoinForm', { id: t.id, seatGroupNumber })}
           />
         </>
       ) : null}

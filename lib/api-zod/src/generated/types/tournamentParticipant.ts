@@ -25,6 +25,12 @@
 import type { TournamentParticipantStatus } from './tournamentParticipantStatus';
 
 export interface TournamentParticipant {
+  /**
+     * Persistent team or player-slot group assignment for an active registration.
+     * @minimum 1
+     * @nullable
+     */
+  groupNumber: number | null;
   /** @nullable */
   teamName: string | null;
   /** Free Fire in-game names, with the captain first. */

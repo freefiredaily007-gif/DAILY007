@@ -388,6 +388,7 @@ paths:
                       - MATCH_CLOSED
                       - MATCH_FULL
                       - REGISTRATION_REJECTED
+                      - SEAT_UNAVAILABLE
                       - TOURNAMENT_DISABLED
                     description: Stable reason for the registration conflict.
                 required: [error, code]
@@ -1378,13 +1379,17 @@ components:
     TournamentParticipant:
       type: object
       properties:
+        groupNumber:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Persistent team or player-slot group assignment for an active registration.
         teamName: { type: ["string", "null"] }
         players:
           type: array
           items: { type: string }
           description: Free Fire in-game names, with the captain first.
         status: { type: string, enum: [approved, pending] }
-      required: [teamName, players, status]
+      required: [groupNumber, teamName, players, status]
     TournamentParticipantsResponse:
       type: object
       properties:
@@ -1503,6 +1508,10 @@ components:
         captainName: { type: string, minLength: 1, maxLength: 100 }
         captainGameName: { type: string, minLength: 1, maxLength: 100 }
         captainGameUid: { type: string, minLength: 1, maxLength: 128 }
+        seatGroupNumber:
+          type: integer
+          minimum: 1
+          description: Optional exact team/player slot group. When omitted, the API assigns the first available group.
         teammates:
           type: array
           minItems: 3
