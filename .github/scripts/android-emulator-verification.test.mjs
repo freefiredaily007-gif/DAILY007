@@ -25,7 +25,7 @@ test("published PWA cache and offline smoke is a blocking workflow check separat
   assert.match(workflow, /name: Published PWA cache and offline check/);
   const publishedPwaJob = workflow
     .split("\n  published-pwa-cache-smoke:\n")[1]
-    ?.split("\n  tournament-join-recovery:\n")[0];
+    ?.split("\n  published-pwa-installability:\n")[0];
   assert.ok(publishedPwaJob, "The published PWA cache job should exist in the release workflow.");
   assert.match(
     publishedPwaJob,
@@ -38,10 +38,26 @@ test("published PWA cache and offline smoke is a blocking workflow check separat
   assert.match(publishedPwaJob, /CHROMIUM_PATH: \$\{\{ steps\.chromium\.outputs\.chrome-path \}\}/);
   assert.match(publishedPwaJob, /Manifest installability checks remain the separate test:pwa:published command\./);
   assert.doesNotMatch(publishedPwaJob, /continue-on-error:\s*true|test:pwa:published:browser[^\n]*\|\|\s*true/);
+  assert.doesNotMatch(publishedPwaJob, /test:pwa:published:installability/);
   assert.doesNotMatch(
     publishedPwaJob,
     /run: pnpm --filter @workspace\/daily007 run test:pwa:published --/,
   );
+});
+
+test("published PWA installability has its own non-cache desktop Chromium check", () => {
+  const installabilityJob = workflow
+    .split("\n  published-pwa-installability:\n")[1]
+    ?.split("\n  tournament-join-recovery:\n")[0];
+  assert.ok(installabilityJob, "The published PWA installability job should exist in the release workflow.");
+  assert.match(installabilityJob, /name: Published PWA installability \(desktop Chromium\)/);
+  assert.match(
+    installabilityJob,
+    /run: pnpm --filter @workspace\/daily007 run test:pwa:published:installability -- "\$DAILY007_PUBLISHED_URL"/,
+  );
+  assert.match(installabilityJob, /CHROMIUM_PATH: \$\{\{ steps\.chromium\.outputs\.chrome-path \}\}/);
+  assert.doesNotMatch(installabilityJob, /test:pwa:published:browser|test:pwa:published --/);
+  assert.doesNotMatch(installabilityJob, /continue-on-error:\s*true/);
 });
 
 async function runSetupDiagnostics(api, testScriptStarted = false) {

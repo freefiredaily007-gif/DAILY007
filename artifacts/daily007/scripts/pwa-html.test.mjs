@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   checkPublishedPwa,
   checkPublishedPwaInBrowser,
+  checkPublishedPwaInstallability,
   EXPECTED_DAILY007_PWA_ID,
   EXPECTED_DAILY007_WEB_RELEASE_MARKER,
 } from './pwa-published-smoke.mjs';
@@ -162,6 +163,36 @@ test('checks the published page references, manifest, service worker, and both i
     assert.equal(result.iconUrls.length, 2);
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-192.png')));
     assert.ok(result.iconUrls.some((iconUrl) => iconUrl.endsWith('/icon-512.png')));
+  });
+});
+
+test('desktop Chrome reports the installability signal separately from cache behavior', async () => {
+  await withPublishedPwaFixture({}, async (url) => {
+    const result = await checkPublishedPwaInstallability(url);
+
+    assert.match(result.browserVersion, /^Chrome\//);
+    assert.equal(result.pageUrl, url);
+    assert.equal(result.manifestUrl, `${new URL(url).origin}/daily007/manifest.json`);
+    assert.deepEqual(result.manifestErrors, []);
+    assert.deepEqual(result.installabilityErrors, []);
+    assert.equal(result.beforeInstallPromptFired, true);
+    assert.equal(result.androidInstallMenuVerified, false);
+    assert.equal(result.cachedResources, undefined);
+    assert.equal(result.offlineStatus, undefined);
+  });
+});
+
+test('reports missing Chrome installability criteria separately from cache failures', async () => {
+  await withPublishedPwaFixture({
+    manifestOverrides: { name: '', short_name: '', icons: [] },
+  }, async (url) => {
+    await assert.rejects(
+      checkPublishedPwaInstallability(url),
+      (error) => error instanceof Error
+        && /Chrome (?:reported manifest errors|did not fire beforeinstallprompt)/.test(error.message)
+        && error.message.includes('installability errors:')
+        && !error.message.includes('app-shell cache'),
+    );
   });
 });
 

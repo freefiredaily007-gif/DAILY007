@@ -91,6 +91,43 @@ jobs:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.chrome-path }}
         run: pnpm --filter @workspace/daily007 run test:pwa:published:browser -- "$DAILY007_PUBLISHED_URL"
 
+  published-pwa-installability:
+    name: Published PWA installability (desktop Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DAILY007_PUBLISHED_URL: https://daily-007-source-1-zip.replit.app/
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Chromium
+        id: chromium
+        uses: browser-actions/setup-chrome@v1
+        with:
+          install-dependencies: true
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      # This checks desktop Chrome's installability signal; Android's menu UI requires a device.
+      - name: Check published PWA installability in desktop Chrome
+        env:
+          CHROMIUM_PATH: ${{ steps.chromium.outputs.chrome-path }}
+        run: pnpm --filter @workspace/daily007 run test:pwa:published:installability -- "$DAILY007_PUBLISHED_URL"
+
   tournament-join-recovery:
     name: Tournament join recovery (Android emulator)
     runs-on: ubuntu-latest

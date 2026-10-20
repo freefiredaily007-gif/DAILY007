@@ -861,6 +861,148 @@ export async function checkPublishedPwaInBrowser(
   }
 }
 
+/**
+ * Checks Chrome's desktop installability signal against the published page.
+ * This does not reproduce Android Chrome's "Install app" menu.
+ */
+export async function checkPublishedPwaInstallability(
+  input,
+  { chromiumPath = process.env.CHROMIUM_PATH || 'chromium' } = {},
+) {
+  const pageUrl = browserSmokeUrl(input);
+  const debugPort = await getFreePort();
+  const profilePath = await mkdtemp(path.join(os.tmpdir(), 'daily007-pwa-installability-'));
+  let browser;
+  let connection;
+  let browserVersion = '';
+  let browserOutput = '';
+  const output = () => browserOutput.trim() ? `\nChromium output:\n${browserOutput.trim()}` : '';
+
+  try {
+    await checkedBrowserStage('fresh Chromium startup', async () => {
+      browser = spawn(chromiumPath, [
+        '--headless=new',
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--remote-allow-origins=*',
+        `--remote-debugging-port=${debugPort}`,
+        `--user-data-dir=${profilePath}`,
+        'about:blank',
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      browser.stdout.on('data', (chunk) => { browserOutput += chunk.toString(); });
+      browser.stderr.on('data', (chunk) => { browserOutput += chunk.toString(); });
+
+      const versionResponse = await waitForBrowserEndpoint(
+        `http://127.0.0.1:${debugPort}/json/version`,
+        browser,
+        output,
+      );
+      const version = await versionResponse.json();
+      browserVersion = version.Browser || 'unknown Chromium version';
+      const targetsResponse = await fetch(`http://127.0.0.1:${debugPort}/json/list`);
+      if (!targetsResponse.ok) {
+        throw new Error(`Chromium page targets returned HTTP ${targetsResponse.status}`);
+      }
+      const targets = await targetsResponse.json();
+      const pageTarget = targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl);
+      if (!pageTarget?.webSocketDebuggerUrl) {
+        throw new Error('Chromium did not expose a DevTools page target');
+      }
+
+      connection = cdpConnection(pageTarget.webSocketDebuggerUrl);
+      await connection.ready;
+      await connection.send('Page.enable');
+      await connection.send('Runtime.enable');
+      await connection.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `window.__daily007Installability = { beforeInstallPromptFired: false };
+          window.addEventListener("beforeinstallprompt", () => {
+            window.__daily007Installability.beforeInstallPromptFired = true;
+          });`,
+      });
+    });
+
+    await checkedBrowserStage(`published page load (${pageUrl.href})`, async () => {
+      const navigation = await connection.send('Page.navigate', { url: pageUrl.href });
+      if (navigation.errorText) throw new Error(navigation.errorText);
+      await waitForBrowserCondition(
+        connection,
+        `document.readyState === "complete" && location.href.startsWith(${JSON.stringify(pageUrl.href)})`,
+        'published page load',
+      );
+    });
+
+    const appManifest = await checkedBrowserStage('Chrome manifest inspection', async () => {
+      const result = await connection.send('Page.getAppManifest');
+      if (!result.url || !result.manifest) {
+        throw new Error('Chrome did not return a parsed web app manifest for the published page');
+      }
+      return result;
+    });
+    const manifestErrors = Array.isArray(appManifest.errors) ? appManifest.errors : [];
+
+    const installability = await checkedBrowserStage('Chrome installability criteria', async () => {
+      const result = await connection.send('Page.getInstallabilityErrors');
+      if (!Array.isArray(result.installabilityErrors)) {
+        throw new Error('Chrome did not return its installability criteria results');
+      }
+      return result;
+    });
+    const installabilityErrors = installability.installabilityErrors;
+
+    if (manifestErrors.length || installabilityErrors.length) {
+      throw new Error(
+        `Chrome reported manifest errors: ${JSON.stringify(manifestErrors)}; ` +
+        `installability errors: ${JSON.stringify(installabilityErrors)}.`,
+      );
+    }
+
+    try {
+      await waitForBrowserCondition(
+        connection,
+        'window.__daily007Installability?.beforeInstallPromptFired === true',
+        'Chrome beforeinstallprompt event',
+        15_000,
+      );
+    } catch (cause) {
+      throw new Error(
+        `Chrome did not fire beforeinstallprompt for ${pageUrl.href}. ` +
+        `Manifest errors: ${JSON.stringify(manifestErrors)}; ` +
+        `installability errors: ${JSON.stringify(installabilityErrors)}.`,
+        { cause },
+      );
+    }
+
+    return {
+      pageUrl: pageUrl.href,
+      browserVersion,
+      manifestUrl: appManifest.url,
+      manifestErrors,
+      installabilityErrors,
+      beforeInstallPromptFired: true,
+      androidInstallMenuVerified: false,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('PWA browser smoke check failed at ')) {
+      throw error;
+    }
+    throw stageError('Chrome installability check', error);
+  } finally {
+    connection?.close();
+    if (browser && browser.exitCode === null) {
+      browser.kill('SIGTERM');
+      await Promise.race([
+        new Promise((resolve) => browser.once('exit', resolve)),
+        delay(2_000),
+      ]);
+      if (browser.exitCode === null) browser.kill('SIGKILL');
+    }
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+
 function isCliEntry() {
   return process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
@@ -868,11 +1010,15 @@ function isCliEntry() {
 if (isCliEntry()) {
   const args = process.argv.slice(2).filter((argument) => argument !== '--');
   const browserMode = args.includes('--browser');
-  const input = args.find((argument) => argument !== '--browser')
+  const installabilityMode = args.includes('--installability');
+  const input = args.find((argument) => argument !== '--browser' && argument !== '--installability')
     || process.env.DAILY007_PUBLISHED_URL;
-  if (!input) {
+  if (browserMode && installabilityMode) {
+    console.error('Choose either --browser or --installability, not both.');
+    process.exitCode = 2;
+  } else if (!input) {
     console.error(
-      `Usage: pnpm --filter @workspace/daily007 run test:pwa:published${browserMode ? ':browser' : ''} -- <published-url>\n` +
+      `Usage: pnpm --filter @workspace/daily007 run test:pwa:published${browserMode ? ':browser' : installabilityMode ? ':installability' : ''} -- <published-url>\n` +
       'Or set DAILY007_PUBLISHED_URL to the published Daily007 URL.',
     );
     process.exitCode = 2;
@@ -880,12 +1026,12 @@ if (isCliEntry()) {
     try {
       const result = browserMode
         ? await checkPublishedPwaInBrowser(input)
-        : await checkPublishedPwa(input);
-      console.log(browserMode
-        ? 'PASS: Daily007 published PWA worker control, app-shell cache, and offline navigation verified.'
-        : 'PASS: Daily007 published PWA files are available.');
-      console.log(`Page: ${result.pageUrl}`);
+        : installabilityMode
+          ? await checkPublishedPwaInstallability(input)
+          : await checkPublishedPwa(input);
       if (browserMode) {
+        console.log('PASS: Daily007 published PWA worker control, app-shell cache, and offline navigation verified.');
+        console.log(`Page: ${result.pageUrl}`);
         console.log(`Origin: ${new URL(result.pageUrl).origin}`);
         console.log(`Scope: ${result.scope}`);
         console.log(`Service worker: ${result.serviceWorkerUrl} (activated and controlling)`);
@@ -895,7 +1041,18 @@ if (isCliEntry()) {
         console.log(
           `Offline navigation: ${result.offlineNavigationUrl} (HTTP ${result.offlineStatus}, service worker)`,
         );
+      } else if (installabilityMode) {
+        console.log('PASS: Desktop Chromium reports Daily007 as installable.');
+        console.log(`Page: ${result.pageUrl}`);
+        console.log(`Browser: ${result.browserVersion}`);
+        console.log(`Manifest: ${result.manifestUrl}`);
+        console.log('Manifest errors: none');
+        console.log('Installability errors: none');
+        console.log('beforeinstallprompt: fired');
+        console.log('Android Chrome "Install app" menu: not verified; that UI requires a real Android device.');
       } else {
+        console.log('PASS: Daily007 published PWA files are available.');
+        console.log(`Page: ${result.pageUrl}`);
         console.log(`Origin: ${result.origin}`);
         console.log(`Web release: ${result.webReleaseMarker}`);
         console.log(`Web bundle: ${result.webBundleUrl}`);
