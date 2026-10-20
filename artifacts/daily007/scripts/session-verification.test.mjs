@@ -73,7 +73,15 @@ registerHooks({
   },
 });
 
-const { Api, getSession, http, setSession } = await import("../src/lib/api.ts");
+const {
+  Api,
+  captureSessionRevision,
+  currentUser,
+  getSession,
+  http,
+  setSession,
+  setSessionForAuthAttempt,
+} = await import("../src/lib/api.ts");
 const profileSource = await readFile(
   new URL("../src/screens/Profile.tsx", import.meta.url),
   "utf8",
@@ -372,6 +380,7 @@ function createProfileScreen(
     apiError: () => "Request failed.",
     PROFILE_PASSWORD_MAX_LENGTH: 200,
     submitProfilePasswordChange: async () => null,
+    nativeTextScaleTextProps: () => ({}),
     C: new Proxy({}, { get: (_target, key) => String(key) }),
     s,
   };
@@ -1457,6 +1466,97 @@ test("a successful verification refreshes account data while retaining the saved
   });
   assert.equal(storage.readSession().token, savedSession.token);
   assert.equal(storage.readSession().name, "Updated Test Player");
+});
+
+test("startup discards damaged saved sessions without verification, then restores a later valid sign-in", async (t) => {
+  let restartedApi;
+  t.after(async () => {
+    if (restartedApi) await restartedApi.setSession(null);
+    await setSession(null);
+  });
+
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /restoreDaily007Session\(getSession, Api\.me, setSession\)/);
+  assert.match(
+    appSource,
+    /finally \{\s*if \(mounted\) setBooting\(false\);\s*\}/,
+    "Startup must leave its loading state after an empty-session result.",
+  );
+  assert.match(
+    appSource,
+    /if \(!user\) return <Auth/,
+    "With no restored user or retry state, startup must render sign-in.",
+  );
+
+  const damagedRecords = [
+    {
+      name: "malformed JSON",
+      raw: "{broken saved session",
+    },
+    {
+      name: "record missing its token",
+      raw: JSON.stringify({ id: "incomplete-player", name: "Incomplete Player" }),
+    },
+  ];
+
+  for (const record of damagedRecords) {
+    await t.test(record.name, async (subtest) => {
+      await setSession(null);
+      storedSession = record.raw;
+      const requests = mockApiRequests(subtest);
+
+      const result = await restoreDaily007Session(getSession, Api.me, setSession);
+
+      assert.deepEqual(result, { status: "empty" });
+      assert.equal(storedSession, null, "The damaged saved record must be removed.");
+      assert.equal(currentUser(), null, "No player should be authenticated after discarding the record.");
+      assert.equal(
+        http.defaults.headers.common.Authorization,
+        undefined,
+        "A damaged record must not install an Authorization header.",
+      );
+      assert.deepEqual(requests, [], "Startup must not verify a damaged record with the API.");
+    });
+  }
+
+  const signedInSession = {
+    id: "signed-in-after-damaged-session",
+    name: "Player Signed In Again",
+    email: "signed-in-again@example.test",
+    role: "user",
+    token: "fresh-sign-in-token",
+  };
+  const authRevision = captureSessionRevision();
+  assert.equal(
+    await setSessionForAuthAttempt(signedInSession, authRevision),
+    true,
+    "A later valid sign-in should save successfully after damaged data is discarded.",
+  );
+  assert.deepEqual(JSON.parse(storedSession), signedInSession);
+
+  restartedApi = await import("../src/lib/api.ts?fresh-damaged-session-startup");
+  const requests = mockApiRequests(t, {
+    client: restartedApi.http,
+    accountResponse: {
+      id: signedInSession.id,
+      name: "Verified Again",
+      email: signedInSession.email,
+    },
+    statsResponse: { matches: 4, wins: 2, kills: 8, prizeCoins: 30 },
+  });
+  const restored = await restoreDaily007Session(
+    restartedApi.getSession,
+    restartedApi.Api.me,
+    restartedApi.setSession,
+  );
+
+  assert.equal(restored.status, "verified");
+  assert.equal(restored.session.id, signedInSession.id);
+  assert.equal(restored.session.name, "Verified Again");
+  assert.equal(restored.session.token, signedInSession.token);
+  assert.equal(restartedApi.currentUser().token, signedInSession.token);
+  assert.equal(JSON.parse(storedSession).token, signedInSession.token);
+  assert.deepEqual(requests, ["/auth/me", "/me/stats"]);
 });
 
 test("a verified account stays retryable when saving refreshed session data fails", async (t) => {
