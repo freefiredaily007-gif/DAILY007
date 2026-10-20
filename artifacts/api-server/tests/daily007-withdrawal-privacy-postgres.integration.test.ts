@@ -31,6 +31,8 @@ const fixture = {
 const playerIds = [fixture.firstPlayerId, fixture.secondPlayerId];
 const firstPayoutAccount = `withdrawal-owner-${fixture.firstPlayerId}@upi`;
 const secondPayoutAccount = `withdrawal-owner-${fixture.secondPlayerId}-bank`;
+const unauthorizedWithdrawalId = randomUUID();
+const unauthorizedPayoutAccount = `withdrawal-unauthorized-${randomUUID()}@upi`;
 const secondReviewReason = "Payout account details could not be verified.";
 
 type ApiResponse = { status: number; body: any };
@@ -39,7 +41,7 @@ after(async () => {
   try {
     await pool.query(
       "DELETE FROM daily007_v2_withdrawals WHERE user_id = ANY($1::uuid[])",
-      [playerIds],
+      [[...playerIds, fixture.adminId]],
     );
     await pool.query(
       "DELETE FROM daily007_v2_notifications WHERE user_id = ANY($1::uuid[])",
@@ -111,6 +113,17 @@ async function call(
   return { status: response.status, body: await response.json() };
 }
 
+async function callWithdrawalHistoryWithoutValidSession(
+  origin: string,
+  authorization?: string,
+): Promise<ApiResponse> {
+  const response = await fetch(`${origin}/my/withdrawals`, {
+    method: "GET",
+    headers: authorization ? { authorization } : {},
+  });
+  return { status: response.status, body: await response.json() };
+}
+
 async function seedFixture(): Promise<void> {
   await pool.query(
     `INSERT INTO daily007_v2_users
@@ -137,12 +150,28 @@ async function seedFixture(): Promise<void> {
       maxWithdrawal: "5000",
     })],
   );
+  await pool.query(
+    `INSERT INTO daily007_v2_withdrawals (id, user_id, coins, method, account)
+     VALUES ($1, $2, 175, 'upi', $3)`,
+    [unauthorizedWithdrawalId, fixture.adminId, unauthorizedPayoutAccount],
+  );
 }
 
 test("PostgreSQL withdrawal history exposes approved and rejected payout details only to each owner", async () => {
   await seedFixture();
 
   await withServer(async (origin) => {
+    const unauthorizedResponses = await Promise.all([
+      callWithdrawalHistoryWithoutValidSession(origin),
+      callWithdrawalHistoryWithoutValidSession(origin, "Bearer invalid-session-token"),
+    ]);
+    for (const response of unauthorizedResponses) {
+      assert.equal(response.status, 401, JSON.stringify(response.body));
+      const responseJson = JSON.stringify(response.body);
+      assert.equal(responseJson.includes(unauthorizedPayoutAccount), false);
+      assert.equal(responseJson.includes(unauthorizedWithdrawalId), false);
+    }
+
     const firstCreated = await call(origin, fixture.firstPlayerId, "/withdrawals", "POST", {
       coins: 150,
       method: "upi",
