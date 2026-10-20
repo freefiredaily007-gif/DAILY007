@@ -1239,3 +1239,109 @@ test("the Admin cancellation endpoint clearly reports when the automatic sweep w
     await cleanupFixture(fixture);
   }
 });
+
+test("unrelated wallet activity on an active registration does not block its cancellation refund", async () => {
+  const fixture = await createFixture();
+  const matchId = fixture.matchIds[0];
+  const registrationId = fixture.registrationIds[0];
+  const payerId = fixture.payerIds[0];
+
+  try {
+    await pool.query(
+      "UPDATE daily007_v2_users SET wallet_coins = 110 WHERE id = $1",
+      [payerId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (user_id, amount, balance_after, reason, match_id, registration_id,
+          idempotency_key, details)
+       VALUES ($1, 10, 110, 'admin_credit:unrelated activity', $2, $3, $4, $5::jsonb)`,
+      [
+        payerId,
+        matchId,
+        registrationId,
+        `daily007:test-unrelated-wallet-activity:${registrationId}`,
+        JSON.stringify({ description: "Unrelated wallet activity" }),
+      ],
+    );
+
+    const outcome = await captureCancellation(matchId, false);
+    assert.equal(outcome.status, "fulfilled");
+    if (outcome.status === "fulfilled") {
+      assert.deepEqual(outcome.value, {
+        id: matchId,
+        status: "cancelled",
+        registrationsRefunded: 2,
+        accountsRefunded: 2,
+        coinsRefunded: 65,
+      });
+    } else {
+      assert.fail(`unrelated wallet activity must not block cancellation: ${String(outcome.reason)}`);
+    }
+
+    const match = await pool.query<{ status: string; enabled: boolean }>(
+      "SELECT status, enabled FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(match.rows, [{ status: "cancelled", enabled: false }]);
+
+    const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[])",
+      [fixture.payerIds],
+    );
+    assert.deepEqual(
+      new Map(wallets.rows.map(({ id, wallet_coins }) => [id, wallet_coins])),
+      new Map([
+        [fixture.payerIds[0], 135],
+        [fixture.payerIds[1], 240],
+        [fixture.payerIds[2], 300],
+      ]),
+    );
+
+    const registrationLedger = await pool.query<{
+      amount: number;
+      balance_after: number;
+      reason: string;
+    }>(
+      `SELECT amount, balance_after, reason
+         FROM daily007_v2_wallet_ledger
+        WHERE registration_id = $1
+        ORDER BY reason`,
+      [registrationId],
+    );
+    assert.deepEqual(registrationLedger.rows, [
+      { amount: 10, balance_after: 110, reason: "admin_credit:unrelated activity" },
+      { amount: 25, balance_after: 135, reason: "tournament_cancel_refund" },
+    ]);
+
+    const refunds = await pool.query<{
+      registration_id: string;
+      user_id: string;
+      amount: number;
+      count: number;
+    }>(
+      `SELECT registration_id, user_id, amount, count(*)::integer AS count
+         FROM daily007_v2_wallet_ledger
+        WHERE match_id = $1 AND reason = 'tournament_cancel_refund'
+        GROUP BY registration_id, user_id, amount
+        ORDER BY registration_id`,
+      [matchId],
+    );
+    assert.deepEqual(refunds.rows, [
+      {
+        registration_id: fixture.registrationIds[0],
+        user_id: fixture.payerIds[0],
+        amount: 25,
+        count: 1,
+      },
+      {
+        registration_id: fixture.registrationIds[1],
+        user_id: fixture.payerIds[1],
+        amount: 40,
+        count: 1,
+      },
+    ].sort((left, right) => left.registration_id.localeCompare(right.registration_id)));
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
