@@ -359,6 +359,97 @@ test("Google sign-in can be retried after the provider rejects an attempt", asyn
   ]);
 });
 
+test("Google sign-in can be retried when Clerk token retrieval rejects", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  const successes = [];
+  const events = [];
+  const inFlight = { current: false };
+  let loading = false;
+  let errorMessage = "";
+  let tokenAttempts = 0;
+  let providerAttempts = 0;
+  let activeSession = null;
+
+  async function attemptSignIn() {
+    await runGoogleSSOAttempt({
+      inFlight,
+      onStart() {
+        errorMessage = "";
+      },
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => activeSession,
+        async startSSOFlow() {
+          providerAttempts += 1;
+          events.push("start-oauth");
+          return {
+            createdSessionId: "retry-session",
+            async setActive({ session }) {
+              events.push(`activate:${session}`);
+              activeSession = {
+                id: session,
+                async getToken() {
+                  tokenAttempts += 1;
+                  events.push(`token:${session}:${tokenAttempts}`);
+                  if (tokenAttempts === 1) {
+                    throw new Error("Clerk token retrieval is temporarily unavailable");
+                  }
+                  return "verified-clerk-jwt";
+                },
+              };
+            },
+          };
+        },
+        async exchangeToken(token) {
+          events.push(`exchange:${token}`);
+          return { account: "daily007-player" };
+        },
+      }),
+      setLoading(value) {
+        loading = value;
+        loadingChanges.push(value);
+      },
+      showError(message) {
+        errorMessage = message;
+        errors.push(message);
+      },
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+  }
+
+  await attemptSignIn();
+  assert.equal(loading, false);
+  assert.equal(inFlight.current, false);
+  assert.equal(
+    errorMessage,
+    "Clerk token retrieval is temporarily unavailable. Please try again.",
+  );
+  assert.deepEqual(errors, [
+    "Clerk token retrieval is temporarily unavailable. Please try again.",
+  ]);
+  assert.deepEqual(successes, []);
+  assert.equal(providerAttempts, 1);
+
+  await attemptSignIn();
+  assert.equal(loading, false);
+  assert.equal(inFlight.current, false);
+  assert.equal(errorMessage, "");
+  assert.deepEqual(loadingChanges, [true, false, true, false]);
+  assert.deepEqual(errors, [
+    "Clerk token retrieval is temporarily unavailable. Please try again.",
+  ]);
+  assert.deepEqual(successes, [{ account: "daily007-player" }]);
+  assert.equal(providerAttempts, 1, "retry should reuse the activated Clerk session");
+  assert.deepEqual(events, [
+    "start-oauth",
+    "activate:retry-session",
+    "token:retry-session:1",
+    "token:retry-session:2",
+    "exchange:verified-clerk-jwt",
+  ]);
+});
+
 test("a missing active Clerk session after activation is a retryable error", async () => {
   let exchanges = 0;
   const result = await runGoogleSSOFlow({
