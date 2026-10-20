@@ -345,6 +345,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
             <Input
               accessibilityLabel="Team name"
               accessibilityHint={fieldErrors.teamName}
+              testID="join-form-team-name"
               placeholder="Team name"
               value={teamName}
               onChangeText={(value) => {
@@ -363,6 +364,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
             <Input
               accessibilityLabel={`Teammate ${i + 1} Free Fire in-game name`}
               accessibilityHint={fieldErrors[`memberName:${i}`]}
+              testID={`join-form-teammate-name-${i + 1}`}
               placeholder={`Teammate ${i + 1} Free Fire in-game name`}
               value={member.name}
               onChangeText={(v) => {
@@ -376,6 +378,7 @@ export default function JoinForm({ tournament: t, user, registration, onCancel, 
             <Input
               accessibilityLabel={`Teammate ${i + 1} Free Fire UID, optional`}
               accessibilityHint={fieldErrors[`memberUid:${i}`]}
+              testID={`join-form-teammate-uid-${i + 1}`}
               placeholder={`Teammate ${i + 1} Free Fire UID (optional)`}
               value={member.uid}
               onChangeText={(v) => {

@@ -220,6 +220,20 @@ test("the Android regression route uses only local fixtures and is dev-only", ()
   assert.match(routeSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
   assert.match(nativeFixtureSource, /joinWithCapacityRefresh\(/);
   assert.match(nativeFixtureSource, /INSUFFICIENT_WALLET_BALANCE/);
+  assert.match(nativeFixtureSource, /join-recovery-wallet-top-up/);
+  assert.match(nativeFixtureSource, /join-recovery-pending-response/);
+  assert.match(nativeFixtureSource, /join-recovery-complete-success/);
+  assert.match(nativeFixtureSource, /pendingJoinResponse\.current = resolve/);
+  assert.match(nativeFixtureSource, /resolve\(\{ success: true, status: 'approved' \}\)/);
+  const fixtureSubmit = nativeFixtureSource.match(
+    /const submitFixtureJoin = async \(\) => \{[\s\S]*?\n  \};/,
+  )?.[0];
+  assert.ok(fixtureSubmit, "the native fixture should keep its submission flow");
+  assert.ok(
+    fixtureSubmit.indexOf("await joinWithCapacityRefresh(") <
+      fixtureSubmit.indexOf("setConfirmation('Registration confirmed after simulated wallet top-up.')"),
+    "the success state must wait for the simulated successful join response",
+  );
   assert.match(nativeFixtureSource, /'MATCH_FULL'/);
   assert.match(nativeFixtureSource, /otherPlayerFilledLastSlot\.current = true/);
   assert.match(
@@ -230,6 +244,13 @@ test("the Android regression route uses only local fixtures and is dev-only", ()
   assert.match(insufficientBalanceFlow, /join-form-error/);
   assert.match(insufficientBalanceFlow, /join-recovery-confirmation/);
   assert.match(insufficientBalanceFlow, /Submit attempts: 2/);
+  assert.match(insufficientBalanceFlow, /join-recovery-wallet-top-up/);
+  assert.match(insufficientBalanceFlow, /join-recovery-pending-response/);
+  assert.match(insufficientBalanceFlow, /join-recovery-complete-success/);
+  assert.match(insufficientBalanceFlow, /text: "Native Test Captain"/);
+  assert.match(insufficientBalanceFlow, /text: "Retry Squad"/);
+  assert.match(insufficientBalanceFlow, /text: "Native Teammate"/);
+  assert.match(insufficientBalanceFlow, /Registration confirmed after simulated wallet top-up/);
   assert.match(localValidationFlow, /join-form-error/);
   assert.match(localValidationFlow, /Captain Free Fire in-game name is required/);
   assert.match(localValidationFlow, /Submit attempts: 0/);

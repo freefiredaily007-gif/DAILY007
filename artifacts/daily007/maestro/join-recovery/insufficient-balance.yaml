@@ -18,6 +18,27 @@ appId: host.exp.exponent
 - tapOn:
     id: join-form-captain-game-uid
 - inputText: "123456789"
+- scrollUntilVisible:
+    element:
+      id: join-form-team-name
+    direction: DOWN
+- tapOn:
+    id: join-form-team-name
+- inputText: "Retry Squad"
+- scrollUntilVisible:
+    element:
+      id: join-form-teammate-name-1
+    direction: DOWN
+- tapOn:
+    id: join-form-teammate-name-1
+- inputText: "Native Teammate"
+- scrollUntilVisible:
+    element:
+      id: join-form-teammate-uid-1
+    direction: DOWN
+- tapOn:
+    id: join-form-teammate-uid-1
+- inputText: "987654321"
 - hideKeyboard
 - scrollUntilVisible:
     element:
@@ -33,17 +54,30 @@ appId: host.exp.exponent
     text: "Insufficient wallet balance: this entry costs 75 coins."
 - assertVisible:
     text: "Submit attempts: 1"
+- assertVisible:
+    id: join-form-captain-game-name
+    text: "Native Test Captain"
+- assertVisible:
+    id: join-form-captain-game-uid
+    text: "123456789"
+- assertVisible:
+    id: join-form-team-name
+    text: "Retry Squad"
+- assertVisible:
+    id: join-form-teammate-name-1
+    text: "Native Teammate"
+- assertVisible:
+    id: join-form-teammate-uid-1
+    text: "987654321"
 - assertNotVisible:
     id: join-recovery-confirmation
 - assertNotVisible: "Registration confirmed"
-- scrollUntilVisible:
-    element:
-      id: join-form-captain-game-uid
-    direction: DOWN
 - tapOn:
-    id: join-form-captain-game-uid
-- inputText: "2"
-- hideKeyboard
+    id: join-recovery-wallet-top-up
+- assertVisible:
+    id: join-recovery-wallet-status
+- assertNotVisible:
+    id: join-recovery-confirmation
 - scrollUntilVisible:
     element:
       id: join-form-submit
@@ -52,10 +86,36 @@ appId: host.exp.exponent
     id: join-form-submit
 - extendedWaitUntil:
     visible:
+      id: join-recovery-pending-response
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
       text: "Submit attempts: 2"
     timeout: 10000
 - assertVisible:
-    id: join-form-error
+    id: join-form-captain-game-name
+    text: "Native Test Captain"
+- assertVisible:
+    id: join-form-captain-game-uid
+    text: "123456789"
+- assertVisible:
+    id: join-form-team-name
+    text: "Retry Squad"
+- assertVisible:
+    id: join-form-teammate-name-1
+    text: "Native Teammate"
+- assertVisible:
+    id: join-form-teammate-uid-1
+    text: "987654321"
 - assertNotVisible:
     id: join-recovery-confirmation
-- assertNotVisible: "Registration confirmed"
+- tapOn:
+    id: join-recovery-complete-success
+- extendedWaitUntil:
+    visible:
+      id: join-recovery-confirmation
+    timeout: 10000
+- assertVisible:
+    text: "Registration confirmed after simulated wallet top-up."
+- assertNotVisible:
+    id: join-form-error
