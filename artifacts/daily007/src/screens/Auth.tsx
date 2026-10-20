@@ -652,12 +652,12 @@ export default function Auth({
           </View>
         )}
 
-        <View style={s.submitGlow}>
+        <View style={isSignup ? s.submitGlow : s.loginSubmitGlow}>
           <LinearGradient
             colors={[AUTH.fire, AUTH.orange]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
-            style={s.submitGradient}
+            style={isSignup ? s.submitGradient : s.loginSubmitGradient}
           >
             <Btn
               testID="auth-submit"
@@ -687,8 +687,8 @@ export default function Auth({
               preserveAccessibilityFocusWhileLoading={true}
               scaleOnPress
               textColor={AUTH.text}
-              textStyle={s.submitText}
-              style={s.submitButton}
+              style={isSignup ? s.submitButton : s.loginSubmitButton}
+              textStyle={isSignup ? s.submitText : s.loginSubmitText}
             />
           </LinearGradient>
         </View>
@@ -828,16 +828,35 @@ const s = StyleSheet.create({
     borderRadius: 15, marginTop: 5, shadowColor: AUTH.fire, shadowOpacity: 0.36,
     shadowRadius: 17, shadowOffset: { width: 0, height: 0 }, elevation: 8,
   },
+  loginSubmitGlow: {
+    alignSelf: 'stretch', borderRadius: 15, marginTop: 12, marginBottom: 8,
+    shadowColor: AUTH.orange, shadowOpacity: 0.3, shadowRadius: 15,
+    shadowOffset: { width: 0, height: 0 }, elevation: 8,
+  },
   submitGradient: { borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: AUTH.gold },
+  loginSubmitGradient: {
+    width: '100%', height: 58, alignSelf: 'stretch', borderRadius: 14,
+    overflow: 'hidden', borderWidth: 1, borderColor: AUTH.gold,
+  },
   submitButton: {
     width: '100%', minHeight: 56, paddingVertical: 15, borderRadius: 13,
     backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center',
     shadowColor: AUTH.fire, shadowOpacity: 0.3,
     shadowRadius: 13, shadowOffset: { width: 0, height: 0 }, elevation: 5,
   },
+  loginSubmitButton: {
+    width: '100%', height: 56, paddingVertical: 0, borderRadius: 13,
+    backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center',
+    shadowColor: AUTH.fire, shadowOpacity: 0.3, shadowRadius: 13,
+    shadowOffset: { width: 0, height: 0 }, elevation: 5,
+  },
   submitText: {
     fontFamily: 'Orbitron_700Bold', fontSize: 14, letterSpacing: 1.1,
     textAlign: 'center', width: '100%',
+  },
+  loginSubmitText: {
+    fontFamily: 'Orbitron_700Bold', fontSize: 16, fontWeight: '700',
+    letterSpacing: 1.35, color: AUTH.text, textAlign: 'center',
   },
   footRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

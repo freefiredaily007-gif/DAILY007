@@ -116,7 +116,7 @@ test("the Auth screen exposes a wait countdown and reenables login at expiry", (
   assert.match(authSource, /const remainingSeconds = Math\.max\(0, Math\.ceil\(remainingMs \/ 1000\)\)/);
   assert.match(authSource, /setLoginThrottleStatus\('You can try logging in now\.'\)/);
   assert.match(authSource, /loginRetryDeadline > Date\.now\(\)/);
-  assert.match(authSource, /disabled=\{!isSignup && loginRetryRemaining > 0\}/);
+  assert.match(authSource, /disabled=\{googleBusy \|\| \(!isSignup && loginRetryRemaining > 0\)\}/);
   assert.match(authSource, /Login available in \$\{loginRetryRemaining\}/);
   assert.match(authSource, /Wait \$\{seconds\} \$\{seconds === 1 \? 'second' : 'seconds'\} before trying again\./);
   assert.match(authSource, /accessibilityLiveRegion=\{loginRetryRemaining > 0 \? 'assertive' : 'polite'\}/);
