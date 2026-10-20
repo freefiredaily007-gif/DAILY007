@@ -2,7 +2,7 @@
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
 - [Daily007 Google auth concurrency tests](daily007-google-auth-concurrency.md) — synchronize same-identity requests at the transaction lock; Promise.all alone may produce sequential DB entry.
 - [Daily007 withdrawable purchases](daily007-withdrawable-purchases.md) — purchased coins must remain withdrawable; do not substitute ordinary store consumables for an approved gateway.
-- [Daily007 Google auth bridge](google-auth-bridge.md) — Never auto-link by email; preserve password sessions after failed local saves and restrict recovery to approved paths.
+- [Daily007 Google auth bridge](google-auth-bridge.md) — Never auto-link by email; preserve sessions and keep referred signup rewards visible after Android relaunch.
 - [Daily007 single-session policy](daily007-single-session.md) — new sign-ins replace old sessions, Google linking preserves one, and stale refreshes cannot revive or overwrite it.
 - [Daily007 offline session recovery](daily007-offline-session-recovery.md) — session verification and role refresh retry on reconnect/resume; transient failures retain the session.
 - [Daily007 password management](daily007-password-management.md) — TalkBack confirmed one 409 warning with retry focus and one success message without a focus jump; require the current password.

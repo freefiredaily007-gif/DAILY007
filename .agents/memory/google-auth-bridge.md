@@ -29,6 +29,12 @@ On 2026-10-05, the user confirmed a real Android Google signup opened Wallet wit
 
 **How to apply:** Preserve the verified Clerk-session activation, Daily007 session setup, and Wallet refresh sequence. Recheck signup-to-Wallet behavior on Android after changing the SSO callback, session handling, or signup reward display.
 
+On 2026-10-20, the user confirmed that a referred Google signup showed exactly one 10-coin Referral Signup Bonus in Wallet; after force-closing and reopening Daily007 on Android, the same single reward remained and no Welcome Signup Bonus appeared.
+
+**Why:** Browser mocks cannot prove native session storage survives a process restart or that Wallet reloads the correct referral transaction on a real device.
+
+**How to apply:** Treat this Android relaunch flow as device-confirmed. Recheck it after changing native session restoration, referral reward handling, or Wallet history loading.
+
 On 2026-10-05, the user also confirmed both flows on a standalone Android Play build: a fresh Google signup returned to Daily007 with 10 coins and one welcome-bonus row, and linking Google to an existing password account preserved its account, wallet balance, and session. The installed version was not identified; the repository was configured for app version 1.0.1 and Android versionCode 2.
 
 **Why:** Expo Go and mocked browser checks do not prove the standalone Android callback, provider setup, and account-link behavior work together.
