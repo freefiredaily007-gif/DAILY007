@@ -4,6 +4,7 @@ import {
   getDaily007AutoCancellationSweepStatus,
   runDaily007AutoCancellationSweep,
 } from "../src/lib/daily007-tournament-auto-cancel";
+import { logger } from "../src/lib/logger";
 import { autoCancellationTestDb } from "./support/daily007-auto-cancel-test-db";
 
 const scheduledStartUtc = Date.parse("2035-04-05T14:30:00.000Z");
@@ -49,6 +50,34 @@ function registration(
     captain_user_id: payerId,
     entry_coins_paid: fee,
     status,
+  };
+}
+
+function captureAutoCancellationEvents(): {
+  events: { level: "error" | "info"; fields: Record<string, unknown> }[];
+  restore: () => void;
+} {
+  const events: { level: "error" | "info"; fields: Record<string, unknown> }[] = [];
+  const originalError = logger.error;
+  const originalInfo = logger.info;
+  const capture = (level: "error" | "info") => ((...args: unknown[]) => {
+    const fields = args[0];
+    if (fields && typeof fields === "object" && "event" in fields) {
+      events.push({
+        level,
+        fields: structuredClone(fields as Record<string, unknown>),
+      });
+    }
+  }) as typeof logger.info;
+
+  logger.error = capture("error") as typeof logger.error;
+  logger.info = capture("info");
+  return {
+    events,
+    restore: () => {
+      logger.error = originalError;
+      logger.info = originalInfo;
+    },
   };
 }
 
@@ -263,6 +292,114 @@ test("repeated settings read failures alert without changing refunds and a later
   );
   assert.equal(autoCancellationTestDb.candidateSelectionSizes[0], 1);
   assert.equal(autoCancellationTestDb.candidateSelectionSizes.at(-1), 0);
+});
+
+test("repeated tournament refund rollbacks emit stalled and recovery events without partial refunds", async () => {
+  const failingMatch = match("refund-alert-retry-match", "clash_squad", "clash", 2);
+  const payerId = "refund-alert-retry-payer";
+  const registrationId = "refund-alert-retry-registration";
+  const priorLedgerEntry = {
+    userId: payerId,
+    amount: -4,
+    balanceAfter: 120,
+    reason: "older_wallet_entry",
+    matchId: null,
+    registrationId: "older-wallet-registration",
+    details: { description: "Existing Wallet history" },
+    createdAt: new Date("2035-04-04T12:00:00.000Z"),
+  };
+  autoCancellationTestDb.reset({
+    nowMs: scheduledStartUtc,
+    matches: [failingMatch],
+    registrations: [
+      registration(registrationId, failingMatch.id, payerId, 35, "approved"),
+    ],
+    accounts: [{ id: payerId, wallet_coins: 120 }],
+    ledger: [{ idempotencyKey: "older-wallet-history", entry: priorLedgerEntry }],
+  });
+  assert.deepEqual(getDaily007AutoCancellationSweepStatus(), {
+    consecutiveFailures: 0,
+    alertActive: false,
+  });
+
+  const matchBefore = structuredClone(autoCancellationTestDb.matches.get(failingMatch.id));
+  const balanceBefore = autoCancellationTestDb.accounts.get(payerId)?.wallet_coins;
+  const ledgerBefore = new Map(
+    [...autoCancellationTestDb.ledger].map(([key, entry]) => [key, structuredClone(entry)]),
+  );
+  const { events, restore } = captureAutoCancellationEvents();
+  try {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      autoCancellationTestDb.failNextMatchFinalization(failingMatch.id);
+      await runDaily007AutoCancellationSweep();
+
+      assert.deepEqual(autoCancellationTestDb.matches.get(failingMatch.id), matchBefore);
+      assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, balanceBefore);
+      assert.deepEqual(
+        autoCancellationTestDb.ledger,
+        ledgerBefore,
+        "a failed refund transaction must not retain a balance change or add refund history",
+      );
+      assert.deepEqual(getDaily007AutoCancellationSweepStatus(), {
+        consecutiveFailures: attempt,
+        alertActive: attempt >= 3,
+      });
+    }
+
+    const stalledEvents = events.filter(
+      ({ fields }) => fields.event === "daily007_auto_cancellation_sweep_stalled",
+    );
+    assert.deepEqual(stalledEvents, [{
+      level: "error",
+      fields: {
+        event: "daily007_auto_cancellation_sweep_stalled",
+        consecutiveFailures: 3,
+        intervalMs: 15_000,
+        action: "Check database connectivity and access to daily007_v2_settings; refunds will retry on the next sweep.",
+      },
+    }], "the third candidate-specific failure should emit one structured stalled event");
+
+    await runDaily007AutoCancellationSweep();
+
+    assert.deepEqual(getDaily007AutoCancellationSweepStatus(), {
+      consecutiveFailures: 0,
+      alertActive: false,
+    });
+    assert.deepEqual(
+      events.filter(({ fields }) => fields.event === "daily007_auto_cancellation_sweep_recovered"),
+      [{
+        level: "info",
+        fields: {
+          event: "daily007_auto_cancellation_sweep_recovered",
+          previousConsecutiveFailures: 3,
+        },
+      }],
+      "the successful retry should emit a structured recovery event with the prior failure count",
+    );
+    assert.equal(autoCancellationTestDb.matches.get(failingMatch.id)?.status, "cancelled");
+    assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 155);
+    assert.equal(autoCancellationTestDb.ledger.size, 2);
+    assert.deepEqual(
+      [...autoCancellationTestDb.ledger.values()].filter(({ matchId }) => matchId === failingMatch.id),
+      [{
+        userId: payerId,
+        amount: 35,
+        balanceAfter: 155,
+        reason: "tournament_cancel_refund",
+        matchId: failingMatch.id,
+        registrationId,
+        details: {
+          description: "Entry fee refunded — Test clash_squad (tournament cancelled)",
+          tournamentId: failingMatch.id,
+          tournamentTitle: "Test clash_squad",
+        },
+        createdAt: new Date(scheduledStartUtc),
+      }],
+      "recovery should add exactly one refund entry while preserving prior Wallet history",
+    );
+  } finally {
+    restore();
+  }
 });
 
 test("a later payer failure rolls back one tournament without stopping the sweep", async () => {
