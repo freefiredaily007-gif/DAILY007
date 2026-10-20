@@ -3,8 +3,11 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import test, { after } from "node:test";
+import express from "express";
+import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { runDaily007AutoCancellationSweep } from "../src/lib/daily007-tournament-auto-cancel";
+import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 
 const testDatabaseUrl = process.env.DATABASE_URL
   ? new URL(process.env.DATABASE_URL)
@@ -397,6 +400,24 @@ async function storedCursor(): Promise<{ id: string; startsAt: string } | undefi
     : undefined;
 }
 
+async function withSettingsServer(run: (origin: string) => Promise<void>): Promise<void> {
+  const app = express();
+  app.use(daily007CompatExtraRouter);
+  const server = await new Promise<Server>((resolve, reject) => {
+    const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
+    listeningServer.once("error", reject);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
 async function createConcurrentSweepFixture(): Promise<ConcurrentSweepFixture> {
   const matchIds = Array.from(
     { length: 200 },
@@ -589,6 +610,17 @@ test("a PostgreSQL cursor write preserves the video seed marker and visible sett
       __daily007AutoCancelCursor: expectedCursor,
     });
     assert.deepEqual(await storedCursor(), expectedCursor);
+
+    await withSettingsServer(async (origin) => {
+      const response = await fetch(`${origin}/settings`);
+      assert.equal(response.status, 200);
+      const publicSettings = await response.json() as Record<string, unknown>;
+      assert.equal(publicSettings.rechargeEnabled, false);
+      assert.equal(publicSettings.coinToMoneyRate, "2.5");
+      assert.equal(publicSettings.paymentNote, "Existing payment instructions");
+      assert.equal(Object.hasOwn(publicSettings, "__daily007AutoCancelCursor"), false);
+      assert.equal(Object.hasOwn(publicSettings, "__daily007VideoCatalogSeeded"), false);
+    });
   } finally {
     await cleanupFixture(fixture);
   }
