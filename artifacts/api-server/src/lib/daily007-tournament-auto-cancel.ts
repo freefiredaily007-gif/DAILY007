@@ -4,11 +4,14 @@ import { cancelUnderfilledTournamentAndRefund } from "./daily007-tournament-canc
 
 const AUTO_CANCEL_INTERVAL_MS = 15_000;
 const AUTO_CANCEL_BATCH_SIZE = 100;
+const AUTO_CANCEL_FAILURE_ALERT_THRESHOLD = 3;
 const AUTO_CANCEL_CURSOR_SETTING = "__daily007AutoCancelCursor";
 const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 let schedulerTimer: NodeJS.Timeout | undefined;
 let sweepRunning = false;
+let consecutiveSweepFailures = 0;
+let sweepFailureAlertActive = false;
 
 type CandidateCursor = { id: string; startsAt: Date | string };
 
@@ -106,6 +109,7 @@ function selectCandidates(after: CandidateCursor | null) {
 export async function runDaily007AutoCancellationSweep(): Promise<void> {
   if (sweepRunning) return;
   sweepRunning = true;
+  let sweepFailed = false;
   try {
     let lastCandidateCursor = await loadCandidateCursor();
     let candidates = await selectCandidates(lastCandidateCursor);
@@ -128,16 +132,52 @@ export async function runDaily007AutoCancellationSweep(): Promise<void> {
           }, "Automatically cancelled an underfilled tournament and refunded its entry fees");
         }
       } catch (err) {
+        sweepFailed = true;
         logger.error({ err, tournamentId: candidate.id }, "Automatic tournament cancellation failed");
       }
       lastCandidateCursor = { id: candidate.id, startsAt: candidate.startsAt };
       await saveCandidateCursor(lastCandidateCursor);
     }
   } catch (err) {
+    sweepFailed = true;
     logger.error({ err }, "Automatic tournament cancellation sweep failed");
   } finally {
+    if (sweepFailed) {
+      consecutiveSweepFailures += 1;
+      if (
+        consecutiveSweepFailures >= AUTO_CANCEL_FAILURE_ALERT_THRESHOLD &&
+        !sweepFailureAlertActive
+      ) {
+        sweepFailureAlertActive = true;
+        logger.error({
+          event: "daily007_auto_cancellation_sweep_stalled",
+          consecutiveFailures: consecutiveSweepFailures,
+          intervalMs: AUTO_CANCEL_INTERVAL_MS,
+          action: "Check database connectivity and access to daily007_v2_settings; refunds will retry on the next sweep.",
+        }, "Automatic tournament refund sweep has repeatedly failed");
+      }
+    } else {
+      if (sweepFailureAlertActive) {
+        logger.info({
+          event: "daily007_auto_cancellation_sweep_recovered",
+          previousConsecutiveFailures: consecutiveSweepFailures,
+        }, "Automatic tournament refund sweep recovered");
+      }
+      consecutiveSweepFailures = 0;
+      sweepFailureAlertActive = false;
+    }
     sweepRunning = false;
   }
+}
+
+export function getDaily007AutoCancellationSweepStatus(): {
+  consecutiveFailures: number;
+  alertActive: boolean;
+} {
+  return {
+    consecutiveFailures: consecutiveSweepFailures,
+    alertActive: sweepFailureAlertActive,
+  };
 }
 
 export function startDaily007AutoCancellationScheduler(): void {

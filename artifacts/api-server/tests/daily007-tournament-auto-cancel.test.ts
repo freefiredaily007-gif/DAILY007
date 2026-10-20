@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runDaily007AutoCancellationSweep } from "../src/lib/daily007-tournament-auto-cancel";
+import {
+  getDaily007AutoCancellationSweepStatus,
+  runDaily007AutoCancellationSweep,
+} from "../src/lib/daily007-tournament-auto-cancel";
 import { autoCancellationTestDb } from "./support/daily007-auto-cancel-test-db";
 
 const scheduledStartUtc = Date.parse("2035-04-05T14:30:00.000Z");
@@ -202,7 +205,7 @@ test("a failed cursor save after a committed cancellation does not repeat its re
   );
 });
 
-test("a temporary settings read failure leaves refunds untouched and a later sweep credits once", async () => {
+test("repeated settings read failures alert without changing refunds and a later sweep clears the alert", async () => {
   const eligibleMatch = match("settings-read-retry-match", "clash_squad", "clash", 2);
   const payerId = "settings-read-retry-payer";
 
@@ -214,19 +217,28 @@ test("a temporary settings read failure leaves refunds untouched and a later swe
     ],
     accounts: [{ id: payerId, wallet_coins: 120 }],
   });
-  autoCancellationTestDb.failNextSettingsRead();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    autoCancellationTestDb.failNextSettingsRead();
+    await runDaily007AutoCancellationSweep();
+
+    assert.equal(autoCancellationTestDb.matches.get(eligibleMatch.id)?.status, "open");
+    assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 120);
+    assert.equal(autoCancellationTestDb.ledger.size, 0);
+    assert.deepEqual(autoCancellationTestDb.settings, {});
+    assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, []);
+    assert.deepEqual(autoCancellationTestDb.mutationTrace, []);
+    assert.deepEqual(getDaily007AutoCancellationSweepStatus(), {
+      consecutiveFailures: attempt,
+      alertActive: attempt >= 3,
+    });
+  }
 
   await runDaily007AutoCancellationSweep();
 
-  assert.equal(autoCancellationTestDb.matches.get(eligibleMatch.id)?.status, "open");
-  assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 120);
-  assert.equal(autoCancellationTestDb.ledger.size, 0);
-  assert.deepEqual(autoCancellationTestDb.settings, {});
-  assert.deepEqual(autoCancellationTestDb.candidateSelectionSizes, []);
-  assert.deepEqual(autoCancellationTestDb.mutationTrace, []);
-
-  await runDaily007AutoCancellationSweep();
-
+  assert.deepEqual(getDaily007AutoCancellationSweepStatus(), {
+    consecutiveFailures: 0,
+    alertActive: false,
+  });
   assert.equal(autoCancellationTestDb.matches.get(eligibleMatch.id)?.status, "cancelled");
   assert.equal(autoCancellationTestDb.accounts.get(payerId)?.wallet_coins, 155);
   assert.equal(
