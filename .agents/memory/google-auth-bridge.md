@@ -47,6 +47,12 @@ On 2026-10-17, the user reported that the native Android check for a pending Goo
 
 **How to apply:** Treat this pending-attempt sequence as device-confirmed; recheck it after changing the Auth controls, Google busy-state wiring, or native SSO callback.
 
+On 2026-10-20, the user confirmed on Android that Continue with Google stayed unavailable while password sign-in was pending, and password authentication completed without starting a Google exchange.
+
+**Why:** Browser automation cannot confirm the native disabled-control behavior during a pending password request.
+
+**How to apply:** Treat this reverse-direction auth guard as device-confirmed; recheck it after changing the Auth controls or Google busy-state wiring.
+
 For Expo Google SSO, treat the returned session ID and the active Clerk session as separate states: await the `setActive` function returned by `startSSOFlow` before reading the Clerk session or requesting its token, then verify that the active session ID matches.
 
 **Why:** `startSSOFlow` can return a completed session without making it the active session automatically. Reading the active session first can produce an intermittent missing or stale session.
