@@ -858,11 +858,17 @@ test("a waiting PostgreSQL cancellation is rejected after the first cancellation
   }
 });
 
-test("automatic and manual PostgreSQL cancellations refund once in either lock order", async () => {
-  for (const [index, firstPath] of ["manual", "automatic"].entries()) {
+test("automatic and manual PostgreSQL cancellations refund once for both modes and lock orders", async () => {
+  const scenarios = [
+    { gameMode: "clash_squad", firstPath: "manual" },
+    { gameMode: "clash_squad", firstPath: "automatic" },
+    { gameMode: "lone_wolf", firstPath: "manual" },
+    { gameMode: "lone_wolf", firstPath: "automatic" },
+  ] as const;
+  for (const [index, { gameMode, firstPath }] of scenarios.entries()) {
     const fixture = await createFixture();
     const matchId = fixture.matchIds[0];
-    const pauseKey = BigInt(740084 + index);
+    const pauseKey = BigInt(740087 + index);
     let blocker: Awaited<ReturnType<typeof pool.connect>> | undefined;
     let pauseLockHeld = false;
     let manualCancellation: Promise<CancellationOutcome> | undefined;
@@ -872,6 +878,10 @@ test("automatic and manual PostgreSQL cancellations refund once in either lock o
       await pool.query(
         "UPDATE daily007_v2_matches SET capacity = 1 WHERE id = $1",
         [fixture.matchIds[1]],
+      );
+      await pool.query(
+        "UPDATE daily007_v2_matches SET game_mode = $2 WHERE id = $1",
+        [matchId, gameMode],
       );
       await pool.query(`
         CREATE FUNCTION daily007_test_pause_mixed_cancel_refund() RETURNS trigger AS $$
