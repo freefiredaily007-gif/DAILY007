@@ -572,13 +572,37 @@ async function sendTeamEdit(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const token = providedToken ?? makeToken(TEST_PLAYER_ID, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
+  const registration = registrationProfileTestDb.registrations.find(
+    (candidate) => candidate.id === registrationId,
+  );
+  const expectedTeam = registration
+    ? {
+        captainGameName: registration.captain_game_name,
+        captainGameUid: registration.captain_game_uid,
+        teamName: registration.team_name,
+        teammates: Array.from({ length: 3 }, (_, index) => {
+          const member = registrationProfileTestDb.roster.find(
+            (candidate) =>
+              candidate.registration_id === registrationId &&
+              candidate.position === index + 1,
+          );
+          return {
+            name: member?.member_name ?? "",
+            uid: member?.member_uid ?? "",
+          };
+        }),
+      }
+    : undefined;
+  const requestBody = body.expectedTeam === undefined && expectedTeam
+    ? { ...body, expectedTeam }
+    : body;
   const response = await fetch(`${origin}/my/registrations/${registrationId}/team`, {
     method: "PATCH",
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(requestBody),
   });
   return {
     status: response.status,

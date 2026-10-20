@@ -85,7 +85,7 @@ async function submitDeposit(
   const response = await fetch(`${origin}/payments`, {
     method: "POST",
     headers: authHeaders(userId),
-    body: JSON.stringify({ coins, txnId: reference }),
+    body: JSON.stringify({ coins, txnId: reference, payerUpiId: "qa-user@upi" }),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }

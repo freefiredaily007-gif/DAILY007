@@ -229,16 +229,20 @@ async function createFixture(
       [fixture.userId, `player-${fixture.userId}@example.test`, fixture.startingWalletCoins],
     );
     for (const [index, matchId] of fixture.matchIds.entries()) {
-      const storageMode = teamType === "solo" ? "solo" : "squad";
+      const storageMode = teamType === "squad"
+        ? "clash"
+        : teamType;
+      const gameMode = teamType === "squad" ? "clash_squad" : "battle_royale";
       const capacity = teamType === "solo" ? 48 : teamType === "duo" ? 24 : 12;
       await client.query(
         `INSERT INTO daily007_v2_matches
            (id, title, mode, game_mode, team_type, capacity, entry_coins, starts_at, status)
-         VALUES ($1, $2, $3, 'battle_royale', $4, $5, $6, now() + interval '1 day', 'open')`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '1 day', 'open')`,
         [
           matchId,
           `Wallet race tournament ${index + 1}`,
           storageMode,
+          gameMode,
           teamType,
           capacity,
           fixture.entryCoins[index]!,
@@ -1126,7 +1130,7 @@ async function runConcurrentWalletRace(teamType: WalletRaceFixture["teamType"]):
         await waitForBlockedRequests(
           blockerPid,
           2,
-          "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
           "wallet",
         );
         await blocker.query("COMMIT");
@@ -1361,7 +1365,7 @@ async function runConcurrentInsufficientBalanceRace(firstMatchIndex: 0 | 1): Pro
       await waitForBlockedRequests(
         blockerPid,
         1,
-        "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
         "wallet",
       );
       submissions.push(submit(secondMatchIndex));
@@ -1370,7 +1374,7 @@ async function runConcurrentInsufficientBalanceRace(firstMatchIndex: 0 | 1): Pro
         await waitForBlockedRequests(
           blockerPid,
           2,
-          "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          "FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
           "wallet",
         );
         await blocker.query("COMMIT");

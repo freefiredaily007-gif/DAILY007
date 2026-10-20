@@ -107,7 +107,10 @@ export const storage = {
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
       if (key?.startsWith(PERSISTENT_ENTRY_PREFIX)) {
-        snapshot[key.slice(PERSISTENT_ENTRY_PREFIX.length)] = window.localStorage.getItem(key);
+        const value = window.localStorage.getItem(key);
+        if (value !== null) {
+          snapshot[key.slice(PERSISTENT_ENTRY_PREFIX.length)] = value;
+        }
       }
     }
     return snapshot;

@@ -154,8 +154,8 @@ class RegistrationProfileTestDatabase {
     this.match = {
       id: TEST_MATCH_ID,
       title: "Captain Profile Test Match",
-      mode: "squad",
-      game_mode: "battle_royale",
+      mode: "clash",
+      game_mode: "clash_squad",
       team_type: "squad",
       capacity: 12,
       status: "open",
@@ -503,6 +503,13 @@ class RegistrationProfileTestDatabase {
         .filter((member) => member.registration_id === String(values[0]))
         .sort((left, right) => left.position - right.position)
         .map((member) => structuredClone(member));
+    } else if (normalized ===
+      "SELECT member_name, member_uid FROM daily007_v2_roster WHERE registration_id = $1 ORDER BY position"
+    ) {
+      result = this.roster
+        .filter((member) => member.registration_id === String(values[0]))
+        .sort((left, right) => left.position - right.position)
+        .map(({ member_name, member_uid }) => ({ member_name, member_uid }));
     } else if (
       normalized.startsWith("SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name,")
     ) {
@@ -555,6 +562,21 @@ class RegistrationProfileTestDatabase {
               }];
             });
         });
+    } else if (normalized.startsWith(
+      "SELECT capacity, mode, game_mode, team_type, status FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+    )) {
+      const match = [this.match, ...this.additionalMatches].find(
+        (candidate) => candidate.id === String(values[0]),
+      );
+      result = match
+        ? [{
+            capacity: match.capacity,
+            mode: match.mode,
+            game_mode: match.game_mode,
+            team_type: match.team_type,
+            status: match.status,
+          }]
+        : [];
     } else if (
       normalized.startsWith("SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1")
     ) {
@@ -693,11 +715,51 @@ class RegistrationProfileTestDatabase {
     ) {
       result = String(values[0]) === this.match.id ? [structuredClone(this.match)] : [];
     } else if (
-      normalized.startsWith("SELECT r.id, r.captain_game_name, r.captain_game_uid, r.entry_coins_paid, l.balance_after")
+      normalized.startsWith("SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.entry_coins_paid, l.balance_after")
     ) {
-      result = [];
+      const registration = this.registrations.find((candidate) =>
+        candidate.match_id === String(values[0]) &&
+        candidate.captain_user_id === String(values[1]),
+      );
+      const entry = registration && this.ledger.find((candidate) =>
+        candidate.registration_id === registration.id,
+      );
+      const match = registration && [this.match, ...this.additionalMatches].find((candidate) =>
+        candidate.id === registration.match_id,
+      );
+      result = registration && entry && match
+        ? [{
+            id: registration.id,
+            captain_game_name: registration.captain_game_name,
+            captain_game_uid: registration.captain_game_uid,
+            team_name: registration.team_name,
+            entry_coins_paid: registration.entry_coins_paid,
+            balance_after: entry.balance_after,
+            capacity: match.capacity,
+            status: match.status,
+            is_full: match.is_full,
+            registration_status: registration.status,
+          }]
+        : [];
     } else if (normalized.startsWith("SELECT starts_at > clock_timestamp()")) {
       result = [{ upcoming: true }];
+    } else if (normalized.startsWith(
+      "SELECT id, status, captain_game_name, captain_game_uid, team_name FROM daily007_v2_registrations WHERE id = $1 AND match_id = $2 AND captain_user_id = $3 FOR UPDATE",
+    )) {
+      const registration = this.registrations.find((candidate) =>
+        candidate.id === String(values[0]) &&
+        candidate.match_id === String(values[1]) &&
+        candidate.captain_user_id === String(values[2]),
+      );
+      result = registration
+        ? [{
+            id: registration.id,
+            status: registration.status,
+            captain_game_name: registration.captain_game_name,
+            captain_game_uid: registration.captain_game_uid,
+            team_name: registration.team_name,
+          }]
+        : [];
     } else if (
       normalized.startsWith("SELECT r.id FROM daily007_v2_registrations r")
     ) {

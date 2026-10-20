@@ -3635,6 +3635,7 @@ test("the real player recovers its catalog when a selected video is deleted befo
       let recoveryAnnouncementVersion = 0;
       let reloadPending = false;
       const reloadVideoCatalog = loadVideoScreenCallback("reloadVideoCatalog", {
+        catalogReloadPendingRef: { current: false },
         catalogReloadRequestSequenceRef: { current: 0 },
         videosQuery: {
           refetch: async ({ cancelRefetch }: { cancelRefetch: boolean }) => {

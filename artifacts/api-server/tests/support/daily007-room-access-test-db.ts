@@ -211,8 +211,28 @@ class RoomAccessTestDatabase {
     const first = String(values[0] ?? "");
     let rows: unknown[] = [];
 
-    if (normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1") {
+    if (
+      normalized === "SELECT pg_advisory_xact_lock_shared(740073)" ||
+      normalized === "SELECT pg_advisory_xact_lock(740073)"
+    ) {
+      rows = [];
+    } else if (normalized === "SELECT 1 FROM daily007_v2_matches WHERE id = $1") {
+      rows = first === this.match.id ? [{ "?column?": 1 }] : [];
+    } else if (normalized === "SELECT role, status FROM daily007_v2_users WHERE id = $1 FOR SHARE") {
+      const user = this.users.get(first);
+      rows = user ? [{ role: user.role, status: user.status }] : [];
+    } else if (normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1") {
       rows = first === this.match.id ? [{ id: this.match.id }] : [];
+    } else if (normalized.startsWith(
+      "SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1",
+    )) {
+      rows = first === this.match.id
+        ? [{
+            mode: this.match.mode,
+            game_mode: this.match.game_mode,
+            team_type: this.match.team_type,
+          }]
+        : [];
     } else if (normalized === "SELECT status FROM daily007_v2_matches WHERE id = $1") {
       rows = first === this.match.id ? [{ status: this.match.status }] : [];
     } else if (
@@ -416,9 +436,31 @@ class RoomAccessTestDatabase {
   }
 
   async connect() {
+    let snapshot: { match: TestMatch; registrations: TestRegistration[] } | null = null;
     return {
-      query: <T = unknown>(sql: string, values?: unknown[]) =>
-        this.query<T>(sql, values ?? []),
+      query: async <T = unknown>(sql: string, values: unknown[] = []) => {
+        const normalized = sql.replace(/\s+/g, " ").trim();
+        if (normalized === "BEGIN") {
+          snapshot = {
+            match: structuredClone(this.match),
+            registrations: structuredClone(this.registrations),
+          };
+          return { rows: [] as T[] };
+        }
+        if (normalized === "COMMIT") {
+          snapshot = null;
+          return { rows: [] as T[] };
+        }
+        if (normalized === "ROLLBACK") {
+          if (snapshot) {
+            this.match = snapshot.match;
+            this.registrations = snapshot.registrations;
+          }
+          snapshot = null;
+          return { rows: [] as T[] };
+        }
+        return this.query<T>(sql, values);
+      },
       release: () => {},
     };
   }

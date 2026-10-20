@@ -375,7 +375,7 @@ class RegistrationCapacityTestDatabase {
       const match = this.matchById(String(values[0]));
       rows = match ? [structuredClone(match)] : [];
     } else if (normalized.startsWith(
-      "SELECT r.id, r.captain_game_name, r.captain_game_uid, r.entry_coins_paid, l.balance_after",
+      "SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.entry_coins_paid, l.balance_after",
     )) {
       const registration = this.registrations.find((item) =>
         item.match_id === String(values[0]) && item.captain_user_id === String(values[1]),
@@ -387,6 +387,7 @@ class RegistrationCapacityTestDatabase {
           id: registration.id,
           captain_game_name: registration.captain_game_name,
           captain_game_uid: registration.captain_game_uid,
+          team_name: registration.team_name,
           entry_coins_paid: registration.entry_coins_paid,
           balance_after: entry.balance_after,
           capacity: match?.capacity,

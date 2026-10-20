@@ -339,7 +339,7 @@ test("an existing later refund record rolls back earlier cancellation credits an
 
   await assert.rejects(
     cancelUnderfilledTournamentAndRefund(ATOMIC_MATCH_ID, true),
-    /A registration already has a refund record/,
+    /already has a refund record/,
   );
 
   assert.deepEqual(autoCancellationTestDb.mutationTrace, [
