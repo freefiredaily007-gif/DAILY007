@@ -9,6 +9,25 @@ export type ReferralInviteContext = {
   configuredDomain?: string;
 };
 
+function isReferralSignupAppPath(parsed: URL): boolean {
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.replace(/\/+$/, '') || '/';
+  return (host === 'signup' && path === '/') ||
+    (!host && path.toLowerCase() === '/signup');
+}
+
+export function redirectReferralSignupSystemPath(path: string): string {
+  try {
+    const parsed = new URL(path);
+    if (parsed.protocol !== 'daily007:' || !isReferralSignupAppPath(parsed)) {
+      return path;
+    }
+    return `/${parsed.search}${parsed.hash}`;
+  } catch {
+    return path;
+  }
+}
+
 export function referralSignupFromUrl(
   url: string | null,
   context: ReferralInviteContext,
@@ -17,7 +36,13 @@ export function referralSignupFromUrl(
 
   try {
     const parsed = new URL(url);
-    const isAppLink = parsed.protocol === 'daily007:';
+    const appPath = parsed.pathname.replace(/\/+$/, '') || '/';
+    const isAppRoot = parsed.protocol === 'daily007:' &&
+      !parsed.hostname &&
+      appPath === '/';
+    const isAppSignup = parsed.protocol === 'daily007:' &&
+      isReferralSignupAppPath(parsed);
+    const isAppLink = isAppRoot || isAppSignup;
     const isCurrentWebPage = context.platform === 'web' &&
       !!context.currentWebOrigin &&
       parsed.origin === context.currentWebOrigin;

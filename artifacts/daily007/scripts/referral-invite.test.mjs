@@ -5,6 +5,7 @@ import {
   copyReferralLinkToClipboard,
   copyReferralLinkToClipboardWithFallback,
   openReferralInBrowserWithFallback,
+  redirectReferralSignupSystemPath,
   referralBrowserOpenFallbackMessage,
   referralInviteCopyFallbackMessage,
   referralShareFallbackMessage,
@@ -585,6 +586,37 @@ test("the same-origin browser invite and legacy Daily007 app links remain suppor
   );
 });
 
+test("cold-start referral signup links are routed to the Auth entry before Expo Router matches", async () => {
+  const initialUrl = "daily007://signup?ref=AbC12";
+  assert.equal(
+    redirectReferralSignupSystemPath(initialUrl),
+    "/?ref=AbC12",
+  );
+  assert.deepEqual(
+    referralSignupFromUrl(initialUrl, nativeContext),
+    { mode: "signup", referralCode: "ABC12" },
+  );
+  assert.equal(
+    redirectReferralSignupSystemPath("daily007:///signup?ref=New45"),
+    "/?ref=New45",
+    "path-style legacy signup links should also reach the Auth entry route",
+  );
+  assert.equal(
+    redirectReferralSignupSystemPath(`https://${configuredDomain}/?ref=Web77`),
+    `https://${configuredDomain}/?ref=Web77`,
+    "HTTPS invites should retain their existing browser routing",
+  );
+  const nativeIntentSource = await readFile(
+    new URL("../app/+native-intent.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    nativeIntentSource,
+    /export function redirectSystemPath\([\s\S]*?return redirectReferralSignupSystemPath\(path\);/,
+    "Expo Router should apply the tested rewrite before matching native routes",
+  );
+});
+
 test("unrelated, unsupported, empty, and malformed URLs do not prefill a referral code", () => {
   for (const url of [
     "https://attacker.example.test/?ref=BAD11",
@@ -592,15 +624,23 @@ test("unrelated, unsupported, empty, and malformed URLs do not prefill a referra
     "not a URL",
     "https://daily007.example.test/",
     `https://${configuredDomain}/?ref=%20`,
+    "daily007://profile?ref=BAD33",
+    "daily007://signup/other?ref=BAD44",
   ]) {
     assert.equal(referralSignupFromUrl(url, nativeContext), null, url);
   }
   assert.equal(referralSignupFromUrl(null, nativeContext), null);
+  assert.equal(
+    redirectReferralSignupSystemPath("daily007://profile?ref=BAD33"),
+    "daily007://profile?ref=BAD33",
+  );
 });
 
 test("Auth uses the parsed invite to select signup mode and display its code", async () => {
   const authSource = await readFile(new URL("../src/screens/Auth.tsx", import.meta.url), "utf8");
   assert.match(authSource, /referralSignupFromUrl\(url/);
+  assert.match(authSource, /Linking\.getInitialURL\(\)\.then\(applyReferralUrl\)/);
+  assert.match(authSource, /Linking\.addEventListener\('url', \(\{ url \}\) => applyReferralUrl\(url\)\)/);
   assert.match(authSource, /setMode\(invite\.mode\)/);
   assert.match(authSource, /setRefCode\(\(current\) => current \|\| invite\.referralCode\)/);
   assert.match(authSource, /Referral code \{refCode\.trim\(\)\.toUpperCase\(\)\} applied/);
