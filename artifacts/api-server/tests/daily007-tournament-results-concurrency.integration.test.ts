@@ -4362,3 +4362,83 @@ test("compatibility tournament create and edit preserve the IST schedule through
     await cleanupFixture(fixture);
   }
 });
+
+test("non-time edits preserve an older tournament's IST schedule when game_mode is null", async () => {
+  const fixture = await createFixture();
+  const matchId = randomUUID();
+  const title = `Legacy IST schedule ${randomUUID()}`;
+  const expectedSchedule = {
+    date: "2999-01-01",
+    time: "02:30 AM",
+    storedStart: "2999-01-01T02:30:00.000Z",
+    canonicalStart: "2998-12-31T21:00:00.000Z",
+  };
+
+  const assertSchedule = (value: unknown, context: string): void => {
+    assert.ok(value && typeof value === "object", `${context} should return a tournament object`);
+    const tournament = value as Record<string, unknown>;
+    assert.equal(tournament.date, expectedSchedule.date, `${context} should retain its saved IST date`);
+    assert.equal(tournament.time, expectedSchedule.time, `${context} should retain its saved IST time`);
+    assert.equal(tournament.startsAt, expectedSchedule.canonicalStart, `${context} should retain its canonical instant`);
+  };
+
+  const assertDatabaseSchedule = async (context: string): Promise<void> => {
+    const stored = await pool.query<{ starts_at: Date | string }>(
+      "SELECT starts_at FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.ok(stored.rows[0], `${context} should remain in the database`);
+    assert.equal(
+      new Date(stored.rows[0].starts_at).toISOString(),
+      expectedSchedule.storedStart,
+      `${context} should retain the saved IST wall time`,
+    );
+    assert.equal(
+      tournamentInstantFromStored(stored.rows[0].starts_at).toISOString(),
+      expectedSchedule.canonicalStart,
+      `${context} should retain the canonical start instant`,
+    );
+  };
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, team_type, capacity, prize_pool, banner, starts_at)
+       VALUES ($1, $2, 'squad', NULL, NULL, 12, 0, 'br', $3)`,
+      [matchId, title, new Date(expectedSchedule.storedStart)],
+    );
+    const legacyMode = await pool.query<{ game_mode: string | null }>(
+      "SELECT game_mode FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
+    );
+    assert.deepEqual(legacyMode.rows, [{ game_mode: null }], "the fixture should use the older mode representation");
+
+    await withServer(async (origin) => {
+      const detailResponse = await fetch(`${origin}/tournaments/${matchId}`);
+      assert.equal(detailResponse.status, 200);
+      assertSchedule(await detailResponse.json() as unknown, "initial detail response");
+
+      const patchResponse = await fetch(`${origin}/tournaments/${matchId}`, {
+        method: "PATCH",
+        headers: authHeaders(fixture.adminId),
+        body: JSON.stringify({ prizePool: 1_250 }),
+      });
+      const patchBody = await patchResponse.text();
+      assert.equal(patchResponse.status, 200, `legacy tournament non-time patch should succeed: ${patchBody}`);
+      const patched = JSON.parse(patchBody) as Record<string, unknown>;
+      assertSchedule(patched, "non-time patch response");
+      assert.equal(patched.prizePool, 1_250, "the requested non-time field should be updated");
+      await assertDatabaseSchedule("non-time patch");
+
+      const reloadedResponse = await fetch(`${origin}/tournaments/${matchId}`);
+      assert.equal(reloadedResponse.status, 200);
+      const reloaded = await reloadedResponse.json() as Record<string, unknown>;
+      assertSchedule(reloaded, "fresh detail response");
+      assert.equal(reloaded.prizePool, 1_250, "the updated field should survive a fresh detail read");
+      await assertDatabaseSchedule("fresh detail read");
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [matchId]);
+    await cleanupFixture(fixture);
+  }
+});
