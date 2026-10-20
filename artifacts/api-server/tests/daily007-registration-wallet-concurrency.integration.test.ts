@@ -474,10 +474,13 @@ async function installEntryFeeRacePause(
   };
 }
 
-async function runEntryFeeChangeRace(lockWinner: "admin" | "join"): Promise<void> {
+async function runEntryFeeChangeRace(
+  lockWinner: "admin" | "join",
+  options: { startingWalletCoins?: number } = {},
+): Promise<void> {
   const fixture = await createFixture("solo", {
     entryCoins: [13, 17],
-    startingWalletCoins: 50,
+    startingWalletCoins: options.startingWalletCoins ?? 50,
   });
   const matchId = fixture.matchIds[0];
   const oldFee = fixture.entryCoins[0];
@@ -503,6 +506,7 @@ async function runEntryFeeChangeRace(lockWinner: "admin" | "join"): Promise<void
     const pauseHolderPid = await backendPid(pauseHolder);
 
     await withServer(async (origin) => {
+      const before = await readEntryPaymentState(fixture, matchId);
       let join: Promise<RegistrationResponse>;
       let feeUpdate: Promise<RegistrationResponse>;
       let joinPid: number;
@@ -542,30 +546,45 @@ async function runEntryFeeChangeRace(lockWinner: "admin" | "join"): Promise<void
       }
 
       const [joinResponse, feeResponse] = await Promise.all([join!, feeUpdate!]);
-      assert.equal(joinResponse.status, 201, JSON.stringify(joinResponse.body));
       assert.equal(feeResponse.status, 200, JSON.stringify(feeResponse.body));
-      assert.equal(joinResponse.body.entryCoinsPaid, expectedPaidFee);
-      assert.equal(joinResponse.body.walletCoins, fixture.startingWalletCoins - expectedPaidFee);
       assert.equal(
         (feeResponse.body.match as Record<string, unknown>).entryCoins,
         newFee,
       );
 
-      const after = await readEntryPaymentState(fixture, matchId);
-      assert.deepEqual(after.wallet, [{
-        wallet_coins: fixture.startingWalletCoins - expectedPaidFee,
-      }]);
-      assert.deepEqual(after.registrations, [{
-        id: joinResponse.body.registrationId,
-        entry_coins_paid: expectedPaidFee,
-        status: "approved",
-      }]);
-      assert.deepEqual(after.ledger, [{
-        registration_id: joinResponse.body.registrationId,
-        amount: -expectedPaidFee,
-        balance_after: fixture.startingWalletCoins - expectedPaidFee,
-        reason: "match_entry",
-      }]);
+      if (fixture.startingWalletCoins < expectedPaidFee) {
+        assert.equal(joinResponse.status, 409, JSON.stringify(joinResponse.body));
+        assert.deepEqual(joinResponse.body, {
+          error: `Insufficient wallet balance: this entry costs ${expectedPaidFee} coins.`,
+          code: "INSUFFICIENT_BALANCE",
+        });
+        assert.deepEqual(
+          await readEntryPaymentState(fixture, matchId),
+          before,
+          "the rejected join must leave wallet, registration, roster, and ledger unchanged",
+        );
+      } else {
+        assert.equal(joinResponse.status, 201, JSON.stringify(joinResponse.body));
+        assert.equal(joinResponse.body.entryCoinsPaid, expectedPaidFee);
+        assert.equal(joinResponse.body.walletCoins, fixture.startingWalletCoins - expectedPaidFee);
+
+        const after = await readEntryPaymentState(fixture, matchId);
+        assert.deepEqual(after.wallet, [{
+          wallet_coins: fixture.startingWalletCoins - expectedPaidFee,
+        }]);
+        assert.deepEqual(after.registrations, [{
+          id: joinResponse.body.registrationId,
+          entry_coins_paid: expectedPaidFee,
+          status: "approved",
+        }]);
+        assert.deepEqual(after.ledger, [{
+          registration_id: joinResponse.body.registrationId,
+          amount: -expectedPaidFee,
+          balance_after: fixture.startingWalletCoins - expectedPaidFee,
+          reason: "match_entry",
+        }]);
+      }
+
       const storedFee = await pool.query<{ entry_coins: number }>(
         "SELECT entry_coins FROM daily007_v2_matches WHERE id = $1",
         [matchId],
@@ -2151,6 +2170,10 @@ test("concurrent squad joins keep every player, position, and fee matched to its
 test("a fee update and valid join use the fee from the match row's lock order", async () => {
   await runEntryFeeChangeRace("admin");
   await runEntryFeeChangeRace("join");
+});
+
+test("an underfunded join queued behind a fee increase reports the new fee without payment writes", async () => {
+  await runEntryFeeChangeRace("admin", { startingWalletCoins: 15 });
 });
 
 test("a 20-coin wallet accepts only the first 13- or 17-coin join in either lock order", async () => {
