@@ -194,6 +194,77 @@ test("invalid replacement passwords are rejected before password credential read
   });
 });
 
+test("missing and invalid sessions cannot read or write stored password credentials", async () => {
+  const existingCredentials = await hashPassword("stored-password-auth-guard-test-only");
+  const attempts: { label: string; token?: string; expectedError: string }[] = [
+    {
+      label: "missing bearer token",
+      expectedError: "A valid Daily007 v2 bearer token is required.",
+    },
+    {
+      label: "malformed bearer token",
+      token: "not-a-valid-daily007-session-token",
+      expectedError: "A valid Daily007 v2 bearer token is required.",
+    },
+  ];
+
+  await withServer(async (origin) => {
+    for (const attempt of attempts) {
+      passwordChangeTestDb.reset();
+      passwordChangeTestDb.setCredentials({
+        password_salt: existingCredentials.salt,
+        password_hash: existingCredentials.hash,
+      });
+      const result = await request(origin, "/auth/me/password", "PATCH", {
+        currentPassword: "unused-current-password-test-value",
+        newPassword: "unused-replacement-password-test-value",
+      }, attempt.token);
+
+      assert.equal(result.status, 401, `${attempt.label}: authentication must be rejected`);
+      assert.equal(result.body.error, attempt.expectedError, `${attempt.label}: rejection message`);
+      assert.equal(
+        passwordChangeTestDb.passwordCredentialReadAttempts,
+        0,
+        `${attempt.label}: must not query stored password credentials`,
+      );
+      assert.equal(
+        passwordChangeTestDb.credentialReadSnapshots.length,
+        0,
+        `${attempt.label}: must not receive stored password credentials`,
+      );
+      assert.equal(
+        passwordChangeTestDb.passwordWriteAttempts,
+        0,
+        `${attempt.label}: must not attempt a password write`,
+      );
+      assert.equal(passwordChangeTestDb.successfulPasswordWrites, 0);
+    }
+
+    passwordChangeTestDb.reset();
+    passwordChangeTestDb.setCredentials({
+      password_salt: existingCredentials.salt,
+      password_hash: existingCredentials.hash,
+    });
+    const before = passwordChangeTestDb.snapshot();
+    const staleToken = makeToken(PASSWORD_CHANGE_TEST_USER_ID, before.auth_version - 1);
+    assert.ok(staleToken);
+    const staleSession = await request(origin, "/auth/me/password", "PATCH", {
+      currentPassword: "unused-current-password-test-value",
+      newPassword: "unused-replacement-password-test-value",
+    }, staleToken);
+
+    assert.equal(staleSession.status, 401, "a signed token from a replaced session must be rejected");
+    assert.equal(
+      staleSession.body.error,
+      "This Daily007 session was replaced by a newer sign-in. Sign in again.",
+    );
+    assert.equal(passwordChangeTestDb.passwordCredentialReadAttempts, 0);
+    assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 0);
+    assert.equal(passwordChangeTestDb.passwordWriteAttempts, 0);
+    assert.equal(passwordChangeTestDb.successfulPasswordWrites, 0);
+  });
+});
+
 test("an incorrect current password is rejected without changing credentials or the existing session", async () => {
   passwordChangeTestDb.reset();
   const originalPassword = "current-password-for-attempt-limit";

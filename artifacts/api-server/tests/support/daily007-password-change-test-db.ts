@@ -36,6 +36,7 @@ class MemoryPasswordChangeDatabase {
     password_salt: "",
     password_hash: "",
   };
+  passwordCredentialReadAttempts = 0;
   credentialReadSnapshots: Credentials[] = [];
   passwordWriteAttempts = 0;
   successfulPasswordWrites = 0;
@@ -60,6 +61,7 @@ class MemoryPasswordChangeDatabase {
       password_salt: "",
       password_hash: "",
     });
+    this.passwordCredentialReadAttempts = 0;
     this.credentialReadSnapshots = [];
     this.passwordWriteAttempts = 0;
     this.successfulPasswordWrites = 0;
@@ -168,6 +170,7 @@ class MemoryPasswordChangeDatabase {
     }
 
     if (normalized === "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1") {
+      this.passwordCredentialReadAttempts += 1;
       if (userId !== this.user.id) return { rows: [] };
       const credentials = {
         password_salt: this.user.password_salt,
