@@ -28,3 +28,9 @@ On 2026-10-09, the user confirmed on an iQOO Neo 10 running Android 16 that Talk
 **Why:** Native TalkBack speech and focus behavior cannot be established from source assertions or a browser preview alone.
 
 **How to apply:** Repeat this device check after changing the video-start error announcement, player focus behavior, or retry controls.
+
+On 2026-10-20, the user confirmed on Android that the Admin Videos HIDE control showed pending progress, blocked repeat taps, and gave clear feedback when the request completed or failed.
+
+**Why:** A delayed-response test does not establish native touch behavior or Android accessibility feedback on the actual Admin screen.
+
+**How to apply:** Treat the Admin video-toggle pending flow as device-confirmed; recheck it after changing the toggle control, pending status, or action feedback.
