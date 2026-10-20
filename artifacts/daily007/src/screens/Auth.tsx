@@ -183,6 +183,12 @@ export default function Auth({
   }, [err]);
 
   React.useEffect(() => {
+    if (Platform.OS === 'ios' && notice) {
+      AccessibilityInfo.announceForAccessibility(notice);
+    }
+  }, [notice]);
+
+  React.useEffect(() => {
     const applyReferralUrl = (url: string | null) => {
       const invite = referralSignupFromUrl(url, {
         platform: Platform.OS === 'web' ? 'web' : 'native',
@@ -480,7 +486,7 @@ export default function Auth({
             testID="auth-session-notice"
             accessibilityRole="text"
             accessibilityLabel={notice}
-            accessibilityLiveRegion="polite"
+            accessibilityLiveRegion={Platform.OS === 'ios' ? undefined : 'polite'}
             style={s.sessionNotice}
           >
             {notice}

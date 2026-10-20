@@ -24,14 +24,14 @@ export async function refreshUserAccountAccessSafely<T extends { token?: string 
   previous: T,
   fetchAccount: () => Promise<Partial<T>>,
   commit: (updated: T) => void | boolean | Promise<void | boolean>,
-  rejectSession: () => void,
+  rejectSession: (error: unknown) => void,
   isCurrent: () => boolean = () => true,
 ): Promise<T | null> {
   try {
     return await refreshUserAccountAccess(previous, fetchAccount, commit, isCurrent);
   } catch (error) {
     const status = (error as { response?: { status?: number } } | null)?.response?.status;
-    if ((status === 401 || status === 403) && isCurrent()) rejectSession();
+    if ((status === 401 || status === 403) && isCurrent()) rejectSession(error);
     return null;
   }
 }

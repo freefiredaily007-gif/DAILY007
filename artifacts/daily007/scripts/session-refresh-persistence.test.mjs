@@ -83,6 +83,7 @@ const {
   getSession,
   http,
   setSession,
+  setSessionExpiredHandler,
   setSessionForAuthAttempt,
   setSessionForIdentity,
 } = await import("../src/lib/api.ts");
@@ -209,6 +210,44 @@ test("a late 401 from an older token cannot clear a newer active session", async
 
   assert.equal(currentUser(), activeAccount);
   assert.deepEqual(JSON.parse(storedSession), activeAccount);
+});
+
+test("a blocked-account 403 expires the matching saved session with a blocked reason", async () => {
+  const blockedAccount = { id: "blocked-account", token: "blocked-account-token", role: "user" };
+  await setSession(blockedAccount);
+
+  const rejectedInterceptor = http.interceptors.response.handlers
+    .find((handler) => typeof handler.rejected === "function")
+    ?.rejected;
+  assert.equal(typeof rejectedInterceptor, "function");
+  let expiredReason;
+  let clearSession = Promise.resolve();
+  setSessionExpiredHandler((reason) => {
+    expiredReason = reason;
+    clearSession = Promise.resolve(setSession(null));
+  });
+
+  try {
+    const error = {
+      config: {
+        url: "/auth/me",
+        headers: { Authorization: `Bearer ${blockedAccount.token}` },
+      },
+      response: { status: 403, data: { error: "This account is blocked." } },
+    };
+    await assert.rejects(
+      rejectedInterceptor(error),
+      (caught) => caught === error,
+    );
+    await clearSession;
+
+    assert.equal(expiredReason, "blocked");
+    assert.equal(currentUser(), null);
+    assert.equal(storedSession, null);
+  } finally {
+    setSessionExpiredHandler(null);
+    await setSession(null);
+  }
 });
 
 test("a saved-session read finishing after logout cannot restore the old session", async () => {

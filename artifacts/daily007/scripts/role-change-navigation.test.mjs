@@ -12,6 +12,10 @@ import {
   subscribeToAccountAccessReconnect,
 } from "../src/lib/roleNavigation.ts";
 import { logoutDaily007 } from "../src/lib/logout.ts";
+import {
+  BLOCKED_ACCOUNT_SESSION_NOTICE,
+  isBlockedAccountError,
+} from "../src/lib/session-verification.ts";
 
 const ADMIN_NAV_KEYS = [
   "dashboard",
@@ -162,8 +166,10 @@ async function applyMockAccessRefreshFailure(error) {
       currentUser = updatedUser;
       savedSession = updatedUser;
     },
-    () => {
-      authNotice = "Your Daily007 session is no longer valid. Sign in again to continue.";
+    (error) => {
+      authNotice = isBlockedAccountError(error)
+        ? BLOCKED_ACCOUNT_SESSION_NOTICE
+        : "Your Daily007 session is no longer valid. Sign in again to continue.";
       rejectCalls += 1;
       currentUser = null;
       savedSession = null;
@@ -521,6 +527,19 @@ for (const status of [401, 403]) {
     assert.equal(state.navigation, "Auth");
   });
 }
+
+test("a blocked-account refresh gives clear guidance while clearing the saved session", async () => {
+  const state = await applyMockAccessRefreshFailure({
+    response: { status: 403, data: { error: "This account is blocked." } },
+  });
+
+  assert.equal(state.result, null);
+  assert.equal(state.currentUser, null);
+  assert.equal(state.savedSession, null);
+  assert.equal(state.rejectCalls, 1);
+  assert.equal(state.authNotice, BLOCKED_ACCOUNT_SESSION_NOTICE);
+  assert.equal(state.navigation, "Auth");
+});
 
 test("a Clerk logout failure keeps the app signed out, shows the warning, and allows a later sign-in", async () => {
   const originalUser = {
@@ -919,16 +938,14 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   const authSource = await readFile(new URL("../src/screens/Auth.tsx", import.meta.url), "utf8");
   const googleButtonSource = await readFile(new URL("../src/components/GoogleSSOButton.tsx", import.meta.url), "utf8");
   const adminSource = await readFile(new URL("../src/screens/AdminApp.tsx", import.meta.url), "utf8");
-  const expiredHandlerStart = appSource.indexOf("const handleExpiredSession = () => {");
+  const expiredHandlerStart = appSource.indexOf("const handleExpiredSession = (reason?: 'blocked') => {");
   const expiredHandlerEnd = appSource.indexOf("\n    };", expiredHandlerStart);
   assert.ok(
     expiredHandlerStart >= 0 && expiredHandlerEnd > expiredHandlerStart,
     "The global expired-session handler must remain.",
   );
   const expiredHandlerSource = appSource.slice(expiredHandlerStart, expiredHandlerEnd);
-  const globalNoticeIndex = expiredHandlerSource.indexOf(
-    "setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.')",
-  );
+  const globalNoticeIndex = expiredHandlerSource.indexOf("setAuthNotice(reason === 'blocked'");
   const globalClearSessionIndex = expiredHandlerSource.indexOf("setSession(null)", globalNoticeIndex);
   const globalClearUserIndex = expiredHandlerSource.indexOf("setUser(null)", globalClearSessionIndex);
   assert.ok(
@@ -945,7 +962,9 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     "The API response interceptor must remain.",
   );
   const responseInterceptorSource = apiSource.slice(responseInterceptorStart, responseInterceptorEnd);
-  const handlerCallIndex = responseInterceptorSource.indexOf("sessionExpiredHandler()");
+  const handlerCallIndex = responseInterceptorSource.indexOf(
+    "sessionExpiredHandler(rejectedByBlock ? 'blocked' : undefined)",
+  );
   const fallbackClearIndex = responseInterceptorSource.indexOf("setSession(null)", handlerCallIndex);
   assert.ok(
     handlerCallIndex >= 0 && fallbackClearIndex > handlerCallIndex,
@@ -978,9 +997,7 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   assert.match(refreshSource, /setSessionForIdentity\(refreshedUser,\s*identity\)/);
   assert.match(refreshSource, /isSessionIdentityCurrent\(identity\)/);
   assert.match(refreshSource, /setUser\(refreshedUser\)/);
-  const noticeIndex = refreshSource.indexOf(
-    "setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.')",
-  );
+  const noticeIndex = refreshSource.indexOf("setAuthNotice(isBlockedAccountError(error)");
   const clearSavedSessionIndex = refreshSource.indexOf("setSession(null)", noticeIndex);
   const clearUserIndex = refreshSource.indexOf("setUser(null)", clearSavedSessionIndex);
   assert.ok(

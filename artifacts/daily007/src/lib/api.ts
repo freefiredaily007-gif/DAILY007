@@ -3,6 +3,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAuthExpiredHandler as setGeneratedAuthExpiredHandler } from '@workspace/api-client-react';
 import { API_BASE_URL } from './backendUrl';
+import { isBlockedAccountError, type SessionExpiredReason } from './session-verification';
 
 export type Daily007Role = 'user' | 'tournament_admin' | 'admin';
 
@@ -78,7 +79,7 @@ export function newAdminAdjustmentRequestId(): string {
 // Deliberately distinct from the legacy hosted app's AsyncStorage keys.
 const KEY = 'daily007_v2_session';
 let current: User | null = null;
-let sessionExpiredHandler: (() => void) | null = null;
+let sessionExpiredHandler: ((reason?: SessionExpiredReason) => void) | null = null;
 let sessionRevision = 0;
 let sessionPersistenceQueue: Promise<void> = Promise.resolve();
 let devSessionPersistenceFailuresRemainingForTest = 0;
@@ -170,7 +171,9 @@ const AUTH_ENTRY_PATHS = [
   '/auth/google/recovery-owner',
 ];
 
-export function setSessionExpiredHandler(handler: (() => void) | null): void {
+export function setSessionExpiredHandler(
+  handler: ((reason?: SessionExpiredReason) => void) | null,
+): void {
   sessionExpiredHandler = handler;
   setGeneratedAuthExpiredHandler(handler);
 }
@@ -192,10 +195,15 @@ http.interceptors.response.use(
       requestAuthorization.startsWith('Bearer ')
       ? requestAuthorization.slice('Bearer '.length)
       : null;
-    if (error?.response?.status === 401 && current?.token &&
-        (!isAuthEntry || googleLinkRejectedOldSession) &&
+    const rejectedByBlock = isBlockedAccountError(error);
+    const shouldExpireSession = error?.response?.status === 401
+      ? (!isAuthEntry || googleLinkRejectedOldSession)
+      : rejectedByBlock;
+    if (shouldExpireSession && current?.token &&
         (!requestToken || requestToken === current.token)) {
-      if (sessionExpiredHandler) sessionExpiredHandler();
+      if (sessionExpiredHandler) {
+        sessionExpiredHandler(rejectedByBlock ? 'blocked' : undefined);
+      }
       else setSession(null);
     }
     return Promise.reject(error);

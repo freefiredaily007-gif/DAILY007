@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test, { mock } from "node:test";
 import ts from "typescript";
 import {
+  BLOCKED_ACCOUNT_SESSION_NOTICE,
   restoreDaily007Session,
   runSingleFlight,
   subscribeToSessionVerificationRecovery,
@@ -484,6 +485,20 @@ test("401 and 403 verification responses clear the saved session", async () => {
     assert.equal(storage.readSession(), null);
     assert.equal(storage.removeCalls, 1);
   }
+});
+
+test("a blocked-account response clears the saved session and preserves its reason", async () => {
+  const storage = mockStorage();
+  const result = await restoreFromMockStorage(storage, async () => {
+    throw Object.assign(new Error("This account is blocked."), {
+      response: { status: 403, data: { error: "This account is blocked." } },
+    });
+  });
+
+  assert.deepEqual(result, { status: "rejected", reason: "blocked" });
+  assert.equal(storage.readSession(), null);
+  assert.equal(storage.removeCalls, 1);
+  assert.match(BLOCKED_ACCOUNT_SESSION_NOTICE, /account is blocked/i);
 });
 
 test("a server error preserves the saved token and returns a retry state", async () => {
@@ -1476,7 +1491,15 @@ test("startup discards damaged saved sessions without verification, then restore
   });
 
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const authSource = await readFile(new URL("../src/screens/Auth.tsx", import.meta.url), "utf8");
   assert.match(appSource, /restoreDaily007Session\(getSession, Api\.me, setSession\)/);
+  assert.match(appSource, /result\.status === 'rejected' && result\.reason === 'blocked'/);
+  assert.match(appSource, /setAuthNotice\(BLOCKED_ACCOUNT_SESSION_NOTICE\)/);
+  assert.match(authSource, /testID="auth-session-notice"/);
+  assert.match(authSource, /accessibilityLabel=\{notice\}/);
+  assert.match(authSource, /Platform\.OS === 'ios' && notice/);
+  assert.match(authSource, /AccessibilityInfo\.announceForAccessibility\(notice\)/);
+  assert.match(authSource, /accessibilityLiveRegion=\{Platform\.OS === 'ios' \? undefined : 'polite'\}/);
   assert.match(
     appSource,
     /finally \{\s*if \(mounted\) setBooting\(false\);\s*\}/,

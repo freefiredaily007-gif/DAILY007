@@ -45,6 +45,8 @@ import { getPlayerTabBarHeight } from './lib/playerTabBarSizing';
 import { logoutDaily007 } from './lib/logout';
 import { clearPendingVideoRewardRetry } from './lib/video-reward-retry';
 import {
+  BLOCKED_ACCOUNT_SESSION_NOTICE,
+  isBlockedAccountError,
   restoreDaily007Session,
   runSingleFlight,
   subscribeToSessionVerificationRecovery,
@@ -253,8 +255,10 @@ function DailyApp({
   const logoutInFlight = useRef(false);
 
   useEffect(() => {
-    const handleExpiredSession = () => {
-      setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
+    const handleExpiredSession = (reason?: 'blocked') => {
+      setAuthNotice(reason === 'blocked'
+        ? BLOCKED_ACCOUNT_SESSION_NOTICE
+        : 'Your Daily007 session is no longer valid. Sign in again to continue.');
       setGoogleLinkError('');
       setPendingGoogleLinkSession(null);
       setSession(null);
@@ -274,6 +278,9 @@ function DailyApp({
         if (!mounted) return;
         if (result.status === 'verified') setUser(result.session);
         else if (result.status === 'retry') setVerificationSession(result.session);
+        else if (result.status === 'rejected' && result.reason === 'blocked') {
+          setAuthNotice(BLOCKED_ACCOUNT_SESSION_NOTICE);
+        }
       } catch {
         if (mounted) setSessionReadFailed(true);
       } finally {
@@ -298,6 +305,9 @@ function DailyApp({
           setVerificationSession(null);
           setUser(result.session);
         } else if (result.status === 'rejected' || result.status === 'empty') {
+          if (result.status === 'rejected' && result.reason === 'blocked') {
+            setAuthNotice(BLOCKED_ACCOUNT_SESSION_NOTICE);
+          }
           setVerificationSession(null);
           setUser(null);
         } else {
@@ -320,6 +330,9 @@ function DailyApp({
         setSessionReadFailed(false);
         if (result.status === 'verified') setUser(result.session);
         else if (result.status === 'retry') setVerificationSession(result.session);
+        else if (result.status === 'rejected' && result.reason === 'blocked') {
+          setAuthNotice(BLOCKED_ACCOUNT_SESSION_NOTICE);
+        }
       } catch {
         // Keep the recovery screen visible; a failed read is not a missing session.
         setSessionReadFailed(true);
@@ -359,6 +372,7 @@ function DailyApp({
           (e?.response?.status === 401 || e?.response?.status === 403) &&
           isSessionIdentityCurrent(identity)
         ) {
+          if (isBlockedAccountError(e)) setAuthNotice(BLOCKED_ACCOUNT_SESSION_NOTICE);
           setSession(null);
           setUser(null);
         }
@@ -387,8 +401,10 @@ function DailyApp({
           setUser(refreshedUser);
           return true;
         },
-        () => {
-          setAuthNotice('Your Daily007 session is no longer valid. Sign in again to continue.');
+        (error) => {
+          setAuthNotice(isBlockedAccountError(error)
+            ? BLOCKED_ACCOUNT_SESSION_NOTICE
+            : 'Your Daily007 session is no longer valid. Sign in again to continue.');
           setSession(null);
           setUser(null);
         },

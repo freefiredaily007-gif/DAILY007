@@ -1,8 +1,20 @@
 export type SessionRestoreResult<T> =
   | { status: 'empty' }
   | { status: 'verified'; session: T }
-  | { status: 'rejected' }
+  | { status: 'rejected'; reason?: 'blocked' }
   | { status: 'retry'; session: T };
+
+export const BLOCKED_ACCOUNT_SESSION_NOTICE =
+  'Your Daily007 account is blocked. Your saved sign-in has been cleared. Please contact an administrator to review your access.';
+
+export type SessionExpiredReason = 'blocked';
+
+export function isBlockedAccountError(error: unknown): boolean {
+  const response = (error as {
+    response?: { status?: unknown; data?: { error?: unknown } };
+  } | null)?.response;
+  return response?.status === 403 && response.data?.error === 'This account is blocked.';
+}
 
 export interface SessionVerificationNetworkState {
   isConnected?: boolean | null;
@@ -93,7 +105,9 @@ export async function restoreDaily007Session<T extends { token?: string }>(
   } catch (error) {
     if (isAuthenticationRejection(error)) {
       await updateStoredSession(null);
-      return { status: 'rejected' };
+      return isBlockedAccountError(error)
+        ? { status: 'rejected', reason: 'blocked' }
+        : { status: 'rejected' };
     }
     return { status: 'retry', session: savedSession };
   }
