@@ -53,6 +53,7 @@ const profileLinkStorageRestartScenario = scenario === "profile-link-storage-res
 const googleReferralRelaunchScenario = scenario === "lowercase-referral";
 const googleReferralResponseLostScenario = scenario === "referral-response-lost";
 const heldPasswordLoginScenario = scenario === "password-first";
+const passwordGoogleRetryScenario = scenario === "password-google-retry";
 const restartBackendStorageKey = "daily007-test-password-signup-backend";
 const restartScenarioMarkerKey = "daily007-test-password-signup-scenario";
 const profileLinkRestartBackendStorageKey = "daily007-test-profile-link-backend";
@@ -115,6 +116,7 @@ const unexpectedRequests = passwordSignupRestartScenario
       : [];
 const pendingGoogleExchangeResolvers = [];
 const pendingPasswordLoginResolvers = [];
+const pendingPasswordLoginRejectors = [];
 let googleExchangeAttempts = 0;
 let inFlightGoogleExchanges = 0;
 let maxConcurrentGoogleExchanges = 0;
@@ -253,15 +255,28 @@ http.defaults.adapter = async (config) => {
     persistRestartBackendState();
     return respond(config, { ...PASSWORD_SIGNUP_ACCOUNT, token: PASSWORD_SIGNUP_TOKEN });
   }
-  if (heldPasswordLoginScenario && method === "POST" && path === "/auth/login") {
+  if ((heldPasswordLoginScenario || passwordGoogleRetryScenario)
+      && method === "POST" && path === "/auth/login") {
     passwordAuthAttempts += 1;
     inFlightPasswordLogins += 1;
-    return new Promise((resolve) => {
-      pendingPasswordLoginResolvers.push(() => {
-        inFlightPasswordLogins -= 1;
-        call.status = 200;
-        resolve(respond(config, { ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN }));
-      });
+    return new Promise((resolve, reject) => {
+      if (heldPasswordLoginScenario) {
+        pendingPasswordLoginResolvers.push(() => {
+          inFlightPasswordLogins -= 1;
+          call.status = 200;
+          resolve(respond(config, { ...PASSWORD_ACCOUNT, token: PASSWORD_TOKEN }));
+        });
+      }
+      if (passwordGoogleRetryScenario) {
+        pendingPasswordLoginRejectors.push(() => {
+          inFlightPasswordLogins -= 1;
+          try {
+            rejectMockAuth(config, 401, "Email or password is incorrect.", "Unauthorized");
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
     });
   }
   if (passwordSignupRestartScenario && method === "POST" && path === "/auth/login") {
@@ -375,7 +390,7 @@ http.defaults.adapter = async (config) => {
       call.status = 200;
       return respond(config, { ...ACCOUNT, token: DAILY007_TOKEN });
     }
-    if (!storageFailureScenario && !profileLinkScenario &&
+    if (!storageFailureScenario && !profileLinkScenario && !passwordGoogleRetryScenario &&
         scenario !== "lowercase-referral" && googleExchangeAttempts === 1) {
       call.failure = {
         type: "network",
@@ -539,6 +554,12 @@ window.__daily007GoogleSignupWalletTest = {
     const resolve = pendingPasswordLoginResolvers.shift();
     if (!resolve) return false;
     resolve();
+    return true;
+  },
+  rejectNextPasswordLogin() {
+    const reject = pendingPasswordLoginRejectors.shift();
+    if (!reject) return false;
+    reject();
     return true;
   },
   rejectNextSessionWrite() {

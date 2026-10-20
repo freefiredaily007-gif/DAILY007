@@ -19,6 +19,16 @@ Use a test account that can be signed into successfully after the wrong-password
 
 Record the spoken wording, whether it repeated, and where focus remained separately for Android TalkBack and iOS VoiceOver.
 
+## Google recovery on Android
+
+Use a signed-out test account whose Daily007 identity is already linked to the Google account being used. Make one wrong-password attempt so login throttling does not interfere.
+
+1. Enter the linked account's email and an intentionally incorrect password, then activate **LOGIN**.
+2. Confirm **“Email or password is incorrect.”** appears.
+3. Confirm **Continue with Google** is enabled again.
+4. Tap **Continue with Google** and finish the Google sign-in for that linked identity.
+5. Confirm Daily007 signs in once and opens the app; the Google action should not remain busy or reopen the provider flow by itself.
+
 ## Platform behavior
 
 - Android uses the Auth error's assertive live region.

@@ -707,6 +707,109 @@ try {
   assert.equal(completedPasswordLoginConflict.unexpectedRequests.length, 0);
 
   await cdp("Page.navigate", {
+    url: `${previewUrl(vitePort)}?scenario=password-google-retry`,
+  });
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="continue-with-google"]'))`,
+    "the authentication screen for password-failure Google recovery",
+  );
+  await setInputValue(
+    '[data-testid="auth-email"]',
+    "password-player@example.test",
+    "login email before the rejected password attempt",
+  );
+  await setInputValue(
+    '[data-testid="auth-password"]',
+    "intentionally-wrong-password",
+    "incorrect login password before Google recovery",
+  );
+  await clickSelector('[data-testid="auth-submit"]', "start the held password login that will fail");
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.passwordAuthAttempts === 1 && state.inFlightPasswordLogins === 1)`,
+    "the password login held before its invalid-credentials rejection",
+  );
+  const googleWhileFailedLoginPending = await evaluate(`(() => {
+    const google = document.querySelector('[data-testid="continue-with-google"]');
+    return google?.disabled === true || google?.getAttribute("aria-disabled") === "true";
+  })()`);
+  assert.equal(googleWhileFailedLoginPending, true,
+    "Google sign-in must stay disabled until password authentication settles.");
+  await clickSelector(
+    '[data-testid="continue-with-google"]',
+    "Google sign-in while the rejected password request is still pending",
+  );
+  const noQueuedGoogleHandoff = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(noQueuedGoogleHandoff.googleExchangeAttempts, 0);
+  assert.equal(noQueuedGoogleHandoff.clerk.events.includes("start-sso"), false,
+    "A disabled Google tap must not start or queue a provider handoff.");
+  assert.equal(
+    await evaluate("window.__daily007GoogleSignupWalletTest.rejectNextPasswordLogin()"),
+    true,
+    "The held password request should be rejected with invalid credentials.",
+  );
+  await waitForExpression(
+    `window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+      state.inFlightPasswordLogins === 0
+      && document.querySelector('[data-testid="auth-error"]')?.textContent?.includes("Email or password is incorrect.")
+      && document.querySelector('[data-testid="continue-with-google"]')?.disabled !== true
+      && document.querySelector('[data-testid="continue-with-google"]')?.getAttribute("aria-disabled") !== "true"
+      && document.querySelector('[data-testid="auth-submit"]')?.disabled !== true)`,
+    "the invalid-credentials message and re-enabled login and Google controls",
+  );
+  const passwordFailureRecoveryView = await evaluate(`(() => ({
+    error: document.querySelector('[data-testid="auth-error"]')?.textContent?.trim() ?? "",
+    googleDisabled: document.querySelector('[data-testid="continue-with-google"]')?.disabled === true
+      || document.querySelector('[data-testid="continue-with-google"]')?.getAttribute("aria-disabled") === "true",
+    submitDisabled: document.querySelector('[data-testid="auth-submit"]')?.disabled === true
+      || document.querySelector('[data-testid="auth-submit"]')?.getAttribute("aria-disabled") === "true",
+    googleBusy: document.querySelector('[data-testid="continue-with-google"]')?.getAttribute("aria-busy") === "true",
+  }))()`);
+  assert.match(passwordFailureRecoveryView.error, /Email or password is incorrect\./);
+  assert.deepEqual({
+    googleDisabled: false,
+    submitDisabled: false,
+    googleBusy: false,
+  }, {
+    googleDisabled: passwordFailureRecoveryView.googleDisabled,
+    submitDisabled: passwordFailureRecoveryView.submitDisabled,
+    googleBusy: passwordFailureRecoveryView.googleBusy,
+  });
+  const beforeGoogleRetry = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  assert.equal(beforeGoogleRetry.passwordAuthAttempts, 1);
+  assert.equal(beforeGoogleRetry.googleExchangeAttempts, 0);
+  assert.deepEqual(beforeGoogleRetry.clerk.events, [],
+    "The rejected password request must not replay the earlier disabled Google tap.");
+
+  await clickSelector('[data-testid="continue-with-google"]', "Google sign-in after password rejection");
+  await waitForExpression(
+    `Boolean(document.querySelector('[data-testid="mock-tab-wallet"]'))
+      && window.__daily007GoogleSignupWalletTest.snapshot().then((state) =>
+        state.googleExchangeAttempts === 1
+        && state.currentSession?.id === "mock-daily007-google-player"
+        && state.storedSession?.token === "mock-daily007-session-token")`,
+    "one completed Google sign-in after the password rejection",
+  );
+  const completedGoogleRecovery = await evaluate("window.__daily007GoogleSignupWalletTest.snapshot()");
+  const recoveryAuthRequests = completedGoogleRecovery.calls.filter(
+    (call) => call.method === "POST" && ["/auth/login", "/auth/google"].includes(call.path),
+  );
+  assert.deepEqual(
+    recoveryAuthRequests.map((call) => call.path),
+    ["/auth/login", "/auth/google"],
+    "Recovery should contain one rejected password request followed by one Google exchange.",
+  );
+  assert.equal(completedGoogleRecovery.passwordAuthAttempts, 1);
+  assert.equal(completedGoogleRecovery.googleExchangeAttempts, 1);
+  assert.equal(completedGoogleRecovery.clerk.events.filter((event) => event === "start-sso").length, 1,
+    "Google should open exactly one provider flow after password rejection.");
+  assert.equal(completedGoogleRecovery.currentSession?.id, "mock-daily007-google-player");
+  assert.equal(completedGoogleRecovery.currentSession?.token, "mock-daily007-session-token");
+  assert.equal(completedGoogleRecovery.storedSession?.id, "mock-daily007-google-player");
+  assert.equal(completedGoogleRecovery.storedSession?.token, "mock-daily007-session-token");
+  assert.equal(completedGoogleRecovery.unexpectedRequests.length, 0);
+
+  await cdp("Page.navigate", {
     url: `${previewUrl(vitePort)}?scenario=auth-cancel`,
   });
   await waitForExpression(
