@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
@@ -55,7 +55,8 @@ export function RoomCredentialsPanel({
         ? 'The admin has not shared room details yet.'
         : 'Room details will be available soon.';
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    copyRequestGuard.current.invalidateRequests();
     setCopyFeedback(null);
   }, [credentialsReady, id, password]);
 
