@@ -431,6 +431,85 @@ test("rapid Google sign-in taps share one pending provider flow and account exch
   ]);
 });
 
+test("rapid Google sign-in taps are ignored while the Daily007 account exchange is pending", async () => {
+  const loadingChanges = [];
+  const errors = [];
+  const successes = [];
+  const events = [];
+  const inFlight = { current: false };
+  let loading = false;
+  let providerAttempts = 0;
+  let accountExchanges = 0;
+  let activeSession = null;
+  let startExchange;
+  let settleExchange;
+  const exchangeStarted = new Promise((resolve) => {
+    startExchange = resolve;
+  });
+  const pendingExchange = new Promise((resolve) => {
+    settleExchange = resolve;
+  });
+
+  async function attemptSignIn() {
+    await runGoogleSSOAttempt({
+      inFlight,
+      authenticate: () => runGoogleSSOFlow({
+        getActiveSession: () => activeSession,
+        async startSSOFlow() {
+          providerAttempts += 1;
+          return {
+            createdSessionId: "single-exchange-session",
+            async setActive({ session }) {
+              activeSession = createSession(session, events);
+            },
+          };
+        },
+        async exchangeToken(token) {
+          accountExchanges += 1;
+          events.push(`exchange:${token}`);
+          startExchange();
+          return pendingExchange;
+        },
+      }),
+      setLoading(value) {
+        loading = value;
+        loadingChanges.push(value);
+      },
+      showError: (message) => errors.push(message),
+      onSuccess: (value) => successes.push(value),
+      getErrorMessage: (error) => `${error.message}. Please try again.`,
+    });
+  }
+
+  const originalAttempt = attemptSignIn();
+  await exchangeStarted;
+  assert.equal(loading, true);
+  assert.equal(inFlight.current, true);
+  assert.equal(providerAttempts, 1);
+  assert.equal(accountExchanges, 1);
+  assert.deepEqual(events, [
+    "token:single-exchange-session",
+    "exchange:verified-clerk-jwt",
+  ]);
+
+  await attemptSignIn();
+  assert.equal(loading, true, "the ignored tap must not clear the original attempt's busy state");
+  assert.equal(inFlight.current, true);
+  assert.equal(providerAttempts, 1, "the second tap must not start another provider flow");
+  assert.equal(accountExchanges, 1, "the second tap must not start another account exchange");
+
+  settleExchange({ account: "daily007-player" });
+  await originalAttempt;
+
+  assert.equal(loading, false, "the Google button should be available after the exchange settles");
+  assert.equal(inFlight.current, false);
+  assert.equal(providerAttempts, 1);
+  assert.equal(accountExchanges, 1);
+  assert.deepEqual(loadingChanges, [true, false]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(successes, [{ account: "daily007-player" }]);
+});
+
 test("Google sign-in can be retried when Clerk token retrieval rejects", async () => {
   const loadingChanges = [];
   const errors = [];
