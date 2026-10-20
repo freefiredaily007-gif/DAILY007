@@ -4317,6 +4317,29 @@ test("compatibility tournament create and edit preserve the IST schedule through
       assert.equal(createdReloadResponse.status, 200);
       assertReturnedSchedule(await createdReloadResponse.json() as unknown, createdSchedule, "create reload");
 
+      const detailsPatchResponse = await fetch(`${origin}/tournaments/${created.id}`, {
+        method: "PATCH",
+        headers: authHeaders(fixture.adminId),
+        body: JSON.stringify({ prizePool: 1_250 }),
+      });
+      const detailsPatchBody = await detailsPatchResponse.text();
+      assert.equal(
+        detailsPatchResponse.status,
+        200,
+        `a non-time tournament edit should succeed: ${detailsPatchBody}`,
+      );
+      const detailsPatched = JSON.parse(detailsPatchBody) as Record<string, unknown>;
+      assertReturnedSchedule(detailsPatched, createdSchedule, "non-time patch response");
+      assert.equal(detailsPatched.prizePool, 1_250, "the non-time field should be updated");
+      await assertPersistedSchedule(created.id, createdSchedule, "tournament after non-time patch");
+
+      const detailsReloadResponse = await fetch(`${origin}/tournaments/${created.id}`);
+      assert.equal(detailsReloadResponse.status, 200);
+      const detailsReloaded = await detailsReloadResponse.json() as Record<string, unknown>;
+      assertReturnedSchedule(detailsReloaded, createdSchedule, "non-time patch reload");
+      assert.equal(detailsReloaded.prizePool, 1_250, "the updated prize pool should survive a fresh detail read");
+      await assertPersistedSchedule(created.id, createdSchedule, "non-time patch reload");
+
       const editResponse = await fetch(`${origin}/tournaments/${created.id}`, {
         method: "PATCH",
         headers: authHeaders(fixture.adminId),
