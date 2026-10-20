@@ -1415,6 +1415,45 @@ test("concurrent approvals of separate leaderboard cycles add both rewards to th
           balanceAfter: startingBalance + weeklyReward + monthlyReward,
         }],
       );
+
+      const walletHistory = await getJson(origin, "/wallet/transactions", winnerId);
+      assert.equal(walletHistory.status, 200, JSON.stringify(walletHistory.body));
+      assert.ok(Array.isArray(walletHistory.body));
+      const leaderboardHistory = (walletHistory.body as {
+        amount: number;
+        balanceAfter: number;
+        reason: string;
+        description: string;
+        details: { periodId: string; cycleType: string; rank: number };
+      }[]).map((transaction) => ({
+        amount: transaction.amount,
+        balanceAfter: transaction.balanceAfter,
+        reason: transaction.reason,
+        description: transaction.description,
+        periodId: transaction.details.periodId,
+        cycleType: transaction.details.cycleType,
+        rank: transaction.details.rank,
+      })).sort((left, right) => left.cycleType.localeCompare(right.cycleType));
+      assert.deepEqual(leaderboardHistory, [
+        {
+          amount: monthlyReward,
+          balanceAfter: startingBalance + weeklyReward + monthlyReward,
+          reason: "Monthly Leaderboard Rank #1 Reward",
+          description: "Monthly Leaderboard Rank #1 Reward",
+          periodId: monthlyPeriodId,
+          cycleType: "monthly",
+          rank: 1,
+        },
+        {
+          amount: weeklyReward,
+          balanceAfter: startingBalance + weeklyReward,
+          reason: "Weekly Leaderboard Rank #1 Reward",
+          description: "Weekly Leaderboard Rank #1 Reward",
+          periodId: weeklyPeriodId,
+          cycleType: "weekly",
+          rank: 1,
+        },
+      ]);
     });
 
     const periods = await pool.query<{
