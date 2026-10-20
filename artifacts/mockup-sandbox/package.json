@@ -46,6 +46,7 @@
     "test:home-carousel-single-card": "node scripts/test-admin-narrow.mjs --home-carousel-single-card-only",
     "test:admin-tournament-home-refresh": "node scripts/test-admin-narrow.mjs --admin-tournament-home-refresh-only",
     "test:admin-tournament-edit-save": "node scripts/test-admin-narrow.mjs --admin-tournament-edit-save-only",
+    "test:admin-tournament-leap-day-edit-save": "node scripts/test-admin-narrow.mjs --admin-tournament-leap-day-edit-save-only",
     "test:tournament-refresh-return": "node scripts/test-admin-narrow.mjs --refresh-return-only",
     "test:tournament-refresh-coalescing": "node scripts/test-admin-narrow.mjs --refresh-coalescing-only",
     "test:player-largest-text": "node scripts/test-player-largest-text.mjs",

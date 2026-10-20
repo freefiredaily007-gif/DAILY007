@@ -59,6 +59,7 @@ const adminTournamentCreateSaveOnly = process.argv.includes("--admin-tournament-
 const adminTournamentEmptyFilterOnly = process.argv.includes("--admin-tournament-empty-filter-only");
 const adminTournamentHomeRefreshOnly = process.argv.includes("--admin-tournament-home-refresh-only");
 const adminTournamentEditSaveOnly = process.argv.includes("--admin-tournament-edit-save-only");
+const adminTournamentLeapDayEditSaveOnly = process.argv.includes("--admin-tournament-leap-day-edit-save-only");
 const scheduledStartOnly = process.argv.includes("--scheduled-start-only");
 const sameTimeStartOnly = process.argv.includes("--same-time-start-only");
 const adminActionsOnly = process.argv.includes("--admin-actions-only");
@@ -9172,7 +9173,7 @@ async function checkAdminTournamentEditSaveAtLargeText() {
   const name = "Clash Night 8";
   await setTournamentFormValue('input[placeholder="Tournament name *"]', name);
   await assertVisibleAdminControlsFit(320, "selected tournament edit form");
-  const date = "2031-12-31";
+  const date = adminTournamentLeapDayEditSaveOnly ? "2032-02-29" : "2031-12-31";
   const time = "11:45 PM";
   const imageUrl = "https://example.invalid/clash-night-8.png";
   const rules = "Bring your own device.\nNo scripts or exploits.";
@@ -9268,10 +9269,24 @@ async function checkAdminTournamentEditSaveAtLargeText() {
     window.sessionStorage.getItem("daily007-admin-edited-tournament-home-refresh") ?? "null"
   )`);
   const expectedStartsAt = new Date(`${date}T23:45:00+05:30`).toISOString();
+  const canonicalIstDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(expectedStartsAt));
+  const canonicalIstTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(expectedStartsAt));
   assert(
     savedSchedule?.date === date &&
       savedSchedule?.time === time &&
-      savedSchedule?.startsAt === expectedStartsAt,
+      savedSchedule?.startsAt === expectedStartsAt &&
+      canonicalIstDate === date &&
+      canonicalIstTime === "23:45",
     `The saved Admin edit should include the selected IST schedule and its canonical start instant: ${JSON.stringify(savedSchedule)}.`,
   );
 
@@ -9919,6 +9934,7 @@ try {
     adminTournamentEmptyFilterOnly ||
     adminTournamentHomeRefreshOnly ||
     adminTournamentEditSaveOnly ||
+    adminTournamentLeapDayEditSaveOnly ||
     adminActionsOnly ||
     adminFullAdminRecoveryOnly ||
     adminLandscapeOnly
@@ -10012,7 +10028,7 @@ try {
           ? "Admin Wallet and Users search fields"
         : adminSearchAccessibilityOnly
           ? "Admin Wallet and Users search announcements"
-        : adminTournamentEditSaveOnly
+        : adminTournamentEditSaveOnly || adminTournamentLeapDayEditSaveOnly
           ? "Admin tournament editing at 320px with 1.5× text"
         : adminTournamentCreateSaveOnly
           ? "Admin tournament creation at 320px with 1.5× text"
@@ -10213,13 +10229,17 @@ try {
         `Browser errors during large-text tournament creation checks: ${browserErrors.join(" | ")}`,
       );
       console.log("PASS — Tournament creation at 320px/1.5× submits every entered setting and shows success.");
-    } else if (adminTournamentEditSaveOnly) {
+    } else if (adminTournamentEditSaveOnly || adminTournamentLeapDayEditSaveOnly) {
       await checkAdminTournamentEditSaveAtLargeText();
       assert(
         browserErrors.length === 0,
         `Browser errors during large-text tournament edit checks: ${browserErrors.join(" | ")}`,
       );
-      console.log("PASS — Admin saves the edited IST schedule in Pacific/Kiritimati, and Home, Tournament Details, and My Matches show the same date/time in Kiritimati and Los Angeles.");
+      console.log(
+        adminTournamentLeapDayEditSaveOnly
+          ? "PASS — Admin saves the February 29, 2032 IST schedule in Pacific/Kiritimati, and Home, Tournament Details, and My Matches show the same date/time in Kiritimati and Los Angeles."
+          : "PASS — Admin saves the edited IST schedule in Pacific/Kiritimati, and Home, Tournament Details, and My Matches show the same date/time in Kiritimati and Los Angeles.",
+      );
     } else if (adminFullAdminRecoveryOnly) {
       await checkAdminFullAdminRoleRefreshRecovery();
       assert(
