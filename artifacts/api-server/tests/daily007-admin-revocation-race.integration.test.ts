@@ -4548,3 +4548,80 @@ test("tournament writes queued behind access revocation are denied without chang
     );
   }
 });
+
+test("a stale deletion confirmation cannot remove a player promoted after the admin loaded the user list", async () => {
+  const adminId = randomUUID();
+  const targetId = randomUUID();
+  const targetEmail = `deletion-target-${targetId}@example.test`;
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role)
+       VALUES
+         ($1, 'Deletion Confirmation Admin', $2, 'test-salt', 'test-hash', 'admin'),
+         ($3, 'Promoted Deletion Target', $4, 'test-salt', 'test-hash', 'user')`,
+      [adminId, `deletion-admin-${adminId}@example.test`, targetId, targetEmail],
+    );
+
+    await withServer(async (origin) => {
+      const initialList = await getJson(origin, "/admin/users", adminId);
+      assert.equal(initialList.status, 200);
+      assert.ok(Array.isArray(initialList.body), "the Admin user list should load before confirmation");
+      const staleTarget = (initialList.body as Record<string, unknown>[])
+        .find((user) => user.id === targetId);
+      assert.equal(staleTarget?.role, "user", "the list should initially show a regular player");
+
+      const promotion = await patchJson(
+        origin,
+        `/admin/users/${targetId}/role`,
+        adminId,
+        { role: "tournament_admin" },
+      );
+      assert.deepEqual(promotion, { status: 200, body: { id: targetId, role: "tournament_admin" } });
+
+      const promoted = await pool.query<{
+        id: string;
+        email: string;
+        role: string;
+        status: string;
+        auth_version: number;
+        clerk_user_id: string | null;
+      }>(
+        `SELECT id, email, role, status, auth_version, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [targetId],
+      );
+      assert.equal(promoted.rows.length, 1);
+      assert.equal(promoted.rows[0]?.role, "tournament_admin");
+
+      const deletion = await postJson(
+        origin,
+        `/admin/users/${targetId}/delete`,
+        adminId,
+        { confirmationEmail: targetEmail },
+      );
+      assert.deepEqual(
+        deletion,
+        {
+          status: 409,
+          body: {
+            error: "Only regular player accounts can be deleted. Remove administrator access first.",
+          },
+        },
+        "the deletion endpoint must recheck the target's current role, not trust the stale list",
+      );
+
+      const after = await pool.query(
+        `SELECT id, email, role, status, auth_version, clerk_user_id
+           FROM daily007_v2_users
+          WHERE id = $1`,
+        [targetId],
+      );
+      assert.deepEqual(after.rows, promoted.rows, "the promoted account must remain unchanged");
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [[adminId, targetId]]);
+  }
+});

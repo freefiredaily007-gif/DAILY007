@@ -7,9 +7,11 @@ CREATE TABLE daily007_v2_users (
   auth_version integer NOT NULL DEFAULT 0,
   phone text,
   game_uid text,
+  clerk_user_id text UNIQUE,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'blocked')),
   role text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'tournament_admin', 'admin')),
-  wallet_coins integer NOT NULL DEFAULT 0 CHECK (wallet_coins >= 0)
+  wallet_coins integer NOT NULL DEFAULT 0 CHECK (wallet_coins >= 0),
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE daily007_v2_payments (
