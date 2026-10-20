@@ -62,3 +62,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** Returning a live-region node exceeded CDP's serializable-object chain limit and stopped the browser test before its assertions.
 
 **How to apply:** Wrap page-side node assignment in a function that returns `true`, then compare the stored node in later boolean evaluations.
+
+**Rule:** On React Native Web, `Animated.createAnimatedComponent(Pressable)` can drop a Pressable `style` callback, leaving the control at intrinsic size. For controls needing custom layout, use an opt-in static style array and explicit pressed state.
+
+**Why:** A DAILY007 auth button stayed at its text height when its 56px style was returned from the animated Pressable callback; the static style path produced the intended tap target.
+
+**How to apply:** Keep the static-style path opt-in so other buttons retain their existing behavior, and verify the target's rendered bounds in Chromium.
