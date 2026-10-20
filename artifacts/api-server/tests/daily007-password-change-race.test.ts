@@ -341,8 +341,8 @@ test("simultaneous password changes based on the same credentials allow only one
       "The password changed in another session. Sign in again and retry.",
     );
 
-    assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 2);
-    assert.deepEqual(passwordChangeTestDb.credentialReadSnapshots, [
+    assert.equal(passwordChangeTestDb.credentialReadSnapshots.length, 3);
+    assert.deepEqual(passwordChangeTestDb.credentialReadSnapshots.slice(0, 2), [
       { password_salt: before.password_salt, password_hash: before.password_hash },
       { password_salt: before.password_salt, password_hash: before.password_hash },
     ], "both authenticated requests must read the same original credential pair");
@@ -352,6 +352,11 @@ test("simultaneous password changes based on the same credentials allow only one
     const after = passwordChangeTestDb.snapshot();
     assert.notEqual(after.password_salt, before.password_salt);
     assert.notEqual(after.password_hash, before.password_hash);
+    assert.deepEqual(
+      passwordChangeTestDb.credentialReadSnapshots[2],
+      { password_salt: after.password_salt, password_hash: after.password_hash },
+      "the losing compare-and-swap should re-read the winning credential pair before reporting conflict",
+    );
     assert.equal(after.auth_version, before.auth_version, "password changes must not replace sessions");
     assert.equal(after.name, before.name);
     assert.equal(after.email, before.email);

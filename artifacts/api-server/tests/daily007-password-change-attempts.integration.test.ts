@@ -389,6 +389,62 @@ test("a successful password change survives an API restart and resets only that 
   assert.deepEqual(attemptsAfterChange.get(secondUserId), { failures: 1, in_flight: 0 });
 });
 
+test("a rejected password change leaves the original password usable after an API restart", async () => {
+  const userId = randomUUID();
+  const originalPassword = "original-password-after-rejected-change";
+  const email = `password-change-rejected-restart-${userId}@example.test`;
+  const originalCredentials = await hashPassword(originalPassword);
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash)
+     VALUES ($1, 'Rejected Change Player', $2, $3, $4)`,
+    [userId, email, originalCredentials.salt, originalCredentials.hash],
+  );
+
+  const token = makeToken(userId, 0);
+  assert.ok(token);
+  const api = await startApiProcess();
+
+  try {
+    const rejectedChange = await passwordChange(api.origin, token, "definitely-wrong-current-password");
+    assert.equal(rejectedChange.status, 401, "an incorrect current password must reject the change");
+    await waitForSettledPasswordAttempts([userId]);
+
+    const beforeRestart = await pool.query<{ password_salt: string; password_hash: string }>(
+      "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+      [userId],
+    );
+    assert.equal(beforeRestart.rows[0]?.password_salt, originalCredentials.salt);
+    assert.equal(beforeRestart.rows[0]?.password_hash, originalCredentials.hash);
+
+    await api.stop();
+    const restartedApi = await startApiProcess();
+
+    const originalPasswordLogin = await passwordLogin(restartedApi.origin, email, originalPassword);
+    assert.equal(originalPasswordLogin.status, 200, "the original password should still sign in after restart");
+    assert.equal(originalPasswordLogin.body.id, userId);
+    assert.equal(typeof originalPasswordLogin.body.token, "string");
+
+    const replacementPasswordLogin = await passwordLogin(
+      restartedApi.origin,
+      email,
+      TEST_REPLACEMENT_PASSWORD,
+    );
+    assert.equal(replacementPasswordLogin.status, 401, "a rejected replacement password must not become active");
+    assert.equal(replacementPasswordLogin.body.error, "Email or password is incorrect.");
+    assert.equal(replacementPasswordLogin.body.token, undefined);
+
+    const afterRestart = await pool.query<{ password_salt: string; password_hash: string }>(
+      "SELECT password_salt, password_hash FROM daily007_v2_users WHERE id = $1",
+      [userId],
+    );
+    assert.equal(afterRestart.rows[0]?.password_salt, originalCredentials.salt);
+    assert.equal(afterRestart.rows[0]?.password_hash, originalCredentials.hash);
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [userId]);
+  }
+});
+
 test("retry confirms a committed password change after the success reply is lost", async () => {
   const userId = randomUUID();
   const oldPassword = "password-before-lost-reply";

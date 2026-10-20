@@ -183,6 +183,9 @@ class MemoryPasswordChangeDatabase {
         throw new Error("Password credential reads must be explicitly coordinated by the test.");
       }
       if (this.credentialReadSnapshots.length > this.expectedCredentialReads) {
+        if (this.successfulPasswordWrites > 0 && this.passwordWriteAttempts > this.successfulPasswordWrites) {
+          return { rows: [credentials] as T[] };
+        }
         throw new Error("More password credential reads occurred than the test expected.");
       }
       if (this.credentialReadSnapshots.length === this.expectedCredentialReads) {
