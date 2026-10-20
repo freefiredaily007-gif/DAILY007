@@ -297,6 +297,35 @@ test('fetches the resolved manifest start_url and accepts an in-scope redirect',
   });
 });
 
+test('rejects an in-scope manifest start_url redirect loop at the redirect limit', async () => {
+  const firstPath = '/daily007/launch-loop-a/';
+  const secondPath = '/daily007/launch-loop-b/';
+  await withPublishedPwaFixture({
+    manifestOverrides: { start_url: './launch-loop-a/' },
+    redirects: {
+      [firstPath]: secondPath,
+      [secondPath]: firstPath,
+    },
+  }, async (url, { requests }) => {
+    await assert.rejects(
+      checkPublishedPwa(url),
+      /PWA smoke check failed: manifest field "start_url" exceeded 10 redirects/,
+    );
+    const loopRequests = requests.filter(({ pathname }) =>
+      pathname === firstPath || pathname === secondPath,
+    );
+    assert.equal(loopRequests.length, 11, 'the checker should stop at the configured redirect limit');
+    assert.equal(
+      loopRequests.filter(({ pathname }) => pathname === firstPath).length,
+      6,
+    );
+    assert.equal(
+      loopRequests.filter(({ pathname }) => pathname === secondPath).length,
+      5,
+    );
+  });
+});
+
 test('rejects an unreachable published start_url with a field-specific error', async () => {
   const launchPath = '/daily007/unreachable-launch/';
   await withPublishedPwaFixture({
