@@ -30,7 +30,11 @@ export default function Profile({
   const { width, fontScale } = useWindowDimensions();
   const compactStats = width <= 360;
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
-  const appVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '—';
+  const configuredAppVersion = Constants.expoConfig?.version ?? '—';
+  const displayedAppVersion = Application.nativeApplicationVersion ?? configuredAppVersion;
+  const appVersion = Platform.OS === 'web'
+    ? `${displayedAppVersion}+web.20261020`
+    : displayedAppVersion;
   const configuredBuild = Platform.OS === 'ios'
     ? Constants.expoConfig?.ios?.buildNumber
     : Constants.expoConfig?.android?.versionCode;

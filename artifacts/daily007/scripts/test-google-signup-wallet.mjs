@@ -223,6 +223,7 @@ try {
 
   const appConfig = JSON.parse(await readFile(path.join(daily007Root, "app.json"), "utf8")).expo;
   const expectedAppVersion = appConfig.version;
+  const expectedWebAppVersion = `${appConfig.version}+web.20261020`;
   const expectedAndroidBuild = String(appConfig.android.versionCode);
   const vitePort = await getFreePort();
   const debugPort = await getFreePort();
@@ -1746,6 +1747,8 @@ try {
   })()`);
   assert.ok(appInfo.pageText.includes("APP INFO"), "Profile should include an app information section.");
   assert.ok(appInfo.text?.includes(expectedAppVersion), "Profile should show the native app version.");
+  assert.ok(appInfo.text?.includes(expectedWebAppVersion),
+    "The web Profile should show the distinguishable web-only release version.");
   assert.ok(appInfo.text?.includes("Android build"), "Android should be identified as the build value.");
   assert.ok(appInfo.text?.includes(expectedAndroidBuild), "Profile should show the native Android build number.");
   const metadataText = appInfo.text ?? "";
@@ -1783,6 +1786,7 @@ try {
   })()`);
   assert.ok(largeTextMetadata, "The app information card should remain present at large text.");
   assert.ok(largeTextMetadata.text.includes(expectedAppVersion));
+  assert.ok(largeTextMetadata.text.includes(expectedWebAppVersion));
   assert.ok(largeTextMetadata.text.includes(expectedAndroidBuild));
   assert.ok(
     largeTextMetadata.scrollWidth <= largeTextMetadata.clientWidth + 1,
