@@ -475,8 +475,11 @@ async function checkPreviewInteraction(entry) {
 async function checkPreviewClipboard(entry) {
   if (!entry.clipboardChecks || (entry.viewport ?? phoneViewport).width !== 320) return;
   const expectedValues = [];
+  const credentialTestIds = JSON.stringify(entry.clipboardChecks.map(({ testId }) => testId));
   for (const { testId, value, feedback } of entry.clipboardChecks) {
     const selector = JSON.stringify(`[data-testid="${testId}"]`);
+    const failureFeedback = `Could not copy ${testId.endsWith("room-id") ? "Room ID" : "Password"}. Please try again.`;
+    await evaluate("globalThis.__daily007ClipboardFailuresRemaining = 1");
     const clicked = await evaluate(`(() => {
       const control = document.querySelector(${selector});
       if (!control) return false;
@@ -486,8 +489,63 @@ async function checkPreviewClipboard(entry) {
     if (!clicked) {
       throw new Error(`${entry.screen} preview could not activate clipboard control ${testId}.`);
     }
-    expectedValues.push(value);
 
+    const expectedFailure = JSON.stringify(failureFeedback);
+    const expectedValuesBeforeRetry = JSON.stringify(expectedValues);
+    const failureExpression = `(() => {
+      const feedback = document.querySelector('[data-testid="room-credential-copy-feedback"]');
+      const writes = globalThis.__daily007ClipboardWrites ?? [];
+      const layoutWidth = document.documentElement?.clientWidth ?? 0;
+      const controls = ${credentialTestIds}.map((testId) => {
+        const button = [...document.querySelectorAll("[data-testid]")]
+          .find((element) => element.getAttribute("data-testid") === testId);
+        const rect = button?.getBoundingClientRect();
+        const style = button ? window.getComputedStyle(button) : null;
+        return {
+          testId,
+          visible: Boolean(button && rect && rect.width > 0 && rect.height > 0
+            && style?.display !== "none" && style?.visibility !== "hidden" && style?.opacity !== "0"),
+          inBounds: Boolean(rect && rect.left >= -1 && rect.right <= layoutWidth + 1),
+          targetSizeOk: Boolean(rect && rect.width >= 40 && rect.height >= 40),
+          usable: Boolean(button && !button.hasAttribute("disabled")
+            && button.getAttribute("aria-disabled") !== "true"),
+        };
+      });
+      return {
+        ready: feedback?.textContent?.trim() === ${expectedFailure}
+          && JSON.stringify(writes) === JSON.stringify(${expectedValuesBeforeRetry})
+          && controls.every((control) => control.visible && control.inBounds
+            && control.targetSizeOk && control.usable),
+        feedback: feedback?.textContent?.trim() ?? null,
+        writes,
+        controls,
+        viewportWidth: window.innerWidth,
+      };
+    })()`;
+    const failureDeadline = Date.now() + 5_000;
+    let failureState;
+    while (Date.now() < failureDeadline) {
+      failureState = await evaluate(failureExpression);
+      if (failureState.ready) break;
+      await delay(50);
+    }
+    if (!failureState?.ready || failureState.viewportWidth !== 320) {
+      throw new Error(
+        `${entry.screen} preview clipboard failure was not recoverable at 320px for ${testId}: ` +
+          `${JSON.stringify(failureState)}.`,
+      );
+    }
+
+    const retryClicked = await evaluate(`(() => {
+      const control = document.querySelector(${selector});
+      if (!control) return false;
+      control.click();
+      return true;
+    })()`);
+    if (!retryClicked) {
+      throw new Error(`${entry.screen} preview could not retry clipboard control ${testId}.`);
+    }
+    expectedValues.push(value);
     const expectedFeedback = JSON.stringify(feedback);
     const expectedClipboardValues = JSON.stringify(expectedValues);
     const expression = `(() => {
@@ -497,9 +555,21 @@ async function checkPreviewClipboard(entry) {
       const writes = globalThis.__daily007ClipboardWrites ?? [];
       const root = document.documentElement;
       const layoutWidth = root?.clientWidth ?? 0;
+      const controls = ${credentialTestIds}.map((credentialTestId) => {
+        const control = [...document.querySelectorAll("[data-testid]")]
+          .find((element) => element.getAttribute("data-testid") === credentialTestId);
+        const controlRect = control?.getBoundingClientRect();
+        return {
+          visible: Boolean(control && controlRect && controlRect.width > 0 && controlRect.height > 0),
+          inBounds: Boolean(controlRect && controlRect.left >= -1 && controlRect.right <= layoutWidth + 1),
+          usable: Boolean(control && !control.hasAttribute("disabled")
+            && control.getAttribute("aria-disabled") !== "true"),
+        };
+      });
       return {
         ready: feedback?.textContent?.trim() === ${expectedFeedback}
-          && JSON.stringify(writes) === JSON.stringify(${expectedClipboardValues}),
+          && JSON.stringify(writes) === JSON.stringify(${expectedClipboardValues})
+          && controls.every((control) => control.visible && control.inBounds && control.usable),
         feedback: feedback?.textContent?.trim() ?? null,
         writes,
         buttonVisible: Boolean(button && rect && rect.width > 0 && rect.height > 0),
