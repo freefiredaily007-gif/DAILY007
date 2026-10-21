@@ -914,6 +914,22 @@ export interface Daily007YoutubeSubscribeReviewBody {
   reason?: string;
 }
 
+export type Daily007VideoCategory = typeof Daily007VideoCategory[keyof typeof Daily007VideoCategory];
+
+
+export const Daily007VideoCategory = {
+  application: 'application',
+  youtube: 'youtube',
+} as const;
+
+export type Daily007VideoStatus = typeof Daily007VideoStatus[keyof typeof Daily007VideoStatus];
+
+
+export const Daily007VideoStatus = {
+  published: 'published',
+  unpublished: 'unpublished',
+} as const;
+
 export interface Daily007Video {
   id: string;
   /**
@@ -929,8 +945,21 @@ export interface Daily007Video {
   /** @pattern ^[A-Za-z0-9_-]{11}$ */
   youtubeId: string;
   url: string;
+  category: Daily007VideoCategory;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description: string | null;
+  publishDate: string;
+  /** @nullable */
+  thumbnailUrl: string | null;
+  /** @minimum 0 */
+  displayOrder: number;
   active: boolean;
+  status: Daily007VideoStatus;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Daily007VideoList {
@@ -976,6 +1005,22 @@ export interface Daily007VideoWatchResult {
   message: string;
 }
 
+export type Daily007AdminVideoCreateBodyCategory = typeof Daily007AdminVideoCreateBodyCategory[keyof typeof Daily007AdminVideoCreateBodyCategory];
+
+
+export const Daily007AdminVideoCreateBodyCategory = {
+  application: 'application',
+  youtube: 'youtube',
+} as const;
+
+export type Daily007AdminVideoCreateBodyStatus = typeof Daily007AdminVideoCreateBodyStatus[keyof typeof Daily007AdminVideoCreateBodyStatus];
+
+
+export const Daily007AdminVideoCreateBodyStatus = {
+  published: 'published',
+  unpublished: 'unpublished',
+} as const;
+
 export interface Daily007AdminVideoCreateBody {
   /**
      * @minLength 1
@@ -986,10 +1031,44 @@ export interface Daily007AdminVideoCreateBody {
      * @minLength 1
      * @maxLength 80
      */
-  topic: string;
+  topic?: string;
   /** @maxLength 500 */
   url: string;
+  category?: Daily007AdminVideoCreateBodyCategory;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  publishDate?: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  thumbnailUrl?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  displayOrder?: number;
+  status?: Daily007AdminVideoCreateBodyStatus;
 }
+
+export type Daily007VideoUpdateCategory = typeof Daily007VideoUpdateCategory[keyof typeof Daily007VideoUpdateCategory];
+
+
+export const Daily007VideoUpdateCategory = {
+  application: 'application',
+  youtube: 'youtube',
+} as const;
+
+export type Daily007VideoUpdateStatus = typeof Daily007VideoUpdateStatus[keyof typeof Daily007VideoUpdateStatus];
+
+
+export const Daily007VideoUpdateStatus = {
+  published: 'published',
+  unpublished: 'unpublished',
+} as const;
 
 export interface Daily007VideoUpdate {
   /**
@@ -1001,9 +1080,27 @@ export interface Daily007VideoUpdate {
      * @minLength 1
      * @maxLength 80
      */
-  topic: string;
+  topic?: string;
   /** @maxLength 500 */
   url: string;
+  category?: Daily007VideoUpdateCategory;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  publishDate?: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  thumbnailUrl?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  displayOrder?: number;
+  status?: Daily007VideoUpdateStatus;
 }
 
 export interface Daily007AdminVideoActiveBody {

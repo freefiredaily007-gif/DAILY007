@@ -58,9 +58,16 @@ CREATE TABLE daily007_v2_videos (
   topic text NOT NULL DEFAULT 'General' CHECK (length(btrim(topic)) BETWEEN 1 AND 80),
   youtube_id text NOT NULL UNIQUE
     CHECK (youtube_id ~ '^[A-Za-z0-9_-]{11}$'),
+  category text NOT NULL DEFAULT 'youtube'
+    CHECK (category IN ('application', 'youtube')),
+  description text CHECK (description IS NULL OR length(description) <= 1000),
+  publish_date date,
+  thumbnail_url text CHECK (thumbnail_url IS NULL OR length(thumbnail_url) <= 500),
+  display_order integer NOT NULL DEFAULT 0 CHECK (display_order >= 0),
   active boolean NOT NULL DEFAULT true,
   created_by uuid REFERENCES daily007_v2_users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE daily007_v2_video_watch_sessions (

@@ -123,8 +123,9 @@ function createCardRenderer(pressables) {
   const View = ({ children }) => React.createElement("div", null, children);
   const Text = ({ children }) => React.createElement("span", null, children);
   const Feather = () => null;
+  const VideoThumbnail = () => React.createElement("div", { "data-thumbnail": true });
 
-  return { Feather, Pressable, Text, View };
+  return { Feather, Pressable, Text, VideoThumbnail, View };
 }
 
 function renderCatalogCards(videos) {
@@ -135,12 +136,14 @@ function renderCatalogCards(videos) {
     catalogCardContent: {},
     catalogTitle: {},
     catalogTopic: {},
+    catalogDescription: {},
     catalogTap: {},
   };
   const element = evaluateExpression(findCatalogMap(), {
     React,
     ...createCardRenderer(pressables),
     colors: { primary: "#000000" },
+    formatVideoDate: (date) => date,
     filteredVideos: videos,
     styles,
   });
@@ -158,9 +161,18 @@ function filterCatalog(searchQuery, videos) {
   );
   const filterCallback = evaluateExpression(initializer.arguments[0], {
     searchQuery,
-    videos,
+    categoryVideos: videos,
   });
   return filterCallback();
+}
+
+function filterCategory(category, videos) {
+  const initializer = findVariableDeclaration("categoryVideos").initializer;
+  const callback = evaluateExpression(initializer.arguments[0], {
+    selectedCategory: category,
+    videos,
+  });
+  return callback();
 }
 
 function getCatalogVideos(catalogResponse) {
@@ -185,8 +197,15 @@ test("corrected catalog title and topic display, search, and open the original Y
       topic: "Clash Squad",
       youtubeId: "a1b2C3d4E5F",
       url: "https://youtu.be/a1b2C3d4E5F",
+      category: "youtube",
+      description: "A tournament overview.",
+      publishDate: "2026-10-14",
+      thumbnailUrl: null,
+      displayOrder: 0,
       active: true,
+      status: "published",
       createdAt: "2026-10-14T00:00:00.000Z",
+      updatedAt: "2026-10-14T00:00:00.000Z",
     }],
   };
   const videos = getCatalogVideos(correctedCatalogResponse);
@@ -195,11 +214,14 @@ test("corrected catalog title and topic display, search, and open the original Y
   const renderedCatalog = renderCatalogCards(videos);
   assert.match(renderedCatalog.markup, /Corrected Tournament Highlights/);
   assert.match(renderedCatalog.markup, /Topic: Clash Squad/);
+  assert.match(renderedCatalog.markup, /2026-10-14/);
   assert.equal(renderedCatalog.pressables.length, 1);
   assert.equal(
     renderedCatalog.pressables[0].accessibilityLabel,
-    "Corrected Tournament Highlights, topic Clash Squad",
+    "Corrected Tournament Highlights, published 2026-10-14",
   );
+  assert.deepEqual(filterCategory("youtube", videos), videos);
+  assert.deepEqual(filterCategory("application", videos), []);
 
   assert.deepEqual(
     filterCatalog("corrected tournament", videos),
@@ -223,6 +245,7 @@ test("corrected catalog title and topic display, search, and open the original Y
     React,
     ...createCardRenderer([]),
     colors: { primary: "#000000" },
+    formatVideoDate: (date) => date,
     filteredVideos: videos,
     catalogScrollRestorePendingRef: { current: false },
     setSelectedVideoId: (id) => { selectedVideoId = id; },
@@ -233,6 +256,7 @@ test("corrected catalog title and topic display, search, and open the original Y
       catalogCardContent: {},
       catalogTitle: {},
       catalogTopic: {},
+      catalogDescription: {},
       catalogTap: {},
     },
   })[0];

@@ -1532,18 +1532,91 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
   });
 });
 
+const VIDEO_CATEGORY_LABELS = {
+  application: "DAILY007 APPLICATION RELATED VIDEO",
+  youtube: "YOUTUBE VIDEOS",
+} as const;
+
+function validVideoDateOnly(value: unknown): string | null {
+  const candidate = value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : typeof value === "string"
+      ? value.slice(0, 10)
+      : null;
+  if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
+  const [year, month, day] = candidate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? candidate
+    : null;
+}
+
+function legacyVideoDate(row: Record<string, unknown>): string | null {
+  for (const field of [row.title, row.topic]) {
+    if (typeof field !== "string") continue;
+    const match = field.match(/(?:^|\b)(\d{2})\/(\d{2})\/(\d{4})(?:\b|$)/);
+    if (!match) continue;
+    const date = `${match[3]}-${match[2]}-${match[1]}`;
+    if (validVideoDateOnly(date)) return date;
+  }
+  return null;
+}
+
+function videoResponse(video: Record<string, any>) {
+  const youtubeId = String(video.youtubeId ?? video.youtube_id ?? "");
+  const active = Boolean(video.active);
+  const createdAt = video.createdAt ?? video.created_at;
+  return {
+    id: String(video.id),
+    title: String(video.title),
+    topic: String(video.topic || VIDEO_CATEGORY_LABELS[video.category === "application" ? "application" : "youtube"]),
+    youtubeId,
+    url: `https://youtu.be/${youtubeId}`,
+    category: video.category === "application" ? "application" : "youtube",
+    description: video.description ?? null,
+    publishDate: validVideoDateOnly(video.publishDate ?? video.publish_date) ??
+      legacyVideoDate(video) ??
+      validVideoDateOnly(createdAt) ??
+      new Date().toISOString().slice(0, 10),
+    thumbnailUrl: video.thumbnailUrl ?? video.thumbnail_url ?? null,
+    displayOrder: Number(video.displayOrder ?? video.display_order ?? 0),
+    active,
+    status: active ? "published" : "unpublished",
+    createdAt,
+    updatedAt: video.updatedAt ?? video.updated_at ?? createdAt,
+  };
+}
+
+function validVideoThumbnailUrl(value: string | null): boolean {
+  if (value === null) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.port;
+  } catch {
+    return false;
+  }
+}
+
+function normalizedVideoDescription(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 router.get("/videos", async (_req, res): Promise<void> => {
   const result = await pool.query(
-    `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+    `SELECT id, title, topic, youtube_id AS "youtubeId", category, description,
+            publish_date AS "publishDate", thumbnail_url AS "thumbnailUrl",
+            display_order AS "displayOrder", active, created_at AS "createdAt",
+            updated_at AS "updatedAt"
        FROM daily007_v2_videos
       WHERE active = true
-      ORDER BY created_at DESC, id`,
+      ORDER BY display_order, created_at DESC, id`,
   );
   res.json(Daily007ListVideosResponse.parse({
-    videos: result.rows.map((video: any) => ({
-      ...video,
-      url: `https://youtu.be/${video.youtubeId}`,
-    })),
+    videos: result.rows.map((video: any) => videoResponse(video)),
   }));
 });
 
@@ -1577,44 +1650,74 @@ router.get("/admin/videos", authenticate, async (req, res): Promise<void> => {
         await markDaily007VideoCatalogSeeded(client);
       }
       return client.query(
-        `SELECT id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"
+        `SELECT id, title, topic, youtube_id AS "youtubeId", category, description,
+                publish_date AS "publishDate", thumbnail_url AS "thumbnailUrl",
+                display_order AS "displayOrder", active, created_at AS "createdAt",
+                updated_at AS "updatedAt"
            FROM daily007_v2_videos
-          ORDER BY created_at DESC, id`,
+          ORDER BY display_order, created_at DESC, id`,
       );
     });
   } catch (e) { respondFailure(res, e); return; }
   res.json(Daily007AdminListVideosResponse.parse({
-    videos: result.rows.map((video: any) => ({
-      ...video,
-      url: `https://youtu.be/${video.youtubeId}`,
-    })),
+    videos: result.rows.map((video: any) => videoResponse(video)),
   }));
 });
 
 router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
+  const rawPublishDate = isObject(req.body) ? req.body.publishDate : undefined;
+  if (rawPublishDate !== undefined && !validVideoDateOnly(rawPublishDate)) {
+    error(res, 400, "Publish date must be a valid YYYY-MM-DD date."); return;
+  }
   const parsedBody = Daily007AdminCreateVideoBody.safeParse(req.body);
   if (!parsedBody.success) {
     error(res, 400, "Enter a title, topic, and valid YouTube video URL."); return;
   }
   const title = text(parsedBody.data.title, 1, 120);
-  const topic = text(parsedBody.data.topic, 1, 80);
+  const category = parsedBody.data.category;
+  const topic = text(parsedBody.data.topic, 1, 80) ??
+    VIDEO_CATEGORY_LABELS[category];
   const youtubeId = youtubeVideoIdFromUrl(parsedBody.data.url);
-  if (!title || !topic || !youtubeId) {
-    error(res, 400, "Enter a title, topic up to 80 characters, and valid YouTube video URL."); return;
+  const publishDate = parsedBody.data.publishDate
+    ? validVideoDateOnly(parsedBody.data.publishDate)
+    : null;
+  const thumbnailUrl = parsedBody.data.thumbnailUrl ?? null;
+  if (
+    !title ||
+    !topic ||
+    !youtubeId ||
+    (parsedBody.data.publishDate && !publishDate) ||
+    !validVideoThumbnailUrl(thumbnailUrl)
+  ) {
+    error(res, 400, "Enter a valid title, YouTube URL, category, publish date, and HTTPS thumbnail URL."); return;
   }
+  const active = parsedBody.data.status === "unpublished" ? false : true;
   try {
     const result = await roleTransaction(req, "admin", (client) => client.query(
-      `INSERT INTO daily007_v2_videos (title, topic, youtube_id, created_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
-      [title, topic, youtubeId, userId(req)],
+      `INSERT INTO daily007_v2_videos
+         (title, topic, youtube_id, category, description, publish_date,
+          thumbnail_url, display_order, active, created_by)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6::date, CURRENT_DATE), $7, $8, $9, $10)
+       RETURNING id, title, topic, youtube_id AS "youtubeId", category, description,
+                 publish_date AS "publishDate", thumbnail_url AS "thumbnailUrl",
+                 display_order AS "displayOrder", active, created_at AS "createdAt",
+                 updated_at AS "updatedAt"`,
+      [
+        title,
+        topic,
+        youtubeId,
+        category,
+        normalizedVideoDescription(parsedBody.data.description),
+        publishDate,
+        thumbnailUrl,
+        parsedBody.data.displayOrder ?? 0,
+        active,
+        userId(req),
+      ],
     ));
     const video: any = result.rows[0];
-    res.status(201).json(Daily007AdminCreateVideoResponse.parse({
-      ...video,
-      url: `https://youtu.be/${video.youtubeId}`,
-    }));
+    res.status(201).json(Daily007AdminCreateVideoResponse.parse(videoResponse(video)));
   } catch (e) {
     if ((e as { code?: string }).code === "23505") {
       error(res, 409, "This YouTube video is already in the managed list."); return;
@@ -1630,21 +1733,34 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
   if (!validId(id)) {
     error(res, 400, "Provide a valid video id."); return;
   }
+  const rawPublishDate = isObject(req.body) ? req.body.publishDate : undefined;
+  if (rawPublishDate !== undefined && !validVideoDateOnly(rawPublishDate)) {
+    error(res, 400, "Publish date must be a valid YYYY-MM-DD date."); return;
+  }
   const parsedBody = Daily007AdminUpdateVideoBody.safeParse(req.body);
   if (!parsedBody.success) {
     error(res, 400, "Enter a title, topic, and valid YouTube video URL."); return;
   }
   const title = text(parsedBody.data.title, 1, 120);
-  const topic = text(parsedBody.data.topic, 1, 80);
   const youtubeId = youtubeVideoIdFromUrl(parsedBody.data.url);
-  if (!title || !topic || !youtubeId) {
-    error(res, 400, "Enter a title, topic up to 80 characters, and valid YouTube video URL."); return;
+  if (!title || !youtubeId) {
+    error(res, 400, "Enter a valid title and YouTube video URL."); return;
   }
 
   try {
     const outcome = await roleTransaction(req, "admin", async (client) => {
-      const existing = await client.query<{ youtube_id: string }>(
-        `SELECT youtube_id
+      const existing = await client.query<{
+        youtube_id: string;
+        topic: string;
+        category: string;
+        description: string | null;
+        publish_date: string | null;
+        thumbnail_url: string | null;
+        display_order: number;
+        active: boolean;
+      }>(
+        `SELECT youtube_id, topic, category, description, publish_date,
+                thumbnail_url, display_order, active
            FROM daily007_v2_videos
           WHERE id = $1
           FOR UPDATE`,
@@ -1652,6 +1768,28 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
       );
       const current = existing.rows[0];
       if (!current) return { kind: "missing" } as const;
+      const category = parsedBody.data.category ?? (current.category === "application" ? "application" : "youtube");
+      const topic = parsedBody.data.topic === undefined
+        ? current.topic || VIDEO_CATEGORY_LABELS[category]
+        : text(parsedBody.data.topic, 1, 80);
+      const publishDate = parsedBody.data.publishDate === undefined
+        ? current.publish_date
+        : validVideoDateOnly(parsedBody.data.publishDate);
+      const thumbnailUrl = parsedBody.data.thumbnailUrl === undefined
+        ? current.thumbnail_url
+        : parsedBody.data.thumbnailUrl;
+      const description = parsedBody.data.description === undefined
+        ? current.description
+        : normalizedVideoDescription(parsedBody.data.description);
+      const displayOrder = parsedBody.data.displayOrder ?? current.display_order;
+      const active = parsedBody.data.status === undefined
+        ? current.active
+        : parsedBody.data.status === "published";
+      if (
+        !topic ||
+        (parsedBody.data.publishDate !== undefined && !publishDate) ||
+        !validVideoThumbnailUrl(thumbnailUrl)
+      ) return { kind: "invalid" } as const;
 
       if (current.youtube_id !== youtubeId) {
         const watchHistory = await client.query<{ hasSessions: boolean }>(
@@ -1668,14 +1806,25 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
         title: string;
         topic: string;
         youtubeId: string;
+        category: string;
+        description: string | null;
+        publishDate: string | null;
+        thumbnailUrl: string | null;
+        displayOrder: number;
         active: boolean;
         createdAt: Date | string;
+        updatedAt: Date | string;
       }>(
         `UPDATE daily007_v2_videos
-            SET title = $2, topic = $3, youtube_id = $4
+            SET title = $2, topic = $3, youtube_id = $4, category = $5,
+                description = $6, publish_date = $7, thumbnail_url = $8,
+                display_order = $9, active = $10, updated_at = now()
           WHERE id = $1
-          RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
-        [id, title, topic, youtubeId],
+          RETURNING id, title, topic, youtube_id AS "youtubeId", category, description,
+                    publish_date AS "publishDate", thumbnail_url AS "thumbnailUrl",
+                    display_order AS "displayOrder", active, created_at AS "createdAt",
+                    updated_at AS "updatedAt"`,
+        [id, title, topic, youtubeId, category, description, publishDate, thumbnailUrl, displayOrder, active],
       );
       const updated = result.rows[0];
       if (!updated) return { kind: "missing" } as const;
@@ -1685,13 +1834,13 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
     if (outcome.kind === "missing") {
       error(res, 404, "Video not found."); return;
     }
+    if (outcome.kind === "invalid") {
+      error(res, 400, "Enter a valid category, publish date, and HTTPS thumbnail URL."); return;
+    }
     if (outcome.kind === "history") {
       error(res, 409, "This video has watch history. Add a new video instead of changing its YouTube link."); return;
     }
-    res.json(Daily007AdminUpdateVideoResponse.parse({
-      ...outcome.video,
-      url: `https://youtu.be/${outcome.video.youtubeId}`,
-    }));
+    res.json(Daily007AdminUpdateVideoResponse.parse(videoResponse(outcome.video)));
   } catch (e) {
     if ((e as { code?: string }).code === "23505") {
       error(res, 409, "This YouTube video is already in the managed list."); return;
@@ -1760,18 +1909,18 @@ router.patch("/admin/videos/:id/active", authenticate, async (req, res): Promise
   try {
     result = await roleTransaction(req, "admin", (client) => client.query(
     `UPDATE daily007_v2_videos
-        SET active = $2
+        SET active = $2, updated_at = now()
       WHERE id = $1
-      RETURNING id, title, topic, youtube_id AS "youtubeId", active, created_at AS "createdAt"`,
+      RETURNING id, title, topic, youtube_id AS "youtubeId", category, description,
+                publish_date AS "publishDate", thumbnail_url AS "thumbnailUrl",
+                display_order AS "displayOrder", active, created_at AS "createdAt",
+                updated_at AS "updatedAt"`,
     [id, body.active],
     ));
   } catch (e) { respondFailure(res, e); return; }
   const video: any = result.rows[0];
   if (!video) { error(res, 404, "Video not found."); return; }
-  res.json(Daily007AdminSetVideoActiveResponse.parse({
-    ...video,
-    url: `https://youtu.be/${video.youtubeId}`,
-  }));
+  res.json(Daily007AdminSetVideoActiveResponse.parse(videoResponse(video)));
 });
 
 router.post("/videos/watch/start", authenticate, async (req, res): Promise<void> => {

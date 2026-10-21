@@ -69,6 +69,13 @@ async function postVideo(
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 
+async function getAdminVideos(origin: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${origin}/admin/videos`, {
+    headers: authHeaders(VIDEO_TEST_ADMIN_ID),
+  });
+  return { status: response.status, body: await response.json() as Record<string, unknown> };
+}
+
 async function patchVideo(
   origin: string,
   userId: string,
@@ -136,6 +143,78 @@ test("Full Admin creates a video that appears in the public catalog with its tit
       video.topic === validVideo.topic &&
       video.youtubeId === "a1b2C3d4E5F",
     ));
+  });
+});
+
+test("video categories persist, unpublished videos stay private, and publishing exposes them", async () => {
+  videoTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, {
+      title: "App Wallet Guide",
+      url: "https://www.youtube.com/shorts/a1b2C3d4E5F",
+      category: "application",
+      description: "A quick wallet walkthrough.",
+      publishDate: "2026-10-21",
+      thumbnailUrl: "https://cdn.example.test/video-thumb.jpg",
+      displayOrder: 4,
+      status: "unpublished",
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.category, "application");
+    assert.equal(created.body.status, "unpublished");
+    assert.equal(created.body.description, "A quick wallet walkthrough.");
+    assert.equal(String(created.body.publishDate).slice(0, 10), "2026-10-21");
+    assert.equal(created.body.thumbnailUrl, "https://cdn.example.test/video-thumb.jpg");
+    assert.equal(created.body.displayOrder, 4);
+
+    const publicBeforePublish = await fetch(`${origin}/videos`).then((response) => response.json()) as {
+      videos: Array<{ id: string }>;
+    };
+    assert.equal(publicBeforePublish.videos.length, 0, "unpublished videos are not public");
+
+    const adminList = await getAdminVideos(origin);
+    assert.equal(adminList.status, 200);
+    const adminVideos = adminList.body.videos as Array<Record<string, unknown>>;
+    assert.equal(adminVideos.length, 1);
+    assert.equal(adminVideos[0]?.category, "application");
+    assert.equal(adminVideos[0]?.status, "unpublished");
+
+    const updated = await patchVideo(origin, VIDEO_TEST_ADMIN_ID, String(created.body.id), {
+      title: "App Wallet Guide",
+      url: "https://youtu.be/a1b2C3d4E5F",
+      category: "youtube",
+      description: "Updated category.",
+      publishDate: "2026-10-22",
+      thumbnailUrl: null,
+      displayOrder: 2,
+      status: "published",
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.category, "youtube");
+    assert.equal(updated.body.status, "published");
+    assert.equal(updated.body.description, "Updated category.");
+    assert.equal(updated.body.thumbnailUrl, null);
+    assert.equal(updated.body.displayOrder, 2);
+
+    const publicAfterPublish = await fetch(`${origin}/videos`).then((response) => response.json()) as {
+      videos: Array<Record<string, unknown>>;
+    };
+    assert.equal(publicAfterPublish.videos.length, 1);
+    assert.equal(publicAfterPublish.videos[0]?.category, "youtube");
+    assert.equal(publicAfterPublish.videos[0]?.url, "https://youtu.be/a1b2C3d4E5F");
+  });
+});
+
+test("Full Admin video date validation rejects impossible calendar dates", async () => {
+  videoTestDb.reset();
+  await withServer(async (origin) => {
+    const response = await postVideo(origin, VIDEO_TEST_ADMIN_ID, {
+      ...validVideo,
+      publishDate: "2026-02-31",
+    });
+    assert.equal(response.status, 400);
+    assert.equal(videoTestDb.videos.length, 0);
   });
 });
 
@@ -311,6 +390,7 @@ test("Full Admin can update a watched video's title and topic while keeping its 
       ...videosBefore[0],
       title: "Corrected Tournament Highlights",
       topic: "Clash Squad",
+      updated_at: new Date("2026-10-06T12:00:00.000Z"),
     }]);
     assert.deepEqual(
       videoTestDb.watchSessions,
@@ -347,6 +427,7 @@ test("Full Admin metadata edits preserve a completed watch session and its rewar
       ...videosBefore[0],
       title: "Corrected Tournament Highlights",
       topic: "Clash Squad",
+      updated_at: new Date("2026-10-06T12:00:00.000Z"),
     }]);
     assert.deepEqual(
       videoTestDb.watchSessions,

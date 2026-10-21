@@ -22,6 +22,8 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007VideoCategory } from './daily007VideoCategory';
+import type { Daily007VideoStatus } from './daily007VideoStatus';
 
 export interface Daily007Video {
   id: string;
@@ -38,6 +40,19 @@ export interface Daily007Video {
   /** @pattern ^[A-Za-z0-9_-]{11}$ */
   youtubeId: string;
   url: string;
+  category: Daily007VideoCategory;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description: string | null;
+  publishDate: Date;
+  /** @nullable */
+  thumbnailUrl: string | null;
+  /** @minimum 0 */
+  displayOrder: number;
   active: boolean;
+  status: Daily007VideoStatus;
   createdAt: Date;
+  updatedAt: Date;
 }

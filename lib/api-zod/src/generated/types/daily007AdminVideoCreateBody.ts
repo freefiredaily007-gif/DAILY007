@@ -22,6 +22,8 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007AdminVideoCreateBodyCategory } from './daily007AdminVideoCreateBodyCategory';
+import type { Daily007AdminVideoCreateBodyStatus } from './daily007AdminVideoCreateBodyStatus';
 
 export interface Daily007AdminVideoCreateBody {
   /**
@@ -33,7 +35,25 @@ export interface Daily007AdminVideoCreateBody {
      * @minLength 1
      * @maxLength 80
      */
-  topic: string;
+  topic?: string;
   /** @maxLength 500 */
   url: string;
+  category?: Daily007AdminVideoCreateBodyCategory;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  publishDate?: Date;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  thumbnailUrl?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  displayOrder?: number;
+  status?: Daily007AdminVideoCreateBodyStatus;
 }

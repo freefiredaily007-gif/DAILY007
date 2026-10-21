@@ -1300,12 +1300,15 @@ test("a failed background catalog refresh preserves playable cards until a later
     /hasLoadedCatalog\s*\?\s*'Could not refresh videos\. Showing the last loaded catalog\.'/,
   );
   assert.ok(
-    findJsxConditional("videos.length > 0"),
-    "Loaded cards must remain rendered independently of the query error state.",
+    findJsxConditional("categoryVideos.length > 0"),
+    "Loaded videos in the selected category must remain rendered independently of the query error state.",
   );
   assert.match(videoSource, /selectedVideo = videos\.find\(\(video\) => video\.id === selectedVideoId\)/);
   assert.match(videoSource, /setSelectedVideoId\(video\.id\);\s*setShowPlayer\(true\)/);
-  assert.match(videoSource, /!videosQuery\.isLoading && hasLoadedCatalog && videos\.length === 0/);
+  assert.match(
+    videoSource,
+    /!videosQuery\.isLoading && hasLoadedCatalog && selectedCategory &&\s*categoryVideos\.length === 0/,
+  );
 
   globalThis.window = {
     addEventListener() {},

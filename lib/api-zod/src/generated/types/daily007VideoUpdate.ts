@@ -22,6 +22,8 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007VideoUpdateCategory } from './daily007VideoUpdateCategory';
+import type { Daily007VideoUpdateStatus } from './daily007VideoUpdateStatus';
 
 export interface Daily007VideoUpdate {
   /**
@@ -33,7 +35,25 @@ export interface Daily007VideoUpdate {
      * @minLength 1
      * @maxLength 80
      */
-  topic: string;
+  topic?: string;
   /** @maxLength 500 */
   url: string;
+  category?: Daily007VideoUpdateCategory;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  publishDate?: Date;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  thumbnailUrl?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  displayOrder?: number;
+  status?: Daily007VideoUpdateStatus;
 }

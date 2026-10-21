@@ -17,9 +17,15 @@ type TestVideo = {
   title: string;
   topic: string;
   youtube_id: string;
+  category: "application" | "youtube";
+  description: string | null;
+  publish_date: string | null;
+  thumbnail_url: string | null;
+  display_order: number;
   active: boolean;
-  created_by: string;
+  created_by: string | null;
   created_at: Date;
+  updated_at: Date;
 };
 
 type TestWatchSession = {
@@ -42,6 +48,7 @@ class Daily007VideoTestDatabase {
   videos: TestVideo[] = [];
   watchSessions: TestWatchSession[] = [];
   private nextVideoId = 1;
+  private videoCatalogSeeded = false;
 
   reset(): void {
     this.users = new Map([
@@ -82,6 +89,7 @@ class Daily007VideoTestDatabase {
     this.videos = [];
     this.watchSessions = [];
     this.nextVideoId = 1;
+    this.videoCatalogSeeded = false;
   }
 
   async query<T = unknown>(sql: string, values: unknown[] = []): Promise<{ rows: T[] }> {
@@ -99,39 +107,66 @@ class Daily007VideoTestDatabase {
       const user = this.users.get(String(values[0] ?? ""));
       rows = user ? [{ role: user.role, status: user.status }] : [];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_settings")) {
+      if (normalized.includes("__daily007VideoCatalogSeeded")) this.videoCatalogSeeded = true;
       rows = [];
-    } else if (normalized === "SELECT id FROM daily007_v2_settings WHERE id = 1 FOR UPDATE") {
-      rows = [];
+    } else if (normalized.includes("SELECT COALESCE((settings->>'__daily007VideoCatalogSeeded')::boolean, false) AS seeded")) {
+      rows = [{ seeded: this.videoCatalogSeeded }];
     } else if (normalized.startsWith("INSERT INTO daily007_v2_videos")) {
-      const [title, topic, youtubeId, createdBy] = values as [string, string, string, string];
+      if (normalized.includes("WHERE NOT EXISTS") && this.videos.length > 0) {
+        rows = [];
+      } else {
+      const [
+        title,
+        topic,
+        youtubeId,
+        category = "youtube",
+        description = null,
+        publishDate = "2026-10-05",
+        thumbnailUrl = null,
+        displayOrder = 0,
+        active = true,
+        createdBy = null,
+      ] = values as [string, string, string, string?, string | null?, string | Date?, string | null?, number?, boolean?, string | null?];
       if (this.videos.some((video) => video.youtube_id === youtubeId)) {
         throw Object.assign(new Error("duplicate video URL"), { code: "23505" });
       }
       const sequence = this.nextVideoId++;
+      const now = new Date("2026-10-05T12:00:00.000Z");
       const id = `52000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
       const video: TestVideo = {
         id,
         title,
         topic,
         youtube_id: youtubeId,
-        active: true,
+        category: category === "application" ? "application" : "youtube",
+        description,
+        publish_date: publishDate instanceof Date ? publishDate.toISOString().slice(0, 10) : publishDate,
+        thumbnail_url: thumbnailUrl,
+        display_order: Number(displayOrder),
+        active: Boolean(active),
         created_by: createdBy,
-        created_at: new Date("2026-10-05T12:00:00.000Z"),
+        created_at: now,
+        updated_at: now,
       };
       this.videos.push(video);
-      rows = [{
-        id: video.id,
-        title: video.title,
-        topic: video.topic,
-        youtubeId: video.youtube_id,
-        active: video.active,
-        createdAt: video.created_at,
-      }];
+      rows = [this.toApiVideo(video)];
+      }
+    } else if (normalized === "SELECT id FROM daily007_v2_settings WHERE id = 1 FOR UPDATE") {
+      rows = [{ id: 1 }];
     } else if (normalized.startsWith(
-      "SELECT youtube_id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
+      "SELECT youtube_id, topic, category, description, publish_date, thumbnail_url, display_order, active FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
     )) {
       const video = this.videos.find((entry) => entry.id === String(values[0] ?? ""));
-      rows = video ? [{ youtube_id: video.youtube_id }] : [];
+      rows = video ? [{
+        youtube_id: video.youtube_id,
+        topic: video.topic,
+        category: video.category,
+        description: video.description,
+        publish_date: video.publish_date,
+        thumbnail_url: video.thumbnail_url,
+        display_order: video.display_order,
+        active: video.active,
+      }] : [];
     } else if (normalized.startsWith(
       "SELECT id FROM daily007_v2_videos WHERE id = $1 FOR UPDATE",
     )) {
@@ -145,26 +180,28 @@ class Daily007VideoTestDatabase {
         hasSessions: this.watchSessions.some((session) => session.video_id === videoId),
       }];
     } else if (normalized.startsWith(
-      "UPDATE daily007_v2_videos SET title = $2, topic = $3, youtube_id = $4 WHERE id = $1",
+      "UPDATE daily007_v2_videos SET title = $2, topic = $3, youtube_id = $4, category = $5",
     )) {
-      const [id, title, topic, youtubeId] = values.map(String);
+      const [id, title, topic, youtubeId, category, description, publishDate, thumbnailUrl, displayOrder, active] = values;
       if (this.videos.some((entry) => entry.id !== id && entry.youtube_id === youtubeId)) {
         throw Object.assign(new Error("duplicate video URL"), { code: "23505" });
       }
       const video = this.videos.find((entry) => entry.id === id);
       if (video) {
-        video.title = title;
-        video.topic = topic;
-        video.youtube_id = youtubeId;
+        video.title = String(title);
+        video.topic = String(topic);
+        video.youtube_id = String(youtubeId);
+        video.category = category === "application" ? "application" : "youtube";
+        video.description = description as string | null;
+        video.publish_date = publishDate instanceof Date
+          ? publishDate.toISOString().slice(0, 10)
+          : publishDate as string | null;
+        video.thumbnail_url = thumbnailUrl as string | null;
+        video.display_order = Number(displayOrder);
+        video.active = Boolean(active);
+        video.updated_at = new Date("2026-10-06T12:00:00.000Z");
       }
-      rows = video ? [{
-        id: video.id,
-        title: video.title,
-        topic: video.topic,
-        youtubeId: video.youtube_id,
-        active: video.active,
-        createdAt: video.created_at,
-      }] : [];
+      rows = video ? [this.toApiVideo(video)] : [];
     } else if (normalized === "DELETE FROM daily007_v2_videos WHERE id = $1") {
       const videoId = String(values[0] ?? "");
       if (this.watchSessions.some((session) => session.video_id === videoId)) {
@@ -173,36 +210,42 @@ class Daily007VideoTestDatabase {
       this.videos = this.videos.filter((video) => video.id !== videoId);
       rows = [];
     } else if (normalized.startsWith(
-      "UPDATE daily007_v2_videos SET active = $2 WHERE id = $1",
+      "UPDATE daily007_v2_videos SET active = $2",
     )) {
       const [id, active] = values as [string, boolean];
       const video = this.videos.find((entry) => entry.id === id);
-      if (video) video.active = active;
-      rows = video ? [{
-        id: video.id,
-        title: video.title,
-        topic: video.topic,
-        youtubeId: video.youtube_id,
-        active: video.active,
-        createdAt: video.created_at,
-      }] : [];
-    } else if (normalized.startsWith("SELECT id, title, topic, youtube_id AS \"youtubeId\", active, created_at AS \"createdAt\" FROM daily007_v2_videos")) {
+      if (video) {
+        video.active = active;
+        video.updated_at = new Date("2026-10-06T12:00:00.000Z");
+      }
+      rows = video ? [this.toApiVideo(video)] : [];
+    } else if (normalized.startsWith("SELECT id, title, topic, youtube_id AS \"youtubeId\", category, description,")) {
       const activeOnly = normalized.includes("WHERE active = true");
       rows = this.videos
         .filter((video) => !activeOnly || video.active)
-        .map((video) => ({
-          id: video.id,
-          title: video.title,
-          topic: video.topic,
-          youtubeId: video.youtube_id,
-          active: video.active,
-          createdAt: video.created_at,
-        }));
+        .map((video) => this.toApiVideo(video));
     } else {
       throw new Error(`Unexpected video test SQL: ${normalized}`);
     }
 
     return { rows: rows as T[] };
+  }
+
+  private toApiVideo(video: TestVideo) {
+    return {
+      id: video.id,
+      title: video.title,
+      topic: video.topic,
+      youtubeId: video.youtube_id,
+      category: video.category,
+      description: video.description,
+      publishDate: video.publish_date,
+      thumbnailUrl: video.thumbnail_url,
+      displayOrder: video.display_order,
+      active: video.active,
+      createdAt: video.created_at,
+      updatedAt: video.updated_at,
+    };
   }
 }
 

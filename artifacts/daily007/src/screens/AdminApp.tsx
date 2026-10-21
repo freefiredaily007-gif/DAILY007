@@ -33,7 +33,7 @@ const NAV: {
   { key: 'payments', label: 'Payments', icon: 'credit-card' },
   { key: 'wallet', label: 'Wallet', icon: 'database' },
   { key: 'earnTasks', label: 'Earn tasks', icon: 'youtube' },
-  { key: 'videos', label: 'Videos', icon: 'video' },
+  { key: 'videos', label: 'Video management', icon: 'video' },
   { key: 'users', label: 'Users', icon: 'users' },
   { key: 'notifications', label: 'Notifications', icon: 'bell' },
   { key: 'settings', label: 'Settings', icon: 'sliders' },

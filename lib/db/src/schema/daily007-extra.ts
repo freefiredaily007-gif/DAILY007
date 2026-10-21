@@ -1,5 +1,5 @@
 import {
-  boolean, check, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid,
+  boolean, check, date, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import {
@@ -144,14 +144,25 @@ export const daily007VideosTable = pgTable("daily007_v2_videos", {
   title: text("title").notNull(),
   topic: text("topic").notNull().default("General"),
   youtubeId: text("youtube_id").notNull().unique(),
+  category: text("category").notNull().default("youtube"),
+  description: text("description"),
+  publishDate: date("publish_date", { mode: "string" }),
+  thumbnailUrl: text("thumbnail_url"),
+  displayOrder: integer("display_order").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdBy: uuid("created_by").references(() => daily007UsersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_video_title_valid", sql`length(btrim(${table.title})) BETWEEN 1 AND 120`),
   check("daily007_video_topic_valid", sql`length(btrim(${table.topic})) BETWEEN 1 AND 80`),
   check("daily007_video_youtube_id_valid", sql`${table.youtubeId} ~ '^[A-Za-z0-9_-]{11}$'`),
+  check("daily007_video_category_valid", sql`${table.category} IN ('application', 'youtube')`),
+  check("daily007_video_description_valid", sql`${table.description} IS NULL OR length(${table.description}) <= 1000`),
+  check("daily007_video_thumbnail_url_valid", sql`${table.thumbnailUrl} IS NULL OR length(${table.thumbnailUrl}) <= 500`),
+  check("daily007_video_display_order_valid", sql`${table.displayOrder} >= 0`),
   index("daily007_video_active_created_idx").on(table.active, table.createdAt),
+  index("daily007_video_catalog_order_idx").on(table.category, table.active, table.displayOrder, table.createdAt),
 ]);
 
 export const daily007VideoWatchSessionsTable = pgTable("daily007_v2_video_watch_sessions", {

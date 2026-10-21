@@ -3,6 +3,7 @@ import {
   AppState,
   ActivityIndicator,
   BackHandler,
+  Image,
   Linking,
   Platform,
   Pressable,
@@ -68,9 +69,38 @@ type VideoItem = {
   topic: string;
   youtubeId: string;
   url: string;
+  category: 'application' | 'youtube';
+  description: string | null;
+  publishDate: string;
+  thumbnailUrl: string | null;
+  displayOrder: number;
   active: boolean;
+  status: 'published' | 'unpublished';
   createdAt: string;
+  updatedAt: string;
 };
+
+type VideoCategory = VideoItem['category'];
+
+const VIDEO_CATEGORIES: {
+  id: VideoCategory;
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Feather.glyphMap;
+}[] = [
+  {
+    id: 'application',
+    title: 'DAILY007 APPLICATION RELATED VIDEO',
+    subtitle: 'Learn how to use tournaments, coins, wallet, and more.',
+    icon: 'smartphone',
+  },
+  {
+    id: 'youtube',
+    title: 'YOUTUBE VIDEOS',
+    subtitle: 'Watch tournament videos and other YouTube tutorials.',
+    icon: 'youtube',
+  },
+];
 
 type PlayerMessage = {
   type?: string;
@@ -85,6 +115,45 @@ type VideoWatchStartRequest = {
   durationSeconds: number;
   attemptId: string;
 };
+
+function formatVideoDate(value: string): string {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function VideoThumbnail({
+  video,
+  colors,
+  styles,
+}: {
+  video: VideoItem;
+  colors: ReturnType<typeof useColors>;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [failed, setFailed] = useState(false);
+  const uri = video.thumbnailUrl || `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`;
+  return (
+    <View style={styles.catalogThumbnail}>
+      {!failed ? (
+        <Image
+          source={{ uri }}
+          style={styles.catalogThumbnailImage}
+          resizeMode="cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <View style={styles.catalogThumbnailFallback}>
+          <Feather name="play" size={20} color={colors.primary} />
+        </View>
+      )}
+      <View style={styles.catalogThumbnailPlay}>
+        <Feather name="play" size={13} color={colors.primaryForeground} />
+      </View>
+    </View>
+  );
+}
 
 function createYouTubeDocument(videoId: string, backgroundColor: string): string {
   const safeVideoId = videoId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -147,6 +216,7 @@ export default function Video() {
   const colors = useColors();
   const isFocused = useIsFocused();
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<VideoCategory | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const [catalogRefreshes] = useState(createFocusedRefreshCoalescer);
@@ -330,13 +400,17 @@ export default function Video() {
     videos.length,
   ]);
 
+  const categoryVideos = useMemo(
+    () => selectedCategory ? videos.filter((video) => video.category === selectedCategory) : [],
+    [selectedCategory, videos],
+  );
   const filteredVideos = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return videos;
-    return videos.filter((video) =>
-      `${video.title} ${video.topic}`.toLowerCase().includes(query),
+    if (!query) return categoryVideos;
+    return categoryVideos.filter((video) =>
+      `${video.title} ${video.topic} ${video.description ?? ''}`.toLowerCase().includes(query),
     );
-  }, [searchQuery, videos]);
+  }, [categoryVideos, searchQuery]);
   const { user, refresh } = useApp();
   const accountId = user.id ?? user.$id;
   const { mutateAsync: startVideoWatch } = useDaily007StartVideoWatch();
@@ -1045,92 +1119,161 @@ export default function Video() {
               Video catalog reloaded successfully.
             </Text>
           ) : null}
-          {!videosQuery.isLoading && hasLoadedCatalog && videos.length === 0 ? (
+          {!videosQuery.isLoading && hasLoadedCatalog && selectedCategory &&
+          categoryVideos.length === 0 ? (
             <View style={styles.emptyCard}>
               <Feather name="video" size={22} color={colors.accent} />
-              <Text style={styles.errorText}>No videos are available yet.</Text>
+              <Text style={styles.errorText}>
+                {selectedCategory === 'application'
+                  ? 'No DAILY007 application videos are available yet.'
+                  : 'No YouTube videos are available yet.'}
+              </Text>
             </View>
           ) : null}
 
-          {videos.length > 0 ? (
-            <>
-              <View style={styles.catalogSearch}>
-                <Feather name="search" size={17} color={colors.mutedForeground} />
-                <TextInput
-                  ref={catalogSearchInputRef}
-                  accessibilityLabel="Search videos by title or topic"
-                  testID="video-catalog-search"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Search by topic or title..."
-                  placeholderTextColor={colors.mutedForeground}
-                  style={styles.catalogSearchInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
-              </View>
-              <Text style={styles.catalogHeading}>Tutorial Videos ({filteredVideos.length})</Text>
-
-              {filteredVideos.map((video) => (
-                <Pressable
-                  key={video.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${video.title}, topic ${video.topic}`}
-                  accessibilityHint="Opens the in-app YouTube player"
-                  testID={`video-catalog-card-${video.id}`}
-                  onPress={() => {
-                    catalogScrollRestorePendingRef.current = true;
-                    setSelectedVideoId(video.id);
-                    setShowPlayer(true);
-                  }}
-                  style={({ pressed }) => [
-                    styles.videoCatalogCard,
-                    pressed && { opacity: 0.78 },
-                  ]}
-                >
-                  <View style={styles.catalogPlayIcon}>
-                    <Feather name="play" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.catalogCardContent}>
-                    <Text style={styles.catalogTitle}>{video.title}</Text>
-                    <Text style={styles.catalogTopic}>Topic: {video.topic}</Text>
-                    <Text style={styles.catalogTap}>Tap to watch in YouTube</Text>
-                  </View>
-                </Pressable>
-              ))}
-
-              {filteredVideos.length === 0 ? (
-                <View style={[styles.emptyCard, styles.emptySearchCard]}>
-                  <View style={styles.emptySearchMessage}>
-                    <Feather name="search" size={18} color={colors.accent} />
-                    <Text
-                      testID="video-catalog-no-search-results"
-                      style={[styles.errorText, styles.emptySearchText]}
-                    >
-                      No videos match your search.
-                    </Text>
-                  </View>
+          {selectedCategory === null ? (
+            <View testID="video-category-selector">
+              <Text style={styles.catalogHeading}>VIDEO LIBRARY</Text>
+              <Text style={styles.categoryIntro}>
+                Choose a collection to browse videos.
+              </Text>
+              {VIDEO_CATEGORIES.map((category) => {
+                const count = videos.filter((video) => video.category === category.id).length;
+                return (
                   <Pressable
+                    key={category.id}
                     accessibilityRole="button"
-                    accessibilityLabel="Clear search"
-                    accessibilityHint="Clears the search and shows all available videos."
-                    testID="video-catalog-clear-search"
+                    accessibilityLabel={`${category.title}, ${count} videos`}
+                    accessibilityHint="Opens this video category."
+                    testID={`video-category-${category.id}`}
                     onPress={() => {
                       setSearchQuery('');
-                      catalogSearchInputRef.current?.focus();
+                      setSelectedCategory(category.id);
                     }}
                     style={({ pressed }) => [
-                      styles.clearSearchButton,
-                      pressed && { opacity: 0.78 },
+                      styles.categoryCard,
+                      pressed && { opacity: 0.8 },
                     ]}
                   >
-                    <Text style={styles.clearSearchText}>Clear search</Text>
+                    <View style={styles.categoryIcon}>
+                      <Feather name={category.icon} size={22} color={colors.primary} />
+                    </View>
+                    <View style={styles.categoryContent}>
+                      <Text style={styles.categoryTitle}>{category.title}</Text>
+                      <Text style={styles.categorySubtitle}>{category.subtitle}</Text>
+                      <Text style={styles.categoryCount}>{count} videos</Text>
+                    </View>
+                    <Feather name="chevron-right" size={20} color={colors.accent} />
                   </Pressable>
-                </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View testID={`video-category-list-${selectedCategory}`}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back to video categories"
+                testID="video-category-back"
+                onPress={() => {
+                  setSearchQuery('');
+                  setSelectedCategory(null);
+                }}
+                style={styles.backButton}
+              >
+                <Feather name="arrow-left" size={17} color={colors.primary} />
+                <Text style={styles.backText}>ALL VIDEO CATEGORIES</Text>
+              </Pressable>
+              <Text style={styles.catalogHeading}>
+                {VIDEO_CATEGORIES.find((category) => category.id === selectedCategory)?.title}
+              </Text>
+              {categoryVideos.length > 0 ? (
+                <>
+                  <View style={styles.catalogSearch}>
+                    <Feather name="search" size={17} color={colors.mutedForeground} />
+                    <TextInput
+                      ref={catalogSearchInputRef}
+                      accessibilityLabel="Search videos in this category"
+                      testID="video-catalog-search"
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      placeholder="Search videos..."
+                      placeholderTextColor={colors.mutedForeground}
+                      style={styles.catalogSearchInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                  </View>
+                  <Text style={styles.categoryIntro}>
+                    {filteredVideos.length} {filteredVideos.length === 1 ? 'video' : 'videos'}
+                  </Text>
+
+                  {filteredVideos.map((video) => (
+                    <Pressable
+                      key={video.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${video.title}, published ${formatVideoDate(video.publishDate)}`}
+                      accessibilityHint="Opens the in-app YouTube player."
+                      testID={`video-catalog-card-${video.id}`}
+                      onPress={() => {
+                        catalogScrollRestorePendingRef.current = true;
+                        setSelectedVideoId(video.id);
+                        setShowPlayer(true);
+                      }}
+                      style={({ pressed }) => [
+                        styles.videoCatalogCard,
+                        pressed && { opacity: 0.78 },
+                      ]}
+                    >
+                      <VideoThumbnail video={video} colors={colors} styles={styles} />
+                      <View style={styles.catalogCardContent}>
+                        <Text style={styles.catalogTitle}>{video.title}</Text>
+                        <Text style={styles.catalogTopic}>
+                          Published: {formatVideoDate(video.publishDate)} · Topic: {video.topic}
+                        </Text>
+                        {video.description ? (
+                          <Text numberOfLines={2} style={styles.catalogDescription}>
+                            {video.description}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.catalogTap}>WATCH VIDEO · TAP TO PLAY</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+
+                  {filteredVideos.length === 0 ? (
+                    <View style={[styles.emptyCard, styles.emptySearchCard]}>
+                      <View style={styles.emptySearchMessage}>
+                        <Feather name="search" size={18} color={colors.accent} />
+                        <Text
+                          testID="video-catalog-no-search-results"
+                          style={[styles.errorText, styles.emptySearchText]}
+                        >
+                          No videos match your search.
+                        </Text>
+                      </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Clear search"
+                        accessibilityHint="Clears the search and shows all videos in this category."
+                        testID="video-catalog-clear-search"
+                        onPress={() => {
+                          setSearchQuery('');
+                          catalogSearchInputRef.current?.focus();
+                        }}
+                        style={({ pressed }) => [
+                          styles.clearSearchButton,
+                          pressed && { opacity: 0.78 },
+                        ]}
+                      >
+                        <Text style={styles.clearSearchText}>Clear search</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </>
               ) : null}
-            </>
-          ) : null}
+            </View>
+          )}
         </>
       )}
     </ScrollView>
@@ -1174,18 +1317,91 @@ function createStyles(colors: ReturnType<typeof useColors>) {
       fontWeight: '800',
       marginBottom: 12,
     },
+    categoryIntro: {
+      color: colors.mutedForeground,
+      fontSize: 13,
+      lineHeight: 19,
+      marginBottom: 14,
+    },
+    categoryCard: {
+      minHeight: 112,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 13,
+      padding: 15,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+    },
+    categoryIcon: {
+      width: 48,
+      height: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 15,
+      backgroundColor: colors.secondary,
+    },
+    categoryContent: { flex: 1, gap: 4 },
+    categoryTitle: {
+      color: colors.accent,
+      fontSize: 14,
+      lineHeight: 20,
+      fontWeight: '900',
+    },
+    categorySubtitle: {
+      color: colors.mutedForeground,
+      fontSize: 12,
+      lineHeight: 17,
+    },
+    categoryCount: {
+      color: colors.primary,
+      fontSize: 11,
+      lineHeight: 16,
+      fontWeight: '800',
+      marginTop: 2,
+    },
     videoCatalogCard: {
       minHeight: 96,
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-      paddingHorizontal: 15,
-      paddingVertical: 14,
+      alignItems: 'flex-start',
+      gap: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
       marginBottom: 11,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.card,
       borderRadius: colors.radius,
+    },
+    catalogThumbnail: {
+      width: 88,
+      height: 64,
+      overflow: 'hidden',
+      borderRadius: 9,
+      backgroundColor: colors.secondary,
+      position: 'relative',
+    },
+    catalogThumbnailImage: {
+      width: '100%',
+      height: '100%',
+    },
+    catalogThumbnailFallback: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    catalogThumbnailPlay: {
+      position: 'absolute',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 26,
+      height: 26,
+      left: 31,
+      top: 19,
+      borderRadius: 13,
+      backgroundColor: colors.primary,
     },
     catalogPlayIcon: {
       width: 46,
@@ -1198,6 +1414,7 @@ function createStyles(colors: ReturnType<typeof useColors>) {
     catalogCardContent: { flex: 1, gap: 3 },
     catalogTitle: { color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: '800' },
     catalogTopic: { color: colors.accent, fontSize: 11, lineHeight: 16, fontWeight: '800' },
+    catalogDescription: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
     catalogTap: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, marginTop: 2 },
     backButton: {
       minHeight: 42,

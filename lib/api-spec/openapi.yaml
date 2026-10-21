@@ -1818,9 +1818,16 @@ components:
         topic: { type: string, minLength: 1, maxLength: 80 }
         youtubeId: { type: string, pattern: "^[A-Za-z0-9_-]{11}$" }
         url: { type: string, format: uri }
+        category: { type: string, enum: [application, youtube] }
+        description: { type: [string, "null"], maxLength: 1000 }
+        publishDate: { type: string, format: date }
+        thumbnailUrl: { type: [string, "null"], format: uri }
+        displayOrder: { type: integer, minimum: 0 }
         active: { type: boolean }
+        status: { type: string, enum: [published, unpublished] }
         createdAt: { type: string, format: date-time }
-      required: [id, title, topic, youtubeId, url, active, createdAt]
+        updatedAt: { type: string, format: date-time }
+      required: [id, title, topic, youtubeId, url, category, description, publishDate, thumbnailUrl, displayOrder, active, status, createdAt, updatedAt]
     Daily007VideoList:
       type: object
       properties:
@@ -1872,7 +1879,13 @@ components:
         title: { type: string, minLength: 1, maxLength: 120 }
         topic: { type: string, minLength: 1, maxLength: 80 }
         url: { type: string, format: uri, maxLength: 500 }
-      required: [title, topic, url]
+        category: { type: string, enum: [application, youtube], default: youtube }
+        description: { type: [string, "null"], maxLength: 1000 }
+        publishDate: { type: string, format: date }
+        thumbnailUrl: { type: [string, "null"], format: uri, maxLength: 500 }
+        displayOrder: { type: integer, minimum: 0, maximum: 1000000 }
+        status: { type: string, enum: [published, unpublished], default: published }
+      required: [title, url]
     Daily007VideoUpdate:
       type: object
       additionalProperties: false
@@ -1880,7 +1893,13 @@ components:
         title: { type: string, minLength: 1, maxLength: 120 }
         topic: { type: string, minLength: 1, maxLength: 80 }
         url: { type: string, format: uri, maxLength: 500 }
-      required: [title, topic, url]
+        category: { type: string, enum: [application, youtube] }
+        description: { type: [string, "null"], maxLength: 1000 }
+        publishDate: { type: string, format: date }
+        thumbnailUrl: { type: [string, "null"], format: uri, maxLength: 500 }
+        displayOrder: { type: integer, minimum: 0, maximum: 1000000 }
+        status: { type: string, enum: [published, unpublished] }
+      required: [title, url]
     Daily007AdminVideoActiveBody:
       type: object
       additionalProperties: false
