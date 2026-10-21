@@ -603,7 +603,8 @@ router.post("/withdrawals", authenticate, async (req, res): Promise<void> => {
 router.get("/my/withdrawals", authenticate, async (req, res): Promise<void> => {
   const id = privateAccount(req, res); if (!id) return;
   const result = await pool.query(
-    `SELECT id, coins, method, account, status, payout_status AS "payoutStatus",
+    `SELECT id, coins, method, account, status,
+            CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE payout_status END AS "payoutStatus",
             review_reason AS "reviewReason", created_at AS "createdAt",
             reviewed_at AS "reviewedAt"
        FROM daily007_v2_withdrawals WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 200`, [id],
@@ -658,7 +659,8 @@ router.get("/admin/withdrawals", authenticate, async (req, res): Promise<void> =
     const rows = await roleTransaction(req, "admin", async (client) => {
       const result = await client.query(
         `SELECT w.id, w.user_id AS "userId", u.name AS "userName", u.email,
-                w.coins, w.method, w.account, w.status, w.payout_status AS "payoutStatus",
+                w.coins, w.method, w.account, w.status,
+                CASE WHEN w.paid_at IS NOT NULL THEN 'paid' ELSE w.payout_status END AS "payoutStatus",
                 w.review_reason AS "reviewReason",
                 w.created_at AS "createdAt", w.reviewed_at AS "reviewedAt"
            FROM daily007_v2_withdrawals w JOIN daily007_v2_users u ON u.id = w.user_id
@@ -685,12 +687,13 @@ router.post("/admin/withdrawals/:id/payout", authenticate, async (req, res): Pro
       if (request.status !== "approved") {
         throw Object.assign(new Error("Approve the withdrawal before recording its manual payout."), { status: 409 });
       }
-      if (request.payout_status === "paid") return { id: request.id, payoutStatus: "paid", alreadyRecorded: true };
+      if (request.paid_at != null) return { id: request.id, payoutStatus: "paid", alreadyRecorded: true };
       if (request.payout_status !== "manual_payout_required") {
         throw Object.assign(new Error("This withdrawal is not awaiting a manual payout."), { status: 409 });
       }
       await client.query(
-        "UPDATE daily007_v2_withdrawals SET payout_status = 'paid' WHERE id = $1", [req.params.id],
+        "UPDATE daily007_v2_withdrawals SET paid_at = COALESCE(paid_at, now()) WHERE id = $1",
+        [req.params.id],
       );
       await client.query(
         `INSERT INTO daily007_v2_notifications (user_id, title, body, type)

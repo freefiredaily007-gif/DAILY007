@@ -249,6 +249,7 @@ test("Admin payment and withdrawal lists stay stable when equal timestamps reach
       account: "player@upi",
       status: "pending",
       payout_status: "not_paid",
+      paid_at: null,
       review_reason: null,
       reviewed_by: null,
       created_at: createdAt,
@@ -894,6 +895,11 @@ test("withdrawal limits reject invalid requests and rejection refunds a valid re
     assert.equal(playerHistory.status, 200);
     assert.equal(playerHistory.body[0].status, "rejected");
     assert.equal(playerHistory.body[0].reviewReason, reason);
+    const rejectedList = await call(origin, TEST_ADMIN_ID, "/admin/withdrawals", "GET");
+    assert.equal(
+      rejectedList.body.find((item: any) => item.id === withdrawalId)?.status,
+      "rejected",
+    );
     assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 700);
     assert.equal(walletTestDb.ledger.length, 2);
     assert.deepEqual(walletTestDb.ledger[1], {
@@ -919,7 +925,8 @@ test("withdrawal history keeps equal-timestamp requests in stable order across t
       method: "upi",
       account: "player@upi",
       status: "approved",
-      payout_status: "paid",
+      payout_status: "manual_payout_required",
+      paid_at: createdAt,
       review_reason: null,
       reviewed_by: TEST_ADMIN_ID,
       created_at: createdAt,
@@ -1106,6 +1113,10 @@ test("players see only their own withdrawal after another request is approved an
       walletTestDb.withdrawals.get(firstWithdrawalId)?.payout_status,
       "manual_payout_required",
     );
+    const approvedList = await call(origin, TEST_ADMIN_ID, "/admin/withdrawals", "GET");
+    const approvedWithdrawal = approvedList.body.find((item: any) => item.id === firstWithdrawalId);
+    assert.equal(approvedWithdrawal.status, "approved");
+    assert.equal(approvedWithdrawal.payoutStatus, "manual_payout_required");
 
     const paid = await call(
       origin,
@@ -1115,6 +1126,10 @@ test("players see only their own withdrawal after another request is approved an
     );
     assert.equal(paid.status, 200);
     assert.equal(paid.body.payoutStatus, "paid");
+    const paidList = await call(origin, TEST_ADMIN_ID, "/admin/withdrawals", "GET");
+    const paidWithdrawal = paidList.body.find((item: any) => item.id === firstWithdrawalId);
+    assert.equal(paidWithdrawal.status, "approved");
+    assert.equal(paidWithdrawal.payoutStatus, "paid");
 
     const firstHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
     const secondHistory = await call(origin, TEST_SECOND_PLAYER_ID, "/my/withdrawals", "GET");
@@ -1158,7 +1173,7 @@ test("players see only their own withdrawal after another request is approved an
   });
 });
 
-test("approved withdrawals stay manual and recording a payout is idempotent", async () => {
+test("approved withdrawals stay pending until a manual payout is recorded once", async () => {
   walletTestDb.reset();
 
   await withServer(async (origin) => {
@@ -1179,6 +1194,7 @@ test("approved withdrawals stay manual and recording a payout is idempotent", as
     assert.equal(approved.status, 200);
     assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.status, "approved");
     assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.payout_status, "manual_payout_required");
+    assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.paid_at, null);
     assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 550);
     assert.equal(walletTestDb.ledger.length, 1);
 
@@ -1198,11 +1214,12 @@ test("approved withdrawals stay manual and recording a payout is idempotent", as
     assert.equal(firstPayout.body.payoutStatus, "paid");
     assert.equal(repeatedPayout.status, 200);
     assert.equal(repeatedPayout.body.alreadyRecorded, true);
+    assert.ok(walletTestDb.withdrawals.get(withdrawalId)?.paid_at instanceof Date);
 
     const playerHistory = await call(origin, TEST_PLAYER_ID, "/my/withdrawals", "GET");
     assert.equal(playerHistory.body[0].status, "approved");
     assert.equal(playerHistory.body[0].payoutStatus, "paid");
-    assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.payout_status, "paid");
+    assert.equal(walletTestDb.withdrawals.get(withdrawalId)?.payout_status, "manual_payout_required");
     assert.equal(walletTestDb.users.get(TEST_PLAYER_ID)?.wallet_coins, 550);
     assert.equal(walletTestDb.ledger.length, 1);
     assert.deepEqual(walletTestDb.ledger[0], {

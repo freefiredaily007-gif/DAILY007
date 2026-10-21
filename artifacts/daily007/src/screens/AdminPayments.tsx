@@ -12,8 +12,8 @@ import { runOnceWhileInFlight } from '../lib/inFlightAction';
 const TABS = ['pending', 'approved', 'rejected'] as const;
 
 function withdrawalPayoutStatusLabel(status: AdminWithdrawal['payoutStatus'] | undefined): string {
-  if (status === 'paid') return 'Paid';
-  if (status === 'manual_payout_required') return 'Manual payout required';
+  if (status === 'paid') return 'Payout sent';
+  if (status === 'manual_payout_required' || status === 'not_paid') return 'Payout pending';
   return 'Status unavailable';
 }
 
@@ -163,8 +163,8 @@ export default function AdminPayments() {
       } catch (e: any) {
         setPayoutTarget(null);
         setErr(
-          `Could not record the manual payout for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
-          `The withdrawal remains in this list. Check its payout status before activating RECORD MANUAL PAYOUT SENT again.`,
+          `Could not record the payout as sent for ${request?.userName || 'this player'}: ${apiError(e)}. ` +
+          `The withdrawal remains in this list. Check its payout status before activating RECORD PAYOUT SENT again.`,
         );
       }
       finally { setPayoutBusy(false); }
@@ -272,8 +272,8 @@ export default function AdminPayments() {
               {withdrawalPayoutStatusLabel(p.payoutStatus).toUpperCase()}
             </Text>
           )}
-          {p.kind === 'withdrawal' && p.status === 'approved' && p.payoutStatus === 'manual_payout_required' && (
-            <Btn title="RECORD MANUAL PAYOUT SENT" small kind="gold" loading={payoutBusy && payoutTarget === p.id} accessibilityLabel={`Record manual payout sent for ${p.userName || 'player'}`} accessibilityHint="Check payout status before retrying if an error is announced." onPress={() => setPayoutTarget(p.id)} style={{ marginTop: 10 }} />
+          {p.kind === 'withdrawal' && p.status === 'approved' && p.payoutStatus !== 'paid' && (
+            <Btn title="RECORD PAYOUT SENT" small kind="gold" loading={payoutBusy && payoutTarget === p.id} accessibilityLabel={`Record payout sent for ${p.userName || 'player'}`} accessibilityHint="Only use this after the money has actually been transferred. Check payout status before retrying if an error is announced." onPress={() => setPayoutTarget(p.id)} style={{ marginTop: 10 }} />
           )}
           {tab === 'pending' && (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -294,9 +294,9 @@ export default function AdminPayments() {
       />
       <ConfirmDialog
         visible={!!payoutTarget}
-        title="Record manual payout"
+        title="Record payout sent"
         message="Only confirm after the money has actually been sent. This action records the payout in the request history."
-        confirmTitle={payoutBusy ? 'SAVING…' : 'MARK PAID'}
+        confirmTitle={payoutBusy ? 'SAVING…' : 'CONFIRM PAYOUT SENT'}
         onCancel={() => setPayoutTarget(null)}
         onConfirm={() => { void markPaid(); }}
       />

@@ -40,7 +40,7 @@ CREATE TABLE daily007_v2_withdrawals (
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'approved', 'rejected', 'deleted')),
   payout_status text NOT NULL DEFAULT 'not_paid'
-    CHECK (payout_status IN ('not_paid', 'manual_payout_required', 'paid')),
+    CHECK (payout_status IN ('not_paid', 'manual_payout_required')),
   review_reason text,
   reviewed_by uuid REFERENCES daily007_v2_users(id),
   created_at timestamptz NOT NULL DEFAULT now(),

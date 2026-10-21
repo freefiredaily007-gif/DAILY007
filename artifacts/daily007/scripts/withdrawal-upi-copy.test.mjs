@@ -194,7 +194,7 @@ test('failed deposit and withdrawal actions announce an assertive error without 
   assert.match(screenSource, /key=\{p\.kind \+ ':' \+ p\.id\}/);
 });
 
-test('a failed manual payout announces the error and leaves the payout action available', () => {
+test('a failed payout record announces the error and leaves the payout action available', () => {
   const payoutStart = screenSource.indexOf('const markPaid = async');
   const payoutEnd = screenSource.indexOf('\n\n  return', payoutStart);
   const payoutAction = screenSource.slice(payoutStart, payoutEnd);
@@ -203,17 +203,25 @@ test('a failed manual payout announces the error and leaves the payout action av
   assert.ok(payoutCatch, 'Manual payout failures must be handled in their own catch path.');
   assert.match(payoutAction, /await Api\.adminMarkWithdrawalPaid\(targetId\)/);
   assert.match(payoutCatch, /setPayoutTarget\(null\)/);
-  assert.match(payoutCatch, /Could not record the manual payout for/);
+  assert.match(payoutCatch, /Could not record the payout as sent for/);
   assert.match(payoutCatch, /The withdrawal remains in this list/);
-  assert.match(payoutCatch, /Check its payout status before activating RECORD MANUAL PAYOUT SENT again/);
+  assert.match(payoutCatch, /Check its payout status before activating RECORD PAYOUT SENT again/);
   assert.doesNotMatch(payoutCatch, /showOkMsg|setAll|load\(/);
   assert.match(
     payoutAction.slice(payoutAction.indexOf('try {'), payoutAction.indexOf('} catch')),
     /showOkMsg\(/,
     'Manual payout confirmation must only follow a successful API response.',
   );
-  assert.match(screenSource, /accessibilityLabel=\{`Record manual payout sent for \$\{p\.userName \|\| 'player'\}`\}/);
-  assert.match(screenSource, /Record manual payout sent for \$\{p\.userName \|\| 'player'\}/);
+  assert.match(screenSource, /accessibilityLabel=\{`Record payout sent for \$\{p\.userName \|\| 'player'\}`\}/);
+  assert.match(screenSource, /title="RECORD PAYOUT SENT"/);
+});
+
+test('approved withdrawals distinguish payout pending from a recorded payout sent', () => {
+  assert.match(screenSource, /if \(status === 'paid'\) return 'Payout sent'/);
+  assert.match(screenSource, /return 'Payout pending'/);
+  assert.match(screenSource, /p\.kind === 'withdrawal' && p\.status === 'approved' && p\.payoutStatus !== 'paid'/);
+  assert.match(screenSource, /title="RECORD PAYOUT SENT"/);
+  assert.match(screenSource, /title="Record payout sent"/);
 });
 
 test('successful UPI copying announces politely without changing the focused button label', () => {

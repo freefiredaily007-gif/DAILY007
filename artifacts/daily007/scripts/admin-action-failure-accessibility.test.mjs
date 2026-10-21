@@ -34,7 +34,7 @@ test('deposit and withdrawal errors identify the request and named retry action'
   assert.match(paymentsSource, /Check its status, then activate REJECT for \$\{target\.userName/);
   assert.match(paymentsSource, /accessibilityLabel=\{`Approve \$\{p\.kind === 'withdrawal' \? 'withdrawal' : 'deposit'\} request for \$\{p\.userName \|\| 'player'\}`\}/);
   assert.match(paymentsSource, /accessibilityLabel=\{`Reject \$\{p\.kind === 'withdrawal' \? 'withdrawal' : 'deposit'\} request for \$\{p\.userName \|\| 'player'\}`\}/);
-  assert.match(paymentsSource, /Check its payout status before activating RECORD MANUAL PAYOUT SENT again/);
+  assert.match(paymentsSource, /Check its payout status before activating RECORD PAYOUT SENT again/);
 });
 
 test('approved withdrawals expose their payout state and announce when it becomes paid', () => {

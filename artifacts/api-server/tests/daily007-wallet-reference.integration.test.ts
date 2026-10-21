@@ -34,6 +34,7 @@ const fixture = {
   concurrentApprovalPlayerId: randomUUID(),
   oppositeReviewPlayerId: randomUUID(),
   racePlayerIds: [randomUUID(), randomUUID()] as const,
+  withdrawalPlayerId: randomUUID(),
   adminId: randomUUID(),
   secondAdminId: randomUUID(),
 };
@@ -51,8 +52,10 @@ after(async () => {
       fixture.concurrentApprovalPlayerId,
       fixture.oppositeReviewPlayerId,
       ...fixture.racePlayerIds,
+      fixture.withdrawalPlayerId,
     ];
     await pool.query("DELETE FROM daily007_v2_notifications WHERE user_id = ANY($1::uuid[])", [playerIds]);
+    await pool.query("DELETE FROM daily007_v2_withdrawals WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_payments WHERE user_id = ANY($1::uuid[])", [playerIds]);
     await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [
@@ -122,7 +125,16 @@ before(async () => {
       minPurchase: "1",
       maxPurchase: "5000",
       coinToMoneyRate: "2.5",
+      withdrawalEnabled: "true",
+      minWithdrawal: "100",
+      maxWithdrawal: "5000",
     })],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_users
+       (id, name, email, password_salt, password_hash, role, wallet_coins)
+     VALUES ($1, 'Manual Payout Test Player', $2, 'test-salt', 'test-hash', 'user', 700)`,
+    [fixture.withdrawalPlayerId, `manual-payout-${fixture.withdrawalPlayerId}@example.test`],
   );
 });
 
@@ -175,6 +187,88 @@ async function call(
   });
   return { status: response.status, body: await response.json() };
 }
+
+test("approval remains approved until a recorded manual transfer sets paid_at", async () => {
+  await withServer(async (origin) => {
+    const created = await call(origin, fixture.withdrawalPlayerId, "/withdrawals", "POST", {
+      coins: 150,
+      method: "upi",
+      account: "manual-payout-test@upi",
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const withdrawalId = created.body.id as string;
+
+    const approved = await call(
+      origin,
+      fixture.adminId,
+      `/admin/withdrawals/${withdrawalId}/approve`,
+      "POST",
+    );
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+
+    const approvedList = await call(origin, fixture.adminId, "/admin/withdrawals", "GET");
+    const approvedRow = approvedList.body.find((row: any) => row.id === withdrawalId);
+    assert.equal(approvedRow?.status, "approved");
+    assert.equal(approvedRow?.payoutStatus, "manual_payout_required");
+    assert.equal(
+      (await pool.query<{ paid_at: Date | null }>(
+        "SELECT paid_at FROM daily007_v2_withdrawals WHERE id = $1",
+        [withdrawalId],
+      )).rows[0]?.paid_at,
+      null,
+      "approving must not record or transfer the payout",
+    );
+
+    const payout = await call(
+      origin,
+      fixture.adminId,
+      `/admin/withdrawals/${withdrawalId}/payout`,
+      "POST",
+    );
+    assert.equal(payout.status, 200, JSON.stringify(payout.body));
+    assert.equal(payout.body.payoutStatus, "paid");
+    const repeatedPayout = await call(
+      origin,
+      fixture.adminId,
+      `/admin/withdrawals/${withdrawalId}/payout`,
+      "POST",
+    );
+    assert.equal(repeatedPayout.status, 200);
+    assert.equal(repeatedPayout.body.alreadyRecorded, true);
+
+    const adminRefresh = await call(origin, fixture.adminId, "/admin/withdrawals", "GET");
+    const refreshedAdminRow = adminRefresh.body.find((row: any) => row.id === withdrawalId);
+    assert.equal(refreshedAdminRow?.status, "approved");
+    assert.equal(refreshedAdminRow?.payoutStatus, "paid");
+    const playerRefresh = await call(origin, fixture.withdrawalPlayerId, "/my/withdrawals", "GET");
+    assert.equal(playerRefresh.body[0]?.status, "approved");
+    assert.equal(playerRefresh.body[0]?.payoutStatus, "paid");
+
+    const persisted = await pool.query<{
+      status: string;
+      payout_status: string;
+      paid_at: Date | null;
+    }>(
+      "SELECT status, payout_status, paid_at FROM daily007_v2_withdrawals WHERE id = $1",
+      [withdrawalId],
+    );
+    assert.equal(persisted.rows[0]?.status, "approved");
+    assert.equal(persisted.rows[0]?.payout_status, "manual_payout_required");
+    assert.ok(persisted.rows[0]?.paid_at instanceof Date);
+
+    const ledger = await pool.query<{ amount: number; reason: string }>(
+      "SELECT amount, reason FROM daily007_v2_wallet_ledger WHERE user_id = $1",
+      [fixture.withdrawalPlayerId],
+    );
+    assert.deepEqual(ledger.rows, [{ amount: -150, reason: "withdrawal_reserved" }]);
+    const payoutNotices = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM daily007_v2_notifications
+        WHERE user_id = $1 AND title = 'Withdrawal paid'`,
+      [fixture.withdrawalPlayerId],
+    );
+    assert.equal(payoutNotices.rows[0]?.count, "1");
+  });
+});
 
 async function backendPid(client: Awaited<ReturnType<typeof pool.connect>>): Promise<number> {
   const result = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");

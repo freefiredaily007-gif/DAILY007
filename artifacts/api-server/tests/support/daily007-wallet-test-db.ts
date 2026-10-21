@@ -33,7 +33,8 @@ type Withdrawal = {
   method: string;
   account: string;
   status: "pending" | "approved" | "rejected" | "deleted";
-  payout_status: "not_paid" | "manual_payout_required" | "paid";
+  payout_status: "not_paid" | "manual_payout_required";
+  paid_at: Date | null;
   review_reason: string | null;
   reviewed_by: string | null;
   created_at: Date;
@@ -379,7 +380,7 @@ class MemoryWalletDatabase {
             method: withdrawal.method,
             account: withdrawal.account,
             status: withdrawal.status,
-            payoutStatus: withdrawal.payout_status,
+             payoutStatus: withdrawal.paid_at ? "paid" : withdrawal.payout_status,
             reviewReason: withdrawal.review_reason,
             createdAt: withdrawal.created_at,
             reviewedAt: withdrawal.reviewed_at,
@@ -453,6 +454,7 @@ class MemoryWalletDatabase {
         account: String(account),
         status: "pending",
         payout_status: "not_paid",
+        paid_at: null,
         review_reason: null,
         reviewed_by: null,
         created_at: new Date(),
@@ -542,9 +544,9 @@ class MemoryWalletDatabase {
         }
         rows = [structuredClone(request)];
       }
-    } else if (normalized.startsWith("UPDATE daily007_v2_withdrawals SET payout_status = 'paid'")) {
+    } else if (normalized.startsWith("UPDATE daily007_v2_withdrawals SET paid_at = COALESCE(paid_at, now())")) {
       const request = this.withdrawals.get(userId);
-      if (request) request.payout_status = "paid";
+      if (request) request.paid_at = request.paid_at ?? new Date();
     } else if (normalized.startsWith("INSERT INTO daily007_v2_notifications")) {
       const literalValues = normalized.match(/VALUES \(\$1, '([^']*)', '([^']*)', '([^']*)'\)/);
       this.notifications.push({
@@ -614,7 +616,7 @@ class MemoryWalletDatabase {
         method: item.method,
         account: item.account,
         status: item.status,
-        payoutStatus: item.payout_status,
+        payoutStatus: item.paid_at ? "paid" : item.payout_status,
         reviewReason: item.review_reason,
         createdAt: item.created_at,
         reviewedAt: item.reviewed_at,
