@@ -16,12 +16,21 @@ import {
 } from '../lib/roomCredentialTiming';
 import { shouldStackRoomCredentialRows } from '../lib/roomCredentialLayout';
 
+type RoomCredentialAccessStatus =
+  | 'approved'
+  | 'pending'
+  | 'rejected'
+  | 'unregistered'
+  | 'unknown'
+  | 'cancelled';
+
 type Props = {
   startsAt?: Date | string | null;
   now: number;
   configured: boolean;
   roomId?: string | null;
   roomPassword?: string | null;
+  accessStatus?: RoomCredentialAccessStatus;
 };
 
 export function RoomCredentialsPanel({
@@ -30,6 +39,7 @@ export function RoomCredentialsPanel({
   configured,
   roomId,
   roomPassword,
+  accessStatus = 'approved',
 }: Props) {
   const { fontScale, width } = useWindowDimensions();
   const stackCredentialRows = shouldStackRoomCredentialRows(fontScale, width);
@@ -39,7 +49,8 @@ export function RoomCredentialsPanel({
   const [copyFeedback, setCopyFeedback] = useState<RoomCredentialCopyFeedback | null>(null);
   const [simulateClipboardFailure, setSimulateClipboardFailure] = useState(false);
   const copyRequestGuard = useRef(createRoomCredentialCopyRequestGuard());
-  const credentialsReady = hasServerAuthorizedRoomCredentials(id, password);
+  const canViewCredentials = accessStatus === 'approved';
+  const credentialsReady = canViewCredentials && hasServerAuthorizedRoomCredentials(id, password);
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -47,13 +58,28 @@ export function RoomCredentialsPanel({
       };
     }, []),
   );
+  const pendingReleaseMessage = schedule
+    ? `Room ID & Password will show here at ${fmtTime12(schedule.releaseTime24)} IST.`
+    : 'Tournament start time is unavailable. Room details remain hidden.';
   const message = !schedule
-    ? 'Tournament start time is unavailable. Room details remain hidden.'
-    : now < schedule.releaseAtMs
-      ? `Room ID & Password will show here at ${fmtTime12(schedule.releaseTime24)} IST.`
-      : !configured
-        ? 'The admin has not shared room details yet.'
-        : 'Room details will be available soon.';
+    ? pendingReleaseMessage
+    : accessStatus === 'cancelled'
+      ? 'Room details are unavailable because this tournament was cancelled.'
+      : now < schedule.releaseAtMs
+        ? accessStatus === 'approved'
+          ? pendingReleaseMessage
+          : `${pendingReleaseMessage} Approved registrants only.`
+        : !canViewCredentials
+          ? accessStatus === 'pending'
+            ? 'Room details are available only after your entry is approved.'
+            : accessStatus === 'rejected'
+              ? 'Room details are unavailable for rejected entries.'
+              : accessStatus === 'unknown'
+                ? 'Confirm your registration status to view room details.'
+                : 'Join this match to view room details after approval.'
+          : !configured
+            ? 'The admin has not shared room details yet.'
+            : 'Room details will be available soon.';
 
   useLayoutEffect(() => {
     copyRequestGuard.current.invalidateRequests();

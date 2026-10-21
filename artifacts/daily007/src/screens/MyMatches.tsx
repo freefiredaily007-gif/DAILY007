@@ -287,25 +287,22 @@ export default function MyMatches() {
                 ) : teamEditLocked ? (
                   <Btn title="TEAM EDITING LOCKED" kind="ghost" small disabled style={{ marginTop: 10 }} />
                 ) : null}
-                {status === 'approved' && !cancelled ? (
-                  <RoomCredentialsPanel
-                    startsAt={startsAt}
-                    now={clockNow}
-                    configured={roomConfigured}
-                    roomId={roomId}
-                    roomPassword={roomPassword}
-                  />
-                ) : !cancelled ? (
-                  <View style={s.room}>
-                    <Text style={s.roomLocked}>
-                      {status === 'pending'
-                        ? 'Entry is pending admin approval.'
+                <RoomCredentialsPanel
+                  startsAt={startsAt}
+                  now={clockNow}
+                  configured={status === 'approved' && !cancelled && roomConfigured}
+                  roomId={status === 'approved' && !cancelled ? roomId : undefined}
+                  roomPassword={status === 'approved' && !cancelled ? roomPassword : undefined}
+                  accessStatus={cancelled
+                    ? 'cancelled'
+                    : status === 'approved'
+                      ? 'approved'
+                      : status === 'pending'
+                        ? 'pending'
                         : status === 'rejected'
-                          ? 'Registration rejected; the entry fee was refunded.'
-                          : 'Registration status is unavailable.'}
-                    </Text>
-                  </View>
-                ) : null}
+                          ? 'rejected'
+                          : 'unknown'}
+                />
                   {results.length > 0 ? (
                     <View style={s.results}>
                       <Text style={s.resultsTitle}>TOURNAMENT RESULTS</Text>

@@ -552,19 +552,28 @@ export default function Tournaments() {
             : item;
           const registration = item.myRegistration;
           const registrationStatus = String(registration?.status ?? '').toLowerCase();
-          const roomDetails = registrationStatus === 'approved' ? (
+          const tournamentCancelled = String(item.status ?? '').toLowerCase() === 'cancelled';
+          const roomAccessStatus = tournamentCancelled
+            ? 'cancelled'
+            : registrationStatus === 'approved'
+              ? 'approved'
+              : registrationStatus === 'pending'
+                ? 'pending'
+                : registrationStatus === 'rejected'
+                  ? 'rejected'
+                  : item.joinedStatusUnknown === true
+                    ? 'unknown'
+                    : 'unregistered';
+          const roomDetails = (
             <RoomCredentialsPanel
               startsAt={item.startsAt}
               now={clockNow}
-              configured={registration.roomPublished === true}
-              roomId={registration.roomId}
-              roomPassword={registration.roomPassword}
+              configured={roomAccessStatus === 'approved' && registration?.roomPublished === true}
+              roomId={roomAccessStatus === 'approved' ? registration?.roomId : undefined}
+              roomPassword={roomAccessStatus === 'approved' ? registration?.roomPassword : undefined}
+              accessStatus={roomAccessStatus}
             />
-          ) : registrationStatus === 'pending' ? (
-            <View style={s.roomPending}>
-              <Text style={s.roomPendingText}>Your entry is awaiting approval. Room details are available only after approval.</Text>
-            </View>
-          ) : undefined;
+          );
           return (
           <MatchCard
             t={cardItem}
@@ -614,13 +623,4 @@ const s = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
-  roomPending: {
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: C.bg2,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  roomPendingText: { color: C.gold, fontSize: 12, fontWeight: '700', lineHeight: 18 },
 });

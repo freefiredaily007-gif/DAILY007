@@ -35,6 +35,10 @@ const tournamentsSource = await readFile(
   new URL("../src/screens/Tournaments.tsx", import.meta.url),
   "utf8",
 );
+const myMatchesSource = await readFile(
+  new URL("../src/screens/MyMatches.tsx", import.meta.url),
+  "utf8",
+);
 const rowStart = panelSource.indexOf("function CredentialRow(");
 const rowEnd = panelSource.indexOf("\nconst styles", rowStart);
 assert.ok(rowStart >= 0 && rowEnd > rowStart, "The credential row component must remain present.");
@@ -84,9 +88,24 @@ test("room credentials stay hidden until the five-minute refresh supplies approv
   );
 
   assert.match(panelSource, /now < schedule\.releaseAtMs/);
-  assert.match(panelSource, /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\)/);
+  assert.match(
+    panelSource,
+    /const canViewCredentials = accessStatus === 'approved';\s*const credentialsReady = canViewCredentials && hasServerAuthorizedRoomCredentials\(id, password\);/,
+  );
   assert.match(panelSource, /\{credentialsReady \? \(/);
   assert.match(panelSource, /label="Room ID"[\s\S]*?label="Password"/);
+  assert.match(panelSource, /Room ID & Password will show here at/);
+  assert.match(panelSource, /accessStatus === 'cancelled'/);
+});
+
+test("all tournament card surfaces render the shared room panel and gate credentials by approval", () => {
+  assert.match(tournamentsSource, /const roomDetails = \(\s*<RoomCredentialsPanel/);
+  assert.match(tournamentsSource, /accessStatus=\{roomAccessStatus\}/);
+  assert.match(tournamentsSource, /roomId=\{roomAccessStatus === 'approved' \? registration\?\.roomId : undefined\}/);
+  assert.match(myMatchesSource, /<RoomCredentialsPanel[\s\S]*?accessStatus=\{cancelled[\s\S]*?'unknown'\}/);
+  assert.match(myMatchesSource, /roomId=\{status === 'approved' && !cancelled \? roomId : undefined\}/);
+  assert.match(detailSource, /<RoomCredentialsPanel[\s\S]*?accessStatus=\{roomAccessStatus\}/);
+  assert.match(detailSource, /roomId=\{canViewRoomDetails \? t\.myRegistration\?\.roomId : undefined\}/);
 });
 
 test("room availability and credential replacements are announced without exposing values", () => {
@@ -740,9 +759,9 @@ test("match detail polling follows both focus and app activity without duplicate
     detailSource,
     /const canViewRoomDetails = registrationStatus === 'approved' && tournamentStatus !== 'cancelled';/,
   );
-  assert.match(detailSource, /configured=\{t\.myRegistration\?\.roomPublished === true\}/);
-  assert.match(detailSource, /roomId=\{t\.myRegistration\?\.roomId\}/);
-  assert.match(detailSource, /roomPassword=\{t\.myRegistration\?\.roomPassword\}/);
+  assert.match(detailSource, /configured=\{canViewRoomDetails && t\.myRegistration\?\.roomPublished === true\}/);
+  assert.match(detailSource, /roomId=\{canViewRoomDetails \? t\.myRegistration\?\.roomId : undefined\}/);
+  assert.match(detailSource, /roomPassword=\{canViewRoomDetails \? t\.myRegistration\?\.roomPassword : undefined\}/);
 
   const snapshots = [
     {

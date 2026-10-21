@@ -686,6 +686,17 @@ export default function TDetail() {
   const schedule = getRoomCredentialSchedule(t.startsAt);
   const registrationStatus = String(t.myRegistration?.status ?? '').toLowerCase();
   const canViewRoomDetails = registrationStatus === 'approved' && tournamentStatus !== 'cancelled';
+  const roomAccessStatus = tournamentStatus === 'cancelled'
+    ? 'cancelled'
+    : registrationStatus === 'approved'
+      ? 'approved'
+      : registrationStatus === 'pending'
+        ? 'pending'
+        : registrationStatus === 'rejected'
+          ? 'rejected'
+          : registrationStatusKnown
+            ? 'unregistered'
+            : 'unknown';
   const scheduledStart = schedule
     ? `${schedule.date} · ${fmtTime12(schedule.startTime24)} IST`
     : `${fmtDate(t.date)} · ${fmtTime12(t.time)} IST`;
@@ -944,29 +955,26 @@ export default function TDetail() {
         </>
       )}
 
-      {canViewRoomDetails ? (
-        <>
-          {roomDetailsAnnouncement ? (
-            <Text
-              key={roomDetailsAnnouncementVersion}
-              accessible
-              accessibilityRole="text"
-              accessibilityLiveRegion="polite"
-              testID="room-details-announcement"
-              style={s.participantsRetryStatus}
-            >
-              {roomDetailsAnnouncement}
-            </Text>
-          ) : null}
-          <RoomCredentialsPanel
-            startsAt={t.startsAt}
-            now={clockNow}
-            configured={t.myRegistration?.roomPublished === true}
-            roomId={t.myRegistration?.roomId}
-            roomPassword={t.myRegistration?.roomPassword}
-          />
-        </>
+      {roomDetailsAnnouncement ? (
+        <Text
+          key={roomDetailsAnnouncementVersion}
+          accessible
+          accessibilityRole="text"
+          accessibilityLiveRegion="polite"
+          testID="room-details-announcement"
+          style={s.participantsRetryStatus}
+        >
+          {roomDetailsAnnouncement}
+        </Text>
       ) : null}
+      <RoomCredentialsPanel
+        startsAt={t.startsAt}
+        now={clockNow}
+        configured={canViewRoomDetails && t.myRegistration?.roomPublished === true}
+        roomId={canViewRoomDetails ? t.myRegistration?.roomId : undefined}
+        roomPassword={canViewRoomDetails ? t.myRegistration?.roomPassword : undefined}
+        accessStatus={roomAccessStatus}
+      />
 
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={msg} />

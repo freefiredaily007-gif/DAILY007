@@ -66,7 +66,7 @@ test("released credentials display with the phone clock behind or ahead of serve
 
   assert.match(
     panelSource,
-    /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\);/,
+    /const canViewCredentials = accessStatus === 'approved';\s*const credentialsReady = canViewCredentials && hasServerAuthorizedRoomCredentials\(id, password\);/,
   );
   assert.match(panelSource, /credentialsReady \? \(/);
   assert.match(

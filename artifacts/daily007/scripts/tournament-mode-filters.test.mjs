@@ -1754,7 +1754,10 @@ test('an approved room refresh reveals credentials at T-5 without changing the s
     /getNextRoomCredentialRefreshAtMs\(\s*schedule\.startsAtMs,\s*schedule\.releaseAtMs,\s*tournament\.myRegistration\?\.status,\s*now,\s*\)/,
   );
   assert.match(tournamentsSource, /now=\{clockNow\}/);
-  assert.match(roomCredentialsPanelSource, /const credentialsReady = hasServerAuthorizedRoomCredentials\(id, password\)/);
+  assert.match(
+    roomCredentialsPanelSource,
+    /const canViewCredentials = accessStatus === 'approved';\s*const credentialsReady = canViewCredentials && hasServerAuthorizedRoomCredentials\(id, password\);/,
+  );
   assert.match(roomCredentialsPanelSource, /\{credentialsReady \? \(/);
 
   const timers = [];
