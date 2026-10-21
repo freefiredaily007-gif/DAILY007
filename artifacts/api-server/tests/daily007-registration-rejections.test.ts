@@ -207,6 +207,15 @@ const rejectedJoins: JoinCase[] = [
       registrationCapacityTestDb.match.mode = "squad";
       registrationCapacityTestDb.match.team_type = "duo";
     },
+    body: {
+      captainGameName: "First Captain",
+      gameUid: "FF-FIRST-PLAYER",
+      teamName: "",
+      teamMembers: [
+        { name: "First Captain", uid: "FF-FIRST-PLAYER" },
+        { name: "Second Player", uid: "FF-TEAMMATE-002" },
+      ],
+    },
   },
   {
     name: "captain game name exceeds the API limit",
@@ -250,9 +259,12 @@ const rejectedJoins: JoinCase[] = [
     },
     body: {
       captainGameName: "First Captain",
-      captainGameUid: "FF-FIRST-PLAYER",
+      gameUid: "FF-FIRST-PLAYER",
       teamName: "Test Duo",
-      teammates: [{ name: "x".repeat(101), uid: "FF-TEAMMATE-002" }],
+      teamMembers: [
+        { name: "First Captain", uid: "FF-FIRST-PLAYER" },
+        { name: "x".repeat(101), uid: "FF-TEAMMATE-002" },
+      ],
     },
   },
   {
@@ -269,9 +281,12 @@ const rejectedJoins: JoinCase[] = [
     },
     body: {
       captainGameName: "First Captain",
-      captainGameUid: "FF-FIRST-PLAYER",
+      gameUid: "FF-FIRST-PLAYER",
       teamName: "Test Duo",
-      teammates: [{ name: "Second Player", uid: "x".repeat(129) }],
+      teamMembers: [
+        { name: "First Captain", uid: "FF-FIRST-PLAYER" },
+        { name: "Second Player", uid: "x".repeat(129) },
+      ],
     },
   },
   {
@@ -295,9 +310,12 @@ const rejectedJoins: JoinCase[] = [
     },
     body: {
       captainGameName: "First Captain",
-      captainGameUid: "FF-FIRST-PLAYER",
+      gameUid: "FF-FIRST-PLAYER",
       teamName: "Test Duo",
-      teammates: [{ name: "Second Player", uid: "FF-TEAMMATE-002" }],
+      teamMembers: [
+        { name: "First Captain", uid: "FF-FIRST-PLAYER" },
+        { name: "Second Player", uid: "FF-TEAMMATE-002" },
+      ],
     },
   },
 ];

@@ -247,6 +247,24 @@ async function cleanupFixture(fixture: RejectionFixture): Promise<void> {
   }
 }
 
+test("Battle Royale Solo rejects a second join without changing the saved registration or wallet", async () => {
+  const fixture = await createFixture(false, 100);
+  try {
+    await withServer(async (origin) => {
+      const firstJoin = await registerForMatch(origin, fixture);
+      assert.equal(firstJoin.status, 201);
+      const savedState = await snapshotFixture(fixture);
+
+      const duplicateJoin = await registerForMatch(origin, fixture);
+      assert.equal(duplicateJoin.status, 409);
+      assert.equal(duplicateJoin.body.error, "You have already joined this tournament.");
+      assert.deepEqual(await snapshotFixture(fixture), savedState);
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
 async function seedPaidRegistrationForConcurrentRejection(
   fixture: RejectionFixture,
 ): Promise<{ registrationId: string; adminIds: [string, string] }> {
