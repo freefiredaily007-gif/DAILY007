@@ -219,14 +219,20 @@ test("approval remains approved until a recorded manual transfer sets paid_at", 
       "approving must not record or transfer the payout",
     );
 
-    const payout = await call(
-      origin,
-      fixture.adminId,
-      `/admin/withdrawals/${withdrawalId}/payout`,
-      "POST",
-    );
+    const payoutRequests = await Promise.all([
+      call(origin, fixture.adminId, `/admin/withdrawals/${withdrawalId}/payout`, "POST"),
+      call(origin, fixture.adminId, `/admin/withdrawals/${withdrawalId}/payout`, "POST"),
+    ]);
+    const payout = payoutRequests[0];
     assert.equal(payout.status, 200, JSON.stringify(payout.body));
     assert.equal(payout.body.payoutStatus, "paid");
+    assert.equal(payoutRequests[1].status, 200, JSON.stringify(payoutRequests[1].body));
+    assert.equal(payoutRequests[1].body.payoutStatus, "paid");
+    assert.equal(
+      payoutRequests.filter((request) => request.body.alreadyRecorded === true).length,
+      1,
+      "exactly one concurrent payout request should perform the first record",
+    );
     const repeatedPayout = await call(
       origin,
       fixture.adminId,

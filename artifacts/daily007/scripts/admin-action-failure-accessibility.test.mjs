@@ -41,7 +41,7 @@ test('approved withdrawals expose their payout state and announce when it become
   assert.match(paymentsSource, /accessibilityLabel=\{`Payout status: \$\{withdrawalPayoutStatusLabel\(p\.payoutStatus\)\}`\}/);
   assert.match(paymentsSource, /accessibilityLiveRegion=\{p\.payoutStatus === 'paid' \? 'polite' : 'none'\}/);
   assert.match(paymentsSource, /testID=\{`withdrawal-payout-status-\$\{p\.id\}`\}/);
-  assert.match(paymentsSource, /Manual payout recorded\. Payout status: \$\{withdrawalPayoutStatusLabel\(payoutResult\.payoutStatus\)\}/);
+  assert.match(paymentsSource, /Payout recorded as sent\. Payout status: \$\{withdrawalPayoutStatusLabel\(payoutResult\.payoutStatus\)\}/);
   assert.match(paymentsSource, /for \$\{request\?\.userName \|\| 'this player'\}\./);
   assert.match(paymentsSource, /accessibilityLabel=\{okMsg \|\| undefined\}/);
   assert.match(paymentsSource, /accessibilityLiveRegion="polite"/);

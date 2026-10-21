@@ -72,6 +72,7 @@
 - [Daily007 public participant rosters](daily007-public-participant-roster.md) — show team names and Free Fire handles only; keep account details and UIDs private.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.
 - [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — preserve exact payout IDs; TalkBack on iQOO Neo 10 / Android 16 confirmed polite copy-success feedback.
+- [Daily007 withdrawal payout state](daily007-withdrawal-payout-state.md) — approval is separate from payout; record sent transfers through `paid_at`, not `payout_status='paid'`.
 - [Daily007 leaderboard periods](daily007-leaderboard-periods.md) — snapshot ended cycles for Full Admin payout approval; require fresh prizes and explicit next-boundary scheduling.
 - [Daily007 leaderboard large text](daily007-leaderboard-large-text.md) — preserve the 1.5× layout breakpoint; wrap compact podium scores and expanded names instead of truncating them.
 - [Daily007 leaderboard screen readers](daily007-leaderboard-talkback.md) — native checks cover standings, stale-data recovery, podium updates, tab selection, and Top 20 state.

@@ -156,7 +156,7 @@ export default function AdminPayments() {
         ) ?? current);
         setPayoutTarget(null);
         showOkMsg(
-          `Manual payout recorded. Payout status: ${withdrawalPayoutStatusLabel(payoutResult.payoutStatus)} ` +
+          `Payout recorded as sent. Payout status: ${withdrawalPayoutStatusLabel(payoutResult.payoutStatus)} ` +
           `for ${request?.userName || 'this player'}.`,
         );
         await load();

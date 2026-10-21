@@ -773,7 +773,7 @@ export default function Wallet({
                 )}
                 {item.isRequest && item.reference && <Text style={s.txDate}>UTR: {item.reference}</Text>}
                 {item.isRequest && item.requestType === 'withdrawal' && item.payoutStatus === 'paid' &&
-                  <Text style={s.reviewText}>Manual payout recorded</Text>}
+                  <Text style={s.reviewText}>Payout sent</Text>}
                 {item.isRequest && item.reviewReason && (
                   <Text style={s.reviewText}>
                     Reason: {item.reviewReason}
