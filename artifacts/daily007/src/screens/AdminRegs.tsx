@@ -1,56 +1,76 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Platform } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
-import { File, Paths } from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
-import { Api, apiError } from '../lib/api';
-import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
+import { AdminRegistration, Api, apiError, Tournament } from '../lib/api';
+import { Btn, Card, C, Empty, Loading, Msg } from '../components/ui';
 import { CopyUidButton } from '../components/CopyUidButton';
 import { useToast } from '../components/adminKit';
-import { filterAdminRegistrationRows } from '../lib/adminRegistrationFilter';
-import { groupApprovedRegistrationRows } from '../lib/adminApprovedRegistrationMatches';
-
-const TABS = ['pending', 'approved', 'rejected', 'removed'] as const;
+import {
+  buildAdminRegistrationTournamentCards,
+  formatAdminRegistrationTime,
+} from '../lib/adminApprovedRegistrationMatches';
+import { getTournamentLifecycleState } from '../lib/tournamentLifecycle';
 
 export default function AdminRegs() {
   const toast = useToast();
-  const [tab, setTab] = useState<(typeof TABS)[number]>('pending');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
-
-  const [all, setAll] = useState<any[] | null>(null);
-  const [tournamentFilter, setTournamentFilter] = useState('');
-  const [approvedMatchFilter, setApprovedMatchFilter] = useState('');
-  const [exportTournamentId, setExportTournamentId] = useState('');
-  const [exportBusy, setExportBusy] = useState(false);
+  const [registrations, setRegistrations] = useState<AdminRegistration[] | null>(null);
+  const [tournaments, setTournaments] = useState<Tournament[] | null>(null);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
+  const [initialLoadFailed, setInitialLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
-    setAll(await Api.adminRegistrations());
+    const [registrationRows, tournamentRows] = await Promise.all([
+      Api.adminRegistrations(),
+      Api.tournaments(true),
+    ]);
+    if (!Array.isArray(registrationRows) || !Array.isArray(tournamentRows)) {
+      throw new Error('The registration or tournament list response was invalid.');
+    }
+    setRegistrations(registrationRows);
+    setTournaments(tournamentRows);
+    setInitialLoadFailed(false);
   }, []);
   useEffect(() => {
-    setAll(null);
-    load().catch((e) => { setErr(apiError(e)); setAll([]); });
+    setRegistrations(null);
+    setTournaments(null);
+    load().catch((e) => {
+      setErr(`Could not load approved registrations: ${apiError(e)}`);
+      setRegistrations([]);
+      setTournaments([]);
+      setInitialLoadFailed(true);
+    });
   }, [load]);
 
-  const list = filterAdminRegistrationRows(all ?? [], tab, tournamentFilter);
-  const paidRoster = (all ?? []).filter((x) => x.status === 'pending' || x.status === 'approved');
-  const approvedMatchGroups = groupApprovedRegistrationRows(
-    filterAdminRegistrationRows(all ?? [], 'approved', tournamentFilter),
+  const tournamentCards = useMemo(
+    () => buildAdminRegistrationTournamentCards(
+      (tournaments ?? [])
+        .flatMap((tournament) => {
+          const lifecycle = getTournamentLifecycleState(tournament);
+          return lifecycle === 'upcoming' || lifecycle === 'ongoing'
+            ? [{ ...tournament, lifecycle }]
+            : [];
+        }),
+      registrations ?? [],
+    ),
+    [registrations, tournaments],
   );
-  const visibleApprovedMatchGroups = approvedMatchFilter
-    ? approvedMatchGroups.filter((group) => group.id === approvedMatchFilter)
-    : approvedMatchGroups;
-  const selectedApprovedMatch = approvedMatchGroups.find((group) => group.id === approvedMatchFilter);
-  const tournaments = Array.from(new Map((all ?? []).map((r) => [
-    String(r.tournamentId || ''),
-    { id: String(r.tournamentId || ''), name: String(r.tournamentName || r.tournamentId || 'Tournament') },
-  ])).values()).filter((t) => t.id);
-  const exportTournaments = Array.from(new Map(paidRoster.map((r) => [
-    String(r.tournamentId || ''),
-    { id: String(r.tournamentId || ''), name: String(r.tournamentName || r.tournamentId || 'Tournament') },
-  ])).values()).filter((t) => t.id);
-  const selectedTournament = exportTournaments.find((t) => t.id === exportTournamentId) || exportTournaments[0];
+  const selectedTournament = tournamentCards.find((tournament) => tournament.id === selectedTournamentId) ?? null;
+  const selectedPlayers = selectedTournament?.rows ?? [];
+
+  const retryLoad = () => {
+    setErr('');
+    setRegistrations(null);
+    setTournaments(null);
+    load().catch((e) => {
+      setErr(`Could not load approved registrations: ${apiError(e)}`);
+      setRegistrations([]);
+      setTournaments([]);
+      setInitialLoadFailed(true);
+    });
+  };
 
   const rosterText = (raw: unknown) => {
     try {
@@ -64,171 +84,71 @@ export default function AdminRegs() {
     return typeof raw === 'string' ? raw : '';
   };
 
-  const exportCsv = async () => {
-    const exportTarget = tab === 'approved' ? selectedApprovedMatch : selectedTournament;
-    if (!exportTarget) return;
-    setErr(''); setOkMsg(''); setExportBusy(true);
-    try {
-      const rows: string[][] = [['Real Name', 'In-Game Name', 'Game UID', 'Team Name', 'Registration Status']];
-      const sourceRows = tab === 'approved'
-        ? (selectedApprovedMatch?.rows ?? []).filter((r) => r.status === 'approved')
-        : paidRoster.filter((r) => String(r.tournamentId) === selectedTournament?.id);
-      const exportName = tab === 'approved'
-        ? selectedApprovedMatch?.tournamentName
-        : selectedTournament?.name;
-      sourceRows.forEach((r) => {
-        let members: any[] = [];
-        try {
-          const source = r.teamMembers ?? r.teammates;
-          const parsed = typeof source === 'string' ? JSON.parse(source) : source;
-          if (Array.isArray(parsed)) members = parsed;
-        } catch {}
-        if (r.teammates && !members.length) {
-          try {
-            const parsed = typeof r.teammates === 'string' ? JSON.parse(r.teammates) : r.teammates;
-            if (Array.isArray(parsed)) members = parsed;
-          } catch {}
-        }
-        const captainName = String(r.captainName || r.playerName || '');
-        const captainGameName = String(r.captainGameName || '');
-        const captainUid = String(r.captainGameUid || r.gameUid || '');
-        rows.push([
-          captainName,
-          captainGameName,
-          captainUid,
-          String(r.teamName || ''),
-          String(r.status || ''),
-        ]);
-        const teammates = members.filter((member, index) => !(
-          index === 0 &&
-          String(member?.uid || member?.gameUid || member?.captainGameUid || '') === captainUid
-        ));
-        teammates.forEach((member) => rows.push([
-          '',
-          String(member?.name || member?.ign || ''),
-          String(member?.uid || member?.gameUid || member?.captainGameUid || ''),
-          String(r.teamName || ''),
-          String(r.status || ''),
-        ]));
-      });
-      const quote = (value: string) => {
-        const safe = /^[\t\r\n ]*[=+\-@]/.test(value) ? `'${value}` : value;
-        return `"${safe.replace(/"/g, '""')}"`;
-      };
-      const csv = rows.map((row) => row.map(quote).join(',')).join('\r\n');
-      if (Platform.OS === 'web') {
-        const browser = globalThis as any;
-        const blob = new browser.Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const url = browser.URL.createObjectURL(blob);
-        const link = browser.document.createElement('a');
-        link.href = url;
-        const safeId = exportTarget.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        link.download = `daily007-${safeId}-players.csv`;
-        link.click();
-        browser.URL.revokeObjectURL(url);
-        setOkMsg('Player list CSV downloaded.');
-      } else {
-        if (!(await Sharing.isAvailableAsync())) {
-          throw new Error('Native file sharing is unavailable on this device.');
-        }
-        const safeId = exportTarget.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const file = new File(Paths.cache, `daily007-${safeId}-players.csv`);
-        try {
-          if (file.exists) file.delete();
-          file.create();
-          file.write(csv);
-          await Sharing.shareAsync(file.uri, {
-            mimeType: 'text/csv',
-            UTI: 'public.comma-separated-values-text',
-            dialogTitle: `${exportName || 'Tournament'} player list`,
-          });
-        } finally {
-          if (file.exists) file.delete();
-        }
-        setOkMsg('CSV file opened in the native share sheet. Choose an app or save destination.');
-      }
-    } catch (e: any) { setErr(e?.message || 'Could not export the player list.'); }
-    finally { setExportBusy(false); }
-  };
-
-  const act = async (id: string, action: 'approve' | 'reject', playerName: string) => {
-    if (busyId) return;
-    setErr(''); setOkMsg(''); setBusyId(id);
-    try {
-      await Api.adminRegAction(id, action);
-      setOkMsg(action === 'approve' ? 'Registration approved' : 'Registration rejected — coins refunded');
-      setTimeout(() => setOkMsg(''), 2500);
-      try { await load(); }
-      catch (e: any) { setErr(`Could not refresh registrations: ${apiError(e)}`); }
-    } catch (e: any) {
-      const actionLabel = action === 'approve' ? 'APPROVE' : 'REJECT';
-      setErr(
-        `Could not ${action} registration for ${playerName}: ${apiError(e)}. ` +
-        `The registration remains in this list. Check its current status, then activate ${actionLabel} for ${playerName} to retry.`,
-      );
-    }
-    finally { setBusyId(null); }
-  };
-
   const del = async (id: string, playerName: string) => {
     if (busyId) return;
     setErr(''); setOkMsg(''); setBusyId(id);
     try {
       await Api.adminDeleteRegistration(id);
-      setOkMsg('Registration deleted');
+      setOkMsg('Registration removed from the approved list.');
       setTimeout(() => setOkMsg(''), 2500);
       try { await load(); }
       catch (e: any) { setErr(`Could not refresh registrations: ${apiError(e)}`); }
     } catch (e: any) {
       setErr(
-        `Could not delete registration for ${playerName}: ${apiError(e)}. ` +
-        `The registration remains in this list. Check its current status, then activate DELETE for ${playerName} to retry.`,
+        `Could not remove the registration for ${playerName}: ${apiError(e)}. ` +
+        `The registration remains in this list. Check its current status, then use DELETE for ${playerName} to retry.`,
       );
     }
     finally { setBusyId(null); }
   };
 
-  const renderRegistrationCard = (r: any) => {
-    const uid = String(r.gameUid || r.captainGameUid || '').trim();
+  const registrationSlotLabel = (registration: AdminRegistration): string => {
+    if (registration.teamNumber != null && registration.slotNumber != null) {
+      return `Team ${String(registration.teamNumber).padStart(2, '0')} · Slot ${registration.slotNumber}${registration.isSquadCaptain ? ' · Captain' : ''}`;
+    }
+    if (registration.assignedGroupNumber != null) {
+      return `Player Slot ${registration.assignedGroupNumber}`;
+    }
+    if (registration.slotNumber != null) return `Slot ${registration.slotNumber}`;
+    return 'Slot: Not assigned';
+  };
+
+  const renderRegistrationCard = (registration: AdminRegistration) => {
+    const playerName = registration.playerName || registration.userName || 'Player';
+    const inGameName = registration.captainGameName?.trim() || '—';
+    const uid = String(registration.gameUid || registration.captainGameUid || '').trim();
     return (
-      <Card key={r.id} style={{ marginBottom: 10 }}>
-        <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
+      <Card key={registration.id} style={st.playerCard} testID={`admin-approved-player-${registration.id}`}>
+        <Text style={st.pName}>{playerName}{registration.teamName ? ` · ${registration.teamName}` : ''}</Text>
+        <Text style={st.sub}>In-Game Name: {inGameName}</Text>
         <View style={st.uidRow}>
-          <Text style={[st.sub, st.uidText]} numberOfLines={2}>
-            In-game name: {r.captainGameName || '—'} · UID: {uid || '—'}
-          </Text>
+          <Text style={[st.sub, st.uidText]} numberOfLines={2}>UID: {uid || '—'}</Text>
           {uid ? (
             <CopyUidButton
               uid={uid}
-              testID={`admin-registration-copy-uid-${r.id}`}
+              testID={`admin-registration-copy-uid-${registration.id}`}
               onCopied={() => toast('UID Copied!', 'success')}
               onCopyFailed={() => toast('Could not copy UID. Please try again.', 'error')}
             />
           ) : null}
         </View>
-        <Text style={st.sub}>{r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
-        {r.teamNumber && r.slotNumber ? (
-          <Text style={st.sub}>
-            Team {String(r.teamNumber).padStart(2, '0')} · Slot {r.slotNumber}{r.isSquadCaptain ? ' · Captain' : ''}
-          </Text>
+        <Text style={st.sub}>{registrationSlotLabel(registration)}</Text>
+        <Text style={st.sub}>Registration Time: {formatAdminRegistrationTime(registration.createdAt)}</Text>
+        {registration.teamMembers && registration.teamMembers !== '[]' ? (
+          <Text style={st.sub}>ROSTER{'\n'}{rosterText(registration.teamMembers)}</Text>
         ) : null}
-        <Text style={st.sub}>Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
-        {tab === 'removed' ? (
-          <Text style={st.sub}>Removed by the captain; the entry fee was not refunded.</Text>
-        ) : null}
-        {r.teamMembers && r.teamMembers !== '[]' && (
-          <Text style={st.sub}>ROSTER{'\n'}{rosterText(r.teamMembers)}</Text>
-        )}
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-          {tab === 'pending' && (
-            <>
-              <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Approve registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'approve', r.playerName)} /></View>
-              <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Reject registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'reject', r.playerName)} /></View>
-            </>
-          )}
-          {tab !== 'pending' && tab !== 'removed' && (
-            <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Delete registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => del(r.id, r.playerName)} /></View>
-          )}
+        <View style={st.deleteAction}>
+          <Btn
+            title="DELETE"
+            small
+            kind="danger"
+            loading={busyId === registration.id}
+            disabled={busyId !== null}
+            accessibilityLabel={`Delete registration for ${playerName}`}
+            accessibilityHint="Removes this registration from the approved player list."
+            testID={`admin-approved-player-delete-${registration.id}`}
+            onPress={() => del(registration.id, playerName)}
+          />
         </View>
       </Card>
     );
@@ -237,117 +157,113 @@ export default function AdminRegs() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
       <Text style={st.h}>REGISTRATIONS</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        {TABS.map((t) => <Chip key={t} testID={`admin-registration-filter-${t}`} label={t.toUpperCase()} color={tab === t ? C.neon : C.sub} onPress={() => { setTab(t); setApprovedMatchFilter(''); }} />)}
-      </View>
-      {exportTournaments.length > 0 && (
-        <Card style={{ marginBottom: 12 }}>
-          <Text style={st.exportTitle}>TOURNAMENT REGISTRATION LIST</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 10 }}>
-            <Chip testID="admin-registration-tournament-filter-all" label="ALL TOURNAMENTS" color={!tournamentFilter ? C.neon : C.sub} onPress={() => { setTournamentFilter(''); setApprovedMatchFilter(''); }} />
-            {tournaments.map((t) => (
-              <Chip
-                key={t.id}
-                testID={`admin-registration-tournament-filter-${t.id}`}
-                label={t.name}
-                color={tournamentFilter === t.id ? C.neon : C.sub}
-                onPress={() => { setTournamentFilter(t.id); setApprovedMatchFilter(''); }}
-              />
-            ))}
-          </ScrollView>
-        </Card>
-      )}
-      {tab === 'approved' && approvedMatchGroups.length > 0 && (
-        <Card style={{ marginBottom: 12 }}>
-          <Text style={st.exportTitle}>APPROVED MATCHES</Text>
-          <Text style={st.sub}>Choose a scheduled match to see its approved players and export that roster.</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 10 }}>
-            <Chip
-              testID="admin-approved-match-filter-all"
-              label="ALL MATCHES"
-              color={!approvedMatchFilter ? C.neon : C.sub}
-              onPress={() => setApprovedMatchFilter('')}
-            />
-            {approvedMatchGroups.map((group) => (
-              <Chip
-                key={group.id}
-                testID={`admin-approved-match-filter-${group.id}`}
-                label={`${group.tournamentName} · ${group.startLabel}`}
-                color={approvedMatchFilter === group.id ? C.neon : C.sub}
-                onPress={() => setApprovedMatchFilter(group.id)}
-              />
-            ))}
-          </ScrollView>
-          <Text style={st.exportTitle}>PLAYER LIST EXPORT</Text>
-          <Text style={st.sub}>
-            {selectedApprovedMatch
-              ? `Approved players only · ${selectedApprovedMatch.tournamentName} · ${selectedApprovedMatch.startLabel}`
-              : 'Select one scheduled match above to export its approved players.'}
-          </Text>
-          <Btn
-            title={Platform.OS === 'web' ? 'DOWNLOAD CSV' : 'DOWNLOAD PLAYER LIST'}
-            testID="admin-registration-approved-csv"
-            small
-            onPress={exportCsv}
-            loading={exportBusy}
-            disabled={!selectedApprovedMatch || exportBusy}
-          />
-          {Platform.OS !== 'web' && <Text style={st.sub}>Creates a CSV file in app cache, then opens the system share/save sheet.</Text>}
-        </Card>
-      )}
-      {tab !== 'approved' && tournaments.length > 0 && (
-        <Card style={{ marginBottom: 12 }}>
-          <Text style={st.exportTitle}>PLAYER LIST EXPORT</Text>
-          <Text style={st.sub}>Pending and approved paid registrations · names and game UIDs as CSV (rejected/refunded entries excluded)</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 10 }}>
-            {exportTournaments.map((t) => (
-              <Chip
-                key={t.id}
-                testID={`admin-registration-export-tournament-${t.id}`}
-                label={t.name}
-                color={(selectedTournament?.id === t.id) ? C.neon : C.sub}
-                onPress={() => setExportTournamentId(t.id)}
-              />
-            ))}
-          </ScrollView>
-          <Btn title={Platform.OS === 'web' ? 'DOWNLOAD CSV' : 'DOWNLOAD PLAYER LIST'} small onPress={exportCsv} loading={exportBusy} />
-          {Platform.OS !== 'web' && <Text style={st.sub}>Creates a CSV file in app cache, then opens the system share/save sheet.</Text>}
-        </Card>
-      )}
+      <Text style={st.pageSubtitle}>APPROVED PLAYERS · ACTIVE AND SCHEDULED TOURNAMENTS</Text>
       <Msg kind="err" text={err} accessibilityLabel={err || undefined} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} />
-      {all === null ? <Loading /> : err && all.length === 0 ? null : tab === 'approved' ? (
-        visibleApprovedMatchGroups.length === 0
-          ? <Empty text="No approved registrations." />
-          : visibleApprovedMatchGroups.map((group) => (
-            <View key={group.id} testID={`admin-approved-match-group-${group.id}`}>
-              <Card style={st.approvedMatchHeader}>
-                <Text style={st.approvedMatchTitle}>{group.tournamentName}</Text>
-                <Text style={st.approvedMatchTime}>{group.startLabel}</Text>
-                <Text style={st.approvedMatchCount}>
-                  {group.totalPlayerSlots
-                    ? `${group.approvedPlayerCount}/${group.totalPlayerSlots} APPROVED PLAYERS`
-                    : `${group.approvedPlayerCount} APPROVED PLAYERS`}
+      {err && !initialLoadFailed && registrations !== null && tournaments !== null ? (
+        <Btn title="RETRY REFRESH" small kind="ghost" onPress={retryLoad} accessibilityLabel="Retry refreshing registrations and tournaments" />
+      ) : null}
+      {registrations === null || tournaments === null ? (
+        <Loading accessibilityLabel="Loading approved registrations and tournaments" />
+      ) : initialLoadFailed ? (
+        <Btn title="RETRY LOADING" onPress={retryLoad} accessibilityLabel="Retry loading tournaments and approved registrations" />
+      ) : selectedTournamentId ? (
+        selectedTournament ? (
+          <View testID={`admin-approved-tournament-detail-${selectedTournament.id}`}>
+            <Btn
+              title="BACK TO TOURNAMENTS"
+              small
+              kind="ghost"
+              testID="admin-approved-tournament-back"
+              onPress={() => setSelectedTournamentId(null)}
+            />
+            <Card style={st.detailHeader}>
+              <Text style={st.tournamentName}>{selectedTournament.tournamentName}</Text>
+              <Text style={st.tournamentTime}>{selectedTournament.startLabel}</Text>
+              <Text style={st.approvedCount}>
+                {selectedTournament.totalPlayerSlots
+                  ? `${selectedTournament.approvedPlayerCount}/${selectedTournament.totalPlayerSlots} APPROVED PLAYERS`
+                  : `${selectedTournament.approvedPlayerCount} APPROVED PLAYERS`}
+              </Text>
+            </Card>
+            {selectedPlayers.length === 0
+              ? <Empty text="No approved players for this tournament." />
+              : selectedPlayers.map(renderRegistrationCard)}
+          </View>
+        ) : (
+          <View>
+            <Btn
+              title="BACK TO TOURNAMENTS"
+              small
+              kind="ghost"
+              testID="admin-approved-tournament-back"
+              onPress={() => setSelectedTournamentId(null)}
+            />
+            <Empty text="This tournament is no longer active or scheduled." />
+          </View>
+        )
+      ) : tournamentCards.length === 0 ? (
+        <Empty text="No active or scheduled tournaments." />
+      ) : (
+        <>
+          <Text style={st.sectionTitle}>ACTIVE / SCHEDULED TOURNAMENTS</Text>
+          {tournamentCards.map((tournament) => (
+            <Pressable
+              key={tournament.id}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={`${tournament.tournamentName}, ${tournament.startLabel}, ${tournament.approvedPlayerCount} approved players`}
+              accessibilityHint="Opens the approved player list for this tournament."
+              testID={`admin-approved-tournament-${tournament.id}`}
+              onPress={() => setSelectedTournamentId(tournament.id)}
+              style={st.tournamentPressable}
+            >
+              <Card style={st.tournamentCard}>
+                <View style={st.tournamentHeadingRow}>
+                  <Text style={st.tournamentName}>{tournament.tournamentName}</Text>
+                  <View style={[st.statusPill, tournament.lifecycle === 'ongoing' ? st.livePill : st.upcomingPill]}>
+                    <Text style={[st.statusText, tournament.lifecycle === 'ongoing' ? st.liveText : st.upcomingText]}>
+                      {tournament.lifecycle === 'ongoing' ? 'ONGOING' : 'UPCOMING'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={st.tournamentTime}>{tournament.startLabel}</Text>
+                <Text style={st.approvedCount}>
+                  {tournament.totalPlayerSlots
+                    ? `${tournament.approvedPlayerCount}/${tournament.totalPlayerSlots} APPROVED PLAYERS`
+                    : `${tournament.approvedPlayerCount} APPROVED PLAYERS`}
                 </Text>
               </Card>
-              {group.rows.map(renderRegistrationCard)}
-            </View>
-          ))
-      ) : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map(renderRegistrationCard)}
+            </Pressable>
+          ))}
+        </>
+      )}
       <View style={{ height: 30 }} />
     </ScrollView>
   );
 }
 const st = StyleSheet.create({
   wrap: { padding: 16, paddingBottom: 30 },
-  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 10, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
+  h: { color: C.text, fontSize: 20, fontWeight: '900', marginBottom: 3, letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
+  pageSubtitle: { color: C.sub, fontSize: 11, fontWeight: '800', letterSpacing: 0.4, marginBottom: 14 },
+  sectionTitle: { color: C.neon, fontSize: 13, fontWeight: '900', letterSpacing: 0.8, marginBottom: 10 },
+  tournamentPressable: { marginBottom: 10 },
+  tournamentCard: { minHeight: 100, padding: 14, borderColor: C.neon + '66' },
+  tournamentHeadingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  tournamentName: { color: C.text, fontSize: 15, lineHeight: 21, fontWeight: '900', flex: 1 },
+  tournamentTime: { color: C.sub, fontSize: 12, lineHeight: 17, fontWeight: '800', marginTop: 5 },
+  statusPill: { minHeight: 28, borderRadius: 14, borderWidth: 1, paddingHorizontal: 9, alignItems: 'center', justifyContent: 'center' },
+  upcomingPill: { borderColor: C.neon + '88', backgroundColor: C.neon + '18' },
+  livePill: { borderColor: C.green + '88', backgroundColor: C.green + '18' },
+  statusText: { fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  upcomingText: { color: C.neon },
+  liveText: { color: C.green },
+  approvedCount: { color: C.green, fontSize: 11, fontWeight: '900', letterSpacing: 0.5, marginTop: 8 },
+  detailHeader: { marginTop: 10, marginBottom: 10, padding: 14, borderColor: C.neon + '88' },
+  playerCard: { marginBottom: 10, padding: 14 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
-  exportTitle: { color: C.neon, fontWeight: '900', fontSize: 13, letterSpacing: 1 },
-  approvedMatchHeader: { marginBottom: 8, padding: 12, borderColor: C.neon + '88' },
-  approvedMatchTitle: { color: C.text, fontSize: 15, fontWeight: '900' },
-  approvedMatchTime: { color: C.sub, fontSize: 12, fontWeight: '800', marginTop: 3 },
-  approvedMatchCount: { color: C.green, fontSize: 11, fontWeight: '900', letterSpacing: 0.5, marginTop: 6 },
-  sub: { color: C.sub, fontSize: 11, marginTop: 3 },
-  uidRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  sub: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  uidRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   uidText: { flex: 1, flexShrink: 1, marginTop: 0 },
+  deleteAction: { marginTop: 10, alignItems: 'stretch' },
 });

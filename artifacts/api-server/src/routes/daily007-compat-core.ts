@@ -130,6 +130,7 @@ type RegistrationRow = {
   id: string; match_id: string; captain_user_id: string; captain_name: string;
   captain_game_name: string; captain_game_uid: string;
   team_name: string; entry_coins_paid: number; status: string; created_at: Date | string;
+  assigned_group_number?: number | null;
   name?: string; email?: string; mode?: string; game_mode?: string | null; team_type?: string | null;
   capacity?: number; starts_at?: Date | string;
   match_entry_coins?: number;
@@ -1163,6 +1164,7 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
   if (!requireTournamentAdmin(req, res)) return;
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
+            r.assigned_group_number,
             r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode, m.game_mode, m.team_type,
             m.capacity, m.starts_at,
             squad_team.team_number AS squad_team_number, squad_member.slot_number AS squad_slot_number,
@@ -1189,6 +1191,7 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
       teamName: row.team_name, teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",
        teamNumber: row.squad_team_number ?? null,
        slotNumber: row.squad_slot_number ?? null,
+        assignedGroupNumber: row.assigned_group_number ?? null,
        isSquadCaptain: mode.gameMode === "battle_royale" && mode.teamType === "squad"
          ? row.squad_is_captain ?? false
          : true,

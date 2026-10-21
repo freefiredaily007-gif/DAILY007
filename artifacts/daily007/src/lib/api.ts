@@ -49,9 +49,13 @@ export type Tournament = {
 
 export type AdminRegistration = {
   id: string; tournamentId: string; status: string;
-  playerName: string; teamName?: string; gameUid?: string;
-  gameMode?: string; teamType?: string;
+  playerName: string; tournamentName?: string; userName?: string;
+  captainGameName?: string; captainGameUid?: string; teamName?: string;
+  teamMembers?: unknown; gameUid?: string; mode?: string;
+  gameMode?: string; teamType?: string; createdAt?: string;
+  entryCoins?: number;
   teamNumber?: number | null; slotNumber?: number | null; isSquadCaptain?: boolean;
+  assignedGroupNumber?: number | null;
   startsAt?: string | null; totalPlayerSlots?: number;
 };
 
@@ -598,7 +602,7 @@ export const Api = {
   adminDeletePayment: (id: string) => unwrap(http.delete('/admin/payments/' + id)),
   adminDeleteWithdrawal: (id: string) => unwrap(http.delete('/admin/withdrawals/' + id)),
   adminDeleteRegistration: (id: string) => unwrap(http.delete('/admin/registrations/' + id)),
-  adminRegistrations: () => unwrap(http.get('/admin/registrations')),
+  adminRegistrations: (): Promise<AdminRegistration[]> => unwrap(http.get('/admin/registrations')),
   adminRegAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/registrations/' + id + '/' + action, {})),
   createTournament: (b: object) => unwrap(http.post('/tournaments', b)),
   updateTournament: (id: string, b: object) => unwrap(http.patch('/tournaments/' + id, b)),

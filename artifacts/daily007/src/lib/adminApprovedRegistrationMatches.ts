@@ -7,6 +7,18 @@ export type ApprovedRegistrationMatchRow = {
   teamMembers?: unknown;
 };
 
+export type RegistrationTournamentSource = {
+  id: string;
+  name: string;
+  startsAt?: string | null;
+  totalPlayerSlots?: number;
+  totalSlots?: number;
+  teamSize?: number;
+  enabled?: boolean;
+  status?: string;
+  lifecycle: 'upcoming' | 'ongoing';
+};
+
 export type ApprovedRegistrationMatchGroup<T extends ApprovedRegistrationMatchRow> = {
   id: string;
   tournamentName: string;
@@ -16,6 +28,11 @@ export type ApprovedRegistrationMatchGroup<T extends ApprovedRegistrationMatchRo
   approvedPlayerCount: number;
   rows: T[];
 };
+
+export type AdminApprovedTournamentCard<T extends ApprovedRegistrationMatchRow> =
+  ApprovedRegistrationMatchGroup<T> & {
+    lifecycle: 'upcoming' | 'ongoing';
+  };
 
 function registeredPlayerCount(row: ApprovedRegistrationMatchRow): number {
   let members = row.teamMembers;
@@ -30,8 +47,16 @@ function registeredPlayerCount(row: ApprovedRegistrationMatchRow): number {
 }
 
 export function formatAdminRegistrationStart(value: unknown): string {
+  return formatAdminIstDateTime(value, 'Scheduled time unavailable');
+}
+
+export function formatAdminRegistrationTime(value: unknown): string {
+  return formatAdminIstDateTime(value, 'Time unavailable');
+}
+
+function formatAdminIstDateTime(value: unknown, invalidLabel: string): string {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
-    return 'Scheduled time unavailable';
+    return invalidLabel;
   }
   const date = new Date(value);
   const dateLabel = new Intl.DateTimeFormat('en-GB', {
@@ -47,6 +72,46 @@ export function formatAdminRegistrationStart(value: unknown): string {
     hour12: true,
   }).format(date);
   return `${dateLabel} · ${timeLabel} IST`;
+}
+
+export function buildAdminRegistrationTournamentCards<T extends ApprovedRegistrationMatchRow>(
+  tournaments: readonly RegistrationTournamentSource[],
+  rows: readonly T[],
+): AdminApprovedTournamentCard<T>[] {
+  const approvedGroups = new Map(
+    groupApprovedRegistrationRows(rows).map((group) => [group.id, group]),
+  );
+  const cards: AdminApprovedTournamentCard<T>[] = [];
+
+  for (const tournament of tournaments) {
+    const id = String(tournament.id ?? '').trim();
+    if (!id) continue;
+
+    const group = approvedGroups.get(id);
+    const computedSlots = Number(tournament.totalPlayerSlots)
+      || Number(tournament.totalSlots) * Number(tournament.teamSize || 1);
+    const totalPlayerSlots = group?.totalPlayerSlots
+      ?? (Number.isSafeInteger(computedSlots) && computedSlots > 0 ? computedSlots : null);
+    cards.push({
+      id,
+      tournamentName: String(tournament.name ?? '').trim() || 'Tournament',
+      startsAt: typeof tournament.startsAt === 'string' ? tournament.startsAt : null,
+      startLabel: formatAdminRegistrationStart(tournament.startsAt),
+      totalPlayerSlots,
+      approvedPlayerCount: group?.approvedPlayerCount ?? 0,
+      rows: group?.rows ?? [],
+      lifecycle: tournament.lifecycle,
+    });
+  }
+
+  return cards.sort((a, b) => {
+    const aTime = Date.parse(String(a.startsAt ?? ''));
+    const bTime = Date.parse(String(b.startsAt ?? ''));
+    if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+    if (Number.isFinite(aTime)) return -1;
+    if (Number.isFinite(bTime)) return 1;
+    return a.tournamentName.localeCompare(b.tournamentName);
+  });
 }
 
 export function groupApprovedRegistrationRows<T extends ApprovedRegistrationMatchRow>(

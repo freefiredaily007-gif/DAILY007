@@ -5,11 +5,18 @@ import { copyUidToClipboard } from '../src/lib/copyUidToClipboard.ts';
 import { filterAdminRegistrationRows } from '../src/lib/adminRegistrationFilter.ts';
 import {
   formatAdminRegistrationStart,
+  formatAdminRegistrationTime,
+  buildAdminRegistrationTournamentCards,
   groupApprovedRegistrationRows,
 } from '../src/lib/adminApprovedRegistrationMatches.ts';
+import { getTournamentLifecycleState } from '../src/lib/tournamentLifecycle.ts';
 
 const screenSource = await readFile(
   new URL('../src/screens/AdminRegs.tsx', import.meta.url),
+  'utf8',
+);
+const apiRouteSource = await readFile(
+  new URL('../../api-server/src/routes/daily007-compat-core.ts', import.meta.url),
   'utf8',
 );
 const copyButtonSource = await readFile(
@@ -17,7 +24,79 @@ const copyButtonSource = await readFile(
   'utf8',
 );
 
-test('tournament registration filtering uses exact tournament ID and the active status', () => {
+test('registration screen removes status tabs, tournament filters, and CSV export sections', () => {
+  assert.doesNotMatch(screenSource, /const TABS|admin-registration-filter-/);
+  assert.doesNotMatch(screenSource, /TOURNAMENT REGISTRATION LIST|PLAYER LIST EXPORT|DOWNLOAD CSV|DOWNLOAD PLAYER LIST/);
+  assert.doesNotMatch(screenSource, /exportCsv|expo-file-system|expo-sharing/);
+  assert.match(screenSource, /APPROVED PLAYERS · ACTIVE AND SCHEDULED TOURNAMENTS/);
+});
+
+test('tournament cards include active and scheduled matches, including empty approved rosters', () => {
+  const now = Date.parse('2026-10-21T12:00:00.000Z');
+  const activeTournaments = [
+    {
+      id: 'future-match',
+      name: 'Battle Royale Solo',
+      startsAt: '2026-10-21T15:30:00.000Z',
+      status: 'open',
+      enabled: true,
+      totalPlayerSlots: 48,
+    },
+    {
+      id: 'live-match',
+      name: 'Clash Squad 1 VS 1',
+      startsAt: '2026-10-21T10:00:00.000Z',
+      status: 'ongoing',
+      enabled: true,
+      totalPlayerSlots: 2,
+    },
+    {
+      id: 'completed-match',
+      name: 'Completed Match',
+      startsAt: '2026-10-20T10:00:00.000Z',
+      status: 'completed',
+      enabled: true,
+    },
+    {
+      id: 'disabled-match',
+      name: 'Disabled Match',
+      startsAt: '2026-10-21T16:00:00.000Z',
+      status: 'open',
+      enabled: false,
+    },
+  ].map((tournament) => ({
+    ...tournament,
+    lifecycle: getTournamentLifecycleState(tournament, now),
+  })).filter((tournament) => tournament.lifecycle === 'upcoming' || tournament.lifecycle === 'ongoing');
+  const cards = buildAdminRegistrationTournamentCards(activeTournaments, [
+    { id: 'approved-future', status: 'approved', tournamentId: 'future-match', teamMembers: [] },
+    { id: 'pending-future', status: 'pending', tournamentId: 'future-match' },
+    { id: 'approved-live', status: 'approved', tournamentId: 'live-match' },
+  ]);
+
+  assert.deepEqual(cards.map((card) => card.id), ['live-match', 'future-match']);
+  assert.deepEqual(cards.map((card) => card.approvedPlayerCount), [1, 1]);
+  assert.equal(cards[1].rows.length, 1);
+  assert.equal(cards[1].totalPlayerSlots, 48);
+  assert.equal(cards[1].startLabel, '21 Oct 2026 · 9:00 PM IST');
+  assert.equal(cards[1].lifecycle, 'upcoming');
+  assert.equal(formatAdminRegistrationTime('2026-10-21T15:30:00.000Z'), '21 Oct 2026 · 9:00 PM IST');
+});
+
+test('tournament selection opens only that match and back returns to the tournament list', () => {
+  assert.match(
+    screenSource,
+    /const tournamentCards = useMemo\([\s\S]*?buildAdminRegistrationTournamentCards\(/,
+  );
+  assert.match(screenSource, /const selectedTournament = tournamentCards\.find\(\(tournament\) => tournament\.id === selectedTournamentId\)/);
+  assert.match(screenSource, /const selectedPlayers = selectedTournament\?\.rows \?\? \[\]/);
+  assert.match(screenSource, /selectedPlayers\.map\(renderRegistrationCard\)/);
+  assert.match(screenSource, /onPress=\{\(\) => setSelectedTournamentId\(tournament\.id\)\}/);
+  assert.match(screenSource, /onPress=\{\(\) => setSelectedTournamentId\(null\)\}/);
+  assert.match(screenSource, /testID=\{`admin-approved-tournament-\$\{tournament\.id\}`\}/);
+});
+
+test('registration filtering stays strict by tournament ID and approved status', () => {
   const rows = [
     { id: 'squad-pending', status: 'pending', tournamentId: 'br-squad' },
     { id: 'squad-approved', status: 'approved', tournamentId: 'br-squad' },
@@ -27,27 +106,8 @@ test('tournament registration filtering uses exact tournament ID and the active 
   ];
 
   assert.deepEqual(
-    filterAdminRegistrationRows(rows, 'pending', 'br-squad').map((row) => row.id),
-    ['squad-pending'],
-  );
-  assert.deepEqual(
-    filterAdminRegistrationRows(rows, 'pending', '').map((row) => row.id),
-    ['squad-pending', 'solo-pending', 'prefix-pending', 'missing-id'],
-  );
-});
-
-test('Admin Registrations wires the tournament chips to the exact card filter and All reset', () => {
-  assert.match(
-    screenSource,
-    /const list = filterAdminRegistrationRows\(all \?\? \[\], tab, tournamentFilter\);/,
-  );
-  assert.match(
-    screenSource,
-    /testID="admin-registration-tournament-filter-all"[\s\S]*?onPress=\{\(\) => \{ setTournamentFilter\(''\); setApprovedMatchFilter\(''\); \}\}/,
-  );
-  assert.match(
-    screenSource,
-    /testID=\{`admin-registration-tournament-filter-\$\{t\.id\}`\}[\s\S]*?onPress=\{\(\) => \{ setTournamentFilter\(t\.id\); setApprovedMatchFilter\(''\); \}\}/,
+    filterAdminRegistrationRows(rows, 'approved', 'br-squad').map((row) => row.id),
+    ['squad-approved'],
   );
 });
 
@@ -96,14 +156,20 @@ test('approved registrations group by match ID and keep scheduled times distinct
   assert.equal(formatAdminRegistrationStart('2026-10-21T14:30:00.000Z'), '21 Oct 2026 · 8:00 PM IST');
 });
 
-test('approved match selection filters the roster and scopes CSV to that exact match', () => {
-  assert.match(screenSource, /groupApprovedRegistrationRows\(\s*filterAdminRegistrationRows\(all \?\? \[\], 'approved', tournamentFilter\)/);
-  assert.match(screenSource, /approvedMatchGroups\.filter\(\(group\) => group\.id === approvedMatchFilter\)/);
-  assert.match(screenSource, /testID=\{`admin-approved-match-filter-\$\{group\.id\}`\}/);
-  assert.match(screenSource, /testID=\{`admin-approved-match-group-\$\{group\.id\}`\}/);
-  assert.match(screenSource, /totalPlayerSlots[\s\S]*?APPROVED PLAYERS/);
-  assert.match(screenSource, /tab === 'approved'\s*\?\s*\(selectedApprovedMatch\?\.rows \?\? \[\]\)\.filter\(\(r\) => r\.status === 'approved'\)/);
-  assert.match(screenSource, /testID="admin-registration-approved-csv"[\s\S]*?disabled=\{!selectedApprovedMatch \|\| exportBusy\}/);
+test('approved player cards show name, UID, slot, registration time, copy, and delete actions', () => {
+  assert.match(screenSource, /In-Game Name: \{inGameName\}/);
+  assert.match(screenSource, /UID: \{uid \|\| '—'\}/);
+  assert.match(screenSource, /registrationSlotLabel\(registration\)/);
+  assert.match(screenSource, /Registration Time: \{formatAdminRegistrationTime\(registration\.createdAt\)\}/);
+  assert.match(screenSource, /title="DELETE"[\s\S]*?onPress=\{\(\) => del\(registration\.id, playerName\)\}/);
+  assert.match(screenSource, /uid=\{uid\}[\s\S]*?testID=\{`admin-registration-copy-uid-\$\{registration\.id\}`\}/);
+});
+
+test('Admin Registrations API returns the existing individual seat number for Solo slots', () => {
+  assert.match(
+    apiRouteSource,
+    /router\.get\("\/admin\/registrations"[\s\S]*?r\.assigned_group_number,[\s\S]*?assignedGroupNumber: row\.assigned_group_number \?\? null/,
+  );
 });
 
 test('UID copying uses the exact UID and reports clipboard success or failure', async () => {
@@ -129,8 +195,8 @@ test('UID copying uses the exact UID and reports clipboard success or failure', 
 });
 
 test('each registration card places a copy control beside its displayed game UID', () => {
-  assert.match(screenSource, /const uid = String\(r\.gameUid \|\| r\.captainGameUid \|\| ''\)\.trim\(\);/);
-  assert.match(screenSource, /In-game name:[\s\S]*?UID: \{uid \|\| '—'\}/);
-  assert.match(screenSource, /<CopyUidButton[\s\S]*?uid=\{uid\}[\s\S]*?testID=\{`admin-registration-copy-uid-\$\{r\.id\}`\}/);
+  assert.match(screenSource, /const uid = String\(registration\.gameUid \|\| registration\.captainGameUid \|\| ''\)\.trim\(\);/);
+  assert.match(screenSource, /In-Game Name: \{inGameName\}[\s\S]*?UID: \{uid \|\| '—'\}/);
+  assert.match(screenSource, /<CopyUidButton[\s\S]*?uid=\{uid\}[\s\S]*?testID=\{`admin-registration-copy-uid-\$\{registration\.id\}`\}/);
   assert.match(screenSource, /uidRow: \{ flexDirection: 'row', alignItems: 'center'/);
 });
