@@ -27,6 +27,11 @@ import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedRes
 import { shouldStackAdminTournamentCards } from '../lib/adminTournamentLayout';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
 import {
+  getAdminTournamentCapacity,
+  getAdminTournamentFormatOptions,
+  getAdminTournamentTitle,
+} from '../lib/adminTournamentForm';
+import {
   takeTournamentStartAnnouncement,
   takeTournamentStartAnnouncements,
 } from '../lib/tournamentStartAnnouncement';
@@ -43,7 +48,7 @@ function todayInIST() {
 
 function newTournamentForm() {
   return {
-    name: '', mode: 'Battle Royale', teamType: 'Solo', date: todayInIST(), time: '08:00 PM',
+    mode: 'Battle Royale', teamType: 'Solo', date: todayInIST(), time: '08:00 PM',
     entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', imageUrl: '', prizeDist: '',
   };
 }
@@ -90,18 +95,6 @@ function confirmDestructiveAction(
     { text: cancelLabel, style: 'cancel' },
     { text: confirmLabel, style: 'destructive', onPress: onConfirm },
   ]);
-}
-
-function capacityFor(mode: string, teamType: string) {
-  const size = teamType === 'Solo' ? 1 : teamType === 'Duo' ? 2 : 4;
-  if (mode === 'Battle Royale') {
-    if (teamType === 'Solo') return { slots: 48, label: '48 player slots' };
-    return {
-      slots: teamType === 'Duo' ? 24 : 12,
-      label: `${teamType === 'Duo' ? 24 : 12} team slots · 48 players`,
-    };
-  }
-  return { slots: 2, label: `2 team slots · ${size * 2} players` };
 }
 
 export default function AdminTournaments() {
@@ -583,8 +576,8 @@ export default function AdminTournaments() {
 
   const save = async () => {
     setErr(''); setOkMsg('');
-    if (!form.name.trim() || !form.date.trim() || form.entryCoins === '') {
-      return setErr('Name, date and entry coins are required.');
+    if (!form.date.trim() || form.entryCoins === '') {
+      return setErr('Date and entry coins are required.');
     }
     const imageUrl = String(form.imageUrl || '').trim();
     if (imageUrl) {
@@ -600,9 +593,10 @@ export default function AdminTournaments() {
     }
     setBusy(true);
     try {
+      const capacity = getAdminTournamentCapacity(form.mode, form.teamType);
       const payload = {
-        name: form.name.trim(), mode: form.mode, teamType: form.teamType, date: form.date.trim(), time: form.time,
-        entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), totalSlots: capacityFor(form.mode, form.teamType).slots,
+        name: getAdminTournamentTitle(form.mode, form.teamType), mode: form.mode, teamType: form.teamType, date: form.date.trim(), time: form.time,
+        entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), totalSlots: capacity.slots,
         rules: form.rules, banner: form.banner, imageUrl: imageUrl || null, prizeDist: form.prizeDist,
       };
       if (editId) { await Api.updateTournament(editId, payload); setOkMsg('Tournament updated successfully'); }
@@ -1023,7 +1017,12 @@ export default function AdminTournaments() {
       {showForm && (
         <Card testID="admin-tournament-create-form" style={{ marginBottom: 14 }}>
           <Text style={st.formH}>{editId ? 'EDIT TOURNAMENT' : 'CREATE TOURNAMENT'}</Text>
-          <Input placeholder="Tournament name *" value={form.name} onChangeText={(v) => set('name', v)} />
+          <Text style={st.lbl}>AUTO-GENERATED TOURNAMENT TITLE</Text>
+          <View style={st.generatedTitleCard}>
+            <Text testID="admin-tournament-generated-title" style={st.generatedTitle}>
+              {getAdminTournamentTitle(form.mode, form.teamType)}
+            </Text>
+          </View>
           <Text style={st.lbl}>GAME MODE</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             {['Battle Royale', 'Clash Squad', 'Lone Wolf'].map((m) => (
@@ -1038,8 +1037,8 @@ export default function AdminTournaments() {
           </View>
           <Text style={st.lbl}>FORMAT</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-            {['Solo', 'Duo', 'Squad'].map((m) => (
-              <Chip key={m} label={m} color={form.teamType === m ? C.purple : C.sub} onPress={() => set('teamType', m)} />
+            {getAdminTournamentFormatOptions(form.mode).map(({ value, label }) => (
+              <Chip key={value} label={label} color={form.teamType === value ? C.purple : C.sub} onPress={() => set('teamType', value)} />
             ))}
           </View>
           {form.mode !== 'Battle Royale' && (
@@ -1066,8 +1065,8 @@ export default function AdminTournaments() {
           {!!form.entryCoins && <Text style={st.inrNote}>Entry fee: {form.entryCoins} coins = {inr(Number(form.entryCoins))} INR</Text>}
           {!!form.prizePool && <Text style={st.inrNote}>Prize pool: {form.prizePool} coins = {inr(Number(form.prizePool))} INR</Text>}
           <Text style={st.lbl}>CANONICAL CAPACITY</Text>
-          <Text style={st.capacity}>{capacityFor(form.mode, form.teamType).label}</Text>
-          <Text style={st.capacityNote}>Capacity follows the selected mode and team type; team entry fees are charged once to the captain.</Text>
+          <Text style={st.capacity}>{getAdminTournamentCapacity(form.mode, form.teamType).label}</Text>
+          <Text style={st.capacityNote}>Capacity follows the selected mode and format. Entry fees are charged per player when they join.</Text>
           <TextInput style={st.area} placeholder="Rules (one per line)" placeholderTextColor={C.sub} value={form.rules} onChangeText={(v) => set('rules', v)} multiline />
           <TextInput style={st.area} placeholder="Prize distribution (e.g. 1st: 500 coins)" placeholderTextColor={C.sub} value={form.prizeDist} onChangeText={(v) => set('prizeDist', v)} multiline />
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -1474,6 +1473,11 @@ const st = StyleSheet.create({
   formH: { color: C.neon, fontWeight: '900', letterSpacing: 1, marginBottom: 10 },
   loadRetry: { gap: 8, marginBottom: 10, alignItems: 'flex-start' },
   lbl: { color: C.sub, fontSize: 10, letterSpacing: 1, marginBottom: 4 },
+  generatedTitleCard: {
+    backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 11, marginBottom: 10,
+  },
+  generatedTitle: { color: C.text, fontSize: 15, fontWeight: '900', flexShrink: 1 },
   area: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, padding: 12, minHeight: 60, marginBottom: 10, fontSize: 14 },
   tournamentHeader: {
     flexDirection: 'row',
