@@ -52,6 +52,7 @@ export type AdminRegistration = {
   playerName: string; teamName?: string; gameUid?: string;
   gameMode?: string; teamType?: string;
   teamNumber?: number | null; slotNumber?: number | null; isSquadCaptain?: boolean;
+  startsAt?: string | null; totalPlayerSlots?: number;
 };
 
 export type AccountRecoveryRequest = {

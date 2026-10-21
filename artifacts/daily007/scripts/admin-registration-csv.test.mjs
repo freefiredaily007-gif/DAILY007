@@ -40,7 +40,9 @@ const createHandlerModule = new Function(
   'Sharing',
   'File',
   'Paths',
+  'tab',
   'selectedTournament',
+  'selectedApprovedMatch',
   'paidRoster',
   'setErr',
   'setOkMsg',
@@ -59,7 +61,15 @@ const paidRoster = [{
   teamName: 'Team One',
 }];
 
-function createHarness({ platform = 'android', shareAsync, browser = globalThis }) {
+function createHarness({
+  platform = 'android',
+  shareAsync,
+  browser = globalThis,
+  tab = 'pending',
+  selectedTournament: selectedTournamentOverride = selectedTournament,
+  selectedApprovedMatch,
+  paidRoster: paidRosterOverride = paidRoster,
+}) {
   const files = new Map();
   const deleteCalls = [];
   const state = { error: '', success: '', busy: false };
@@ -100,8 +110,10 @@ function createHarness({ platform = 'android', shareAsync, browser = globalThis 
     },
     PreviewFile,
     { cache: 'cache://daily007' },
-    selectedTournament,
-    paidRoster,
+    tab,
+    selectedTournamentOverride,
+    selectedApprovedMatch,
+    paidRosterOverride,
     (value) => { state.error = value; },
     (value) => { state.success = value; },
     (value) => { state.busy = value; },
@@ -205,4 +217,59 @@ test('browser CSV download keeps its download-and-revoke behavior', async () => 
   assert.equal(harness.fileConstructions, 0);
   assert.equal(harness.state.success, 'Player list CSV downloaded.');
   assert.equal(harness.state.busy, false);
+});
+
+test('approved CSV includes only approved players from the selected scheduled match', async () => {
+  let csvContent = '';
+  let downloadName = '';
+  const browser = {
+    Blob: class {
+      constructor(parts) { csvContent = parts.join(''); }
+    },
+    URL: {
+      createObjectURL: () => 'blob:approved-csv',
+      revokeObjectURL: () => {},
+    },
+    document: {
+      createElement: () => ({
+        href: '',
+        set download(value) { downloadName = value; },
+        click() {},
+      }),
+    },
+  };
+  const selectedMatch = {
+    id: 'solo-8pm',
+    tournamentName: 'Battle Royale Solo',
+    rows: [{
+      tournamentId: 'solo-8pm',
+      status: 'approved',
+      playerName: 'Approved Eight',
+      captainGameName: 'Player Eight',
+      captainGameUid: 'UID-8',
+      teamName: '',
+    }, {
+      tournamentId: 'solo-8pm',
+      status: 'pending',
+      playerName: 'Pending Same Match',
+      captainGameUid: 'UID-PENDING-SAME',
+    }],
+  };
+  const harness = createHarness({
+    platform: 'web',
+    browser,
+    tab: 'approved',
+    selectedApprovedMatch: selectedMatch,
+    paidRoster: [
+      ...selectedMatch.rows,
+      { tournamentId: 'solo-8pm', status: 'pending', playerName: 'Pending Player', captainGameUid: 'UID-P' },
+      { tournamentId: 'solo-9pm', status: 'approved', playerName: 'Other Match Player', captainGameUid: 'UID-9' },
+    ],
+  });
+
+  await harness.exportCsv();
+
+  assert.match(csvContent, /"Approved Eight","Player Eight","UID-8"/);
+  assert.doesNotMatch(csvContent, /Pending Player|Other Match Player/);
+  assert.equal(downloadName, 'daily007-solo-8pm-players.csv');
 });

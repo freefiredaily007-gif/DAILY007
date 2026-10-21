@@ -1164,6 +1164,7 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
   const result = await pool.query<RegistrationRow>(
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
             r.entry_coins_paid, r.status, r.created_at, u.name, u.email, m.title, m.mode, m.game_mode, m.team_type,
+            m.capacity, m.starts_at,
             squad_team.team_number AS squad_team_number, squad_member.slot_number AS squad_slot_number,
             (squad_team.captain_registration_id = r.id) AS squad_is_captain
        FROM daily007_v2_registrations r
@@ -1181,6 +1182,8 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
       mode: mode.gameModeLabel,
       gameMode: mode.gameMode,
       teamType: mode.teamTypeLabel,
+       startsAt: row.starts_at ? tournamentInstantFromStored(row.starts_at).toISOString() : null,
+       totalPlayerSlots: Number(row.capacity ?? mode.capacity) * mode.teamSize,
       status: row.status, playerName: row.captain_name, captainGameName: row.captain_game_name,
       gameUid: row.captain_game_uid,
       teamName: row.team_name, teamMembers: roster.length ? asTeamMembers(row, roster) : "[]",

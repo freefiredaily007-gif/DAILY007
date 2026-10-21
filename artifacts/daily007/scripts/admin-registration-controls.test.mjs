@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { copyUidToClipboard } from '../src/lib/copyUidToClipboard.ts';
 import { filterAdminRegistrationRows } from '../src/lib/adminRegistrationFilter.ts';
+import {
+  formatAdminRegistrationStart,
+  groupApprovedRegistrationRows,
+} from '../src/lib/adminApprovedRegistrationMatches.ts';
 
 const screenSource = await readFile(
   new URL('../src/screens/AdminRegs.tsx', import.meta.url),
@@ -39,12 +43,67 @@ test('Admin Registrations wires the tournament chips to the exact card filter an
   );
   assert.match(
     screenSource,
-    /testID="admin-registration-tournament-filter-all"[\s\S]*?onPress=\{\(\) => setTournamentFilter\(''\)\}/,
+    /testID="admin-registration-tournament-filter-all"[\s\S]*?onPress=\{\(\) => \{ setTournamentFilter\(''\); setApprovedMatchFilter\(''\); \}\}/,
   );
   assert.match(
     screenSource,
-    /testID=\{`admin-registration-tournament-filter-\$\{t\.id\}`\}[\s\S]*?onPress=\{\(\) => setTournamentFilter\(t\.id\)\}/,
+    /testID=\{`admin-registration-tournament-filter-\$\{t\.id\}`\}[\s\S]*?onPress=\{\(\) => \{ setTournamentFilter\(t\.id\); setApprovedMatchFilter\(''\); \}\}/,
   );
+});
+
+test('approved registrations group by match ID and keep scheduled times distinct', () => {
+  const groups = groupApprovedRegistrationRows([
+    {
+      id: 'late-player',
+      status: 'approved',
+      tournamentId: 'solo-9pm',
+      tournamentName: 'Battle Royale Solo',
+      startsAt: '2026-10-21T15:30:00.000Z',
+      totalPlayerSlots: 48,
+    },
+    {
+      id: 'early-team',
+      status: 'approved',
+      tournamentId: 'solo-8pm',
+      tournamentName: 'Battle Royale Solo',
+      startsAt: '2026-10-21T14:30:00.000Z',
+      totalPlayerSlots: 48,
+      teamMembers: [{ name: 'Player 1' }, { name: 'Player 2' }],
+    },
+    {
+      id: 'early-player',
+      status: 'approved',
+      tournamentId: 'solo-8pm',
+      tournamentName: 'Battle Royale Solo',
+      startsAt: '2026-10-21T14:30:00.000Z',
+      totalPlayerSlots: 48,
+    },
+    {
+      id: 'pending-player',
+      status: 'pending',
+      tournamentId: 'solo-8pm',
+      tournamentName: 'Battle Royale Solo',
+      startsAt: '2026-10-21T14:30:00.000Z',
+      totalPlayerSlots: 48,
+    },
+  ]);
+
+  assert.deepEqual(groups.map((group) => group.id), ['solo-8pm', 'solo-9pm']);
+  assert.equal(groups[0].approvedPlayerCount, 3);
+  assert.equal(groups[0].rows.length, 2);
+  assert.equal(groups[1].approvedPlayerCount, 1);
+  assert.equal(groups[0].totalPlayerSlots, 48);
+  assert.equal(formatAdminRegistrationStart('2026-10-21T14:30:00.000Z'), '21 Oct 2026 · 8:00 PM IST');
+});
+
+test('approved match selection filters the roster and scopes CSV to that exact match', () => {
+  assert.match(screenSource, /groupApprovedRegistrationRows\(\s*filterAdminRegistrationRows\(all \?\? \[\], 'approved', tournamentFilter\)/);
+  assert.match(screenSource, /approvedMatchGroups\.filter\(\(group\) => group\.id === approvedMatchFilter\)/);
+  assert.match(screenSource, /testID=\{`admin-approved-match-filter-\$\{group\.id\}`\}/);
+  assert.match(screenSource, /testID=\{`admin-approved-match-group-\$\{group\.id\}`\}/);
+  assert.match(screenSource, /totalPlayerSlots[\s\S]*?APPROVED PLAYERS/);
+  assert.match(screenSource, /tab === 'approved'\s*\?\s*\(selectedApprovedMatch\?\.rows \?\? \[\]\)\.filter\(\(r\) => r\.status === 'approved'\)/);
+  assert.match(screenSource, /testID="admin-registration-approved-csv"[\s\S]*?disabled=\{!selectedApprovedMatch \|\| exportBusy\}/);
 });
 
 test('UID copying uses the exact UID and reports clipboard success or failure', async () => {
