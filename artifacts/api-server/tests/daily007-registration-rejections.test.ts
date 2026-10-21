@@ -26,6 +26,7 @@ type JoinCase = {
   expectedCode?: string;
   expectedFieldErrors?: Record<string, string>;
   expectedRosterRowsAtLedgerFailure?: number;
+  legacy?: boolean;
   prepare: () => void;
   body?: Record<string, unknown>;
 };
@@ -64,10 +65,14 @@ async function sendRegistration(
     captainGameUid: "FF-FIRST-PLAYER",
     teammates: [],
   },
+  legacy = false,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const token = makeToken(FIRST_PLAYER_ID, 0);
   assert.ok(token, "test account should receive a Daily007 session token");
-  const response = await fetch(`${origin}/daily007/v2/matches/${TEST_MATCH_ID}/register`, {
+  const path = legacy
+    ? `/tournaments/${TEST_MATCH_ID}/join`
+    : `/daily007/v2/matches/${TEST_MATCH_ID}/register`;
+  const response = await fetch(`${origin}${path}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -151,10 +156,29 @@ const rejectedJoins: JoinCase[] = [
     },
   },
   {
+    name: "account already registered for Battle Royale Solo",
+    expectedStatus: 409,
+    expectedError: "You have already joined this tournament.",
+    expectedCode: "ALREADY_REGISTERED",
+    prepare: () => {
+      registrationCapacityTestDb.registrations[0].captain_user_id = FIRST_PLAYER_ID;
+    },
+  },
+  {
+    name: "account already registered without a ledger row",
+    expectedStatus: 409,
+    expectedError: "You have already joined this tournament.",
+    expectedCode: "ALREADY_REGISTERED",
+    prepare: () => {
+      registrationCapacityTestDb.registrations[0].captain_user_id = FIRST_PLAYER_ID;
+      registrationCapacityTestDb.ledger.length = 0;
+    },
+  },
+  {
     name: "player game UID already registered",
     expectedStatus: 409,
-    expectedError: "A player game UID is already registered for this tournament.",
-    expectedCode: "GAME_UID_ALREADY_REGISTERED",
+    expectedError: "You have already joined this tournament.",
+    expectedCode: "ALREADY_REGISTERED",
     prepare: () => {},
     body: {
       captainGameName: "First Captain",
@@ -165,7 +189,7 @@ const rejectedJoins: JoinCase[] = [
   {
     name: "database rejects a duplicate account registration",
     expectedStatus: 409,
-    expectedError: "This account is already registered for the match.",
+    expectedError: "You have already joined this tournament.",
     expectedCode: "ALREADY_REGISTERED",
     prepare: () => {
       registrationCapacityTestDb.failOnNextRegistrationInsertAsDuplicate();
@@ -178,6 +202,7 @@ const rejectedJoins: JoinCase[] = [
     expectedFieldErrors: {
       teamName: "Team registrations require a team name between 1 and 100 characters.",
     },
+    legacy: true,
     prepare: () => {
       registrationCapacityTestDb.match.mode = "squad";
       registrationCapacityTestDb.match.team_type = "duo";
@@ -218,6 +243,7 @@ const rejectedJoins: JoinCase[] = [
     expectedFieldErrors: {
       "memberName:0": "Check the teammate name or UID that needs correction.",
     },
+    legacy: true,
     prepare: () => {
       registrationCapacityTestDb.match.mode = "squad";
       registrationCapacityTestDb.match.team_type = "duo";
@@ -236,6 +262,7 @@ const rejectedJoins: JoinCase[] = [
     expectedFieldErrors: {
       "memberUid:0": "Check the teammate name or UID that needs correction.",
     },
+    legacy: true,
     prepare: () => {
       registrationCapacityTestDb.match.mode = "squad";
       registrationCapacityTestDb.match.team_type = "duo";
@@ -260,6 +287,7 @@ const rejectedJoins: JoinCase[] = [
     expectedStatus: 500,
     expectedError: "Internal server error.",
     expectedRosterRowsAtLedgerFailure: 1,
+    legacy: true,
     prepare: () => {
       registrationCapacityTestDb.match.mode = "squad";
       registrationCapacityTestDb.match.team_type = "duo";
@@ -288,7 +316,7 @@ test("rejected tournament joins leave registrations, roster, wallet, match, and 
           ledger: structuredClone(registrationCapacityTestDb.ledger),
         };
 
-        const response = await sendRegistration(origin, scenario.body);
+        const response = await sendRegistration(origin, scenario.body, scenario.legacy);
 
         assert.equal(response.status, scenario.expectedStatus);
         if (scenario.expectedError) assert.equal(response.body.error, scenario.expectedError);

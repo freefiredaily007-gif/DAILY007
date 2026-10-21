@@ -34,7 +34,7 @@ export function ModeSeatSlotsPanel({
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const compactLargeText = width <= 400 && PixelRatio.getFontScale() >= 1.5;
-  const individualGridBasis = width >= 800 ? '23%' : width >= 520 ? '31%' : '48%';
+  const individualGridBasis = '23%';
   const individualGridSeatStyle = {
     flexGrow: 0,
     flexShrink: 0,
@@ -296,13 +296,13 @@ const styles = StyleSheet.create({
   duelSeatCard: { flex: 1, minWidth: 0 },
   individualSlot: { flexGrow: 0, flexShrink: 0, width: '100%', height: 84, minHeight: 84 },
   individualGridSlot: {
-    height: 84, minHeight: 84, paddingHorizontal: 10, paddingVertical: 10,
-    justifyContent: 'center', gap: 6,
+    height: 84, minHeight: 84, paddingHorizontal: 3, paddingVertical: 8,
+    justifyContent: 'center', gap: 5,
   },
-  individualGridLabel: { fontSize: 12, letterSpacing: 0.3 },
-  individualGridStatus: { fontSize: 10, lineHeight: 14, marginTop: 0 },
-  inlineJoinButtonGrid: { minHeight: 38, paddingVertical: 6 },
-  inlineJoinButtonTextGrid: { fontSize: 10, lineHeight: 12 },
+  individualGridLabel: { fontSize: 10, letterSpacing: 0.1 },
+  individualGridStatus: { fontSize: 8, lineHeight: 10, marginTop: 0 },
+  inlineJoinButtonGrid: { minHeight: 36, paddingVertical: 4 },
+  inlineJoinButtonTextGrid: { fontSize: 8, lineHeight: 10 },
   slotActionArea: { height: 38, width: '100%', marginTop: 4 },
   slotActionAreaCompact: { height: 68 },
   slotActionSpacer: { flex: 1 },
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
     borderRadius: 12, backgroundColor: C.squadTile, paddingHorizontal: 3, paddingVertical: 7,
     alignItems: 'center', justifyContent: 'space-between',
   },
-  individualGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-start' },
+  individualGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' },
   duelRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   versus: { alignSelf: 'center', color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   open: { borderColor: '#2ecc71', backgroundColor: 'rgba(46, 204, 113, 0.12)' },

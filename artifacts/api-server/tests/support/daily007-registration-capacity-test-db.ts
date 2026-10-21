@@ -384,7 +384,7 @@ class RegistrationCapacityTestDatabase {
       );
       const entry = registration && this.ledger.find((item) => item.registration_id === registration.id);
       const match = registration && this.matchById(registration.match_id);
-      if (registration && entry) {
+      if (registration) {
         rows = [{
           id: registration.id,
           captain_game_name: registration.captain_game_name,
@@ -392,7 +392,7 @@ class RegistrationCapacityTestDatabase {
           team_name: registration.team_name,
           assigned_group_number: registration.assigned_group_number,
           entry_coins_paid: registration.entry_coins_paid,
-          balance_after: entry.balance_after,
+          balance_after: entry?.balance_after ?? null,
           capacity: match?.capacity,
           status: match?.status,
           is_full: match?.is_full,

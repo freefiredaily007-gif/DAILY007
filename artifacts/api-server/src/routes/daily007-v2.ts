@@ -1106,6 +1106,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
     fail(res, 400, message, undefined, { captainGameUid: message });
     return;
   }
+  let isBattleRoyaleSolo = false;
   try {
     const registered = await withTransaction(async (client) => {
       const matchResult = await client.query<{
@@ -1119,6 +1120,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
       const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+      isBattleRoyaleSolo = modeConfig.gameMode === "battle_royale" && modeConfig.teamType === "solo";
       if (!legacy && modeConfig.teamSize > 1) {
         throw Object.assign(new Error("Team formats use individual player slots. Choose your team and player slot before joining."), {
           status: 409,
@@ -1153,13 +1155,13 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       const existing = await client.query<{
         id: string; captain_game_name: string; captain_game_uid: string; team_name: string | null;
         assigned_group_number: number | null; entry_coins_paid: number;
-        balance_after: number; capacity: number; status: string; is_full: boolean; registration_status: string;
+        balance_after: number | null; capacity: number; status: string; is_full: boolean; registration_status: string;
       }>(
         `SELECT r.id, r.captain_game_name, r.captain_game_uid, r.team_name, r.assigned_group_number,
                 r.entry_coins_paid, l.balance_after,
                 m.capacity, m.status, m.is_full, r.status AS registration_status
            FROM daily007_v2_registrations r
-           JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
+           LEFT JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
            JOIN daily007_v2_matches m ON m.id = r.match_id
           WHERE r.match_id = $1 AND r.captain_user_id = $2`,
         [matchId, account.id],
@@ -1169,6 +1171,12 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           throw Object.assign(new Error("This registration was rejected and refunded; contact an administrator before trying again."), {
             status: 409,
             code: REGISTRATION_CONFLICT_CODES.registrationRejected,
+          });
+        }
+        if (isBattleRoyaleSolo) {
+          throw Object.assign(new Error("You have already joined this tournament."), {
+            status: 409,
+            code: REGISTRATION_CONFLICT_CODES.alreadyRegistered,
           });
         }
         const countResult = await client.query<{ count: string }>(
@@ -1191,7 +1199,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           seatGroupNumber: prior.assigned_group_number,
           teammates: savedRoster.rows,
           entryCoinsPaid: prior.entry_coins_paid,
-          walletCoins: prior.balance_after,
+          walletCoins: Number(prior.balance_after ?? balance),
           registeredCount: Number(countResult.rows[0].count),
           capacity: prior.capacity,
           isFull: prior.is_full,
@@ -1293,9 +1301,15 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         [matchId, submittedUids],
       );
       if (duplicateUid.rows[0]) {
-        throw Object.assign(new Error("A player game UID is already registered for this tournament."), {
+        throw Object.assign(new Error(
+          isBattleRoyaleSolo
+            ? "You have already joined this tournament."
+            : "A player game UID is already registered for this tournament.",
+        ), {
           status: 409,
-          code: REGISTRATION_CONFLICT_CODES.gameUidAlreadyRegistered,
+          code: isBattleRoyaleSolo
+            ? REGISTRATION_CONFLICT_CODES.alreadyRegistered
+            : REGISTRATION_CONFLICT_CODES.gameUidAlreadyRegistered,
         });
       }
       const countResult = await client.query<{ count: string }>(
@@ -1411,7 +1425,12 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
         );
         return;
       }
-      fail(res, 409, "This account is already registered for the match.", REGISTRATION_CONFLICT_CODES.alreadyRegistered);
+      fail(
+        res,
+        409,
+        isBattleRoyaleSolo ? "You have already joined this tournament." : "This account is already registered for the match.",
+        REGISTRATION_CONFLICT_CODES.alreadyRegistered,
+      );
       return;
     }
     throw error;

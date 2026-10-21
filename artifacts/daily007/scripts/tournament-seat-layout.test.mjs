@@ -112,7 +112,7 @@ test('mode seat cards preserve the Squad palette and show the Join action under 
   assert.match(modeSeatSlotsSource, /styles\.slotActionArea/);
   assert.match(
     modeSeatSlotsSource,
-    /style=\{\[\s*styles\.inlineJoinButton,\s*compactLargeText && styles\.inlineJoinButtonCompact,\s*\]\}/,
+    /style=\{\[\s*styles\.inlineJoinButton,\s*individual && !layout\.directDuel && styles\.inlineJoinButtonGrid,\s*compactLargeText && styles\.inlineJoinButtonCompact,\s*\]\}/,
   );
   assert.match(modeSeatSlotsSource, /inlineJoinButtonCompact: \{ minHeight: 62, paddingVertical: 4 \}/);
   assert.match(modeSeatSlotsSource, /testID=\{`mode-seat-join-\$\{groupNumber\}-\$\{slotIndex \+ 1\}`\}/);
@@ -120,4 +120,11 @@ test('mode seat cards preserve the Squad palette and show the Join action under 
   assert.doesNotMatch(modeSeatSlotsSource, /selectedGroupNumber/);
   assert.match(modeSeatSlotsSource, /TEAM/);
   assert.match(modeSeatSlotsSource, /cursor: !occupied && canSelect \? 'pointer' : 'not-allowed'/);
+});
+
+test('Battle Royale Solo player seats use a four-column responsive grid', () => {
+  assert.match(modeSeatSlotsSource, /const individualGridBasis = '23%'/);
+  assert.match(modeSeatSlotsSource, /width: individualGridBasis,\s*maxWidth: individualGridBasis/);
+  assert.match(modeSeatSlotsSource, /individualGrid: \{ flexDirection: 'row', flexWrap: 'wrap', gap: 6/);
+  assert.match(modeSeatSlotsSource, /testID="mode-seat-player-grid"/);
 });
