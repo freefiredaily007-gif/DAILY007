@@ -29,3 +29,21 @@ test('Add Coins uses the UTR label, numeric keyboard, 12-character limit, and in
   assert.match(walletSource, /setUtrError\('UTR number must be exactly 12 digits'\)/);
   assert.doesNotMatch(walletSource, /placeholder="Transaction ID \/ reference"/);
 });
+
+test('Wallet history and Admin payment review display the unchanged payment reference', async () => {
+  const walletSource = await readFile(
+    new URL('../src/screens/Wallet.tsx', import.meta.url),
+    'utf8',
+  );
+  const adminPaymentsSource = await readFile(
+    new URL('../src/screens/AdminPayments.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(walletSource, /reference: payment\.txnId/);
+  assert.match(walletSource, /item\.isRequest && item\.reference && <Text[^>]*>UTR: \{item\.reference\}<\/Text>/);
+  assert.match(
+    adminPaymentsSource,
+    /Transaction ID: \{p\.txnId \|\| p\.transactionId \|\| p\.reference \|\| '—'\}/,
+  );
+});

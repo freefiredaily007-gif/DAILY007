@@ -312,6 +312,84 @@ test("payment requests require a valid payer UPI ID and save valid values", asyn
   });
 });
 
+test("a 12-digit UTR stays unchanged in player and Admin history, and duplicate submissions are rejected", async () => {
+  const utr = "012345678901";
+  const playerId = fixture.retryPlayerId;
+  const duplicatePlayerId = fixture.playerId;
+  const initialWallets = await pool.query<{ id: string; wallet_coins: number }>(
+    "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+    [[playerId, duplicatePlayerId]],
+  );
+  const initialLedger = await pool.query<{ count: string }>(
+    "SELECT COUNT(*)::text AS count FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
+    [[playerId, duplicatePlayerId]],
+  );
+  assert.equal(initialWallets.rows.length, 2);
+  assert.equal(initialLedger.rows[0]?.count, "0");
+
+  try {
+    await withServer(async (origin) => {
+    const request = {
+      coins: 100,
+      payerUpiId: "utr.test@upi",
+      txnId: utr,
+      reference: utr,
+    };
+    const submitted = await call(origin, playerId, "/payments", "POST", request);
+    assert.equal(submitted.status, 201);
+    assert.equal(submitted.body.txnId, utr);
+
+    const playerHistory = await call(origin, playerId, "/my/payments", "GET");
+    assert.ok(Array.isArray(playerHistory.body));
+    assert.equal(
+      playerHistory.body.find((payment: any) => payment.id === submitted.body.id)?.txnId,
+      utr,
+    );
+
+    const adminPayments = await call(origin, fixture.adminId, "/admin/payments", "GET");
+    assert.ok(Array.isArray(adminPayments.body));
+    const adminPayment = adminPayments.body.find((payment: any) => payment.id === submitted.body.id);
+    assert.equal(adminPayment?.txnId, utr);
+    assert.equal(adminPayment?.reference, utr);
+
+    const duplicate = await call(origin, duplicatePlayerId, "/payments", "POST", request);
+    assert.equal(duplicate.status, 409);
+    assert.equal(duplicate.body.error, "This payment reference has already been submitted.");
+
+    const stored = await pool.query<{ id: string; user_id: string; reference: string }>(
+      `SELECT id, user_id, reference FROM daily007_v2_payments
+        WHERE reference_normalized = $1`,
+      [utr],
+    );
+    assert.deepEqual(stored.rows, [{
+      id: submitted.body.id,
+      user_id: playerId,
+      reference: utr,
+    }]);
+    assert.deepEqual(
+      (await pool.query<{ id: string; wallet_coins: number }>(
+        "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [[playerId, duplicatePlayerId]],
+      )).rows,
+      initialWallets.rows,
+      "creating or rejecting the duplicate request must not change either wallet balance",
+    );
+    assert.equal(
+      (await pool.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])",
+        [[playerId, duplicatePlayerId]],
+      )).rows[0]?.count,
+      initialLedger.rows[0]?.count,
+    );
+    });
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_payments WHERE reference_normalized = $1",
+      [utr],
+    );
+  }
+});
+
 test("a rejected deposit keeps its normalized UPI reference unique in PostgreSQL", async () => {
   const initialAccount = await pool.query<{ wallet_coins: number }>(
     "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
