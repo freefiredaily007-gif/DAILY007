@@ -214,7 +214,7 @@ export default function Earn() {
         <View style={s.youtubeHeading}>
           <Feather name="youtube" size={21} color={C.red} />
           <Text style={s.youtubeTitle}>
-            Subscribe to YouTube &amp; Earn {youtubeTask?.rewardCoins ?? 2} Coins
+            Subscribe to YouTube &amp; Earn {youtubeTask?.rewardCoins ?? 5} Coins
           </Text>
         </View>
         <Text style={s.youtubeCopy}>

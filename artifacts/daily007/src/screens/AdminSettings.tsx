@@ -18,7 +18,7 @@ const FIELDS: [string, string, string][] = [
   ['minPurchase', 'Min coin purchase', '100'],
   ['maxPurchase', 'Max coin purchase', '5000'],
   ['coinPackages', 'Coin packages', '100, 250, 500, 1000'],
-  ['youtubeTaskReward', 'YouTube task reward (coins)', '2'],
+  ['youtubeTaskReward', 'YouTube task reward (coins)', '5'],
   ['youtubeTaskUrl', 'YouTube task channel URL', 'https://youtube.com/@freefiredaily007'],
   ['minWithdrawal', 'Minimum withdrawal coins', '100 minimum'],
   ['maxWithdrawal', 'Maximum withdrawal coins', '5000'],

@@ -86,7 +86,7 @@ const SETTINGS_DEFAULTS = {
   upiId: "", paymentNote: "", supportContact: "", minPurchase: "1", maxPurchase: "5000",
   minWithdrawal: "100", maxWithdrawal: "5000", coinToMoneyRate: "1",
   coinPackages: "", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",
-  youtubeTaskEnabled: "true", youtubeTaskReward: "2",
+  youtubeTaskEnabled: "true", youtubeTaskReward: "5",
   youtubeTaskUrl: "https://youtube.com/@freefiredaily007?si=xWEYS3ViPlDz7Em3",
 };
 type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
