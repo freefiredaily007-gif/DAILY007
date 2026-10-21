@@ -18,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
 import { uploadWalletImage } from '../lib/walletImages';
+import { isValidWalletUtr, sanitizeWalletUtrInput } from '../lib/wallet-utr';
 import {
   walletTransactionAccessibilityLabel,
   walletTransactionAmount,
@@ -148,6 +149,7 @@ export default function Wallet({
   const [amount, setAmount] = useState('');
   const [payerUpiId, setPayerUpiId] = useState('');
   const [txnId, setTxnId] = useState('');
+  const [utrError, setUtrError] = useState('');
   const [account, setAccount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [hasPending, setHasPending] = useState(false);
@@ -454,12 +456,14 @@ export default function Wallet({
       return;
     }
     setOk(''); setError(''); setRechargeNotice(''); setAmount(''); setPayerUpiId(''); setTxnId(''); setAccount(''); setProof(null);
+    setUtrError('');
     setTab(t); setShowSheet(true);
   };
 
   const closeSheet = () => {
     setShowSheet(false);
     setError('');
+    setUtrError('');
   };
 
   const coins = Math.floor(Number(amount) || 0);
@@ -475,11 +479,16 @@ export default function Wallet({
   };
 
   const submitAdd = async () => {
+    setError('');
     if (!rechargeEnabled || !paymentUpi || !paymentQr) { setError('Coin recharge is unavailable until an administrator configures it.'); return; }
     if (!coins || coins < minPurchase || coins > maxPurchase) { setError(`Enter an amount between ${minPurchase} and ${maxPurchase} coins.`); return; }
     if (!payerUpiId.trim()) { setError('Please enter the UPI ID you used to make the payment.'); return; }
     if (!PAYER_UPI_ID_PATTERN.test(payerUpiId.trim())) { setError(INVALID_PAYER_UPI_ID_MESSAGE); return; }
-    if (!txnId.trim()) { setError('Please enter the transaction ID of your payment.'); return; }
+    if (!isValidWalletUtr(txnId)) {
+      setUtrError('UTR number must be exactly 12 digits');
+      return;
+    }
+    setUtrError('');
     setSubmitting(true); setError('');
     try {
       const proofObjectPath = proof ? await uploadWalletImage(proof, 'payment-proof') : undefined;
@@ -825,7 +834,7 @@ export default function Wallet({
                   <Text style={s.minWarn}>Coin recharge is unavailable because the administrator has not enabled and configured manual UPI payments.</Text>
                 ) : (
                   <>
-                <Text style={s.mSub}>Copy the UPI ID or scan the QR code and make the payment using your preferred UPI application. After completing the payment, return to this app and enter your UPI ID, Transaction ID, and Coin Amount. Coins will be added only after Admin manually verifies and approves your payment.</Text>
+                <Text style={s.mSub}>Copy the UPI ID or scan the QR code and make the payment using your preferred UPI application. After completing the payment, return to this app and enter your UPI ID, 12-digit UTR, and Coin Amount. Coins will be added only after Admin manually verifies and approves your payment.</Text>
                 {!!paymentNote && <Text style={s.mSub}>{paymentNote}</Text>}
                     <Image source={{ uri: paymentQr }} resizeMode="contain" style={s.qr} accessibilityLabel="Administrator UPI payment QR code" />
                     <View style={s.upiRow}>
@@ -865,14 +874,34 @@ export default function Wallet({
                       maxLength={200}
                     />
                     <Input
-                      testID="wallet-transaction-id"
-                      placeholder="Transaction ID / reference"
+                      accessibilityLabel="UTR number, exactly 12 digits"
+                      testID="wallet-utr"
+                      placeholder="Enter UTR"
                       value={txnId}
                       onChangeText={(value) => {
-                        setTxnId(value);
+                        const sanitized = sanitizeWalletUtrInput(value);
+                        setTxnId(sanitized);
+                        setUtrError(
+                          sanitized.length > 0 && sanitized.length < 12
+                            ? 'UTR number must be exactly 12 digits'
+                            : '',
+                        );
                         setRechargeNotice('');
                       }}
+                      keyboardType="number-pad"
+                      maxLength={12}
+                      autoCorrect={false}
                     />
+                    {!!utrError && (
+                      <Text
+                        accessibilityRole="alert"
+                        accessibilityLiveRegion="polite"
+                        testID="wallet-utr-error"
+                        style={s.utrError}
+                      >
+                        {utrError}
+                      </Text>
+                    )}
                     <Btn title={proof ? 'CHANGE PAYMENT SCREENSHOT' : 'ATTACH PAYMENT SCREENSHOT (OPTIONAL)'} kind="ghost" onPress={pickProof} />
                     {proof && (
                       <View style={s.proofPreview}>
@@ -1020,6 +1049,7 @@ const s = StyleSheet.create({
   packageText: { color: C.sub, fontSize: 11, fontWeight: '800' },
   packageTextActive: { color: C.gold },
   amountHint: { color: C.green, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
+  utrError: { color: C.red, fontSize: 12, fontWeight: '700', marginTop: -4, marginBottom: 8 },
   minWarn: { color: C.red, fontSize: 12, fontWeight: '700', marginTop: -6, marginBottom: 8 },
   rateNote: { color: C.sub, fontSize: 11, marginBottom: 10, letterSpacing: 0.5 },
   pendingTag: { backgroundColor: C.gold + '22', borderColor: C.gold, borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },

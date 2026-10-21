@@ -89,6 +89,7 @@
     "test:wallet-prize-navigation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-prize-navigation.test.mjs",
     "test:wallet-pagination-retry": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-pagination-retry.test.mjs",
     "test:wallet-payment-history-native": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-payment-history-native.test.mjs",
+    "test:wallet-utr": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/wallet-utr.test.mjs",
     "test:android-wallet-cancellation-refund-large-text": "node scripts/run-android-wallet-cancellation-refund-large-text.mjs",
     "test:wallet-video-reward-history": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-video-reward-history.test.mjs",
     "test:wallet-recharge-retry": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/wallet-recharge-retry.test.mjs",
