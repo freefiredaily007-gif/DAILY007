@@ -510,7 +510,7 @@ export const Api = {
       captainName: String(payload.playerName ?? '').trim(),
       captainGameName: String(payload.captainGameName ?? '').trim(),
       captainGameUid: String(payload.gameUid ?? captain.uid ?? '').trim(),
-      teamName: String(payload.teamName ?? '').trim(),
+      ...(payload.teamName !== undefined ? { teamName: String(payload.teamName).trim() } : {}),
       ...(Number.isSafeInteger(payload.seatGroupNumber) && Number(payload.seatGroupNumber) > 0
         ? { seatGroupNumber: Number(payload.seatGroupNumber) }
         : {}),
@@ -522,6 +522,12 @@ export const Api = {
       } : {}),
     }));
   },
+  joinPlayerSlot: (id: string, b: {
+    teamNumber: number;
+    slotNumber: number;
+    gameName: string;
+    gameUid: string;
+  }) => unwrap(http.post(`/daily007/v2/matches/${encodeURIComponent(id)}/squad-join`, b)),
   updateRegistrationTeam: (registrationId: string, b: object) => {
     const payload = b as {
       captainGameName?: string;

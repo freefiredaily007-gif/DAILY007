@@ -927,7 +927,7 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
          VALUES ($1, $2, $3)`,
         [teamId, Number(slotNumber), registrationId],
       );
-      const isCaptain = captainRegistrationId === null;
+      const isCaptain = Number(slotNumber) === 1;
       if (isCaptain) {
         await client.query(
           "UPDATE daily007_v2_squad_teams SET captain_registration_id = $2 WHERE id = $1",
@@ -1119,8 +1119,8 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
       const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
-      if (modeConfig.gameMode === "battle_royale" && modeConfig.teamType === "squad") {
-        throw Object.assign(new Error("Battle Royale Squad uses individually selectable player slots. Choose a team and slot before joining."), {
+      if (!legacy && modeConfig.teamSize > 1) {
+        throw Object.assign(new Error("Team formats use individual player slots. Choose your team and player slot before joining."), {
           status: 409,
         });
       }

@@ -115,7 +115,8 @@ test('mode seat cards preserve the Squad palette and show the Join action under 
     /style=\{\[\s*styles\.inlineJoinButton,\s*compactLargeText && styles\.inlineJoinButtonCompact,\s*\]\}/,
   );
   assert.match(modeSeatSlotsSource, /inlineJoinButtonCompact: \{ minHeight: 62, paddingVertical: 4 \}/);
-  assert.match(modeSeatSlotsSource, /testID=\{`mode-seat-join-\$\{groupNumber\}`\}/);
+  assert.match(modeSeatSlotsSource, /testID=\{`mode-seat-join-\$\{groupNumber\}-\$\{slotIndex \+ 1\}`\}/);
+  assert.match(modeSeatSlotsSource, /onPress=\{\(\) => onJoinSlot\(groupNumber, slotIndex \+ 1\)\}/);
   assert.doesNotMatch(modeSeatSlotsSource, /selectedGroupNumber/);
   assert.match(modeSeatSlotsSource, /TEAM/);
   assert.match(modeSeatSlotsSource, /cursor: !occupied && canSelect \? 'pointer' : 'not-allowed'/);

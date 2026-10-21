@@ -27,14 +27,14 @@ import type { Daily007V2SquadSlot } from './daily007V2SquadSlot';
 export interface Daily007V2SquadTeam {
   /**
      * @minimum 1
-     * @maximum 12
+     * @maximum 24
      */
   teamNumber: number;
   legacy: boolean;
   /** @nullable */
   captainGameName: string | null;
   /**
-     * @minItems 4
+     * @minItems 1
      * @maxItems 4
      */
   slots: Daily007V2SquadSlot[];

@@ -172,6 +172,10 @@ function JoinFormRoute() {
   const seatGroupNumber = Number.isSafeInteger(requestedSeatGroupNumber) && requestedSeatGroupNumber > 0
     ? requestedSeatGroupNumber
     : undefined;
+  const requestedSeatSlotNumber = Number(route.params?.seatSlotNumber);
+  const seatSlotNumber = Number.isSafeInteger(requestedSeatSlotNumber) && requestedSeatSlotNumber > 0
+    ? requestedSeatSlotNumber
+    : undefined;
   const [tournament, setTournament] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -181,7 +185,7 @@ function JoinFormRoute() {
   }, [route.params?.id]);
   if (error) return <View style={s.boot}><Text style={{ color: UI.foreground }}>{error}</Text></View>;
   if (!tournament) return <View style={s.boot}><ActivityIndicator color={UI.tint} /></View>;
-  return <JoinForm tournament={tournament} user={user} registration={registration} seatGroupNumber={seatGroupNumber} onCancel={() => navigation.goBack()}
+  return <JoinForm tournament={tournament} user={user} registration={registration} seatGroupNumber={seatGroupNumber} seatSlotNumber={seatSlotNumber} onCancel={() => navigation.goBack()}
     onSubmit={async (payload) => {
       if (registration?.id) {
         if (String(registration.tournamentId) !== String(tournament.id)) {
@@ -193,6 +197,27 @@ function JoinFormRoute() {
         }
         await refresh();
         Alert.alert('Team updated', 'Your team details were saved. No additional coins were charged.');
+        navigation.goBack();
+        return;
+      }
+      if (seatGroupNumber && seatSlotNumber && Number(tournament.teamSize) > 1) {
+        const result = await Api.joinPlayerSlot(tournament.id, {
+          teamNumber: seatGroupNumber,
+          slotNumber: seatSlotNumber,
+          gameName: String(payload.captainGameName ?? ''),
+          gameUid: String(payload.gameUid ?? ''),
+        });
+        if (result?.success === false || result?.ok === false) {
+          throw new Error(result?.error || result?.message || 'The server did not confirm your player slot.');
+        }
+        await refresh();
+        const entryCoins = Number(result.entryCoinsPaid ?? tournament.entryCoins ?? 0);
+        Alert.alert(
+          'Registration confirmed',
+          entryCoins > 0
+            ? `Your player slot is confirmed and ${entryCoins} coins were deducted from your wallet. Check MY MATCHES for room details.`
+            : 'Your player slot is confirmed. Check MY MATCHES for room details.',
+        );
         navigation.goBack();
         return;
       }

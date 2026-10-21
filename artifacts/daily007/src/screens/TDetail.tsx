@@ -799,7 +799,8 @@ export default function TDetail() {
               !['closed', 'cancelled'].includes(tournamentStatus)
             }
             onRetry={() => { void retryParticipants(); }}
-            onJoinGroup={(seatGroupNumber) => nav.navigate('JoinForm', { id: t.id, seatGroupNumber })}
+            onJoinSlot={(seatGroupNumber, seatSlotNumber) =>
+              nav.navigate('JoinForm', { id: t.id, seatGroupNumber, seatSlotNumber })}
           />
         </>
       ) : null}

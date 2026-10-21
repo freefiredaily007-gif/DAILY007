@@ -19,7 +19,7 @@ export function ModeSeatSlotsPanel({
   canSelect,
   tournamentId,
   onRetry,
-  onJoinGroup,
+  onJoinSlot,
 }: {
   layout: TournamentSeatLayout;
   participants: SeatParticipant[];
@@ -28,7 +28,7 @@ export function ModeSeatSlotsPanel({
   canSelect: boolean;
   tournamentId: string;
   onRetry: () => void;
-  onJoinGroup: (groupNumber: number) => void;
+  onJoinSlot: (groupNumber: number, slotNumber: number) => void;
 }) {
   const [selectedSeat, setSelectedSeat] = useState<{ groupNumber: number; slotIndex: number } | null>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
@@ -43,7 +43,9 @@ export function ModeSeatSlotsPanel({
   const occupiedGroupCount = participantsByGroup.size;
   const totalPlayers = layout.groupCount * layout.slotsPerGroup;
   const joinedPlayers = participants.reduce(
-    (total, participant) => total + (participant.groupNumber === null ? 0 : layout.slotsPerGroup),
+    (total, participant) => total + (participant.groupNumber === null
+      ? participant.players.length
+      : participant.players.filter((name) => Boolean(name?.trim())).length),
     0,
   );
 
@@ -53,7 +55,8 @@ export function ModeSeatSlotsPanel({
     participant: SeatParticipant | undefined,
     individual: boolean,
   ) => {
-    const occupied = Boolean(participant);
+    const playerName = participant?.players?.[slotIndex]?.trim();
+    const occupied = Boolean(playerName);
     const seatKey = `${groupNumber}-${slotIndex + 1}`;
     const selected = !occupied &&
       canSelect &&
@@ -65,8 +68,7 @@ export function ModeSeatSlotsPanel({
       : slotIndex === 0
         ? 'CAPTAIN'
         : `PLAYER ${String(slotIndex + 1).padStart(2, '0')}`;
-    const playerName = participant?.players?.[slotIndex]?.trim();
-    const statusText = occupied ? playerName || 'TEAM BOOKED' : 'OPEN • SELECT';
+    const statusText = occupied ? playerName : 'OPEN • SELECT';
     return (
       <View
         key={seatKey}
@@ -128,12 +130,12 @@ export function ModeSeatSlotsPanel({
               accessibilityRole="button"
               accessibilityLabel={individual
                 ? `Join player slot ${groupNumber}`
-                : `Join Team ${String(groupNumber).padStart(2, '0')}`}
+                : `Join player ${slotIndex + 1} in Team ${String(groupNumber).padStart(2, '0')}`}
               accessibilityHint={individual
                 ? 'Opens the player details and entry-fee form for this player slot.'
-                : 'Opens the player details and entry-fee form for this team.'}
-              onPress={() => onJoinGroup(groupNumber)}
-              testID={`mode-seat-join-${groupNumber}`}
+                : 'Opens the player details and entry-fee form for your selected player slot.'}
+              onPress={() => onJoinSlot(groupNumber, slotIndex + 1)}
+              testID={`mode-seat-join-${groupNumber}-${slotIndex + 1}`}
               style={[
                 styles.inlineJoinButton,
                 compactLargeText && styles.inlineJoinButtonCompact,
@@ -147,9 +149,9 @@ export function ModeSeatSlotsPanel({
                   ? layout.groupCount > 2
                     ? <>JOIN{"\n"}PLAYER{"\n"}{String(groupNumber).padStart(2, '0')}</>
                     : <>JOIN{"\n"}PLAYER {groupNumber}</>
-                  : layout.slotsPerGroup >= 4
-                    ? <>JOIN{"\n"}TEAM{"\n"}{String(groupNumber).padStart(2, '0')}</>
-                    : <>JOIN{"\n"}TEAM {String(groupNumber).padStart(2, '0')}</>}
+              : layout.slotsPerGroup >= 4
+                    ? <>JOIN{"\n"}PLAYER{"\n"}{String(slotIndex + 1).padStart(2, '0')}</>
+                    : <>JOIN{"\n"}PLAYER {slotIndex + 1}</>}
               </Text>
             </Pressable>
           ) : (
@@ -221,13 +223,13 @@ export function ModeSeatSlotsPanel({
       <Card style={styles.summaryCard}>
         <Text style={styles.capacity}>{summary}</Text>
         <Text style={styles.info}>
-          Select an open team. The existing team registration fills all {layout.slotsPerGroup} player slots in that team.
+          Select your own open player slot. Each player registers and pays their entry fee individually.
         </Text>
       </Card>
       {Array.from({ length: layout.groupCount }, (_, index) => {
         const groupNumber = index + 1;
         const participant = participantsByGroup.get(groupNumber);
-        const occupied = Boolean(participant);
+        const joinedCount = participant?.players?.filter((name) => Boolean(name?.trim())).length ?? 0;
         return (
           <Card key={groupNumber} style={styles.teamCard} testID={`mode-seat-team-${groupNumber}`}>
             <View style={styles.teamHeader}>
@@ -237,7 +239,7 @@ export function ModeSeatSlotsPanel({
               </View>
               <View style={styles.joinedBadge}>
                 <Text style={styles.joinedText}>
-                  {occupied ? `${layout.slotsPerGroup}/${layout.slotsPerGroup}` : `0/${layout.slotsPerGroup}`} JOINED
+                  {joinedCount}/${layout.slotsPerGroup} JOINED
                 </Text>
               </View>
             </View>

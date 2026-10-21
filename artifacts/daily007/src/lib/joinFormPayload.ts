@@ -8,6 +8,18 @@ export type JoinFormPayloadInput = {
   members: JoinFormMember[];
 };
 
+export function buildIndividualPlayerJoinPayload({
+  captainProfileName,
+  captainGameName,
+  captainGameUid,
+}: Pick<JoinFormPayloadInput, 'captainProfileName' | 'captainGameName' | 'captainGameUid'>) {
+  return {
+    playerName: captainProfileName.trim(),
+    captainGameName: captainGameName.trim(),
+    gameUid: captainGameUid.trim(),
+  };
+}
+
 export function buildJoinFormPayload({
   captainProfileName,
   captainGameName,

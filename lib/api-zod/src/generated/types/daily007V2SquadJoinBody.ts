@@ -26,7 +26,7 @@
 export interface Daily007V2SquadJoinBody {
   /**
      * @minimum 1
-     * @maximum 12
+     * @maximum 24
      */
   teamNumber: number;
   /**

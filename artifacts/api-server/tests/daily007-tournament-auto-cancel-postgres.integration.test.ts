@@ -631,6 +631,100 @@ test("a PostgreSQL cursor write preserves the video seed marker and visible sett
   }
 });
 
+test("Clash Duo auto-cancellation counts individual player seats", async () => {
+  const matchIds = [randomUUID(), randomUUID()];
+  const userIds = Array.from({ length: 5 }, () => randomUUID());
+  const registrationIds = Array.from({ length: 5 }, () => randomUUID());
+  const teamIds = Array.from({ length: 3 }, () => randomUUID());
+
+  await pool.query(
+    "UPDATE daily007_v2_settings SET settings = settings - '__daily007AutoCancelCursor' WHERE id = 1",
+  );
+  for (const userId of userIds) {
+    await pool.query(
+      "INSERT INTO daily007_v2_users (id, wallet_coins) VALUES ($1, 100)",
+      [userId],
+    );
+  }
+  await pool.query(
+    `INSERT INTO daily007_v2_matches
+       (id, title, mode, game_mode, team_type, capacity, starts_at, status,
+        enabled, is_full, room_id, room_password, room_published)
+     VALUES
+       ($1, 'Underfilled Duo', 'clash', 'clash_squad', 'duo', 2,
+        clock_timestamp() - interval '1 hour', 'open', true, false, NULL, NULL, false),
+       ($2, 'Full Duo', 'clash', 'clash_squad', 'duo', 2,
+        clock_timestamp() - interval '1 hour', 'open', true, true, NULL, NULL, false)`,
+    matchIds,
+  );
+  for (let index = 0; index < registrationIds.length; index++) {
+    const matchIndex = index === 0 ? 0 : 1;
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 10, 'approved')`,
+      [registrationIds[index], matchIds[matchIndex], userIds[index]],
+    );
+  }
+  await pool.query(
+    `INSERT INTO daily007_v2_squad_teams (id, match_id, team_number)
+     VALUES ($1, $2, 1), ($3, $4, 1), ($5, $4, 2)`,
+    [teamIds[0], matchIds[0], teamIds[1], matchIds[1], teamIds[2]],
+  );
+  await pool.query(
+    `INSERT INTO daily007_v2_squad_team_members (team_id, slot_number, registration_id)
+     VALUES
+       ($1, 1, $2),
+       ($3, 1, $4), ($3, 2, $5), ($6, 1, $7), ($6, 2, $8)`,
+    [
+      teamIds[0], registrationIds[0],
+      teamIds[1], registrationIds[1], registrationIds[2],
+      teamIds[2], registrationIds[3], registrationIds[4],
+    ],
+  );
+
+  try {
+    await runDaily007AutoCancellationSweep();
+    const result = await pool.query<{
+      id: string;
+      status: string;
+      refund_count: number;
+    }>(
+      `SELECT match.id, match.status, count(ledger.id)::integer AS refund_count
+         FROM daily007_v2_matches match
+         LEFT JOIN daily007_v2_wallet_ledger ledger
+           ON ledger.match_id = match.id AND ledger.reason = 'tournament_cancel_refund'
+        WHERE match.id = ANY($1::uuid[])
+        GROUP BY match.id
+        ORDER BY match.id`,
+      [matchIds],
+    );
+    const byMatchId = new Map(result.rows.map((row) => [row.id, row]));
+    assert.equal(byMatchId.get(matchIds[0])?.status, "cancelled");
+    assert.equal(byMatchId.get(matchIds[0])?.refund_count, 1);
+    assert.equal(byMatchId.get(matchIds[1])?.status, "open");
+    assert.equal(byMatchId.get(matchIds[1])?.refund_count, 0);
+    const balances = await pool.query<{ id: string; wallet_coins: number }>(
+      "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
+    );
+    assert.equal(balances.rows.find((row) => row.id === userIds[0])?.wallet_coins, 110);
+    for (const userId of userIds.slice(1)) {
+      assert.equal(balances.rows.find((row) => row.id === userId)?.wallet_coins, 100);
+    }
+  } finally {
+    await pool.query(
+      "DELETE FROM daily007_v2_wallet_ledger WHERE match_id = ANY($1::uuid[])",
+      [matchIds],
+    );
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])", [matchIds]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [userIds]);
+    await pool.query(
+      "UPDATE daily007_v2_settings SET settings = settings - '__daily007AutoCancelCursor' WHERE id = 1",
+    );
+  }
+});
+
 test("a match that fills its final seat before the cancellation lock is not refunded", async () => {
   const fixture = await createFixture();
   const matchId = fixture.matchIds[0];

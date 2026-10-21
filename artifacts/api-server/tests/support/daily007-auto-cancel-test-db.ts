@@ -324,6 +324,17 @@ class Daily007AutoCancelTestDatabase {
     ) {
       const match = this.matches.get(String(values[0]));
       rows = [{ has_winner: match?.hasWinner ?? false }];
+    } else if (
+      normalized.includes("COALESCE(sum(") &&
+      normalized.includes("AS filled_slots")
+    ) {
+      const matchId = String(values[0]);
+      const activeTeams = this.registrations.filter((registration) =>
+        registration.match_id === matchId &&
+        ACTIVE_REGISTRATION_STATUSES.has(registration.status),
+      ).length;
+      // This fixture models the historical whole-team registration format.
+      rows = [{ filled_slots: activeTeams * 4 }];
     } else if (normalized.includes("count(*)::integer AS filled_slots")) {
       const matchId = String(values[0]);
       rows = [{

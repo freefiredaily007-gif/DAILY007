@@ -79,14 +79,23 @@ async function createUser(role = "user", walletCoins = 100): Promise<string> {
   return id;
 }
 
-async function createMatch(entryCoins = 10): Promise<string> {
+async function createMatch(
+  entryCoins = 10,
+  format: Partial<{ title: string; mode: string; gameMode: string; teamType: string; capacity: number }> = {},
+): Promise<string> {
   const id = randomUUID();
+  const match = {
+    title: format.title ?? "Squad Slot Integration",
+    mode: format.mode ?? "squad",
+    gameMode: format.gameMode ?? "battle_royale",
+    teamType: format.teamType ?? "squad",
+    capacity: format.capacity ?? 12,
+  };
   await pool.query(
     `INSERT INTO daily007_v2_matches
        (id, title, mode, game_mode, team_type, capacity, entry_coins, starts_at, status)
-     VALUES ($1, 'Squad Slot Integration', 'squad', 'battle_royale', 'squad',
-             12, $2, clock_timestamp() + interval '20 hours', 'open')`,
-    [id, entryCoins],
+     VALUES ($1, $2, $3, $4, $5, $6, $7, clock_timestamp() + interval '20 hours', 'open')`,
+    [id, match.title, match.mode, match.gameMode, match.teamType, match.capacity, entryCoins],
   );
   return id;
 }
@@ -106,6 +115,24 @@ async function joinSlot(
       slotNumber,
       gameName: `Player-${userId.slice(0, 6)}`,
       gameUid: `uid-${userId}`,
+    }),
+  });
+  return { status: response.status, body: await response.json() as Record<string, any> };
+}
+
+async function joinSoloSeat(
+  origin: string,
+  matchId: string,
+  userId: string,
+  seatGroupNumber: number,
+): Promise<ApiResponse> {
+  const response = await fetch(`${origin}/daily007/v2/matches/${matchId}/register`, {
+    method: "POST",
+    headers: headers(userId),
+    body: JSON.stringify({
+      captainGameName: `Player-${userId.slice(0, 6)}`,
+      captainGameUid: `uid-${userId}`,
+      seatGroupNumber,
     }),
   });
   return { status: response.status, body: await response.json() as Record<string, any> };
@@ -304,6 +331,137 @@ test("Squad slots charge each player atomically, preserve captain control, and t
         [player, matchId],
       );
       assert.deepEqual(result.rows[0], { wallet_coins: 37, ledger_count: 0 });
+    });
+
+    await t.test("individual seats work for BR Duo, Clash Squad, and Lone Wolf formats", async () => {
+      const formats = [
+        { title: "BR Duo", mode: "squad", gameMode: "battle_royale", teamType: "duo", capacity: 24, teamNumber: 24 },
+        { title: "Clash Squad Duo", mode: "clash", gameMode: "clash_squad", teamType: "duo", capacity: 2, teamNumber: 2 },
+        { title: "Clash Squad Squad", mode: "clash", gameMode: "clash_squad", teamType: "squad", capacity: 2, teamNumber: 2 },
+        { title: "Lone Wolf Duo", mode: "clash", gameMode: "lone_wolf", teamType: "duo", capacity: 2, teamNumber: 2 },
+        { title: "Lone Wolf Squad", mode: "clash", gameMode: "lone_wolf", teamType: "squad", capacity: 2, teamNumber: 2 },
+      ] as const;
+
+      for (const format of formats) {
+        const matchId = await createMatch(10, format);
+        const firstPlayer = await createUser();
+        const secondPlayer = await createUser();
+        const firstJoin = await joinSlot(origin, matchId, firstPlayer, format.teamNumber, 2);
+        const secondJoin = await joinSlot(origin, matchId, secondPlayer, format.teamNumber, 1);
+
+        assert.equal(firstJoin.status, 201, `${format.title}: the first selected seat should be accepted.`);
+        assert.equal(secondJoin.status, 201, `${format.title}: another player should be able to join a different seat in the same team.`);
+        assert.equal(firstJoin.body.isCaptain, false, `${format.title}: slot 2 is not the team captain slot.`);
+        assert.equal(secondJoin.body.isCaptain, true, `${format.title}: slot 1 is the team captain slot.`);
+        assert.equal(
+          (await joinSlot(origin, matchId, await createUser(), format.teamNumber, 2)).status,
+          409,
+          `${format.title}: an occupied seat must not be reused.`,
+        );
+
+        const slots = await slotsFor(origin, matchId, firstPlayer);
+        assert.equal(slots.status, 200);
+        const team = slots.body.teams.find((candidate: any) => candidate.teamNumber === format.teamNumber);
+        assert.deepEqual(
+          team.slots.slice(0, 2).map((slot: any) => slot.gameName),
+          [`Player-${secondPlayer.slice(0, 6)}`, `Player-${firstPlayer.slice(0, 6)}`],
+          `${format.title}: slot labels should reflect the actual saved seat numbers.`,
+        );
+        assert.equal(slots.body.filledPlayers, 2);
+
+        const publicResponse = await fetch(`${origin}/tournaments/${matchId}/participants`);
+        const publicBody = await publicResponse.json() as Record<string, any>;
+        assert.deepEqual(publicBody.participants[0].players, [
+          `Player-${secondPlayer.slice(0, 6)}`,
+          `Player-${firstPlayer.slice(0, 6)}`,
+        ]);
+
+        const rejected = await fetch(`${origin}/admin/registrations/${secondJoin.body.registrationId}/reject`, {
+          method: "POST",
+          headers: headers(await createUser("tournament_admin")),
+          body: JSON.stringify({}),
+        });
+        assert.equal(rejected.status, 200, `${format.title}: admin rejection should release that player's seat.`);
+        const afterReject = await slotsFor(origin, matchId, await createUser());
+        assert.equal(afterReject.body.filledPlayers, 1);
+        assert.equal(
+          afterReject.body.teams.find((candidate: any) => candidate.teamNumber === format.teamNumber).slots[0].canJoin,
+          true,
+        );
+      }
+    });
+
+    await t.test("selected player seats persist for Clash Solo and Lone Wolf Solo", async () => {
+      const formats = [
+        { title: "Clash Squad Solo", gameMode: "clash_squad" },
+        { title: "Lone Wolf Solo", gameMode: "lone_wolf" },
+      ] as const;
+      for (const format of formats) {
+        const matchId = await createMatch(10, {
+          title: format.title,
+          mode: "clash",
+          gameMode: format.gameMode,
+          teamType: "solo",
+          capacity: 2,
+        });
+        const firstPlayer = await createUser();
+        const secondPlayer = await createUser();
+        const duplicatePlayer = await createUser();
+        const first = await joinSoloSeat(origin, matchId, firstPlayer, 1);
+        const second = await joinSoloSeat(origin, matchId, secondPlayer, 2);
+        const duplicate = await joinSoloSeat(origin, matchId, duplicatePlayer, 1);
+
+        assert.equal(first.status, 201, `${format.title}: PLAYER 1 should be joinable.`);
+        assert.equal(second.status, 201, `${format.title}: PLAYER 2 should be joinable.`);
+        assert.equal(first.body.seatGroupNumber, 1);
+        assert.equal(second.body.seatGroupNumber, 2);
+        assert.equal(duplicate.status, 409, `${format.title}: an occupied player seat must stay unavailable.`);
+        const duplicateBalance = await pool.query<{ wallet_coins: number }>(
+          "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+          [duplicatePlayer],
+        );
+        assert.equal(duplicateBalance.rows[0].wallet_coins, 100);
+        const participants = await fetch(`${origin}/tournaments/${matchId}/participants`);
+        const body = await participants.json() as Record<string, any>;
+        assert.deepEqual(
+          body.participants.map((participant: any) => participant.groupNumber).sort(),
+          [1, 2],
+          `${format.title}: each player should retain their selected seat.`,
+        );
+      }
+    });
+
+    await t.test("team-mode results remain limited to the captain slot", async () => {
+      const matchId = await createMatch(10, {
+        title: "Clash Squad Duo Results",
+        mode: "clash",
+        gameMode: "clash_squad",
+        teamType: "duo",
+        capacity: 2,
+      });
+      const firstSeat = await createUser();
+      const captain = await createUser();
+      const admin = await createUser("tournament_admin");
+      const firstJoin = await joinSlot(origin, matchId, firstSeat, 1, 2);
+      const captainJoin = await joinSlot(origin, matchId, captain, 1, 1);
+      assert.equal(firstJoin.status, 201);
+      assert.equal(captainJoin.status, 201);
+      await pool.query(
+        "UPDATE daily007_v2_matches SET starts_at = clock_timestamp() - interval '1 hour' WHERE id = $1",
+        [matchId],
+      );
+      const response = await fetch(`${origin}/admin/results`, {
+        method: "POST",
+        headers: headers(admin),
+        body: JSON.stringify({
+          tournamentId: matchId,
+          registrationId: firstJoin.body.registrationId,
+          rank: 1,
+          kills: 0,
+        }),
+      });
+      assert.equal(response.status, 409);
+      assert.match(String((await response.json() as Record<string, unknown>).error), /team captain/i);
     });
   });
 });

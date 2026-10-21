@@ -2307,8 +2307,8 @@ export const getDaily007V2GetSquadSlotsUrl = (id: string,) => {
 }
 
 /**
- * Requires authentication. Returns public Free Fire names and slot state; UIDs, account IDs, profile names, and contact details remain private. Only the captain sees removable member registration IDs.
- * @summary Get the individually selectable Squad team slots
+ * Requires authentication. Returns the selected format's teams and per-player seat state. Public Free Fire names are returned; UIDs, account IDs, profile names, and contact details remain private.
+ * @summary Get individually selectable team player slots
  */
 export const daily007V2GetSquadSlots = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2SquadSlotsResponse> => {
 
@@ -2355,7 +2355,7 @@ export type Daily007V2GetSquadSlotsQueryError = ErrorType<void>
 
 
 /**
- * @summary Get the individually selectable Squad team slots
+ * @summary Get individually selectable team player slots
  */
 
 export function useDaily007V2GetSquadSlots<TData = Awaited<ReturnType<typeof daily007V2GetSquadSlots>>, TError = ErrorType<void>>(
@@ -2386,7 +2386,7 @@ export const getDaily007V2JoinSquadSlotUrl = (id: string,) => {
 
 /**
  * Assigns the authenticated player to one team and slot, charging only that player's wallet. A retry returns the saved receipt without a second charge. The first player in an empty team becomes its captain.
- * @summary Join one open Squad player slot with the authenticated account
+ * @summary Join one open team player slot with the authenticated account
  */
 export const daily007V2JoinSquadSlot = async (id: string,
     daily007V2SquadJoinBody: Daily007V2SquadJoinBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2SquadJoinResponse> => {
@@ -2453,7 +2453,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type Daily007V2JoinSquadSlotMutationVariables = {id: string;data: BodyType<Daily007V2SquadJoinBody>}
 
     /**
- * @summary Join one open Squad player slot with the authenticated account
+ * @summary Join one open team player slot with the authenticated account
  */
 export const useDaily007V2JoinSquadSlot = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2JoinSquadSlot>>, TError,Daily007V2JoinSquadSlotMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

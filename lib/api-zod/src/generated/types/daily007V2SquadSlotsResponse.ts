@@ -26,16 +26,24 @@ import type { Daily007V2SquadTeam } from './daily007V2SquadTeam';
 
 export interface Daily007V2SquadSlotsResponse {
   tournamentId: string;
-  teamSize: 4;
-  capacity: 12;
+  /**
+     * @minimum 2
+     * @maximum 4
+     */
+  teamSize: number;
+  /**
+     * @minimum 2
+     * @maximum 24
+     */
+  capacity: number;
   /**
      * @minimum 0
-     * @maximum 12
+     * @maximum 24
      */
   filledTeams: number;
   /**
      * @minimum 0
-     * @maximum 48
+     * @maximum 96
      */
   filledPlayers: number;
   registrationClosed: boolean;
@@ -45,8 +53,8 @@ export interface Daily007V2SquadSlotsResponse {
   /** @nullable */
   mySlotNumber: number | null;
   /**
-     * @minItems 12
-     * @maxItems 12
+     * @minItems 2
+     * @maxItems 24
      */
   teams: Daily007V2SquadTeam[];
 }

@@ -85,11 +85,28 @@ function selectCandidates(after: CandidateCursor | null) {
           m.game_mode IN ('clash_squad', 'lone_wolf')
           OR (m.game_mode IS NULL AND m.mode = 'clash')
         )
-        AND (
-          SELECT count(*)
-            FROM daily007_v2_registrations r
-           WHERE r.match_id = m.id AND r.status IN ('approved', 'pending')
-        ) < m.capacity
+         AND (
+           SELECT COALESCE(sum(
+                    CASE WHEN EXISTS (
+                      SELECT 1 FROM daily007_v2_squad_team_members linked
+                       WHERE linked.registration_id = r.id
+                    ) THEN (
+                      SELECT count(*) FROM daily007_v2_squad_team_members active_member
+                       WHERE active_member.registration_id = r.id AND active_member.is_active = true
+                    ) ELSE 1 + (
+                      SELECT count(*) FROM daily007_v2_roster roster
+                       WHERE roster.registration_id = r.id
+                    ) END
+                  ), 0)
+             FROM daily007_v2_registrations r
+            WHERE r.match_id = m.id AND r.status IN ('approved', 'pending')
+         ) < m.capacity * CASE
+           WHEN m.team_type = 'duo' THEN 2
+           WHEN m.team_type = 'squad' THEN 4
+           WHEN m.team_type = 'solo' THEN 1
+           WHEN m.mode IN ('clash', 'squad') THEN 4
+           ELSE 1
+         END
         AND NOT EXISTS (
           SELECT 1
             FROM daily007_v2_result_awards award

@@ -1,8 +1,5 @@
 import { pool } from "@workspace/db";
-import {
-  ensureLegacySquadTeams,
-  getSquadOccupancy,
-} from "./daily007-squad-slots";
+import { legacyTournamentMode } from "./daily007-mode-rules";
 
 export type CancellationSqlClient = {
   query<T = unknown>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
@@ -125,16 +122,32 @@ export async function cancelUnderfilledTournamentTransaction(
        ) AS has_winner`,
       [matchId],
     );
-    const isBattleRoyaleSquad = match.mode === "squad" &&
-      (match.game_mode === null ||
-        (match.game_mode === "battle_royale" && match.team_type === "squad"));
+    const mode = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+    const hasTeamSeats = mode.teamSize > 1;
     let filledSlots: number;
     let capacity = Number(match.capacity);
-    if (isBattleRoyaleSquad) {
-      await ensureLegacySquadTeams(client, matchId);
-      const occupancy = await getSquadOccupancy(client, matchId);
-      filledSlots = occupancy.filledPlayers;
-      capacity *= 4;
+    if (hasTeamSeats) {
+      const countResult = await client.query<{ filled_slots: number }>(
+        `SELECT COALESCE(sum(
+                 CASE WHEN EXISTS (
+                   SELECT 1 FROM daily007_v2_squad_team_members linked
+                    WHERE linked.registration_id = registration.id
+                 ) THEN (
+                   SELECT count(*) FROM daily007_v2_squad_team_members active_member
+                    WHERE active_member.registration_id = registration.id
+                      AND active_member.is_active = true
+                 ) ELSE 1 + (
+                   SELECT count(*) FROM daily007_v2_roster roster
+                    WHERE roster.registration_id = registration.id
+                 ) END
+               ), 0)::integer AS filled_slots
+           FROM daily007_v2_registrations registration
+          WHERE registration.match_id = $1
+            AND registration.status IN ('approved', 'pending')`,
+        [matchId],
+      );
+      filledSlots = Number(countResult.rows[0]?.filled_slots ?? 0);
+      capacity *= mode.teamSize;
     } else {
       const countResult = await client.query<{ filled_slots: number }>(
         `SELECT count(*)::integer AS filled_slots

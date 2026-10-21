@@ -27,7 +27,7 @@ export interface Daily007V2SquadJoinResponse {
   registrationId: string;
   /**
      * @minimum 1
-     * @maximum 12
+     * @maximum 24
      */
   teamNumber: number;
   /**
@@ -42,12 +42,12 @@ export interface Daily007V2SquadJoinResponse {
   walletCoins: number;
   /**
      * @minimum 0
-     * @maximum 12
+     * @maximum 24
      */
   filledTeams: number;
   /**
      * @minimum 0
-     * @maximum 48
+     * @maximum 96
      */
   filledPlayers: number;
   alreadyRegistered: boolean;

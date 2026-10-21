@@ -17,7 +17,7 @@ type LegacyRegistration = {
 /**
  * Give pre-redesign whole-team registrations stable display positions without
  * changing their saved registrations or rosters. Called while the match row is
- * locked, so two first-time Squad reads cannot allocate the same team number.
+ * locked, so first-time slot reads cannot allocate the same team number.
  */
 export async function ensureLegacySquadTeams(
   client: SquadSqlClient,
@@ -32,7 +32,10 @@ export async function ensureLegacySquadTeams(
        JOIN daily007_v2_matches m ON m.id = r.match_id
       WHERE r.match_id = $1
         AND r.status IN ('approved', 'pending')
-        AND (m.game_mode IS NULL OR m.team_type IN ('duo', 'squad'))
+        AND (
+          m.team_type IN ('duo', 'squad')
+          OR (m.game_mode IS NULL AND m.mode IN ('squad', 'clash'))
+        )
         AND NOT EXISTS (
           SELECT 1 FROM daily007_v2_squad_teams t WHERE t.legacy_registration_id = r.id
         )
@@ -51,12 +54,21 @@ export async function ensureLegacySquadTeams(
   );
   const taken = new Set(takenResult.rows.map((row) => Number(row.team_number)));
   for (const registration of legacy.rows) {
-    let teamNumber = registration.team_number === null ? 1 : Number(registration.team_number);
-    if (!Number.isSafeInteger(teamNumber) || teamNumber < 1 || teamNumber > teamCount) {
+    const requestedTeamNumber = registration.team_number === null
+      ? null
+      : Number(registration.team_number);
+    let teamNumber = requestedTeamNumber;
+    if (
+      teamNumber === null ||
+      !Number.isSafeInteger(teamNumber) ||
+      teamNumber < 1 ||
+      teamNumber > teamCount ||
+      taken.has(teamNumber)
+    ) {
       teamNumber = 1;
       while (teamNumber <= teamCount && taken.has(teamNumber)) teamNumber++;
     }
-    if (teamNumber > teamCount || taken.has(teamNumber)) continue;
+    if (teamNumber > teamCount) continue;
 
     const teamResult = await client.query<{ id: string }>(
       `INSERT INTO daily007_v2_squad_teams

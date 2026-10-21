@@ -308,13 +308,14 @@ class MemoryTournamentResultsDatabase {
       };
       rows = [{ id: this.match.id }];
     } else if (normalized.startsWith(
-      "SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1",
+      "SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches WHERE id = $1",
     )) {
       rows = values[0] === this.match.id
         ? [{
             mode: this.match.mode,
             game_mode: this.match.game_mode,
             team_type: this.match.team_type,
+            capacity: this.match.capacity,
           }]
         : [];
     } else if (normalized.startsWith(

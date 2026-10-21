@@ -5,7 +5,7 @@ import type { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
-import { buildJoinFormPayload } from '../lib/joinFormPayload';
+import { buildIndividualPlayerJoinPayload, buildJoinFormPayload } from '../lib/joinFormPayload';
 import {
   getJoinFormSubmissionErrorMessage,
   getRegistrationServerFieldErrors,
@@ -64,8 +64,8 @@ function isTeamEditSnapshot(value: unknown): value is TeamEditSnapshot {
       typeof (member as Record<string, unknown>).uid === 'string');
 }
 
-export default function JoinForm({ tournament: t, user, registration, seatGroupNumber, onCancel, onSubmit }: {
-  tournament: any; user: User; registration?: any; seatGroupNumber?: number;
+export default function JoinForm({ tournament: t, user, registration, seatGroupNumber, seatSlotNumber, onCancel, onSubmit }: {
+  tournament: any; user: User; registration?: any; seatGroupNumber?: number; seatSlotNumber?: number;
   onCancel: () => void; onSubmit: (payload: any) => Promise<void>;
 }) {
   const editing = !!registration?.id;
@@ -191,30 +191,55 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
     }
     if (!editing && closed) return announceError('This tournament is no longer open for registration.');
     if (!editing && full) return announceError('This tournament is full. Please choose another match.');
-    const validation = validateJoinForm({
+    if (!editing && isTeam && (!seatGroupNumber || !seatSlotNumber)) {
+      return announceError('Choose your individual open player slot from the tournament page first.');
+    }
+    if (!editing) {
+      const individualErrors: Partial<Record<JoinFormField, string>> = {};
+      if (!captainGameName.trim()) individualErrors.captainGameName = 'Your Free Fire in-game name is required.';
+      if (!captainGameUid.trim()) individualErrors.captainGameUid = 'Your Free Fire UID is required.';
+      if (!captainProfileName) {
+        announceError('Add a Daily007 profile name in Profile before joining.');
+      } else if (Object.keys(individualErrors).length > 0) {
+        setFieldErrors(individualErrors);
+        announceError('Enter your Free Fire in-game name and UID to continue.');
+      }
+      if (!captainProfileName || Object.keys(individualErrors).length > 0) return;
+    }
+    const validation = editing ? validateJoinForm({
       captainProfileName,
       captainGameName,
       captainGameUid,
       teamName,
       members,
       isTeam,
-    });
+    }) : null;
     if (validation) {
       setFieldErrors(validation.fieldErrors);
       return announceError(validation.message);
     }
     setBusy(true);
     try {
-      const payload = buildJoinFormPayload({
-        captainProfileName,
-        captainGameName: captainGameName.trim(),
-        captainGameUid: captainGameUid.trim(),
-        teamName,
-        members,
-      });
+      const payload = editing
+        ? buildJoinFormPayload({
+            captainProfileName,
+            captainGameName: captainGameName.trim(),
+            captainGameUid: captainGameUid.trim(),
+            teamName,
+            members,
+          })
+        : buildIndividualPlayerJoinPayload({
+            captainProfileName,
+            captainGameName,
+            captainGameUid,
+          });
       await onSubmit(editing
         ? { ...payload, expectedTeam }
-        : seatGroupNumber ? { ...payload, seatGroupNumber } : payload);
+        : {
+            ...payload,
+            ...(seatGroupNumber ? { seatGroupNumber } : {}),
+            ...(seatSlotNumber ? { seatSlotNumber } : {}),
+          });
     } catch (e: any) {
       const responseData = e?.response?.data;
       const serverFieldErrors = getRegistrationServerFieldErrors(responseData, {
@@ -253,7 +278,10 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
   const remaining = slotUnit === 'team'
     ? `${remainingSlots} ${remainingSlots === 1 ? 'team' : 'teams'} · ${remainingSlots * teamSize} player places remaining`
     : `${remainingSlots} player places remaining`;
-  const action = isTeam ? 'REGISTER TEAM' : slotUnit === 'team' ? 'JOIN SLOT' : 'JOIN SOLO';
+  const action = isTeam ? 'JOIN PLAYER SLOT' : 'JOIN SOLO';
+  const selectedPlayerLabel = isTeam
+    ? seatSlotNumber === 1 ? 'CAPTAIN' : seatSlotNumber ? `PLAYER ${seatSlotNumber}` : 'PLAYER'
+    : seatGroupNumber ? `PLAYER ${seatGroupNumber}` : 'PLAYER';
   const disabledMessage = editing
     ? editLocked
       ? 'Team editing is locked 30 minutes before the tournament starts.'
@@ -283,7 +311,7 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
       <Text style={st.sub}>
         {editing
           ? `${t.name} · No additional coins will be charged.`
-          : `${t.name} · Entry: ${t.entryCoins ?? 0} coins ${isTeam ? '(captain pays once for the team)' : ''}`}
+          : `${t.name} · Entry: ${t.entryCoins ?? 0} coins ${isTeam ? '(each player joins individually)' : ''}`}
       </Text>
       {editing ? (
         <Card style={{ marginTop: 12 }}>
@@ -303,112 +331,150 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
       )}
       {!editing && seatGroupNumber ? (
         <Card style={{ marginTop: 12 }} testID="join-form-selected-seat">
-          <Text style={st.capacityLabel}>SELECTED {seatLayout?.groupKind === 'team' ? 'TEAM' : 'PLAYER SLOT'}</Text>
+          <Text style={st.capacityLabel}>
+            {seatLayout?.groupKind === 'team' ? 'SELECTED TEAM · YOUR PLAYER SLOT' : 'SELECTED PLAYER SLOT'}
+          </Text>
           <Text style={st.capacity}>
             {seatLayout?.groupKind === 'team'
-              ? `TEAM ${String(seatGroupNumber).padStart(2, '0')}`
+              ? `TEAM ${String(seatGroupNumber).padStart(2, '0')} · ${selectedPlayerLabel}`
               : `PLAYER ${seatLayout?.directDuel ? seatGroupNumber : String(seatGroupNumber).padStart(2, '0')}`}
           </Text>
-          <Text style={st.sub}>This group is claimed only after the server confirms your registration.</Text>
+          <Text style={st.sub}>Only your player slot is registered after the server confirms your entry.</Text>
         </Card>
       ) : null}
 
       <Card style={{ marginTop: 12 }}>
         <Text style={st.legacyNote}>{editing
           ? 'Update the Free Fire names, UIDs, and team details for this registration. Your application profile name and original entry payment will not change.'
-          : `New registrations are confirmed immediately. Entry coins are deducted from your wallet when you join. Your application profile name is used for the captain registration. Free Fire in-game name and UID are required.${isTeam ? ` Enter all ${teamSize - 1} teammate in-game names; teammate UIDs are optional.` : ''}`}
+          : 'Register only your own Free Fire in-game name and UID. Each player joins and pays for their own slot.'}
         </Text>
-        <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
-        <Text style={st.pLabel}>CAPTAIN APPLICATION PROFILE NAME</Text>
-        <Input
-          accessibilityLabel="Captain Daily007 profile name, read-only"
-          accessibilityHint={fieldErrors.captainProfileName}
-          placeholder="Set your name in Profile before joining"
-          value={captainProfileName}
-          editable={false}
-          selectTextOnFocus={false}
-        />
-        {fieldErrorText('captainProfileName', 'join-form-error-captain-profile-name')}
-        <Input
-          placeholder="Captain Free Fire in-game name"
-          accessibilityLabel="Captain Free Fire in-game name"
-          accessibilityHint={fieldErrors.captainGameName}
-          testID="join-form-captain-game-name"
-          value={captainGameName}
-          onChangeText={(value) => {
-            setCaptainGameName(value);
-            clearFieldValidation('captainGameName');
-          }}
-          autoCapitalize="words"
-          maxLength={100}
-        />
-        {fieldErrorText('captainGameName', 'join-form-error-captain-game-name')}
-        <Input
-          placeholder="Captain Free Fire UID"
-          accessibilityLabel="Captain Free Fire UID"
-          accessibilityHint={fieldErrors.captainGameUid}
-          testID="join-form-captain-game-uid"
-          value={captainGameUid}
-          onChangeText={(value) => {
-            setCaptainGameUid(value);
-            clearFieldValidation('captainGameUid');
-          }}
-          keyboardType="number-pad"
-          maxLength={128}
-        />
-        {fieldErrorText('captainGameUid', 'join-form-error-captain-game-uid')}
-        {isTeam && (
+        {editing ? (
           <>
-            <Text style={st.pLabel}>TEAM NAME</Text>
+            <Text style={st.pLabel}>CAPTAIN DETAILS</Text>
+            <Text style={st.pLabel}>CAPTAIN APPLICATION PROFILE NAME</Text>
             <Input
-              accessibilityLabel="Team name"
-              accessibilityHint={fieldErrors.teamName}
-              testID="join-form-team-name"
-              placeholder="Team name"
-              value={teamName}
+              accessibilityLabel="Captain Daily007 profile name, read-only"
+              accessibilityHint={fieldErrors.captainProfileName}
+              placeholder="Set your name in Profile before joining"
+              value={captainProfileName}
+              editable={false}
+              selectTextOnFocus={false}
+            />
+            {fieldErrorText('captainProfileName', 'join-form-error-captain-profile-name')}
+            <Input
+              placeholder="Captain Free Fire in-game name"
+              accessibilityLabel="Captain Free Fire in-game name"
+              accessibilityHint={fieldErrors.captainGameName}
+              testID="join-form-captain-game-name"
+              value={captainGameName}
               onChangeText={(value) => {
-                setTeamName(value);
-                clearFieldValidation('teamName');
+                setCaptainGameName(value);
+                clearFieldValidation('captainGameName');
               }}
               autoCapitalize="words"
               maxLength={100}
             />
-            {fieldErrorText('teamName', 'join-form-error-team-name')}
-          </>
-        )}
-        {members.map((member, i) => (
-          <View key={i} style={{ marginBottom: 4 }}>
-            <Text style={st.pLabel}>TEAMMATE {i + 1}</Text>
+            {fieldErrorText('captainGameName', 'join-form-error-captain-game-name')}
             <Input
-              accessibilityLabel={`Teammate ${i + 1} Free Fire in-game name`}
-              accessibilityHint={fieldErrors[`memberName:${i}`]}
-              testID={`join-form-teammate-name-${i + 1}`}
-              placeholder={`Teammate ${i + 1} Free Fire in-game name`}
-              value={member.name}
-              onChangeText={(v) => {
-                setMember(i, 'name', v);
-                clearFieldValidation(`memberName:${i}`);
-              }}
-              autoCapitalize="words"
-              maxLength={100}
-            />
-            {fieldErrorText(`memberName:${i}`, `join-form-error-teammate-name-${i + 1}`)}
-            <Input
-              accessibilityLabel={`Teammate ${i + 1} Free Fire UID, optional`}
-              accessibilityHint={fieldErrors[`memberUid:${i}`]}
-              testID={`join-form-teammate-uid-${i + 1}`}
-              placeholder={`Teammate ${i + 1} Free Fire UID (optional)`}
-              value={member.uid}
-              onChangeText={(v) => {
-                setMember(i, 'uid', v);
-                clearFieldValidation(`memberUid:${i}`);
+              placeholder="Captain Free Fire UID"
+              accessibilityLabel="Captain Free Fire UID"
+              accessibilityHint={fieldErrors.captainGameUid}
+              testID="join-form-captain-game-uid"
+              value={captainGameUid}
+              onChangeText={(value) => {
+                setCaptainGameUid(value);
+                clearFieldValidation('captainGameUid');
               }}
               keyboardType="number-pad"
               maxLength={128}
             />
-            {fieldErrorText(`memberUid:${i}`, `join-form-error-teammate-uid-${i + 1}`)}
-          </View>
-        ))}
+            {fieldErrorText('captainGameUid', 'join-form-error-captain-game-uid')}
+            {isTeam && (
+              <>
+                <Text style={st.pLabel}>TEAM NAME</Text>
+                <Input
+                  accessibilityLabel="Team name"
+                  accessibilityHint={fieldErrors.teamName}
+                  testID="join-form-team-name"
+                  placeholder="Team name"
+                  value={teamName}
+                  onChangeText={(value) => {
+                    setTeamName(value);
+                    clearFieldValidation('teamName');
+                  }}
+                  autoCapitalize="words"
+                  maxLength={100}
+                />
+                {fieldErrorText('teamName', 'join-form-error-team-name')}
+              </>
+            )}
+            {members.map((member, i) => (
+              <View key={i} style={{ marginBottom: 4 }}>
+                <Text style={st.pLabel}>TEAMMATE {i + 1}</Text>
+                <Input
+                  accessibilityLabel={`Teammate ${i + 1} Free Fire in-game name`}
+                  accessibilityHint={fieldErrors[`memberName:${i}`]}
+                  testID={`join-form-teammate-name-${i + 1}`}
+                  placeholder={`Teammate ${i + 1} Free Fire in-game name`}
+                  value={member.name}
+                  onChangeText={(v) => {
+                    setMember(i, 'name', v);
+                    clearFieldValidation(`memberName:${i}`);
+                  }}
+                  autoCapitalize="words"
+                  maxLength={100}
+                />
+                {fieldErrorText(`memberName:${i}`, `join-form-error-teammate-name-${i + 1}`)}
+                <Input
+                  accessibilityLabel={`Teammate ${i + 1} Free Fire UID, optional`}
+                  accessibilityHint={fieldErrors[`memberUid:${i}`]}
+                  testID={`join-form-teammate-uid-${i + 1}`}
+                  placeholder={`Teammate ${i + 1} Free Fire UID (optional)`}
+                  value={member.uid}
+                  onChangeText={(v) => {
+                    setMember(i, 'uid', v);
+                    clearFieldValidation(`memberUid:${i}`);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={128}
+                />
+                {fieldErrorText(`memberUid:${i}`, `join-form-error-teammate-uid-${i + 1}`)}
+              </View>
+            ))}
+          </>
+        ) : (
+          <>
+            <Text style={st.pLabel}>{selectedPlayerLabel} DETAILS</Text>
+            <Input
+              accessibilityLabel={`${selectedPlayerLabel} Free Fire in-game name`}
+              accessibilityHint={fieldErrors.captainGameName}
+              testID="join-form-player-game-name"
+              placeholder={`${selectedPlayerLabel} Free Fire in-game name`}
+              value={captainGameName}
+              onChangeText={(value) => {
+                setCaptainGameName(value);
+                clearFieldValidation('captainGameName');
+              }}
+              autoCapitalize="words"
+              maxLength={100}
+            />
+            {fieldErrorText('captainGameName', 'join-form-error-player-game-name')}
+            <Input
+              accessibilityLabel={`${selectedPlayerLabel} Free Fire UID`}
+              accessibilityHint={fieldErrors.captainGameUid}
+              testID="join-form-player-game-uid"
+              placeholder={`${selectedPlayerLabel} Free Fire UID`}
+              value={captainGameUid}
+              onChangeText={(value) => {
+                setCaptainGameUid(value);
+                clearFieldValidation('captainGameUid');
+              }}
+              keyboardType="number-pad"
+              maxLength={128}
+            />
+            {fieldErrorText('captainGameUid', 'join-form-error-player-game-uid')}
+          </>
+        )}
       </Card>
 
       {editing && staleTeam && (

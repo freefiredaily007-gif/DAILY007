@@ -249,7 +249,7 @@ export interface TournamentParticipantsResponse {
 export interface Daily007V2SquadJoinBody {
   /**
      * @minimum 1
-     * @maximum 12
+     * @maximum 24
      */
   teamNumber: number;
   /**
@@ -288,14 +288,14 @@ export interface Daily007V2SquadSlot {
 export interface Daily007V2SquadTeam {
   /**
      * @minimum 1
-     * @maximum 12
+     * @maximum 24
      */
   teamNumber: number;
   legacy: boolean;
   /** @nullable */
   captainGameName: string | null;
   /**
-     * @minItems 4
+     * @minItems 1
      * @maxItems 4
      */
   slots: Daily007V2SquadSlot[];
@@ -303,16 +303,24 @@ export interface Daily007V2SquadTeam {
 
 export interface Daily007V2SquadSlotsResponse {
   tournamentId: string;
-  teamSize: 4;
-  capacity: 12;
+  /**
+     * @minimum 2
+     * @maximum 4
+     */
+  teamSize: number;
+  /**
+     * @minimum 2
+     * @maximum 24
+     */
+  capacity: number;
   /**
      * @minimum 0
-     * @maximum 12
+     * @maximum 24
      */
   filledTeams: number;
   /**
      * @minimum 0
-     * @maximum 48
+     * @maximum 96
      */
   filledPlayers: number;
   registrationClosed: boolean;
@@ -322,8 +330,8 @@ export interface Daily007V2SquadSlotsResponse {
   /** @nullable */
   mySlotNumber: number | null;
   /**
-     * @minItems 12
-     * @maxItems 12
+     * @minItems 2
+     * @maxItems 24
      */
   teams: Daily007V2SquadTeam[];
 }
@@ -332,7 +340,7 @@ export interface Daily007V2SquadJoinResponse {
   registrationId: string;
   /**
      * @minimum 1
-     * @maximum 12
+     * @maximum 24
      */
   teamNumber: number;
   /**
@@ -347,12 +355,12 @@ export interface Daily007V2SquadJoinResponse {
   walletCoins: number;
   /**
      * @minimum 0
-     * @maximum 12
+     * @maximum 24
      */
   filledTeams: number;
   /**
      * @minimum 0
-     * @maximum 48
+     * @maximum 96
      */
   filledPlayers: number;
   alreadyRegistered: boolean;

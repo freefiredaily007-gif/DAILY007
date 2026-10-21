@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import test, { mock } from "node:test";
-import { buildJoinFormPayload } from "../src/lib/joinFormPayload.ts";
+import {
+  buildIndividualPlayerJoinPayload,
+  buildJoinFormPayload,
+} from "../src/lib/joinFormPayload.ts";
 import {
   getJoinFormSubmissionErrorMessage,
   getRegistrationServerFieldErrors,
@@ -144,11 +147,11 @@ function accessibilityInputLabels() {
   );
 }
 
-test("the profile name is read-only and game, team, and teammate details have separate inputs", () => {
+test("new registrations collect only the selected player's Free Fire name and UID", () => {
   const profileInput = joinFormSource.match(
     /<Input\s+accessibilityLabel="Captain Daily007 profile name, read-only"([\s\S]*?)\/>/,
   )?.[1];
-  assert.ok(profileInput, "The captain's Daily007 profile name must be displayed.");
+  assert.ok(profileInput, "The captain's Daily007 profile name must remain available for legacy team edits.");
   assert.match(profileInput, /value=\{captainProfileName\}/);
   assert.match(profileInput, /editable=\{false\}/);
   assert.match(profileInput, /selectTextOnFocus=\{false\}/);
@@ -166,6 +169,19 @@ test("the profile name is read-only and game, team, and teammate details have se
     captainGameUid,
     /onChangeText=\{\(value\) => \{\s*setCaptainGameUid\(value\);\s*clearFieldValidation\('captainGameUid'\);/,
   );
+
+  const editBranchStart = joinFormSource.indexOf("{editing ? (\n          <>");
+  const createBranchBoundary = joinFormSource.indexOf(") : (\n          <>", editBranchStart);
+  const createBranchStart = createBranchBoundary + ") : (\n          <>".length;
+  const createBranchEnd = joinFormSource.indexOf("\n        )}", createBranchStart);
+  const createBranch = joinFormSource.slice(createBranchStart, createBranchEnd);
+  assert.match(createBranch, /testID="join-form-player-game-name"/);
+  assert.match(createBranch, /testID="join-form-player-game-uid"/);
+  assert.match(createBranch, /value=\{captainGameName\}/);
+  assert.match(createBranch, /value=\{captainGameUid\}/);
+  assert.equal((createBranch.match(/<Input\b/g) ?? []).length, 2);
+  assert.doesNotMatch(createBranch, /TEAM NAME|Team name|TEAMMATE|Teammate/);
+  assert.doesNotMatch(createBranch, /Captain Daily007 profile name/);
 
   assert.match(joinFormSource, /<Text style=\{st\.pLabel\}>TEAM NAME<\/Text>/);
   const teamName = inputWithPlaceholder("Team name");
@@ -194,57 +210,18 @@ test("the profile name is read-only and game, team, and teammate details have se
     /placeholder=\{`Teammate \$\{i \+ 1\} Free Fire UID \(optional\)`\}[\s\S]*?value=\{member\.uid\}[\s\S]*?onChangeText=\{\(v\) => \{\s*setMember\(i, 'uid', v\);\s*clearFieldValidation\(`memberUid:\$\{i\}`\);/,
   );
 
-  assert.match(
-    joinFormSource,
-    /const payload = buildJoinFormPayload\(\{\s*captainProfileName,\s*captainGameName:\s*captainGameName\.trim\(\),\s*captainGameUid:\s*captainGameUid\.trim\(\),\s*teamName,\s*members,\s*\}\);[\s\S]*?await onSubmit\(editing[\s\S]*?seatGroupNumber \? \{ \.\.\.payload, seatGroupNumber \} : payload\)/,
-  );
+  assert.match(joinFormSource, /buildIndividualPlayerJoinPayload\(\{\s*captainProfileName,\s*captainGameName,\s*captainGameUid,\s*\}\)/);
+  assert.match(joinFormSource, /seatGroupNumber \? \{ seatGroupNumber \} : \{\}[\s\S]*?seatSlotNumber \? \{ seatSlotNumber \} : \{\}/);
+  assert.match(joinFormSource, /Choose your individual open player slot from the tournament page first\./);
 });
 
-test("TalkBack field labels follow the registration order for Solo, Duo, and Squad", () => {
+test("new-registration accessibility labels identify the selected player for every format", () => {
   assert.match(uiSource, /<TextInput\s+ref=\{ref\}\s+\{\.\.\.props\}/);
-  const labels = accessibilityInputLabels();
-  assert.deepEqual(labels, [
-    "Captain Daily007 profile name, read-only",
-    "Captain Free Fire in-game name",
-    "Captain Free Fire UID",
-    "Team name",
-    "Teammate ${i + 1} Free Fire in-game name",
-    "Teammate ${i + 1} Free Fire UID, optional",
-  ]);
-
-  const forTeamSize = (teamSize) => [
-    ...labels.slice(0, 3),
-    ...(teamSize > 1 ? [labels[3]] : []),
-    ...Array.from({ length: teamSize - 1 }, (_, index) => [
-      labels[4].replace("${i + 1}", String(index + 1)),
-      labels[5].replace("${i + 1}", String(index + 1)),
-    ]).flat(),
-  ];
-  assert.deepEqual(forTeamSize(1), [
-    "Captain Daily007 profile name, read-only",
-    "Captain Free Fire in-game name",
-    "Captain Free Fire UID",
-  ]);
-  assert.deepEqual(forTeamSize(2), [
-    "Captain Daily007 profile name, read-only",
-    "Captain Free Fire in-game name",
-    "Captain Free Fire UID",
-    "Team name",
-    "Teammate 1 Free Fire in-game name",
-    "Teammate 1 Free Fire UID, optional",
-  ]);
-  assert.deepEqual(forTeamSize(4), [
-    "Captain Daily007 profile name, read-only",
-    "Captain Free Fire in-game name",
-    "Captain Free Fire UID",
-    "Team name",
-    "Teammate 1 Free Fire in-game name",
-    "Teammate 1 Free Fire UID, optional",
-    "Teammate 2 Free Fire in-game name",
-    "Teammate 2 Free Fire UID, optional",
-    "Teammate 3 Free Fire in-game name",
-    "Teammate 3 Free Fire UID, optional",
-  ]);
+  assert.match(joinFormSource, /accessibilityLabel=\{`\$\{selectedPlayerLabel\} Free Fire in-game name`\}/);
+  assert.match(joinFormSource, /accessibilityLabel=\{`\$\{selectedPlayerLabel\} Free Fire UID`\}/);
+  assert.match(joinFormSource, /const selectedPlayerLabel = isTeam[\s\S]*?seatSlotNumber === 1 \? 'CAPTAIN'/);
+  assert.match(joinFormSource, /seatGroupNumber \? `PLAYER \$\{seatGroupNumber\}` : 'PLAYER'/);
+  assert.match(joinFormSource, /Each player joins and pays for their own slot\./);
 });
 
 test("Android release verification opens native Solo, Duo, and Squad label flows", () => {
@@ -277,35 +254,22 @@ test("Android release verification opens native Solo, Duo, and Squad label flows
     {
       name: "Solo",
       labels: [
-        "Captain Daily007 profile name, read-only",
-        "Captain Free Fire in-game name",
-        "Captain Free Fire UID",
+        "PLAYER 1 Free Fire in-game name",
+        "PLAYER 1 Free Fire UID",
       ],
     },
     {
       name: "Duo",
       labels: [
-        "Captain Daily007 profile name, read-only",
-        "Captain Free Fire in-game name",
-        "Captain Free Fire UID",
-        "Team name",
-        "Teammate 1 Free Fire in-game name",
-        "Teammate 1 Free Fire UID, optional",
+        "PLAYER 2 Free Fire in-game name",
+        "PLAYER 2 Free Fire UID",
       ],
     },
     {
       name: "Squad",
       labels: [
-        "Captain Daily007 profile name, read-only",
-        "Captain Free Fire in-game name",
-        "Captain Free Fire UID",
-        "Team name",
-        "Teammate 1 Free Fire in-game name",
-        "Teammate 1 Free Fire UID, optional",
-        "Teammate 2 Free Fire in-game name",
-        "Teammate 2 Free Fire UID, optional",
-        "Teammate 3 Free Fire in-game name",
-        "Teammate 3 Free Fire UID, optional",
+        "PLAYER 2 Free Fire in-game name",
+        "PLAYER 2 Free Fire UID",
       ],
     },
   ];
@@ -508,7 +472,7 @@ test("a stale team edit shows the latest saved team and keeps the current form v
   assert.match(joinFormSource, /value=\{captainGameUid\}/);
   assert.match(joinFormSource, /value=\{teamName\}/);
   assert.match(joinFormSource, /value=\{member\.name\}/);
-  assert.match(joinFormSource, /await onSubmit\(editing[\s\S]*?seatGroupNumber \? \{ \.\.\.payload, seatGroupNumber \} : payload\)/);
+  assert.match(joinFormSource, /await onSubmit\(editing[\s\S]*?seatGroupNumber \? \{ seatGroupNumber \} : \{\}[\s\S]*?seatSlotNumber \? \{ seatSlotNumber \} : \{\}/);
 });
 
 test("optional teammate UIDs may be blank, while duplicate UIDs identify both conflicting fields", () => {
@@ -663,27 +627,16 @@ test("correcting one field keeps unrelated validation hints and clears stale UID
 
 test("JoinForm values remain distinct in the submitted form and registration API payload", async () => {
   requests.length = 0;
-  const submitted = buildJoinFormPayload({
-    captainProfileName: "Daily007 Captain",
-    captainGameName: "Free Fire Captain",
-    captainGameUid: "captain-uid-101",
-    teamName: "Separate Team",
-    members: [
-      { name: "First Teammate", uid: "teammate-uid-202" },
-      { name: "Second Teammate", uid: "" },
-    ],
+  const submitted = buildIndividualPlayerJoinPayload({
+    captainProfileName: "Daily007 Player",
+    captainGameName: "Free Fire Player",
+    captainGameUid: "player-uid-101",
   });
 
   assert.deepEqual(submitted, {
-    teamMembers: JSON.stringify([
-      { name: "Free Fire Captain", uid: "captain-uid-101" },
-      { name: "First Teammate", uid: "teammate-uid-202" },
-      { name: "Second Teammate", uid: "" },
-    ]),
-    teamName: "Separate Team",
-    playerName: "Daily007 Captain",
-    captainGameName: "Free Fire Captain",
-    gameUid: "captain-uid-101",
+    playerName: "Daily007 Player",
+    captainGameName: "Free Fire Player",
+    gameUid: "player-uid-101",
   });
 
   await Api.join("tournament-test", submitted);
@@ -691,16 +644,12 @@ test("JoinForm values remain distinct in the submitted form and registration API
   assert.deepEqual(requests, [{
     path: "/daily007/v2/matches/tournament-test/register",
     body: {
-      captainName: "Daily007 Captain",
-      captainGameName: "Free Fire Captain",
-      captainGameUid: "captain-uid-101",
-      teamName: "Separate Team",
-      teammates: [
-        { name: "First Teammate", uid: "teammate-uid-202" },
-        { name: "Second Teammate" },
-      ],
+      captainName: "Daily007 Player",
+      captainGameName: "Free Fire Player",
+      captainGameUid: "player-uid-101",
     },
   }]);
+  assert.doesNotMatch(JSON.stringify(requests[0].body), /teamName|teammate|teamMembers/i);
 });
 
 test("team-edit requests include the saved snapshot used for stale-edit detection", async () => {

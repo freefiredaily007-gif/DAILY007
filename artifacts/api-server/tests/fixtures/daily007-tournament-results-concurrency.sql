@@ -129,7 +129,7 @@ CREATE TABLE daily007_v2_wallet_ledger (
 CREATE TABLE daily007_v2_squad_teams (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id uuid NOT NULL REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
-  team_number integer NOT NULL CHECK (team_number BETWEEN 1 AND 12),
+  team_number integer NOT NULL CHECK (team_number BETWEEN 1 AND 24),
   captain_registration_id uuid REFERENCES daily007_v2_registrations(id) ON DELETE SET NULL,
   legacy_registration_id uuid REFERENCES daily007_v2_registrations(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),

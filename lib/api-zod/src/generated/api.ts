@@ -872,35 +872,40 @@ export const Daily007V2SetRoomResponse = zod.unknown()
 
 
 /**
- * Requires authentication. Returns public Free Fire names and slot state; UIDs, account IDs, profile names, and contact details remain private. Only the captain sees removable member registration IDs.
- * @summary Get the individually selectable Squad team slots
+ * Requires authentication. Returns the selected format's teams and per-player seat state. Public Free Fire names are returned; UIDs, account IDs, profile names, and contact details remain private.
+ * @summary Get individually selectable team player slots
  */
 export const Daily007V2GetSquadSlotsParams = zod.object({
   "id": zod.coerce.string().uuid()
 })
 
+export const daily007V2GetSquadSlotsResponseTeamSizeMin = 2;
+export const daily007V2GetSquadSlotsResponseTeamSizeMax = 4;
+
+export const daily007V2GetSquadSlotsResponseCapacityMin = 2;
+export const daily007V2GetSquadSlotsResponseCapacityMax = 24;
+
 export const daily007V2GetSquadSlotsResponseFilledTeamsMin = 0;
-export const daily007V2GetSquadSlotsResponseFilledTeamsMax = 12;
+export const daily007V2GetSquadSlotsResponseFilledTeamsMax = 24;
 
 export const daily007V2GetSquadSlotsResponseFilledPlayersMin = 0;
-export const daily007V2GetSquadSlotsResponseFilledPlayersMax = 48;
+export const daily007V2GetSquadSlotsResponseFilledPlayersMax = 96;
 
-export const daily007V2GetSquadSlotsResponseTeamsItemTeamNumberMax = 12;
+export const daily007V2GetSquadSlotsResponseTeamsItemTeamNumberMax = 24;
 
 export const daily007V2GetSquadSlotsResponseTeamsItemSlotsItemSlotNumberMax = 4;
 
-export const daily007V2GetSquadSlotsResponseTeamsItemSlotsMin = 4;
 export const daily007V2GetSquadSlotsResponseTeamsItemSlotsMax = 4;
 
-export const daily007V2GetSquadSlotsResponseTeamsMin = 12;
-export const daily007V2GetSquadSlotsResponseTeamsMax = 12;
+export const daily007V2GetSquadSlotsResponseTeamsMin = 2;
+export const daily007V2GetSquadSlotsResponseTeamsMax = 24;
 
 
 
 export const Daily007V2GetSquadSlotsResponse = zod.object({
   "tournamentId": zod.string().uuid(),
-  "teamSize": zod.literal(4),
-  "capacity": zod.literal(12),
+  "teamSize": zod.number().int().min(daily007V2GetSquadSlotsResponseTeamSizeMin).max(daily007V2GetSquadSlotsResponseTeamSizeMax),
+  "capacity": zod.number().int().min(daily007V2GetSquadSlotsResponseCapacityMin).max(daily007V2GetSquadSlotsResponseCapacityMax),
   "filledTeams": zod.number().int().min(daily007V2GetSquadSlotsResponseFilledTeamsMin).max(daily007V2GetSquadSlotsResponseFilledTeamsMax),
   "filledPlayers": zod.number().int().min(daily007V2GetSquadSlotsResponseFilledPlayersMin).max(daily007V2GetSquadSlotsResponseFilledPlayersMax),
   "registrationClosed": zod.boolean(),
@@ -919,20 +924,20 @@ export const Daily007V2GetSquadSlotsResponse = zod.object({
   "canJoin": zod.boolean(),
   "canRemove": zod.boolean(),
   "registrationId": zod.string().uuid().nullable()
-})).min(daily007V2GetSquadSlotsResponseTeamsItemSlotsMin).max(daily007V2GetSquadSlotsResponseTeamsItemSlotsMax)
+})).min(1).max(daily007V2GetSquadSlotsResponseTeamsItemSlotsMax)
 })).min(daily007V2GetSquadSlotsResponseTeamsMin).max(daily007V2GetSquadSlotsResponseTeamsMax)
 })
 
 
 /**
  * Assigns the authenticated player to one team and slot, charging only that player's wallet. A retry returns the saved receipt without a second charge. The first player in an empty team becomes its captain.
- * @summary Join one open Squad player slot with the authenticated account
+ * @summary Join one open team player slot with the authenticated account
  */
 export const Daily007V2JoinSquadSlotParams = zod.object({
   "id": zod.coerce.string().uuid()
 })
 
-export const daily007V2JoinSquadSlotBodyTeamNumberMax = 12;
+export const daily007V2JoinSquadSlotBodyTeamNumberMax = 24;
 
 export const daily007V2JoinSquadSlotBodySlotNumberMax = 4;
 
@@ -949,7 +954,7 @@ export const Daily007V2JoinSquadSlotBody = zod.object({
   "gameUid": zod.string().min(1).max(daily007V2JoinSquadSlotBodyGameUidMax)
 })
 
-export const daily007V2JoinSquadSlotResponseTeamNumberMax = 12;
+export const daily007V2JoinSquadSlotResponseTeamNumberMax = 24;
 
 export const daily007V2JoinSquadSlotResponseSlotNumberMax = 4;
 
@@ -958,10 +963,10 @@ export const daily007V2JoinSquadSlotResponseEntryCoinsPaidMin = 0;
 export const daily007V2JoinSquadSlotResponseWalletCoinsMin = 0;
 
 export const daily007V2JoinSquadSlotResponseFilledTeamsMin = 0;
-export const daily007V2JoinSquadSlotResponseFilledTeamsMax = 12;
+export const daily007V2JoinSquadSlotResponseFilledTeamsMax = 24;
 
 export const daily007V2JoinSquadSlotResponseFilledPlayersMin = 0;
-export const daily007V2JoinSquadSlotResponseFilledPlayersMax = 48;
+export const daily007V2JoinSquadSlotResponseFilledPlayersMax = 96;
 
 
 

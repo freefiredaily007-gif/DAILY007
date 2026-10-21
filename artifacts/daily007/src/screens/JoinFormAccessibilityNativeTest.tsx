@@ -24,8 +24,8 @@ function fixtureTournament(teamType: TeamType) {
     teamType,
     teamSize,
     slotUnit: 'team',
-    totalSlots: 12,
-    totalPlayerSlots: 12 * teamSize,
+    totalSlots: teamSize > 1 ? 12 : 48,
+    totalPlayerSlots: teamSize > 1 ? 12 * teamSize : 48,
     filledSlots: 0,
     filledPlayerSlots: 0,
     availableSlots: 12,
@@ -84,6 +84,8 @@ function JoinFormAccessibilityFixture() {
         key={teamType}
         tournament={fixtureTournament(teamType)}
         user={FIXTURE_USER}
+        seatGroupNumber={1}
+        seatSlotNumber={teamType === 'Solo' ? undefined : 2}
         onCancel={() => {}}
         onSubmit={async () => {}}
       />
