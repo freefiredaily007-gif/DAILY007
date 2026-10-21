@@ -645,10 +645,10 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
   try {
     const data = await withTransaction(async (client) => {
       const matchResult = await client.query<{
-        mode: string; game_mode: string | null; team_type: string | null; status: string;
+        mode: string; game_mode: string | null; team_type: string | null; capacity: number; status: string;
         enabled: boolean; registration_open: boolean; edit_open: boolean; has_result: boolean;
       }>(
-        `SELECT m.mode, m.game_mode, m.team_type, m.status, m.enabled,
+        `SELECT m.mode, m.game_mode, m.team_type, m.capacity, m.status, m.enabled,
                 m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open,
                 m.starts_at > clock_timestamp() + interval '6 hours' AS edit_open,
                 EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id) AS has_result
@@ -657,10 +657,13 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
       );
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
-      if (!isBattleRoyaleSquad(match)) {
-        throw Object.assign(new Error("This match does not use Battle Royale Squad slots."), { status: 409 });
+      const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+      if (modeConfig.teamSize <= 1) {
+        throw Object.assign(new Error("This match does not use team player slots."), { status: 409 });
       }
-      await ensureLegacySquadTeams(client, matchId);
+      const capacity = Number(match.capacity);
+      const teamSize = modeConfig.teamSize;
+      await ensureLegacySquadTeams(client, matchId, capacity, teamSize);
       const occupancy = await getSquadOccupancy(client, matchId);
       const priorResult = await client.query<{
         id: string; status: string; team_number: number | null; slot_number: number | null;
@@ -677,7 +680,7 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
       const prior = priorResult.rows[0];
       const lifecycleClosed = ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status);
       const closed = !match.enabled || lifecycleClosed || match.has_result ||
-        !match.registration_open || occupancy.filledPlayers >= 48;
+        !match.registration_open || occupancy.filledPlayers >= capacity * teamSize;
       const canEdit = match.enabled && !lifecycleClosed &&
         !match.has_result && match.edit_open;
       const rows = await client.query<{
@@ -688,7 +691,7 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         `SELECT numbers.team_number, team.captain_registration_id, team.legacy_registration_id,
                 captain.captain_game_name, member.slot_number, member.registration_id,
                 COALESCE(registration.captain_game_name, member.legacy_game_name) AS game_name
-           FROM generate_series(1, 12) AS numbers(team_number)
+           FROM generate_series(1, $2::integer) AS numbers(team_number)
            LEFT JOIN daily007_v2_squad_teams team
              ON team.match_id = $1 AND team.team_number = numbers.team_number
            LEFT JOIN daily007_v2_registrations captain ON captain.id = team.captain_registration_id
@@ -696,13 +699,13 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
              ON member.team_id = team.id AND member.is_active = true
            LEFT JOIN daily007_v2_registrations registration ON registration.id = member.registration_id
           ORDER BY numbers.team_number, member.slot_number`,
-        [matchId],
+        [matchId, capacity],
       );
-      const teams = Array.from({ length: 12 }, (_, teamIndex) => ({
+      const teams = Array.from({ length: capacity }, (_, teamIndex) => ({
         teamNumber: teamIndex + 1,
         legacy: false,
         captainGameName: null as string | null,
-        slots: Array.from({ length: 4 }, (_, slotIndex) => ({
+        slots: Array.from({ length: teamSize }, (_, slotIndex) => ({
           slotNumber: slotIndex + 1,
           occupied: false,
           gameName: null as string | null,
@@ -733,7 +736,7 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         slot.canJoin = canJoin && !team.legacy && !slot.occupied;
       }
       return {
-        tournamentId: matchId, teamSize: 4, capacity: 12,
+        tournamentId: matchId, teamSize, capacity,
         filledTeams: occupancy.filledTeams, filledPlayers: occupancy.filledPlayers,
         registrationClosed: closed, alreadyRegistered: Boolean(prior),
         myTeamNumber: prior?.team_number ?? null, mySlotNumber: prior?.slot_number ?? null, teams,
@@ -758,8 +761,8 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
   const slotNumber = body.slotNumber;
   const gameName = cleanName(body.gameName, "gameName");
   const gameUid = typeof body.gameUid === "string" ? body.gameUid.trim() : "";
-  if (!Number.isInteger(teamNumber) || Number(teamNumber) < 1 || Number(teamNumber) > 12 ||
-      !Number.isInteger(slotNumber) || Number(slotNumber) < 1 || Number(slotNumber) > 4 ||
+  if (!Number.isInteger(teamNumber) || Number(teamNumber) < 1 ||
+      !Number.isInteger(slotNumber) || Number(slotNumber) < 1 ||
       !gameName || !gameUid || gameUid.length > 128) {
     return fail(res, 400, "Choose a valid team and player slot, then enter a Free Fire name and UID.");
   }
@@ -767,19 +770,22 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
     const result = await withTransaction(async (client) => {
       const matchResult = await client.query<{
         mode: string; game_mode: string | null; team_type: string | null;
-        status: string; enabled: boolean; entry_coins: number; registration_open: boolean;
+        capacity: number; status: string; enabled: boolean; entry_coins: number; registration_open: boolean;
       }>(
-        `SELECT m.mode, m.game_mode, m.team_type, m.status, m.enabled, m.entry_coins,
+        `SELECT m.mode, m.game_mode, m.team_type, m.capacity, m.status, m.enabled, m.entry_coins,
                 m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open
            FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE`,
         [matchId],
       );
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
-      if (!isBattleRoyaleSquad(match)) {
-        throw Object.assign(new Error("Individual slot signup is only available for Battle Royale Squad matches."), { status: 409 });
+      const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+      const teamCount = Number(match.capacity);
+      const teamSize = modeConfig.teamSize;
+      if (teamSize <= 1 || Number(teamNumber) > teamCount || Number(slotNumber) > teamSize) {
+        throw Object.assign(new Error("Choose a valid open player slot for this tournament format."), { status: 400 });
       }
-      await ensureLegacySquadTeams(client, matchId);
+      await ensureLegacySquadTeams(client, matchId, teamCount, teamSize);
       const userResult = await client.query<{ wallet_coins: number; status: string }>(
         "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
         [account.id],
@@ -839,8 +845,8 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
         });
       }
       const occupancy = await getSquadOccupancy(client, matchId);
-      if (occupancy.filledPlayers >= 48) {
-        throw Object.assign(new Error("All 48 player slots are full."), {
+      if (occupancy.filledPlayers >= teamCount * teamSize) {
+        throw Object.assign(new Error(`All ${teamCount * teamSize} player slots are full.`), {
           status: 409, code: REGISTRATION_CONFLICT_CODES.matchFull,
         });
       }
@@ -907,8 +913,8 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
       const registrationResult = await client.query<{ id: string }>(
         `INSERT INTO daily007_v2_registrations
            (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
-            team_name, entry_coins_paid, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'approved')
+            team_name, assigned_group_number, entry_coins_paid, status)
+         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, 'approved')
          RETURNING id`,
         [
           matchId, account.id, captainName, gameName, gameUid,
@@ -938,10 +944,11 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
         );
       }
       const updated = await getSquadOccupancy(client, matchId);
-      const full = updated.filledPlayers >= 48;
+      const full = updated.filledPlayers >= teamCount * teamSize;
+      const fullStatus = full && modeConfig.gameMode === "clash_squad" ? "setup_needed" : full ? "full" : "open";
       await client.query(
         "UPDATE daily007_v2_matches SET is_full = $2, status = $3 WHERE id = $1",
-        [matchId, full, full ? "full" : "open"],
+        [matchId, full, fullStatus],
       );
       return {
         registrationId, teamNumber: Number(teamNumber), slotNumber: Number(slotNumber),

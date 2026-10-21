@@ -204,7 +204,7 @@ export const daily007SquadTeamsTable = pgTable("daily007_v2_squad_teams", {
     .where(sql`${table.captainRegistrationId} IS NOT NULL`),
   uniqueIndex("daily007_v2_squad_team_legacy_registration_unique").on(table.legacyRegistrationId)
     .where(sql`${table.legacyRegistrationId} IS NOT NULL`),
-  check("daily007_v2_squad_team_number_valid", sql`${table.teamNumber} BETWEEN 1 AND 12`),
+  check("daily007_v2_squad_team_number_valid", sql`${table.teamNumber} BETWEEN 1 AND 24`),
 ]);
 
 export const daily007SquadTeamMembersTable = pgTable("daily007_v2_squad_team_members", {

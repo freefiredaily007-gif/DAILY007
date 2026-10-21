@@ -697,19 +697,24 @@ type PublicTournamentParticipant = {
 
 async function getPublicTournamentParticipants(tournamentId: string): Promise<PublicTournamentParticipant[]> {
   const matchMode = await pool.query<{
-    mode: string; game_mode: string | null; team_type: string | null;
+    mode: string; game_mode: string | null; team_type: string | null; capacity: number;
   }>(
-    "SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1",
+    "SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches WHERE id = $1",
     [tournamentId],
   );
   const currentMode = matchMode.rows[0];
   const resolvedMode = currentMode
     ? legacyTournamentMode(currentMode.mode, currentMode.game_mode, currentMode.team_type)
     : null;
-  if (resolvedMode?.gameMode === "battle_royale" && resolvedMode.teamType === "squad") {
+  if (resolvedMode && resolvedMode.teamSize > 1 && currentMode) {
     await transaction(async (client) => {
       await client.query("SELECT id FROM daily007_v2_matches WHERE id = $1 FOR UPDATE", [tournamentId]);
-      await ensureLegacySquadTeams(client, tournamentId);
+      await ensureLegacySquadTeams(
+        client,
+        tournamentId,
+        Number(currentMode.capacity),
+        resolvedMode.teamSize,
+      );
     });
     const squadRows = await pool.query<{
       team_number: number; status: "approved" | "pending"; team_name: string;
@@ -1036,8 +1041,8 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                   ON result_registration.id = published.registration_id
                 WHERE published.match_id = m.id AND m.status <> 'cancelled') AS match_results,
             award.rank AS result_rank, award.kills AS result_kills, award.prize_coins AS result_prize_coins,
-             CASE WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
-                       (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+             CASE WHEN m.team_type IN ('duo', 'squad') OR
+                        (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                (SELECT count(DISTINCT COALESCE(team.id::text, active.id::text))::integer
                   FROM daily007_v2_registrations active
                   LEFT JOIN daily007_v2_squad_team_members member
@@ -1047,8 +1052,8 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
              ELSE (SELECT count(*)::integer FROM daily007_v2_registrations active
                     WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
              END AS registered_count,
-             CASE WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
-                       (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+              CASE WHEN m.team_type IN ('duo', 'squad') OR
+                        (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                (SELECT COALESCE(sum(
                          CASE WHEN EXISTS (
                            SELECT 1 FROM daily007_v2_squad_team_members member
@@ -1062,7 +1067,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                  WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
              ELSE (SELECT count(*)::integer FROM daily007_v2_registrations active
                     WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) *
-                  CASE WHEN m.team_type = 'duo' THEN 2
+                   CASE WHEN m.team_type = 'duo' THEN 2
                        WHEN m.team_type = 'squad' OR m.mode IN ('squad', 'clash') THEN 4
                        ELSE 1 END
              END AS registered_player_count

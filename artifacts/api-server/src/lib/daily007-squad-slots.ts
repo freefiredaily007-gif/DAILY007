@@ -11,6 +11,7 @@ type LegacyRegistration = {
   id: string;
   captain_game_name: string;
   captain_game_uid: string;
+  team_number: number | null;
 };
 
 /**
@@ -21,15 +22,17 @@ type LegacyRegistration = {
 export async function ensureLegacySquadTeams(
   client: SquadSqlClient,
   matchId: string,
+  teamCount = 12,
+  teamSize = 4,
 ): Promise<void> {
   const legacy = await client.query<LegacyRegistration>(
-    `SELECT r.id, r.captain_game_name, r.captain_game_uid
+    `SELECT r.id, r.captain_game_name, r.captain_game_uid,
+            r.assigned_group_number AS team_number
        FROM daily007_v2_registrations r
        JOIN daily007_v2_matches m ON m.id = r.match_id
       WHERE r.match_id = $1
         AND r.status IN ('approved', 'pending')
-        AND m.mode = 'squad'
-        AND (m.game_mode IS NULL OR (m.game_mode = 'battle_royale' AND m.team_type = 'squad'))
+        AND (m.game_mode IS NULL OR m.team_type IN ('duo', 'squad'))
         AND NOT EXISTS (
           SELECT 1 FROM daily007_v2_squad_teams t WHERE t.legacy_registration_id = r.id
         )
@@ -37,7 +40,7 @@ export async function ensureLegacySquadTeams(
           SELECT 1 FROM daily007_v2_squad_team_members member
            WHERE member.registration_id = r.id
         )
-      ORDER BY r.created_at, r.id
+      ORDER BY r.assigned_group_number NULLS LAST, r.created_at, r.id
       FOR UPDATE OF r`,
     [matchId],
   );
@@ -48,9 +51,12 @@ export async function ensureLegacySquadTeams(
   );
   const taken = new Set(takenResult.rows.map((row) => Number(row.team_number)));
   for (const registration of legacy.rows) {
-    let teamNumber = 1;
-    while (teamNumber <= 12 && taken.has(teamNumber)) teamNumber++;
-    if (teamNumber > 12) break;
+    let teamNumber = registration.team_number === null ? 1 : Number(registration.team_number);
+    if (!Number.isSafeInteger(teamNumber) || teamNumber < 1 || teamNumber > teamCount) {
+      teamNumber = 1;
+      while (teamNumber <= teamCount && taken.has(teamNumber)) teamNumber++;
+    }
+    if (teamNumber > teamCount || taken.has(teamNumber)) continue;
 
     const teamResult = await client.query<{ id: string }>(
       `INSERT INTO daily007_v2_squad_teams
@@ -78,6 +84,7 @@ export async function ensureLegacySquadTeams(
       [registration.id],
     );
     for (const member of roster.rows) {
+      if (Number(member.position) + 1 > teamSize) continue;
       await client.query(
         `INSERT INTO daily007_v2_squad_team_members
            (team_id, slot_number, legacy_game_name, legacy_game_uid, is_active)
