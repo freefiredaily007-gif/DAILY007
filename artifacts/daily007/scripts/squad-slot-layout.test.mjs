@@ -10,15 +10,19 @@ const uiSource = await readFile(
   new URL("../src/components/ui.tsx", import.meta.url),
   "utf8",
 );
+const modeSeatPanelSource = await readFile(
+  new URL("../src/components/ModeSeatSlotsPanel.tsx", import.meta.url),
+  "utf8",
+);
 const squadApiSource = await readFile(
   new URL("../../api-server/src/routes/daily007-v2.ts", import.meta.url),
   "utf8",
 );
 
 test("squad team cards render each team with four equal, responsive slot columns", () => {
-  assert.match(squadApiSource, /FROM generate_series\(1, 12\) AS numbers\(team_number\)/);
-  assert.match(squadApiSource, /Array\.from\(\{ length: 12 \}/);
-  assert.match(squadApiSource, /slots: Array\.from\(\{ length: 4 \}/);
+  assert.match(squadApiSource, /FROM generate_series\(1, \$2::integer\) AS numbers\(team_number\)/);
+  assert.match(squadApiSource, /const teams = Array\.from\(\{ length: capacity \}/);
+  assert.match(squadApiSource, /slots: Array\.from\(\{ length: teamSize \}/);
   assert.match(screenSource, /slots\.teams\.map\(\(team\) => \{/);
   assert.match(screenSource, /team\.slots\.map\(\(slot\) => \{/);
   assert.match(screenSource, /joinedCount = team\.slots\.filter\(\(slot\) => slot\.occupied\)\.length/);
@@ -109,6 +113,17 @@ test("selected open slots keep the green glow while the surrounding Squad palett
   assert.match(selectedStyle, /shadowOpacity:\s*0\.4/);
   assert.match(uiSource, /squadPanel:\s*'#0A1230'/);
   assert.match(uiSource, /squadAccent:\s*'#52D5FF'/);
+});
+
+test("BR Solo uses a readable responsive seat grid without changing seat selection behavior", () => {
+  assert.match(modeSeatPanelSource, /const individualGridBasis = width >= 800 \? '23%' : width >= 520 \? '31%' : '48%'/);
+  assert.match(modeSeatPanelSource, /individual && \(layout\.directDuel \? styles\.duelSeatCard : individualGridSeatStyle\)/);
+  assert.match(modeSeatPanelSource, /individualGridSlot:\s*\{[\s\S]*?height:\s*84,[\s\S]*?minHeight:\s*84/);
+  assert.match(modeSeatPanelSource, /individualGridLabel:\s*\{[^}]*fontSize:\s*12/);
+  assert.match(modeSeatPanelSource, /individualGridStatus:\s*\{[^}]*fontSize:\s*10/);
+  assert.match(modeSeatPanelSource, /onPress=\{\(\) => \{\s*if \(!occupied && canSelect\) setSelectedSeat\(\{ groupNumber, slotIndex \}\);/);
+  assert.match(modeSeatPanelSource, /selected \? \([\s\S]*?onPress=\{\(\) => onJoinSlot\(groupNumber, slotIndex \+ 1\)\}/);
+  assert.match(modeSeatPanelSource, /occupied \? styles\.occupied : styles\.open/);
 });
 
 test("captain removal still requires confirmation and keeps the no-refund warning", () => {

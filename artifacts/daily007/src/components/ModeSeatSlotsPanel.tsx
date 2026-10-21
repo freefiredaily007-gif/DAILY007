@@ -34,6 +34,14 @@ export function ModeSeatSlotsPanel({
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const compactLargeText = width <= 400 && PixelRatio.getFontScale() >= 1.5;
+  const individualGridBasis = width >= 800 ? '23%' : width >= 520 ? '31%' : '48%';
+  const individualGridSeatStyle = {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: individualGridBasis,
+    width: individualGridBasis,
+    maxWidth: individualGridBasis,
+  } as const;
   const participantsByGroup = useMemo(
     () => new Map(participants
       .filter((participant) => participant.groupNumber !== null)
@@ -74,7 +82,7 @@ export function ModeSeatSlotsPanel({
         key={seatKey}
         style={[
           styles.seatCard,
-          individual && (layout.directDuel ? styles.duelSeatCard : styles.individualGridSeat),
+            individual && (layout.directDuel ? styles.duelSeatCard : individualGridSeatStyle),
         ]}
       >
         <Pressable
@@ -97,6 +105,7 @@ export function ModeSeatSlotsPanel({
           style={[
             styles.slot,
             individual && styles.individualSlot,
+            individual && !layout.directDuel && styles.individualGridSlot,
             occupied ? styles.occupied : styles.open,
             selected && styles.selected,
             hovered && styles.hovered,
@@ -108,7 +117,11 @@ export function ModeSeatSlotsPanel({
         >
           <Text
             numberOfLines={2}
-            style={[styles.slotLabel, occupied ? styles.occupiedText : styles.openText]}
+            style={[
+              styles.slotLabel,
+              individual && !layout.directDuel && styles.individualGridLabel,
+              occupied ? styles.occupiedText : styles.openText,
+            ]}
             maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
           >
             {label}
@@ -117,6 +130,7 @@ export function ModeSeatSlotsPanel({
             numberOfLines={2}
             style={[
               styles.slotStatus,
+              individual && !layout.directDuel && styles.individualGridStatus,
               occupied ? styles.occupiedText : styles.openText,
             ]}
             maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
@@ -138,18 +152,20 @@ export function ModeSeatSlotsPanel({
               testID={`mode-seat-join-${groupNumber}-${slotIndex + 1}`}
               style={[
                 styles.inlineJoinButton,
+                individual && !layout.directDuel && styles.inlineJoinButtonGrid,
                 compactLargeText && styles.inlineJoinButtonCompact,
               ]}
             >
               <Text
-                style={styles.inlineJoinButtonText}
+                style={[
+                  styles.inlineJoinButtonText,
+                  individual && !layout.directDuel && styles.inlineJoinButtonTextGrid,
+                ]}
                 maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
               >
                 {individual
-                  ? layout.groupCount > 2
-                    ? <>JOIN{"\n"}PLAYER{"\n"}{String(groupNumber).padStart(2, '0')}</>
-                    : <>JOIN{"\n"}PLAYER {groupNumber}</>
-              : layout.slotsPerGroup >= 4
+                  ? <>JOIN PLAYER {String(groupNumber).padStart(2, '0')}</>
+                  : layout.slotsPerGroup >= 4
                     ? <>JOIN{"\n"}PLAYER{"\n"}{String(slotIndex + 1).padStart(2, '0')}</>
                     : <>JOIN{"\n"}PLAYER {slotIndex + 1}</>}
               </Text>
@@ -278,8 +294,15 @@ const styles = StyleSheet.create({
   teamSlots: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   seatCard: { flex: 1, minWidth: 0 },
   duelSeatCard: { flex: 1, minWidth: 0 },
-  individualGridSeat: { flex: 0, flexBasis: '23%', maxWidth: '24%', minWidth: 0 },
-  individualSlot: { flex: 0, width: '100%' },
+  individualSlot: { flexGrow: 0, flexShrink: 0, width: '100%', height: 84, minHeight: 84 },
+  individualGridSlot: {
+    height: 84, minHeight: 84, paddingHorizontal: 10, paddingVertical: 10,
+    justifyContent: 'center', gap: 6,
+  },
+  individualGridLabel: { fontSize: 12, letterSpacing: 0.3 },
+  individualGridStatus: { fontSize: 10, lineHeight: 14, marginTop: 0 },
+  inlineJoinButtonGrid: { minHeight: 38, paddingVertical: 6 },
+  inlineJoinButtonTextGrid: { fontSize: 10, lineHeight: 12 },
   slotActionArea: { height: 38, width: '100%', marginTop: 4 },
   slotActionAreaCompact: { height: 68 },
   slotActionSpacer: { flex: 1 },
