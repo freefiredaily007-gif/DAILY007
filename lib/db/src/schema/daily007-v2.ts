@@ -128,7 +128,7 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
          (${table.teamType} IN ('duo', 'squad') AND ${table.mode} = 'squad'))) OR
       (${table.gameMode} IN ('clash_squad', 'lone_wolf') AND ${table.mode} = 'clash')))
   `),
-  check("daily007_v2_matches_capacity_valid", sql`
+  check("daily007_v2_matches_capacity_by_format_valid", sql`
     (${table.gameMode} IS NULL AND ${table.teamType} IS NULL AND (
       (${table.mode} = 'solo' AND ${table.capacity} = 48) OR
       (${table.mode} = 'squad' AND ${table.capacity} = 12) OR

@@ -169,6 +169,32 @@ test("an Admin-created tournament appears in the enabled public list with its sa
   });
 });
 
+test("an Admin can create a Battle Royale Duo tournament with 24 teams and 48 player slots", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    const created = await call(origin, TEST_ADMIN_ID, "/tournaments", "POST", {
+      name: "Public Battle Royale Duo",
+      mode: "Battle Royale",
+      teamType: "Duo",
+      entryCoins: 35,
+      prizePool: 700,
+      totalSlots: 24,
+      rules: "Bring your own device.",
+      banner: "br",
+      date: "2031-06-17",
+      time: "9:35 PM",
+      prizeDist: "1st: 500 coins\n2nd: 200 coins",
+    });
+
+    assert.equal(created.status, 201);
+    assert.equal(created.body.gameMode, "battle_royale");
+    assert.equal(created.body.teamType, "Duo");
+    assert.equal(created.body.totalSlots, 24);
+    assert.equal(created.body.totalPlayerSlots, 48);
+  });
+});
+
 test("an Admin-closed tournament disappears from the enabled public list but remains in Admin history", async () => {
   tournamentResultsTestDb.reset();
 
