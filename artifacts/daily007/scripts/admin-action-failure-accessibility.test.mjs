@@ -20,13 +20,11 @@ test('repeated Admin error toasts remain assertive TalkBack alerts', () => {
   assert.match(toastSource, /key=\{toast\.id\}/);
 });
 
-test('registration errors name the action and leave a named retry control in the list', () => {
+test('approved registration removal errors name the player and leave a named retry control', () => {
   assert.match(regsSource, /accessibilityLabel=\{err \|\| undefined\} accessibilityLiveRegion="assertive"/);
-  assert.match(regsSource, /Could not \$\{action\} registration for \$\{playerName\}: \$\{apiError\(e\)\}/);
-  assert.match(regsSource, /activate \$\{actionLabel\} for \$\{playerName\} to retry/);
-  assert.match(regsSource, /accessibilityLabel=\{`Approve registration for \$\{r\.playerName\}`\}/);
-  assert.match(regsSource, /accessibilityLabel=\{`Reject registration for \$\{r\.playerName\}`\}/);
-  assert.match(regsSource, /accessibilityLabel=\{`Delete registration for \$\{r\.playerName\}`\}/);
+  assert.match(regsSource, /Could not remove the registration for \$\{playerName\}: \$\{apiError\(e\)\}/);
+  assert.match(regsSource, /use DELETE for \$\{playerName\} to retry/);
+  assert.match(regsSource, /accessibilityLabel=\{`Delete registration for \$\{playerName\}`\}/);
 });
 
 test('deposit and withdrawal errors identify the request and named retry action', () => {
@@ -64,6 +62,17 @@ test('coin adjustment failures offer a safe retry for the same request in both A
   assert.match(walletSource, /accessibilityLabel=\{`Deduct coins from \$\{u\.name\}`\}/);
   assert.match(usersSource, /accessibilityLabel=\{`Add coins to \$\{u\.name\}`\}/);
   assert.match(usersSource, /accessibilityLabel=\{`Deduct coins from \$\{u\.name\}`\}/);
+});
+
+test('User Management coin actions use a validated modal and sync the server balance in place', () => {
+  assert.doesNotMatch(usersSource, /Alert\.prompt/);
+  assert.match(usersSource, /visible=\{coinAdjustmentTarget !== null\}/);
+  assert.match(usersSource, /keyboardType="number-pad"/);
+  assert.ok(usersSource.includes("if (!/^[0-9]+$/.test(amountText))"));
+  assert.match(usersSource, /amount <= 0 \|\| amount > 2_147_483_647/);
+  assert.match(usersSource, /setUsers\(\(current\) => current\?\.map/);
+  assert.match(usersSource, /coins: updatedCoins/);
+  assert.match(usersSource, /toast\('Coins updated', 'success'\)/);
 });
 
 test('user block and role errors identify the affected account and its retry control', () => {

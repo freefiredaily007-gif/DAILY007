@@ -29,6 +29,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [roleChangeTarget, setRoleChangeTarget] = useState<any | null>(null);
   const [deleteWarningTarget, setDeleteWarningTarget] = useState<any | null>(null);
   const [deleteEmailTarget, setDeleteEmailTarget] = useState<any | null>(null);
+  const [coinAdjustmentTarget, setCoinAdjustmentTarget] = useState<{ user: any; sign: 1 | -1 } | null>(null);
   const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
   const roleRowRefs = useRef(new Map<string, View>());
   const focusRoleAfterRefresh = useRef<string | null>(null);
@@ -89,19 +90,27 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
 
   const submitAdjustment = async (adjustment: CoinAdjustment) => {
     const userId = String(adjustment.user.$id);
-    if (coinAdjustmentsInFlight.current.has(userId) || busy === userId) return;
+    if (coinAdjustmentsInFlight.current.has(userId) || busy === userId) return false;
     coinAdjustmentsInFlight.current.add(userId);
     setBusy(userId);
     try {
-      await Api.adminAdjustCoins(
+      const updatedUser = await Api.adminAdjustCoins(
         adjustment.user.$id,
         adjustment.delta,
         adjustment.note,
         adjustment.requestId,
       );
       setRetryAdjustment(null);
+      if (!Number.isSafeInteger(Number(updatedUser?.coins)) || Number(updatedUser.coins) < 0) {
+        await load();
+      } else {
+        const updatedCoins = Number(updatedUser.coins);
+        setUsers((current) => current?.map((user) => (
+          String(user.$id) === userId ? { ...user, coins: updatedCoins } : user
+        )) ?? current);
+      }
       toast('Coins updated', 'success');
-      load();
+      return true;
     } catch (e) {
       const action = adjustment.delta > 0 ? 'add' : 'deduct';
       const error = errMessage(e);
@@ -111,10 +120,36 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         'Use the retry prompt to safely repeat this same request.',
         'error',
       );
+      return true;
     } finally {
       coinAdjustmentsInFlight.current.delete(userId);
       setBusy(null);
     }
+  };
+
+  const confirmCoinAdjustment = async (value: string) => {
+    const target = coinAdjustmentTarget;
+    if (!target) return false;
+    const amountText = value.trim();
+    if (!/^[0-9]+$/.test(amountText)) {
+      toast('Enter a whole number of coins using digits only.', 'error');
+      return false;
+    }
+    const amount = Number(amountText);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2_147_483_647) {
+      toast('Enter a coin amount between 1 and 2,147,483,647.', 'error');
+      return false;
+    }
+    const adjustment: CoinAdjustment = {
+      user: target.user,
+      amount,
+      delta: target.sign * amount,
+      note: target.sign > 0 ? 'Admin added coins' : 'Admin deducted coins',
+      requestId: newAdminAdjustmentRequestId(),
+    };
+    const completed = await submitAdjustment(adjustment);
+    if (completed) setCoinAdjustmentTarget(null);
+    return completed;
   };
 
   const toggleBlock = (u: any) => {
@@ -138,19 +173,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     ]);
   };
 
-  const adjust = (u: any, sign: 1 | -1) => {
-    Alert.prompt(sign > 0 ? 'Add coins' : 'Deduct coins', `Enter amount for ${u.name}`, async (v: string) => {
-      const n = parseInt(v || '0', 10);
-      if (!n || n <= 0) return;
-      void submitAdjustment({
-        user: u,
-        delta: sign * n,
-        amount: n,
-        note: sign > 0 ? 'Admin added coins' : 'Admin deducted coins',
-        requestId: newAdminAdjustmentRequestId(),
-      });
-    });
-  };
+  const adjust = (u: any, sign: 1 | -1) => setCoinAdjustmentTarget({ user: u, sign });
 
   const setTournamentAdmin = (u: any) => {
     setRoleChangeTarget(u);
@@ -342,8 +365,8 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
               <Text style={st.stat}>✓ {approved} approved</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={{ flex: 1 }}><Btn title="+ COINS" accessibilityLabel={`Add coins to ${u.name}`} accessibilityHint="If an error is announced, use the retry prompt to safely repeat the same adjustment." onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
-              <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="If an error is announced, use the retry prompt to safely repeat the same adjustment." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title="+ COINS" accessibilityLabel={`Add coins to ${u.name}`} accessibilityHint="Opens a dialog to enter a whole number of coins." onPress={() => adjust(u, 1)} loading={busy === u.$id} /></View>
+              <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="Opens a dialog to enter a whole number of coins. The balance cannot go below zero." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
               <View style={{ flex: 1 }}><Btn title={blocked ? 'UNBLOCK' : 'BLOCK'} kind="danger" accessibilityLabel={`${blocked ? 'Unblock' : 'Block'} ${u.name}`} accessibilityHint="If an error is announced, check the displayed status before trying again." onPress={() => toggleBlock(u)} loading={busy === u.$id} /></View>
             </View>
             {u.$id !== currentUserId && (
@@ -419,6 +442,36 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
         }}
         cancelTestID="cancel-user-delete-warning"
         confirmTestID="continue-user-delete"
+      />
+      <PromptDialog
+        visible={coinAdjustmentTarget !== null}
+        title={coinAdjustmentTarget
+          ? `${coinAdjustmentTarget.sign > 0 ? 'Add coins to' : 'Deduct coins from'} ${coinAdjustmentTarget.user.name}`
+          : 'Adjust coins'}
+        message={coinAdjustmentTarget
+          ? `Current balance: ${coinAdjustmentTarget.user.coins ?? 0} coins. Enter a positive whole-number amount.`
+          : undefined}
+        confirmTitle={coinAdjustmentTarget?.sign === 1 ? 'ADD COINS' : 'DEDUCT COINS'}
+        keyboardType="number-pad"
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Coin amount"
+        accessibilityHint="Enter a positive whole number. The server will reject a deduction that would make the balance negative."
+        placeholder="Enter coin amount"
+        inputTestID="user-coin-adjustment-amount"
+        cancelTestID="cancel-user-coin-adjustment"
+        confirmTestID="confirm-user-coin-adjustment"
+        confirmAccessibilityLabel={coinAdjustmentTarget
+          ? `${coinAdjustmentTarget.sign > 0 ? 'Add coins to' : 'Deduct coins from'} ${coinAdjustmentTarget.user.name}`
+          : undefined}
+        submitting={Boolean(coinAdjustmentTarget && busy === String(coinAdjustmentTarget.user.$id))}
+        submittingLabel="UPDATING"
+        submittingAccessibilityLabel="Updating coin balance"
+        submittingMessage={coinAdjustmentTarget
+          ? `Updating ${coinAdjustmentTarget.user.name}'s coin balance. Please wait.`
+          : undefined}
+        onCancel={() => setCoinAdjustmentTarget(null)}
+        onSubmit={confirmCoinAdjustment}
       />
       <PromptDialog
         visible={deleteEmailTarget !== null}
