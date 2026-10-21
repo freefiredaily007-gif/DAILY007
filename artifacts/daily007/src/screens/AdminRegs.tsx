@@ -5,10 +5,14 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Api, apiError } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
+import { CopyUidButton } from '../components/CopyUidButton';
+import { useToast } from '../components/adminKit';
+import { filterAdminRegistrationRows } from '../lib/adminRegistrationFilter';
 
 const TABS = ['pending', 'approved', 'rejected', 'removed'] as const;
 
 export default function AdminRegs() {
+  const toast = useToast();
   const [tab, setTab] = useState<(typeof TABS)[number]>('pending');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState('');
@@ -27,9 +31,7 @@ export default function AdminRegs() {
     load().catch((e) => { setErr(apiError(e)); setAll([]); });
   }, [load]);
 
-  const list = (all ?? []).filter((x) =>
-    x.status === tab && (!tournamentFilter || String(x.tournamentId) === tournamentFilter)
-  );
+  const list = filterAdminRegistrationRows(all ?? [], tab, tournamentFilter);
   const paidRoster = (all ?? []).filter((x) => x.status === 'pending' || x.status === 'approved');
   const tournaments = Array.from(new Map((all ?? []).map((r) => [
     String(r.tournamentId || ''),
@@ -214,36 +216,51 @@ export default function AdminRegs() {
       )}
       <Msg kind="err" text={err} accessibilityLabel={err || undefined} accessibilityLiveRegion="assertive" />
       <Msg kind="ok" text={okMsg} />
-      {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => (
-        <Card key={r.id} style={{ marginBottom: 10 }}>
-          <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
-          <Text style={st.sub}>In-game name: {r.captainGameName || '—'} · UID: {r.gameUid || r.captainGameUid || '—'}</Text>
-          <Text style={st.sub}>{r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
-          {r.teamNumber && r.slotNumber ? (
-            <Text style={st.sub}>
-              Team {String(r.teamNumber).padStart(2, '0')} · Slot {r.slotNumber}{r.isSquadCaptain ? ' · Captain' : ''}
-            </Text>
-          ) : null}
-          <Text style={st.sub}>Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
-          {tab === 'removed' ? (
-            <Text style={st.sub}>Removed by the captain; the entry fee was not refunded.</Text>
-          ) : null}
-          {r.teamMembers && r.teamMembers !== '[]' && (
-            <Text style={st.sub}>ROSTER{'\n'}{rosterText(r.teamMembers)}</Text>
-          )}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            {tab === 'pending' && (
-              <>
-                <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Approve registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'approve', r.playerName)} /></View>
-                <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Reject registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'reject', r.playerName)} /></View>
-              </>
+      {all === null ? <Loading /> : err && all.length === 0 ? null : list.length === 0 ? <Empty text={`No ${tab} registrations.`} /> : list.map((r) => {
+        const uid = String(r.gameUid || r.captainGameUid || '').trim();
+        return (
+          <Card key={r.id} style={{ marginBottom: 10 }}>
+            <Text style={st.pName}>{r.playerName}{r.teamName ? ` — ${r.teamName}` : ''}</Text>
+            <View style={st.uidRow}>
+              <Text style={[st.sub, st.uidText]} numberOfLines={2}>
+                In-game name: {r.captainGameName || '—'} · UID: {uid || '—'}
+              </Text>
+              {uid ? (
+                <CopyUidButton
+                  uid={uid}
+                  testID={`admin-registration-copy-uid-${r.id}`}
+                  onCopied={() => toast('UID Copied!', 'success')}
+                  onCopyFailed={() => toast('Could not copy UID. Please try again.', 'error')}
+                />
+              ) : null}
+            </View>
+            <Text style={st.sub}>{r.tournamentName || r.tournamentId} • {r.mode || ''} {r.teamType || ''}</Text>
+            {r.teamNumber && r.slotNumber ? (
+              <Text style={st.sub}>
+                Team {String(r.teamNumber).padStart(2, '0')} · Slot {r.slotNumber}{r.isSquadCaptain ? ' · Captain' : ''}
+              </Text>
+            ) : null}
+            <Text style={st.sub}>Entry: {r.entryCoins} • {new Date(r.createdAt).toLocaleString()}</Text>
+            {tab === 'removed' ? (
+              <Text style={st.sub}>Removed by the captain; the entry fee was not refunded.</Text>
+            ) : null}
+            {r.teamMembers && r.teamMembers !== '[]' && (
+              <Text style={st.sub}>ROSTER{'\n'}{rosterText(r.teamMembers)}</Text>
             )}
-            {tab !== 'pending' && tab !== 'removed' && (
-              <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Delete registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => del(r.id, r.playerName)} /></View>
-            )}
-          </View>
-        </Card>
-      ))}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              {tab === 'pending' && (
+                <>
+                  <View style={{ flex: 1 }}><Btn title="APPROVE" small loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Approve registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'approve', r.playerName)} /></View>
+                  <View style={{ flex: 1 }}><Btn title="REJECT" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Reject registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => act(r.id, 'reject', r.playerName)} /></View>
+                </>
+              )}
+              {tab !== 'pending' && tab !== 'removed' && (
+                <View style={{ flex: 1 }}><Btn title="DELETE" small kind="danger" loading={busyId === r.id} disabled={busyId !== null} accessibilityLabel={`Delete registration for ${r.playerName}`} accessibilityHint="If an error is announced, check this registration's status before trying again." onPress={() => del(r.id, r.playerName)} /></View>
+              )}
+            </View>
+          </Card>
+        );
+      })}
       <View style={{ height: 30 }} />
     </ScrollView>
   );
@@ -254,4 +271,6 @@ const st = StyleSheet.create({
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
   exportTitle: { color: C.neon, fontWeight: '900', fontSize: 13, letterSpacing: 1 },
   sub: { color: C.sub, fontSize: 11, marginTop: 3 },
+  uidRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  uidText: { flex: 1, flexShrink: 1, marginTop: 0 },
 });

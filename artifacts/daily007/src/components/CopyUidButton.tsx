@@ -4,10 +4,21 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from './typography';
 import { C } from './ui';
+import { copyUidToClipboard } from '../lib/copyUidToClipboard';
 
 type CopyStatus = 'idle' | 'copying' | 'copied' | 'failed';
 
-export function CopyUidButton({ uid, testID }: { uid?: string | null; testID: string }) {
+export function CopyUidButton({
+  uid,
+  testID,
+  onCopied,
+  onCopyFailed,
+}: {
+  uid?: string | null;
+  testID: string;
+  onCopied?: (uid: string) => void;
+  onCopyFailed?: (uid: string) => void;
+}) {
   const value = String(uid ?? '').trim();
   const [status, setStatus] = useState<CopyStatus>('idle');
 
@@ -17,12 +28,10 @@ export function CopyUidButton({ uid, testID }: { uid?: string | null; testID: st
 
   const copy = async () => {
     setStatus('copying');
-    try {
-      const copied = await Clipboard.setStringAsync(value);
-      setStatus(copied ? 'copied' : 'failed');
-    } catch {
-      setStatus('failed');
-    }
+    const copied = await copyUidToClipboard(value, Clipboard.setStringAsync);
+    setStatus(copied ? 'copied' : 'failed');
+    if (copied) onCopied?.(value);
+    else onCopyFailed?.(value);
   };
 
   const color = status === 'copied' ? C.green : status === 'failed' ? C.red : C.blue;
