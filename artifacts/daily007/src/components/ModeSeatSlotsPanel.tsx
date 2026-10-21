@@ -30,7 +30,7 @@ export function ModeSeatSlotsPanel({
   onRetry: () => void;
   onJoinGroup: (groupNumber: number) => void;
 }) {
-  const [selectedGroupNumber, setSelectedGroupNumber] = useState<number | null>(null);
+  const [selectedSeat, setSelectedSeat] = useState<{ groupNumber: number; slotIndex: number } | null>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const compactLargeText = width <= 400 && PixelRatio.getFontScale() >= 1.5;
@@ -55,7 +55,10 @@ export function ModeSeatSlotsPanel({
   ) => {
     const occupied = Boolean(participant);
     const seatKey = `${groupNumber}-${slotIndex + 1}`;
-    const selected = !occupied && canSelect && selectedGroupNumber === groupNumber;
+    const selected = !occupied &&
+      canSelect &&
+      selectedSeat?.groupNumber === groupNumber &&
+      selectedSeat.slotIndex === slotIndex;
     const hovered = !occupied && canSelect && hoveredSeat === seatKey;
     const label = individual
       ? `PLAYER ${layout.directDuel ? groupNumber : String(groupNumber).padStart(2, '0')}`
@@ -65,53 +68,95 @@ export function ModeSeatSlotsPanel({
     const playerName = participant?.players?.[slotIndex]?.trim();
     const statusText = occupied ? playerName || 'TEAM BOOKED' : 'OPEN • SELECT';
     return (
-      <Pressable
+      <View
         key={seatKey}
-        accessibilityRole="button"
-        accessibilityLabel={`${individual ? label : `Team ${String(groupNumber).padStart(2, '0')}, ${label}`}, ${occupied ? playerName || 'joined' : 'open'}${canSelect && !occupied ? ', select this seat' : ''}`}
-        accessibilityState={{
-          disabled: occupied || !canSelect,
-          selected,
-        }}
-        disabled={occupied || !canSelect}
-        testID={`mode-seat-${tournamentId}-${groupNumber}-${slotIndex + 1}`}
-        onHoverIn={() => {
-          if (!occupied && canSelect) setHoveredSeat(seatKey);
-        }}
-        onHoverOut={() => setHoveredSeat((current) => current === seatKey ? null : current)}
-        onPress={() => {
-          if (!occupied && canSelect) setSelectedGroupNumber(groupNumber);
-        }}
         style={[
-          styles.slot,
-          individual && !layout.directDuel && styles.individualGridSlot,
-          occupied ? styles.occupied : styles.open,
-          selected && styles.selected,
-          hovered && styles.hovered,
-          compactLargeText && styles.slotCompact,
-          Platform.OS === 'web'
-            ? { cursor: !occupied && canSelect ? 'pointer' : 'not-allowed' } as never
-            : undefined,
+          styles.seatCard,
+          individual && (layout.directDuel ? styles.duelSeatCard : styles.individualGridSeat),
         ]}
       >
-        <Text
-          numberOfLines={2}
-          style={[styles.slotLabel, occupied ? styles.occupiedText : styles.openText]}
-          maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
-        >
-          {label}
-        </Text>
-        <Text
-          numberOfLines={2}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${individual ? label : `Team ${String(groupNumber).padStart(2, '0')}, ${label}`}, ${occupied ? playerName || 'joined' : 'open'}${canSelect && !occupied ? ', select this seat' : ''}`}
+          accessibilityHint={!occupied && canSelect ? 'Selects this seat and shows its Join button below.' : undefined}
+          accessibilityState={{
+            disabled: occupied || !canSelect,
+            selected,
+          }}
+          disabled={occupied || !canSelect}
+          testID={`mode-seat-${tournamentId}-${groupNumber}-${slotIndex + 1}`}
+          onHoverIn={() => {
+            if (!occupied && canSelect) setHoveredSeat(seatKey);
+          }}
+          onHoverOut={() => setHoveredSeat((current) => current === seatKey ? null : current)}
+          onPress={() => {
+            if (!occupied && canSelect) setSelectedSeat({ groupNumber, slotIndex });
+          }}
           style={[
-            styles.slotStatus,
-            occupied ? styles.occupiedText : styles.openText,
+            styles.slot,
+            individual && styles.individualSlot,
+            occupied ? styles.occupied : styles.open,
+            selected && styles.selected,
+            hovered && styles.hovered,
+            compactLargeText && styles.slotCompact,
+            Platform.OS === 'web'
+              ? { cursor: !occupied && canSelect ? 'pointer' : 'not-allowed' } as never
+              : undefined,
           ]}
-          maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
         >
-          {statusText}
-        </Text>
-      </Pressable>
+          <Text
+            numberOfLines={2}
+            style={[styles.slotLabel, occupied ? styles.occupiedText : styles.openText]}
+            maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+          >
+            {label}
+          </Text>
+          <Text
+            numberOfLines={2}
+            style={[
+              styles.slotStatus,
+              occupied ? styles.occupiedText : styles.openText,
+            ]}
+            maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+          >
+            {statusText}
+          </Text>
+        </Pressable>
+        <View style={[styles.slotActionArea, compactLargeText && styles.slotActionAreaCompact]}>
+          {selected ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={individual
+                ? `Join player slot ${groupNumber}`
+                : `Join Team ${String(groupNumber).padStart(2, '0')}`}
+              accessibilityHint={individual
+                ? 'Opens the player details and entry-fee form for this player slot.'
+                : 'Opens the player details and entry-fee form for this team.'}
+              onPress={() => onJoinGroup(groupNumber)}
+              testID={`mode-seat-join-${groupNumber}`}
+              style={[
+                styles.inlineJoinButton,
+                compactLargeText && styles.inlineJoinButtonCompact,
+              ]}
+            >
+              <Text
+                style={styles.inlineJoinButtonText}
+                maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+              >
+                {individual
+                  ? layout.groupCount > 2
+                    ? <>JOIN{"\n"}PLAYER{"\n"}{String(groupNumber).padStart(2, '0')}</>
+                    : <>JOIN{"\n"}PLAYER {groupNumber}</>
+                  : layout.slotsPerGroup >= 4
+                    ? <>JOIN{"\n"}TEAM{"\n"}{String(groupNumber).padStart(2, '0')}</>
+                    : <>JOIN{"\n"}TEAM {String(groupNumber).padStart(2, '0')}</>}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.slotActionSpacer} />
+          )}
+        </View>
+      </View>
     );
   };
 
@@ -148,9 +193,6 @@ export function ModeSeatSlotsPanel({
       const groupNumber = index + 1;
       return renderSeat(groupNumber, 0, participantsByGroup.get(groupNumber), true);
     });
-    const selectedGroup = selectedGroupNumber === null
-      ? null
-      : participantsByGroup.has(selectedGroupNumber) ? null : selectedGroupNumber;
     return (
       <View>
         <Card style={styles.summaryCard}>
@@ -170,14 +212,6 @@ export function ModeSeatSlotsPanel({
             {slots}
           </View>
         )}
-        {selectedGroup !== null && canSelect ? (
-          <Btn
-            title={`JOIN PLAYER ${String(selectedGroup).padStart(2, '0')}`}
-            onPress={() => onJoinGroup(selectedGroup)}
-            style={styles.joinButton}
-            testID={`mode-seat-join-${selectedGroup}`}
-          />
-        ) : null}
       </View>
     );
   }
@@ -194,7 +228,6 @@ export function ModeSeatSlotsPanel({
         const groupNumber = index + 1;
         const participant = participantsByGroup.get(groupNumber);
         const occupied = Boolean(participant);
-        const isSelected = selectedGroupNumber === groupNumber && !occupied && canSelect;
         return (
           <Card key={groupNumber} style={styles.teamCard} testID={`mode-seat-team-${groupNumber}`}>
             <View style={styles.teamHeader}>
@@ -213,14 +246,6 @@ export function ModeSeatSlotsPanel({
                 renderSeat(groupNumber, slotIndex, participant, false),
               )}
             </View>
-            {isSelected ? (
-              <Btn
-                title={`JOIN TEAM ${String(groupNumber).padStart(2, '0')}`}
-                onPress={() => onJoinGroup(groupNumber)}
-                style={styles.joinButton}
-                testID={`mode-seat-join-${groupNumber}`}
-              />
-            ) : null}
           </Card>
         );
       })}
@@ -249,15 +274,29 @@ const styles = StyleSheet.create({
   },
   joinedText: { color: C.sub, fontSize: 8, fontWeight: '900', letterSpacing: 0.3 },
   teamSlots: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  seatCard: { flex: 1, minWidth: 0 },
+  duelSeatCard: { flex: 1, minWidth: 0 },
+  individualGridSeat: { flex: 0, flexBasis: '23%', maxWidth: '24%', minWidth: 0 },
+  individualSlot: { flex: 0, width: '100%' },
+  slotActionArea: { height: 38, width: '100%', marginTop: 4 },
+  slotActionAreaCompact: { height: 68 },
+  slotActionSpacer: { flex: 1 },
+  inlineJoinButton: {
+    minHeight: 34, width: '100%', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.squadAccent, borderRadius: 8, paddingHorizontal: 1, paddingVertical: 3,
+  },
+  inlineJoinButtonCompact: { minHeight: 62, paddingVertical: 4 },
+  inlineJoinButtonText: {
+    color: C.squadPanel, fontSize: 8, fontWeight: '900', textAlign: 'center', lineHeight: 9,
+  },
   slot: {
     flex: 1, minWidth: 0, height: 76, borderWidth: 1, borderColor: C.squadBorder,
     borderRadius: 12, backgroundColor: C.squadTile, paddingHorizontal: 3, paddingVertical: 7,
     alignItems: 'center', justifyContent: 'space-between',
   },
   individualGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-start' },
-  individualGridSlot: { flex: 0, flexBasis: '23%', maxWidth: '24%', minWidth: 0 },
-  duelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  versus: { color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  duelRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  versus: { alignSelf: 'center', color: C.gold, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   open: { borderColor: '#2ecc71', backgroundColor: 'rgba(46, 204, 113, 0.12)' },
   occupied: { borderColor: '#e74c3c', backgroundColor: 'rgba(231, 76, 60, 0.14)' },
   selected: { borderWidth: 2, backgroundColor: 'rgba(46, 204, 113, 0.24)' },
@@ -267,5 +306,4 @@ const styles = StyleSheet.create({
   slotStatus: { fontSize: 8, fontWeight: '900', marginTop: 2, textAlign: 'center', lineHeight: 10, width: '100%' },
   openText: { color: '#2ecc71' },
   occupiedText: { color: '#e74c3c' },
-  joinButton: { minHeight: 44, marginTop: 10 },
 });

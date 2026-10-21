@@ -93,7 +93,7 @@ test('returning from registration refreshes tournament seat availability immedia
   );
 });
 
-test('mode seat cards preserve the Squad card palette and expose direct Solo duel seats', () => {
+test('mode seat cards preserve the Squad palette and show the Join action under the selected slot', () => {
   assert.match(modeSeatSlotsSource, /OPEN • SELECT/);
   assert.match(modeSeatSlotsSource, /borderColor: '#2ecc71'/);
   assert.match(modeSeatSlotsSource, /backgroundColor: 'rgba\(46, 204, 113, 0\.12\)'/);
@@ -105,6 +105,18 @@ test('mode seat cards preserve the Squad card palette and expose direct Solo due
   assert.match(modeSeatSlotsSource, /layout\.groupKind === 'player'/);
   assert.match(modeSeatSlotsSource, /layout\.directDuel/);
   assert.match(modeSeatSlotsSource, /mode-seat-duel-row/);
+  assert.match(
+    modeSeatSlotsSource,
+    /const selected = !occupied &&[\s\S]*?selectedSeat\?\.groupNumber === groupNumber &&[\s\S]*?selectedSeat\.slotIndex === slotIndex;/,
+  );
+  assert.match(modeSeatSlotsSource, /styles\.slotActionArea/);
+  assert.match(
+    modeSeatSlotsSource,
+    /style=\{\[\s*styles\.inlineJoinButton,\s*compactLargeText && styles\.inlineJoinButtonCompact,\s*\]\}/,
+  );
+  assert.match(modeSeatSlotsSource, /inlineJoinButtonCompact: \{ minHeight: 62, paddingVertical: 4 \}/);
+  assert.match(modeSeatSlotsSource, /testID=\{`mode-seat-join-\$\{groupNumber\}`\}/);
+  assert.doesNotMatch(modeSeatSlotsSource, /selectedGroupNumber/);
   assert.match(modeSeatSlotsSource, /TEAM/);
   assert.match(modeSeatSlotsSource, /cursor: !occupied && canSelect \? 'pointer' : 'not-allowed'/);
 });
