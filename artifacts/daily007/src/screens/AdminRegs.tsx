@@ -1,15 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, View, ScrollView, StyleSheet, Pressable } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { ReadableText as Text } from '../components/typography';
 import { AdminRegistration, Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Loading, Msg } from '../components/ui';
 import { CopyUidButton } from '../components/CopyUidButton';
 import { useToast } from '../components/adminKit';
-import {
-  buildAdminRegistrationTournamentCards,
-  formatAdminRegistrationTime,
-} from '../lib/adminApprovedRegistrationMatches';
+import { copyUidToClipboard } from '../lib/copyUidToClipboard';
+import { buildAdminRegistrationTournamentCards } from '../lib/adminApprovedRegistrationMatches';
 import { getTournamentLifecycleState } from '../lib/tournamentLifecycle';
+import {
+  collectAdminRegistrationUids,
+  getAdminRegistrationPlayerName,
+  getAdminRegistrationPlayerUid,
+  groupAdminRegistrationsByTeam,
+} from '../lib/adminRegistrationTeams';
 
 const LIVE_REGISTRATION_REFRESH_INTERVAL_MS = 15_000;
 
@@ -78,6 +83,14 @@ export default function AdminRegs() {
   );
   const selectedTournament = tournamentCards.find((tournament) => tournament.id === selectedTournamentId) ?? null;
   const selectedPlayers = selectedTournament?.rows ?? [];
+  const registrationTeams = useMemo(
+    () => groupAdminRegistrationsByTeam(selectedPlayers),
+    [selectedPlayers],
+  );
+  const allPlayerUids = useMemo(
+    () => collectAdminRegistrationUids(selectedPlayers),
+    [selectedPlayers],
+  );
 
   const retryLoad = () => {
     setErr('');
@@ -91,16 +104,14 @@ export default function AdminRegs() {
     });
   };
 
-  const rosterText = (raw: unknown) => {
-    try {
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (Array.isArray(parsed)) return parsed.map((member) => {
-        const name = String(member?.name || member?.ign || 'Player');
-        const uid = String(member?.uid || member?.gameUid || '').trim();
-        return uid ? `${name} · UID ${uid}` : name;
-      }).join('\n');
-    } catch {}
-    return typeof raw === 'string' ? raw : '';
+  const copyUidList = async (rows: readonly AdminRegistration[], scope: string) => {
+    const uids = collectAdminRegistrationUids(rows).join(', ');
+    if (!uids) return;
+    const copied = await copyUidToClipboard(uids, Clipboard.setStringAsync);
+    toast(
+      copied ? `${scope} UIDs Copied!` : `Could not copy ${scope.toLowerCase()} UIDs. Please try again.`,
+      copied ? 'success' : 'error',
+    );
   };
 
   const del = async (id: string, playerName: string) => {
@@ -121,46 +132,32 @@ export default function AdminRegs() {
     finally { setBusyId(null); }
   };
 
-  const registrationSlotLabel = (registration: AdminRegistration): string => {
-    if (registration.teamNumber != null && registration.slotNumber != null) {
-      return `Team ${String(registration.teamNumber).padStart(2, '0')} · Slot ${registration.slotNumber}${registration.isSquadCaptain ? ' · Captain' : ''}`;
-    }
-    if (registration.assignedGroupNumber != null) {
-      return `Player Slot ${registration.assignedGroupNumber}`;
-    }
-    if (registration.slotNumber != null) return `Slot ${registration.slotNumber}`;
-    return 'Slot: Not assigned';
-  };
-
-  const renderRegistrationCard = (registration: AdminRegistration) => {
-    const playerName = registration.playerName || registration.userName || 'Player';
-    const inGameName = registration.captainGameName?.trim() || '—';
-    const uid = String(registration.gameUid || registration.captainGameUid || '').trim();
+  const renderRegistrationPlayer = (registration: AdminRegistration) => {
+    const playerName = getAdminRegistrationPlayerName(registration);
+    const uid = getAdminRegistrationPlayerUid(registration);
     return (
-      <Card key={registration.id} style={st.playerCard} testID={`admin-approved-player-${registration.id}`}>
-        <Text style={st.pName}>{playerName}{registration.teamName ? ` · ${registration.teamName}` : ''}</Text>
-        <Text style={st.sub}>In-Game Name: {inGameName}</Text>
-        <View style={st.uidRow}>
-          <Text style={[st.sub, st.uidText]} numberOfLines={2}>UID: {uid || '—'}</Text>
-          {uid ? (
-            <CopyUidButton
-              uid={uid}
-              testID={`admin-registration-copy-uid-${registration.id}`}
-              onCopied={() => toast('UID Copied!', 'success')}
-              onCopyFailed={() => toast('Could not copy UID. Please try again.', 'error')}
-            />
-          ) : null}
+      <View key={registration.id} style={st.playerRow} testID={`admin-approved-player-${registration.id}`}>
+        <View style={st.playerInfo}>
+          <Text style={st.pName} numberOfLines={2}>{playerName}</Text>
+          <View style={st.uidRow}>
+            <Text style={st.uidText} numberOfLines={2}>UID: {uid || '—'}</Text>
+            {uid ? (
+              <CopyUidButton
+                uid={uid}
+                testID={`admin-registration-copy-uid-${registration.id}`}
+                onCopied={() => toast('UID Copied!', 'success')}
+                onCopyFailed={() => toast('Could not copy UID. Please try again.', 'error')}
+              />
+            ) : null}
+          </View>
         </View>
-        <Text style={st.sub}>{registrationSlotLabel(registration)}</Text>
-        <Text style={st.sub}>Registration Time: {formatAdminRegistrationTime(registration.createdAt)}</Text>
-        {registration.teamMembers && registration.teamMembers !== '[]' ? (
-          <Text style={st.sub}>ROSTER{'\n'}{rosterText(registration.teamMembers)}</Text>
-        ) : null}
         <View style={st.deleteAction}>
           <Btn
             title="DELETE"
             small
             kind="danger"
+            textColor={C.text}
+            style={st.deleteButton}
             loading={busyId === registration.id}
             disabled={busyId !== null}
             accessibilityLabel={`Delete registration for ${playerName}`}
@@ -169,9 +166,30 @@ export default function AdminRegs() {
             onPress={() => del(registration.id, playerName)}
           />
         </View>
-      </Card>
+      </View>
     );
   };
+
+  const renderRegistrationTeam = (team: ReturnType<typeof groupAdminRegistrationsByTeam>[number]) => (
+    <Card key={team.key} style={st.teamCard} testID={`admin-approved-team-${team.key}`}>
+      <View style={st.teamHeader}>
+        <Text style={st.teamTitle}>{team.title}</Text>
+        <Btn
+          title="COPY TEAM UIDs"
+          small
+          kind="gold"
+          textColor="#0B0F19"
+          style={st.copyTeamButton}
+          disabled={collectAdminRegistrationUids(team.registrations).length === 0}
+          accessibilityLabel={`Copy all UIDs for ${team.title}`}
+          accessibilityHint="Copies this team's approved player UIDs, separated by commas."
+          testID={`admin-registration-copy-team-uids-${team.key}`}
+          onPress={() => { void copyUidList(team.registrations, team.title); }}
+        />
+      </View>
+      {team.registrations.map(renderRegistrationPlayer)}
+    </Card>
+  );
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={st.wrap}>
@@ -205,9 +223,20 @@ export default function AdminRegs() {
                   : `${selectedTournament.approvedPlayerCount} APPROVED PLAYERS`}
               </Text>
             </Card>
-            {selectedPlayers.length === 0
+            <Btn
+              title="COPY ALL UIDs"
+              kind="gold"
+              textColor="#0B0F19"
+              style={st.copyAllButton}
+              disabled={allPlayerUids.length === 0}
+              accessibilityLabel={`Copy all approved player UIDs for ${selectedTournament.tournamentName}`}
+              accessibilityHint="Copies this match's approved player UIDs, separated by commas."
+              testID="admin-registration-copy-all-uids"
+              onPress={() => { void copyUidList(selectedPlayers, 'All'); }}
+            />
+            {registrationTeams.length === 0
               ? <Empty text="No approved players for this tournament." />
-              : selectedPlayers.map(renderRegistrationCard)}
+              : registrationTeams.map(renderRegistrationTeam)}
           </View>
         ) : (
           <View>
@@ -279,10 +308,36 @@ const st = StyleSheet.create({
   liveText: { color: C.green },
   approvedCount: { color: C.green, fontSize: 11, fontWeight: '900', letterSpacing: 0.5, marginTop: 8 },
   detailHeader: { marginTop: 10, marginBottom: 10, padding: 14, borderColor: C.neon + '88' },
-  playerCard: { marginBottom: 10, padding: 14 },
+  copyAllButton: { alignSelf: 'stretch', minHeight: 46, marginBottom: 10 },
+  teamCard: {
+    marginBottom: 10,
+    padding: 12,
+    backgroundColor: '#0B0F19',
+    borderColor: '#FFB80066',
+  },
+  teamHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 4,
+  },
+  teamTitle: { color: '#FFB800', fontSize: 14, fontWeight: '900', letterSpacing: 0.8 },
+  copyTeamButton: { minHeight: 44, borderColor: '#FFB800', backgroundColor: '#FFB800' },
+  playerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#FFB80033',
+  },
+  playerInfo: { flex: 1, minWidth: 150 },
   pName: { color: C.text, fontWeight: '900', fontSize: 14 },
-  sub: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 4 },
-  uidRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  uidText: { flex: 1, flexShrink: 1, marginTop: 0 },
-  deleteAction: { marginTop: 10, alignItems: 'stretch' },
+  uidRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 2 },
+  uidText: { color: C.sub, fontSize: 11, lineHeight: 16, flex: 1, flexShrink: 1, minWidth: 120 },
+  deleteAction: { alignItems: 'stretch' },
+  deleteButton: { minWidth: 76, minHeight: 44, backgroundColor: '#FF3B3B', borderColor: '#FF3B3B' },
 });

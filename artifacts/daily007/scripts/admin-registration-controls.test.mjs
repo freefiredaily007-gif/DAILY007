@@ -4,6 +4,10 @@ import test from 'node:test';
 import { copyUidToClipboard } from '../src/lib/copyUidToClipboard.ts';
 import { filterAdminRegistrationRows } from '../src/lib/adminRegistrationFilter.ts';
 import {
+  collectAdminRegistrationUids,
+  groupAdminRegistrationsByTeam,
+} from '../src/lib/adminRegistrationTeams.ts';
+import {
   formatAdminRegistrationStart,
   formatAdminRegistrationTime,
   buildAdminRegistrationTournamentCards,
@@ -90,7 +94,8 @@ test('tournament selection opens only that match and back returns to the tournam
   );
   assert.match(screenSource, /const selectedTournament = tournamentCards\.find\(\(tournament\) => tournament\.id === selectedTournamentId\)/);
   assert.match(screenSource, /const selectedPlayers = selectedTournament\?\.rows \?\? \[\]/);
-  assert.match(screenSource, /selectedPlayers\.map\(renderRegistrationCard\)/);
+  assert.match(screenSource, /groupAdminRegistrationsByTeam\(selectedPlayers\)/);
+  assert.match(screenSource, /registrationTeams\.map\(renderRegistrationTeam\)/);
   assert.match(screenSource, /onPress=\{\(\) => setSelectedTournamentId\(tournament\.id\)\}/);
   assert.match(screenSource, /onPress=\{\(\) => setSelectedTournamentId\(null\)\}/);
   assert.match(screenSource, /testID=\{`admin-approved-tournament-\$\{tournament\.id\}`\}/);
@@ -156,13 +161,47 @@ test('approved registrations group by match ID and keep scheduled times distinct
   assert.equal(formatAdminRegistrationStart('2026-10-21T14:30:00.000Z'), '21 Oct 2026, 08:00 PM IST');
 });
 
-test('approved player cards show name, UID, slot, registration time, copy, and delete actions', () => {
-  assert.match(screenSource, /In-Game Name: \{inGameName\}/);
+test('approved player rows show only player name and UID with copy and delete actions', () => {
+  assert.match(screenSource, /getAdminRegistrationPlayerName\(registration\)/);
   assert.match(screenSource, /UID: \{uid \|\| '—'\}/);
-  assert.match(screenSource, /registrationSlotLabel\(registration\)/);
-  assert.match(screenSource, /Registration Time: \{formatAdminRegistrationTime\(registration\.createdAt\)\}/);
+  assert.doesNotMatch(screenSource, /In-Game Name:|Registration Time:|registrationSlotLabel|ROSTER/);
   assert.match(screenSource, /title="DELETE"[\s\S]*?onPress=\{\(\) => del\(registration\.id, playerName\)\}/);
   assert.match(screenSource, /uid=\{uid\}[\s\S]*?testID=\{`admin-registration-copy-uid-\$\{registration\.id\}`\}/);
+  assert.match(screenSource, /title="COPY ALL UIDs"[\s\S]*?testID="admin-registration-copy-all-uids"/);
+  assert.match(screenSource, /title="COPY TEAM UIDs"[\s\S]*?testID=\{`admin-registration-copy-team-uids-\$\{team\.key\}`\}/);
+});
+
+test('approved player registrations group by team and bulk UID copying is comma-separated', async () => {
+  const rows = [
+    { id: 'team-08-late', status: 'approved', teamNumber: 8, slotNumber: 2, playerName: 'Eight B', gameUid: ' 8002 ' },
+    { id: 'team-02', status: 'approved', assignedGroupNumber: 2, slotNumber: 1, playerName: 'Two', gameUid: '2001' },
+    { id: 'unassigned', status: 'approved', playerName: 'No Team', gameUid: '9999' },
+    { id: 'team-08-early', status: 'approved', teamNumber: 8, slotNumber: 1, playerName: 'Eight A', gameUid: '8001' },
+    { id: 'team-01', status: 'approved', teamNumber: 1, playerName: 'One', gameUid: '1001' },
+    { id: 'pending', status: 'pending', teamNumber: 3, playerName: 'Pending', gameUid: '3001' },
+  ];
+  const teams = groupAdminRegistrationsByTeam(rows);
+  assert.deepEqual(teams.map((team) => team.title), [
+    'TEAM 01',
+    'TEAM 02',
+    'TEAM 08',
+    'UNASSIGNED PLAYERS',
+  ]);
+  assert.deepEqual(teams[2].registrations.map((registration) => registration.id), [
+    'team-08-early',
+    'team-08-late',
+  ]);
+  assert.deepEqual(collectAdminRegistrationUids(teams[2].registrations), ['8001', '8002']);
+
+  const writes = [];
+  assert.equal(
+    await copyUidToClipboard(collectAdminRegistrationUids(teams[2].registrations).join(', '), async (value) => {
+      writes.push(value);
+      return true;
+    }),
+    true,
+  );
+  assert.deepEqual(writes, ['8001, 8002']);
 });
 
 test('Admin Registrations API returns the existing individual seat number for Solo slots', () => {
@@ -195,8 +234,8 @@ test('UID copying uses the exact UID and reports clipboard success or failure', 
 });
 
 test('each registration card places a copy control beside its displayed game UID', () => {
-  assert.match(screenSource, /const uid = String\(registration\.gameUid \|\| registration\.captainGameUid \|\| ''\)\.trim\(\);/);
-  assert.match(screenSource, /In-Game Name: \{inGameName\}[\s\S]*?UID: \{uid \|\| '—'\}/);
+  assert.match(screenSource, /getAdminRegistrationPlayerUid\(registration\)/);
+  assert.match(screenSource, /<Text style=\{st\.pName\}[^>]*>\{playerName\}<\/Text>[\s\S]*?UID: \{uid \|\| '—'\}/);
   assert.match(screenSource, /<CopyUidButton[\s\S]*?uid=\{uid\}[\s\S]*?testID=\{`admin-registration-copy-uid-\$\{registration\.id\}`\}/);
-  assert.match(screenSource, /uidRow: \{ flexDirection: 'row', alignItems: 'center'/);
+  assert.match(screenSource, /uidRow: \{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center'/);
 });
