@@ -392,6 +392,112 @@ test("PostgreSQL list and detail count pending and approved solo and duo registr
   });
 });
 
+test("PostgreSQL list and detail free places when active registrations become rejected or removed", async () => {
+  const matchId = randomUUID();
+  await pool.query(
+    `INSERT INTO daily007_v2_matches
+       (id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, status)
+     VALUES ($1, 'Released Registration Places', 'solo', 'battle_royale', 'solo',
+             5, 5, 100, clock_timestamp() + interval '20 hours', 'open')`,
+    [matchId],
+  );
+
+  async function createRegistration(label: string, status: "approved" | "pending"): Promise<string> {
+    const userId = randomUUID();
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash)
+       VALUES ($1, $2, $3, 'salt', 'hash')`,
+      [userId, `${label} Captain`, `${userId}@example.test`],
+    );
+    const registration = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_registrations
+         (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
+          team_name, entry_coins_paid, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 5, $7)
+       RETURNING id`,
+      [
+        matchId,
+        userId,
+        `${label} Captain`,
+        `${label}Player`,
+        `${label.toLowerCase()}-uid`,
+        `${label} Team`,
+        status,
+      ],
+    );
+    return registration.rows[0].id;
+  }
+
+  const rejectedRegistrationId = await createRegistration("Approved", "approved");
+  const removedRegistrationId = await createRegistration("Pending", "pending");
+  await createRegistration("Remaining Active", "approved");
+
+  async function assertListAndDetailSlots(origin: string, expectedFilled: number, stage: string): Promise<void> {
+    const listResponse = await fetch(`${origin}/tournaments`);
+    assert.equal(listResponse.status, 200);
+    const list = await listResponse.json() as {
+      id: string;
+      filledSlots: number;
+      totalSlots: number;
+      availableSlots: number;
+    }[];
+    const listTournament = list.find(({ id }) => id === matchId);
+    assert.ok(listTournament, `The tournament list must include the seeded match (${stage}).`);
+
+    const detailResponse = await fetch(`${origin}/tournaments/${matchId}`);
+    assert.equal(detailResponse.status, 200);
+    const detailTournament = await detailResponse.json() as {
+      filledSlots: number;
+      totalSlots: number;
+      availableSlots: number;
+    };
+
+    const expected = {
+      filledSlots: expectedFilled,
+      totalSlots: 5,
+      availableSlots: 5 - expectedFilled,
+    };
+    for (const [source, tournament] of [
+      ["list", listTournament],
+      ["detail", detailTournament],
+    ] as const) {
+      assert.deepEqual(
+        {
+          filledSlots: tournament.filledSlots,
+          totalSlots: tournament.totalSlots,
+          availableSlots: tournament.availableSlots,
+        },
+        expected,
+        `The ${source} API must reflect released places consistently (${stage}).`,
+      );
+    }
+  }
+
+  await withServer(async (origin) => {
+    await assertListAndDetailSlots(origin, 3, "before status changes");
+
+    const rejected = await pool.query<{ status: string }>(
+      `UPDATE daily007_v2_registrations
+          SET status = 'rejected'
+        WHERE id = $1 AND status = 'approved'
+        RETURNING status`,
+      [rejectedRegistrationId],
+    );
+    assert.deepEqual(rejected.rows, [{ status: "rejected" }]);
+    await assertListAndDetailSlots(origin, 2, "after approved registration is rejected");
+
+    const removed = await pool.query<{ status: string }>(
+      `UPDATE daily007_v2_registrations
+          SET status = 'removed'
+        WHERE id = $1 AND status = 'pending'
+        RETURNING status`,
+      [removedRegistrationId],
+    );
+    assert.deepEqual(removed.rows, [{ status: "removed" }]);
+    await assertListAndDetailSlots(origin, 1, "after pending registration is removed");
+  });
+});
+
 test("Admin format edits reject capacity below active seats and ignore rejected or removed registrations", async () => {
   const adminId = randomUUID();
   const matchIds = [randomUUID(), randomUUID()];
