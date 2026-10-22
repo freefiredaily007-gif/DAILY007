@@ -269,7 +269,7 @@ test("the wallet refresh remains after a successful and validated join response"
   const joinStart = appSource.indexOf("const result = await joinWithCapacityRefresh(");
   const walletRefresh = appSource.indexOf("await refresh();", joinStart);
   const registrationConfirmation = appSource.indexOf(
-    "Alert.alert('Registration confirmed', message)",
+    "showLocalizedAlert('Registration confirmed', message)",
     joinStart,
   );
   assert.ok(joinStart >= 0, "the join result should use capacity recovery");

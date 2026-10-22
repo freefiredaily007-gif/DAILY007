@@ -35,6 +35,7 @@ import {
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
 import { getTournamentSeatRefreshInterval } from '../lib/tournamentSeatRefresh';
+import { isTournamentCapacityFull } from '../lib/tournamentCapacity';
 import { translateExactText } from '../i18n';
 
 const claimRoomDetailsAvailabilityAnnouncement =
@@ -683,9 +684,13 @@ export default function TDetail() {
   const winnerGameName = winner?.gameName?.trim() ?? '';
   const winnerTeamName = winner?.teamName?.trim() ?? '';
   const winnerName = winnerTeamName || winnerGameName || 'Winner';
-  const full = tournamentStatus === 'setup_needed' ||
-    (individualSquad ? filledPlayers >= totalPlayers :
-      st.key === 'full' || (totalSlots > 0 && filledSlots >= totalSlots));
+  const full = isTournamentCapacityFull({
+    filledPlayers,
+    totalPlayers,
+    filledSlots,
+    totalSlots,
+    status: tournamentStatus,
+  });
   const schedule = getRoomCredentialSchedule(t.startsAt);
   const registrationStatus = String(t.myRegistration?.status ?? '').toLowerCase();
   const canViewRoomDetails = registrationStatus === 'approved' && tournamentStatus !== 'cancelled';

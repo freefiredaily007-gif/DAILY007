@@ -17,6 +17,7 @@ import {
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 import { requestTeamEditCancel } from '../lib/teamEditCancel';
 import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
+import { isTournamentCapacityFull } from '../lib/tournamentCapacity';
 
 type Member = { name: string; uid: string };
 type TeamEditSnapshot = {
@@ -82,9 +83,17 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
   const totalSlots = Number(t.totalSlots ?? (slotUnit === 'player' ? 48 : gameMode.toLowerCase() === 'battle royale' ? (teamType.toLowerCase() === 'duo' ? 24 : 12) : 2));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const remainingSlots = Math.max(0, Number(t.availableSlots ?? totalSlots - filledSlots));
+  const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * teamSize);
+  const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * teamSize);
   const status = String(t.status || '').toLowerCase();
   const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'ongoing', 'closed'].includes(status);
-  const full = remainingSlots <= 0 || filledSlots >= totalSlots || ['full', 'setup_needed'].includes(status);
+  const full = isTournamentCapacityFull({
+    filledPlayers,
+    totalPlayers,
+    filledSlots,
+    totalSlots,
+    status,
+  });
   const unavailable = full || closed;
   const captainProfileName = String(registration?.playerName ?? user.name).trim();
   const initialRoster = initialMembers(registration, teamSize);
@@ -269,8 +278,6 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
   };
 
   const title = `${gameMode.toUpperCase()} · ${teamType.toUpperCase()} REGISTRATION`;
-  const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * teamSize);
-  const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * teamSize);
   const capacity = slotUnit === 'team'
     ? `${filledSlots}/${totalSlots} teams · ${filledPlayers}/${totalPlayers} players`
     : `${filledSlots}/${totalSlots} players`;
@@ -278,7 +285,7 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
     ? `${err} Updated capacity: ${capacity}. Registration is closed.`
     : undefined;
   const remaining = slotUnit === 'team'
-    ? `${remainingSlots} ${remainingSlots === 1 ? 'team' : 'teams'} · ${remainingSlots * teamSize} player places remaining`
+    ? `${remainingSlots} ${remainingSlots === 1 ? 'team' : 'teams'} · ${Math.max(0, totalPlayers - filledPlayers)} player places remaining`
     : `${remainingSlots} player places remaining`;
   const action = isTeam ? 'JOIN PLAYER SLOT' : 'JOIN SOLO';
   const selectedPlayerLabel = isTeam

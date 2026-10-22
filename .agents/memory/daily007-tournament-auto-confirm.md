@@ -9,8 +9,8 @@ description: Product rule for confirming tournament registrations and deducting 
 
 **How to apply:** Lock the match row, re-count approved and pending registrations, then keep registration confirmation, wallet update, ledger entry, and full-status update atomic. If capacity is gone, reject before writing the losing player's registration or wallet ledger. Preserve older pending registrations for admin review unless the user explicitly asks to change them.
 
-**Capacity UI:** When a tournament reaches maximum capacity, show the join action as disabled and label it “Slots Full.”
+**Capacity UI:** Treat the live player-seat count as authoritative. For individual-seat team formats, a team being occupied does not mean the team or match is full; only disable joining when all player seats are claimed. Stale `full` or `setup_needed` flags must not override an under-capacity player count.
 
-**Why:** The user requested clear feedback when a tournament has no remaining slots.
+**Why:** Teams can reach their configured count while still having open seats, and stale full-state flags previously blocked valid joins.
 
-**How to apply:** Keep the capacity check on the server; show the disabled state on tournament cards and details.
+**How to apply:** Use player occupancy for client availability and server capacity checks, while still rejecting occupied seats, closed lifecycle states, duplicate registrations, and insufficient balance. Use status flags only when a live player-capacity count is unavailable.

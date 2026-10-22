@@ -391,6 +391,55 @@ test("Squad slots charge each player atomically, preserve captain control, and t
       }
     });
 
+    await t.test("the last player seat remains joinable when all team cards are already occupied", async () => {
+      const matchId = await createMatch(10, {
+        title: "BR Duo Partial Final Team",
+        mode: "squad",
+        gameMode: "battle_royale",
+        teamType: "duo",
+        capacity: 2,
+      });
+      const [teamOneCaptain, teamTwoCaptain, teamOnePlayer, lastPlayer] = await Promise.all([
+        createUser(), createUser(), createUser(), createUser(),
+      ]);
+
+      assert.equal((await joinSlot(origin, matchId, teamOneCaptain, 1, 1)).status, 201);
+      assert.equal((await joinSlot(origin, matchId, teamTwoCaptain, 2, 1)).status, 201);
+      assert.equal((await joinSlot(origin, matchId, teamOnePlayer, 1, 2)).status, 201);
+
+      // Reproduce the stale state that incorrectly treated 2/2 occupied teams
+      // as full even though only 3 of 4 player seats had been claimed.
+      await pool.query(
+        "UPDATE daily007_v2_matches SET status = 'setup_needed', is_full = true WHERE id = $1",
+        [matchId],
+      );
+
+      const availableSlots = await slotsFor(origin, matchId, lastPlayer);
+      assert.equal(availableSlots.status, 200);
+      assert.equal(availableSlots.body.filledTeams, 2);
+      assert.equal(availableSlots.body.filledPlayers, 3);
+      assert.equal(availableSlots.body.registrationClosed, false);
+      assert.equal(availableSlots.body.teams[1].slots[1].occupied, false);
+      assert.equal(availableSlots.body.teams[1].slots[1].canJoin, true);
+
+      const lastJoin = await joinSlot(origin, matchId, lastPlayer, 2, 2);
+      assert.equal(lastJoin.status, 201);
+      assert.equal(lastJoin.body.filledPlayers, 4);
+      const lastPlayerWallet = await pool.query<{ wallet_coins: number; entry_count: number }>(
+        `SELECT wallet_coins,
+                (SELECT count(*)::integer FROM daily007_v2_wallet_ledger
+                  WHERE user_id = $1 AND match_id = $2 AND reason = 'match_entry') AS entry_count
+           FROM daily007_v2_users WHERE id = $1`,
+        [lastPlayer, matchId],
+      );
+      assert.deepEqual(lastPlayerWallet.rows[0], { wallet_coins: 90, entry_count: 1 });
+      const finalSlots = await slotsFor(origin, matchId, lastPlayer);
+      assert.equal(finalSlots.body.registrationClosed, true);
+      assert.equal(finalSlots.body.filledPlayers, 4);
+      assert.equal(finalSlots.body.teams[1].slots[1].occupied, true);
+      assert.equal(finalSlots.body.teams[1].slots[1].canJoin, false);
+    });
+
     await t.test("selected player seats persist for Clash Solo and Lone Wolf Solo", async () => {
       const formats = [
         { title: "Clash Squad Solo", gameMode: "clash_squad" },

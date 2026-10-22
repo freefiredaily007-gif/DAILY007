@@ -33,6 +33,7 @@
     "test:tournament-start-announcement": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-start-announcement.test.mjs",
     "test:admin-tournament-tabs": "pnpm --filter @workspace/api-server exec esbuild ../daily007/scripts/admin-tournament-tabs.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/daily007-admin-tournament-tabs.test.mjs && node --test /tmp/daily007-admin-tournament-tabs.test.mjs",
     "test:tournament-join-recovery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-join-recovery.test.mjs",
+    "test:tournament-capacity": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/tournament-capacity.test.mjs",
     "test:squad-slot-layout": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/squad-slot-layout.test.mjs",
     "test:tournament-seat-layout": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/tournament-seat-layout.test.mjs",
     "test:android-join-recovery": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/join-recovery",

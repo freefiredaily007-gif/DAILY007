@@ -741,10 +741,10 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         [matchId, account.id],
       );
       const prior = priorResult.rows[0];
-      const lifecycleClosed = ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status);
+      const lifecycleClosed = ["cancelled", "live", "closed", "completed"].includes(match.status);
       const closed = !match.enabled || lifecycleClosed || match.has_result ||
         !match.registration_open || occupancy.filledPlayers >= capacity * teamSize;
-      const canEdit = match.enabled && !lifecycleClosed &&
+      const canEdit = match.enabled && !lifecycleClosed && match.status !== "setup_needed" &&
         !match.has_result && match.edit_open;
       const rows = await client.query<{
         team_number: number; captain_registration_id: string | null; legacy_registration_id: string | null;
@@ -897,7 +897,7 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
           status: 409, code: REGISTRATION_CONFLICT_CODES.alreadyRegistered,
         });
       }
-      if (!match.enabled || ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status)) {
+      if (!match.enabled || ["cancelled", "live", "closed", "completed"].includes(match.status)) {
         throw Object.assign(new Error("This tournament is not accepting registrations."), {
           status: 409, code: REGISTRATION_CONFLICT_CODES.tournamentDisabled,
         });
