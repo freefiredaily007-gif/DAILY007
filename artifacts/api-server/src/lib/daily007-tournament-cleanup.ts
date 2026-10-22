@@ -11,7 +11,6 @@ type CleanupPreviewRow = {
   id: string;
   title: string;
   status: string;
-  enabled: boolean;
   starts_at: Date | string;
   registration_count: number;
   roster_count: number;
@@ -60,7 +59,7 @@ export async function getDaily007TournamentCleanupPreview(): Promise<Daily007Tou
      )
      SELECT bounds.generated_at,
             bounds.generated_at - interval '72 hours' AS cleanup_cutoff,
-            m.id, m.title, m.status, m.enabled, m.starts_at,
+             m.id, m.title, m.status, m.starts_at,
             (SELECT count(*)::integer
                FROM daily007_v2_registrations r
               WHERE r.match_id = m.id) AS registration_count,
@@ -177,7 +176,7 @@ export async function runDaily007TournamentCleanupSweep(): Promise<{ deletedMatc
        FROM daily007_v2_matches m
       WHERE m.starts_at <= clock_timestamp() - interval '72 hours'
       ORDER BY m.starts_at, m.id
-      LIMIT $2`,
+      LIMIT $1`,
     [CLEANUP_BATCH_SIZE],
   );
   const deletedMatchIds: string[] = [];

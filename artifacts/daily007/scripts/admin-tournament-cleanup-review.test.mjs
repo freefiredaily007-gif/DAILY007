@@ -20,21 +20,22 @@ test('cleanup preview API is typed and uses a fresh read-only request', () => {
   );
 });
 
-test('cleanup review shows its cutoff, eligibility policy, candidates, and protected history', () => {
+test('cleanup review shows its cutoff, age policy, candidates, and preserved wallet history', () => {
   assert.match(screenSource, /AUTOMATIC CLEANUP REVIEW/);
   assert.match(screenSource, /READ-ONLY · Shows the automatic cleanup policy/);
   assert.match(screenSource, /cleanupPreview\.retentionHours/);
   assert.match(screenSource, /cleanupPreview\.cutoffAt/);
   assert.match(screenSource, /cleanupPreview\.generatedAt/);
-  assert.match(screenSource, /eligible empty terminal/);
-  assert.match(screenSource, /have no registrations, roster or squad records, published results, or wallet history/);
-  assert.match(screenSource, /registrationRowsPreserved/);
-  assert.match(screenSource, /publishedResultAwards/);
+  assert.match(screenSource, /scheduled starts at least/);
+  assert.match(screenSource, /Cleanup deletes each listed match, its registrations/);
+  assert.match(screenSource, /matchDataToDelete\.registrations/);
+  assert.match(screenSource, /matchDataToDelete\.resultAwards/);
   assert.match(screenSource, /walletLedgerRows/);
+  assert.match(screenSource, /walletLedgerRowsPreserved/);
   assert.match(screenSource, /cleanupPreview\.candidates\.map/);
   assert.match(screenSource, /formatAuditTimestamp\(candidate\.startsAt\)/);
-  assert.match(screenSource, /No empty terminal matches currently meet every cleanup condition/);
-  assert.match(screenSource, /No matches have reached the 72-hour review window/);
+  assert.match(screenSource, /No expired tournaments found/);
+  assert.match(screenSource, /No tournament has reached 72 hours since its scheduled start/);
 });
 
 test('cleanup review has accessible loading, retryable error, empty, and read-only states', () => {

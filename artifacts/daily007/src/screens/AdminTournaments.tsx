@@ -871,34 +871,43 @@ export default function AdminTournaments() {
                   {`Preview generated ${formatAuditTimestamp(cleanupPreview.generatedAt)}`}
                 </Text>
                 <Text style={st.resultLine}>
-                  {`${cleanupPreview.eligibleMatches} eligible empty terminal ${cleanupPreview.eligibleMatches === 1 ? 'match' : 'matches'} out of ${cleanupPreview.scannedMatches} matches at least ${cleanupPreview.retentionHours} hours old.`}
+                  {`${cleanupPreview.eligibleMatches} ${cleanupPreview.eligibleMatches === 1 ? 'tournament' : 'tournaments'} have scheduled starts at least ${cleanupPreview.retentionHours} hours ago.`}
                 </Text>
                 <Text style={st.cleanupPolicy}>
-                  Eligible matches are cancelled, closed, or completed; disabled; and have no registrations, roster or squad records, published results, or wallet history.
+                  Cleanup deletes each listed match, its registrations, roster and squad records, and result awards. Wallet ledger entries, user profiles, coin balances, and player stats remain unchanged; old ledger match and registration IDs may no longer resolve.
                 </Text>
                 <View testID="admin-tournament-cleanup-protected-counts" style={st.cleanupCounts}>
-                  <Text style={st.cleanupSectionTitle}>PRESERVED HISTORY</Text>
+                  <Text style={st.cleanupSectionTitle}>MATCH DATA TO DELETE</Text>
                   <Text style={st.cleanupCountLine}>
-                    {`Registrations: ${cleanupPreview.protectedHistory.registrationRowsPreserved} preserved across ${cleanupPreview.protectedHistory.matchesWithRegistrations} matches`}
+                    {`Registrations: ${cleanupPreview.matchDataToDelete.registrations}`}
                   </Text>
                   <Text style={st.cleanupCountLine}>
-                    {`Published result awards: ${cleanupPreview.protectedHistory.publishedResultAwards} preserved across ${cleanupPreview.protectedHistory.matchesWithPublishedResults} matches`}
+                    {`Roster rows: ${cleanupPreview.matchDataToDelete.rosterRows} · squad teams: ${cleanupPreview.matchDataToDelete.squadTeams} · squad members: ${cleanupPreview.matchDataToDelete.squadMembers}`}
                   </Text>
                   <Text style={st.cleanupCountLine}>
-                    {`Wallet ledger records: ${cleanupPreview.protectedHistory.walletLedgerRows} preserved across ${cleanupPreview.protectedHistory.matchesWithWalletHistory} matches`}
+                    {`Result awards: ${cleanupPreview.matchDataToDelete.resultAwards}`}
+                  </Text>
+                </View>
+                <View style={st.cleanupCounts}>
+                  <Text style={st.cleanupSectionTitle}>WALLET & PLAYER HISTORY TO KEEP</Text>
+                  <Text style={st.cleanupCountLine}>
+                    {`Wallet ledger rows: ${cleanupPreview.protectedHistory.walletLedgerRows} across ${cleanupPreview.protectedHistory.matchesWithWalletHistory} matches`}
+                  </Text>
+                  <Text style={st.cleanupCountLine}>
+                    {`Player stats rows: ${cleanupPreview.protectedHistory.playerStatsRowsPreserved}`}
                   </Text>
                 </View>
                 {cleanupPreview.candidates.length > 0 ? (
                   <View testID="admin-tournament-cleanup-candidates" style={st.cleanupCandidates}>
-                    <Text style={st.cleanupSectionTitle}>ELIGIBLE EMPTY MATCHES</Text>
+                    <Text style={st.cleanupSectionTitle}>EXPIRED TOURNAMENTS</Text>
                     {cleanupPreview.candidates.map((candidate) => (
                       <View key={candidate.id} testID={`admin-tournament-cleanup-candidate-${candidate.id}`} style={st.cleanupCandidate}>
                         <Text style={st.cleanupCandidateName}>{candidate.title}</Text>
                         <Text style={st.cleanupCountLine}>
-                          {`${candidate.status.toUpperCase()} · started ${formatAuditTimestamp(candidate.startsAt)}`}
+                          {`${candidate.status.toUpperCase()} · scheduled ${formatAuditTimestamp(candidate.startsAt)}`}
                         </Text>
                         <Text style={st.cleanupCountLine}>
-                          {`Registrations ${candidate.registrations} · roster rows ${candidate.rosterRows} · squad teams ${candidate.squadTeams} · squad members ${candidate.squadMembers}`}
+                          {`Registrations ${candidate.registrations} · roster ${candidate.rosterRows} · squad teams ${candidate.squadTeams} · squad members ${candidate.squadMembers} · results ${candidate.resultAwards} · wallet rows kept ${candidate.walletLedgerRowsPreserved}`}
                         </Text>
                       </View>
                     ))}
@@ -911,8 +920,8 @@ export default function AdminTournaments() {
                     style={st.cleanupEmpty}
                   >
                     {cleanupPreview.scannedMatches === 0
-                      ? 'No matches have reached the 72-hour review window.'
-                      : 'No empty terminal matches currently meet every cleanup condition.'}
+                      ? 'No tournament has reached 72 hours since its scheduled start.'
+                      : 'No expired tournaments found.'}
                   </Text>
                 )}
               </>

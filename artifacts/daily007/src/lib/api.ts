@@ -55,24 +55,17 @@ export type TournamentCleanupPreview = {
   retentionHours: 72;
   scannedMatches: number;
   eligibleMatches: number;
-  eligibleDependencies: {
+  matchDataToDelete: {
     registrations: number;
     rosterRows: number;
     squadTeams: number;
     squadMembers: number;
+    resultAwards: number;
   };
   protectedHistory: {
-    matchesWithRegistrations: number;
-    registrationRowsPreserved: number;
-    matchesWithPublishedResults: number;
-    publishedResultAwards: number;
     matchesWithWalletHistory: number;
     walletLedgerRows: number;
     playerStatsRowsPreserved: number;
-  };
-  excluded: {
-    nonTerminalMatches: number;
-    enabledMatches: number;
   };
   candidates: Array<{
     id: string;
@@ -83,6 +76,8 @@ export type TournamentCleanupPreview = {
     rosterRows: number;
     squadTeams: number;
     squadMembers: number;
+    resultAwards: number;
+    walletLedgerRowsPreserved: number;
   }>;
 };
 
