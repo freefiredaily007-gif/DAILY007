@@ -553,6 +553,36 @@ export interface Daily007CurrentAccount {
   googleLinked: boolean;
 }
 
+/**
+ * @nullable
+ */
+export type Daily007LanguagePreferenceLanguage = typeof Daily007LanguagePreferenceLanguage[keyof typeof Daily007LanguagePreferenceLanguage] | null;
+
+
+export const Daily007LanguagePreferenceLanguage = {
+  en: 'en',
+  hi: 'hi',
+  gu: 'gu',
+} as const;
+
+export interface Daily007LanguagePreference {
+  /** @nullable */
+  language: Daily007LanguagePreferenceLanguage;
+}
+
+export type Daily007LanguagePreferenceUpdateLanguage = typeof Daily007LanguagePreferenceUpdateLanguage[keyof typeof Daily007LanguagePreferenceUpdateLanguage];
+
+
+export const Daily007LanguagePreferenceUpdateLanguage = {
+  en: 'en',
+  hi: 'hi',
+  gu: 'gu',
+} as const;
+
+export interface Daily007LanguagePreferenceUpdate {
+  language: Daily007LanguagePreferenceUpdateLanguage;
+}
+
 export interface HealthStatus {
   status: string;
 }

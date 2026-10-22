@@ -31,11 +31,16 @@ export const daily007UsersTable = pgTable("daily007_v2_users", {
   status: text("status").notNull().default("active"),
   role: text("role").notNull().default("user"),
   walletCoins: integer("wallet_coins").notNull().default(0),
+  preferredLanguage: text("preferred_language"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_users_wallet_nonnegative", sql`${table.walletCoins} >= 0`),
   check("daily007_v2_users_role_valid_v2", sql`${table.role} IN ('user', 'tournament_admin', 'admin')`),
   check("daily007_v2_users_status_valid", sql`${table.status} IN ('active', 'blocked')`),
+  check(
+    "daily007_v2_users_preferred_language_valid",
+    sql`${table.preferredLanguage} IS NULL OR ${table.preferredLanguage} IN ('en', 'hi', 'gu')`,
+  ),
 ]);
 
 export const daily007PasswordChangeAttemptsTable = pgTable("daily007_password_change_attempts", {

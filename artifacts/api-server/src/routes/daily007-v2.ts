@@ -2,6 +2,11 @@ import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:cry
 import { promisify } from "node:util";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { pool } from "@workspace/db";
+import {
+  Daily007V2GetLanguagePreferenceResponse,
+  Daily007V2SetLanguagePreferenceBody,
+  Daily007V2SetLanguagePreferenceResponse,
+} from "@workspace/api-zod";
 import { csvCell, parseFutureTimestamp, parseTeamMembers } from "../lib/daily007-v2-validation";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { legacyTournamentMode, resolveTournamentMode } from "../lib/daily007-mode-rules";
@@ -453,6 +458,49 @@ router.get("/daily007/v2/auth/me", authenticate, async (req, res): Promise<void>
     gameUid: account.game_uid, role: account.role, status: account.status,
     coins: account.wallet_coins, walletCoins: account.wallet_coins, googleLinked,
   });
+});
+
+router.get("/daily007/v2/preferences/language", authenticate, async (req, res): Promise<void> => {
+  const account = req.daily007Account;
+  if (!account) {
+    fail(res, 401, "A valid Daily007 v2 bearer token is required.");
+    return;
+  }
+  const result = await pool.query<{ preferred_language: string | null }>(
+    "SELECT preferred_language FROM daily007_v2_users WHERE id = $1",
+    [account.id],
+  );
+  const response = Daily007V2GetLanguagePreferenceResponse.parse({
+    language: result.rows[0]?.preferred_language ?? null,
+  });
+  res.json(response);
+});
+
+router.put("/daily007/v2/preferences/language", authenticate, async (req, res): Promise<void> => {
+  const account = req.daily007Account;
+  if (!account) {
+    fail(res, 401, "A valid Daily007 v2 bearer token is required.");
+    return;
+  }
+  const parsed = Daily007V2SetLanguagePreferenceBody.safeParse(req.body);
+  if (!parsed.success) {
+    fail(res, 400, "Choose a supported language.");
+    return;
+  }
+  const result = await pool.query<{ preferred_language: string }>(
+    `UPDATE daily007_v2_users
+        SET preferred_language = $2
+      WHERE id = $1
+      RETURNING preferred_language`,
+    [account.id, parsed.data.language],
+  );
+  if (!result.rows[0]) {
+    fail(res, 404, "Account not found.");
+    return;
+  }
+  res.json(Daily007V2SetLanguagePreferenceResponse.parse({
+    language: result.rows[0].preferred_language,
+  }));
 });
 
 router.get("/daily007/v2/admin/bootstrap-status", authenticate, async (_req, res): Promise<void> => {

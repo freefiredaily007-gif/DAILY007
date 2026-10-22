@@ -64,6 +64,8 @@ import type {
   Daily007GoogleRecoveryRequestAccepted,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
+  Daily007LanguagePreference,
+  Daily007LanguagePreferenceUpdate,
   Daily007LeaderboardsResponse,
   Daily007ListAdminResultLogsParams,
   Daily007PasswordChangeError,
@@ -874,6 +876,171 @@ export function useDaily007V2Me<TData = Awaited<ReturnType<typeof daily007V2Me>>
 
 
 
+
+export const getDaily007V2GetLanguagePreferenceUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/preferences/language`
+}
+
+/**
+ * @summary Get the signed-in player's language preference
+ */
+export const daily007V2GetLanguagePreference = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007LanguagePreference> => {
+
+  return customFetch<Daily007LanguagePreference>(getDaily007V2GetLanguagePreferenceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007V2GetLanguagePreferenceQueryKey = () => {
+    return [
+    `/api/daily007/v2/preferences/language`
+    ] as const;
+    }
+
+
+export const getDaily007V2GetLanguagePreferenceQueryOptions = <TData = Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007V2GetLanguagePreferenceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>> = ({ signal }) => daily007V2GetLanguagePreference({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007V2GetLanguagePreferenceQueryResult = NonNullable<Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>>
+export type Daily007V2GetLanguagePreferenceQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the signed-in player's language preference
+ */
+
+export function useDaily007V2GetLanguagePreference<TData = Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007V2GetLanguagePreference>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007V2GetLanguagePreferenceQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007V2SetLanguagePreferenceUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/preferences/language`
+}
+
+/**
+ * @summary Save the signed-in player's language preference
+ */
+export const daily007V2SetLanguagePreference = async (daily007LanguagePreferenceUpdate: Daily007LanguagePreferenceUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Daily007LanguagePreference> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007LanguagePreference>(getDaily007V2SetLanguagePreferenceUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007LanguagePreferenceUpdate)
+  }
+);}
+
+
+
+
+
+export const getDaily007V2SetLanguagePreferenceMutationKey = () => ['daily007V2SetLanguagePreference'] as const;
+
+export const getDaily007V2SetLanguagePreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>, TError,Daily007V2SetLanguagePreferenceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>, TError,Daily007V2SetLanguagePreferenceMutationVariables, TContext> => {
+
+const mutationKey = getDaily007V2SetLanguagePreferenceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>, Daily007V2SetLanguagePreferenceMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007V2SetLanguagePreference(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007V2SetLanguagePreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>>
+    export type Daily007V2SetLanguagePreferenceMutationBody = BodyType<Daily007LanguagePreferenceUpdate>
+    export type Daily007V2SetLanguagePreferenceMutationError = ErrorType<void>
+    export type Daily007V2SetLanguagePreferenceMutationVariables = {data: BodyType<Daily007LanguagePreferenceUpdate>}
+
+    /**
+ * @summary Save the signed-in player's language preference
+ */
+export const useDaily007V2SetLanguagePreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>, TError,Daily007V2SetLanguagePreferenceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>,
+        TError,
+        Daily007V2SetLanguagePreferenceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007V2SetLanguagePreferenceMutationOptions(options));
+    }
 
 export const getDaily007V2BootstrapAdminUrl = () => {
 

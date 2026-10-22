@@ -1,10 +1,10 @@
 ---
-name: Daily007 language preference storage
-description: Scope for language preference persistence when API and database changes are not approved.
+name: Daily007 language preference sync
+description: Server sync is approved for signed-in players; guests and offline reads still use local preferences.
 ---
 
-Keep the selected UI language in local storage keyed by the Daily007 player identity unless the user explicitly approves server-side profile synchronization.
+Treat the server language as authoritative for signed-in players so a preference follows them across devices. Keep a per-player local copy for offline fallback, and keep guest choices in memory until sign-in.
 
-**Why:** The requested language change required per-player isolation and restoration while prohibiting API, authentication, and database changes.
+**Why:** The language-sync request explicitly expanded the prior local-only scope; the account's preference now needs to be shared across devices without changing other profile or authentication behavior.
 
-**How to apply:** Reset to English for guests and on account changes, then load the active player's local preference. Add cross-device synchronization only if the scope changes.
+**How to apply:** On sign-in, use the server value when present; when it is unset, carry forward an intentional guest selection or migrate that account's prior local value. Default new accounts and guests to English.

@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAuthExpiredHandler as setGeneratedAuthExpiredHandler } from '@workspace/api-client-react';
 import { API_BASE_URL } from './backendUrl';
 import { isBlockedAccountError, type SessionExpiredReason } from './session-verification';
+import { isAppLanguage } from '../i18n/languagePreference';
+import type { AppLanguage } from '../i18n/languagePreference';
 
 export type Daily007Role = 'user' | 'tournament_admin' | 'admin';
 
@@ -447,6 +449,19 @@ export const Api = {
     { reviewNote },
   )),
   meAccount: currentAccount,
+  languagePreference: async (): Promise<AppLanguage | null> => {
+    const response = await unwrap(http.get('/daily007/v2/preferences/language'));
+    const language = response?.language;
+    if (language === null) return null;
+    if (!isAppLanguage(language)) throw new Error('The server returned an unsupported language preference.');
+    return language;
+  },
+  saveLanguagePreference: async (language: AppLanguage): Promise<void> => {
+    const response = await unwrap(http.put('/daily007/v2/preferences/language', { language }));
+    if (response?.language !== language) {
+      throw new Error('The server could not confirm the saved language preference.');
+    }
+  },
   googleLinkStatus: async (): Promise<boolean> => {
     const user = await currentAccount({ revalidate: true });
     if (typeof user.googleLinked !== 'boolean') {

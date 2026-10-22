@@ -22,6 +22,16 @@ export function isAppLanguage(value: unknown): value is AppLanguage {
     && (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
 }
 
+export function resolveSignedInLanguagePreference(
+  remote: AppLanguage | null,
+  guest: AppLanguage | null,
+  local: AppLanguage | null,
+): { language: AppLanguage; shouldPersistToServer: boolean } {
+  return {
+    language: remote ?? guest ?? local ?? 'en',
+    shouldPersistToServer: remote === null && (guest !== null || local !== null),
+  };
+}
 export function languagePreferenceKey(userId: string): string {
   const normalized = userId.trim();
   if (!normalized) throw new Error('A user ID is required to save a language preference.');

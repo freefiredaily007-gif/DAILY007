@@ -202,6 +202,35 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007CurrentAccount" }
         "401": { description: Missing or invalid bearer token }
+  /daily007/v2/preferences/language:
+    get:
+      operationId: daily007V2GetLanguagePreference
+      summary: Get the signed-in player's language preference
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Saved language, or null when the player has not chosen one
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007LanguagePreference" }
+        "401": { description: Missing or invalid bearer token }
+    put:
+      operationId: daily007V2SetLanguagePreference
+      summary: Save the signed-in player's language preference
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007LanguagePreferenceUpdate" }
+      responses:
+        "200":
+          description: Saved language preference
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007LanguagePreference" }
+        "400": { description: Unsupported language }
+        "401": { description: Missing or invalid bearer token }
   /daily007/v2/admin/bootstrap:
     post:
       operationId: daily007V2BootstrapAdmin
@@ -1583,6 +1612,18 @@ components:
         walletCoins: { type: integer, minimum: 0 }
         googleLinked: { type: boolean }
       required: [id, name, email, phone, gameUid, role, status, coins, walletCoins, googleLinked]
+    Daily007LanguagePreference:
+      type: object
+      additionalProperties: false
+      properties:
+        language: { type: ["string", "null"], enum: [en, hi, gu, null] }
+      required: [language]
+    Daily007LanguagePreferenceUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        language: { type: string, enum: [en, hi, gu] }
+      required: [language]
     HealthStatus:
       type: object
       properties:

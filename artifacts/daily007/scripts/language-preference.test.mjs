@@ -4,6 +4,7 @@ import {
   isAppLanguage,
   languagePreferenceKey,
   readLanguagePreference,
+  resolveSignedInLanguagePreference,
   writeLanguagePreference,
 } from '../src/i18n/languagePreference.ts';
 import en from '../src/i18n/locales/en.ts';
@@ -49,6 +50,34 @@ test('unsupported stored language values are ignored rather than applied', async
   assert.equal(isAppLanguage('gu'), true);
   assert.equal(isAppLanguage('fr'), false);
   assert.equal(await readLanguagePreference('player-one', store), null);
+});
+
+test('signed-in server preference wins and is not overwritten by another device cache', () => {
+  assert.deepEqual(
+    resolveSignedInLanguagePreference('gu', 'hi', 'en'),
+    { language: 'gu', shouldPersistToServer: false },
+  );
+});
+
+test('an intentional guest choice is carried to a new account when no server value exists', () => {
+  assert.deepEqual(
+    resolveSignedInLanguagePreference(null, 'hi', null),
+    { language: 'hi', shouldPersistToServer: true },
+  );
+});
+
+test('a legacy local account value migrates only when the server has no value', () => {
+  assert.deepEqual(
+    resolveSignedInLanguagePreference(null, null, 'gu'),
+    { language: 'gu', shouldPersistToServer: true },
+  );
+});
+
+test('a new account defaults to English without writing an unselected preference', () => {
+  assert.deepEqual(
+    resolveSignedInLanguagePreference(null, null, null),
+    { language: 'en', shouldPersistToServer: false },
+  );
 });
 
 test('Hindi and Gujarati resources cover the same keys as English', () => {

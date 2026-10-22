@@ -192,6 +192,26 @@ export const Daily007V2MeResponse = zod.object({
 
 
 /**
+ * @summary Get the signed-in player's language preference
+ */
+export const Daily007V2GetLanguagePreferenceResponse = zod.object({
+  "language": zod.union([zod.literal('en'),zod.literal('hi'),zod.literal('gu'),zod.literal(null)]).nullable()
+})
+
+
+/**
+ * @summary Save the signed-in player's language preference
+ */
+export const Daily007V2SetLanguagePreferenceBody = zod.object({
+  "language": zod.enum(['en', 'hi', 'gu'])
+})
+
+export const Daily007V2SetLanguagePreferenceResponse = zod.object({
+  "language": zod.union([zod.literal('en'),zod.literal('hi'),zod.literal('gu'),zod.literal(null)]).nullable()
+})
+
+
+/**
  * Requires configured bootstrap secret. Succeeds only while no v2 administrator exists.
  * @summary Promote the authenticated account to the first administrator
  */
