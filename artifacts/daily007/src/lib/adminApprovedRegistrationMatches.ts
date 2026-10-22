@@ -54,24 +54,35 @@ export function formatAdminRegistrationTime(value: unknown): string {
   return formatAdminIstDateTime(value, 'Time unavailable');
 }
 
-function formatAdminIstDateTime(value: unknown, invalidLabel: string): string {
-  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
-    return invalidLabel;
-  }
-  const date = new Date(value);
-  const dateLabel = new Intl.DateTimeFormat('en-GB', {
+export function formatAdminDateTime(
+  value: unknown,
+  invalidLabel = 'Time unavailable',
+): string {
+  const date = value instanceof Date
+    ? value
+    : typeof value === 'number' || (typeof value === 'string' && value.trim().length > 0)
+      ? new Date(value)
+      : null;
+  if (!date || !Number.isFinite(date.getTime())) return invalidLabel;
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Kolkata',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(date);
-  const timeLabel = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Kolkata',
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-  }).format(date);
-  return `${dateLabel} · ${timeLabel} IST`;
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? '';
+  const dayPeriod = part('dayPeriod').toUpperCase();
+
+  return `${part('day')} ${part('month')} ${part('year')}, ${part('hour').padStart(2, '0')}:${part('minute').padStart(2, '0')} ${dayPeriod} IST`;
+}
+
+function formatAdminIstDateTime(value: unknown, invalidLabel: string): string {
+  return formatAdminDateTime(value, invalidLabel);
 }
 
 export function buildAdminRegistrationTournamentCards<T extends ApprovedRegistrationMatchRow>(

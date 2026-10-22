@@ -37,6 +37,7 @@ import {
   getAdminTournamentFormatOptions,
   getAdminTournamentTitle,
 } from '../lib/adminTournamentForm';
+import { formatAdminDateTime as formatAuditTimestamp } from '../lib/adminApprovedRegistrationMatches';
 import {
   takeTournamentStartAnnouncement,
   takeTournamentStartAnnouncements,
@@ -76,13 +77,6 @@ function configuredPrizeForRank(tournament: Tournament, rank: number): number {
     if (Number(match[1]) === rank) return Number(match[2].replace(/,/g, ''));
   }
   return rank === 1 ? Number(tournament.prizePool) || 0 : 0;
-}
-
-function formatAuditTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const istDate = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
-  return `${istDate.toISOString().slice(0, 16).replace('T', ' ')} IST`;
 }
 
 function confirmDestructiveAction(

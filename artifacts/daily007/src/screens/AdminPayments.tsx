@@ -7,6 +7,7 @@ import { Btn, Card, C, Chip, Empty, Loading, Msg } from '../components/ui';
 import { depositAmountInr, inr } from '../lib/coins';
 import { ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { copyWithdrawalUpi, getWithdrawalUpiCopyLabel } from '../lib/withdrawal-upi-copy';
+import { formatAdminDateTime } from '../lib/adminApprovedRegistrationMatches';
 import { runOnceWhileInFlight } from '../lib/inFlightAction';
 
 const TABS = ['pending', 'approved', 'rejected'] as const;
@@ -245,7 +246,7 @@ export default function AdminPayments() {
               </View>
             )}
           {p.kind === 'payment' && <Text style={st.sub}>Transaction ID: {p.txnId || p.transactionId || p.reference || '—'}</Text>}
-          <Text style={st.sub}>{new Date(p.createdAt).toLocaleString()}</Text>
+          <Text style={st.sub}>{formatAdminDateTime(p.createdAt)}</Text>
           {p.reviewReason && <Text style={st.reason}>Review note: {p.reviewReason}</Text>}
           {p.kind === 'payment' && p.proofAvailable && (
             <View style={{ marginTop: 8 }}>

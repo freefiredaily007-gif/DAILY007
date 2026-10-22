@@ -5,6 +5,7 @@ import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Feather } from '@expo/vector-icons';
 import { Api, apiError } from '../lib/api';
 import { A, GlassCard, Loading, SectionTitle, StatCard, Empty, useAdminToast } from '../components/adminKit';
+import { formatAdminDateTime } from '../lib/adminApprovedRegistrationMatches';
 
 export default function AdminDashboard({ go }: { go: (s: string) => void }) {
   const toast = useAdminToast();
@@ -120,7 +121,7 @@ export default function AdminDashboard({ go }: { go: (s: string) => void }) {
             <View style={st.activityIcon}><Feather name="activity" size={13} color={swapThemeColor(A.cyan)} /></View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: A.text, fontSize: 12, fontWeight: '700' }}>{a.text}</Text>
-              <Text style={{ color: A.sub, fontSize: 10 }}>{a.time}</Text>
+              <Text style={{ color: A.sub, fontSize: 10 }}>{formatAdminDateTime(a.time)}</Text>
             </View>
           </GlassCard>
         ))}

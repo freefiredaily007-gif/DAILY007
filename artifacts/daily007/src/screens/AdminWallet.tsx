@@ -5,6 +5,7 @@ import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
 import { A, AdminSearchAnnouncement, Card, Btn, Chip, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
 import { inr } from '../lib/coins';
 import { runOnceWhileInFlight } from '../lib/inFlightAction';
+import { formatAdminDateTime } from '../lib/adminApprovedRegistrationMatches';
 
 type CoinAdjustment = {
   user: any;
@@ -155,7 +156,7 @@ export default function AdminWallet() {
               {Number(t.coins || 0) >= 0 ? '+' : ''}{t.coins} COINS
             </Text>
           </View>
-          <Text style={st.sub}>{String(t.createdAt || '').slice(0, 16).replace('T', ' ')}</Text>
+          <Text style={st.sub}>{formatAdminDateTime(t.createdAt)}</Text>
         </Card>
       ))}
     </ScreenWrap>

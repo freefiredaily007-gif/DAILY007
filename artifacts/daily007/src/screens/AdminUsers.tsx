@@ -3,6 +3,7 @@ import { AccessibilityInfo, findNodeHandle, Platform, View, ScrollView, StyleShe
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
 import { A, AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
+import { formatAdminDateTime } from '../lib/adminApprovedRegistrationMatches';
 import {
   useDaily007AdminDeleteUser,
   useDaily007V2AdminUserWalletHistory,
@@ -531,7 +532,7 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={st.walletHistoryDescription}>{item.description}</Text>
                       <Text style={st.walletHistoryMeta}>
-                        {item.transactionType.toUpperCase()} · {item.createdAt}
+                        {item.transactionType.toUpperCase()} · {formatAdminDateTime(item.createdAt)}
                       </Text>
                       <Text style={st.walletHistoryMeta}>Balance after: {item.balanceAfter} coins</Text>
                     </View>

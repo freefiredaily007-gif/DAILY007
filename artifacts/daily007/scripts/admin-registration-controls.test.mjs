@@ -78,9 +78,9 @@ test('tournament cards include active and scheduled matches, including empty app
   assert.deepEqual(cards.map((card) => card.approvedPlayerCount), [1, 1]);
   assert.equal(cards[1].rows.length, 1);
   assert.equal(cards[1].totalPlayerSlots, 48);
-  assert.equal(cards[1].startLabel, '21 Oct 2026 · 9:00 PM IST');
+  assert.equal(cards[1].startLabel, '21 Oct 2026, 09:00 PM IST');
   assert.equal(cards[1].lifecycle, 'upcoming');
-  assert.equal(formatAdminRegistrationTime('2026-10-21T15:30:00.000Z'), '21 Oct 2026 · 9:00 PM IST');
+  assert.equal(formatAdminRegistrationTime('2026-10-21T15:30:00.000Z'), '21 Oct 2026, 09:00 PM IST');
 });
 
 test('tournament selection opens only that match and back returns to the tournament list', () => {
@@ -153,7 +153,7 @@ test('approved registrations group by match ID and keep scheduled times distinct
   assert.equal(groups[0].rows.length, 2);
   assert.equal(groups[1].approvedPlayerCount, 1);
   assert.equal(groups[0].totalPlayerSlots, 48);
-  assert.equal(formatAdminRegistrationStart('2026-10-21T14:30:00.000Z'), '21 Oct 2026 · 8:00 PM IST');
+  assert.equal(formatAdminRegistrationStart('2026-10-21T14:30:00.000Z'), '21 Oct 2026, 08:00 PM IST');
 });
 
 test('approved player cards show name, UID, slot, registration time, copy, and delete actions', () => {

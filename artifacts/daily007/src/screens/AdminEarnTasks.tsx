@@ -13,6 +13,7 @@ import type {
 } from '@workspace/api-client-react';
 import { A, Btn, Card, ConfirmDialog, ScreenWrap, SectionTitle, StatusTag, useToast } from '../components/adminKit';
 import { apiError } from '../lib/api';
+import { formatAdminDateTime } from '../lib/adminApprovedRegistrationMatches';
 
 type ReviewTarget = {
   claim: Daily007AdminYoutubeSubscribeClaim;
@@ -127,9 +128,9 @@ export default function AdminEarnTasks() {
               </View>
               <Text selectable style={st.detail}>Daily007 user ID: {claim.userId}</Text>
               <Text style={st.detail}>Reward: {claim.rewardCoins} coins</Text>
-              <Text style={st.detail}>Submitted: {new Date(claim.createdAt).toLocaleString()}</Text>
+              <Text style={st.detail}>Submitted: {formatAdminDateTime(claim.createdAt)}</Text>
               {claim.reviewedAt ? (
-                <Text style={st.detail}>Reviewed: {new Date(claim.reviewedAt).toLocaleString()}</Text>
+                <Text style={st.detail}>Reviewed: {formatAdminDateTime(claim.reviewedAt)}</Text>
               ) : null}
               {claim.reviewReason ? <Text style={st.reason}>Review note: {claim.reviewReason}</Text> : null}
               {claim.transactionId ? (
@@ -196,9 +197,9 @@ export default function AdminEarnTasks() {
               <Text selectable style={st.detail}>Instagram username: @{claim.instagramUsername}</Text>
               <Text style={st.detail}>Proof / note: {claim.proofText || 'Not provided'}</Text>
               <Text style={st.detail}>Reward: {claim.rewardCoins} coins</Text>
-              <Text style={st.detail}>Submitted: {new Date(claim.createdAt).toLocaleString()}</Text>
+              <Text style={st.detail}>Submitted: {formatAdminDateTime(claim.createdAt)}</Text>
               {claim.reviewedAt ? (
-                <Text style={st.detail}>Reviewed: {new Date(claim.reviewedAt).toLocaleString()}</Text>
+                <Text style={st.detail}>Reviewed: {formatAdminDateTime(claim.reviewedAt)}</Text>
               ) : null}
               {claim.reviewReason ? <Text style={st.reason}>Review note: {claim.reviewReason}</Text> : null}
               {claim.transactionId ? (
