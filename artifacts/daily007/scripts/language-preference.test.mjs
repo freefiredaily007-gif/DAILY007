@@ -76,6 +76,30 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function createRetryScheduler() {
+  const tasks = [];
+  return {
+    tasks,
+    scheduler: {
+      schedule(callback, delayMs) {
+        const task = { callback, delayMs, cancelled: false, ran: false };
+        tasks.push(task);
+        return task;
+      },
+      cancel(task) {
+        task.cancelled = true;
+      },
+    },
+    async runNext() {
+      const task = tasks.find((candidate) => !candidate.cancelled && !candidate.ran);
+      if (!task) return false;
+      task.ran = true;
+      await task.callback();
+      return true;
+    },
+  };
+}
+
 test('new accounts have no saved preference and use English as the app default', async () => {
   const store = createStore();
   assert.equal(await readLanguagePreference('player-one', store), null);
@@ -275,6 +299,102 @@ test('a failed language sync retries and clears pending state only after server 
   assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
   assert.equal(await readLanguagePreference('player-one', store), 'hi');
   assert.equal(appliedLanguages.at(-1), 'hi');
+});
+
+test('a failed save retries after a delay and stops after server confirmation', async () => {
+  const retry = createRetryScheduler();
+  const store = createStore();
+  let attempts = 0;
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: store,
+    readServerPreference: async () => null,
+    retryDelayMs: 750,
+    retryScheduler: retry.scheduler,
+    async saveServerPreference() {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Temporary API outage');
+    },
+  });
+  await lifecycle.setAccountId('player-one');
+
+  await assert.rejects(lifecycle.setLanguage('hi'), /Temporary API outage/);
+  assert.equal(retry.tasks.length, 1);
+  assert.equal(retry.tasks[0].delayMs, 750);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), 'hi');
+
+  assert.equal(await retry.runNext(), true);
+
+  assert.equal(attempts, 2);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
+  assert.equal(await retry.runNext(), false);
+});
+
+test('automatic retries are bounded while connectivity-triggered recovery remains available', async () => {
+  const retry = createRetryScheduler();
+  let attempts = 0;
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: createStore(),
+    readServerPreference: async () => null,
+    retryScheduler: retry.scheduler,
+    async saveServerPreference() {
+      attempts += 1;
+      throw new Error('Temporary API outage');
+    },
+  });
+  await lifecycle.setAccountId('player-one');
+
+  await assert.rejects(lifecycle.setLanguage('gu'), /Temporary API outage/);
+  for (let count = 0; count < 3; count += 1) {
+    assert.equal(await retry.runNext(), true);
+  }
+
+  assert.equal(attempts, 4, 'one initial save plus three bounded retries');
+  assert.equal(await retry.runNext(), false);
+  await lifecycle.retryPendingServerPreference();
+  assert.equal(attempts, 5, 'a later connectivity event can still recover the pending choice');
+});
+
+test('a newer choice or account change cancels an older scheduled retry', async () => {
+  const retry = createRetryScheduler();
+  const savedServerLanguages = [];
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: createStore(),
+    readServerPreference: async () => null,
+    retryScheduler: retry.scheduler,
+    async saveServerPreference(language) {
+      savedServerLanguages.push(language);
+      if (language === 'hi') throw new Error('Temporary API outage');
+    },
+  });
+  await lifecycle.setAccountId('player-one');
+
+  await assert.rejects(lifecycle.setLanguage('hi'), /Temporary API outage/);
+  await lifecycle.setLanguage('gu');
+  assert.equal(retry.tasks[0].cancelled, true);
+  await retry.tasks[0].callback();
+  assert.equal(await retry.runNext(), false);
+  assert.deepEqual(savedServerLanguages, ['hi', 'gu']);
+
+  const accountRetry = createRetryScheduler();
+  const accountScopedLifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: createStore(),
+    readServerPreference: async () => null,
+    retryScheduler: accountRetry.scheduler,
+    async saveServerPreference() {
+      throw new Error('Temporary API outage');
+    },
+  });
+  await accountScopedLifecycle.setAccountId('player-one');
+  await assert.rejects(accountScopedLifecycle.setLanguage('hi'), /Temporary API outage/);
+  await accountScopedLifecycle.setAccountId('player-two');
+
+  assert.equal(accountRetry.tasks[0].cancelled, true);
+  await accountRetry.tasks[0].callback();
+  assert.equal(await accountRetry.runNext(), false);
 });
 
 test('a pending offline choice wins on sign-in and is retried instead of the stale server value', async () => {

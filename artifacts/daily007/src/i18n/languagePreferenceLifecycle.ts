@@ -14,6 +14,11 @@ type LanguagePreferenceLifecycleDependencies = {
   localStore: LanguagePreferenceStore;
   readServerPreference: () => Promise<AppLanguage | null>;
   saveServerPreference: (language: AppLanguage) => Promise<void>;
+  retryDelayMs?: number;
+  retryScheduler?: {
+    schedule: (callback: () => void | Promise<void>, delayMs: number) => unknown;
+    cancel: (handle: unknown) => void;
+  };
 };
 
 export function createLanguagePreferenceLifecycle({
@@ -21,18 +26,66 @@ export function createLanguagePreferenceLifecycle({
   localStore,
   readServerPreference,
   saveServerPreference,
+  retryDelayMs = 1_000,
+  retryScheduler = {
+    schedule: (callback, delayMs) => setTimeout(() => {
+      void callback();
+    }, delayMs),
+    cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  },
 }: LanguagePreferenceLifecycleDependencies) {
+  const maxServerRetries = 3;
   let activeAccountId: string | null = null;
   let guestLanguage: AppLanguage = 'en';
   let guestLanguageWasChosen = false;
   let operationVersion = 0;
   let pendingServerWrites = 0;
+  let scheduledRetryAttempts = 0;
+  let retryInFlightVersion: number | null = null;
+  let retryTimer: unknown = null;
   let pendingServerPreference: {
     userId: string;
     language: AppLanguage;
     version: number;
   } | null = null;
   let preferenceWriteQueue: Promise<void> = Promise.resolve();
+
+  const cancelScheduledRetry = () => {
+    if (retryTimer === null) return;
+    retryScheduler.cancel(retryTimer);
+    retryTimer = null;
+  };
+
+  const schedulePendingRetry = (
+    userId: string,
+    language: AppLanguage,
+    version: number,
+  ) => {
+    const pending = pendingServerPreference;
+    if (
+      retryTimer !== null
+      || scheduledRetryAttempts >= maxServerRetries
+      || pending?.userId !== userId
+      || pending.language !== language
+      || pending.version !== version
+      || operationVersion !== version
+      || activeAccountId !== userId
+    ) return;
+
+    retryTimer = retryScheduler.schedule(async () => {
+      const currentPending = pendingServerPreference;
+      if (
+        currentPending?.userId !== userId
+        || currentPending.language !== language
+        || currentPending.version !== version
+        || operationVersion !== version
+        || activeAccountId !== userId
+      ) return;
+
+      retryTimer = null;
+      await retryPendingServerPreference(true);
+    }, retryDelayMs);
+  };
 
   const persistAccountPreference = (
     userId: string,
@@ -58,7 +111,12 @@ export function createLanguagePreferenceLifecycle({
 
       pendingServerWrites += 1;
       try {
-        await saveServerPreference(next);
+        try {
+          await saveServerPreference(next);
+        } catch (error) {
+          schedulePendingRetry(userId, next, version);
+          throw error;
+        }
         const latestPending = pendingServerPreference;
         if (
           latestPending?.userId === userId
@@ -69,6 +127,8 @@ export function createLanguagePreferenceLifecycle({
         ) {
           await clearPendingLanguagePreference(userId, next, localStore);
           pendingServerPreference = null;
+          cancelScheduledRetry();
+          scheduledRetryAttempts = 0;
         }
       } finally {
         pendingServerWrites -= 1;
@@ -81,7 +141,9 @@ export function createLanguagePreferenceLifecycle({
   const setLanguage = async (next: AppLanguage): Promise<boolean> => {
     if (!isAppLanguage(next)) throw new Error('Unsupported language.');
 
+    cancelScheduledRetry();
     const version = ++operationVersion;
+    scheduledRetryAttempts = 0;
     await applyLanguage(next);
     if (version !== operationVersion) return false;
 
@@ -103,6 +165,8 @@ export function createLanguagePreferenceLifecycle({
 
     activeAccountId = userId;
     const version = ++operationVersion;
+    cancelScheduledRetry();
+    scheduledRetryAttempts = 0;
     pendingServerPreference = null;
 
     if (!userId) {
@@ -179,21 +243,30 @@ export function createLanguagePreferenceLifecycle({
     }
   };
 
-  const retryPendingServerPreference = async (): Promise<void> => {
+  const retryPendingServerPreference = async (scheduled = false): Promise<void> => {
     const pending = pendingServerPreference;
     if (
       !pending
       || activeAccountId !== pending.userId
       || operationVersion !== pending.version
       || pendingServerWrites > 0
+      || retryInFlightVersion === pending.version
+      || (scheduled && scheduledRetryAttempts >= maxServerRetries)
     ) return;
 
-    await persistAccountPreference(
-      pending.userId,
-      pending.language,
-      true,
-      pending.version,
-    ).catch(() => {});
+    cancelScheduledRetry();
+    if (scheduled) scheduledRetryAttempts += 1;
+    retryInFlightVersion = pending.version;
+    try {
+      await persistAccountPreference(
+        pending.userId,
+        pending.language,
+        true,
+        pending.version,
+      ).catch(() => {});
+    } finally {
+      if (retryInFlightVersion === pending.version) retryInFlightVersion = null;
+    }
   };
 
   return { setLanguage, setAccountId, refreshOnResume, retryPendingServerPreference };
