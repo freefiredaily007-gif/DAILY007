@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { AdminRegistration, Api, apiError, Tournament } from '../lib/api';
 import { Btn, Card, C, Empty, Loading, Msg } from '../components/ui';
@@ -11,6 +11,8 @@ import {
 } from '../lib/adminApprovedRegistrationMatches';
 import { getTournamentLifecycleState } from '../lib/tournamentLifecycle';
 
+const LIVE_REGISTRATION_REFRESH_INTERVAL_MS = 15_000;
+
 export default function AdminRegs() {
   const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -20,18 +22,25 @@ export default function AdminRegs() {
   const [tournaments, setTournaments] = useState<Tournament[] | null>(null);
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
   const [initialLoadFailed, setInitialLoadFailed] = useState(false);
+  const requestRevision = useRef(0);
 
   const load = useCallback(async () => {
+    const revision = ++requestRevision.current;
     const [registrationRows, tournamentRows] = await Promise.all([
       Api.adminRegistrations(),
       Api.tournaments(true),
     ]);
+    if (revision !== requestRevision.current) return;
     if (!Array.isArray(registrationRows) || !Array.isArray(tournamentRows)) {
       throw new Error('The registration or tournament list response was invalid.');
     }
     setRegistrations(registrationRows);
     setTournaments(tournamentRows);
     setInitialLoadFailed(false);
+    setErr((current) => current.startsWith('Could not load approved registrations:') ||
+      current.startsWith('Could not refresh registrations:')
+      ? ''
+      : current);
   }, []);
   useEffect(() => {
     setRegistrations(null);
@@ -42,6 +51,16 @@ export default function AdminRegs() {
       setTournaments([]);
       setInitialLoadFailed(true);
     });
+  }, [load]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      void load().catch((e) => {
+        setErr(`Could not refresh registrations: ${apiError(e)}`);
+      });
+    }, LIVE_REGISTRATION_REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, [load]);
 
   const tournamentCards = useMemo(

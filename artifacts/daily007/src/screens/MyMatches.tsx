@@ -30,6 +30,8 @@ import {
 } from '../lib/focusedLatestRequest';
 import { TournamentResultRow } from '../components/TournamentResultRow';
 
+const LIVE_MATCH_REFRESH_INTERVAL_MS = 15_000;
+
 export default function MyMatches() {
   const { fontScale } = useWindowDimensions();
   const navigation: any = useNavigation();
@@ -85,6 +87,7 @@ export default function MyMatches() {
 
   useFocusEffect(useCallback(() => {
     let active = true;
+    let networkUsable = false;
     registrationRequests.setFocused(true);
     connectivityRefreshes.setFocused(true);
     retryController.setFocused(true);
@@ -102,6 +105,7 @@ export default function MyMatches() {
       refreshAfterFailure: boolean,
     ) => {
       const usable = isUsableNetworkState(networkState);
+      networkUsable = usable;
       retryController.setNetworkUsable(usable);
       if (!usable) connectivityRefreshes.cancelPending();
       if (usable && refreshAfterFailure) connectivityRefreshes.request(refreshMatches);
@@ -121,9 +125,14 @@ export default function MyMatches() {
         retryController.setNetworkUsable(false);
       }
     });
+    const liveRefreshTimer = setInterval(() => {
+      if (!active || appState.current !== 'active' || !networkUsable) return;
+      void refreshMatches();
+    }, LIVE_MATCH_REFRESH_INTERVAL_MS);
     refreshMatches();
     return () => {
       active = false;
+      clearInterval(liveRefreshTimer);
       registrationRequests.setFocused(false);
       connectivityRefreshes.setFocused(false);
       retryController.setFocused(false);
@@ -251,6 +260,8 @@ export default function MyMatches() {
               ? item.resultDetails
               : null;
             const results = cancelled ? [] : Array.isArray(t.results) ? t.results : [];
+            const hasLivePlayerCount = t.filledPlayerSlots !== undefined && t.filledPlayerSlots !== null;
+            const livePlayerCount = Number(t.filledPlayerSlots);
             return (
               <GCard key={item.id} glowColor={roomReady ? C.green : undefined}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -266,16 +277,23 @@ export default function MyMatches() {
                 <Text style={s.meta}>SCHEDULED START: {schedule?.date ?? fmtDate(t.date)} • <Text style={s.timeMeta}>{fmtTime12(schedule?.startTime24 ?? t.time)} IST</Text></Text>
                 {cancelled ? <Text style={s.meta}>Any entry fee paid was refunded to the paying account.</Text> : null}
                 {item.teamName ? <Text style={s.meta}>Team: {item.teamName}</Text> : null}
-                {isIndividualSquad && !cancelled ? (
+                {!cancelled && hasLivePlayerCount ? (
+                  <Text style={s.playerCount} testID={`my-match-player-count-${item.id}`}>
+                    REGISTERED PLAYERS: {Number.isFinite(livePlayerCount) ? livePlayerCount : 0}
+                  </Text>
+                ) : null}
+                {!cancelled ? (
                   <Btn
-                    title="VIEW SQUAD"
+                    title={isIndividualSquad ? 'VIEW SQUAD' : 'VIEW PLAYERS'}
                     kind="ghost"
                     small
-                    accessibilityLabel={`View Squad slots for ${t.name ?? 'this tournament'}`}
+                    accessibilityLabel={`${isIndividualSquad ? 'View Squad' : 'View players'} for ${t.name ?? 'this tournament'}`}
+                    testID={`my-match-view-players-${item.id}`}
                     onPress={() => navigation.navigate('TDetail', { id: t.id ?? item.tournamentId })}
                     style={{ marginTop: 10 }}
                   />
-                ) : canEditTeam ? (
+                ) : null}
+                {canEditTeam ? (
                   <Btn
                     title="EDIT TEAM"
                     kind="ghost"
@@ -348,6 +366,7 @@ const s = StyleSheet.create({
   mode: { color: C.orange, fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
   tName: { color: C.text, fontWeight: '900', fontSize: 16, marginTop: 2 },
   meta: { color: C.sub, fontSize: 12, marginTop: 4 },
+  playerCount: { color: C.green, fontSize: 11, fontWeight: '900', letterSpacing: 0.7, marginTop: 8 },
   timeMeta: { color: C.gold, fontSize: 15, fontWeight: '900' },
   room: { backgroundColor: C.bg2, borderRadius: 10, padding: 10, marginTop: 10, borderWidth: 1, borderColor: C.border },
   roomLocked: { color: '#f59e0b', fontSize: 12, fontWeight: '600' },

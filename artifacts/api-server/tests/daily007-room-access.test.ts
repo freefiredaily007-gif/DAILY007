@@ -222,6 +222,7 @@ test("compat registrations gate room credentials by release time and approval st
     const playerRegistrations = await request(origin, "/my/registrations", "GET", playerToken);
     assert.equal(playerRegistrations.status, 200);
     assert.equal(playerRegistrations.headers.get("cache-control"), "no-store");
+    assert.equal(playerRegistrations.headers.get("vary"), "Authorization");
     assert.deepEqual(playerRegistrations.body.map((registration: any) => registration.id), [
       TEST_REGISTRATION_ID,
     ]);
@@ -295,6 +296,61 @@ test("compat registrations gate room credentials by release time and approval st
       assert.equal(field in rejectedAtBoundary.body[0], false);
       assert.equal(field in rejectedAtBoundary.body[0].tournament, false);
     }
+  });
+});
+
+test("My Matches sees a newly joined registration on the next user-scoped database read", async () => {
+  roomAccessTestDb.reset();
+  const newPlayerToken = makeToken(TEST_UNREGISTERED_PLAYER_ID, 0);
+  const otherPlayerToken = makeToken(TEST_PLAYER_ID, 0);
+  const adminToken = makeToken(TEST_FULL_ADMIN_ID, 0);
+  assert.ok(newPlayerToken);
+  assert.ok(otherPlayerToken);
+  assert.ok(adminToken);
+  const newRegistrationId = "82000000-0000-4000-8000-000000000099";
+
+  await withServer(async (origin) => {
+    const beforeJoin = await request(origin, "/my/registrations", "GET", newPlayerToken);
+    assert.equal(beforeJoin.status, 200);
+    assert.deepEqual(beforeJoin.body, []);
+
+    roomAccessTestDb.registrations.push({
+      id: newRegistrationId,
+      match_id: TEST_MATCH_ID,
+      captain_user_id: TEST_UNREGISTERED_PLAYER_ID,
+      captain_name: "Newly Joined Player",
+      captain_game_name: "LivePlayer",
+      captain_game_uid: "FF-LIVE-002",
+      team_name: "",
+      entry_coins_paid: 0,
+      status: "approved",
+      created_at: new Date(),
+    });
+
+    const afterJoin = await request(origin, "/my/registrations", "GET", newPlayerToken);
+    assert.equal(afterJoin.status, 200);
+    assert.equal(afterJoin.headers.get("cache-control"), "no-store");
+    assert.deepEqual(afterJoin.body.map((registration: any) => registration.id), [
+      newRegistrationId,
+    ]);
+    assert.equal(afterJoin.body[0].playerName, "Newly Joined Player");
+
+    const adminView = await request(origin, "/admin/registrations", "GET", adminToken);
+    assert.equal(adminView.status, 200);
+    assert.equal(adminView.headers.get("cache-control"), "no-store");
+    assert.equal(
+      adminView.body.some((registration: any) => registration.id === newRegistrationId),
+      true,
+      "The new registration must be visible to the authorized admin from the live registration list.",
+    );
+
+    const otherPlayerView = await request(origin, "/my/registrations", "GET", otherPlayerToken);
+    assert.equal(otherPlayerView.status, 200);
+    assert.equal(
+      otherPlayerView.body.some((registration: any) => registration.id === newRegistrationId),
+      false,
+      "A new registration must never leak into another player's My Matches response.",
+    );
   });
 });
 
@@ -383,6 +439,7 @@ test("public compatibility tournament participants omit room fields after creden
   await withServer(async (origin) => {
     const roster = await requestPublic(origin, `/tournaments/${TEST_MATCH_ID}/participants`);
     assert.equal(roster.status, 200);
+    assert.equal(roster.headers.get("cache-control"), "no-store");
     assert.equal(roster.body.tournamentId, TEST_MATCH_ID);
     assert.equal(Array.isArray(roster.body.participants), true);
     assert.equal(roster.body.participants.length, 2);

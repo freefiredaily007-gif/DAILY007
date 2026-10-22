@@ -74,6 +74,7 @@ export type AccountRecoveryRequest = {
 };
 
 export const http = axios.create({ baseURL: API_BASE_URL, headers: { 'Content-Type': 'application/json' } });
+const LIVE_DATA_HEADERS = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' };
 
 export function newAdminAdjustmentRequestId(): string {
   const timestamp = Date.now().toString(16).padStart(12, '0').slice(-12);
@@ -509,7 +510,9 @@ export const Api = {
   tournament: (id: string) => unwrap(http.get('/tournaments/' + id)),
   // registrations / join
   myRegistrations: async (): Promise<unknown> => {
-    const registrations: unknown = await unwrap(http.get('/my/registrations'));
+    const registrations: unknown = await unwrap(http.get('/my/registrations', {
+      headers: LIVE_DATA_HEADERS,
+    }));
     if (!Array.isArray(registrations)) throw new Error('Invalid registrations response.');
     return registrations;
   },
@@ -617,7 +620,9 @@ export const Api = {
   adminDeletePayment: (id: string) => unwrap(http.delete('/admin/payments/' + id)),
   adminDeleteWithdrawal: (id: string) => unwrap(http.delete('/admin/withdrawals/' + id)),
   adminDeleteRegistration: (id: string) => unwrap(http.delete('/admin/registrations/' + id)),
-  adminRegistrations: (): Promise<AdminRegistration[]> => unwrap(http.get('/admin/registrations')),
+  adminRegistrations: (): Promise<AdminRegistration[]> => unwrap(http.get('/admin/registrations', {
+    headers: LIVE_DATA_HEADERS,
+  })),
   adminRegAction: (id: string, action: 'approve' | 'reject') => unwrap(http.post('/admin/registrations/' + id + '/' + action, {})),
   createTournament: (b: object) => unwrap(http.post('/tournaments', b)),
   updateTournament: (id: string, b: object) => unwrap(http.patch('/tournaments/' + id, b)),

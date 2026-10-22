@@ -829,6 +829,7 @@ router.get("/tournaments/:id/participants", async (req, res): Promise<void> => {
     [id],
   );
   if (!match.rows[0]) return fail(res, 404, "Tournament not found.");
+  res.setHeader("Cache-Control", "no-store");
   res.json({ tournamentId: id, participants: await getPublicTournamentParticipants(id) });
 });
 
@@ -1034,6 +1035,7 @@ function mayExposeRoom(row: RegistrationRow, nowMs = Date.now()): boolean {
 
 router.get("/my/registrations", authenticate, async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Vary", "Authorization");
   const account = req.daily007Account;
   if (!account) return fail(res, 401, "Authentication is required.");
   const result = await pool.query<RegistrationRow>(

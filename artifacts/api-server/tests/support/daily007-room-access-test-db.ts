@@ -224,13 +224,14 @@ class RoomAccessTestDatabase {
     } else if (normalized === "SELECT id FROM daily007_v2_matches WHERE id = $1") {
       rows = first === this.match.id ? [{ id: this.match.id }] : [];
     } else if (normalized.startsWith(
-      "SELECT mode, game_mode, team_type FROM daily007_v2_matches WHERE id = $1",
-    )) {
+      "SELECT mode, game_mode, team_type",
+    ) && normalized.includes("FROM daily007_v2_matches WHERE id = $1")) {
       rows = first === this.match.id
         ? [{
             mode: this.match.mode,
             game_mode: this.match.game_mode,
             team_type: this.match.team_type,
+            capacity: this.match.capacity,
           }]
         : [];
     } else if (normalized === "SELECT status FROM daily007_v2_matches WHERE id = $1") {
@@ -249,9 +250,11 @@ class RoomAccessTestDatabase {
             room_published: this.match.room_published,
           }]
         : [];
-    } else if (normalized ===
-      "SELECT r.id AS registration_id, r.status, NULLIF(BTRIM(r.team_name), '') AS team_name, r.captain_game_name, roster.position, roster.member_name FROM daily007_v2_registrations r LEFT JOIN daily007_v2_roster roster ON roster.registration_id = r.id WHERE r.match_id = $1 AND r.status IN ('approved', 'pending') ORDER BY r.created_at, r.id, roster.position"
-    ) {
+    } else if (normalized.startsWith(
+      "SELECT r.id AS registration_id, r.assigned_group_number, r.status,",
+    ) && normalized.includes(
+      "FROM daily007_v2_registrations r LEFT JOIN daily007_v2_roster roster",
+    )) {
       rows = this.registrations
         .filter((registration) =>
           registration.match_id === first &&
@@ -259,6 +262,7 @@ class RoomAccessTestDatabase {
         )
         .map((registration) => ({
           registration_id: registration.id,
+          assigned_group_number: null,
           status: registration.status,
           team_name: registration.team_name,
           captain_game_name: registration.captain_game_name,
@@ -335,13 +339,12 @@ class RoomAccessTestDatabase {
     } else if (normalized.startsWith(
       "SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,",
     )) {
-      const player = this.users.get(first);
       rows = this.registrations
-        .filter((registration) => registration.captain_user_id === first)
+        .filter((registration) => !first || registration.captain_user_id === first)
         .map((registration) => ({
           ...structuredClone(registration),
-          name: player?.name,
-          email: player?.email,
+          name: this.users.get(registration.captain_user_id)?.name,
+          email: this.users.get(registration.captain_user_id)?.email,
           title: this.match.title,
           mode: this.match.mode,
           game_mode: this.match.game_mode,

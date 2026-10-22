@@ -16,6 +16,14 @@ const myMatchesSource = readFileSync(
   new URL("../src/screens/MyMatches.tsx", import.meta.url),
   "utf8",
 );
+const adminRegsSource = readFileSync(
+  new URL("../src/screens/AdminRegs.tsx", import.meta.url),
+  "utf8",
+);
+const apiSource = readFileSync(
+  new URL("../src/lib/api.ts", import.meta.url),
+  "utf8",
+);
 
 test("My Matches refreshes on background-to-active and inactive-to-active transitions", () => {
   assert.equal(didAppReturnToForeground("background", "active"), true);
@@ -81,6 +89,40 @@ test("My Matches retries registration loading when connectivity returns while fo
     /registrationRequests\.run\(\s*\(\) => Api\.myRegistrations\(\)/,
     "All registration loads must pass through the focused latest-request gate.",
   );
+});
+
+test("My Matches refreshes live registrations and player counts while focused, online, and in the foreground", () => {
+  const focusEffect = myMatchesSource.match(
+    /useFocusEffect\(useCallback\(\(\) => \{([\s\S]*?)\n\s*\}, \[[^\]]+\]\)\);/,
+  )?.[1] ?? "";
+  assert.match(myMatchesSource, /const LIVE_MATCH_REFRESH_INTERVAL_MS = 15_000;/);
+  assert.match(focusEffect, /let networkUsable = false;/);
+  assert.match(focusEffect, /networkUsable = usable;/);
+  assert.match(
+    focusEffect,
+    /setInterval\(\(\) => \{\s*if \(!active \|\| appState\.current !== 'active' \|\| !networkUsable\) return;\s*void refreshMatches\(\);\s*\}, LIVE_MATCH_REFRESH_INTERVAL_MS\)/,
+  );
+  assert.match(focusEffect, /clearInterval\(liveRefreshTimer\)/);
+  assert.match(myMatchesSource, /REGISTERED PLAYERS: \{Number\.isFinite\(livePlayerCount\) \? livePlayerCount : 0\}/);
+  assert.match(myMatchesSource, /title=\{isIndividualSquad \? 'VIEW SQUAD' : 'VIEW PLAYERS'\}/);
+});
+
+test("Admin registrations refresh live while visible and ignore older overlapping responses", () => {
+  assert.match(adminRegsSource, /const LIVE_REGISTRATION_REFRESH_INTERVAL_MS = 15_000;/);
+  assert.match(adminRegsSource, /const requestRevision = useRef\(0\)/);
+  assert.match(adminRegsSource, /const revision = \+\+requestRevision\.current;/);
+  assert.match(adminRegsSource, /if \(revision !== requestRevision\.current\) return;/);
+  assert.match(
+    adminRegsSource,
+    /setInterval\(\(\) => \{\s*if \(AppState\.currentState !== 'active'\) return;\s*void load\(\)\.catch/,
+  );
+  assert.match(adminRegsSource, /clearInterval\(timer\)/);
+});
+
+test("registration reads explicitly bypass client caches", () => {
+  assert.match(apiSource, /const LIVE_DATA_HEADERS = \{ 'Cache-Control': 'no-cache', Pragma: 'no-cache' \}/);
+  assert.match(apiSource, /http\.get\('\/my\/registrations', \{\s*headers: LIVE_DATA_HEADERS/);
+  assert.match(apiSource, /http\.get\('\/admin\/registrations', \{\s*headers: LIVE_DATA_HEADERS/);
 });
 
 function deferred() {
