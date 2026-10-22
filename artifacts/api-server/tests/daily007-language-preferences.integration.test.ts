@@ -4,9 +4,10 @@ import type { Server } from "node:http";
 import express from "express";
 import test, { after, before } from "node:test";
 import { pool } from "@workspace/db";
-import daily007V2Router, { makeToken } from "../src/routes/daily007-v2";
+import daily007V2Router, { hashPassword } from "../src/routes/daily007-v2";
 
 const TEST_AUTH_SECRET = "daily007-language-preference-test-secret";
+const TEST_PASSWORD = "language-preference-test-password";
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 
@@ -19,17 +20,20 @@ let server: Server;
 let baseUrl = "";
 
 before(async () => {
+  const credentials = await hashPassword(TEST_PASSWORD);
   await pool.query(
     `INSERT INTO daily007_v2_users
        (id, name, email, password_salt, password_hash)
      VALUES
-       ($1, 'Language Player One', $3, 'salt', 'hash'),
-       ($2, 'Language Player Two', $4, 'salt', 'hash')`,
+       ($1, 'Language Player One', $3, $5, $6),
+       ($2, 'Language Player Two', $4, $5, $6)`,
     [
       firstPlayerId,
       secondPlayerId,
       `language-player-${firstPlayerId}@example.test`,
       `language-player-${secondPlayerId}@example.test`,
+      credentials.salt,
+      credentials.hash,
     ],
   );
   server = await new Promise<Server>((resolve) => {
@@ -37,7 +41,7 @@ before(async () => {
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Test API server did not start.");
-  baseUrl = `http://127.0.0.1:${address.port}/api/daily007/v2/preferences/language`;
+  baseUrl = `http://127.0.0.1:${address.port}/api`;
 });
 
 after(async () => {
@@ -56,39 +60,64 @@ after(async () => {
 });
 
 test("language preference is authenticated, validated, and isolated by player", async () => {
-  const unauthenticated = await fetch(baseUrl);
+  const preferenceUrl = `${baseUrl}/daily007/v2/preferences/language`;
+  const unauthenticated = await fetch(preferenceUrl);
   assert.equal(unauthenticated.status, 401);
 
-  const firstToken = makeToken(firstPlayerId);
-  const secondToken = makeToken(secondPlayerId);
-  assert.ok(firstToken);
-  assert.ok(secondToken);
-  const firstHeaders = { Authorization: `Bearer ${firstToken}` };
-  const secondHeaders = { Authorization: `Bearer ${secondToken}` };
+  async function login(email: string): Promise<{ Authorization: string }> {
+    const response = await fetch(`${baseUrl}/daily007/v2/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: TEST_PASSWORD }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { token: string };
+    assert.equal(typeof body.token, "string");
+    return { Authorization: `Bearer ${body.token}` };
+  }
 
-  const emptyPreference = await fetch(baseUrl, { headers: firstHeaders });
+  const firstEmail = `language-player-${firstPlayerId}@example.test`;
+  const secondEmail = `language-player-${secondPlayerId}@example.test`;
+  const firstSession = await login(firstEmail);
+  const emptyPreference = await fetch(preferenceUrl, { headers: firstSession });
   assert.equal(emptyPreference.status, 200);
   assert.deepEqual(await emptyPreference.json(), { language: null });
 
-  const saved = await fetch(baseUrl, {
+  const saved = await fetch(preferenceUrl, {
     method: "PUT",
-    headers: { ...firstHeaders, "Content-Type": "application/json" },
+    headers: { ...firstSession, "Content-Type": "application/json" },
     body: JSON.stringify({ language: "hi" }),
   });
   assert.equal(saved.status, 200);
   assert.deepEqual(await saved.json(), { language: "hi" });
 
-  const otherPlayerPreference = await fetch(baseUrl, { headers: secondHeaders });
+  // A new login increments the server session version, modeling a second device
+  // with its own valid authenticated session for the same account.
+  const secondSession = await login(firstEmail);
+  const persistedPreference = await fetch(preferenceUrl, { headers: secondSession });
+  assert.equal(persistedPreference.status, 200);
+  assert.deepEqual(await persistedPreference.json(), { language: "hi" });
+
+  const otherAccountSession = await login(secondEmail);
+  const otherPlayerPreference = await fetch(preferenceUrl, { headers: otherAccountSession });
   assert.equal(otherPlayerPreference.status, 200);
   assert.deepEqual(await otherPlayerPreference.json(), { language: null });
 
-  const unsupported = await fetch(baseUrl, {
+  const unsupported = await fetch(preferenceUrl, {
     method: "PUT",
-    headers: { ...firstHeaders, "Content-Type": "application/json" },
+    headers: { ...secondSession, "Content-Type": "application/json" },
     body: JSON.stringify({ language: "fr" }),
   });
   assert.equal(unsupported.status, 400);
 
-  const confirmed = await fetch(baseUrl, { headers: firstHeaders });
+  const changedOtherPreference = await fetch(preferenceUrl, {
+    method: "PUT",
+    headers: { ...otherAccountSession, "Content-Type": "application/json" },
+    body: JSON.stringify({ language: "gu" }),
+  });
+  assert.equal(changedOtherPreference.status, 200);
+  assert.deepEqual(await changedOtherPreference.json(), { language: "gu" });
+
+  const confirmed = await fetch(preferenceUrl, { headers: secondSession });
   assert.deepEqual(await confirmed.json(), { language: "hi" });
 });

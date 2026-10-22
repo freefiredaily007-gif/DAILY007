@@ -14,3 +14,9 @@ CREATE TABLE daily007_v2_users (
     preferred_language IS NULL OR preferred_language IN ('en', 'hi', 'gu')
   )
 );
+
+CREATE TABLE daily007_login_rate_limits (
+  client_ip_hash text PRIMARY KEY,
+  attempts integer NOT NULL,
+  expires_at timestamptz NOT NULL
+);
