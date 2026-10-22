@@ -14,3 +14,9 @@ description: Product rule for confirming tournament registrations and deducting 
 **Why:** Teams can reach their configured count while still having open seats, and stale full-state flags previously blocked valid joins.
 
 **How to apply:** Use player occupancy for client availability and server capacity checks, while still rejecting occupied seats, closed lifecycle states, duplicate registrations, and insufficient balance. Use status flags only when a live player-capacity count is unavailable.
+
+**Format-edit rule:** While active registrations exist, keep edits within the same game mode. A team-format change is safe only when the active player count fits the new capacity and every active seat remains within the new team and slot bounds. Rejected and removed entries must not reserve active capacity.
+
+**Why:** Admin format edits must not discard joined players' seat assignments or let inactive registrations block a valid reduction.
+
+**How to apply:** Before saving a format change, count approved and pending players, then verify their existing team and slot coordinates against the target format. Keep the match unchanged when either check fails.

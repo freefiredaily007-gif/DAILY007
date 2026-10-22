@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import express from "express";
 import test, { after } from "node:test";
 import { pool } from "@workspace/db";
+import { makeToken } from "../src/lib/daily007-session-token";
 import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
 
 const testDatabaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -19,12 +20,19 @@ if (
   throw new Error("This integration test must run through the isolated PostgreSQL test runner.");
 }
 
+const TEST_AUTH_SECRET = "daily007-registration-counts-test-secret-at-least-32-chars";
+const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
+process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
+
 after(async () => {
   await pool.end();
+  if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
+  else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
 });
 
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
+  app.use(express.json());
   app.use(daily007CompatCoreRouter);
   app.use((
     error: unknown,
@@ -382,4 +390,157 @@ test("PostgreSQL list and detail count pending and approved solo and duo registr
       }
     }
   });
+});
+
+test("Admin format edits reject capacity below active seats and ignore rejected or removed registrations", async () => {
+  const adminId = randomUUID();
+  const matchIds = [randomUUID(), randomUUID()];
+  const userIds = [adminId];
+
+  async function createRegistration(
+    matchId: string,
+    status: "approved" | "pending" | "rejected" | "removed",
+  ): Promise<string> {
+    const userId = randomUUID();
+    userIds.push(userId);
+    await pool.query(
+      `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash)
+       VALUES ($1, $2, $3, 'salt', 'hash')`,
+      [userId, `Capacity test ${status}`, `${userId}@example.test`],
+    );
+    const result = await pool.query<{ id: string }>(
+      `INSERT INTO daily007_v2_registrations
+         (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
+          team_name, entry_coins_paid, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 5, $7)
+       RETURNING id`,
+      [
+        matchId,
+        userId,
+        `Capacity test ${status}`,
+        `Capacity${status}${userId.slice(0, 6)}`,
+        `capacity-${status}-${userId}`,
+        `Capacity team ${status}`,
+        status,
+      ],
+    );
+    return result.rows[0].id;
+  }
+
+  async function createMatch(matchId: string, title: string): Promise<void> {
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, team_type, capacity, banner, starts_at, status)
+       VALUES ($1, $2, 'clash', 'clash_squad', 'squad', 2, 'B.R. SQUAD',
+               clock_timestamp() + interval '20 hours', 'open')`,
+      [matchId, title],
+    );
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, status, auth_version)
+       VALUES ($1, 'Capacity Test Admin', $2, 'salt', 'hash', 'admin', 'active', 0)`,
+      [adminId, `capacity-admin-${adminId}@example.test`],
+    );
+
+    await createMatch(matchIds[0], "Capacity reduction with inactive entries");
+    const permittedStatuses = [
+      "approved", "pending", "rejected", "removed",
+      "approved", "pending", "rejected", "removed",
+    ] as const;
+    const permittedRegistrations: string[] = [];
+    for (const status of permittedStatuses) {
+      permittedRegistrations.push(await createRegistration(matchIds[0], status));
+    }
+    for (const teamNumber of [1, 2]) {
+      const teamId = randomUUID();
+      await pool.query(
+        `INSERT INTO daily007_v2_squad_teams (id, match_id, team_number)
+         VALUES ($1, $2, $3)`,
+        [teamId, matchIds[0], teamNumber],
+      );
+      for (let slot = 1; slot <= 4; slot++) {
+        const registrationIndex = (teamNumber - 1) * 4 + slot - 1;
+        const status = permittedStatuses[registrationIndex];
+        const active = status === "approved" || status === "pending";
+        await pool.query(
+          `INSERT INTO daily007_v2_squad_team_members
+             (team_id, slot_number, registration_id, is_active, removed_at)
+           VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN NULL ELSE clock_timestamp() END)`,
+          [teamId, slot, permittedRegistrations[registrationIndex], active],
+        );
+      }
+    }
+
+    await createMatch(matchIds[1], "Capacity reduction below active entries");
+    const overCapacityRegistrations: string[] = [];
+    for (const status of ["approved", "pending", "approved", "pending", "approved"] as const) {
+      overCapacityRegistrations.push(await createRegistration(matchIds[1], status));
+    }
+    for (const [teamNumber, slots] of [[1, 4], [2, 1]] as const) {
+      const teamId = randomUUID();
+      await pool.query(
+        `INSERT INTO daily007_v2_squad_teams (id, match_id, team_number)
+         VALUES ($1, $2, $3)`,
+        [teamId, matchIds[1], teamNumber],
+      );
+      for (let slot = 1; slot <= slots; slot++) {
+        const registrationIndex = teamNumber === 1 ? slot - 1 : 4;
+        await pool.query(
+          `INSERT INTO daily007_v2_squad_team_members
+             (team_id, slot_number, registration_id, is_active)
+           VALUES ($1, $2, $3, true)`,
+          [teamId, slot, overCapacityRegistrations[registrationIndex]],
+        );
+      }
+    }
+
+    const token = makeToken(adminId, 0);
+    assert.ok(token, "test admin should receive a Daily007 session token");
+    await withServer(async (origin) => {
+      const permittedResponse = await fetch(`${origin}/tournaments/${matchIds[0]}`, {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ teamType: "duo" }),
+      });
+      assert.equal(permittedResponse.status, 200, await permittedResponse.clone().text());
+      const permitted = await permittedResponse.json() as {
+        teamType: string;
+        totalPlayerSlots: number;
+        filledPlayerSlots: number;
+      };
+      assert.equal(permitted.teamType, "Duo");
+      assert.equal(permitted.totalPlayerSlots, 4);
+      assert.equal(permitted.filledPlayerSlots, 4);
+
+      const rejectedResponse = await fetch(`${origin}/tournaments/${matchIds[1]}`, {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ teamType: "duo" }),
+      });
+      assert.equal(rejectedResponse.status, 409, await rejectedResponse.clone().text());
+    });
+
+    const persisted = await pool.query<{ id: string; team_type: string; capacity: number }>(
+      "SELECT id, team_type, capacity FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
+      [matchIds],
+    );
+    const permittedSaved = persisted.rows.find(({ id }) => id === matchIds[0]);
+    const rejectedSaved = persisted.rows.find(({ id }) => id === matchIds[1]);
+    assert.equal(permittedSaved?.team_type, "duo");
+    assert.equal(permittedSaved?.capacity, 2);
+    assert.equal(rejectedSaved?.team_type, "squad");
+    assert.equal(rejectedSaved?.capacity, 2);
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])", [matchIds]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [userIds]);
+  }
 });

@@ -908,6 +908,38 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   };
 }
 
+async function hasActiveSeatsOutsideMode(
+  client: SqlClient,
+  matchId: string,
+  capacity: number,
+  teamSize: number,
+): Promise<boolean> {
+  const result = await client.query<{ has_out_of_bounds_seat: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+         FROM daily007_v2_squad_teams team
+         JOIN daily007_v2_squad_team_members member
+           ON member.team_id = team.id AND member.is_active = true
+         LEFT JOIN daily007_v2_registrations registration
+           ON registration.id = member.registration_id
+         LEFT JOIN daily007_v2_registrations legacy_registration
+           ON legacy_registration.id = team.legacy_registration_id
+        WHERE team.match_id = $1
+          AND (
+            (member.registration_id IS NOT NULL
+              AND registration.status IN ('approved', 'pending'))
+            OR (member.registration_id IS NULL AND (
+              legacy_registration.status IN ('approved', 'pending')
+              OR team.legacy_registration_id IS NULL
+            ))
+          )
+          AND (team.team_number > $2 OR member.slot_number > $3)
+     ) AS has_out_of_bounds_seat`,
+    [matchId, capacity, teamSize],
+  );
+  return Boolean(result.rows[0]?.has_out_of_bounds_seat);
+}
+
 router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
   if (!requireTournamentAdmin(req, res)) return;
   if (!record(req.body)) return fail(res, 400, "Expected tournament fields.");
@@ -963,11 +995,23 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
         );
         activeCount = Number(count.rows[0].count);
       }
-      const modeChanged = currentMode.gameMode !== values.gameMode || currentMode.teamType !== values.teamType;
+      const gameModeChanged = currentMode.gameMode !== values.gameMode;
       const nextMode = resolveTournamentMode(values.gameMode, values.teamType);
       if (!nextMode) return "invalid" as const;
       const nextPlayerCapacity = values.capacity * nextMode.teamSize;
-      if (activeCount > nextPlayerCapacity || (modeChanged && activeCount > 0)) {
+      const formatChanged = currentMode.teamType !== nextMode.teamType;
+      const formatChangeNeedsSeatReassignment = formatChanged && activeCount > 0 &&
+        (currentMode.teamSize === 1 || nextMode.teamSize === 1);
+      const activeSeatNoLongerFits = formatChanged &&
+          currentMode.teamSize > 1 && nextMode.teamSize > 1
+        ? await hasActiveSeatsOutsideMode(client, id, nextMode.capacity, nextMode.teamSize)
+        : false;
+      if (
+        activeCount > nextPlayerCapacity ||
+        (gameModeChanged && activeCount > 0) ||
+        formatChangeNeedsSeatReassignment ||
+        activeSeatNoLongerFits
+      ) {
         return "capacity" as const;
       }
       const capacityState = matchCapacityState(values.mode, activeCount, nextPlayerCapacity);
