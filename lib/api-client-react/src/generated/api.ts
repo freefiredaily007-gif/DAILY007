@@ -57,6 +57,7 @@ import type {
   Daily007AdminUserRoleBody,
   Daily007AdminVideoActiveBody,
   Daily007AdminVideoCreateBody,
+  Daily007AdminWalletHistoryPage,
   Daily007AdminYoutubeSubscribeClaims,
   Daily007ChangePasswordBody,
   Daily007ChangePasswordResult,
@@ -80,6 +81,7 @@ import type {
   Daily007RechargeRequestBody,
   Daily007ReferralDashboard,
   Daily007ReviewRequestBody,
+  Daily007V2AdminUserWalletHistoryParams,
   Daily007V2CreateMatchBody,
   Daily007V2RegisterMatch400,
   Daily007V2RegisterMatch409,
@@ -2028,6 +2030,96 @@ export const useDaily007V2CreditWallet = <TError = ErrorType<void>,
       > => {
       return useMutation(getDaily007V2CreditWalletMutationOptions(options));
     }
+
+export const getDaily007V2AdminUserWalletHistoryUrl = (id: string,
+    params?: Daily007V2AdminUserWalletHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/daily007/v2/admin/users/${id}/wallet-history?${stringifiedParams}` : `/api/daily007/v2/admin/users/${id}/wallet-history`
+}
+
+/**
+ * Full Admin only. Results are scoped to the requested user and use a stable newest-first cursor.
+ * @summary List one user's wallet ledger for Full Admin review
+ */
+export const daily007V2AdminUserWalletHistory = async (id: string,
+    params?: Daily007V2AdminUserWalletHistoryParams, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminWalletHistoryPage> => {
+
+  return customFetch<Daily007AdminWalletHistoryPage>(getDaily007V2AdminUserWalletHistoryUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007V2AdminUserWalletHistoryQueryKey = (id: string,
+    params?: Daily007V2AdminUserWalletHistoryParams,) => {
+    return [
+    `/api/daily007/v2/admin/users/${id}/wallet-history`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getDaily007V2AdminUserWalletHistoryQueryOptions = <TData = Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>, TError = ErrorType<void>>(id: string,
+    params?: Daily007V2AdminUserWalletHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007V2AdminUserWalletHistoryQueryKey(id,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>> = ({ signal }) => daily007V2AdminUserWalletHistory(id,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007V2AdminUserWalletHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>>
+export type Daily007V2AdminUserWalletHistoryQueryError = ErrorType<void>
+
+
+/**
+ * @summary List one user's wallet ledger for Full Admin review
+ */
+
+export function useDaily007V2AdminUserWalletHistory<TData = Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>, TError = ErrorType<void>>(
+ id: string,
+    params?: Daily007V2AdminUserWalletHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007V2AdminUserWalletHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007V2AdminUserWalletHistoryQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getDaily007AdminSetUserRoleUrl = (id: string,) => {
 

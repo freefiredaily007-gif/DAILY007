@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, findNodeHandle, Platform, View, ScrollView, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, findNodeHandle, Platform, View, ScrollView, StyleSheet, Alert, ActivityIndicator, Modal, useWindowDimensions } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api, errMessage, newAdminAdjustmentRequestId } from '../lib/api';
 import { A, AdminSearchAnnouncement, Card, Btn, ScreenWrap, useToast, SectionTitle, ConfirmDialog, PromptDialog } from '../components/adminKit';
-import { useDaily007AdminDeleteUser } from '@workspace/api-client-react';
+import {
+  useDaily007AdminDeleteUser,
+  useDaily007V2AdminUserWalletHistory,
+  type Daily007AdminWalletHistoryEntry,
+} from '@workspace/api-client-react';
 
 type CoinAdjustment = {
   user: any;
@@ -17,7 +21,7 @@ type CoinAdjustment = {
 export default function AdminUsers({ currentUserId }: { currentUserId?: string }) {
   const toast = useToast();
   const deleteUserMutation = useDaily007AdminDeleteUser();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, height } = useWindowDimensions();
   const stackUserBalance = fontScale >= 1.5;
   const [users, setUsers] = useState<any[] | null>(null);
   const [regs, setRegs] = useState<any[] | null>(null);
@@ -30,10 +34,55 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
   const [deleteWarningTarget, setDeleteWarningTarget] = useState<any | null>(null);
   const [deleteEmailTarget, setDeleteEmailTarget] = useState<any | null>(null);
   const [coinAdjustmentTarget, setCoinAdjustmentTarget] = useState<{ user: any; sign: 1 | -1 } | null>(null);
+  const [walletHistoryUser, setWalletHistoryUser] = useState<any | null>(null);
+  const [walletHistoryPageCursor, setWalletHistoryPageCursor] = useState<string | undefined>(undefined);
+  const [walletHistoryNextCursor, setWalletHistoryNextCursor] = useState<string | null>(null);
+  const [walletHistoryRows, setWalletHistoryRows] = useState<Daily007AdminWalletHistoryEntry[]>([]);
+  const walletHistoryPages = useRef(new Map<string, {
+    data: { items: Daily007AdminWalletHistoryEntry[]; nextCursor: string | null };
+    items: Daily007AdminWalletHistoryEntry[];
+  }>());
+  const walletHistoryQuery = useDaily007V2AdminUserWalletHistory(
+    walletHistoryUser?.$id ?? '',
+    walletHistoryPageCursor ? { cursor: walletHistoryPageCursor } : undefined,
+    {
+      query: {
+        queryKey: [
+          '/api/daily007/v2/admin/users',
+          walletHistoryUser?.$id ?? '',
+          'wallet-history',
+          walletHistoryPageCursor ?? null,
+        ] as const,
+        enabled: Boolean(walletHistoryUser),
+        staleTime: 0,
+        refetchOnMount: 'always',
+        retry: false,
+      },
+    },
+  );
   const [retryAdjustment, setRetryAdjustment] = useState<CoinAdjustment | null>(null);
   const roleRowRefs = useRef(new Map<string, View>());
   const focusRoleAfterRefresh = useRef<string | null>(null);
   const pendingFullAdminRecovery = useRef<{ userId: string; userName: string } | null>(null);
+
+  useEffect(() => {
+    if (!walletHistoryUser || !walletHistoryQuery.data) return;
+    const pageKey = walletHistoryPageCursor ?? 'first';
+    const data = walletHistoryQuery.data;
+    if (walletHistoryPages.current.get(pageKey)?.data === data) return;
+    walletHistoryPages.current.set(pageKey, { data, items: data.items });
+    setWalletHistoryRows([...walletHistoryPages.current.values()].flatMap((page) => page.items));
+    setWalletHistoryNextCursor(data.nextCursor);
+  }, [walletHistoryQuery.data, walletHistoryPageCursor, walletHistoryUser?.$id]);
+
+  const openWalletHistory = (user: any) => {
+    walletHistoryPages.current.clear();
+    setWalletHistoryRows([]);
+    setWalletHistoryNextCursor(null);
+    setWalletHistoryPageCursor(undefined);
+    setWalletHistoryUser(user);
+  };
+  const closeWalletHistory = () => setWalletHistoryUser(null);
 
   const load = async () => {
     setUsersLoading(true);
@@ -255,7 +304,11 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
     }
   };
 
-  const filtered = (users ?? []).filter((u) => (u.name || '').toLowerCase().includes(q.toLowerCase()) || (u.email || '').toLowerCase().includes(q.toLowerCase()));
+  const filtered = (users ?? []).filter((u) => (
+    (u.name || '').toLowerCase().includes(q.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(q.toLowerCase()) ||
+    String(u.phone || '').toLowerCase().includes(q.toLowerCase())
+  ));
   const deleteBusy = Boolean(deleteEmailTarget && busy === deleteEmailTarget.$id);
   const usersSummary = users === null
     ? usersLoading ? 'Loading users…' : 'Users unavailable'
@@ -369,6 +422,16 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
               <View style={{ flex: 1 }}><Btn title="− COINS" kind="ghost" accessibilityLabel={`Deduct coins from ${u.name}`} accessibilityHint="Opens a dialog to enter a whole number of coins. The balance cannot go below zero." onPress={() => adjust(u, -1)} loading={busy === u.$id} /></View>
               <View style={{ flex: 1 }}><Btn title={blocked ? 'UNBLOCK' : 'BLOCK'} kind="danger" accessibilityLabel={`${blocked ? 'Unblock' : 'Block'} ${u.name}`} accessibilityHint="If an error is announced, check the displayed status before trying again." onPress={() => toggleBlock(u)} loading={busy === u.$id} /></View>
             </View>
+            <View style={{ marginTop: 8 }}>
+              <Btn
+                title="VIEW WALLET HISTORY"
+                kind="ghost"
+                accessibilityLabel={`View wallet history for ${u.name}`}
+                accessibilityHint="Opens this user's credit and debit ledger, newest transactions first."
+                onPress={() => openWalletHistory(u)}
+                testID={`view-wallet-history-${u.$id}`}
+              />
+            </View>
             {u.$id !== currentUserId && (
               <View style={{ marginTop: 8 }}>
                 <Btn
@@ -400,6 +463,104 @@ export default function AdminUsers({ currentUserId }: { currentUserId?: string }
           </Card>
         );
       })}
+      <Modal visible={walletHistoryUser !== null} transparent animationType="slide" onRequestClose={closeWalletHistory}>
+        <View style={st.walletHistoryOverlay}>
+          <View
+            style={[st.walletHistoryModal, { maxHeight: Math.max(320, Math.min(height - 32, 780)) }]}
+            accessibilityViewIsModal
+            testID="user-wallet-history-modal"
+          >
+            <View style={st.walletHistoryHeader}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text accessibilityRole="header" style={st.walletHistoryTitle}>WALLET HISTORY</Text>
+                <Text style={st.walletHistoryUserName}>{walletHistoryUser?.name}</Text>
+                <Text style={st.walletHistoryMeta}>{walletHistoryUser?.email}</Text>
+                {!!walletHistoryUser?.phone && (
+                  <Text style={st.walletHistoryMeta}>{walletHistoryUser.phone}</Text>
+                )}
+              </View>
+              <View style={{ width: 82 }}>
+                <Btn
+                  title="CLOSE"
+                  kind="ghost"
+                  onPress={closeWalletHistory}
+                  accessibilityLabel="Close wallet history"
+                  testID="close-wallet-history"
+                />
+              </View>
+            </View>
+            <Text style={st.walletHistoryCount}>
+              {walletHistoryRows.length} transaction{walletHistoryRows.length === 1 ? '' : 's'} loaded · newest first
+            </Text>
+            {walletHistoryQuery.isLoading && walletHistoryRows.length === 0 && (
+              <View style={st.walletHistoryStatus}>
+                <ActivityIndicator color={A.cyan} />
+                <Text style={st.walletHistoryMeta}>Loading wallet history…</Text>
+              </View>
+            )}
+            {walletHistoryQuery.isError && (
+              <View style={st.walletHistoryError}>
+                <Text style={st.walletHistoryErrorText}>
+                  Could not load wallet history: {errMessage(walletHistoryQuery.error)}
+                </Text>
+                <Btn
+                  title="RETRY"
+                  kind="ghost"
+                  loading={walletHistoryQuery.isFetching}
+                  onPress={() => { void walletHistoryQuery.refetch(); }}
+                  accessibilityLabel="Retry loading wallet history"
+                  testID="retry-wallet-history"
+                />
+              </View>
+            )}
+            {!walletHistoryQuery.isLoading && !walletHistoryQuery.isError && walletHistoryRows.length === 0 && (
+              <View style={st.walletHistoryEmpty}>
+                <Text style={st.walletHistoryEmptyTitle}>No wallet transactions</Text>
+                <Text style={st.walletHistoryMeta}>This account does not have any recorded wallet activity yet.</Text>
+              </View>
+            )}
+            <ScrollView
+              style={st.walletHistoryList}
+              contentContainerStyle={st.walletHistoryListContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {walletHistoryRows.map((item) => {
+                const credit = item.transactionType === 'credit';
+                return (
+                  <View key={item.id} style={st.walletHistoryRow} testID={`wallet-history-row-${item.id}`}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={st.walletHistoryDescription}>{item.description}</Text>
+                      <Text style={st.walletHistoryMeta}>
+                        {item.transactionType.toUpperCase()} · {item.createdAt}
+                      </Text>
+                      <Text style={st.walletHistoryMeta}>Balance after: {item.balanceAfter} coins</Text>
+                    </View>
+                    <Text
+                      style={[
+                        st.walletHistoryAmount,
+                        { color: credit ? A.green : A.red },
+                        stackUserBalance && { alignSelf: 'flex-start' },
+                      ]}
+                    >
+                      {item.amount > 0 ? '+' : ''}{item.amount} COINS
+                    </Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            {walletHistoryNextCursor && (
+              <Btn
+                title="LOAD MORE"
+                kind="ghost"
+                loading={walletHistoryQuery.isFetching}
+                onPress={() => setWalletHistoryPageCursor(walletHistoryNextCursor)}
+                accessibilityLabel="Load more wallet history"
+                testID="load-more-wallet-history"
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
       <ConfirmDialog
         visible={roleChangeTarget !== null}
         title={roleChangeTarget?.role === 'tournament_admin'
@@ -544,4 +705,40 @@ const st = StyleSheet.create({
   sub: { color: A.sub, fontSize: 11, marginTop: 2 },
   coins: { color: A.gold, fontWeight: '900', fontSize: 15 },
   stat: { color: A.sub, fontSize: 11, fontWeight: '700' },
+  walletHistoryOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+  },
+  walletHistoryModal: {
+    width: '100%',
+    maxWidth: 560,
+    backgroundColor: A.cardSolid,
+    borderColor: A.border,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+  },
+  walletHistoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  walletHistoryTitle: { color: A.gold, fontSize: 17, lineHeight: 22, fontWeight: '900', letterSpacing: 0.8 },
+  walletHistoryUserName: { color: A.text, fontSize: 14, lineHeight: 20, fontWeight: '800', marginTop: 6 },
+  walletHistoryMeta: { color: A.sub, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  walletHistoryCount: { color: A.cyan, fontSize: 11, lineHeight: 16, fontWeight: '800', marginTop: 14, marginBottom: 8 },
+  walletHistoryStatus: { minHeight: 86, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  walletHistoryError: { gap: 8, padding: 10, marginBottom: 8, borderRadius: 10, backgroundColor: 'rgba(255,113,135,0.10)', borderWidth: 1, borderColor: 'rgba(255,113,135,0.35)' },
+  walletHistoryErrorText: { color: A.red, fontSize: 12, lineHeight: 18, fontWeight: '700' },
+  walletHistoryEmpty: { padding: 14, borderRadius: 12, backgroundColor: A.card, borderWidth: 1, borderColor: A.border },
+  walletHistoryEmptyTitle: { color: A.text, fontSize: 14, lineHeight: 20, fontWeight: '900' },
+  walletHistoryList: { flexShrink: 1 },
+  walletHistoryListContent: { gap: 8, paddingBottom: 8 },
+  walletHistoryRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: A.card, borderColor: A.border, borderWidth: 1, borderRadius: 12, padding: 11 },
+  walletHistoryDescription: { color: A.text, fontSize: 12, lineHeight: 18, fontWeight: '800' },
+  walletHistoryAmount: { maxWidth: '42%', color: A.green, fontSize: 12, lineHeight: 18, fontWeight: '900', textAlign: 'right' },
 });

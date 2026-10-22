@@ -440,6 +440,25 @@ paths:
         "200": { description: Updated wallet balance }
         "400": { description: Invalid amount or reason }
         "403": { description: Administrator required }
+  /daily007/v2/admin/users/{id}/wallet-history:
+    get:
+      operationId: daily007V2AdminUserWalletHistory
+      summary: List one user's wallet ledger for Full Admin review
+      description: Full Admin only. Results are scoped to the requested user and use a stable newest-first cursor.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cursor, in: query, required: false, schema: { type: string, maxLength: 512 } }
+      responses:
+        "200":
+          description: A page of wallet transactions, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminWalletHistoryPage" }
+        "400": { description: Invalid user ID or history cursor }
+        "401": { description: Missing or invalid bearer token }
+        "403": { description: Full Admin required }
+        "404": { description: User not found }
   /admin/users/{id}/role:
     patch:
       operationId: daily007AdminSetUserRole
@@ -1863,6 +1882,25 @@ components:
             - { type: "null" }
         createdAt: { type: string, format: date-time }
       required: [id, amount, balanceAfter, reason, description, createdAt]
+    Daily007AdminWalletHistoryEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        transactionType: { type: string, enum: [credit, debit] }
+        amount: { type: integer }
+        balanceAfter: { type: integer }
+        reason: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time, description: Exact transaction timestamp with IST offset and microsecond precision. }
+      required: [id, transactionType, amount, balanceAfter, reason, description, createdAt]
+    Daily007AdminWalletHistoryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007AdminWalletHistoryEntry" }
+        nextCursor: { type: [string, "null"] }
+      required: [items, nextCursor]
     Daily007ReferralDashboard:
       type: object
       properties:

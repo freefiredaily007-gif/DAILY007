@@ -1426,3 +1426,86 @@ test("concurrent deposits from different accounts reject the same normalized UPI
     blocker?.release();
   }
 });
+
+test("Full Admin wallet history is user-scoped, role-protected, and paginated without losing timestamp precision", async () => {
+  const testBatch = randomUUID();
+  const createdAt = "2050-01-02T12:04:56.123456+00:00";
+  const inserted = await pool.query<{ id: string }>(
+    `INSERT INTO daily007_v2_wallet_ledger
+       (user_id, amount, balance_after, reason, details, created_at)
+     SELECT $1,
+            CASE WHEN entry = 1 THEN -5 ELSE 3 END,
+            500 + entry,
+            CASE
+              WHEN entry = 1 THEN 'match_entry'
+              WHEN entry = 201 THEN 'admin_credit:QA ledger'
+              ELSE 'video_watch_reward'
+            END,
+            jsonb_build_object(
+              'testBatch', $2::text,
+              'description', 'Wallet history test entry ' || entry,
+              'title', 'History Test Tournament'
+            ),
+            $3::timestamptz
+       FROM generate_series(1, 201) AS generated(entry)
+     RETURNING id`,
+    [fixture.playerId, testBatch, createdAt],
+  );
+  const unrelated = await pool.query<{ id: string }>(
+    `INSERT INTO daily007_v2_wallet_ledger
+       (user_id, amount, balance_after, reason, details, created_at)
+     VALUES ($1, 99, 99, 'admin_credit:Other user', $2::jsonb, $3::timestamptz)
+     RETURNING id`,
+    [
+      fixture.retryPlayerId,
+      JSON.stringify({ testBatch, description: "Must not appear in another user's history" }),
+      createdAt,
+    ],
+  );
+
+  await withServer(async (origin) => {
+    const path = `/daily007/v2/admin/users/${fixture.playerId}/wallet-history`;
+    const forbidden = await call(origin, fixture.playerId, path, "GET");
+    assert.equal(forbidden.status, 403);
+
+    const firstPage = await call(origin, fixture.adminId, path, "GET");
+    assert.equal(firstPage.status, 200);
+    assert.equal(firstPage.body.items.length, 200);
+    assert.ok(firstPage.body.nextCursor);
+
+    const pages = [firstPage.body];
+    let cursor = firstPage.body.nextCursor as string | null;
+    while (cursor) {
+      const next = await call(
+        origin,
+        fixture.adminId,
+        `${path}?cursor=${encodeURIComponent(cursor)}`,
+        "GET",
+      );
+      assert.equal(next.status, 200);
+      pages.push(next.body);
+      cursor = next.body.nextCursor;
+    }
+
+    const allItems = pages.flatMap((page) => page.items);
+    const uniqueIds = new Set(allItems.map((item) => item.id));
+    assert.equal(uniqueIds.size, allItems.length, "cursor pages should not duplicate rows");
+    const testItems = allItems.filter((item) => item.id && inserted.rows.some((row) => row.id === item.id));
+    assert.equal(testItems.length, 201);
+    assert.ok(!allItems.some((item) => item.id === unrelated.rows[0]?.id));
+    assert.ok(!allItems.some((item) => item.description === "Must not appear in another user's history"));
+
+    const debit = testItems.find((item) => item.reason === "match_entry");
+    assert.equal(debit?.transactionType, "debit");
+    assert.equal(debit?.amount, -5);
+    assert.equal(debit?.description, "Tournament joining fee — History Test Tournament");
+    assert.match(debit?.createdAt ?? "", /\.123456\+05:30$/);
+
+    const credit = testItems.find((item) => item.reason === "admin_credit:QA ledger");
+    assert.equal(credit?.transactionType, "credit");
+    assert.equal(credit?.description, "Admin manual credit — QA ledger");
+
+    const invalidCursor = await call(origin, fixture.adminId, `${path}?cursor=not-a-cursor`, "GET");
+    assert.equal(invalidCursor.status, 400);
+  });
+});

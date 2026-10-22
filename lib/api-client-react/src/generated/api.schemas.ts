@@ -817,6 +817,31 @@ export interface Daily007WalletLedgerEntry {
   createdAt: string;
 }
 
+export type Daily007AdminWalletHistoryEntryTransactionType = typeof Daily007AdminWalletHistoryEntryTransactionType[keyof typeof Daily007AdminWalletHistoryEntryTransactionType];
+
+
+export const Daily007AdminWalletHistoryEntryTransactionType = {
+  credit: 'credit',
+  debit: 'debit',
+} as const;
+
+export interface Daily007AdminWalletHistoryEntry {
+  id: string;
+  transactionType: Daily007AdminWalletHistoryEntryTransactionType;
+  amount: number;
+  balanceAfter: number;
+  reason: string;
+  description: string;
+  /** Exact transaction timestamp with IST offset and microsecond precision. */
+  createdAt: string;
+}
+
+export interface Daily007AdminWalletHistoryPage {
+  items: Daily007AdminWalletHistoryEntry[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
 export type Daily007ReferralStatusSignupStatus = typeof Daily007ReferralStatusSignupStatus[keyof typeof Daily007ReferralStatusSignupStatus];
 
 
@@ -1689,6 +1714,13 @@ export type Daily007V2RegisterMatch409 = {
   error: string;
   /** Stable reason for the registration conflict. */
   code: Daily007V2RegisterMatch409Code;
+};
+
+export type Daily007V2AdminUserWalletHistoryParams = {
+/**
+ * @maxLength 512
+ */
+cursor?: string;
 };
 
 export type Daily007V2SetRoomBody = {

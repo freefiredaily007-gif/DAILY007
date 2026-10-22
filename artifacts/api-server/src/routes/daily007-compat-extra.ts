@@ -847,6 +847,115 @@ router.get("/admin/users", authenticate, async (req, res): Promise<void> => {
   res.json(result.rows);
 });
 
+router.get("/daily007/v2/admin/users/:id/wallet-history", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const targetId = req.params.id;
+  if (!validId(targetId)) { error(res, 400, "User id must be a UUID."); return; }
+
+  const cursorValue = req.query.cursor;
+  if (cursorValue !== undefined && typeof cursorValue !== "string") {
+    error(res, 400, "Wallet history cursor is invalid."); return;
+  }
+  const cursor = cursorValue === undefined ? null : decodeWalletTransactionCursor(cursorValue);
+  if (cursorValue !== undefined && !cursor) {
+    error(res, 400, "Wallet history cursor is invalid."); return;
+  }
+
+  try {
+    const page = await roleTransaction(req, "admin", async (client) => {
+      const target = await client.query<{ id: string }>(
+        "SELECT id FROM daily007_v2_users WHERE id = $1",
+        [targetId],
+      );
+      if (!target.rows[0]) return null;
+
+      const select = `SELECT ledger.id,
+               ledger.amount,
+               ledger.balance_after AS "balanceAfter",
+               ledger.reason,
+               ledger.details,
+               to_char(
+                 ledger.created_at AT TIME ZONE 'Asia/Kolkata',
+                 'YYYY-MM-DD"T"HH24:MI:SS.US'
+               ) || '+05:30' AS "createdAt",
+               ledger.created_at::text AS "cursorCreatedAt"
+          FROM daily007_v2_wallet_ledger ledger`;
+      const result = cursor
+        ? await client.query(
+          `${select}
+            WHERE ledger.user_id = $1
+              AND (ledger.created_at, ledger.id) < ($2::timestamptz, $3::uuid)
+            ORDER BY ledger.created_at DESC, ledger.id DESC
+            LIMIT $4`,
+          [targetId, cursor.createdAt, cursor.id, WALLET_TRANSACTION_PAGE_SIZE + 1],
+        )
+        : await client.query(
+          `${select}
+            WHERE ledger.user_id = $1
+            ORDER BY ledger.created_at DESC, ledger.id DESC
+            LIMIT $2`,
+          [targetId, WALLET_TRANSACTION_PAGE_SIZE + 1],
+        );
+      const hasMore = result.rows.length > WALLET_TRANSACTION_PAGE_SIZE;
+      const rows = result.rows.slice(0, WALLET_TRANSACTION_PAGE_SIZE);
+      const lastRow = rows[rows.length - 1] as { id: string; cursorCreatedAt?: string } | undefined;
+      const items = rows.map((row: any) => {
+        const details = isObject(row.details) ? row.details : {};
+        const reason = String(row.reason);
+        const suppliedDescription = typeof details.description === "string"
+          ? details.description.trim()
+          : "";
+        const tournamentTitle = [details.tournamentTitle, details.matchTitle, details.title]
+          .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+          ?.trim() ?? "";
+        const description = reason.startsWith("admin_credit:")
+          ? `Admin manual credit — ${reason.slice("admin_credit:".length).trim()}`
+          : reason.startsWith("admin_adjustment:")
+            ? `Admin coin adjustment — ${reason.slice("admin_adjustment:".length).trim()}`
+            : reason === "match_entry"
+              ? `Tournament joining fee${tournamentTitle ? ` — ${tournamentTitle}` : ""}`
+              : reason === "match_prize"
+                ? `Tournament prize winnings${tournamentTitle ? ` — ${tournamentTitle}` : ""}`
+                : reason === "payment_approved"
+                  ? "Deposit approved"
+                  : reason === "withdrawal_reserved"
+                    ? "Withdrawal requested"
+                    : reason === "withdrawal_rejected_refund"
+                      ? "Withdrawal rejected — coins returned"
+                      : reason === "withdrawal_deleted_refund"
+                        ? "Withdrawal request removed — coins returned"
+                        : reason === "tournament_cancel_refund"
+                          ? `Entry fee refunded — tournament cancelled${tournamentTitle ? ` (${tournamentTitle})` : ""}`
+                          : reason === "video_watch_reward"
+                            ? suppliedDescription || "Video watch reward"
+                            : suppliedDescription || reason.replaceAll("_", " ").replaceAll(":", " — ");
+        return {
+          id: row.id,
+          transactionType: Number(row.amount) >= 0 ? "credit" : "debit",
+          amount: Number(row.amount),
+          balanceAfter: Number(row.balanceAfter),
+          reason,
+          description,
+          createdAt: row.createdAt,
+        };
+      });
+      return {
+        items,
+        nextCursor: hasMore && lastRow?.cursorCreatedAt
+          ? encodeWalletTransactionCursor({ createdAt: lastRow.cursorCreatedAt, id: lastRow.id })
+          : null,
+      };
+    });
+    if (!page) { error(res, 404, "User not found."); return; }
+    res.set("Cache-Control", "no-store");
+    res.json(page);
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status) { error(res, status, e instanceof Error ? e.message : "Wallet history request failed."); return; }
+    throw e;
+  }
+});
+
 router.post("/admin/users/:id/delete", authenticate, async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
   const actorId = userId(req);

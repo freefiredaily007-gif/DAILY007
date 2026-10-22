@@ -732,6 +732,36 @@ export const Daily007V2CreditWalletResponse = zod.unknown()
 
 
 /**
+ * Full Admin only. Results are scoped to the requested user and use a stable newest-first cursor.
+ * @summary List one user's wallet ledger for Full Admin review
+ */
+export const Daily007V2AdminUserWalletHistoryParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007V2AdminUserWalletHistoryQueryCursorMax = 512;
+
+
+
+export const Daily007V2AdminUserWalletHistoryQueryParams = zod.object({
+  "cursor": zod.coerce.string().max(daily007V2AdminUserWalletHistoryQueryCursorMax).optional()
+})
+
+export const Daily007V2AdminUserWalletHistoryResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "transactionType": zod.enum(['credit', 'debit']),
+  "amount": zod.number().int(),
+  "balanceAfter": zod.number().int(),
+  "reason": zod.string(),
+  "description": zod.string(),
+  "createdAt": zod.coerce.date().describe('Exact transaction timestamp with IST offset and microsecond precision.')
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+/**
  * Full Admin only. The role can be set to player or tournament_admin, cannot be changed on the caller's account, and cannot demote the last Full Admin.
  * @summary Assign or remove Tournament Admin access
  */
