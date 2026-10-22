@@ -39,6 +39,24 @@ const noQuery = <T,>(data: T) => ({
   refetch: async () => ({ data }),
 });
 
+export const getDaily007AdminListTournamentsQueryKey = () => ["isolated-preview", "admin-tournaments"];
+export function useDaily007AdminListTournaments() {
+  return {
+    ...noQuery([]),
+    refetch: async () => {
+      const mocks = await import("./api.ts");
+      return { data: mocks.previewTournaments };
+    },
+  };
+}
+
+export const getDaily007V2AdminUserWalletHistoryQueryKey = () => ["isolated-preview", "wallet-history"];
+export function useDaily007V2AdminUserWalletHistory() {
+  return noQuery({ items: [], nextCursor: null });
+}
+
+export const getDaily007AdminListVideosQueryKey = () => ["isolated-preview", "admin-videos"];
+
 const leaderboardPeriod = (cycleType: "weekly" | "monthly") => ({
   cycleType,
   status: "active" as const,

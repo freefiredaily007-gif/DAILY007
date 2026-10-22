@@ -51,6 +51,7 @@
     "test:login-retry-after": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/login-retry-after.test.mjs",
     "test:session-refresh-persistence": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-module-mocks --test scripts/session-refresh-persistence.test.mjs",
     "test:admin-tournament-results-accessibility": "node --test scripts/admin-tournament-results-accessibility.test.mjs && pnpm --filter @workspace/mockup-sandbox run test:admin-tournament-results-retry",
+    "test:admin-winning-teams": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/admin-winning-teams.test.mjs",
     "test:admin-tournaments-large-text": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/admin-tournaments-large-text.test.mjs",
     "test:admin-tournament-format": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/admin-tournament-format.test.mjs",
     "test:admin-tournament-cancel": "node --test scripts/admin-tournament-cancel.test.mjs",

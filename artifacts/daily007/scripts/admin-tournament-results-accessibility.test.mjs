@@ -11,6 +11,10 @@ const resultsSource = await readFile(
   new URL('../src/screens/AdminResults.tsx', import.meta.url),
   'utf8',
 );
+const apiSource = await readFile(
+  new URL('../src/lib/api.ts', import.meta.url),
+  'utf8',
+);
 const uiSource = await readFile(
   new URL('../src/components/ui.tsx', import.meta.url),
   'utf8',
@@ -29,6 +33,27 @@ test('result player choices identify each player and expose the selected state',
   assert.match(screenSource, /accessibilityState=\{\{ checked: selected \}\}/);
   assert.match(screenSource, /accessibilityHint="Selects this player for tournament result entry\."/);
   assert.match(screenSource, /testID=\{`result-registration-\$\{registration\.id\}`\}/);
+});
+
+test('team first-place results select one team and show its equal prize split on both Admin screens', () => {
+  for (const [screenName, source] of [
+    ['Tournaments inline results', screenSource],
+    ['standalone Results screen', resultsSource],
+  ]) {
+    assert.match(source, /<AdminWinningTeamPicker/ , `${screenName} must offer team selection.`);
+    assert.match(source, /groupApprovedRegistrationsByTeam/, `${screenName} must group approved members by team.`);
+    assert.match(source, /exactPrizePerPlayer/, `${screenName} must show the equal-share prize amount.`);
+    assert.match(source, /teamWinnerEntry/, `${screenName} must use the team flow for rank 1.`);
+  }
+
+  const approvedLoader = apiSource.match(/adminApprovedRegs: async \(tid: string\)[\s\S]*?\n  \},/)?.[0];
+  assert.ok(approvedLoader, 'Approved registrations must load for the selected tournament.');
+  assert.match(approvedLoader, /r\.status === 'approved'/);
+  assert.doesNotMatch(
+    approvedLoader,
+    /isSquadCaptain/,
+    'The winner selector must receive every approved player, not only team captains.',
+  );
 });
 
 test('rank and kills inputs have distinct names and clear entry guidance', () => {
@@ -57,10 +82,13 @@ test('calculated prize is announced as read-only and updated politely', () => {
 });
 
 test('publish action names the player and rank, and exposes publishing state', () => {
-  const publishButton = screenSource.match(/<Btn\s+title=\{Number\(resultRank\) === 1[\s\S]*?disabled=\{resultBusy\}\s*\/>/)?.[0];
+  const publishButton = screenSource.match(
+    /<Btn\s+title=\{Number\(resultRank\) === 1[\s\S]*?onPress=\{\(\) => \{ void publishResult\(t\); \}\}[\s\S]*?\/>/,
+  )?.[0];
 
   assert.ok(publishButton, 'The result publish button must remain present.');
   assert.match(publishButton, /accessibilityLabel=\{`Publish \$\{Number\(resultRank\) === 1 \? 'winner' : 'placement'\} for \$\{selectedResultPlayerLabel\}, rank \$\{resultRank \|\| 'not entered'\}`\}/);
+  assert.match(publishButton, /disabled=\{[\s\S]*?resultBusy[\s\S]*?\}/);
   assert.match(publishButton, /accessibilityState=\{\{ disabled: resultBusy, busy: resultBusy \}\}/);
   assert.match(publishButton, /testID=\{`publish-result-\$\{t\.id\}`\}/);
   assert.match(uiSource, /accessibilityHint=\{accessibilityHint\}/);
@@ -215,26 +243,20 @@ test('Result Entry announces distinct successful empty states separately from lo
   const resultEntryState = screenSource.slice(resultEntryStart, playerChoicesStart);
   assert.match(
     resultEntryState,
-    /resultRegs === null \?[\s\S]*?Retrying approved registrations…[\s\S]*?Loading approved registrations…[\s\S]*?Approved registrations could not be loaded\. Retry here\.[\s\S]*?RETRY APPROVED PLAYERS[\s\S]*?:\s*eligibleResultRegs\.length === 0 \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
+    /resultRegs === null \?[\s\S]*?Retrying approved registrations…[\s\S]*?Loading approved registrations…[\s\S]*?Approved registrations could not be loaded\. Retry here\.[\s\S]*?RETRY APPROVED PLAYERS[\s\S]*?:\s*\(teamWinnerEntry \? winningTeams\.length === 0 : eligibleIndividualResultRegs\.length === 0\) \?\s*\(\s*<Empty[\s\S]*?\/>\s*\)/,
     'Only a failed or pending request should use the load-failure guidance.',
   );
 
   const emptyState = resultEntryState.match(/<Empty[\s\S]*?\/>/)?.[0];
   assert.ok(emptyState, 'A successful empty response must render the shared empty state.');
-  assert.match(emptyState, /title=\{resultEmptyTitle\}/);
-  assert.match(emptyState, /text=\{resultEmptyMessage\}/);
-  assert.match(emptyState, /accessibilityLabel=\{resultEmptyMessage\}/);
+  assert.match(emptyState, /title=\{teamWinnerEntry \? 'NO APPROVED TEAMS' : resultEmptyTitle\}/);
+  assert.match(emptyState, /text=\{teamWinnerEntry\s*\?[\s\S]*?: resultEmptyMessage\}/);
+  assert.match(emptyState, /accessibilityLabel=\{teamWinnerEntry\s*\?[\s\S]*?: resultEmptyMessage\}/);
   assert.equal(
     (emptyState.match(/accessibilityLiveRegion="polite"/g) ?? []).length,
     1,
     'The selected successful empty-state message must have one polite announcement.',
   );
-  assert.doesNotMatch(
-    resultEntryState,
-    /Approved registrations could not be loaded[\s\S]*No approved registrations|No approved registrations[\s\S]*Approved registrations could not be loaded/,
-    'Load-failure guidance must not be combined with a successful empty-state message.',
-  );
-
   const loadStart = screenSource.indexOf('const loadApprovedRegistrations = async');
   const loadEnd = screenSource.indexOf('\n  const retryApprovedRegistrations', loadStart);
   const loadApprovedPlayers = screenSource.slice(loadStart, loadEnd);

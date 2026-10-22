@@ -2437,15 +2437,19 @@ router.get("/admin/results/duplicate-placements", authenticate, async (req, res)
          FROM daily007_v2_result_awards
         GROUP BY match_id, rank
         HAVING count(*) > 1
-           AND NOT (
-             rank = 1
-             AND EXISTS (
-               SELECT 1
-                 FROM legitimate_team_winners legitimate
-                WHERE legitimate.match_id = daily007_v2_result_awards.match_id
-                  AND legitimate.award_count = count(*)
-             )
+      ),
+      unexpected_duplicate_placements AS (
+        SELECT duplicate.*
+          FROM duplicate_placements duplicate
+         WHERE NOT (
+           duplicate.rank = 1
+           AND EXISTS (
+             SELECT 1
+               FROM legitimate_team_winners legitimate
+              WHERE legitimate.match_id = duplicate.match_id
+                AND legitimate.award_count = duplicate.registration_count
            )
+         )
      )
      SELECT m.id AS "tournamentId", m.title AS "tournamentName",
             m.starts_at AS "startsAt", m.status AS "tournamentStatus",
@@ -2466,7 +2470,7 @@ router.get("/admin/results/duplicate-placements", authenticate, async (req, res)
               )
               ORDER BY award.created_at ASC, award.id ASC
             ) AS awards
-       FROM duplicate_placements duplicate
+        FROM unexpected_duplicate_placements duplicate
        JOIN daily007_v2_matches m ON m.id = duplicate.match_id
        JOIN daily007_v2_result_awards award
          ON award.match_id = duplicate.match_id AND award.rank = duplicate.rank

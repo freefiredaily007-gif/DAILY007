@@ -86,6 +86,7 @@
 - [Daily007 admin results TalkBack](daily007-admin-results-talkback.md) — iQOO Neo 10 / Android 16 confirmed TalkBack support from player selection through errors, outcomes, and publishing state.
 - [Daily007 native status announcements](daily007-native-status-announcements.md) — React Native live regions do not announce on iOS; pair them with iOS-only AccessibilityInfo announcements.
 - [Tournament result rank uniqueness](daily007-result-rank-uniqueness.md) — serialize awards on the match row; audit old duplicates before adding a database unique index.
+- [Daily007 team result distribution](daily007-team-result-payouts.md) — team rank-one prizes split evenly among approved members; require whole-coin division and record zero new kills.
 - [Tournament lifetime-stat limits](daily007-tournament-stats-overflow.md) — serialize cross-tournament result updates on the player's user row before checking bounded lifetime counters.
 - [Daily007 iOS VoiceOver checks](daily007-ios-voiceover-checks.md) — static checks cannot confirm native iOS speech or traversal; verify on an iPhone with VoiceOver.
 - [Daily007 My Matches TalkBack](daily007-my-matches-talkback.md) — published result rows announce all five details once, without the account-profile name.

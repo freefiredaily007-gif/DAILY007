@@ -825,7 +825,7 @@ async function waitForBlockedWalletPayoutRequests(
           AND activity.wait_event_type = 'Lock'
           AND activity.query LIKE $1
         ORDER BY activity.query_start`,
-      ["%SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE%"],
+        ["%SELECT id, wallet_coins%daily007_v2_users%"],
     );
     if (result.rows.length >= expectedCount) {
       assert.equal(
@@ -1224,7 +1224,7 @@ test("an independent tournament result completes while another match row is lock
           }],
           stats: { matches: 1, wins: 1, kills: 4, prize_coins: 600 },
           ledger: [{ amount: 600, balance_after: 700, reason: "match_prize" }],
-          match: { enabled: false, status: "open" },
+          match: { enabled: false, status: "completed" },
         });
 
         await blocker!.query("COMMIT");
@@ -1270,7 +1270,7 @@ test("an independent tournament result completes while another match row is lock
           }],
           stats: { matches: 1, wins: 1, kills: 8, prize_coins: 500 },
           ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
-          match: { enabled: false, status: "open" },
+          match: { enabled: false, status: "completed" },
         });
         assert.deepEqual(await captureSettlementState(lockedFixture, lockedOtherPlayer), {
           walletCoins: 100,
@@ -1283,7 +1283,7 @@ test("an independent tournament result completes while another match row is lock
           }],
           stats: null,
           ledger: [],
-          match: { enabled: false, status: "open" },
+          match: { enabled: false, status: "completed" },
         });
         assert.deepEqual(await captureSettlementState(independentFixture!, independentWinner), {
           walletCoins: 700,
@@ -1296,7 +1296,7 @@ test("an independent tournament result completes while another match row is lock
           }],
           stats: { matches: 1, wins: 1, kills: 4, prize_coins: 600 },
           ledger: [{ amount: 600, balance_after: 700, reason: "match_prize" }],
-          match: { enabled: false, status: "open" },
+          match: { enabled: false, status: "completed" },
         });
         assert.deepEqual(await captureSettlementState(independentFixture!, independentOtherPlayer), {
           walletCoins: 100,
@@ -1309,7 +1309,7 @@ test("an independent tournament result completes while another match row is lock
           }],
           stats: null,
           ledger: [],
-          match: { enabled: false, status: "open" },
+          match: { enabled: false, status: "completed" },
         });
       } finally {
         if (blockerTransactionOpen) {
@@ -2054,7 +2054,7 @@ test("publishing a team winner credits every approved teammate equally and compl
       const winnerTransactions = await fetch(`${origin}/wallet/transactions`, {
         headers: authHeaders(winningPlayers[0]!.userId),
       });
-      assert.equal(winnerTransactions.status, 200);
+      assert.equal(winnerTransactions.status, 200, await winnerTransactions.clone().text());
       const transactionItems = await winnerTransactions.json() as Array<Record<string, unknown>>;
       assert.equal(
         transactionItems.find((item) => item.reason === "match_prize")?.description,
@@ -2086,6 +2086,67 @@ test("publishing a team winner credits every approved teammate equally and compl
         2,
         "a retry must not create duplicate awards",
       );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a 4v4 team winner receives one equal quarter of the prize pool per approved player", async () => {
+  const fixture = await createFixture(8);
+  const winningPlayers = fixture.players.slice(0, 4);
+  try {
+    await configureTeamMatch(fixture, {
+      teamSize: 4,
+      teamCount: 2,
+      prizePool: 100,
+      title: "Squad Equal Prize Test",
+    });
+    await withServer(async (origin) => {
+      const published = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        winningPlayers[0]!,
+        1,
+        17,
+      );
+      assert.equal(published.status, 201, JSON.stringify(published.body));
+      assert.equal(published.body.teamNumber, 1);
+      assert.equal(published.body.prizeCoins, 25);
+      assert.equal(published.body.totalPrizeCoins, 100);
+      assert.equal((published.body.playersAwarded as unknown[]).length, 4);
+      const awards = await pool.query<{ registration_id: string; kills: number; prize_coins: number }>(
+        `SELECT registration_id, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1
+          ORDER BY registration_id`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(
+        awards.rows.map((award) => ({
+          registration_id: award.registration_id,
+          kills: award.kills,
+          prize_coins: award.prize_coins,
+        })),
+        winningPlayers.map((player) => ({
+          registration_id: player.registrationId,
+          kills: 0,
+          prize_coins: 25,
+        })).sort((left, right) => left.registration_id.localeCompare(right.registration_id)),
+      );
+      const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+        "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [fixture.players.map((player) => player.userId)],
+      );
+      const walletByUser = new Map(wallets.rows.map((wallet) => [wallet.id, wallet.wallet_coins]));
+      for (const player of winningPlayers) assert.equal(walletByUser.get(player.userId), 125);
+      for (const player of fixture.players.slice(4)) assert.equal(walletByUser.get(player.userId), 100);
+      const match = await pool.query<{ enabled: boolean; status: string }>(
+        "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
+        [fixture.matchId],
+      );
+      assert.deepEqual(match.rows, [{ enabled: false, status: "completed" }]);
     });
   } finally {
     await cleanupFixture(fixture);
@@ -2832,7 +2893,7 @@ test("a result that locks first prevents a queued cancellation from overriding t
         12,
       );
       const blockedResult = await waitForBlockedTournamentRequest(
-        "%SELECT mode, game_mode, team_type FROM daily007_v2_matches%",
+        "%SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches%",
       );
       assert.ok(blockedResult.blockers.includes(blockerPid));
 
@@ -2884,7 +2945,7 @@ test("a result that locks first prevents a queued cancellation from overriding t
         }],
         stats: { matches: 1, wins: 1, kills: 12, prize_coins: 500 },
         ledger: [{ amount: 500, balance_after: 575, reason: "match_prize" }],
-        match: { enabled: false, status: "open" },
+        match: { enabled: false, status: "completed" },
       });
       assert.deepEqual(otherPlayerState, {
         walletCoins: 75,
@@ -2897,7 +2958,7 @@ test("a result that locks first prevents a queued cancellation from overriding t
         }],
         stats: null,
         ledger: [],
-        match: { enabled: false, status: "open" },
+        match: { enabled: false, status: "completed" },
       });
 
       const cancellationLedger = await pool.query(
@@ -2947,7 +3008,7 @@ test("a cancellation that locks first rejects queued results and public standing
         12,
       );
       const blockedResult = await waitForBlockedTournamentRequest(
-        "%SELECT mode, game_mode, team_type FROM daily007_v2_matches%",
+        "%SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches%",
       );
       assert.ok(
         blockedResult.blockers.includes(blockedCancellation.pid),
@@ -3328,7 +3389,7 @@ test("concurrent first- and second-place results cannot pay one registration twi
         }],
         match: {
           enabled: successfulRank !== 1,
-          status: "open",
+          status: successfulRank === 1 ? "completed" : "open",
         },
       });
 
@@ -3466,7 +3527,7 @@ test("a rank-2-first result remains the only public result for its registration 
         }],
         match: {
           enabled: false,
-          status: "open",
+          status: "completed",
         },
       });
       assert.deepEqual(await captureSettlementState(fixture, winner), {
@@ -3485,7 +3546,7 @@ test("a rank-2-first result remains the only public result for its registration 
         }],
         match: {
           enabled: false,
-          status: "open",
+          status: "completed",
         },
       });
     });
@@ -3791,7 +3852,7 @@ test("concurrent first-, second-, and third-place results preserve configured pr
         "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
         [fixture.matchId],
       );
-      assert.deepEqual(match.rows, [{ enabled: false, status: "open" }]);
+      assert.deepEqual(match.rows, [{ enabled: false, status: "completed" }]);
     });
   } finally {
     if (blockerTransactionOpen) await blocker.query("ROLLBACK");
@@ -4214,7 +4275,7 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
         }],
         stats: { matches: 1, wins: 1, kills: 7, prize_coins: 500 },
         ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
-        match: { enabled: false, status: "open" },
+        match: { enabled: false, status: "completed" },
       });
       const runnerUpStateBefore = await captureSettlementState(fixture, runnerUp);
       assert.deepEqual(runnerUpStateBefore, {
@@ -4448,7 +4509,7 @@ test("a failed first-place payout rolls back completely and the winner can retry
         }],
         stats: { matches: 1, wins: 1, kills: 7, prize_coins: 500 },
         ledger: [{ amount: 500, balance_after: 600, reason: "match_prize" }],
-        match: { enabled: false, status: "open" },
+        match: { enabled: false, status: "completed" },
       }, "the retry must persist exactly one first-place award and payout");
 
       const payoutRows = await pool.query<{
