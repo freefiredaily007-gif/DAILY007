@@ -1149,12 +1149,12 @@ router.get("/admin/stats", authenticate, async (req, res): Promise<void> => {
     `SELECT
        (SELECT count(*)::int FROM daily007_v2_users) AS "totalUsers",
         (SELECT count(*)::int FROM daily007_v2_matches m
-          WHERE (m.enabled = true AND m.starts_at > clock_timestamp() + interval '5 hours 30 minutes')
-             OR (m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes'
-                 AND NOT (m.enabled = false AND EXISTS (
-                   SELECT 1 FROM daily007_v2_result_awards a
-                    WHERE a.match_id = m.id AND a.rank = 1
-                 )))) AS "activeTournaments",
+          WHERE m.enabled = true
+            AND m.status IN ('open', 'full', 'setup_needed')
+            AND NOT EXISTS (
+              SELECT 1 FROM daily007_v2_result_awards a
+               WHERE a.match_id = m.id AND a.rank = 1
+            )) AS "activeTournaments",
        (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'pending') AS "pendingRegistrations",
        (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'approved') AS "approvedRegistrations",
        (SELECT count(*)::int FROM daily007_v2_registrations WHERE status = 'rejected') AS "rejectedRegistrations",
