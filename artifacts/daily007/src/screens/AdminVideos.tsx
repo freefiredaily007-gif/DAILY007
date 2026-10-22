@@ -27,13 +27,15 @@ import {
 import { apiError } from '../lib/api';
 import { startVideoToggleRequest } from '../lib/adminVideoToggle';
 
+type VideoCategory = 'application_related' | 'youtube';
+
 type ManagedVideo = {
   id: string;
   title: string;
   topic: string;
   youtubeId: string;
   url: string;
-  category: 'application' | 'youtube';
+  category: VideoCategory;
   description: string | null;
   publishDate: string;
   thumbnailUrl: string | null;
@@ -47,7 +49,7 @@ type ManagedVideo = {
 type VideoFormState = {
   title: string;
   url: string;
-  category: 'application' | 'youtube';
+  category: VideoCategory;
   description: string;
   publishDate: string;
   thumbnailUrl: string;
@@ -69,10 +71,10 @@ const isValidPublishDate = (value: string) => {
     parsed.getUTCDate() === day;
 };
 
-const emptyVideoForm = (): VideoFormState => ({
+const emptyVideoForm = (category: VideoCategory = 'youtube'): VideoFormState => ({
   title: '',
   url: '',
-  category: 'youtube',
+  category,
   description: '',
   publishDate: todayDate(),
   thumbnailUrl: '',
@@ -81,61 +83,9 @@ const emptyVideoForm = (): VideoFormState => ({
 });
 
 const CATEGORY_LABELS = {
-  application: 'DAILY007 APPLICATION RELATED VIDEO',
+  application_related: 'DAILY007 APPLICATION RELATED VIDEO',
   youtube: 'YOUTUBE VIDEOS',
 } as const;
-
-function CategoryPicker({
-  value,
-  onChange,
-  testPrefix,
-}: {
-  value: VideoFormState['category'];
-  onChange: (category: VideoFormState['category']) => void;
-  testPrefix: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <View style={styles.categoryPicker}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Video category: ${CATEGORY_LABELS[value]}`}
-        accessibilityHint="Opens the category choices."
-        accessibilityState={{ expanded }}
-        testID={`${testPrefix}-category`}
-        onPress={() => setExpanded((current) => !current)}
-        style={styles.categoryPickerButton}
-      >
-        <Text style={styles.categoryPickerValue}>{CATEGORY_LABELS[value]}</Text>
-        <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={17} color={A.gold} />
-      </Pressable>
-      {expanded ? (
-        <View style={styles.categoryPickerOptions}>
-          {(['application', 'youtube'] as const).map((category) => (
-            <Pressable
-              key={category}
-              accessibilityRole="button"
-              accessibilityState={{ selected: value === category }}
-              testID={`${testPrefix}-category-${category}`}
-              onPress={() => {
-                onChange(category);
-                setExpanded(false);
-              }}
-              style={styles.categoryPickerOption}
-            >
-              <Text style={[
-                styles.categoryPickerValue,
-                value === category && styles.choiceTextSelected,
-              ]}>
-                {CATEGORY_LABELS[category]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
-}
 
 export default function AdminVideos() {
   const queryClient = useQueryClient();
@@ -146,21 +96,24 @@ export default function AdminVideos() {
   const { mutateAsync: deleteManagedVideo, isPending: isDeleting } = useDaily007AdminDeleteVideo();
   const toast = useToast();
   const [form, setForm] = useState<VideoFormState>(emptyVideoForm);
+  const [selectedCategory, setSelectedCategory] = useState<VideoCategory | null>(null);
+  const [addFormOpen, setAddFormOpen] = useState(false);
   const [error, setError] = useState('');
   const [editError, setEditError] = useState('');
   const [editingVideo, setEditingVideo] = useState<{ id: string; form: VideoFormState } | null>(null);
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<'all' | VideoFormState['category']>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | VideoFormState['status']>('all');
   const [pendingDelete, setPendingDelete] = useState<ManagedVideo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const pendingToggleVideoIdRef = useRef<string | null>(null);
   const [pendingToggleVideoId, setPendingToggleVideoId] = useState<string | null>(null);
   const videos: ManagedVideo[] = (videosQuery.data?.videos ?? []) as ManagedVideo[];
-  const filteredVideos = videos.filter((video) => {
+  const categoryVideos = selectedCategory
+    ? videos.filter((video) => video.category === selectedCategory)
+    : [];
+  const filteredVideos = categoryVideos.filter((video) => {
     const haystack = `${video.title} ${video.topic} ${video.description ?? ''} ${video.url} ${CATEGORY_LABELS[video.category]}`.toLowerCase();
     return (!search.trim() || haystack.includes(search.trim().toLowerCase())) &&
-      (categoryFilter === 'all' || video.category === categoryFilter) &&
       (statusFilter === 'all' || video.status === statusFilter);
   });
   const mutationsBusy = isCreating || isToggling || isSavingEdit || isDeleting || pendingToggleVideoId !== null;
@@ -187,6 +140,25 @@ export default function AdminVideos() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const openCategory = (category: VideoCategory) => {
+    setSearch('');
+    setStatusFilter('all');
+    setError('');
+    setAddFormOpen(false);
+    setForm(emptyVideoForm(category));
+    setSelectedCategory(category);
+  };
+
+  const closeCategory = () => {
+    setSelectedCategory(null);
+    setAddFormOpen(false);
+    setSearch('');
+    setStatusFilter('all');
+    setError('');
+    setEditError('');
+    setEditingVideo(null);
+  };
+
   const updateEditingForm = (key: keyof VideoFormState, value: string) => {
     setEditingVideo((current) =>
       current ? { ...current, form: { ...current.form, [key]: value } } : current,
@@ -194,8 +166,8 @@ export default function AdminVideos() {
   };
 
   const validateForm = (values: VideoFormState): string | null => {
-    if (!values.title.trim() || !values.url.trim() || !values.category || !values.publishDate) {
-      return 'Enter a title, video URL, category, and publish date.';
+    if (!values.title.trim() || !values.url.trim() || !values.publishDate) {
+      return 'Enter a title, video URL, and publish date.';
     }
     if (values.title.trim().length > 120 || values.url.trim().length > 500) {
       return 'Title must be 120 characters or fewer and URL must be 500 characters or fewer.';
@@ -235,6 +207,7 @@ export default function AdminVideos() {
   });
 
   const addVideo = async () => {
+    if (!selectedCategory) return;
     const formError = validateForm(form);
     if (formError) {
       setError(formError);
@@ -242,8 +215,15 @@ export default function AdminVideos() {
     }
     setError('');
     try {
-      await createVideo({ data: payloadFromForm(form) });
+      await createVideo({
+        data: {
+          ...payloadFromForm(form),
+          category: selectedCategory,
+          topic: CATEGORY_LABELS[selectedCategory],
+        },
+      });
       setForm(emptyVideoForm());
+      setAddFormOpen(false);
       toast('Video added.', 'success');
       await refreshVideoLists();
     } catch (cause) {
@@ -338,6 +318,7 @@ export default function AdminVideos() {
     onSubmit: () => void,
     busy: boolean,
     testPrefix: string,
+    formMode: 'add' | 'edit',
     onCancel?: () => void,
   ) => (
     <>
@@ -348,19 +329,6 @@ export default function AdminVideos() {
         placeholder="Video title"
         autoCapitalize="sentences"
       />
-      <Text style={styles.fieldLabel}>VIDEO URL *</Text>
-      <Input
-        value={values.url}
-        onChangeText={(value) => onChange('url', value)}
-        placeholder="https://youtu.be/…"
-        autoCapitalize="none"
-      />
-      <Text style={styles.fieldLabel}>CATEGORY *</Text>
-      <CategoryPicker
-        value={values.category}
-        onChange={(category) => onChange('category', category)}
-        testPrefix={testPrefix}
-      />
       <Text style={styles.fieldLabel}>DESCRIPTION (OPTIONAL)</Text>
       <Input
         value={values.description}
@@ -369,54 +337,82 @@ export default function AdminVideos() {
         autoCapitalize="sentences"
         multiline
       />
-      <Text style={styles.fieldLabel}>PUBLISH DATE *</Text>
+      <Text style={styles.fieldLabel}>YOUTUBE URL / LINK *</Text>
       <Input
-        value={values.publishDate}
-        onChangeText={(value) => onChange('publishDate', value)}
-        placeholder="YYYY-MM-DD"
+        value={values.url}
+        onChangeText={(value) => onChange('url', value)}
+        placeholder="https://youtu.be/…"
         autoCapitalize="none"
       />
-      <Text style={styles.fieldLabel}>THUMBNAIL URL (OPTIONAL)</Text>
-      <Input
-        value={values.thumbnailUrl}
-        onChangeText={(value) => onChange('thumbnailUrl', value)}
-        placeholder="https://…"
-        autoCapitalize="none"
-      />
-      <Text style={styles.fieldLabel}>DISPLAY ORDER (OPTIONAL)</Text>
-      <Input
-        value={values.displayOrder}
-        onChangeText={(value) => onChange('displayOrder', value.replace(/\D/g, '').slice(0, 7))}
-        placeholder="0"
-        keyboardType="number-pad"
-      />
-      <Text style={styles.fieldLabel}>PUBLICATION STATUS</Text>
-      <View style={styles.choiceRow}>
-        {(['published', 'unpublished'] as const).map((status) => (
-          <Pressable
-            key={status}
-            accessibilityRole="button"
-            accessibilityState={{ selected: values.status === status }}
-            testID={`${testPrefix}-status-${status}`}
-            onPress={() => onChange('status', status)}
-            style={[
-              styles.choiceButton,
-              values.status === status && styles.choiceButtonSelected,
-            ]}
-          >
-            <Text style={[
-              styles.choiceText,
-              values.status === status && styles.choiceTextSelected,
-            ]}>
-              {status.toUpperCase()}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      {formMode === 'edit' ? (
+        <>
+          <Text style={styles.fieldLabel}>VIDEO CATEGORY</Text>
+          <View style={styles.choiceRow}>
+            {(['application_related', 'youtube'] as const).map((category) => (
+              <Pressable
+                key={category}
+                accessibilityRole="button"
+                accessibilityState={{ selected: values.category === category }}
+                testID={`${testPrefix}-category-${category}`}
+                onPress={() => onChange('category', category)}
+                style={[styles.choiceButton, values.category === category && styles.choiceButtonSelected]}
+              >
+                <Text style={[styles.choiceText, values.category === category && styles.choiceTextSelected]}>
+                  {category === 'application_related' ? 'DAILY007 APP' : 'YOUTUBE'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.fieldLabel}>PUBLISH DATE *</Text>
+          <Input
+            value={values.publishDate}
+            onChangeText={(value) => onChange('publishDate', value)}
+            placeholder="YYYY-MM-DD"
+            autoCapitalize="none"
+          />
+          <Text style={styles.fieldLabel}>THUMBNAIL URL (OPTIONAL)</Text>
+          <Input
+            value={values.thumbnailUrl}
+            onChangeText={(value) => onChange('thumbnailUrl', value)}
+            placeholder="https://…"
+            autoCapitalize="none"
+          />
+          <Text style={styles.fieldLabel}>DISPLAY ORDER (OPTIONAL)</Text>
+          <Input
+            value={values.displayOrder}
+            onChangeText={(value) => onChange('displayOrder', value.replace(/\D/g, '').slice(0, 7))}
+            placeholder="0"
+            keyboardType="number-pad"
+          />
+          <Text style={styles.fieldLabel}>PUBLICATION STATUS</Text>
+          <View style={styles.choiceRow}>
+            {(['published', 'unpublished'] as const).map((status) => (
+              <Pressable
+                key={status}
+                accessibilityRole="button"
+                accessibilityState={{ selected: values.status === status }}
+                testID={`${testPrefix}-status-${status}`}
+                onPress={() => onChange('status', status)}
+                style={[
+                  styles.choiceButton,
+                  values.status === status && styles.choiceButtonSelected,
+                ]}
+              >
+                <Text style={[
+                  styles.choiceText,
+                  values.status === status && styles.choiceTextSelected,
+                ]}>
+                  {status.toUpperCase()}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
       <View style={styles.formActions}>
         <View style={{ flex: 1 }}>
           <Btn
-            title={testPrefix === 'admin-video-add' ? 'ADD VIDEO' : 'SAVE CHANGES'}
+            title={formMode === 'add' ? 'ADD VIDEO' : 'SAVE CHANGES'}
             onPress={onSubmit}
             loading={busy}
             disabled={mutationsBusy && !busy}
@@ -452,174 +448,246 @@ export default function AdminVideos() {
         icon="youtube"
       />
 
-      <Card style={{ marginBottom: 14 }}>
-        <Text style={styles.formTitle}>ADD VIDEO</Text>
-        {renderVideoForm(form, updateForm, () => { void addVideo(); }, isCreating, 'admin-video-add')}
-        {!!error ? (
-          <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
-        ) : null}
-        <Text style={styles.help}>
-          Use YouTube watch, youtu.be, Shorts, embed, or live links. A video with watch history cannot be deleted; unpublish it to hide it while retaining its reward history.
-        </Text>
-      </Card>
-
-      <SectionTitle
-        title={`VIDEOS · ${filteredVideos.length} OF ${videos.length}`}
-        sub="Search and filter by category and publication status."
-        icon="list"
-      />
-      <Card style={{ marginBottom: 12 }}>
-        <Text style={styles.fieldLabel}>SEARCH VIDEOS</Text>
-        <Input value={search} onChangeText={setSearch} placeholder="Title, description, URL…" autoCapitalize="none" />
-        <Text style={styles.fieldLabel}>CATEGORY FILTER</Text>
-        <View style={styles.choiceRow}>
-          {([
-            ['all', 'ALL'],
-            ['application', 'DAILY007 APP'],
-            ['youtube', 'YOUTUBE'],
-          ] as const).map(([value, label]) => (
-            <Pressable
-              key={value}
-              accessibilityRole="button"
-              accessibilityState={{ selected: categoryFilter === value }}
-              onPress={() => setCategoryFilter(value)}
-              style={[styles.choiceButton, categoryFilter === value && styles.choiceButtonSelected]}
-            >
-              <Text style={[styles.choiceText, categoryFilter === value && styles.choiceTextSelected]}>{label}</Text>
-            </Pressable>
-          ))}
+      {selectedCategory === null ? (
+        <View testID="admin-video-category-selector">
+          <Text style={styles.categoryIntro}>Choose a video collection to manage.</Text>
+          {(['application_related', 'youtube'] as const).map((category) => {
+            const count = videos.filter((video) => video.category === category).length;
+            return (
+              <Pressable
+                key={category}
+                accessibilityRole="button"
+                accessibilityLabel={`${CATEGORY_LABELS[category]}, ${count} videos`}
+                accessibilityHint="Opens this video category."
+                testID={`admin-video-category-${category}`}
+                onPress={() => openCategory(category)}
+                style={({ pressed }) => [
+                  styles.categoryCard,
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <View style={styles.categoryIcon}>
+                  <Feather
+                    name={category === 'youtube' ? 'youtube' : 'smartphone'}
+                    size={22}
+                    color={A.gold}
+                  />
+                </View>
+                <View style={styles.categoryContent}>
+                  <Text style={styles.categoryTitle}>{CATEGORY_LABELS[category]}</Text>
+                  <Text style={styles.categorySubtitle}>
+                    {category === 'application_related'
+                      ? 'Manage Daily007 feature guides and tutorials.'
+                      : 'Manage the existing YouTube video library.'}
+                  </Text>
+                  <Text style={styles.categoryCount}>{count} videos</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={A.cyan} />
+              </Pressable>
+            );
+          })}
         </View>
-        <Text style={styles.fieldLabel}>STATUS FILTER</Text>
-        <View style={styles.choiceRow}>
-          {([
-            ['all', 'ALL'],
-            ['published', 'PUBLISHED'],
-            ['unpublished', 'UNPUBLISHED'],
-          ] as const).map(([value, label]) => (
-            <Pressable
-              key={value}
-              accessibilityRole="button"
-              accessibilityState={{ selected: statusFilter === value }}
-              onPress={() => setStatusFilter(value)}
-              style={[styles.choiceButton, statusFilter === value && styles.choiceButtonSelected]}
-            >
-              <Text style={[styles.choiceText, statusFilter === value && styles.choiceTextSelected]}>{label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </Card>
+      ) : (
+        <View testID={`admin-video-category-page-${selectedCategory}`}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to video categories"
+            testID="admin-video-category-back"
+            onPress={closeCategory}
+            style={styles.backButton}
+          >
+            <Feather name="arrow-left" size={17} color={A.cyan} />
+            <Text style={styles.backText}>ALL VIDEO CATEGORIES</Text>
+          </Pressable>
 
-      {videosQuery.isLoading && !videosQuery.data ? <Loading /> : null}
-      {videosQuery.isError ? (
-        <Card>
-          <Text style={styles.error}>Could not load videos. Pull down to try again.</Text>
-        </Card>
-      ) : null}
-      {!videosQuery.isLoading && !videosQuery.isError && videos.length === 0 ? (
-        <Card><Empty text="No videos yet. Add a video above." /></Card>
-      ) : null}
-      {!videosQuery.isLoading && videos.length > 0 && filteredVideos.length === 0 ? (
-        <Card><Empty text="No videos match these search and filter settings." /></Card>
-      ) : null}
+          <SectionTitle
+            title={CATEGORY_LABELS[selectedCategory]}
+            sub="Published videos appear in this User Panel category."
+            icon={selectedCategory === 'youtube' ? 'youtube' : 'smartphone'}
+          />
 
-      {filteredVideos.map((video) => (
-        <Card key={video.id} style={{ marginBottom: 10 }}>
-          <View style={styles.videoHeader}>
-            <View style={{ flex: 1 }}>
-              <Text testID={`admin-video-title-${video.id}`} style={styles.videoTitle}>{video.title}</Text>
-              <Text testID={`admin-video-topic-${video.id}`} style={styles.videoTopic}>
-                {CATEGORY_LABELS[video.category]} · {video.topic}
-              </Text>
-              <Text style={styles.videoMeta}>
-                {video.publishDate.slice(0, 10)} · ORDER {video.displayOrder}
-              </Text>
-              {video.description ? (
-                <Text style={styles.videoDescription}>{video.description}</Text>
-              ) : null}
-              <Text numberOfLines={1} style={styles.videoUrl}>{video.url}</Text>
-            </View>
-            <View style={[styles.status, video.active ? styles.statusActive : styles.statusInactive]}>
-              <Text testID={`admin-video-status-${video.id}`} style={[styles.statusText, video.active ? styles.statusTextActive : styles.statusTextInactive]}>
-                {video.status.toUpperCase()}
-              </Text>
-            </View>
+          <View style={{ marginBottom: 12 }}>
+            <Btn
+              title={addFormOpen ? 'CLOSE ADD FORM' : 'ADD VIDEO'}
+              kind="gold"
+              onPress={() => {
+                setForm(emptyVideoForm());
+                setError('');
+                setAddFormOpen((open) => !open);
+              }}
+              disabled={mutationsBusy}
+              testID="admin-video-open-add"
+            />
           </View>
-          {editingVideo?.id === video.id ? (
-            <View style={styles.editPanel}>
-              <Text style={styles.formTitle}>EDIT VIDEO</Text>
-              {renderVideoForm(
-                editingVideo.form,
-                updateEditingForm,
-                () => { void saveEdit(); },
-                isSavingEdit,
-                `admin-video-save-${video.id}`,
-                cancelEdit,
-              )}
-              {!!editError ? (
-                <Text accessibilityRole="alert" style={styles.error}>{editError}</Text>
-              ) : null}
-              <Text style={styles.help}>
-                YouTube links cannot be changed after watch history exists. Hidden videos retain all existing reward history.
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.videoFooter}>
-              <Text style={styles.videoReward}>1 coin per completed view · repeat views count</Text>
-              {pendingToggleVideoId === video.id ? (
-                <Text
-                  testID={`admin-video-toggle-pending-${video.id}`}
-                  accessibilityLiveRegion="polite"
-                  style={styles.togglePending}
-                >
-                  {video.active ? 'Hide request in progress. Please wait.' : 'Activation request in progress. Please wait.'}
+
+          {addFormOpen ? (
+            <View testID="admin-video-add-form">
+              <Card style={{ marginBottom: 14 }}>
+                <Text style={styles.formTitle}>ADD VIDEO TO {selectedCategory === 'youtube' ? 'YOUTUBE' : 'DAILY007 APP'}</Text>
+                {renderVideoForm(
+                  form,
+                  updateForm,
+                  () => { void addVideo(); },
+                  isCreating,
+                  'admin-video-add',
+                  'add',
+                  () => {
+                    setAddFormOpen(false);
+                    setError('');
+                  },
+                )}
+                {!!error ? (
+                  <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+                ) : null}
+                <Text style={styles.help}>
+                  The category is set from this page. Supports YouTube watch, youtu.be, Shorts, embed, and live links.
                 </Text>
-              ) : null}
-              <View style={[styles.videoActions, enlargedText && styles.videoActionsEnlarged]}>
-                <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
-                  <Btn
-                    title="EDIT"
-                    kind="gold"
-                    small
-                    onPress={() => beginEdit(video)}
-                    disabled={mutationsBusy}
-                    testID={`admin-video-edit-${video.id}`}
-                  />
+              </Card>
+            </View>
+          ) : null}
+
+          <SectionTitle
+            title={`VIDEOS · ${filteredVideos.length} OF ${categoryVideos.length}`}
+            sub="Search and filter videos in this category."
+            icon="list"
+          />
+          <Card style={{ marginBottom: 12 }}>
+            <Text style={styles.fieldLabel}>SEARCH VIDEOS</Text>
+            <Input value={search} onChangeText={setSearch} placeholder="Title, description, URL…" autoCapitalize="none" />
+            <Text style={styles.fieldLabel}>STATUS FILTER</Text>
+            <View style={styles.choiceRow}>
+              {([
+                ['all', 'ALL'],
+                ['published', 'PUBLISHED'],
+                ['unpublished', 'UNPUBLISHED'],
+              ] as const).map(([value, label]) => (
+                <Pressable
+                  key={value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: statusFilter === value }}
+                  onPress={() => setStatusFilter(value)}
+                  style={[styles.choiceButton, statusFilter === value && styles.choiceButtonSelected]}
+                >
+                  <Text style={[styles.choiceText, statusFilter === value && styles.choiceTextSelected]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </Card>
+
+          {videosQuery.isLoading && !videosQuery.data ? <Loading /> : null}
+          {videosQuery.isError ? (
+            <Card>
+              <Text style={styles.error}>Could not load videos. Pull down to try again.</Text>
+            </Card>
+          ) : null}
+          {!videosQuery.isLoading && !videosQuery.isError && categoryVideos.length === 0 ? (
+            <Card><Empty text="No videos in this category yet. Add one above." /></Card>
+          ) : null}
+          {!videosQuery.isLoading && categoryVideos.length > 0 && filteredVideos.length === 0 ? (
+            <Card><Empty text="No videos match these search and status filters." /></Card>
+          ) : null}
+
+          {filteredVideos.map((video) => (
+            <Card key={video.id} style={{ marginBottom: 10 }}>
+              <View style={styles.videoHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text testID={`admin-video-title-${video.id}`} style={styles.videoTitle}>{video.title}</Text>
+                  <Text testID={`admin-video-topic-${video.id}`} style={styles.videoTopic}>
+                    {CATEGORY_LABELS[video.category]} · {video.topic}
+                  </Text>
+                  <Text style={styles.videoMeta}>
+                    {video.publishDate.slice(0, 10)} · ORDER {video.displayOrder}
+                  </Text>
+                  {video.description ? (
+                    <Text style={styles.videoDescription}>{video.description}</Text>
+                  ) : null}
+                  <Text numberOfLines={1} style={styles.videoUrl}>{video.url}</Text>
                 </View>
-                <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
-                  <Btn
-                    title={video.active ? 'HIDE' : 'ACTIVATE'}
-                    kind={video.active ? 'ghost' : 'green'}
-                    small
-                    onPress={() => { void toggleVideo(video); }}
-                    loading={pendingToggleVideoId === video.id}
-                    disabled={mutationsBusy}
-                    accessibilityLabel={
-                      pendingToggleVideoId === video.id
-                        ? `${video.active ? 'Hiding' : 'Activating'} ${video.title}. Request in progress.`
-                        : undefined
-                    }
-                    accessibilityState={{
-                      busy: pendingToggleVideoId === video.id,
-                      disabled: mutationsBusy,
-                    }}
-                    testID={`admin-video-toggle-${video.id}`}
-                  />
-                </View>
-                <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
-                  <Btn
-                    title="DELETE"
-                    kind="danger"
-                    small
-                    onPress={() => setPendingDelete(video)}
-                    disabled={mutationsBusy}
-                    testID={`admin-video-delete-${video.id}`}
-                  />
+                <View style={[styles.status, video.active ? styles.statusActive : styles.statusInactive]}>
+                  <Text testID={`admin-video-status-${video.id}`} style={[styles.statusText, video.active ? styles.statusTextActive : styles.statusTextInactive]}>
+                    {video.status.toUpperCase()}
+                  </Text>
                 </View>
               </View>
-            </View>
-          )}
-        </Card>
-      ))}
+              {editingVideo?.id === video.id ? (
+                <View style={styles.editPanel}>
+                  <Text style={styles.formTitle}>EDIT VIDEO</Text>
+                  {renderVideoForm(
+                    editingVideo.form,
+                    updateEditingForm,
+                    () => { void saveEdit(); },
+                    isSavingEdit,
+                    `admin-video-save-${video.id}`,
+                    'edit',
+                    cancelEdit,
+                  )}
+                  {!!editError ? (
+                    <Text accessibilityRole="alert" style={styles.error}>{editError}</Text>
+                  ) : null}
+                  <Text style={styles.help}>
+                    YouTube links cannot be changed after watch history exists. Hidden videos retain all existing reward history.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.videoFooter}>
+                  <Text style={styles.videoReward}>1 coin per completed view · repeat views count</Text>
+                  {pendingToggleVideoId === video.id ? (
+                    <Text
+                      testID={`admin-video-toggle-pending-${video.id}`}
+                      accessibilityLiveRegion="polite"
+                      style={styles.togglePending}
+                    >
+                      {video.active ? 'Hide request in progress. Please wait.' : 'Activation request in progress. Please wait.'}
+                    </Text>
+                  ) : null}
+                  <View style={[styles.videoActions, enlargedText && styles.videoActionsEnlarged]}>
+                    <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
+                      <Btn
+                        title="EDIT"
+                        kind="gold"
+                        small
+                        onPress={() => beginEdit(video)}
+                        disabled={mutationsBusy}
+                        testID={`admin-video-edit-${video.id}`}
+                      />
+                    </View>
+                    <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
+                      <Btn
+                        title={video.active ? 'HIDE' : 'ACTIVATE'}
+                        kind={video.active ? 'ghost' : 'green'}
+                        small
+                        onPress={() => { void toggleVideo(video); }}
+                        loading={pendingToggleVideoId === video.id}
+                        disabled={mutationsBusy}
+                        accessibilityLabel={
+                          pendingToggleVideoId === video.id
+                            ? `${video.active ? 'Hiding' : 'Activating'} ${video.title}. Request in progress.`
+                            : undefined
+                        }
+                        accessibilityState={{
+                          busy: pendingToggleVideoId === video.id,
+                          disabled: mutationsBusy,
+                        }}
+                        testID={`admin-video-toggle-${video.id}`}
+                      />
+                    </View>
+                    <View style={[styles.actionItem, enlargedText && styles.actionItemEnlarged]}>
+                      <Btn
+                        title="DELETE"
+                        kind="danger"
+                        small
+                        onPress={() => setPendingDelete(video)}
+                        disabled={mutationsBusy}
+                        testID={`admin-video-delete-${video.id}`}
+                      />
+                    </View>
+                  </View>
+                </View>
+              )}
+            </Card>
+          ))}
+        </View>
+      )}
       <ConfirmDialog
         visible={!!pendingDelete}
         title="Delete video permanently?"
@@ -638,20 +706,40 @@ export default function AdminVideos() {
 const styles = {
   formTitle: { color: A.text, fontSize: 12, fontWeight: '900' as const, letterSpacing: 1, marginBottom: 12 },
   fieldLabel: { color: A.sub, fontSize: 10, fontWeight: '800' as const, letterSpacing: 0.8, marginBottom: 6 },
-  categoryPicker: { marginBottom: 12 },
-  categoryPickerButton: {
-    minHeight: 46,
+  categoryIntro: { color: A.sub, fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  categoryCard: {
+    minHeight: 108,
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    gap: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    gap: 13,
+    padding: 14,
+    marginBottom: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: A.border,
-    backgroundColor: '#0B1530',
+    backgroundColor: A.cardSolid,
   },
-  categoryPickerValue: { color: A.text, flex: 1, fontSize: 11, lineHeight: 16, fontWeight: '800' as const },
+  categoryIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    borderRadius: 14,
+    backgroundColor: 'rgba(77,163,255,0.12)',
+  },
+  categoryContent: { flex: 1, minWidth: 0, gap: 4 },
+  categoryTitle: { color: A.gold, fontSize: 13, lineHeight: 18, fontWeight: '900' as const },
+  categorySubtitle: { color: A.sub, fontSize: 11, lineHeight: 15 },
+  categoryCount: { color: A.cyan, fontSize: 10, lineHeight: 15, fontWeight: '800' as const, marginTop: 2 },
+  backButton: {
+    minHeight: 44,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  backText: { color: A.cyan, fontSize: 11, fontWeight: '900' as const, letterSpacing: 0.6 },
   categoryPickerOptions: {
     marginTop: 5,
     padding: 5,

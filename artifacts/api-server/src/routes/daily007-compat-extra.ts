@@ -1655,9 +1655,16 @@ router.get("/referrals", authenticate, async (req, res): Promise<void> => {
 });
 
 const VIDEO_CATEGORY_LABELS = {
+  application_related: "DAILY007 APPLICATION RELATED VIDEO",
   application: "DAILY007 APPLICATION RELATED VIDEO",
   youtube: "YOUTUBE VIDEOS",
 } as const;
+
+function normalizedVideoCategory(value: unknown): "application_related" | "youtube" {
+  return value === "application" || value === "application_related"
+    ? "application_related"
+    : "youtube";
+}
 
 function validVideoDateOnly(value: unknown): string | null {
   const candidate = value instanceof Date
@@ -1690,13 +1697,14 @@ function videoResponse(video: Record<string, any>) {
   const youtubeId = String(video.youtubeId ?? video.youtube_id ?? "");
   const active = Boolean(video.active);
   const createdAt = video.createdAt ?? video.created_at;
+  const category = normalizedVideoCategory(video.category);
   return {
     id: String(video.id),
     title: String(video.title),
-    topic: String(video.topic || VIDEO_CATEGORY_LABELS[video.category === "application" ? "application" : "youtube"]),
+    topic: String(video.topic || VIDEO_CATEGORY_LABELS[category]),
     youtubeId,
     url: `https://youtu.be/${youtubeId}`,
-    category: video.category === "application" ? "application" : "youtube",
+    category,
     description: video.description ?? null,
     publishDate: validVideoDateOnly(video.publishDate ?? video.publish_date) ??
       legacyVideoDate(video) ??
@@ -1797,7 +1805,7 @@ router.post("/admin/videos", authenticate, async (req, res): Promise<void> => {
     error(res, 400, "Enter a title, topic, and valid YouTube video URL."); return;
   }
   const title = text(parsedBody.data.title, 1, 120);
-  const category = parsedBody.data.category;
+  const category = normalizedVideoCategory(parsedBody.data.category);
   const topic = text(parsedBody.data.topic, 1, 80) ??
     VIDEO_CATEGORY_LABELS[category];
   const youtubeId = youtubeVideoIdFromUrl(parsedBody.data.url);
@@ -1890,7 +1898,7 @@ router.patch("/admin/videos/:id", authenticate, async (req, res): Promise<void> 
       );
       const current = existing.rows[0];
       if (!current) return { kind: "missing" } as const;
-      const category = parsedBody.data.category ?? (current.category === "application" ? "application" : "youtube");
+      const category = normalizedVideoCategory(parsedBody.data.category ?? current.category);
       const topic = parsedBody.data.topic === undefined
         ? current.topic || VIDEO_CATEGORY_LABELS[category]
         : text(parsedBody.data.topic, 1, 80);

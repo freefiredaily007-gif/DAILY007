@@ -1128,7 +1128,7 @@ export type Daily007VideoCategory = typeof Daily007VideoCategory[keyof typeof Da
 
 
 export const Daily007VideoCategory = {
-  application: 'application',
+  application_related: 'application_related',
   youtube: 'youtube',
 } as const;
 
@@ -1219,6 +1219,7 @@ export type Daily007AdminVideoCreateBodyCategory = typeof Daily007AdminVideoCrea
 
 
 export const Daily007AdminVideoCreateBodyCategory = {
+  application_related: 'application_related',
   application: 'application',
   youtube: 'youtube',
 } as const;
@@ -1268,6 +1269,7 @@ export type Daily007VideoUpdateCategory = typeof Daily007VideoUpdateCategory[key
 
 
 export const Daily007VideoUpdateCategory = {
+  application_related: 'application_related',
   application: 'application',
   youtube: 'youtube',
 } as const;

@@ -17,7 +17,7 @@ type TestVideo = {
   title: string;
   topic: string;
   youtube_id: string;
-  category: "application" | "youtube";
+  category: "application_related" | "application" | "youtube";
   description: string | null;
   publish_date: string | null;
   thumbnail_url: string | null;
@@ -138,7 +138,9 @@ class Daily007VideoTestDatabase {
         title,
         topic,
         youtube_id: youtubeId,
-        category: category === "application" ? "application" : "youtube",
+        category: category === "application" || category === "application_related"
+          ? "application_related"
+          : "youtube",
         description,
         publish_date: publishDate instanceof Date ? publishDate.toISOString().slice(0, 10) : publishDate,
         thumbnail_url: thumbnailUrl,
@@ -191,7 +193,9 @@ class Daily007VideoTestDatabase {
         video.title = String(title);
         video.topic = String(topic);
         video.youtube_id = String(youtubeId);
-        video.category = category === "application" ? "application" : "youtube";
+        video.category = category === "application" || category === "application_related"
+          ? "application_related"
+          : "youtube";
         video.description = description as string | null;
         video.publish_date = publishDate instanceof Date
           ? publishDate.toISOString().slice(0, 10)

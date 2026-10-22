@@ -69,7 +69,7 @@ type VideoItem = {
   topic: string;
   youtubeId: string;
   url: string;
-  category: 'application' | 'youtube';
+  category: 'application_related' | 'youtube';
   description: string | null;
   publishDate: string;
   thumbnailUrl: string | null;
@@ -89,7 +89,7 @@ const VIDEO_CATEGORIES: {
   icon: keyof typeof Feather.glyphMap;
 }[] = [
   {
-    id: 'application',
+    id: 'application_related',
     title: 'DAILY007 APPLICATION RELATED VIDEO',
     subtitle: 'Learn how to use tournaments, coins, wallet, and more.',
     icon: 'smartphone',
@@ -1124,7 +1124,7 @@ export default function Video() {
             <View style={styles.emptyCard}>
               <Feather name="video" size={22} color={colors.accent} />
               <Text style={styles.errorText}>
-                {selectedCategory === 'application'
+                {selectedCategory === 'application_related'
                   ? 'No DAILY007 application videos are available yet.'
                   : 'No YouTube videos are available yet.'}
               </Text>

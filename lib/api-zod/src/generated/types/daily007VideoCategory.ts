@@ -27,6 +27,6 @@ export type Daily007VideoCategory = typeof Daily007VideoCategory[keyof typeof Da
 
 
 export const Daily007VideoCategory = {
-  application: 'application',
+  application_related: 'application_related',
   youtube: 'youtube',
 } as const;

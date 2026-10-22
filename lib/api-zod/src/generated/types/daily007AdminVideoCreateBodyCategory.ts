@@ -27,6 +27,7 @@ export type Daily007AdminVideoCreateBodyCategory = typeof Daily007AdminVideoCrea
 
 
 export const Daily007AdminVideoCreateBodyCategory = {
+  application_related: 'application_related',
   application: 'application',
   youtube: 'youtube',
 } as const;

@@ -221,7 +221,7 @@ test("corrected catalog title and topic display, search, and open the original Y
     "Corrected Tournament Highlights, published 2026-10-14",
   );
   assert.deepEqual(filterCategory("youtube", videos), videos);
-  assert.deepEqual(filterCategory("application", videos), []);
+  assert.deepEqual(filterCategory("application_related", videos), []);
 
   assert.deepEqual(
     filterCatalog("corrected tournament", videos),

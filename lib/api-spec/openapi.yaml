@@ -2094,7 +2094,7 @@ components:
         topic: { type: string, minLength: 1, maxLength: 80 }
         youtubeId: { type: string, pattern: "^[A-Za-z0-9_-]{11}$" }
         url: { type: string, format: uri }
-        category: { type: string, enum: [application, youtube] }
+        category: { type: string, enum: [application_related, youtube] }
         description: { type: [string, "null"], maxLength: 1000 }
         publishDate: { type: string, format: date }
         thumbnailUrl: { type: [string, "null"], format: uri }
@@ -2155,7 +2155,7 @@ components:
         title: { type: string, minLength: 1, maxLength: 120 }
         topic: { type: string, minLength: 1, maxLength: 80 }
         url: { type: string, format: uri, maxLength: 500 }
-        category: { type: string, enum: [application, youtube], default: youtube }
+        category: { type: string, enum: [application_related, application, youtube], default: youtube }
         description: { type: [string, "null"], maxLength: 1000 }
         publishDate: { type: string, format: date }
         thumbnailUrl: { type: [string, "null"], format: uri, maxLength: 500 }
@@ -2169,7 +2169,7 @@ components:
         title: { type: string, minLength: 1, maxLength: 120 }
         topic: { type: string, minLength: 1, maxLength: 80 }
         url: { type: string, format: uri, maxLength: 500 }
-        category: { type: string, enum: [application, youtube] }
+        category: { type: string, enum: [application_related, application, youtube] }
         description: { type: [string, "null"], maxLength: 1000 }
         publishDate: { type: string, format: date }
         thumbnailUrl: { type: [string, "null"], format: uri, maxLength: 500 }

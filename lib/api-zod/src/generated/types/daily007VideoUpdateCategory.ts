@@ -27,6 +27,7 @@ export type Daily007VideoUpdateCategory = typeof Daily007VideoUpdateCategory[key
 
 
 export const Daily007VideoUpdateCategory = {
+  application_related: 'application_related',
   application: 'application',
   youtube: 'youtube',
 } as const;

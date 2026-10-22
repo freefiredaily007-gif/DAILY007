@@ -59,7 +59,7 @@ CREATE TABLE daily007_v2_videos (
   youtube_id text NOT NULL UNIQUE
     CHECK (youtube_id ~ '^[A-Za-z0-9_-]{11}$'),
   category text NOT NULL DEFAULT 'youtube'
-    CHECK (category IN ('application', 'youtube')),
+    CHECK (category IN ('application_related', 'application', 'youtube')),
   description text CHECK (description IS NULL OR length(description) <= 1000),
   publish_date date,
   thumbnail_url text CHECK (thumbnail_url IS NULL OR length(thumbnail_url) <= 500),

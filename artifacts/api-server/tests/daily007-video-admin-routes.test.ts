@@ -153,7 +153,7 @@ test("video categories persist, unpublished videos stay private, and publishing 
     const created = await postVideo(origin, VIDEO_TEST_ADMIN_ID, {
       title: "App Wallet Guide",
       url: "https://www.youtube.com/shorts/a1b2C3d4E5F",
-      category: "application",
+      category: "application_related",
       description: "A quick wallet walkthrough.",
       publishDate: "2026-10-21",
       thumbnailUrl: "https://cdn.example.test/video-thumb.jpg",
@@ -161,7 +161,7 @@ test("video categories persist, unpublished videos stay private, and publishing 
       status: "unpublished",
     });
     assert.equal(created.status, 201);
-    assert.equal(created.body.category, "application");
+    assert.equal(created.body.category, "application_related");
     assert.equal(created.body.status, "unpublished");
     assert.equal(created.body.description, "A quick wallet walkthrough.");
     assert.equal(String(created.body.publishDate).slice(0, 10), "2026-10-21");
@@ -177,7 +177,7 @@ test("video categories persist, unpublished videos stay private, and publishing 
     assert.equal(adminList.status, 200);
     const adminVideos = adminList.body.videos as Array<Record<string, unknown>>;
     assert.equal(adminVideos.length, 1);
-    assert.equal(adminVideos[0]?.category, "application");
+    assert.equal(adminVideos[0]?.category, "application_related");
     assert.equal(adminVideos[0]?.status, "unpublished");
 
     const updated = await patchVideo(origin, VIDEO_TEST_ADMIN_ID, String(created.body.id), {
