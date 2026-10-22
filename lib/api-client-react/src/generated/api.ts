@@ -45,6 +45,7 @@ import type {
   Daily007AdminAccountRecoveryReviewResult,
   Daily007AdminApproveLeaderboardPeriodResponse,
   Daily007AdminGetRechargeProofUrl200,
+  Daily007AdminInstagramFollowClaims,
   Daily007AdminLeaderboardApprovalsResponse,
   Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
@@ -64,6 +65,9 @@ import type {
   Daily007GoogleRecoveryRequestAccepted,
   Daily007GoogleSignInBody,
   Daily007GoogleSignInResponse,
+  Daily007InstagramFollowClaim,
+  Daily007InstagramFollowClaimBody,
+  Daily007InstagramFollowTaskStatus,
   Daily007LanguagePreference,
   Daily007LanguagePreferenceUpdate,
   Daily007LeaderboardsResponse,
@@ -4103,6 +4107,341 @@ export const useDaily007AdminReviewYoutubeSubscribeClaim = <TError = ErrorType<v
         TContext
       > => {
       return useMutation(getDaily007AdminReviewYoutubeSubscribeClaimMutationOptions(options));
+    }
+
+export const getDaily007GetInstagramFollowTaskUrl = () => {
+
+
+
+
+  return `/api/earn/instagram-follow`
+}
+
+/**
+ * @summary Get Instagram follow task settings and the current user's claim status
+ */
+export const daily007GetInstagramFollowTask = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007InstagramFollowTaskStatus> => {
+
+  return customFetch<Daily007InstagramFollowTaskStatus>(getDaily007GetInstagramFollowTaskUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007GetInstagramFollowTaskQueryKey = () => {
+    return [
+    `/api/earn/instagram-follow`
+    ] as const;
+    }
+
+
+export const getDaily007GetInstagramFollowTaskQueryOptions = <TData = Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007GetInstagramFollowTaskQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>> = ({ signal }) => daily007GetInstagramFollowTask({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007GetInstagramFollowTaskQueryResult = NonNullable<Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>>
+export type Daily007GetInstagramFollowTaskQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get Instagram follow task settings and the current user's claim status
+ */
+
+export function useDaily007GetInstagramFollowTask<TData = Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetInstagramFollowTask>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007GetInstagramFollowTaskQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007SubmitInstagramFollowClaimUrl = () => {
+
+
+
+
+  return `/api/earn/instagram-follow/claims`
+}
+
+/**
+ * This endpoint creates a pending claim only. It never credits coins; an administrator must verify and approve it.
+ * @summary Submit an Instagram follow claim for administrator review
+ */
+export const daily007SubmitInstagramFollowClaim = async (daily007InstagramFollowClaimBody: Daily007InstagramFollowClaimBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007InstagramFollowClaim> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007InstagramFollowClaim>(getDaily007SubmitInstagramFollowClaimUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007InstagramFollowClaimBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007SubmitInstagramFollowClaimMutationKey = () => ['daily007SubmitInstagramFollowClaim'] as const;
+
+export const getDaily007SubmitInstagramFollowClaimMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007SubmitInstagramFollowClaim>>, TError,Daily007SubmitInstagramFollowClaimMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007SubmitInstagramFollowClaim>>, TError,Daily007SubmitInstagramFollowClaimMutationVariables, TContext> => {
+
+const mutationKey = getDaily007SubmitInstagramFollowClaimMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007SubmitInstagramFollowClaim>>, Daily007SubmitInstagramFollowClaimMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007SubmitInstagramFollowClaim(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007SubmitInstagramFollowClaimMutationResult = NonNullable<Awaited<ReturnType<typeof daily007SubmitInstagramFollowClaim>>>
+    export type Daily007SubmitInstagramFollowClaimMutationBody = BodyType<Daily007InstagramFollowClaimBody>
+    export type Daily007SubmitInstagramFollowClaimMutationError = ErrorType<void>
+    export type Daily007SubmitInstagramFollowClaimMutationVariables = {data: BodyType<Daily007InstagramFollowClaimBody>}
+
+    /**
+ * @summary Submit an Instagram follow claim for administrator review
+ */
+export const useDaily007SubmitInstagramFollowClaim = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007SubmitInstagramFollowClaim>>, TError,Daily007SubmitInstagramFollowClaimMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007SubmitInstagramFollowClaim>>,
+        TError,
+        Daily007SubmitInstagramFollowClaimMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007SubmitInstagramFollowClaimMutationOptions(options));
+    }
+
+export const getDaily007AdminListInstagramFollowClaimsUrl = () => {
+
+
+
+
+  return `/api/admin/earn/instagram-follow/claims`
+}
+
+/**
+ * @summary List Instagram follow claims and completion totals for administrators
+ */
+export const daily007AdminListInstagramFollowClaims = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminInstagramFollowClaims> => {
+
+  return customFetch<Daily007AdminInstagramFollowClaims>(getDaily007AdminListInstagramFollowClaimsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminListInstagramFollowClaimsQueryKey = () => {
+    return [
+    `/api/admin/earn/instagram-follow/claims`
+    ] as const;
+    }
+
+
+export const getDaily007AdminListInstagramFollowClaimsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListInstagramFollowClaimsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>> = ({ signal }) => daily007AdminListInstagramFollowClaims({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminListInstagramFollowClaimsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>>
+export type Daily007AdminListInstagramFollowClaimsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List Instagram follow claims and completion totals for administrators
+ */
+
+export function useDaily007AdminListInstagramFollowClaims<TData = Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListInstagramFollowClaims>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminListInstagramFollowClaimsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminReviewInstagramFollowClaimUrl = (id: string,
+    action: 'approve' | 'reject',) => {
+
+
+
+
+  return `/api/admin/earn/instagram-follow/claims/${id}/${action}`
+}
+
+/**
+ * Approval credits the reward captured on the claim exactly once in the same transaction as the completion record.
+ * @summary Approve or reject a pending Instagram follow claim
+ */
+export const daily007AdminReviewInstagramFollowClaim = async (id: string,
+    action: 'approve' | 'reject',
+    daily007YoutubeSubscribeReviewBody?: Daily007YoutubeSubscribeReviewBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007InstagramFollowClaim> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007InstagramFollowClaim>(getDaily007AdminReviewInstagramFollowClaimUrl(id,action),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007YoutubeSubscribeReviewBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminReviewInstagramFollowClaimMutationKey = () => ['daily007AdminReviewInstagramFollowClaim'] as const;
+
+export const getDaily007AdminReviewInstagramFollowClaimMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewInstagramFollowClaim>>, TError,Daily007AdminReviewInstagramFollowClaimMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewInstagramFollowClaim>>, TError,Daily007AdminReviewInstagramFollowClaimMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminReviewInstagramFollowClaimMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminReviewInstagramFollowClaim>>, Daily007AdminReviewInstagramFollowClaimMutationVariables> = (props) => {
+          const {id,action,data} = props ?? {};
+
+          return  daily007AdminReviewInstagramFollowClaim(id,action,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminReviewInstagramFollowClaimMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminReviewInstagramFollowClaim>>>
+    export type Daily007AdminReviewInstagramFollowClaimMutationBody = BodyType<Daily007YoutubeSubscribeReviewBody> | undefined
+    export type Daily007AdminReviewInstagramFollowClaimMutationError = ErrorType<void>
+    export type Daily007AdminReviewInstagramFollowClaimMutationVariables = {id: string;action: 'approve' | 'reject';data?: BodyType<Daily007YoutubeSubscribeReviewBody>}
+
+    /**
+ * @summary Approve or reject a pending Instagram follow claim
+ */
+export const useDaily007AdminReviewInstagramFollowClaim = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminReviewInstagramFollowClaim>>, TError,Daily007AdminReviewInstagramFollowClaimMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminReviewInstagramFollowClaim>>,
+        TError,
+        Daily007AdminReviewInstagramFollowClaimMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminReviewInstagramFollowClaimMutationOptions(options));
     }
 
 export const getDaily007SubmitRechargeRequestUrl = () => {

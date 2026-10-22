@@ -33,6 +33,26 @@ export function isValidYoutubeChannelUrl(value: string): boolean {
   }
 }
 
+export function isValidInstagramAccountUrl(value: string): boolean {
+  if (!value || value.length > 300) return false;
+  try {
+    const url = new URL(value);
+    const username = url.pathname.replace(/^\/|\/$/g, "");
+    return url.protocol === "https:" &&
+      ["instagram.com", "www.instagram.com"].includes(url.hostname) &&
+      !url.username && !url.password &&
+      /^[A-Za-z0-9._]{1,30}$/.test(username);
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeInstagramUsername(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const username = value.trim().replace(/^@/, "");
+  return /^[A-Za-z0-9._]{1,30}$/.test(username) ? username : null;
+}
+
 export function referralCodeForUserId(userId: string): string {
   return `D7${userId.replaceAll("-", "").toUpperCase()}`;
 }

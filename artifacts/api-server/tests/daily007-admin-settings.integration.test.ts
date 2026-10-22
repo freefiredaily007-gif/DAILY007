@@ -133,6 +133,30 @@ test("Admin settings hide the cancellation cursor and preserve private metadata 
       );
       assert.equal(updatedSettings.body.coinToMoneyRate, "2.5");
       assertPrivateMetadataHidden(updatedSettings.body);
+
+      const instagramSettings = await call(origin, "/admin/settings", "PUT", {
+        token,
+        body: {
+          instagramTaskEnabled: "false",
+          instagramTaskReward: "4",
+          instagramTaskUrl: "https://www.instagram.com/daily007/",
+        },
+      });
+      assert.equal(instagramSettings.status, 200);
+      assert.equal(instagramSettings.body.instagramTaskEnabled, false);
+      assert.equal(instagramSettings.body.instagramTaskReward, "4");
+      assert.equal(instagramSettings.body.instagramTaskUrl, "https://www.instagram.com/daily007/");
+
+      const invalidInstagramUrl = await call(origin, "/admin/settings", "PUT", {
+        token,
+        body: { instagramTaskUrl: "https://example.com/not-instagram" },
+      });
+      assert.equal(invalidInstagramUrl.status, 400);
+      const invalidInstagramReward = await call(origin, "/admin/settings", "PUT", {
+        token,
+        body: { instagramTaskReward: "3.5" },
+      });
+      assert.equal(invalidInstagramReward.status, 400);
     });
 
     const saved = await pool.query<{ settings: Record<string, unknown> }>(
@@ -145,6 +169,9 @@ test("Admin settings hide the cancellation cursor and preserve private metadata 
       "Updated without resetting private progress",
     );
     assert.equal(saved.rows[0]?.settings.coinToMoneyRate, "2.5");
+    assert.equal(saved.rows[0]?.settings.instagramTaskEnabled, "false");
+    assert.equal(saved.rows[0]?.settings.instagramTaskReward, "4");
+    assert.equal(saved.rows[0]?.settings.instagramTaskUrl, "https://www.instagram.com/daily007/");
   } finally {
     await pool.query("DELETE FROM daily007_v2_settings WHERE id = 1");
     await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);

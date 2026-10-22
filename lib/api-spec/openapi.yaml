@@ -898,6 +898,79 @@ paths:
         "403": { description: Administrator required }
         "404": { description: Claim not found }
         "409": { description: "Claim already reviewed, already rewarded, or wallet limit would be exceeded" }
+  /earn/instagram-follow:
+    get:
+      operationId: daily007GetInstagramFollowTask
+      summary: Get Instagram follow task settings and the current user's claim status
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Task configuration and the authenticated user's latest claim
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007InstagramFollowTaskStatus" }
+        "401": { description: Missing or invalid bearer token }
+  /earn/instagram-follow/claims:
+    post:
+      operationId: daily007SubmitInstagramFollowClaim
+      summary: Submit an Instagram follow claim for administrator review
+      description: This endpoint creates a pending claim only. It never credits coins; an administrator must verify and approve it.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007InstagramFollowClaimBody" }
+      responses:
+        "201":
+          description: New claim submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007InstagramFollowClaim" }
+        "200":
+          description: Existing pending or completed claim returned without a second claim
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007InstagramFollowClaim" }
+        "400": { description: Invalid Instagram username or proof text }
+        "401": { description: Missing or invalid bearer token }
+        "409": { description: Task is disabled or the user already completed it }
+  /admin/earn/instagram-follow/claims:
+    get:
+      operationId: daily007AdminListInstagramFollowClaims
+      summary: List Instagram follow claims and completion totals for administrators
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Claim history with Instagram username, proof, and user identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007AdminInstagramFollowClaims" }
+        "403": { description: Administrator required }
+  /admin/earn/instagram-follow/claims/{id}/{action}:
+    post:
+      operationId: daily007AdminReviewInstagramFollowClaim
+      summary: Approve or reject a pending Instagram follow claim
+      description: Approval credits the reward captured on the claim exactly once in the same transaction as the completion record.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007YoutubeSubscribeReviewBody" }
+      responses:
+        "200":
+          description: Claim reviewed; approved claims include their wallet transaction id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007InstagramFollowClaim" }
+        "400": { description: "Invalid request id, action, or rejection reason" }
+        "403": { description: Administrator required }
+        "404": { description: Claim not found }
+        "409": { description: "Claim already reviewed, already rewarded, or wallet limit would be exceeded" }
   /payments:
     post:
       operationId: daily007SubmitRechargeRequest
@@ -1758,6 +1831,9 @@ components:
         youtubeTaskEnabled: { type: boolean }
         youtubeTaskReward: { type: string }
         youtubeTaskUrl: { type: string, format: uri }
+        instagramTaskEnabled: { type: boolean }
+        instagramTaskReward: { type: string }
+        instagramTaskUrl: { type: string, format: uri }
     Daily007AdminSettingsBody:
       type: object
       additionalProperties: false
@@ -1779,6 +1855,9 @@ components:
         youtubeTaskEnabled: { type: string, enum: ["true", "false"] }
         youtubeTaskReward: { type: string, maxLength: 20 }
         youtubeTaskUrl: { type: string, maxLength: 300, format: uri }
+        instagramTaskEnabled: { type: string, enum: ["true", "false"] }
+        instagramTaskReward: { type: string, maxLength: 20 }
+        instagramTaskUrl: { type: string, maxLength: 300, format: uri }
     Daily007YoutubeSubscribeClaim:
       type: object
       properties:
@@ -1851,6 +1930,84 @@ components:
       additionalProperties: false
       properties:
         reason: { type: string, maxLength: 500 }
+    Daily007InstagramFollowClaimBody:
+      type: object
+      additionalProperties: false
+      properties:
+        instagramUsername: { type: string, minLength: 1, maxLength: 31, pattern: "^@?[A-Za-z0-9._]{1,30}$" }
+        proofText: { type: [string, "null"], maxLength: 1000 }
+      required: [instagramUsername]
+    Daily007InstagramFollowClaim:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, approved, rejected] }
+        instagramUsername: { type: string, minLength: 1, maxLength: 30 }
+        proofText: { type: [string, "null"], maxLength: 1000 }
+        rewardCoins: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        reviewedAt:
+          anyOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
+        reviewReason:
+          anyOf:
+            - { type: string }
+            - { type: "null" }
+        transactionId:
+          anyOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+        walletCoins:
+          anyOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+      required: [id, status, instagramUsername, proofText, rewardCoins, createdAt, reviewedAt, reviewReason, transactionId, walletCoins]
+    Daily007InstagramFollowTaskStatus:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        rewardCoins: { type: integer, minimum: 1 }
+        accountUrl: { type: string, format: uri }
+        completed: { type: boolean }
+        claim:
+          anyOf:
+            - { $ref: "#/components/schemas/Daily007InstagramFollowClaim" }
+            - { type: "null" }
+      required: [enabled, rewardCoins, accountUrl, completed, claim]
+    Daily007AdminInstagramFollowClaim:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        userName: { type: string }
+        email: { type: string, format: email }
+        instagramUsername: { type: string, minLength: 1, maxLength: 30 }
+        proofText: { type: [string, "null"], maxLength: 1000 }
+        status: { type: string, enum: [pending, approved, rejected] }
+        rewardCoins: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        reviewedAt:
+          anyOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
+        reviewReason:
+          anyOf:
+            - { type: string }
+            - { type: "null" }
+        transactionId:
+          anyOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+      required: [id, userId, userName, email, instagramUsername, proofText, status, rewardCoins, createdAt, reviewedAt, reviewReason, transactionId]
+    Daily007AdminInstagramFollowClaims:
+      type: object
+      properties:
+        totalCompleted: { type: integer, minimum: 0 }
+        claims:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007AdminInstagramFollowClaim" }
+      required: [totalCompleted, claims]
     Daily007Video:
       type: object
       properties:
@@ -1983,11 +2140,12 @@ components:
             userStats: { type: integer, minimum: 0 }
             videoWatchSessions: { type: integer, minimum: 0 }
             youtubeSubscribeClaims: { type: integer, minimum: 0 }
+            instagramFollowClaims: { type: integer, minimum: 0 }
             googleRecoveryRequests: { type: integer, minimum: 0 }
             adminAccessRequests: { type: integer, minimum: 0 }
             leaderboardSnapshots: { type: integer, minimum: 0 }
             auditAttributionsCleared: { type: integer, minimum: 0 }
-          required: [payments, paymentProofFiles, withdrawals, registrations, rosterMembers, resultAwards, walletLedgerEntries, notifications, referralRelations, referralCodes, shortCodes, userStats, videoWatchSessions, youtubeSubscribeClaims, googleRecoveryRequests, adminAccessRequests, leaderboardSnapshots, auditAttributionsCleared]
+          required: [payments, paymentProofFiles, withdrawals, registrations, rosterMembers, resultAwards, walletLedgerEntries, notifications, referralRelations, referralCodes, shortCodes, userStats, videoWatchSessions, youtubeSubscribeClaims, instagramFollowClaims, googleRecoveryRequests, adminAccessRequests, leaderboardSnapshots, auditAttributionsCleared]
       required: [deleted, clerkIdentityDeleted, removed]
     Daily007ChangePasswordBody:
       type: object

@@ -62,6 +62,7 @@ test("account data cleanup removes dependent rows before registrations and the u
   const statement = (table: string) => client.statements.findIndex((sql) => sql.includes(table));
   assert.ok(statement("daily007_v2_video_watch_sessions") < statement("daily007_v2_wallet_ledger"));
   assert.ok(statement("daily007_v2_youtube_subscribe_claims") < statement("daily007_v2_wallet_ledger"));
+  assert.ok(statement("daily007_v2_instagram_follow_claims") < statement("daily007_v2_wallet_ledger"));
   assert.ok(statement("daily007_v2_result_awards") < statement("DELETE FROM daily007_v2_registrations"));
   assert.ok(statement("daily007_v2_wallet_ledger") < statement("DELETE FROM daily007_v2_registrations"));
   assert.ok(statement("daily007_v2_roster") < statement("DELETE FROM daily007_v2_registrations"));
@@ -75,5 +76,6 @@ test("account data cleanup removes dependent rows before registrations and the u
   assert.equal(result.registrations, 1);
   assert.equal(result.rosterMembers, 1);
   assert.equal(result.paymentProofFiles, 2);
+  assert.equal(result.instagramFollowClaims, 1);
   assert.equal(result.auditAttributionsCleared, 4);
 });

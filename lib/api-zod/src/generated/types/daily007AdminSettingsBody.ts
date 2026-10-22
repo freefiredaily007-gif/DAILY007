@@ -22,6 +22,7 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007AdminSettingsBodyInstagramTaskEnabled } from './daily007AdminSettingsBodyInstagramTaskEnabled';
 import type { Daily007AdminSettingsBodyRechargeEnabled } from './daily007AdminSettingsBodyRechargeEnabled';
 import type { Daily007AdminSettingsBodyWithdrawalEnabled } from './daily007AdminSettingsBodyWithdrawalEnabled';
 import type { Daily007AdminSettingsBodyYoutubeTaskEnabled } from './daily007AdminSettingsBodyYoutubeTaskEnabled';
@@ -58,4 +59,9 @@ export interface Daily007AdminSettingsBody {
   youtubeTaskReward?: string;
   /** @maxLength 300 */
   youtubeTaskUrl?: string;
+  instagramTaskEnabled?: Daily007AdminSettingsBodyInstagramTaskEnabled;
+  /** @maxLength 20 */
+  instagramTaskReward?: string;
+  /** @maxLength 300 */
+  instagramTaskUrl?: string;
 }

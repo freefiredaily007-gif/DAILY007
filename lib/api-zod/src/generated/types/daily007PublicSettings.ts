@@ -37,4 +37,7 @@ export interface Daily007PublicSettings {
   youtubeTaskEnabled?: boolean;
   youtubeTaskReward?: string;
   youtubeTaskUrl?: string;
+  instagramTaskEnabled?: boolean;
+  instagramTaskReward?: string;
+  instagramTaskUrl?: string;
 }

@@ -15,13 +15,16 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
+import { useTranslation } from 'react-i18next';
 import { ReadableText as Text } from '../components/typography';
 import {
+  useDaily007GetInstagramFollowTask,
   useDaily007GetMyReferrals,
   useDaily007GetYoutubeSubscribeTask,
+  useDaily007SubmitInstagramFollowClaim,
   useDaily007SubmitYoutubeSubscribeClaim,
 } from '@workspace/api-client-react';
-import { C } from '../components/ui';
+import { C, Input } from '../components/ui';
 import { apiError } from '../lib/api';
 import {
   copyReferralLinkToClipboardWithFallback,
@@ -40,6 +43,7 @@ const rechargeStatusLabel: Record<string, string> = {
 };
 
 export default function Earn() {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -47,25 +51,40 @@ export default function Earn() {
   const [simulateReferralLinkCopyFailure, setSimulateReferralLinkCopyFailure] = useState(false);
   const [simulateReferralCodeCopyFailure, setSimulateReferralCodeCopyFailure] = useState(false);
   const [taskError, setTaskError] = useState('');
+  const [instagramTaskError, setInstagramTaskError] = useState('');
+  const [instagramUsername, setInstagramUsername] = useState('');
+  const [instagramProof, setInstagramProof] = useState('');
   const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
+  const [returnedFromInstagram, setReturnedFromInstagram] = useState(false);
   const waitingForYoutubeReturn = useRef(false);
+  const waitingForInstagramReturn = useRef(false);
   const appState = useRef(AppState.currentState);
   const referralsQuery = useDaily007GetMyReferrals();
   const youtubeTaskQuery = useDaily007GetYoutubeSubscribeTask();
   const submitYoutubeClaim = useDaily007SubmitYoutubeSubscribeClaim();
+  const instagramTaskQuery = useDaily007GetInstagramFollowTask();
+  const submitInstagramClaim = useDaily007SubmitInstagramFollowClaim();
   const dashboard = referralsQuery.data;
   const referrals = dashboard?.referrals ?? [];
   const youtubeTask = youtubeTaskQuery.data;
+  const instagramTask = instagramTaskQuery.data;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const returnedToApp = waitingForYoutubeReturn.current
         && appState.current !== 'active'
         && nextState === 'active';
+      const returnedFromInstagramAccount = waitingForInstagramReturn.current
+        && appState.current !== 'active'
+        && nextState === 'active';
       appState.current = nextState;
       if (returnedToApp) {
         waitingForYoutubeReturn.current = false;
         setReturnedFromYoutube(true);
+      }
+      if (returnedFromInstagramAccount) {
+        waitingForInstagramReturn.current = false;
+        setReturnedFromInstagram(true);
       }
     });
     return () => subscription.remove();
@@ -168,14 +187,58 @@ export default function Earn() {
     }
   };
 
+  const openInstagramAccount = async () => {
+    if (!instagramTask?.accountUrl) return;
+    setInstagramTaskError('');
+    waitingForInstagramReturn.current = true;
+    setReturnedFromInstagram(false);
+    try {
+      await Linking.openURL(instagramTask.accountUrl);
+    } catch {
+      waitingForInstagramReturn.current = false;
+      setInstagramTaskError(t('Could not open Instagram. Try again or open the account in your browser.'));
+    }
+  };
+
+  const submitInstagramTask = async () => {
+    setInstagramTaskError('');
+    const normalizedUsername = instagramUsername.trim().replace(/^@/, '');
+    if (!/^[A-Za-z0-9._]{1,30}$/.test(normalizedUsername)) {
+      setInstagramTaskError(t('Enter a valid Instagram username.'));
+      return;
+    }
+    try {
+      await submitInstagramClaim.mutateAsync({
+        data: {
+          instagramUsername: normalizedUsername,
+          proofText: instagramProof.trim() || null,
+        },
+      });
+      setReturnedFromInstagram(false);
+      setInstagramUsername('');
+      setInstagramProof('');
+      await instagramTaskQuery.refetch();
+      showLocalizedAlert(
+        'Claim submitted',
+        'An administrator will verify your Instagram follow before adding the coins.',
+      );
+    } catch (error) {
+      setInstagramTaskError(
+        t('Could not submit your Instagram claim: {{error}}', { error: apiError(error) }),
+      );
+    }
+  };
+
   return (
     <ScrollView
       style={s.root}
       contentContainerStyle={s.content}
       refreshControl={
         <RefreshControl
-          refreshing={referralsQuery.isRefetching || youtubeTaskQuery.isRefetching}
-          onRefresh={() => { void Promise.all([referralsQuery.refetch(), youtubeTaskQuery.refetch()]); }}
+          refreshing={referralsQuery.isRefetching || youtubeTaskQuery.isRefetching || instagramTaskQuery.isRefetching}
+          onRefresh={() => {
+            void Promise.all([referralsQuery.refetch(), youtubeTaskQuery.refetch(), instagramTaskQuery.refetch()]);
+          }}
           tintColor={C.gold}
         />
       }
@@ -208,6 +271,11 @@ export default function Earn() {
       )}
       {!!youtubeTaskQuery.error && (
         <Text style={s.error}>{`YouTube task unavailable: ${apiError(youtubeTaskQuery.error)}`}</Text>
+      )}
+      {!!instagramTaskQuery.error && (
+        <Text style={s.error}>
+          {t('Instagram task unavailable: {{error}}', { error: apiError(instagramTaskQuery.error) })}
+        </Text>
       )}
       {!!taskError && <Text style={s.error}>{taskError}</Text>}
 
@@ -279,6 +347,146 @@ export default function Earn() {
               </Pressable>
               {!returnedFromYoutube ? (
                 <Text style={s.taskHint}>Subscribe on YouTube, then return to Daily007 to submit for review.</Text>
+              ) : null}
+            </>
+          ) : (
+            <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
+          )
+        ) : null}
+      </View>
+
+      <View style={s.instagramCard}>
+        <View style={s.youtubeHeading}>
+          <Feather name="instagram" size={21} color={C.purple} />
+          <Text style={s.youtubeTitle}>
+            {t('Follow on Instagram & Earn {{count}} Coins', {
+              count: instagramTask?.rewardCoins ?? 3,
+            })}
+          </Text>
+        </View>
+        <Text style={s.youtubeCopy}>
+          Follow the official Daily007 Instagram account and submit your username for admin verification before coins are credited.
+        </Text>
+        {instagramTaskQuery.isPending && !instagramTask ? (
+          <View style={s.taskLoading}>
+            <ActivityIndicator color={C.gold} />
+            <Text style={s.muted}>Loading Instagram task…</Text>
+          </View>
+        ) : null}
+        {!!instagramTaskError && (
+          <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={s.error}>
+            {instagramTaskError}
+          </Text>
+        )}
+        {instagramTask && !instagramTask.completed && instagramTask.claim?.status !== 'pending' ? (
+          <View style={s.taskAction}>
+            <Feather name="alert-circle" size={16} color={C.purple} />
+            <Text style={[s.taskStatusTitle, { color: C.purple }]}>
+              ACTION REQUIRED · FOLLOW AND SUBMIT CLAIM
+            </Text>
+          </View>
+        ) : null}
+        {instagramTask?.completed ? (
+          <View style={s.taskStatus}>
+            <Feather name="check-circle" size={16} color={C.green} />
+            <View style={s.taskStatusText}>
+              <Text style={s.taskStatusTitle}>
+                {t('TASK COMPLETED · {{count}} COINS CREDITED', {
+                  count: instagramTask.claim?.rewardCoins ?? instagramTask.rewardCoins,
+                })}
+              </Text>
+              <Text selectable style={s.detailText}>
+                {t('Transaction ID: {{id}}', {
+                  id: instagramTask.claim?.transactionId ?? t('Recorded'),
+                })}
+              </Text>
+            </View>
+          </View>
+        ) : instagramTask?.claim?.status === 'pending' ? (
+          <View style={s.taskStatus}>
+            <Feather name="clock" size={16} color={C.gold} />
+            <View style={s.taskStatusText}>
+              <Text style={[s.taskStatusTitle, { color: C.gold }]}>CLAIM SUBMITTED · AWAITING REVIEW</Text>
+              <Text style={s.detailText}>
+                {instagramTask.claim.rewardCoins} coins will be credited if approved.
+              </Text>
+              <Text style={s.detailText}>
+                {t('Instagram username: @{{username}}', { username: instagramTask.claim.instagramUsername })}
+              </Text>
+              {instagramTask.claim.proofText ? (
+                <Text style={s.detailText}>
+                  {t('Proof / note: {{proof}}', { proof: instagramTask.claim.proofText })}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ) : instagramTask?.claim?.status === 'rejected' ? (
+          <View style={s.taskRejected}>
+            <Text style={s.taskStatusTitle}>CLAIM NOT APPROVED</Text>
+            <Text style={s.detailText}>
+              {instagramTask.claim.reviewReason || t('Please follow the account and submit a new claim.')}
+            </Text>
+          </View>
+        ) : null}
+        {instagramTask && !instagramTask.completed && instagramTask.claim?.status !== 'pending' ? (
+          instagramTask.enabled ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('Open the official Daily007 Instagram account')}
+                testID="instagram-task-open-account"
+                onPress={openInstagramAccount}
+                style={s.instagramButton}
+              >
+                <Feather name="external-link" size={16} color={C.text} />
+                <Text style={s.youtubeButtonText}>FOLLOW ON INSTAGRAM</Text>
+              </Pressable>
+              <Text style={s.fieldLabel}>Instagram username</Text>
+              <Input
+                accessibilityLabel={t('Instagram username')}
+                testID="instagram-task-username"
+                autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={31}
+                placeholder="Enter your Instagram username"
+                value={instagramUsername}
+                onChangeText={setInstagramUsername}
+                style={s.taskInput}
+              />
+              <Text style={s.fieldLabel}>Proof / note (optional)</Text>
+              <Input
+                accessibilityLabel={t('Proof / note (optional)')}
+                testID="instagram-task-proof"
+                autoCapitalize="sentences"
+                maxLength={1000}
+                multiline
+                placeholder="Add a verification note or proof link (optional)"
+                value={instagramProof}
+                onChangeText={setInstagramProof}
+                style={[s.taskInput, s.proofInput]}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('Submit Instagram follow claim for administrator review')}
+                testID="instagram-task-submit-claim"
+                disabled={!returnedFromInstagram || submitInstagramClaim.isPending}
+                onPress={submitInstagramTask}
+                style={[
+                  s.claimButton,
+                  (!returnedFromInstagram || submitInstagramClaim.isPending) && s.claimButtonDisabled,
+                ]}
+              >
+                {submitInstagramClaim.isPending
+                  ? <ActivityIndicator color={C.bg} />
+                  : <Feather name="send" size={15} color={C.bg} />}
+                <Text style={s.claimButtonText}>
+                  {submitInstagramClaim.isPending ? 'SUBMITTING…' : 'SUBMIT FOLLOW CLAIM FOR REVIEW'}
+                </Text>
+              </Pressable>
+              {!returnedFromInstagram ? (
+                <Text style={s.taskHint}>
+                  Follow the account, return to Daily007, then submit your Instagram username for review.
+                </Text>
               ) : null}
             </>
           ) : (
@@ -468,17 +676,23 @@ const s = StyleSheet.create({
   ruleTitle: { color: C.gold, fontSize: 13, fontWeight: '800', flex: 1 },
   ruleText: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 7 },
   youtubeCard: { backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: `${C.red}66` },
+  instagramCard: { backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: `${C.purple}66` },
   youtubeHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   youtubeTitle: { color: C.text, fontSize: 14, fontWeight: '900', flex: 1 },
   youtubeCopy: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 8, marginBottom: 10 },
   taskLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
   taskStatus: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.green}55` },
+  taskAction: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.purple}55` },
   taskStatusText: { flex: 1 },
   taskStatusTitle: { color: C.green, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
   taskRejected: { backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.red}55` },
   taskHint: { color: C.dim, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 8 },
   youtubeButton: { minHeight: 44, backgroundColor: `${C.red}22`, borderColor: `${C.red}88`, borderWidth: 1, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
+  instagramButton: { minHeight: 44, backgroundColor: `${C.purple}22`, borderColor: `${C.purple}88`, borderWidth: 1, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
   youtubeButtonText: { color: C.text, fontWeight: '900', fontSize: 11, letterSpacing: 0.4 },
+  fieldLabel: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginTop: 8, marginBottom: 4 },
+  taskInput: { minHeight: 46, backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, color: C.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13 },
+  proofInput: { minHeight: 72, textAlignVertical: 'top' },
   claimButton: { minHeight: 44, backgroundColor: C.gold, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8, paddingHorizontal: 8 },
   claimButtonDisabled: { opacity: 0.45 },
   claimButtonText: { flex: 1, minWidth: 0, flexShrink: 1, textAlign: 'center', color: C.bg, fontWeight: '900', fontSize: 10, letterSpacing: 0.25 },

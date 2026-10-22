@@ -789,6 +789,8 @@ export const daily007AdminDeleteUserResponseRemovedVideoWatchSessionsMin = 0;
 
 export const daily007AdminDeleteUserResponseRemovedYoutubeSubscribeClaimsMin = 0;
 
+export const daily007AdminDeleteUserResponseRemovedInstagramFollowClaimsMin = 0;
+
 export const daily007AdminDeleteUserResponseRemovedGoogleRecoveryRequestsMin = 0;
 
 export const daily007AdminDeleteUserResponseRemovedAdminAccessRequestsMin = 0;
@@ -817,6 +819,7 @@ export const Daily007AdminDeleteUserResponse = zod.object({
   "userStats": zod.number().int().min(daily007AdminDeleteUserResponseRemovedUserStatsMin),
   "videoWatchSessions": zod.number().int().min(daily007AdminDeleteUserResponseRemovedVideoWatchSessionsMin),
   "youtubeSubscribeClaims": zod.number().int().min(daily007AdminDeleteUserResponseRemovedYoutubeSubscribeClaimsMin),
+  "instagramFollowClaims": zod.number().int().min(daily007AdminDeleteUserResponseRemovedInstagramFollowClaimsMin),
   "googleRecoveryRequests": zod.number().int().min(daily007AdminDeleteUserResponseRemovedGoogleRecoveryRequestsMin),
   "adminAccessRequests": zod.number().int().min(daily007AdminDeleteUserResponseRemovedAdminAccessRequestsMin),
   "leaderboardSnapshots": zod.number().int().min(daily007AdminDeleteUserResponseRemovedLeaderboardSnapshotsMin),
@@ -1533,6 +1536,150 @@ export const Daily007AdminReviewYoutubeSubscribeClaimResponse = zod.object({
 
 
 /**
+ * @summary Get Instagram follow task settings and the current user's claim status
+ */
+
+export const daily007GetInstagramFollowTaskResponseClaimOneInstagramUsernameMax = 30;
+
+export const daily007GetInstagramFollowTaskResponseClaimOneProofTextMax = 1000;
+
+
+export const daily007GetInstagramFollowTaskResponseClaimOneWalletCoinsOneMin = 0;
+
+
+
+export const Daily007GetInstagramFollowTaskResponse = zod.object({
+  "enabled": zod.boolean(),
+  "rewardCoins": zod.number().int().min(1),
+  "accountUrl": zod.string().url(),
+  "completed": zod.boolean(),
+  "claim": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "instagramUsername": zod.string().min(1).max(daily007GetInstagramFollowTaskResponseClaimOneInstagramUsernameMax),
+  "proofText": zod.string().max(daily007GetInstagramFollowTaskResponseClaimOneProofTextMax).nullable(),
+  "rewardCoins": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.union([zod.coerce.date(),zod.null()]),
+  "reviewReason": zod.union([zod.string(),zod.null()]),
+  "transactionId": zod.union([zod.string().uuid(),zod.null()]),
+  "walletCoins": zod.union([zod.number().int().min(daily007GetInstagramFollowTaskResponseClaimOneWalletCoinsOneMin),zod.null()])
+}),zod.null()])
+})
+
+
+/**
+ * This endpoint creates a pending claim only. It never credits coins; an administrator must verify and approve it.
+ * @summary Submit an Instagram follow claim for administrator review
+ */
+export const daily007SubmitInstagramFollowClaimBodyInstagramUsernameMax = 31;
+
+
+export const daily007SubmitInstagramFollowClaimBodyInstagramUsernameRegExp = new RegExp('^@?[A-Za-z0-9._]{1,30}$');
+export const daily007SubmitInstagramFollowClaimBodyProofTextMax = 1000;
+
+
+
+export const Daily007SubmitInstagramFollowClaimBody = zod.object({
+  "instagramUsername": zod.string().min(1).max(daily007SubmitInstagramFollowClaimBodyInstagramUsernameMax).regex(daily007SubmitInstagramFollowClaimBodyInstagramUsernameRegExp),
+  "proofText": zod.string().max(daily007SubmitInstagramFollowClaimBodyProofTextMax).nullish()
+})
+
+export const daily007SubmitInstagramFollowClaimResponseInstagramUsernameMax = 30;
+
+export const daily007SubmitInstagramFollowClaimResponseProofTextMax = 1000;
+
+
+export const daily007SubmitInstagramFollowClaimResponseWalletCoinsOneMin = 0;
+
+
+
+export const Daily007SubmitInstagramFollowClaimResponse = zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "instagramUsername": zod.string().min(1).max(daily007SubmitInstagramFollowClaimResponseInstagramUsernameMax),
+  "proofText": zod.string().max(daily007SubmitInstagramFollowClaimResponseProofTextMax).nullable(),
+  "rewardCoins": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.union([zod.coerce.date(),zod.null()]),
+  "reviewReason": zod.union([zod.string(),zod.null()]),
+  "transactionId": zod.union([zod.string().uuid(),zod.null()]),
+  "walletCoins": zod.union([zod.number().int().min(daily007SubmitInstagramFollowClaimResponseWalletCoinsOneMin),zod.null()])
+})
+
+
+/**
+ * @summary List Instagram follow claims and completion totals for administrators
+ */
+export const daily007AdminListInstagramFollowClaimsResponseTotalCompletedMin = 0;
+
+export const daily007AdminListInstagramFollowClaimsResponseClaimsItemInstagramUsernameMax = 30;
+
+export const daily007AdminListInstagramFollowClaimsResponseClaimsItemProofTextMax = 1000;
+
+
+
+
+export const Daily007AdminListInstagramFollowClaimsResponse = zod.object({
+  "totalCompleted": zod.number().int().min(daily007AdminListInstagramFollowClaimsResponseTotalCompletedMin),
+  "claims": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "userName": zod.string(),
+  "email": zod.string().email(),
+  "instagramUsername": zod.string().min(1).max(daily007AdminListInstagramFollowClaimsResponseClaimsItemInstagramUsernameMax),
+  "proofText": zod.string().max(daily007AdminListInstagramFollowClaimsResponseClaimsItemProofTextMax).nullable(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "rewardCoins": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.union([zod.coerce.date(),zod.null()]),
+  "reviewReason": zod.union([zod.string(),zod.null()]),
+  "transactionId": zod.union([zod.string().uuid(),zod.null()])
+}))
+})
+
+
+/**
+ * Approval credits the reward captured on the claim exactly once in the same transaction as the completion record.
+ * @summary Approve or reject a pending Instagram follow claim
+ */
+export const Daily007AdminReviewInstagramFollowClaimParams = zod.object({
+  "id": zod.coerce.string().uuid(),
+  "action": zod.enum(['approve', 'reject'])
+})
+
+export const daily007AdminReviewInstagramFollowClaimBodyReasonMax = 500;
+
+
+
+export const Daily007AdminReviewInstagramFollowClaimBody = zod.object({
+  "reason": zod.string().max(daily007AdminReviewInstagramFollowClaimBodyReasonMax).optional()
+})
+
+export const daily007AdminReviewInstagramFollowClaimResponseInstagramUsernameMax = 30;
+
+export const daily007AdminReviewInstagramFollowClaimResponseProofTextMax = 1000;
+
+
+export const daily007AdminReviewInstagramFollowClaimResponseWalletCoinsOneMin = 0;
+
+
+
+export const Daily007AdminReviewInstagramFollowClaimResponse = zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "instagramUsername": zod.string().min(1).max(daily007AdminReviewInstagramFollowClaimResponseInstagramUsernameMax),
+  "proofText": zod.string().max(daily007AdminReviewInstagramFollowClaimResponseProofTextMax).nullable(),
+  "rewardCoins": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.union([zod.coerce.date(),zod.null()]),
+  "reviewReason": zod.union([zod.string(),zod.null()]),
+  "transactionId": zod.union([zod.string().uuid(),zod.null()]),
+  "walletCoins": zod.union([zod.number().int().min(daily007AdminReviewInstagramFollowClaimResponseWalletCoinsOneMin),zod.null()])
+})
+
+
+/**
  * Submitting a request never credits coins. An administrator must verify the UTR and proof before approval.
  * @summary Submit a manual UPI recharge for admin review
  */
@@ -1753,7 +1900,10 @@ export const Daily007GetPublicWalletSettingsResponse = zod.object({
   "upiQrUrl": zod.string().url().optional(),
   "youtubeTaskEnabled": zod.boolean().optional(),
   "youtubeTaskReward": zod.string().optional(),
-  "youtubeTaskUrl": zod.string().url().optional()
+  "youtubeTaskUrl": zod.string().url().optional(),
+  "instagramTaskEnabled": zod.boolean().optional(),
+  "instagramTaskReward": zod.string().optional(),
+  "instagramTaskUrl": zod.string().url().optional()
 })
 
 
@@ -1795,6 +1945,10 @@ export const daily007AdminSaveWalletSettingsBodyYoutubeTaskRewardMax = 20;
 
 export const daily007AdminSaveWalletSettingsBodyYoutubeTaskUrlMax = 300;
 
+export const daily007AdminSaveWalletSettingsBodyInstagramTaskRewardMax = 20;
+
+export const daily007AdminSaveWalletSettingsBodyInstagramTaskUrlMax = 300;
+
 
 
 export const Daily007AdminSaveWalletSettingsBody = zod.object({
@@ -1814,7 +1968,10 @@ export const Daily007AdminSaveWalletSettingsBody = zod.object({
   "upiQrObjectPath": zod.string().max(daily007AdminSaveWalletSettingsBodyUpiQrObjectPathMax).optional(),
   "youtubeTaskEnabled": zod.enum(['true', 'false']).optional(),
   "youtubeTaskReward": zod.string().max(daily007AdminSaveWalletSettingsBodyYoutubeTaskRewardMax).optional(),
-  "youtubeTaskUrl": zod.string().url().max(daily007AdminSaveWalletSettingsBodyYoutubeTaskUrlMax).optional()
+  "youtubeTaskUrl": zod.string().url().max(daily007AdminSaveWalletSettingsBodyYoutubeTaskUrlMax).optional(),
+  "instagramTaskEnabled": zod.enum(['true', 'false']).optional(),
+  "instagramTaskReward": zod.string().max(daily007AdminSaveWalletSettingsBodyInstagramTaskRewardMax).optional(),
+  "instagramTaskUrl": zod.string().url().max(daily007AdminSaveWalletSettingsBodyInstagramTaskUrlMax).optional()
 })
 
 export const Daily007AdminSaveWalletSettingsResponse = zod.unknown()

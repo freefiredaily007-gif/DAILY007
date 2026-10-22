@@ -53,6 +53,8 @@ export type Daily007AdminUserDeletionResponseRemoved = {
   /** @minimum 0 */
   youtubeSubscribeClaims: number;
   /** @minimum 0 */
+  instagramFollowClaims: number;
+  /** @minimum 0 */
   googleRecoveryRequests: number;
   /** @minimum 0 */
   adminAccessRequests: number;

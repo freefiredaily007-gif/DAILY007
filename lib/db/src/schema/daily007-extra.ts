@@ -139,6 +139,31 @@ export const daily007YoutubeSubscribeClaimsTable = pgTable("daily007_v2_youtube_
     .where(sql`${table.status} = 'approved'`),
 ]);
 
+export const daily007InstagramFollowClaimsTable = pgTable("daily007_v2_instagram_follow_claims", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
+  instagramUsername: text("instagram_username").notNull(),
+  proofText: text("proof_text"),
+  rewardCoins: integer("reward_coins").notNull(),
+  status: text("status").notNull().default("pending"),
+  reviewReason: text("review_reason"),
+  reviewedBy: uuid("reviewed_by").references(() => daily007UsersTable.id),
+  rewardLedgerId: uuid("reward_ledger_id").references(() => daily007WalletLedgerTable.id).unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+}, (table) => [
+  check("daily007_instagram_claim_username_valid", sql`${table.instagramUsername} ~ '^[A-Za-z0-9._]{1,30}$'`),
+  check("daily007_instagram_claim_proof_valid", sql`${table.proofText} IS NULL OR length(${table.proofText}) <= 1000`),
+  check("daily007_instagram_claim_reward_valid", sql`${table.rewardCoins} BETWEEN 1 AND 2147483647`),
+  check("daily007_instagram_claim_status_valid", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  index("daily007_instagram_claim_user_idx").on(table.userId, table.createdAt),
+  index("daily007_instagram_claim_status_idx").on(table.status, table.createdAt),
+  uniqueIndex("daily007_instagram_one_pending_claim_per_user").on(table.userId)
+    .where(sql`${table.status} = 'pending'`),
+  uniqueIndex("daily007_instagram_one_completion_per_user").on(table.userId)
+    .where(sql`${table.status} = 'approved'`),
+]);
+
 export const daily007VideosTable = pgTable("daily007_v2_videos", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),

@@ -17,6 +17,7 @@ export type Daily007UserDeletionCounts = {
   userStats: number;
   videoWatchSessions: number;
   youtubeSubscribeClaims: number;
+  instagramFollowClaims: number;
   googleRecoveryRequests: number;
   adminAccessRequests: number;
   leaderboardSnapshots: number;
@@ -72,6 +73,11 @@ export async function deleteDaily007UserData(
   const youtubeSubscribeClaims = await deletedRows(
     client,
     "DELETE FROM daily007_v2_youtube_subscribe_claims WHERE user_id = $1 RETURNING id",
+    [userId],
+  );
+  const instagramFollowClaims = await deletedRows(
+    client,
+    "DELETE FROM daily007_v2_instagram_follow_claims WHERE user_id = $1 RETURNING id",
     [userId],
   );
   const googleRecoveryRequests = await deletedRows(
@@ -213,6 +219,7 @@ export async function deleteDaily007UserData(
     userStats,
     videoWatchSessions,
     youtubeSubscribeClaims,
+    instagramFollowClaims,
     googleRecoveryRequests,
     adminAccessRequests,
     leaderboardSnapshots,

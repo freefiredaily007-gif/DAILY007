@@ -820,6 +820,9 @@ export interface Daily007PublicSettings {
   youtubeTaskEnabled?: boolean;
   youtubeTaskReward?: string;
   youtubeTaskUrl?: string;
+  instagramTaskEnabled?: boolean;
+  instagramTaskReward?: string;
+  instagramTaskUrl?: string;
 }
 
 export type Daily007AdminSettingsBodyRechargeEnabled = typeof Daily007AdminSettingsBodyRechargeEnabled[keyof typeof Daily007AdminSettingsBodyRechargeEnabled];
@@ -842,6 +845,14 @@ export type Daily007AdminSettingsBodyYoutubeTaskEnabled = typeof Daily007AdminSe
 
 
 export const Daily007AdminSettingsBodyYoutubeTaskEnabled = {
+  true: 'true',
+  false: 'false',
+} as const;
+
+export type Daily007AdminSettingsBodyInstagramTaskEnabled = typeof Daily007AdminSettingsBodyInstagramTaskEnabled[keyof typeof Daily007AdminSettingsBodyInstagramTaskEnabled];
+
+
+export const Daily007AdminSettingsBodyInstagramTaskEnabled = {
   true: 'true',
   false: 'false',
 } as const;
@@ -878,6 +889,11 @@ export interface Daily007AdminSettingsBody {
   youtubeTaskReward?: string;
   /** @maxLength 300 */
   youtubeTaskUrl?: string;
+  instagramTaskEnabled?: Daily007AdminSettingsBodyInstagramTaskEnabled;
+  /** @maxLength 20 */
+  instagramTaskReward?: string;
+  /** @maxLength 300 */
+  instagramTaskUrl?: string;
 }
 
 export type Daily007YoutubeSubscribeClaimStatus = typeof Daily007YoutubeSubscribeClaimStatus[keyof typeof Daily007YoutubeSubscribeClaimStatus];
@@ -942,6 +958,99 @@ export interface Daily007AdminYoutubeSubscribeClaims {
 export interface Daily007YoutubeSubscribeReviewBody {
   /** @maxLength 500 */
   reason?: string;
+}
+
+export interface Daily007InstagramFollowClaimBody {
+  /**
+     * @minLength 1
+     * @maxLength 31
+     * @pattern ^@?[A-Za-z0-9._]{1,30}$
+     */
+  instagramUsername: string;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  proofText?: string | null;
+}
+
+export type Daily007InstagramFollowClaimStatus = typeof Daily007InstagramFollowClaimStatus[keyof typeof Daily007InstagramFollowClaimStatus];
+
+
+export const Daily007InstagramFollowClaimStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface Daily007InstagramFollowClaim {
+  id: string;
+  status: Daily007InstagramFollowClaimStatus;
+  /**
+     * @minLength 1
+     * @maxLength 30
+     */
+  instagramUsername: string;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  proofText: string | null;
+  /** @minimum 1 */
+  rewardCoins: number;
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewReason: string | null;
+  transactionId: string | null;
+  walletCoins: number | null;
+}
+
+export interface Daily007InstagramFollowTaskStatus {
+  enabled: boolean;
+  /** @minimum 1 */
+  rewardCoins: number;
+  accountUrl: string;
+  completed: boolean;
+  claim: Daily007InstagramFollowClaim | null;
+}
+
+export type Daily007AdminInstagramFollowClaimStatus = typeof Daily007AdminInstagramFollowClaimStatus[keyof typeof Daily007AdminInstagramFollowClaimStatus];
+
+
+export const Daily007AdminInstagramFollowClaimStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface Daily007AdminInstagramFollowClaim {
+  id: string;
+  userId: string;
+  userName: string;
+  email: string;
+  /**
+     * @minLength 1
+     * @maxLength 30
+     */
+  instagramUsername: string;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  proofText: string | null;
+  status: Daily007AdminInstagramFollowClaimStatus;
+  /** @minimum 1 */
+  rewardCoins: number;
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewReason: string | null;
+  transactionId: string | null;
+}
+
+export interface Daily007AdminInstagramFollowClaims {
+  /** @minimum 0 */
+  totalCompleted: number;
+  claims: Daily007AdminInstagramFollowClaim[];
 }
 
 export type Daily007VideoCategory = typeof Daily007VideoCategory[keyof typeof Daily007VideoCategory];
@@ -1186,6 +1295,8 @@ export type Daily007AdminUserDeletionResponseRemoved = {
   videoWatchSessions: number;
   /** @minimum 0 */
   youtubeSubscribeClaims: number;
+  /** @minimum 0 */
+  instagramFollowClaims: number;
   /** @minimum 0 */
   googleRecoveryRequests: number;
   /** @minimum 0 */

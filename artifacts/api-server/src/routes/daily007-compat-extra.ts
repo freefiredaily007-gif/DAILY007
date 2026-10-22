@@ -23,7 +23,9 @@ import {
 } from "./daily007-v2";
 import { isAssignableTournamentRole, wouldRemoveLastFullAdmin } from "../lib/daily007-roles";
 import {
+  isValidInstagramAccountUrl,
   isValidYoutubeChannelUrl,
+  normalizeInstagramUsername,
   normalizePaymentReference,
   parseCoinPackages,
   pausedVideoRewardResponse,
@@ -41,6 +43,11 @@ import {
   submitYoutubeSubscribeClaim,
   youtubeClaimResponse,
 } from "../lib/daily007-youtube-subscribe";
+import {
+  instagramClaimResponse,
+  reviewInstagramFollowClaim,
+  submitInstagramFollowClaim,
+} from "../lib/daily007-instagram-follow";
 import {
   completeDaily007VideoWatch,
   isValidDaily007VideoStartAttemptId,
@@ -88,6 +95,8 @@ const SETTINGS_DEFAULTS = {
   coinPackages: "", rechargeEnabled: "false", withdrawalEnabled: "false", upiQrObjectPath: "",
   youtubeTaskEnabled: "true", youtubeTaskReward: "5",
   youtubeTaskUrl: "https://youtube.com/@freefiredaily007?si=xWEYS3ViPlDz7Em3",
+  instagramTaskEnabled: "true", instagramTaskReward: "3",
+  instagramTaskUrl: "https://www.instagram.com/freefiredaily007/",
 };
 type Client = { query<T = unknown>(sql: string, values?: unknown[]): Promise<{ rows: T[] }>; release(): void };
 const userId = (req: Request) => req.daily007Account?.id;
@@ -230,6 +239,7 @@ async function clientSettings(admin = false): Promise<Record<string, unknown>> {
     rechargeEnabled: current.rechargeEnabled === "true",
     withdrawalEnabled: current.withdrawalEnabled === "true",
     youtubeTaskEnabled: current.youtubeTaskEnabled === "true",
+    instagramTaskEnabled: current.instagramTaskEnabled === "true",
     upiQrUrl: qrObjectPath ? await createWalletImageReadUrl(qrObjectPath, 60 * 60) : "",
     ...(admin ? { upiQrObjectPath: qrObjectPath } : {}),
   };
@@ -885,7 +895,8 @@ router.post("/admin/users/:id/delete", authenticate, async (req, res): Promise<v
            (SELECT count(*) FROM daily007_v2_google_recovery_requests WHERE reviewed_by = $1) +
            (SELECT count(*) FROM daily007_v2_payments WHERE reviewed_by = $1) +
            (SELECT count(*) FROM daily007_v2_withdrawals WHERE reviewed_by = $1) +
-           (SELECT count(*) FROM daily007_v2_youtube_subscribe_claims WHERE reviewed_by = $1)
+           (SELECT count(*) FROM daily007_v2_youtube_subscribe_claims WHERE reviewed_by = $1) +
+           (SELECT count(*) FROM daily007_v2_instagram_follow_claims WHERE reviewed_by = $1)
            AS count`,
         [targetId],
       );
@@ -1219,7 +1230,8 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   for (const [key, fallback] of Object.entries(SETTINGS_DEFAULTS)) {
     const value = body[key] === undefined ? (current[key] ?? fallback) : body[key];
     const maxLength = key === "paymentNote" ? 1000 : key === "upiQrObjectPath" ? 500 :
-      key === "youtubeTaskReward" ? 20 : key === "coinPackages" ? 300 : 300;
+      key === "youtubeTaskReward" || key === "instagramTaskReward" ? 20 :
+      key === "coinPackages" ? 300 : 300;
     if (typeof value !== "string" || value.length > maxLength) {
       error(res, 400, `${key} must be a string within the allowed length.`); return;
     }
@@ -1250,8 +1262,9 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   }
   if (!["true", "false"].includes(next.rechargeEnabled) ||
       !["true", "false"].includes(next.withdrawalEnabled) ||
-      !["true", "false"].includes(next.youtubeTaskEnabled)) {
-    error(res, 400, "Recharge, withdrawal, and YouTube task enablement must be true or false."); return;
+      !["true", "false"].includes(next.youtubeTaskEnabled) ||
+      !["true", "false"].includes(next.instagramTaskEnabled)) {
+    error(res, 400, "Recharge, withdrawal, YouTube, and Instagram task enablement must be true or false."); return;
   }
   if (!/^[1-9]\d*$/.test(next.youtubeTaskReward) ||
       !Number.isSafeInteger(Number(next.youtubeTaskReward)) ||
@@ -1260,6 +1273,14 @@ router.put("/admin/settings", authenticate, async (req, res): Promise<void> => {
   }
   if (!isValidYoutubeChannelUrl(next.youtubeTaskUrl)) {
     error(res, 400, "youtubeTaskUrl must be a valid HTTPS YouTube channel URL."); return;
+  }
+  if (!/^[1-9]\d*$/.test(next.instagramTaskReward) ||
+      !Number.isSafeInteger(Number(next.instagramTaskReward)) ||
+      Number(next.instagramTaskReward) > MAX_INT) {
+    error(res, 400, "instagramTaskReward must be a positive whole-number coin amount."); return;
+  }
+  if (!isValidInstagramAccountUrl(next.instagramTaskUrl)) {
+    error(res, 400, "instagramTaskUrl must be a valid HTTPS Instagram profile URL."); return;
   }
   if (next.upiId && !/^[a-zA-Z0-9._-]{2,100}@[a-zA-Z0-9.-]{2,100}$/.test(next.upiId)) {
     error(res, 400, "Enter a valid UPI ID."); return;
@@ -1386,6 +1407,107 @@ router.post("/admin/earn/youtube-subscribe/claims/:id/:action", authenticate, as
   try {
     const reviewed = await roleTransaction(req, "admin", (client) =>
       reviewYoutubeSubscribeClaim(client, claimId, adminId, action, reason));
+    res.json(reviewed);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.get("/earn/instagram-follow", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const current = await settings();
+  const rewardCoins = Number(current.instagramTaskReward);
+  const accountUrl = String(current.instagramTaskUrl ?? "");
+  if (!integer(rewardCoins, 1) || !isValidInstagramAccountUrl(accountUrl)) {
+    error(res, 503, "The Instagram task is not configured correctly."); return;
+  }
+  const claimResult = await pool.query<any>(
+    `SELECT * FROM daily007_v2_instagram_follow_claims
+      WHERE user_id = $1
+      ORDER BY (status = 'approved') DESC, created_at DESC LIMIT 1`,
+    [id],
+  );
+  const row = claimResult.rows[0] ?? null;
+  res.json({
+    enabled: current.instagramTaskEnabled === "true",
+    rewardCoins,
+    accountUrl,
+    completed: row?.status === "approved",
+    claim: row ? instagramClaimResponse(row) : null,
+  });
+});
+
+router.post("/earn/instagram-follow/claims", authenticate, async (req, res): Promise<void> => {
+  const id = privateAccount(req, res); if (!id) return;
+  const body = req.body as unknown;
+  if (!isObject(body) ||
+      Object.keys(body).some((key) => !["instagramUsername", "proofText"].includes(key))) {
+    error(res, 400, "Expected an Instagram username and optional proof text."); return;
+  }
+  const instagramUsername = normalizeInstagramUsername(body.instagramUsername);
+  if (!instagramUsername) {
+    error(res, 400, "Enter a valid Instagram username using 1–30 letters, numbers, periods, or underscores."); return;
+  }
+  let proofText: string | null = null;
+  if (body.proofText !== undefined && body.proofText !== null) {
+    if (typeof body.proofText !== "string" || body.proofText.trim().length > 1000) {
+      error(res, 400, "Proof text must be no more than 1,000 characters."); return;
+    }
+    proofText = body.proofText.trim() || null;
+  }
+  const current = await settings();
+  if (current.instagramTaskEnabled !== "true") {
+    error(res, 409, "The Instagram task is currently disabled."); return;
+  }
+  const rewardCoins = Number(current.instagramTaskReward);
+  if (!integer(rewardCoins, 1) || !isValidInstagramAccountUrl(String(current.instagramTaskUrl ?? ""))) {
+    error(res, 503, "The Instagram task is not configured correctly."); return;
+  }
+  try {
+    const result = await transaction((client) =>
+      submitInstagramFollowClaim(client, id, instagramUsername, proofText, rewardCoins));
+    res.status(result.created ? 201 : 200).json(result.claim);
+  } catch (e) { respondFailure(res, e); }
+});
+
+router.get("/admin/earn/instagram-follow/claims", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const [countResult, claimsResult] = await Promise.all([
+    pool.query<{ total: string | number }>(
+      `SELECT COUNT(*) AS total FROM daily007_v2_instagram_follow_claims
+        WHERE status = 'approved'`,
+    ),
+    pool.query(
+      `SELECT c.id, c.user_id AS "userId", COALESCE(u.name, 'Player') AS "userName",
+              COALESCE(u.email, '') AS email, c.instagram_username AS "instagramUsername",
+              c.proof_text AS "proofText", c.status, c.reward_coins AS "rewardCoins",
+              c.created_at AS "createdAt", c.reviewed_at AS "reviewedAt",
+              c.review_reason AS "reviewReason", c.reward_ledger_id AS "transactionId"
+         FROM daily007_v2_instagram_follow_claims c
+         JOIN daily007_v2_users u ON u.id = c.user_id
+        ORDER BY CASE c.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+                 c.created_at DESC
+        LIMIT 500`,
+    ),
+  ]);
+  res.json({ totalCompleted: Number(countResult.rows[0]?.total ?? 0), claims: claimsResult.rows });
+});
+
+router.post("/admin/earn/instagram-follow/claims/:id/:action", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const adminId = privateAccount(req, res); if (!adminId) return;
+  const claimId = req.params.id;
+  const action = req.params.action;
+  if (!validId(claimId) || (action !== "approve" && action !== "reject")) {
+    error(res, 400, "A valid claim UUID and approve/reject action are required."); return;
+  }
+  const body = req.body as unknown;
+  const reasonProvided = isObject(body) && body.reason !== undefined;
+  const reason = isObject(body) ? text(body.reason, 1, 500) : null;
+  if (action === "reject" && reasonProvided && !reason) {
+    error(res, 400, "Rejection reason must be 1–500 characters."); return;
+  }
+  try {
+    const reviewed = await roleTransaction(req, "admin", (client) =>
+      reviewInstagramFollowClaim(client, claimId, adminId, action, reason));
     res.json(reviewed);
   } catch (e) { respondFailure(res, e); }
 });

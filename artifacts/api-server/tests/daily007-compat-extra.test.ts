@@ -6,7 +6,9 @@ import test from "node:test";
 import { makeToken } from "../src/lib/daily007-session-token";
 import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 import {
+  isValidInstagramAccountUrl,
   isValidYoutubeChannelUrl,
+  normalizeInstagramUsername,
   normalizePaymentReference,
   parseCoinPackages,
   pausedVideoRewardResponse,
@@ -39,6 +41,16 @@ process.env.DAILY007_AUTH_SECRET = TEST_AUTH_SECRET;
 test.after(() => {
   if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;
   else process.env.DAILY007_AUTH_SECRET = previousAuthSecret;
+});
+
+test("Instagram task URL and username validation accept profiles and reject unrelated URLs or invalid names", () => {
+  assert.equal(isValidInstagramAccountUrl("https://www.instagram.com/freefiredaily007/"), true);
+  assert.equal(isValidInstagramAccountUrl("https://instagram.com/valid.name_007"), true);
+  assert.equal(isValidInstagramAccountUrl("http://instagram.com/freefiredaily007"), false);
+  assert.equal(isValidInstagramAccountUrl("https://instagram.com/accounts/login/"), false);
+  assert.equal(isValidInstagramAccountUrl("https://example.com/freefiredaily007"), false);
+  assert.equal(normalizeInstagramUsername("@valid.name_007"), "valid.name_007");
+  assert.equal(normalizeInstagramUsername(" not valid "), null);
 });
 
 async function withYoutubeClaimServer(run: (origin: string) => Promise<void>): Promise<void> {

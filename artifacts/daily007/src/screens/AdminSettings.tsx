@@ -45,6 +45,9 @@ export default function AdminSettings() {
       map.rechargeEnabled = String(s.rechargeEnabled === true || s.rechargeEnabled === 'true');
       map.withdrawalEnabled = String(s.withdrawalEnabled === true || s.withdrawalEnabled === 'true');
       map.youtubeTaskEnabled = String(s.youtubeTaskEnabled === true || s.youtubeTaskEnabled === 'true');
+      map.instagramTaskEnabled = String(s.instagramTaskEnabled === true || s.instagramTaskEnabled === 'true');
+      map.instagramTaskReward = String(s.instagramTaskReward ?? '3');
+      map.instagramTaskUrl = String(s.instagramTaskUrl ?? 'https://www.instagram.com/freefiredaily007/');
       map.upiQrObjectPath = String(s.upiQrObjectPath ?? '');
       setQrUrl(String(s.upiQrUrl ?? ''));
       setVals(map);
@@ -141,6 +144,38 @@ export default function AdminSettings() {
               thumbColor={vals.youtubeTaskEnabled === 'true' ? C.green : C.sub}
             />
           </View>
+        </View>
+        <View style={st.taskSettings}>
+          <Text style={st.fieldTitle}>Instagram Follow &amp; Earn task</Text>
+          <Text style={st.switchNote}>Claims remain pending until an administrator verifies the Instagram follow and approves the reward.</Text>
+          <View style={st.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={st.switchTitle}>Enable Instagram task</Text>
+              <Text style={st.switchNote}>Disabled tasks cannot receive new claims.</Text>
+            </View>
+            <Switch
+              value={vals.instagramTaskEnabled === 'true'}
+              onValueChange={(value) => setVals((s) => ({ ...s, instagramTaskEnabled: String(value) }))}
+              trackColor={{ false: C.line, true: C.green + '99' }}
+              thumbColor={vals.instagramTaskEnabled === 'true' ? C.green : C.sub}
+            />
+          </View>
+          <Text style={st.fieldLabel}>Instagram task account URL</Text>
+          <Input
+            placeholder="https://www.instagram.com/freefiredaily007/"
+            value={vals.instagramTaskUrl ?? ''}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            onChangeText={(value) => setVals((s) => ({ ...s, instagramTaskUrl: value }))}
+          />
+          <Text style={st.fieldLabel}>Instagram task reward (coins)</Text>
+          <Input
+            placeholder="3"
+            value={vals.instagramTaskReward ?? ''}
+            keyboardType="number-pad"
+            onChangeText={(value) => setVals((s) => ({ ...s, instagramTaskReward: value }))}
+          />
         </View>
         <Text style={st.fieldTitle}>UPI payment QR</Text>
         <Text style={st.switchNote}>Upload the QR that matches the UPI ID above. Confirm the recipient details before enabling payments.</Text>
