@@ -1233,6 +1233,20 @@ paths:
         "409": { description: "Tournament has not started, is full, has a winner, or was already cancelled" }
         "403": { description: Administrator required }
         "404": { description: Tournament not found }
+  /admin/tournaments:
+    get:
+      operationId: daily007AdminListTournaments
+      summary: List all tournaments for administrators, including cancelled matches
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Tournament list without room credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Daily007AdminTournament" }
+        "403": { description: Administrator required }
   /admin/tournaments/{id}/results:
     get:
       operationId: getAdminTournamentResults
@@ -1327,6 +1341,62 @@ components:
       type: http
       scheme: bearer
   schemas:
+    Daily007AdminTournament:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        mode: { type: string }
+        gameMode: { type: string }
+        teamType: { type: string }
+        teamSize: { type: integer }
+        slotUnit: { type: string, enum: [player, team] }
+        date: { type: string }
+        time: { type: string }
+        startsAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+        entryCoins: { type: integer }
+        prizePool: { type: integer }
+        totalSlots: { type: integer }
+        totalPlayerSlots: { type: integer }
+        rules: { type: string }
+        banner: { type: string }
+        imageUrl: { type: ["string", "null"] }
+        prizeDist: { type: string }
+        enabled: { type: boolean }
+        status: { type: string }
+        filledSlots: { type: integer }
+        filledPlayerSlots: { type: integer }
+        availableSlots: { type: integer }
+        capacityLabel: { type: string }
+        roomPublished: { type: boolean }
+      required:
+        - id
+        - name
+        - mode
+        - gameMode
+        - teamType
+        - teamSize
+        - slotUnit
+        - date
+        - time
+        - startsAt
+        - completedAt
+        - entryCoins
+        - prizePool
+        - totalSlots
+        - totalPlayerSlots
+        - rules
+        - banner
+        - imageUrl
+        - prizeDist
+        - enabled
+        - status
+        - filledSlots
+        - filledPlayerSlots
+        - availableSlots
+        - capacityLabel
+        - roomPublished
     TournamentLifecycleUpdate:
       type: object
       additionalProperties: false

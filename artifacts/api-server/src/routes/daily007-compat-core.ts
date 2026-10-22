@@ -288,13 +288,13 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
   };
 }
 
-async function getMatches(id?: string, enabledOnly = false): Promise<MatchRow[]> {
+async function getMatches(id?: string, enabledOnly = false, includeCancelled = false): Promise<MatchRow[]> {
   const clauses: string[] = [];
   const values: unknown[] = [];
   if (id) {
     values.push(id);
     clauses.push(`m.id = $${values.length}`);
-  } else clauses.push("m.status <> 'cancelled'");
+  } else if (!includeCancelled) clauses.push("m.status <> 'cancelled'");
   if (enabledOnly) clauses.push("m.enabled = true");
   const result = await pool.query<MatchRow>(
     `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
@@ -637,6 +637,12 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
 router.get("/tournaments", async (req, res): Promise<void> => {
   const enabledOnly = req.query.enabled === "true";
   res.json((await getMatches(undefined, enabledOnly)).map((row) => tournament(row)));
+});
+
+router.get("/admin/tournaments", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  res.setHeader("Cache-Control", "no-store");
+  res.json((await getMatches(undefined, false, true)).map((row) => tournament(row)));
 });
 
 router.get("/tournaments/:id/results", async (req, res): Promise<void> => {

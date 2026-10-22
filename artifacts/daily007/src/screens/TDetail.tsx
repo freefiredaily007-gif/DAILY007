@@ -768,6 +768,27 @@ export default function TDetail() {
         {!!t.rules && <Text style={s.rules}>{t.rules}</Text>}
       </Card>
 
+      {roomDetailsAnnouncement ? (
+        <Text
+          key={roomDetailsAnnouncementVersion}
+          accessible
+          accessibilityRole="text"
+          accessibilityLiveRegion="polite"
+          testID="room-details-announcement"
+          style={s.participantsRetryStatus}
+        >
+          {roomDetailsAnnouncement}
+        </Text>
+      ) : null}
+      <RoomCredentialsPanel
+        startsAt={t.startsAt}
+        now={clockNow}
+        configured={canViewRoomDetails && t.myRegistration?.roomPublished === true}
+        roomId={canViewRoomDetails ? t.myRegistration?.roomId : undefined}
+        roomPassword={canViewRoomDetails ? t.myRegistration?.roomPassword : undefined}
+        accessStatus={roomAccessStatus}
+      />
+
       {individualSquad ? (
         <>
           <SectionTitle accent={C.orange}>SQUAD TEAM SLOTS</SectionTitle>
@@ -958,27 +979,6 @@ export default function TDetail() {
           )}
         </>
       )}
-
-      {roomDetailsAnnouncement ? (
-        <Text
-          key={roomDetailsAnnouncementVersion}
-          accessible
-          accessibilityRole="text"
-          accessibilityLiveRegion="polite"
-          testID="room-details-announcement"
-          style={s.participantsRetryStatus}
-        >
-          {roomDetailsAnnouncement}
-        </Text>
-      ) : null}
-      <RoomCredentialsPanel
-        startsAt={t.startsAt}
-        now={clockNow}
-        configured={canViewRoomDetails && t.myRegistration?.roomPublished === true}
-        roomId={canViewRoomDetails ? t.myRegistration?.roomId : undefined}
-        roomPassword={canViewRoomDetails ? t.myRegistration?.roomPassword : undefined}
-        accessStatus={roomAccessStatus}
-      />
 
       <Msg kind="err" text={err} />
       <Msg kind="ok" text={msg} />

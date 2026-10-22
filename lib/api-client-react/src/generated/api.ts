@@ -50,6 +50,7 @@ import type {
   Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
   Daily007AdminStartLeaderboardCycleBody,
+  Daily007AdminTournament,
   Daily007AdminUpdateLeaderboardRewardsBody,
   Daily007AdminUserDeletionInput,
   Daily007AdminUserDeletionResponse,
@@ -5828,6 +5829,83 @@ export const useUpdateTournamentLifecycle = <TError = ErrorType<void>,
       > => {
       return useMutation(getUpdateTournamentLifecycleMutationOptions(options));
     }
+
+export const getDaily007AdminListTournamentsUrl = () => {
+
+
+
+
+  return `/api/admin/tournaments`
+}
+
+/**
+ * @summary List all tournaments for administrators, including cancelled matches
+ */
+export const daily007AdminListTournaments = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminTournament[]> => {
+
+  return customFetch<Daily007AdminTournament[]>(getDaily007AdminListTournamentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminListTournamentsQueryKey = () => {
+    return [
+    `/api/admin/tournaments`
+    ] as const;
+    }
+
+
+export const getDaily007AdminListTournamentsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListTournaments>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListTournaments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListTournamentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListTournaments>>> = ({ signal }) => daily007AdminListTournaments({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListTournaments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminListTournamentsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListTournaments>>>
+export type Daily007AdminListTournamentsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List all tournaments for administrators, including cancelled matches
+ */
+
+export function useDaily007AdminListTournaments<TData = Awaited<ReturnType<typeof daily007AdminListTournaments>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListTournaments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminListTournamentsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetAdminTournamentResultsUrl = (id: string,) => {
 

@@ -106,6 +106,14 @@ test("all tournament card surfaces render the shared room panel and gate credent
   assert.match(myMatchesSource, /roomId=\{status === 'approved' && !cancelled \? roomId : undefined\}/);
   assert.match(detailSource, /<RoomCredentialsPanel[\s\S]*?accessStatus=\{roomAccessStatus\}/);
   assert.match(detailSource, /roomId=\{canViewRoomDetails \? t\.myRegistration\?\.roomId : undefined\}/);
+  const roomPanelIndex = detailSource.indexOf('<RoomCredentialsPanel');
+  const squadSlotsIndex = detailSource.indexOf('SQUAD TEAM SLOTS');
+  const playerSlotsIndex = detailSource.indexOf('TOURNAMENT SLOTS');
+  const firstSlotsIndex = Math.min(
+    squadSlotsIndex < 0 ? Number.POSITIVE_INFINITY : squadSlotsIndex,
+    playerSlotsIndex < 0 ? Number.POSITIVE_INFINITY : playerSlotsIndex,
+  );
+  assert.ok(roomPanelIndex >= 0 && roomPanelIndex < firstSlotsIndex);
 });
 
 test("room availability and credential replacements are announced without exposing values", () => {
@@ -160,7 +168,7 @@ test("room availability and credential replacements are announced without exposi
   assert.match(detailSource, /'Room details are now available\.'/);
   assert.match(detailSource, /'Room details have been updated\.'/);
   assert.match(detailSource, /\[isFocused, tournamentId, roomCredentialsAvailable, roomId, roomPassword\]/);
-  assert.match(detailSource, /Platform\.OS === 'ios'.*AccessibilityInfo\.announceForAccessibility\(announcement\)/);
+  assert.match(detailSource, /Platform\.OS === 'ios'\).*AccessibilityInfo\.announceForAccessibility\(localizedAnnouncement\)/);
   assert.match(detailSource, /accessibilityLiveRegion="polite"/);
   assert.match(detailSource, /key=\{roomDetailsAnnouncementVersion\}/);
   assert.doesNotMatch(
@@ -302,7 +310,7 @@ test("clipboard success and failure return clear feedback for TalkBack announcem
     message: "Could not copy Room ID. Please try again.",
   });
 
-  assert.match(panelSource, /AccessibilityInfo\.announceForAccessibility\(feedback\.message\)/);
+  assert.match(panelSource, /AccessibilityInfo\.announceForAccessibility\(translateExactText\(feedback\.message\)\)/);
   assert.match(panelSource, /testID="room-credential-copy-feedback"/);
 });
 
@@ -340,7 +348,7 @@ test("a successful retry copies the selected value and replaces the prior failur
   });
   assert.match(
     panelSource,
-    /setCopyFeedback\(feedback\);\s*AccessibilityInfo\.announceForAccessibility\(feedback\.message\);/,
+    /setCopyFeedback\(feedback\);\s*AccessibilityInfo\.announceForAccessibility\(translateExactText\(feedback\.message\)\);/,
   );
   assert.match(
     panelSource,
@@ -416,7 +424,7 @@ test("changing either room credential clears old success and failure feedback be
     kind: "success",
     message: "Password copied to clipboard.",
   });
-  assert.match(panelSource, /AccessibilityInfo\.announceForAccessibility\(feedback\.message\)/);
+  assert.match(panelSource, /AccessibilityInfo\.announceForAccessibility\(translateExactText\(feedback\.message\)\)/);
   assert.match(panelSource, /testID="room-credential-copy-feedback"/);
 });
 
@@ -656,7 +664,7 @@ test("only the most recently tapped credential updates or announces copy feedbac
 
   assert.match(
     panelSource,
-    /const requestId = copyRequestGuard\.current\.beginRequest\(\);[\s\S]*?await copyRoomCredentialToClipboard\([\s\S]*?if \(!copyRequestGuard\.current\.isCurrentRequest\(requestId\)\) return;[\s\S]*?setCopyFeedback\(feedback\);[\s\S]*?AccessibilityInfo\.announceForAccessibility\(feedback\.message\);/,
+    /const requestId = copyRequestGuard\.current\.beginRequest\(\);[\s\S]*?await copyRoomCredentialToClipboard\([\s\S]*?if \(!copyRequestGuard\.current\.isCurrentRequest\(requestId\)\) return;[\s\S]*?setCopyFeedback\(feedback\);[\s\S]*?AccessibilityInfo\.announceForAccessibility\(translateExactText\(feedback\.message\)\);/,
   );
 });
 

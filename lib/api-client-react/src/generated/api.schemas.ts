@@ -22,6 +22,45 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+export type Daily007AdminTournamentSlotUnit = typeof Daily007AdminTournamentSlotUnit[keyof typeof Daily007AdminTournamentSlotUnit];
+
+
+export const Daily007AdminTournamentSlotUnit = {
+  player: 'player',
+  team: 'team',
+} as const;
+
+export interface Daily007AdminTournament {
+  id: string;
+  name: string;
+  mode: string;
+  gameMode: string;
+  teamType: string;
+  teamSize: number;
+  slotUnit: Daily007AdminTournamentSlotUnit;
+  date: string;
+  time: string;
+  startsAt: string;
+  /** @nullable */
+  completedAt: string | null;
+  entryCoins: number;
+  prizePool: number;
+  totalSlots: number;
+  totalPlayerSlots: number;
+  rules: string;
+  banner: string;
+  /** @nullable */
+  imageUrl: string | null;
+  prizeDist: string;
+  enabled: boolean;
+  status: string;
+  filledSlots: number;
+  filledPlayerSlots: number;
+  availableSlots: number;
+  capacityLabel: string;
+  roomPublished: boolean;
+}
+
 export type TournamentLifecycleUpdateStatus = typeof TournamentLifecycleUpdateStatus[keyof typeof TournamentLifecycleUpdateStatus];
 
 

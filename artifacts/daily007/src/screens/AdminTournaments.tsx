@@ -14,6 +14,8 @@ import {
   getDaily007ListAdminPrizeCreditAuditQueryKey,
   getDaily007ListAdminDuplicatePlacementsQueryKey,
   getDaily007ListAdminResultLogsQueryKey,
+  getDaily007AdminListTournamentsQueryKey,
+  useDaily007AdminListTournaments,
   useDaily007ListAdminPrizeCreditAudit,
   useDaily007ListAdminDuplicatePlacements,
   useDaily007ListAdminResultLogs,
@@ -26,6 +28,10 @@ import { inr, COIN_RATE_TEXT } from '../lib/coins';
 import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedResultAccessibility';
 import { shouldStackAdminTournamentCards } from '../lib/adminTournamentLayout';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
+import {
+  filterAdminTournamentsByTab,
+  type AdminTournamentTab,
+} from '../lib/adminTournamentTabs';
 import {
   getAdminTournamentCapacity,
   getAdminTournamentFormatOptions,
@@ -56,8 +62,9 @@ const TOURNAMENT_TABS = [
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'ongoing', label: 'Ongoing' },
   { id: 'completed', label: 'Completed' },
+  { id: 'cancelled', label: 'Cancelled' },
 ] as const;
-type TournamentAdminTab = (typeof TOURNAMENT_TABS)[number]['id'];
+type TournamentAdminTab = AdminTournamentTab;
 type TournamentAction = { tournamentId: string; kind: 'room' | 'results' };
 const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed.';
 const RESULT_ALREADY_PUBLISHED_PREFIX = 'Result already published — ';
@@ -160,9 +167,15 @@ export default function AdminTournaments() {
   });
   const prizeCreditAuditEntries = prizeCreditAuditQuery.data?.data ?? [];
   const resultLogs = resultLogsQuery.data?.data ?? [];
-  const visibleTournaments = (list ?? []).filter(
-    (tournament) => getTournamentLifecycleState(tournament, clockNow) === tab,
-  );
+  const visibleTournaments = filterAdminTournamentsByTab(list ?? [], tab, clockNow);
+  const adminTournamentsQuery = useDaily007AdminListTournaments({
+    query: {
+      queryKey: getDaily007AdminListTournamentsQueryKey(),
+      enabled: false,
+      staleTime: 0,
+      gcTime: 0,
+    },
+  });
 
   const announceApprovedRegistrationRetryStatus = (message: string) => {
     if (Platform.OS !== 'ios') return;
@@ -193,8 +206,9 @@ export default function AdminTournaments() {
 
   const load = useCallback(async () => {
     try {
-      const response = await Api.tournaments();
-      setList(Array.isArray(response) ? response : []);
+      const response = await adminTournamentsQuery.refetch();
+      if (response.isError) throw response.error;
+      setList(Array.isArray(response.data) ? response.data as Tournament[] : []);
       hasLoadedList.current = true;
       setClockNow(Date.now());
       if (missedStartCheckPending.current) {
@@ -209,7 +223,7 @@ export default function AdminTournaments() {
       );
       return false;
     }
-  }, []);
+  }, [adminTournamentsQuery.refetch]);
 
   const retryTournamentList = async () => {
     if (retryingList) return;
@@ -1085,6 +1099,7 @@ export default function AdminTournaments() {
 
       {!list ? <Loading /> : visibleTournaments.length === 0 ? <Empty text={`No ${tab} tournaments.`} /> : visibleTournaments.map((t) => {
         const lifecycle = getTournamentLifecycleState(t, clockNow);
+        const cancelled = String(t.status ?? '').toLowerCase() === 'cancelled';
         const finished = lifecycle === 'completed';
         const ongoing = lifecycle === 'ongoing';
         const cancellable = ongoing && Number(t.filledSlots ?? 0) < Number(t.totalSlots ?? 0);
@@ -1093,7 +1108,7 @@ export default function AdminTournaments() {
           .sort((a, b) => Number(a.rank) - Number(b.rank));
         const winner = tournamentResults.find((entry) => Number(entry.rank) === 1);
         const winnerName = String(winner?.gameName || winner?.playerName || winner?.teamName || 'Winner');
-        const statusLabel = finished ? 'COMPLETED' : ongoing ? 'ONGOING' : 'UPCOMING';
+        const statusLabel = cancelled ? 'CANCELLED' : finished ? 'COMPLETED' : ongoing ? 'ONGOING' : 'UPCOMING';
         const resultEmptyTitle = resultRegs === null
           ? ''
           : resultRegs.length === 0
@@ -1126,10 +1141,15 @@ export default function AdminTournaments() {
               ]}
             >
               <Text style={[st.tName, stackLargeTournamentCards && st.tNameLarge]}>{t.name}</Text>
-              <Chip label={statusLabel} color={finished ? C.gold : ongoing ? C.red : C.green} />
+              <Chip label={statusLabel} color={cancelled ? C.red : finished ? C.gold : ongoing ? C.red : C.green} />
             </View>
             <Text style={st.sub}>{t.mode} • {t.teamType} • {t.date} • {t.time} IST</Text>
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
+            {cancelled && (
+              <Text style={st.sub}>
+                Cancelled at the scheduled start because the match was under capacity. Eligible entry fees were refunded.
+              </Text>
+            )}
             {tab === 'upcoming' && (
               <>
                 <View

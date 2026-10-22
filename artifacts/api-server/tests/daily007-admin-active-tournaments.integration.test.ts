@@ -5,7 +5,8 @@ import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
 import { makeToken } from "../src/lib/daily007-session-token";
-import router from "../src/routes/daily007-compat-extra";
+import coreRouter from "../src/routes/daily007-compat-core";
+import extraRouter from "../src/routes/daily007-compat-extra";
 
 const testDatabaseUrl = process.env.DATABASE_URL
   ? new URL(process.env.DATABASE_URL)
@@ -37,7 +38,8 @@ after(async () => {
 async function withServer(run: (origin: string) => Promise<void>): Promise<void> {
   const app = express();
   app.use(express.json());
-  app.use(router);
+  app.use(coreRouter);
+  app.use(extraRouter);
   const server = await new Promise<Server>((resolve, reject) => {
     const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
     listeningServer.once("error", reject);
@@ -55,6 +57,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
 
 test("admin overview counts only enabled, non-cancelled tournaments without a published winner", async () => {
   const adminId = randomUUID();
+  const userId = randomUUID();
   const futureOpen = randomUUID();
   const ongoingFull = randomUUID();
   const cancelled = randomUUID();
@@ -67,8 +70,9 @@ test("admin overview counts only enabled, non-cancelled tournaments without a pu
     await pool.query(
       `INSERT INTO daily007_v2_users
          (id, name, email, role, wallet_coins, status, auth_version)
-       VALUES ($1, 'Stats Test Admin', $2, 'admin', 0, 'active', 0)`,
-      [adminId, `admin-${adminId}@example.test`],
+       VALUES ($1, 'Stats Test Admin', $2, 'admin', 0, 'active', 0),
+              ($3, 'Stats Test User', $4, 'user', 0, 'active', 0)`,
+      [adminId, `admin-${adminId}@example.test`, userId, `user-${userId}@example.test`],
     );
     await pool.query(
       `INSERT INTO daily007_v2_matches (id, enabled, status, starts_at)
@@ -89,6 +93,8 @@ test("admin overview counts only enabled, non-cancelled tournaments without a pu
 
     const token = makeToken(adminId, 0);
     assert.ok(token, "test admin should receive a Daily007 session token");
+    const userToken = makeToken(userId, 0);
+    assert.ok(userToken, "test user should receive a Daily007 session token");
 
     await withServer(async (origin) => {
       const response = await fetch(`${origin}/admin/stats`, {
@@ -98,6 +104,28 @@ test("admin overview counts only enabled, non-cancelled tournaments without a pu
       const body = await response.json() as { stats: { activeTournaments: number; completedTournaments: number } };
       assert.equal(body.stats.activeTournaments, 2);
       assert.equal(body.stats.completedTournaments, 1);
+
+      const adminListResponse = await fetch(`${origin}/admin/tournaments`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(adminListResponse.status, 200);
+      const adminTournaments = await adminListResponse.json() as Array<{
+        id: string;
+        status: string;
+        roomPassword?: unknown;
+      }>;
+      assert.equal(adminTournaments.find((match) => match.id === cancelled)?.status, "cancelled");
+      assert.equal("roomPassword" in (adminTournaments.find((match) => match.id === cancelled) ?? {}), false);
+
+      const publicListResponse = await fetch(`${origin}/tournaments`);
+      assert.equal(publicListResponse.status, 200);
+      const publicTournaments = await publicListResponse.json() as Array<{ id: string }>;
+      assert.equal(publicTournaments.some((match) => match.id === cancelled), false);
+
+      const userListResponse = await fetch(`${origin}/admin/tournaments`, {
+        headers: { authorization: `Bearer ${userToken}` },
+      });
+      assert.equal(userListResponse.status, 403);
     });
   } finally {
     await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = ANY($1::uuid[])", [
@@ -106,6 +134,6 @@ test("admin overview counts only enabled, non-cancelled tournaments without a pu
     await pool.query("DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])", [
       [futureOpen, ongoingFull, cancelled, disabled, completed, cancelledEnabled, winnerStillEnabled],
     ]);
-    await pool.query("DELETE FROM daily007_v2_users WHERE id = $1", [adminId]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [[adminId, userId]]);
   }
 });

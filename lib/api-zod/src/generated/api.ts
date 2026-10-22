@@ -2077,6 +2077,40 @@ export const UpdateTournamentLifecycleResponse = zod.object({
 
 
 /**
+ * @summary List all tournaments for administrators, including cancelled matches
+ */
+export const Daily007AdminListTournamentsResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "mode": zod.string(),
+  "gameMode": zod.string(),
+  "teamType": zod.string(),
+  "teamSize": zod.number().int(),
+  "slotUnit": zod.enum(['player', 'team']),
+  "date": zod.string(),
+  "time": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullable(),
+  "entryCoins": zod.number().int(),
+  "prizePool": zod.number().int(),
+  "totalSlots": zod.number().int(),
+  "totalPlayerSlots": zod.number().int(),
+  "rules": zod.string(),
+  "banner": zod.string(),
+  "imageUrl": zod.string().nullable(),
+  "prizeDist": zod.string(),
+  "enabled": zod.boolean(),
+  "status": zod.string(),
+  "filledSlots": zod.number().int(),
+  "filledPlayerSlots": zod.number().int(),
+  "availableSlots": zod.number().int(),
+  "capacityLabel": zod.string(),
+  "roomPublished": zod.boolean()
+})
+export const Daily007AdminListTournamentsResponse = zod.array(Daily007AdminListTournamentsResponseItem)
+
+
+/**
  * @summary Get an administrator's saved draft or finalized results
  */
 export const GetAdminTournamentResultsParams = zod.object({
