@@ -2196,27 +2196,56 @@ export const Daily007ListAdminResultLogsResponse = zod.object({
 
 
 /**
- * @summary Save one result entry as a draft without distributing rewards
+ * @summary Publish a tournament result and credit the awarded players
  */
-export const saveTournamentResultDraftBodyRankMax = 2147483647;
+export const publishTournamentResultBodyRankMax = 2147483647;
 
-export const saveTournamentResultDraftBodyKillsMin = 0;
-export const saveTournamentResultDraftBodyKillsMax = 2147483647;
-
-export const saveTournamentResultDraftBodyPrizeCoinsMin = 0;
-export const saveTournamentResultDraftBodyPrizeCoinsMax = 2147483647;
+export const publishTournamentResultBodyKillsMin = 0;
+export const publishTournamentResultBodyKillsMax = 2147483647;
 
 
 
-export const SaveTournamentResultDraftBody = zod.object({
+export const PublishTournamentResultBody = zod.object({
   "tournamentId": zod.string().uuid(),
-  "registrationId": zod.string().uuid(),
-  "rank": zod.number().int().min(1).max(saveTournamentResultDraftBodyRankMax),
-  "kills": zod.number().int().min(saveTournamentResultDraftBodyKillsMin).max(saveTournamentResultDraftBodyKillsMax),
-  "prizeCoins": zod.number().int().min(saveTournamentResultDraftBodyPrizeCoinsMin).max(saveTournamentResultDraftBodyPrizeCoinsMax)
+  "registrationId": zod.string().uuid().describe('For a team-based rank-1 result, an approved registration identifies the winning team; the server awards its active approved registered players.'),
+  "rank": zod.number().int().min(1).max(publishTournamentResultBodyRankMax),
+  "kills": zod.number().int().min(publishTournamentResultBodyKillsMin).max(publishTournamentResultBodyKillsMax).describe('Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.')
 })
 
-export const SaveTournamentResultDraftResponse = zod.unknown()
+
+export const publishTournamentResultResponseKillsMin = 0;
+
+export const publishTournamentResultResponsePrizeCoinsMin = 0;
+
+export const publishTournamentResultResponseWalletCoinsMin = 0;
+
+export const publishTournamentResultResponseTotalPrizeCoinsMin = 0;
+
+export const publishTournamentResultResponsePlayersAwardedItemPrizeCoinsMin = 0;
+
+export const publishTournamentResultResponsePlayersAwardedItemWalletCoinsMin = 0;
+
+export const publishTournamentResultResponseTeamNumberMax = 24;
+
+
+
+export const PublishTournamentResultResponse = zod.object({
+  "id": zod.string().uuid(),
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "rank": zod.number().int().min(1),
+  "kills": zod.number().int().min(publishTournamentResultResponseKillsMin),
+  "prizeCoins": zod.number().int().min(publishTournamentResultResponsePrizeCoinsMin).describe('Equal per-player prize for team wins; otherwise the saved rank prize.'),
+  "walletCoins": zod.number().int().min(publishTournamentResultResponseWalletCoinsMin),
+  "totalPrizeCoins": zod.number().int().min(publishTournamentResultResponseTotalPrizeCoinsMin),
+  "playersAwarded": zod.array(zod.object({
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "prizeCoins": zod.number().int().min(publishTournamentResultResponsePlayersAwardedItemPrizeCoinsMin),
+  "walletCoins": zod.number().int().min(publishTournamentResultResponsePlayersAwardedItemWalletCoinsMin)
+})),
+  "teamNumber": zod.number().int().min(1).max(publishTournamentResultResponseTeamNumberMax).optional()
+})
 
 
 /**

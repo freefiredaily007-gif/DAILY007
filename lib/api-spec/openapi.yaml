@@ -1301,18 +1301,24 @@ paths:
               schema: { $ref: "#/components/schemas/AdminResultLogsResponse" }
         "403": { description: Tournament administrator required }
     post:
-      operationId: saveTournamentResultDraft
-      summary: Save one result entry as a draft without distributing rewards
+      operationId: publishTournamentResult
+      summary: Publish a tournament result and credit the awarded players
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/TournamentResultDraft" }
+            schema: { $ref: "#/components/schemas/TournamentResultSubmission" }
       responses:
-        "200": { description: Draft saved; no wallet credits are made }
+        "201":
+          description: Result published and wallet credits settled for every awarded player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TournamentResultPublishResponse" }
         "400": { description: Invalid result entry }
-        "403": { description: Administrator required }
+        "403": { description: Tournament administrator required }
+        "404": { description: Tournament or player registration not found }
+        "409": { description: Result cannot be published or payout validation failed }
   /admin/results/duplicate-placements:
     get:
       operationId: daily007ListAdminDuplicatePlacements
@@ -1422,16 +1428,48 @@ components:
       properties:
         status: { type: string, enum: [cancelled] }
       required: [status]
-    TournamentResultDraft:
+    TournamentResultSubmission:
       type: object
       additionalProperties: false
       properties:
         tournamentId: { type: string, format: uuid }
-        registrationId: { type: string, format: uuid }
+        registrationId:
+          type: string
+          format: uuid
+          description: For a team-based rank-1 result, an approved registration identifies the winning team; the server awards its active approved registered players.
         rank: { type: integer, minimum: 1, maximum: 2147483647 }
-        kills: { type: integer, minimum: 0, maximum: 2147483647 }
-        prizeCoins: { type: integer, minimum: 0, maximum: 2147483647 }
-      required: [tournamentId, registrationId, rank, kills, prizeCoins]
+        kills:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.
+      required: [tournamentId, registrationId, rank, kills]
+    TournamentPrizeRecipient:
+      type: object
+      additionalProperties: false
+      properties:
+        registrationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        prizeCoins: { type: integer, minimum: 0 }
+        walletCoins: { type: integer, minimum: 0 }
+      required: [registrationId, userId, prizeCoins, walletCoins]
+    TournamentResultPublishResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        rank: { type: integer, minimum: 1 }
+        kills: { type: integer, minimum: 0 }
+        prizeCoins: { type: integer, minimum: 0, description: Equal per-player prize for team wins; otherwise the saved rank prize. }
+        walletCoins: { type: integer, minimum: 0 }
+        totalPrizeCoins: { type: integer, minimum: 0 }
+        playersAwarded:
+          type: array
+          items: { $ref: "#/components/schemas/TournamentPrizeRecipient" }
+        teamNumber: { type: integer, minimum: 1, maximum: 24 }
+      required: [id, registrationId, userId, rank, kills, prizeCoins, walletCoins, totalPrizeCoins, playersAwarded]
     TournamentResultEntry:
       type: object
       properties:

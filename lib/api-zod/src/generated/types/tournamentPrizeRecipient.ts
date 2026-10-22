@@ -23,22 +23,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface TournamentResultDraft {
-  tournamentId: string;
+export interface TournamentPrizeRecipient {
   registrationId: string;
-  /**
-     * @minimum 1
-     * @maximum 2147483647
-     */
-  rank: number;
-  /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
-  kills: number;
-  /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
+  userId: string;
+  /** @minimum 0 */
   prizeCoins: number;
+  /** @minimum 0 */
+  walletCoins: number;
 }

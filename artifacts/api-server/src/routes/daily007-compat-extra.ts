@@ -376,7 +376,7 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
           ? `Entry fee refunded — tournament ${tournamentId} (tournament cancelled)`
           : existingDescription ?? "Entry fee refunded (tournament cancelled)"
       : row.reason === "match_prize"
-        ? (() => {
+        ? existingDescription ?? (() => {
           const rank = Number(placementRank);
           const rankLabel = Number.isSafeInteger(rank) && rank > 0
             ? `${rank}${rank % 100 >= 11 && rank % 100 <= 13 ? "th" : rank % 10 === 1 ? "st" : rank % 10 === 2 ? "nd" : rank % 10 === 3 ? "rd" : "th"} place`
@@ -394,7 +394,7 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
           const context = [tournamentLabel, placement].filter(Boolean).join(" · ");
           return context
             ? `Tournament prize — ${context}`
-            : existingDescription ?? "Tournament prize";
+            : "Tournament prize";
         })()
         : leaderboardDescription ?? existingDescription ?? (row.reason === "video_watch_reward"
           ? "Video watch reward"
@@ -2404,11 +2404,48 @@ router.get("/admin/results/duplicate-placements", authenticate, async (req, res)
       createdAt: string;
     }>;
   }>(
-    `WITH duplicate_placements AS (
+     `WITH legitimate_team_winners AS (
+        SELECT award.match_id, team.id AS team_id, match.prize_pool,
+               count(*)::int AS award_count,
+               sum(award.prize_coins)::int AS total_prize_coins
+          FROM daily007_v2_result_awards award
+          JOIN daily007_v2_matches match ON match.id = award.match_id
+          JOIN daily007_v2_squad_team_members member
+            ON member.registration_id = award.registration_id
+           AND member.is_active = true
+          JOIN daily007_v2_squad_teams team ON team.id = member.team_id
+          JOIN daily007_v2_registrations registration
+            ON registration.id = award.registration_id
+           AND registration.status = 'approved'
+         WHERE award.rank = 1
+         GROUP BY award.match_id, team.id, match.prize_pool
+        HAVING count(*) = (
+                 SELECT count(*)::int
+                   FROM daily007_v2_squad_team_members active_member
+                   JOIN daily007_v2_registrations active_registration
+                     ON active_registration.id = active_member.registration_id
+                    AND active_registration.status = 'approved'
+                  WHERE active_member.team_id = team.id
+                    AND active_member.is_active = true
+               )
+           AND sum(award.prize_coins) = match.prize_pool
+           AND min(award.prize_coins) = max(award.prize_coins)
+           AND bool_and(award.kills = 0)
+      ),
+      duplicate_placements AS (
        SELECT match_id, rank, count(*)::int AS registration_count
          FROM daily007_v2_result_awards
         GROUP BY match_id, rank
-       HAVING count(*) > 1
+        HAVING count(*) > 1
+           AND NOT (
+             rank = 1
+             AND EXISTS (
+               SELECT 1
+                 FROM legitimate_team_winners legitimate
+                WHERE legitimate.match_id = daily007_v2_result_awards.match_id
+                  AND legitimate.award_count = count(*)
+             )
+           )
      )
      SELECT m.id AS "tournamentId", m.title AS "tournamentName",
             m.starts_at AS "startsAt", m.status AS "tournamentStatus",
@@ -2532,9 +2569,9 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       }
       const registration = await client.query<{
         id: string; match_id: string; captain_user_id: string; prize_pool: number; prize_distribution: string;
-        has_started: boolean; match_status: string;
+        title: string; has_started: boolean; match_status: string;
       }>(
-        `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution,
+        `SELECT r.id, r.match_id, r.captain_user_id, m.prize_pool, m.prize_distribution, m.title,
                 m.status AS match_status,
                 m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started
            FROM daily007_v2_registrations r
@@ -2545,11 +2582,12 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       const row = registration.rows[0];
       if (!row || row.match_id !== tournamentId) throw Object.assign(new Error("Registration was not found for this tournament/match."), { status: 404 });
       let teamId: string | null = null;
+      let winningTeamNumber: number | null = null;
       if (usesTeamSeats) {
         const membership = await client.query<{
-          team_id: string; captain_registration_id: string | null; is_active: boolean;
+          team_id: string; captain_registration_id: string | null; team_number: number; is_active: boolean;
         }>(
-          `SELECT member.team_id, team.captain_registration_id, member.is_active
+          `SELECT member.team_id, team.captain_registration_id, team.team_number, member.is_active
              FROM daily007_v2_squad_team_members member
              JOIN daily007_v2_squad_teams team ON team.id = member.team_id
             WHERE member.registration_id = $1
@@ -2560,10 +2598,11 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         if (!member || member.is_active !== true) {
           throw Object.assign(new Error("This player no longer occupies an active team slot."), { status: 409 });
         }
-        if (member.captain_registration_id !== row.id) {
+        if (rank !== 1 && member.captain_registration_id !== row.id) {
           throw Object.assign(new Error("Publish team results from the team captain’s registration."), { status: 409 });
         }
         teamId = member.team_id;
+        winningTeamNumber = member.team_number;
       }
       if (row.match_status === "cancelled") {
         throw Object.assign(new Error("Results cannot be published for a cancelled tournament."), { status: 409 });
@@ -2586,85 +2625,206 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         }
         throw Object.assign(new Error("This placement has already been awarded for this tournament."), { status: 409 });
       }
+
+      type AwardTarget = {
+        registrationId: string;
+        userId: string;
+        slotNumber: number | null;
+      };
+      let awardTargets: AwardTarget[] = [{
+        registrationId: row.id,
+        userId: row.captain_user_id,
+        slotNumber: null,
+      }];
+      const isTeamWinner = usesTeamSeats && rank === 1 && teamId !== null;
+      let prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
+      const awardKills = isTeamWinner ? 0 : kills;
+
       if (usesTeamSeats && teamId) {
-        const previousTeamAward = await client.query<{ registration_id: string }>(
-          `SELECT award.registration_id
-             FROM daily007_v2_result_awards award
-             JOIN daily007_v2_squad_team_members awarded_member
-               ON awarded_member.registration_id = award.registration_id
-            WHERE award.match_id = $1 AND awarded_member.team_id = $2
-            LIMIT 1`,
-          [row.match_id, teamId],
-        );
-        if (previousTeamAward.rows[0]) {
-          throw Object.assign(new Error("A result has already been published for this team."), { status: 409 });
+        if (isTeamWinner) {
+          const teamRegistrations = await client.query<{
+            registration_id: string;
+            user_id: string;
+            slot_number: number;
+          }>(
+            `SELECT registration.id AS registration_id,
+                    registration.captain_user_id AS user_id,
+                    member.slot_number
+               FROM daily007_v2_squad_team_members member
+               JOIN daily007_v2_registrations registration
+                 ON registration.id = member.registration_id
+                AND registration.match_id = $1
+                AND registration.status = 'approved'
+              WHERE member.team_id = $2
+                AND member.is_active = true
+            ORDER BY member.slot_number, registration.id
+              FOR UPDATE OF member, registration`,
+            [row.match_id, teamId],
+          );
+          const members = teamRegistrations.rows;
+          if (members.length === 0 || !members.some((member) => member.registration_id === row.id)) {
+            throw Object.assign(new Error("The selected team has no active approved player registrations."), { status: 409 });
+          }
+          const previousTeamAward = await client.query<{ registration_id: string }>(
+            `SELECT award.registration_id
+               FROM daily007_v2_result_awards award
+              WHERE award.match_id = $1
+                AND award.registration_id = ANY($2::uuid[])
+              LIMIT 1`,
+            [row.match_id, members.map((member) => member.registration_id)],
+          );
+          if (previousTeamAward.rows[0]) {
+            throw Object.assign(new Error("A result has already been published for a player on this team."), { status: 409 });
+          }
+          if (row.prize_pool % members.length !== 0) {
+            throw Object.assign(
+              new Error(`The ${row.prize_pool}-coin prize pool cannot be divided evenly among ${members.length} approved team players.`),
+              { status: 409 },
+            );
+          }
+          prizeCoins = row.prize_pool / members.length;
+          awardTargets = members.map((member) => ({
+            registrationId: member.registration_id,
+            userId: member.user_id,
+            slotNumber: member.slot_number,
+          }));
+        } else {
+          const previousTeamAward = await client.query<{ registration_id: string }>(
+            `SELECT award.registration_id
+               FROM daily007_v2_result_awards award
+               JOIN daily007_v2_squad_team_members awarded_member
+                 ON awarded_member.registration_id = award.registration_id
+              WHERE award.match_id = $1 AND awarded_member.team_id = $2
+              LIMIT 1`,
+            [row.match_id, teamId],
+          );
+          if (previousTeamAward.rows[0]) {
+            throw Object.assign(new Error("A result has already been published for this team."), { status: 409 });
+          }
         }
       }
-      const prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
-      const account = await client.query<{ wallet_coins: number }>(
-        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE", [row.captain_user_id],
-      );
-      const balance = account.rows[0]?.wallet_coins;
-      if (balance === undefined) throw Object.assign(new Error("Player account not found."), { status: 404 });
-      const next = balance + prizeCoins;
-      if (next > MAX_INT) throw Object.assign(new Error("Prize would exceed the supported wallet range."), { status: 409 });
-      const statsResult = await client.query<{
-        matches: number;
-        wins: number;
-        kills: number;
-        prize_coins: number;
-      }>(
-        `SELECT matches, wins, kills, prize_coins
-           FROM daily007_v2_user_stats
-          WHERE user_id = $1
+
+      const userIds = [...new Set(awardTargets.map((target) => target.userId))].sort();
+      const accountResult = await client.query<{ id: string; wallet_coins: number }>(
+        `SELECT id, wallet_coins
+           FROM daily007_v2_users
+          WHERE id = ANY($1::uuid[])
+          ORDER BY id
           FOR UPDATE`,
-        [row.captain_user_id],
+        [userIds],
       );
-      const stats = statsResult.rows[0] ?? { matches: 0, wins: 0, kills: 0, prize_coins: 0 };
-      const statIncrements: Array<[string, number, number]> = [
-        ["matches", stats.matches, 1],
-        ["wins", stats.wins, rank === 1 ? 1 : 0],
-        ["kills", stats.kills, kills],
-        ["prize total", stats.prize_coins, prizeCoins],
-      ];
-      for (const [statName, currentValue, increment] of statIncrements) {
-        const nextValue = currentValue + increment;
-        if (!Number.isSafeInteger(nextValue) || nextValue > MAX_INT) {
-          throw Object.assign(
-            new Error(`Player lifetime ${statName} would exceed the supported range.`),
-            { status: 409 },
+      const accounts = new Map(accountResult.rows.map((account) => [account.id, account.wallet_coins]));
+      if (accounts.size !== userIds.length) {
+        throw Object.assign(new Error("A player account on the winning team could not be found."), { status: 404 });
+      }
+
+      const settlements: Array<AwardTarget & {
+        walletCoins: number;
+        awardId: string;
+        prizeCoins: number;
+      }> = [];
+      for (const target of awardTargets) {
+        const balance = accounts.get(target.userId);
+        if (balance === undefined) throw Object.assign(new Error("Player account not found."), { status: 404 });
+        const next = balance + prizeCoins;
+        if (!Number.isSafeInteger(next) || next > MAX_INT) {
+          throw Object.assign(new Error("Prize would exceed the supported wallet range."), { status: 409 });
+        }
+
+        const statsResult = await client.query<{
+          matches: number;
+          wins: number;
+          kills: number;
+          prize_coins: number;
+        }>(
+          `SELECT matches, wins, kills, prize_coins
+             FROM daily007_v2_user_stats
+            WHERE user_id = $1
+            FOR UPDATE`,
+          [target.userId],
+        );
+        const stats = statsResult.rows[0] ?? { matches: 0, wins: 0, kills: 0, prize_coins: 0 };
+        const statIncrements: Array<[string, number, number]> = [
+          ["matches", stats.matches, 1],
+          ["wins", stats.wins, rank === 1 ? 1 : 0],
+          ["kills", stats.kills, awardKills],
+          ["prize total", stats.prize_coins, prizeCoins],
+        ];
+        for (const [statName, currentValue, increment] of statIncrements) {
+          const nextValue = currentValue + increment;
+          if (!Number.isSafeInteger(nextValue) || nextValue > MAX_INT) {
+            throw Object.assign(
+              new Error(`Player lifetime ${statName} would exceed the supported range.`),
+              { status: 409 },
+            );
+          }
+        }
+
+        const award = await client.query<{ id: string }>(
+          `INSERT INTO daily007_v2_result_awards (match_id, registration_id, user_id, rank, kills, prize_coins)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id`,
+          [row.match_id, target.registrationId, target.userId, rank, awardKills, prizeCoins],
+        );
+        await client.query(
+          `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
+           VALUES ($1, 1, $2, $3, $4)
+           ON CONFLICT (user_id) DO UPDATE SET
+             matches = daily007_v2_user_stats.matches + 1,
+             wins = daily007_v2_user_stats.wins + EXCLUDED.wins,
+             kills = daily007_v2_user_stats.kills + EXCLUDED.kills,
+             prize_coins = daily007_v2_user_stats.prize_coins + EXCLUDED.prize_coins`,
+          [target.userId, rank === 1 ? 1 : 0, awardKills, prizeCoins],
+        );
+        await client.query(
+          "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+          [target.userId, next],
+        );
+        if (prizeCoins > 0 || isTeamWinner) {
+          const details = isTeamWinner
+            ? JSON.stringify({ description: `Tournament Prize Won - ${row.title}` })
+            : null;
+          await client.query(
+            `INSERT INTO daily007_v2_wallet_ledger
+               (user_id, amount, balance_after, reason, match_id, registration_id, details)
+             VALUES ($1, $2, $3, 'match_prize', $4, $5, $6::jsonb)`,
+            [target.userId, prizeCoins, next, row.match_id, target.registrationId, details],
           );
         }
+        accounts.set(target.userId, next);
+        settlements.push({
+          ...target,
+          walletCoins: next,
+          awardId: (award.rows[0] as { id: string }).id,
+          prizeCoins,
+        });
       }
-      const award = await client.query(
-        `INSERT INTO daily007_v2_result_awards (match_id, registration_id, user_id, rank, kills, prize_coins)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id`, [row.match_id, row.id, row.captain_user_id, rank, kills, prizeCoins],
-      );
-      await client.query(
-        `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
-         VALUES ($1, 1, $2, $3, $4)
-         ON CONFLICT (user_id) DO UPDATE SET
-           matches = daily007_v2_user_stats.matches + 1,
-           wins = daily007_v2_user_stats.wins + EXCLUDED.wins,
-           kills = daily007_v2_user_stats.kills + EXCLUDED.kills,
-           prize_coins = daily007_v2_user_stats.prize_coins + EXCLUDED.prize_coins`,
-        [row.captain_user_id, rank === 1 ? 1 : 0, kills, prizeCoins],
-      );
-      await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [row.captain_user_id, next]);
-      if (prizeCoins > 0) await client.query(
-        `INSERT INTO daily007_v2_wallet_ledger
-           (user_id, amount, balance_after, reason, match_id, registration_id)
-         VALUES ($1, $2, $3, 'match_prize', $4, $5)`,
-        [row.captain_user_id, prizeCoins, next, row.match_id, row.id],
-      );
+
       if (rank === 1) {
         await client.query(
-          "UPDATE daily007_v2_matches SET enabled = false WHERE id = $1",
+          "UPDATE daily007_v2_matches SET enabled = false, status = 'completed' WHERE id = $1",
           [row.match_id],
         );
       }
-      return { id: (award.rows[0] as { id: string }).id, registrationId: row.id, userId: row.captain_user_id, prizeCoins, walletCoins: next };
+      const selectedSettlement = settlements.find((settlement) => settlement.registrationId === row.id) ?? settlements[0];
+      if (!selectedSettlement) throw new Error("No result awards were saved.");
+      return {
+        id: selectedSettlement.awardId,
+        registrationId: row.id,
+        userId: row.captain_user_id,
+        rank,
+        kills: awardKills,
+        prizeCoins,
+        walletCoins: selectedSettlement.walletCoins,
+        totalPrizeCoins: prizeCoins * settlements.length,
+        playersAwarded: settlements.map((settlement) => ({
+          registrationId: settlement.registrationId,
+          userId: settlement.userId,
+          prizeCoins: settlement.prizeCoins,
+          walletCoins: settlement.walletCoins,
+        })),
+        ...(isTeamWinner && winningTeamNumber !== null ? { teamNumber: winningTeamNumber } : {}),
+      };
     });
     res.status(201).json(result);
   } catch (e) {

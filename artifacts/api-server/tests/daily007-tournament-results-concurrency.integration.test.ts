@@ -338,6 +338,63 @@ async function createFixture(playerCount = 2): Promise<TournamentFixture> {
   }
 }
 
+async function configureTeamMatch(
+  fixture: TournamentFixture,
+  options: { teamSize: 2 | 4; teamCount: number; prizePool: number; title: string },
+): Promise<void> {
+  if (fixture.players.length !== options.teamSize * options.teamCount) {
+    throw new Error("The team fixture must have one registration per configured player seat.");
+  }
+  await pool.query(
+    `UPDATE daily007_v2_matches
+        SET title = $2, mode = $3, game_mode = $4, team_type = $5,
+            capacity = $6, prize_pool = $7, prize_distribution = $8
+      WHERE id = $1`,
+    [
+      fixture.matchId,
+      options.title,
+      options.teamSize === 2 ? "duo" : "squad",
+      "battle_royale",
+      options.teamSize === 2 ? "duo" : "squad",
+      options.teamCount,
+      options.prizePool,
+      `1st: ${options.prizePool} coins`,
+    ],
+  );
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (let teamIndex = 0; teamIndex < options.teamCount; teamIndex++) {
+      const teamId = randomUUID();
+      const firstPlayer = fixture.players[teamIndex * options.teamSize];
+      assert.ok(firstPlayer);
+      await client.query(
+        `INSERT INTO daily007_v2_squad_teams
+           (id, match_id, team_number, captain_registration_id)
+         VALUES ($1, $2, $3, $4)`,
+        [teamId, fixture.matchId, teamIndex + 1, firstPlayer.registrationId],
+      );
+      for (let slotIndex = 0; slotIndex < options.teamSize; slotIndex++) {
+        const player = fixture.players[teamIndex * options.teamSize + slotIndex];
+        assert.ok(player);
+        await client.query(
+          `INSERT INTO daily007_v2_squad_team_members
+             (team_id, slot_number, registration_id, is_active)
+           VALUES ($1, $2, $3, true)`,
+          [teamId, slotIndex + 1, player.registrationId],
+        );
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function prepareCancellationRaceFixture(fixture: TournamentFixture): Promise<void> {
   await pool.query(
     `UPDATE daily007_v2_users
@@ -1876,6 +1933,201 @@ test("saved runner-up results are discoverable before a winner and retries do no
         stateAfterPublish,
         "retrying must not change the player's wallet, ledger, award, stats, or tournament state",
       );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("publishing a team winner credits every approved teammate equally and completes the match", async () => {
+  const fixture = await createFixture(4);
+  const winningPlayers = fixture.players.slice(0, 2);
+  assert.equal(winningPlayers.length, 2);
+
+  try {
+    await configureTeamMatch(fixture, {
+      teamSize: 2,
+      teamCount: 2,
+      prizePool: 50,
+      title: "Duo Equal Prize Test",
+    });
+    await setPlayerStats(winningPlayers[0]!, {
+      matches: 3, wins: 1, kills: 11, prize_coins: 8,
+    });
+    await setPlayerStats(winningPlayers[1]!, {
+      matches: 0, wins: 0, kills: 9, prize_coins: 0,
+    });
+
+    await withServer(async (origin) => {
+      const published = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        winningPlayers[1]!,
+        1,
+        99,
+      );
+      assert.equal(published.status, 201, JSON.stringify(published.body));
+      assert.equal(published.body.teamNumber, 1);
+      assert.equal(published.body.prizeCoins, 25);
+      assert.equal(published.body.totalPrizeCoins, 50);
+      assert.equal((published.body.playersAwarded as unknown[]).length, 2);
+
+      const settlement = await pool.query<{
+        registration_id: string;
+        user_id: string;
+        rank: number;
+        kills: number;
+        prize_coins: number;
+      }>(
+        `SELECT registration_id, user_id, rank, kills, prize_coins
+           FROM daily007_v2_result_awards
+          WHERE match_id = $1
+          ORDER BY registration_id`,
+        [fixture.matchId],
+      );
+      assert.deepEqual(
+        settlement.rows.map((award) => ({
+          registration_id: award.registration_id,
+          user_id: award.user_id,
+          rank: award.rank,
+          kills: award.kills,
+          prize_coins: award.prize_coins,
+        })),
+        winningPlayers.map((player) => ({
+          registration_id: player.registrationId,
+          user_id: player.userId,
+          rank: 1,
+          kills: 0,
+          prize_coins: 25,
+        })).sort((left, right) => left.registration_id.localeCompare(right.registration_id)),
+      );
+
+      const wallets = await pool.query<{ id: string; wallet_coins: number }>(
+        "SELECT id, wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [fixture.players.map((player) => player.userId)],
+      );
+      const walletByUser = new Map(wallets.rows.map((wallet) => [wallet.id, wallet.wallet_coins]));
+      assert.equal(walletByUser.get(winningPlayers[0]!.userId), 125);
+      assert.equal(walletByUser.get(winningPlayers[1]!.userId), 125);
+      assert.equal(walletByUser.get(fixture.players[2]!.userId), 100);
+      assert.equal(walletByUser.get(fixture.players[3]!.userId), 100);
+
+      const stats = await pool.query<{
+        user_id: string; matches: number; wins: number; kills: number; prize_coins: number;
+      }>(
+        "SELECT user_id, matches, wins, kills, prize_coins FROM daily007_v2_user_stats WHERE user_id = ANY($1::uuid[]) ORDER BY user_id",
+        [winningPlayers.map((player) => player.userId)],
+      );
+      const statsByUser = new Map(stats.rows.map((entry) => [entry.user_id, entry]));
+      assert.deepEqual(statsByUser.get(winningPlayers[0]!.userId), {
+        user_id: winningPlayers[0]!.userId, matches: 4, wins: 2, kills: 11, prize_coins: 33,
+      });
+      assert.deepEqual(statsByUser.get(winningPlayers[1]!.userId), {
+        user_id: winningPlayers[1]!.userId, matches: 1, wins: 1, kills: 9, prize_coins: 25,
+      });
+
+      const ledgers = await pool.query<{
+        user_id: string; amount: number; balance_after: number; reason: string; description: string;
+      }>(
+        `SELECT user_id, amount, balance_after, reason,
+                details->>'description' AS description
+           FROM daily007_v2_wallet_ledger
+          WHERE match_id = $1
+          ORDER BY user_id`,
+        [fixture.matchId],
+      );
+      assert.equal(ledgers.rows.length, 2);
+      for (const ledger of ledgers.rows) {
+        assert.equal(ledger.amount, 25);
+        assert.equal(ledger.balance_after, 125);
+        assert.equal(ledger.reason, "match_prize");
+        assert.equal(ledger.description, "Tournament Prize Won - Duo Equal Prize Test");
+      }
+
+      const match = await pool.query<{ enabled: boolean; status: string }>(
+        "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1",
+        [fixture.matchId],
+      );
+      assert.deepEqual(match.rows, [{ enabled: false, status: "completed" }]);
+
+      const winnerTransactions = await fetch(`${origin}/wallet/transactions`, {
+        headers: authHeaders(winningPlayers[0]!.userId),
+      });
+      assert.equal(winnerTransactions.status, 200);
+      const transactionItems = await winnerTransactions.json() as Array<Record<string, unknown>>;
+      assert.equal(
+        transactionItems.find((item) => item.reason === "match_prize")?.description,
+        "Tournament Prize Won - Duo Equal Prize Test",
+      );
+
+      const duplicateAudit = await fetch(`${origin}/admin/results/duplicate-placements`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(duplicateAudit.status, 200);
+      const duplicateBody = await duplicateAudit.json() as { data: Array<{ tournamentId: string }> };
+      assert.equal(
+        duplicateBody.data.some((entry) => entry.tournamentId === fixture.matchId),
+        false,
+        "a fully settled equal-share team win must not appear as an accidental duplicate placement",
+      );
+
+      const retry = await submitResult(
+        origin,
+        fixture.adminId,
+        fixture.matchId,
+        winningPlayers[1]!,
+        1,
+        0,
+      );
+      assert.equal(retry.status, 409);
+      assert.equal(
+        (await pool.query("SELECT count(*)::int AS count FROM daily007_v2_result_awards WHERE match_id = $1", [fixture.matchId])).rows[0]?.count,
+        2,
+        "a retry must not create duplicate awards",
+      );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("team winner publication rejects a prize pool that cannot be split into equal whole coins", async () => {
+  const fixture = await createFixture(2);
+  try {
+    await configureTeamMatch(fixture, {
+      teamSize: 2,
+      teamCount: 1,
+      prizePool: 51,
+      title: "Uneven Duo Prize Test",
+    });
+    await withServer(async (origin) => {
+      const result = await submitResult(origin, fixture.adminId, fixture.matchId, fixture.players[1]!, 1, 4);
+      assert.equal(result.status, 409);
+      assert.match(String(result.body.error), /cannot be divided evenly/i);
+      const persisted = await pool.query<{
+        awards: number; ledger: number; status: string; enabled: boolean; wallets: number[];
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM daily007_v2_result_awards WHERE match_id = $1) AS awards,
+           (SELECT count(*)::int FROM daily007_v2_wallet_ledger WHERE match_id = $1) AS ledger,
+           match.status,
+           match.enabled,
+           ARRAY(
+             SELECT wallet_coins FROM daily007_v2_users
+              WHERE id = ANY($2::uuid[]) ORDER BY id
+           ) AS wallets
+         FROM daily007_v2_matches match
+         WHERE match.id = $1`,
+        [fixture.matchId, fixture.players.map((player) => player.userId)],
+      );
+      assert.deepEqual(persisted.rows, [{
+        awards: 0,
+        ledger: 0,
+        status: "open",
+        enabled: true,
+        wallets: [100, 100],
+      }]);
     });
   } finally {
     await cleanupFixture(fixture);

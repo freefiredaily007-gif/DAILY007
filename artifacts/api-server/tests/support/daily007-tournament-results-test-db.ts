@@ -347,6 +347,7 @@ class MemoryTournamentResultsDatabase {
         captain_user_id: registration.captain_user_id,
         prize_pool: this.match.prize_pool,
         prize_distribution: this.match.prize_distribution,
+         title: this.match.title,
         has_started: this.match.starts_at.getTime() <= Date.now() + 5.5 * 60 * 60 * 1000,
         match_status: this.match.status,
       }] : [];
@@ -360,6 +361,12 @@ class MemoryTournamentResultsDatabase {
     } else if (normalized.startsWith("SELECT wallet_coins FROM daily007_v2_users")) {
       const user = this.users.get(String(values[0]));
       rows = user ? [{ wallet_coins: user.wallet_coins }] : [];
+    } else if (normalized.startsWith("SELECT id, wallet_coins FROM daily007_v2_users")) {
+      const userIds = Array.isArray(values[0]) ? values[0].map(String) : [];
+      rows = userIds.flatMap((userId) => {
+        const user = this.users.get(userId);
+        return user ? [{ id: userId, wallet_coins: user.wallet_coins }] : [];
+      });
     } else if (normalized.startsWith(
       "SELECT matches, wins, kills, prize_coins FROM daily007_v2_user_stats",
     )) {
@@ -433,7 +440,10 @@ class MemoryTournamentResultsDatabase {
           { code: "XX000" },
         );
       }
-      if (this.match.id === values[0]) this.match.enabled = false;
+      if (this.match.id === values[0]) {
+        this.match.enabled = false;
+        if (normalized.includes("status = 'completed'")) this.match.status = "completed";
+      }
     } else if (normalized === "SELECT enabled, status FROM daily007_v2_matches WHERE id = $1") {
       const match = [this.match, ...this.additionalMatches]
         .find((candidate) => candidate.id === values[0]);

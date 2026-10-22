@@ -111,7 +111,8 @@ import type {
   HealthStatus,
   TournamentLifecycleUpdate,
   TournamentParticipantsResponse,
-  TournamentResultDraft,
+  TournamentResultPublishResponse,
+  TournamentResultSubmission,
   TournamentResultsView,
   TournamentSlotsResponse,
   UpdateTournamentLifecycle200
@@ -6161,7 +6162,7 @@ export function useDaily007ListAdminResultLogs<TData = Awaited<ReturnType<typeof
 
 
 
-export const getSaveTournamentResultDraftUrl = () => {
+export const getPublishTournamentResultUrl = () => {
 
 
 
@@ -6170,9 +6171,9 @@ export const getSaveTournamentResultDraftUrl = () => {
 }
 
 /**
- * @summary Save one result entry as a draft without distributing rewards
+ * @summary Publish a tournament result and credit the awarded players
  */
-export const saveTournamentResultDraft = async (tournamentResultDraft: TournamentResultDraft, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const publishTournamentResult = async (tournamentResultSubmission: TournamentResultSubmission, options?: Parameters<typeof customFetch>[1]): Promise<TournamentResultPublishResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -6188,12 +6189,12 @@ export const saveTournamentResultDraft = async (tournamentResultDraft: Tournamen
     }
     return headers;
   };
-return customFetch<void>(getSaveTournamentResultDraftUrl(),
+return customFetch<TournamentResultPublishResponse>(getPublishTournamentResultUrl(),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(tournamentResultDraft)
+    body: JSON.stringify(tournamentResultSubmission)
   }
 );}
 
@@ -6201,13 +6202,13 @@ return customFetch<void>(getSaveTournamentResultDraftUrl(),
 
 
 
-export const getSaveTournamentResultDraftMutationKey = () => ['saveTournamentResultDraft'] as const;
+export const getPublishTournamentResultMutationKey = () => ['publishTournamentResult'] as const;
 
-export const getSaveTournamentResultDraftMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTournamentResultDraft>>, TError,SaveTournamentResultDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof saveTournamentResultDraft>>, TError,SaveTournamentResultDraftMutationVariables, TContext> => {
+export const getPublishTournamentResultMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishTournamentResult>>, TError,PublishTournamentResultMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishTournamentResult>>, TError,PublishTournamentResultMutationVariables, TContext> => {
 
-const mutationKey = getSaveTournamentResultDraftMutationKey();
+const mutationKey = getPublishTournamentResultMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -6217,10 +6218,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveTournamentResultDraft>>, SaveTournamentResultDraftMutationVariables> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishTournamentResult>>, PublishTournamentResultMutationVariables> = (props) => {
           const {data} = props ?? {};
 
-          return  saveTournamentResultDraft(data,requestOptions)
+          return  publishTournamentResult(data,requestOptions)
         }
 
 
@@ -6230,23 +6231,23 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type SaveTournamentResultDraftMutationResult = NonNullable<Awaited<ReturnType<typeof saveTournamentResultDraft>>>
-    export type SaveTournamentResultDraftMutationBody = BodyType<TournamentResultDraft>
-    export type SaveTournamentResultDraftMutationError = ErrorType<void>
-    export type SaveTournamentResultDraftMutationVariables = {data: BodyType<TournamentResultDraft>}
+    export type PublishTournamentResultMutationResult = NonNullable<Awaited<ReturnType<typeof publishTournamentResult>>>
+    export type PublishTournamentResultMutationBody = BodyType<TournamentResultSubmission>
+    export type PublishTournamentResultMutationError = ErrorType<void>
+    export type PublishTournamentResultMutationVariables = {data: BodyType<TournamentResultSubmission>}
 
     /**
- * @summary Save one result entry as a draft without distributing rewards
+ * @summary Publish a tournament result and credit the awarded players
  */
-export const useSaveTournamentResultDraft = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTournamentResultDraft>>, TError,SaveTournamentResultDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+export const usePublishTournamentResult = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishTournamentResult>>, TError,PublishTournamentResultMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof saveTournamentResultDraft>>,
+        Awaited<ReturnType<typeof publishTournamentResult>>,
         TError,
-        SaveTournamentResultDraftMutationVariables,
+        PublishTournamentResultMutationVariables,
         TContext
       > => {
-      return useMutation(getSaveTournamentResultDraftMutationOptions(options));
+      return useMutation(getPublishTournamentResultMutationOptions(options));
     }
 
 export const getDaily007ListAdminDuplicatePlacementsUrl = () => {

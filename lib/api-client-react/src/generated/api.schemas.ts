@@ -72,8 +72,9 @@ export interface TournamentLifecycleUpdate {
   status: TournamentLifecycleUpdateStatus;
 }
 
-export interface TournamentResultDraft {
+export interface TournamentResultSubmission {
   tournamentId: string;
+  /** For a team-based rank-1 result, an approved registration identifies the winning team; the server awards its active approved registered players. */
   registrationId: string;
   /**
      * @minimum 1
@@ -81,15 +82,45 @@ export interface TournamentResultDraft {
      */
   rank: number;
   /**
+     * Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.
      * @minimum 0
      * @maximum 2147483647
      */
   kills: number;
+}
+
+export interface TournamentPrizeRecipient {
+  registrationId: string;
+  userId: string;
+  /** @minimum 0 */
+  prizeCoins: number;
+  /** @minimum 0 */
+  walletCoins: number;
+}
+
+export interface TournamentResultPublishResponse {
+  id: string;
+  registrationId: string;
+  userId: string;
+  /** @minimum 1 */
+  rank: number;
+  /** @minimum 0 */
+  kills: number;
   /**
+     * Equal per-player prize for team wins; otherwise the saved rank prize.
      * @minimum 0
-     * @maximum 2147483647
      */
   prizeCoins: number;
+  /** @minimum 0 */
+  walletCoins: number;
+  /** @minimum 0 */
+  totalPrizeCoins: number;
+  playersAwarded: TournamentPrizeRecipient[];
+  /**
+     * @minimum 1
+     * @maximum 24
+     */
+  teamNumber?: number;
 }
 
 export interface TournamentResultEntry {

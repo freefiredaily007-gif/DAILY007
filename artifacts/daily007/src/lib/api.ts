@@ -93,6 +93,24 @@ export type AdminRegistration = {
   startsAt?: string | null; totalPlayerSlots?: number;
 };
 
+export type AdminResultPublishResponse = {
+  id: string;
+  registrationId: string;
+  userId: string;
+  rank: number;
+  kills: number;
+  prizeCoins: number;
+  walletCoins: number;
+  totalPrizeCoins: number;
+  playersAwarded: Array<{
+    registrationId: string;
+    userId: string;
+    prizeCoins: number;
+    walletCoins: number;
+  }>;
+  teamNumber?: number;
+};
+
 export type AccountRecoveryRequest = {
   id: string;
   userId: string;
@@ -689,10 +707,9 @@ export const Api = {
     const registrations: unknown = await unwrap(http.get('/admin/registrations'));
     if (!Array.isArray(registrations)) throw new Error('Invalid registrations response.');
     return registrations.filter((r): r is AdminRegistration =>
-      r != null && r.tournamentId === tid && r.status === 'approved' &&
-      !(r.gameMode === 'battle_royale' && r.teamType === 'Squad' && r.isSquadCaptain !== true));
+      r != null && r.tournamentId === tid && r.status === 'approved');
   },
-  adminPublishResult: (b: object) => unwrap(http.post('/admin/results', b)),
+  adminPublishResult: (b: object): Promise<AdminResultPublishResponse> => unwrap(http.post('/admin/results', b)),
   adminAdjustCoins: (id: string, coinsDelta: number, note: string, requestId: string) =>
     unwrap(http.patch('/admin/users/' + id, { coinsDelta, note, requestId })),
   adminSetUser: (id: string, b: object) => unwrap(http.patch('/admin/users/' + id, b)),

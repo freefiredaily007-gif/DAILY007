@@ -24,7 +24,12 @@ import {
 import { Api, apiError, AdminRegistration, Tournament, TournamentCleanupPreview } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { CopyUidButton } from '../components/CopyUidButton';
+import { AdminWinningTeamPicker } from '../components/AdminWinningTeamPicker';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
+import {
+  exactPrizePerPlayer,
+  groupApprovedRegistrationsByTeam,
+} from '../lib/adminWinningTeams';
 import { adminPublishedResultAccessibilityLabel } from '../lib/adminPublishedResultAccessibility';
 import { shouldStackAdminTournamentCards } from '../lib/adminTournamentLayout';
 import { getTournamentLifecycleState, MAX_TIMEOUT_MS } from '../lib/tournamentLifecycle';
@@ -129,6 +134,7 @@ export default function AdminTournaments() {
   const [roomSuccess, setRoomSuccess] = useState('');
   const [resultRegs, setResultRegs] = useState<AdminRegistration[] | null>(null);
   const [selectedRegistrationId, setSelectedRegistrationId] = useState('');
+  const [selectedWinningTeamNumber, setSelectedWinningTeamNumber] = useState<number | null>(null);
   const [resultRank, setResultRank] = useState('1');
   const [resultKills, setResultKills] = useState('');
   const [resultBusy, setResultBusy] = useState(false);
@@ -350,6 +356,7 @@ export default function AdminTournaments() {
 
     setResultRegs(null);
     setSelectedRegistrationId('');
+    setSelectedWinningTeamNumber(null);
     setResultRank('1');
     setResultKills('');
     await loadApprovedRegistrations(tournament.id, requestId);
@@ -404,28 +411,50 @@ export default function AdminTournaments() {
   const publishResult = async (tournament: Tournament) => {
     setResultError(''); setResultSuccess('');
     const requestId = actionRequestId.current;
+    const rank = Number(resultRank);
+    const teamTournament = Number(tournament.teamSize ?? 1) > 1;
+    const teamWinnerEntry = teamTournament && rank === 1;
+    const winningTeams = groupApprovedRegistrationsByTeam(resultRegs ?? []);
+    const selectedWinningTeam = teamWinnerEntry
+      ? winningTeams.find((team) => team.teamNumber === selectedWinningTeamNumber) ?? null
+      : null;
     const registrationId = selectedRegistrationId;
     const selectedRegistration = resultRegs?.find(
       (registration) => registration.id === registrationId && registration.status === 'approved',
     );
-    if (!registrationId || !selectedRegistration) {
+    if (teamWinnerEntry && (
+      !selectedWinningTeam ||
+      !selectedWinningTeam.registrations.some((registration) => registration.id === registrationId)
+    )) {
+      setResultError('Select the winning team for this tournament.');
+      return;
+    }
+    if (!teamWinnerEntry && (!registrationId || !selectedRegistration)) {
       setResultError('Select an approved player for this tournament.');
       return;
     }
-    const playerLabel = `${selectedRegistration.playerName}${selectedRegistration.teamName ? ` — ${selectedRegistration.teamName}` : ''}`;
-    const rank = Number(resultRank);
-    const kills = Number(resultKills || 0);
+    const playerLabel = teamWinnerEntry && selectedWinningTeam
+      ? `Team ${String(selectedWinningTeam.teamNumber).padStart(2, '0')}`
+      : `${selectedRegistration?.playerName}${selectedRegistration?.teamName ? ` — ${selectedRegistration.teamName}` : ''}`;
+    const prizePerPlayer = selectedWinningTeam
+      ? exactPrizePerPlayer(Number(tournament.prizePool), selectedWinningTeam.registrations.length)
+      : null;
+    if (teamWinnerEntry && prizePerPlayer === null) {
+      setResultError('The prize pool must divide evenly among the approved players on the winning team.');
+      return;
+    }
+    const kills = teamWinnerEntry ? 0 : Number(resultKills || 0);
     if (!Number.isInteger(rank) || rank < 1) {
       setResultError('Enter a valid rank.');
       return;
     }
-    if (!Number.isInteger(kills) || kills < 0) {
+    if (!teamWinnerEntry && (!Number.isInteger(kills) || kills < 0)) {
       setResultError('Kills must be a non-negative whole number.');
       return;
     }
     setResultBusy(true);
     try {
-      await Api.adminPublishResult({
+      const published = await Api.adminPublishResult({
         tournamentId: tournament.id,
         registrationId,
         rank,
@@ -433,14 +462,26 @@ export default function AdminTournaments() {
       });
       setPublishedRegistrationIds((current) => ({
         ...current,
-        [tournament.id]: [...(current[tournament.id] ?? []), registrationId],
+        [tournament.id]: [
+          ...new Set([
+            ...(current[tournament.id] ?? []),
+            ...(published.playersAwarded?.map((player) => player.registrationId) ?? [registrationId]),
+          ]),
+        ],
       }));
       setSelectedRegistrationId('');
+      setSelectedWinningTeamNumber(null);
       setResultRank('1');
       setResultKills('');
       if (rank === 1) {
         setExpandedAction(null);
-        setOkMsg(WINNER_PUBLISH_SUCCESS_MESSAGE);
+        if (teamWinnerEntry && selectedWinningTeam) {
+          setOkMsg(
+            `${playerLabel} published — ${Number(published.prizeCoins).toLocaleString()} coins credited to each of ${published.playersAwarded.length} approved players.`,
+          );
+        } else {
+          setOkMsg(WINNER_PUBLISH_SUCCESS_MESSAGE);
+        }
         await load();
         setTab('completed');
       } else {
@@ -463,15 +504,30 @@ export default function AdminTournaments() {
         if (savedResult) {
           const savedRank = Number(savedResult.rank);
           const savedPrizeCoins = Number(savedResult.prizeCoins) || 0;
-          const recoveredMessage =
-            `${RESULT_ALREADY_PUBLISHED_PREFIX}${playerLabel} · rank ${savedRank} · prize ${savedPrizeCoins.toLocaleString()} coins.`;
+          const recoveredWinningTeamMembers = teamWinnerEntry && selectedWinningTeam && savedRank === 1
+            ? selectedWinningTeam.registrations.filter((registration) =>
+              refreshedResults.data?.data?.some((entry) =>
+                entry.tournamentId === tournament.id &&
+                entry.registrationId === registration.id &&
+                Number(entry.rank) === 1,
+              ),
+            )
+            : [];
+          const recoveredMessage = recoveredWinningTeamMembers.length > 0
+            ? `${RESULT_ALREADY_PUBLISHED_PREFIX}${playerLabel} · ${savedPrizeCoins.toLocaleString()} coins credited to each of ${recoveredWinningTeamMembers.length} approved players.`
+            : `${RESULT_ALREADY_PUBLISHED_PREFIX}${playerLabel} · rank ${savedRank} · prize ${savedPrizeCoins.toLocaleString()} coins.`;
           setPublishedRegistrationIds((current) => {
             const existing = current[tournament.id] ?? [];
-            return existing.includes(registrationId)
+            const recoveredIds = recoveredWinningTeamMembers.length > 0
+              ? recoveredWinningTeamMembers.map((registration) => registration.id)
+              : [registrationId];
+            const merged = [...new Set([...existing, ...recoveredIds])];
+            return merged.length === existing.length
               ? current
-              : { ...current, [tournament.id]: [...existing, registrationId] };
+              : { ...current, [tournament.id]: merged };
           });
           setSelectedRegistrationId('');
+          setSelectedWinningTeamNumber(null);
           setResultRank('1');
           setResultKills('');
           setResultError('');
@@ -1267,16 +1323,31 @@ export default function AdminTournaments() {
         const eligibleResultRegs = (resultRegs ?? []).filter(
           (registration) => !(publishedRegistrationIds[t.id] ?? []).includes(registration.id),
         );
+        const teamTournament = Number(t.teamSize ?? 1) > 1;
+        const teamWinnerEntry = teamTournament && Number(resultRank) === 1;
+        const winningTeams = groupApprovedRegistrationsByTeam(resultRegs ?? []);
+        const selectedWinningTeam = winningTeams.find(
+          (team) => team.teamNumber === selectedWinningTeamNumber,
+        ) ?? null;
+        const disabledWinningTeamNumbers = winningTeams
+          .filter((team) => team.registrations.some((registration) =>
+            (publishedRegistrationIds[t.id] ?? []).includes(registration.id),
+          ))
+          .map((team) => team.teamNumber);
+        const eligibleIndividualResultRegs = eligibleResultRegs.filter(
+          (registration) => !teamTournament || registration.isSquadCaptain === true,
+        );
         const selectedResultRegistration = eligibleResultRegs.find(
           (registration) => registration.id === selectedRegistrationId,
         );
-        const selectedResultPlayerLabel = selectedResultRegistration
+        const selectedResultPlayerLabel = teamWinnerEntry && selectedWinningTeam
+          ? `Team ${String(selectedWinningTeam.teamNumber).padStart(2, '0')}`
+          : selectedResultRegistration
           ? `${selectedResultRegistration.playerName}${selectedResultRegistration.teamName ? ` — ${selectedResultRegistration.teamName}` : ''}`
           : 'selected player';
-        const resultPrizeCoins = configuredPrizeForRank(
-          t,
-          /^\d+$/.test(resultRank) ? Number(resultRank) : 0,
-        );
+        const resultPrizeCoins = teamWinnerEntry && selectedWinningTeam
+          ? exactPrizePerPlayer(Number(t.prizePool), selectedWinningTeam.registrations.length) ?? 0
+          : configuredPrizeForRank(t, /^\d+$/.test(resultRank) ? Number(resultRank) : 0);
         return (
           <Card key={t.id} style={{ marginBottom: 10 }}>
             <View
@@ -1486,48 +1557,69 @@ export default function AdminTournaments() {
                       </View>
                     )}
                   </>
-                ) : eligibleResultRegs.length === 0 ? (
+                ) : (teamWinnerEntry ? winningTeams.length === 0 : eligibleIndividualResultRegs.length === 0) ? (
                   <Empty
-                    title={resultEmptyTitle}
-                    text={resultEmptyMessage}
-                    accessibilityLabel={resultEmptyMessage}
+                    title={teamWinnerEntry ? 'NO APPROVED TEAMS' : resultEmptyTitle}
+                    text={teamWinnerEntry
+                      ? 'No approved registrations have a team assignment for this tournament.'
+                      : resultEmptyMessage}
+                    accessibilityLabel={teamWinnerEntry
+                      ? 'No approved registrations have a team assignment for this tournament.'
+                      : resultEmptyMessage}
                     accessibilityLiveRegion="polite"
                   />
                 ) : (
                   <>
-                    <Text style={st.lbl}>SELECT PLAYER</Text>
-                    {eligibleResultRegs.map((registration) => {
-                        const selected = selectedRegistrationId === registration.id;
-                        const playerLabel = `${registration.playerName}${registration.teamName ? ` — ${registration.teamName}` : ''}`;
-                        return (
-                          <View
-                            key={registration.id}
-                            style={[st.playerOption, selected && st.playerOptionSelected]}
-                          >
-                            <Pressable
-                              accessibilityRole="radio"
-                              accessibilityLabel={`${selected ? 'Selected player' : 'Player choice'}: ${playerLabel}, Free Fire UID ${registration.gameUid || 'not available'}`}
-                              accessibilityHint="Selects this player for tournament result entry."
-                              accessibilityState={{ checked: selected }}
-                              testID={`result-registration-${registration.id}`}
-                              onPress={() => {
-                                setSelectedRegistrationId(registration.id);
-                                setResultError('');
-                              }}
-                              style={st.playerOptionSelect}
+                    {teamWinnerEntry ? (
+                      <AdminWinningTeamPicker
+                        registrations={resultRegs ?? []}
+                        selectedTeamNumber={selectedWinningTeamNumber}
+                        disabledTeamNumbers={disabledWinningTeamNumbers}
+                        testIdPrefix={`admin-tournament-${t.id}`}
+                        onSelect={(team) => {
+                          setSelectedWinningTeamNumber(team.teamNumber);
+                          setSelectedRegistrationId(team.registrations[0]?.id ?? '');
+                          setResultError('');
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <Text style={st.lbl}>SELECT PLAYER</Text>
+                        {eligibleIndividualResultRegs.map((registration) => {
+                          const selected = selectedRegistrationId === registration.id;
+                          const playerLabel = `${registration.playerName}${registration.teamName ? ` — ${registration.teamName}` : ''}`;
+                          return (
+                            <View
+                              key={registration.id}
+                              style={[st.playerOption, selected && st.playerOptionSelected]}
                             >
-                              <Text style={[st.playerOptionText, selected && st.playerOptionTextSelected]}>
-                                {selected ? '✓ ' : ''}{playerLabel}
-                              </Text>
-                              <Text style={st.playerOptionUid}>UID {registration.gameUid || '—'}</Text>
-                            </Pressable>
-                            <CopyUidButton
-                              uid={registration.gameUid}
-                              testID={`copy-result-uid-${registration.id}`}
-                            />
-                          </View>
-                        );
-                      })}
+                              <Pressable
+                                accessibilityRole="radio"
+                                accessibilityLabel={`${selected ? 'Selected player' : 'Player choice'}: ${playerLabel}, Free Fire UID ${registration.gameUid || 'not available'}`}
+                                accessibilityHint="Selects this player for tournament result entry."
+                                accessibilityState={{ checked: selected }}
+                                testID={`result-registration-${registration.id}`}
+                                onPress={() => {
+                                  setSelectedRegistrationId(registration.id);
+                                  setSelectedWinningTeamNumber(null);
+                                  setResultError('');
+                                }}
+                                style={st.playerOptionSelect}
+                              >
+                                <Text style={[st.playerOptionText, selected && st.playerOptionTextSelected]}>
+                                  {selected ? '✓ ' : ''}{playerLabel}
+                                </Text>
+                                <Text style={st.playerOptionUid}>UID {registration.gameUid || '—'}</Text>
+                              </Pressable>
+                              <CopyUidButton
+                                uid={registration.gameUid}
+                                testID={`copy-result-uid-${registration.id}`}
+                              />
+                            </View>
+                          );
+                        })}
+                      </>
+                    )}
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={st.lbl}>RANK</Text>
@@ -1537,29 +1629,46 @@ export default function AdminTournaments() {
                           accessibilityHint="Enter the player's finishing position as a whole number greater than zero."
                           testID={`result-rank-${t.id}`}
                           value={resultRank}
-                          onChangeText={setResultRank}
+                          onChangeText={(value) => {
+                            setResultRank(value);
+                            setSelectedRegistrationId('');
+                            setSelectedWinningTeamNumber(null);
+                          }}
                           keyboardType="number-pad"
                         />
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={st.lbl}>KILLS</Text>
-                        <Input
-                          placeholder="Kills, optional"
-                          accessibilityLabel="Kills, optional"
-                          accessibilityHint="Enter a non-negative whole number, or leave blank for zero."
-                          testID={`result-kills-${t.id}`}
-                          value={resultKills}
-                          onChangeText={setResultKills}
-                          keyboardType="number-pad"
-                        />
-                      </View>
+                      {!teamWinnerEntry && (
+                        <View style={{ flex: 1 }}>
+                          <Text style={st.lbl}>KILLS</Text>
+                          <Input
+                            placeholder="Kills, optional"
+                            accessibilityLabel="Kills, optional"
+                            accessibilityHint="Enter a non-negative whole number, or leave blank for zero."
+                            testID={`result-kills-${t.id}`}
+                            value={resultKills}
+                            onChangeText={setResultKills}
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                      )}
                     </View>
-                    <Text style={st.lbl}>PRIZE COINS · FROM SAVED TOURNAMENT SETTINGS</Text>
+                    {teamWinnerEntry && (
+                      <Text style={st.prizeHint}>
+                        Winning-team kills are recorded as zero, so each player’s existing kill total stays unchanged.
+                      </Text>
+                    )}
+                    <Text style={st.lbl}>
+                      {teamWinnerEntry
+                        ? 'PRIZE COINS PER WINNING PLAYER · EQUAL SHARE'
+                        : 'PRIZE COINS · FROM SAVED TOURNAMENT SETTINGS'}
+                    </Text>
                     <View
                       accessible
                       accessibilityRole="text"
                       accessibilityLabel={`Calculated prize: ${resultPrizeCoins.toLocaleString()} coins`}
-                      accessibilityHint={`Based on rank ${resultRank || 'not entered'} and the saved prize distribution. This value is read-only.`}
+                      accessibilityHint={teamWinnerEntry
+                        ? `Equal share of the tournament prize pool for each approved player on the selected team. This value is read-only.`
+                        : `Based on rank ${resultRank || 'not entered'} and the saved prize distribution. This value is read-only.`}
                       accessibilityLiveRegion="polite"
                       testID={`result-prize-${t.id}`}
                       style={st.prizeBox}
@@ -1569,7 +1678,15 @@ export default function AdminTournaments() {
                         {inr(resultPrizeCoins)} INR ({COIN_RATE_TEXT})
                       </Text>
                     </View>
-                    <Text style={st.prizeHint}>Auto-calculated for rank {resultRank || '—'} from the saved prize distribution.</Text>
+                    <Text style={st.prizeHint}>
+                      {teamWinnerEntry
+                        ? !selectedWinningTeam
+                          ? `Select a team to split the ${Number(t.prizePool).toLocaleString()}-coin prize pool.`
+                          : exactPrizePerPlayer(Number(t.prizePool), selectedWinningTeam.registrations.length) === null
+                            ? `The ${Number(t.prizePool).toLocaleString()}-coin pool cannot divide evenly among ${selectedWinningTeam.registrations.length} approved players.`
+                            : `${Number(t.prizePool).toLocaleString()} coins ÷ ${selectedWinningTeam.registrations.length} approved players.`
+                        : `Auto-calculated for rank ${resultRank || '—'} from the saved prize distribution.`}
+                    </Text>
                     <Btn
                       title={Number(resultRank) === 1 ? 'FINISH & PUBLISH WINNER' : 'PUBLISH PLACEMENT'}
                       accessibilityLabel={`Publish ${Number(resultRank) === 1 ? 'winner' : 'placement'} for ${selectedResultPlayerLabel}, rank ${resultRank || 'not entered'}`}
@@ -1578,7 +1695,14 @@ export default function AdminTournaments() {
                       testID={`publish-result-${t.id}`}
                       onPress={() => { void publishResult(t); }}
                       loading={resultBusy}
-                      disabled={resultBusy}
+                      disabled={
+                        resultBusy ||
+                        (teamWinnerEntry && (
+                          !selectedWinningTeam ||
+                          exactPrizePerPlayer(Number(t.prizePool), selectedWinningTeam.registrations.length) === null ||
+                          disabledWinningTeamNumbers.includes(selectedWinningTeam.teamNumber)
+                        ))
+                      }
                     />
                   </>
                 )}
