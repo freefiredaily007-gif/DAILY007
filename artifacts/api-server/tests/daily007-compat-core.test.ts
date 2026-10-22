@@ -156,7 +156,7 @@ test("tournament status moves to Ongoing at start and completes only after the w
   assert.equal(effectiveTournamentStatus({ has_winner: false, has_started: true, enabled: false, status: "cancelled" }), "cancelled");
 });
 
-test("cancellation is allowed only after start while at least one slot is vacant and no winner exists", () => {
+test("automatic cancellation requires an underfilled started tournament; admin cancellation does not", () => {
   const eligible = {
     status: "full",
     hasStarted: true,
@@ -169,6 +169,10 @@ test("cancellation is allowed only after start while at least one slot is vacant
   assert.equal(tournamentCancellationError({ ...eligible, filledSlots: 12 }), "Only an ongoing tournament with at least one vacant slot can be cancelled.");
   assert.equal(tournamentCancellationError({ ...eligible, hasWinner: true }), "A tournament with a declared winner cannot be cancelled.");
   assert.equal(tournamentCancellationError({ ...eligible, status: "cancelled" }), "Tournament is already cancelled.");
+  assert.equal(tournamentCancellationError({ ...eligible, hasStarted: false }, true), null);
+  assert.equal(tournamentCancellationError({ ...eligible, filledSlots: 12 }, true), null);
+  assert.equal(tournamentCancellationError({ ...eligible, hasWinner: true }, true), "A tournament with a declared winner cannot be cancelled.");
+  assert.equal(tournamentCancellationError({ ...eligible, status: "cancelled" }, true), "Tournament is already cancelled.");
 });
 
 test("automatic underfilled cancellation is limited to Clash Squad and Lone Wolf", () => {

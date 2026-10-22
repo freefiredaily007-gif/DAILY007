@@ -674,7 +674,7 @@ export default function AdminTournaments() {
   const cancel = (t: Tournament) => {
     confirmDestructiveAction(
       'Cancel tournament and refund players?',
-      'This is available only after the scheduled start when at least one slot is vacant. Each recorded entry fee will be refunded to the account that paid it. This cannot be undone.',
+      'This cancels the tournament and refunds each active registration’s recorded entry fee to the account that paid it. A tournament with a published winner cannot be cancelled. This cannot be undone.',
       'Keep tournament',
       'Cancel and refund',
       () => { void cancelNow(t); },
@@ -1238,7 +1238,7 @@ export default function AdminTournaments() {
         const cancelled = String(t.status ?? '').toLowerCase() === 'cancelled';
         const finished = lifecycle === 'completed';
         const ongoing = lifecycle === 'ongoing';
-        const cancellable = ongoing && Number(t.filledSlots ?? 0) < Number(t.totalSlots ?? 0);
+        const cancellable = !cancelled && !finished;
         const tournamentResults = resultLogs
           .filter((entry) => entry.tournamentId === t.id)
           .sort((a, b) => Number(a.rank) - Number(b.rank));
@@ -1283,7 +1283,7 @@ export default function AdminTournaments() {
             <Text style={st.sub}>ENTRY {t.entryCoins} ({inr(t.entryCoins)}) • PRIZE POOL {t.prizePool} ({inr(t.prizePool)}) • {t.capacityLabel || `${t.totalSlots} slots`}</Text>
             {cancelled && (
               <Text style={st.sub}>
-                Cancelled at the scheduled start because the match was under capacity. Eligible entry fees were refunded.
+                This tournament was cancelled. Eligible entry fees were refunded to the accounts that paid them.
               </Text>
             )}
             {tab === 'upcoming' && (
@@ -1316,6 +1316,21 @@ export default function AdminTournaments() {
                     <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />
                   </View>
                 </View>
+                {cancellable && (
+                  <View style={{ marginTop: 8 }}>
+                    <Btn
+                      title="CANCEL & REFUND"
+                      small
+                      kind="danger"
+                      testID={`cancel-tournament-${t.id}`}
+                      loading={cancelLifecycle.isPending}
+                      disabled={cancelLifecycle.isPending || roomBusy || resultBusy}
+                      accessibilityLabel={`Cancel and refund ${t.name}`}
+                      accessibilityHint="Cancels this tournament and refunds recorded entry fees to the accounts that paid them."
+                      onPress={() => cancel(t)}
+                    />
+                  </View>
+                )}
                 <View style={{ marginTop: 8 }}>
                   <Btn
                     title={expandedAction?.tournamentId === t.id && expandedAction.kind === 'room' ? 'CLOSE ROOM SETUP' : 'ROOM SETUP'}
@@ -1338,6 +1353,9 @@ export default function AdminTournaments() {
                       kind="danger"
                       testID={`cancel-tournament-${t.id}`}
                       loading={cancelLifecycle.isPending}
+                      disabled={cancelLifecycle.isPending || roomBusy || resultBusy}
+                      accessibilityLabel={`Cancel and refund ${t.name}`}
+                      accessibilityHint="Cancels this tournament and refunds recorded entry fees to the accounts that paid them."
                       onPress={() => cancel(t)}
                     />
                   </View>

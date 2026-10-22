@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   cancelUnderfilledTournamentAndRefund,
   cancelUnderfilledTournamentTransaction,
+  tournamentCancellationError,
   type CancellationSqlClient,
 } from "../src/lib/daily007-tournament-cancellation.ts";
 import { autoCancellationTestDb } from "./support/daily007-auto-cancel-test-db";
@@ -14,6 +15,7 @@ type Match = {
   game_mode: string | null;
   status: string;
   capacity: number;
+  team_type?: string | null;
   has_started: boolean;
   has_winner: boolean;
 };
@@ -44,6 +46,8 @@ class MemoryCancellationClient implements CancellationSqlClient {
     let rows: unknown[] = [];
     if (text.includes("FROM daily007_v2_matches m") && text.includes("FOR UPDATE OF m")) {
       rows = [this.match];
+    } else if (text.includes("AS has_winner")) {
+      rows = [{ has_winner: this.match.has_winner }];
     } else if (text.includes("count(*)::integer AS filled_slots")) {
       rows = [{
         filled_slots: this.registrations.filter((registration) =>
@@ -93,6 +97,30 @@ function underfilledMatch(overrides: Partial<Match> = {}): Match {
   };
 }
 
+test("admin cancellation bypasses only the scheduled-start and vacant-slot restrictions", () => {
+  const fullUpcoming = {
+    status: "full",
+    hasStarted: false,
+    hasWinner: false,
+    filledSlots: 12,
+    capacity: 12,
+  };
+  assert.equal(tournamentCancellationError(fullUpcoming), "A tournament can only be cancelled after its scheduled start time.");
+  assert.equal(tournamentCancellationError(fullUpcoming, true), null);
+  assert.equal(
+    tournamentCancellationError({ ...fullUpcoming, hasWinner: true }, true),
+    "A tournament with a declared winner cannot be cancelled.",
+  );
+  assert.equal(
+    tournamentCancellationError({ ...fullUpcoming, status: "cancelled" }, true),
+    "Tournament is already cancelled.",
+  );
+  assert.equal(
+    tournamentCancellationError({ ...fullUpcoming, capacity: 0 }, true),
+    "Tournament slot data is invalid.",
+  );
+});
+
 test("automatic cancellation refunds every active registration once and cancels the tournament", async () => {
   const client = new MemoryCancellationClient(underfilledMatch(), [
     { id: "reg-1", captain_user_id: "user-1", entry_coins_paid: 25, status: "pending" },
@@ -121,7 +149,7 @@ test("automatic cancellation refunds every active registration once and cancels 
 
 test("automatic cancellation skips full tournaments and all other game modes", async () => {
   const fullClient = new MemoryCancellationClient(
-    underfilledMatch(),
+    underfilledMatch({ team_type: "solo" }),
     [
       { id: "reg-1", captain_user_id: "user-1", entry_coins_paid: 25, status: "approved" },
       { id: "reg-2", captain_user_id: "user-2", entry_coins_paid: 50, status: "approved" },
@@ -140,6 +168,46 @@ test("automatic cancellation skips full tournaments and all other game modes", a
   assert.equal(battleRoyale, null);
   assert.equal(battleRoyaleClient.match.status, "open");
   assert.equal(battleRoyaleClient.ledger.size, 0);
+});
+
+test("admin cancellation refunds full upcoming matches while preserving rejected registrations", async () => {
+  const client = new MemoryCancellationClient(
+    underfilledMatch({
+      mode: "solo",
+      game_mode: "battle_royale",
+      team_type: "solo",
+      status: "full",
+      capacity: 2,
+      has_started: false,
+    }),
+    [
+      { id: "reg-1", captain_user_id: "user-1", entry_coins_paid: 25, status: "approved" },
+      { id: "reg-2", captain_user_id: "user-2", entry_coins_paid: 40, status: "pending" },
+      { id: "reg-3", captain_user_id: "user-3", entry_coins_paid: 90, status: "rejected" },
+    ],
+  );
+
+  const result = await cancelUnderfilledTournamentTransaction(client, "match-1", false, true);
+  assert.deepEqual(result, {
+    id: "match-1",
+    status: "cancelled",
+    registrationsRefunded: 2,
+    accountsRefunded: 2,
+    coinsRefunded: 65,
+  });
+  assert.equal(client.wallets.get("user-1"), 35);
+  assert.equal(client.wallets.get("user-2"), 50);
+  assert.equal(client.wallets.get("user-3"), 10);
+  assert.equal(client.ledger.size, 2);
+  assert.equal(client.match.status, "cancelled");
+
+  await assert.rejects(
+    cancelUnderfilledTournamentTransaction(client, "match-1", false, true),
+    /Tournament is already cancelled/,
+  );
+  assert.equal(client.wallets.get("user-1"), 35);
+  assert.equal(client.wallets.get("user-2"), 50);
+  assert.equal(client.ledger.size, 2);
 });
 
 const ATOMIC_MATCH_ID = "atomic-cancel-match";

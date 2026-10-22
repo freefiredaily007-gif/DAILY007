@@ -18,7 +18,7 @@ import {
   passwordHashesMatch,
 } from "../lib/daily007-password-change";
 import {
-  cancelUnderfilledTournamentAndRefund,
+  cancelTournamentAndRefundForAdmin,
   tournamentCancellationError,
 } from "../lib/daily007-tournament-cancellation";
 import { getDaily007TournamentCleanupPreview } from "../lib/daily007-tournament-cleanup";
@@ -857,8 +857,7 @@ router.post("/admin/tournaments/:id/lifecycle", authenticate, async (req, res): 
   }
 
   try {
-    const cancellation = await cancelUnderfilledTournamentAndRefund(id);
-    if (!cancellation) return fail(res, 409, "Tournament is not eligible for cancellation.");
+    const cancellation = await cancelTournamentAndRefundForAdmin(id);
     res.json({ success: true, data: cancellation });
   } catch (error) {
     const status = Number((error as { status?: number })?.status);

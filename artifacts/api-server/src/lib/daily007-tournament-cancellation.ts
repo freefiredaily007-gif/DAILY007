@@ -43,15 +43,17 @@ export function tournamentCancellationError(state: {
   hasWinner: boolean;
   filledSlots: number;
   capacity: number;
-}): string | null {
+}, adminInitiated = false): string | null {
   if (state.status === "cancelled") return "Tournament is already cancelled.";
   if (state.hasWinner) return "A tournament with a declared winner cannot be cancelled.";
-  if (!state.hasStarted) return "A tournament can only be cancelled after its scheduled start time.";
   if (!Number.isInteger(state.filledSlots) || state.filledSlots < 0 ||
       !Number.isInteger(state.capacity) || state.capacity < 1) {
     return "Tournament slot data is invalid.";
   }
-  if (state.filledSlots >= state.capacity) {
+  if (!adminInitiated && !state.hasStarted) {
+    return "A tournament can only be cancelled after its scheduled start time.";
+  }
+  if (!adminInitiated && state.filledSlots >= state.capacity) {
     return "Only an ongoing tournament with at least one vacant slot can be cancelled.";
   }
   return null;
@@ -78,15 +80,16 @@ async function withTransaction<T>(work: (client: CancellationSqlClient) => Promi
 }
 
 /**
- * Cancel an underfilled tournament and refund each active registration's
- * original paying account in the same transaction as the status change.
- * Automatic runs are restricted to Clash Squad and Lone Wolf (plus legacy
- * Clash rows that predate the explicit game_mode column).
+ * Cancel a tournament and refund each active registration's original paying
+ * account in the same transaction as the status change. Automatic runs still
+ * require an underfilled started Clash Squad or Lone Wolf match; the separate
+ * admin path may cancel a scheduled or full match but never a published winner.
  */
 export async function cancelUnderfilledTournamentTransaction(
   client: CancellationSqlClient,
   matchId: string,
   automaticOnly = false,
+  adminInitiated = false,
 ): Promise<TournamentCancellationResult | null> {
     const matchResult = await client.query<{
       id: string;
@@ -168,7 +171,7 @@ export async function cancelUnderfilledTournamentTransaction(
     };
 
     if (automaticOnly && !shouldAutomaticallyCancelTournament(state)) return null;
-    const refusal = tournamentCancellationError(state);
+    const refusal = tournamentCancellationError(state, adminInitiated);
     if (refusal) throw new TournamentCancellationError(refusal, 409);
 
     const registrations = await client.query<{
@@ -277,4 +280,21 @@ export async function cancelUnderfilledTournamentAndRefund(
   return withTransaction((client) =>
     cancelUnderfilledTournamentTransaction(client, matchId, automaticOnly),
   );
+}
+
+export async function cancelTournamentAndRefundForAdmin(
+  matchId: string,
+): Promise<TournamentCancellationResult> {
+  return withTransaction(async (client) => {
+    const cancellation = await cancelUnderfilledTournamentTransaction(
+      client,
+      matchId,
+      false,
+      true,
+    );
+    if (!cancellation) {
+      throw new TournamentCancellationError("Tournament is not eligible for cancellation.", 409);
+    }
+    return cancellation;
+  });
 }
