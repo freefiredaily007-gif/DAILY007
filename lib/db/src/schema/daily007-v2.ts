@@ -250,8 +250,10 @@ export const daily007WalletLedgerTable = pgTable("daily007_v2_wallet_ledger", {
   amount: integer("amount").notNull(),
   balanceAfter: integer("balance_after").notNull(),
   reason: text("reason").notNull(),
-  matchId: uuid("match_id").references(() => daily007MatchesTable.id),
-  registrationId: uuid("registration_id").references(() => daily007RegistrationsTable.id),
+  // Historical IDs are retained after the 72-hour match cleanup removes match rows.
+  // Wallet ledger rows are immutable; these identifiers intentionally have no foreign keys.
+  matchId: uuid("match_id"),
+  registrationId: uuid("registration_id"),
   idempotencyKey: text("idempotency_key"),
   details: jsonb("details"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

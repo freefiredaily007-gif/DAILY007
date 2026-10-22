@@ -4,7 +4,6 @@ import { logger } from "./logger";
 const CLEANUP_RETENTION_MS = 72 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const CLEANUP_BATCH_SIZE = 100;
-const TERMINAL_MATCH_STATUSES = new Set(["cancelled", "closed", "completed"]);
 
 type CleanupPreviewRow = {
   generated_at: Date | string;
@@ -28,24 +27,17 @@ export type Daily007TournamentCleanupPreview = {
   retentionHours: 72;
   scannedMatches: number;
   eligibleMatches: number;
-  eligibleDependencies: {
+  matchDataToDelete: {
     registrations: number;
     rosterRows: number;
     squadTeams: number;
     squadMembers: number;
+    resultAwards: number;
   };
   protectedHistory: {
-    matchesWithRegistrations: number;
-    registrationRowsPreserved: number;
-    matchesWithPublishedResults: number;
-    publishedResultAwards: number;
     matchesWithWalletHistory: number;
     walletLedgerRows: number;
     playerStatsRowsPreserved: number;
-  };
-  excluded: {
-    nonTerminalMatches: number;
-    enabledMatches: number;
   };
   candidates: Array<{
     id: string;
@@ -56,6 +48,8 @@ export type Daily007TournamentCleanupPreview = {
     rosterRows: number;
     squadTeams: number;
     squadMembers: number;
+    resultAwards: number;
+    walletLedgerRowsPreserved: number;
   }>;
 };
 
@@ -100,16 +94,7 @@ export async function getDaily007TournamentCleanupPreview(): Promise<Daily007Tou
   );
 
   const rows = result.rows;
-  const candidates = rows.filter((row) =>
-    TERMINAL_MATCH_STATUSES.has(row.status) &&
-    !row.enabled &&
-    Number(row.registration_count) === 0 &&
-    Number(row.roster_count) === 0 &&
-    Number(row.squad_team_count) === 0 &&
-    Number(row.squad_member_count) === 0 &&
-    Number(row.result_award_count) === 0 &&
-    Number(row.wallet_ledger_count) === 0
-  );
+  const candidates = rows;
   const sum = (items: CleanupPreviewRow[], key: keyof CleanupPreviewRow) =>
     items.reduce((total, row) => total + Number(row[key] ?? 0), 0);
   const asIso = (value: Date | string) => new Date(value).toISOString();
@@ -124,24 +109,17 @@ export async function getDaily007TournamentCleanupPreview(): Promise<Daily007Tou
     retentionHours: 72,
     scannedMatches: rows.length,
     eligibleMatches: candidates.length,
-    eligibleDependencies: {
+    matchDataToDelete: {
       registrations: sum(candidates, "registration_count"),
       rosterRows: sum(candidates, "roster_count"),
       squadTeams: sum(candidates, "squad_team_count"),
       squadMembers: sum(candidates, "squad_member_count"),
+      resultAwards: sum(candidates, "result_award_count"),
     },
     protectedHistory: {
-      matchesWithRegistrations: rows.filter((row) => Number(row.registration_count) > 0).length,
-      registrationRowsPreserved: sum(rows, "registration_count"),
-      matchesWithPublishedResults: rows.filter((row) => Number(row.result_award_count) > 0).length,
-      publishedResultAwards: sum(rows, "result_award_count"),
       matchesWithWalletHistory: rows.filter((row) => Number(row.wallet_ledger_count) > 0).length,
       walletLedgerRows: sum(rows, "wallet_ledger_count"),
       playerStatsRowsPreserved: Number(statsResult.rows[0]?.count ?? 0),
-    },
-    excluded: {
-      nonTerminalMatches: rows.filter((row) => !TERMINAL_MATCH_STATUSES.has(row.status)).length,
-      enabledMatches: rows.filter((row) => row.enabled).length,
     },
     candidates: candidates.map((row) => ({
       id: row.id,
@@ -152,6 +130,8 @@ export async function getDaily007TournamentCleanupPreview(): Promise<Daily007Tou
       rosterRows: Number(row.roster_count),
       squadTeams: Number(row.squad_team_count),
       squadMembers: Number(row.squad_member_count),
+      resultAwards: Number(row.result_award_count),
+      walletLedgerRowsPreserved: Number(row.wallet_ledger_count),
     })),
   };
 }
@@ -165,66 +145,17 @@ async function deleteIfStillEligible(matchId: string): Promise<boolean> {
          FROM daily007_v2_matches
         WHERE id = $1
           AND starts_at <= clock_timestamp() - interval '72 hours'
-          AND status = ANY($2::text[])
-          AND enabled = false
         FOR UPDATE SKIP LOCKED`,
-      [matchId, [...TERMINAL_MATCH_STATUSES]],
+      [matchId],
     );
     if (!locked.rows[0]) {
       await client.query("ROLLBACK");
       return false;
     }
 
-    const dependencies = await client.query<{
-      has_registrations: boolean;
-      has_roster: boolean;
-      has_squad_teams: boolean;
-      has_squad_members: boolean;
-      has_results: boolean;
-      has_wallet_history: boolean;
-    }>(
-      `SELECT
-         EXISTS (
-           SELECT 1 FROM daily007_v2_registrations WHERE match_id = $1
-         ) AS has_registrations,
-         EXISTS (
-           SELECT 1 FROM daily007_v2_roster roster
-           JOIN daily007_v2_registrations registration ON registration.id = roster.registration_id
-           WHERE registration.match_id = $1
-         ) AS has_roster,
-         EXISTS (
-           SELECT 1 FROM daily007_v2_squad_teams WHERE match_id = $1
-         ) AS has_squad_teams,
-         EXISTS (
-           SELECT 1 FROM daily007_v2_squad_team_members member
-           JOIN daily007_v2_squad_teams team ON team.id = member.team_id
-           WHERE team.match_id = $1
-         ) AS has_squad_members,
-         EXISTS (
-           SELECT 1 FROM daily007_v2_result_awards WHERE match_id = $1
-         ) AS has_results,
-         EXISTS (
-           SELECT 1 FROM daily007_v2_wallet_ledger ledger
-           WHERE ledger.match_id = $1
-              OR ledger.registration_id IN (
-                SELECT id FROM daily007_v2_registrations WHERE match_id = $1
-              )
-         ) AS has_wallet_history`,
-      [matchId],
-    );
-    const row = dependencies.rows[0];
-    if (
-      !row ||
-      row.has_registrations ||
-      row.has_roster ||
-      row.has_squad_teams ||
-      row.has_squad_members ||
-      row.has_results ||
-      row.has_wallet_history
-    ) {
-      await client.query("ROLLBACK");
-      return false;
-    }
+    // Result awards are direct match data and do not cascade from the match.
+    // Wallet ledger rows and all user/profile/stat rows are deliberately untouched.
+    await client.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [matchId]);
 
     const deleted = await client.query<{ id: string }>(
       "DELETE FROM daily007_v2_matches WHERE id = $1 RETURNING id",
@@ -245,37 +176,9 @@ export async function runDaily007TournamentCleanupSweep(): Promise<{ deletedMatc
     `SELECT m.id
        FROM daily007_v2_matches m
       WHERE m.starts_at <= clock_timestamp() - interval '72 hours'
-        AND m.status = ANY($1::text[])
-        AND m.enabled = false
-        AND NOT EXISTS (
-          SELECT 1 FROM daily007_v2_registrations r WHERE r.match_id = m.id
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM daily007_v2_roster roster
-          JOIN daily007_v2_registrations r ON r.id = roster.registration_id
-          WHERE r.match_id = m.id
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM daily007_v2_squad_teams team WHERE team.match_id = m.id
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM daily007_v2_squad_team_members member
-          JOIN daily007_v2_squad_teams team ON team.id = member.team_id
-          WHERE team.match_id = m.id
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM daily007_v2_result_awards award WHERE award.match_id = m.id
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM daily007_v2_wallet_ledger ledger
-          WHERE ledger.match_id = m.id
-             OR ledger.registration_id IN (
-               SELECT r.id FROM daily007_v2_registrations r WHERE r.match_id = m.id
-             )
-        )
       ORDER BY m.starts_at, m.id
       LIMIT $2`,
-    [[...TERMINAL_MATCH_STATUSES], CLEANUP_BATCH_SIZE],
+    [CLEANUP_BATCH_SIZE],
   );
   const deletedMatchIds: string[] = [];
   for (const candidate of candidateResult.rows) {
@@ -289,7 +192,7 @@ export async function runDaily007TournamentCleanupSweep(): Promise<{ deletedMatc
     logger.info({
       deletedMatches: deletedMatchIds.length,
       retentionHours: 72,
-    }, "Removed expired empty tournament records");
+    }, "Removed expired tournament records and direct match data; wallet history preserved");
   }
   return { deletedMatchIds };
 }
