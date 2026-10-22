@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import type { User } from '../lib/api';
 import { Btn, Card, C, Input, Msg } from '../components/ui';
+import { showLocalizedAlert } from '../i18n/alerts';
+import { translateExactText } from '../i18n';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { canEditRegistrationTeam, getTeamEditCutoff } from '../lib/teamEditWindow';
 import { buildIndividualPlayerJoinPayload, buildJoinFormPayload } from '../lib/joinFormPayload';
@@ -140,11 +142,11 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
     onCancel,
     ({ keepEditing, discard }) => {
       if (Platform.OS === 'web') {
-        if (globalThis.confirm('Discard team changes? Your unsaved edits will be lost.')) discard();
+        if (globalThis.confirm(translateExactText('Discard team changes? Your unsaved edits will be lost.'))) discard();
         else keepEditing();
         return;
       }
-      Alert.alert(
+      showLocalizedAlert(
         'Discard team changes?',
         'Your unsaved edits will be lost.',
         [

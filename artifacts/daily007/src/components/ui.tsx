@@ -2,6 +2,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { View, Pressable, StyleSheet, ActivityIndicator, Animated, Easing, Image, type ViewProps } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput, swapThemeColor } from './typography';
+import { useTranslation } from 'react-i18next';
+import { LocalizedTextScope, useLocalizedTextEnabled } from '../i18n/LanguageProvider';
 import { Feather } from '@expo/vector-icons';
 import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
@@ -22,7 +24,11 @@ export const C = {
 const UiSurfaceContext = createContext<'player' | 'admin'>('player');
 
 export function AdminUiProvider({ children }: { children: React.ReactNode }) {
-  return <UiSurfaceContext.Provider value="admin">{children}</UiSurfaceContext.Provider>;
+  return (
+    <LocalizedTextScope enabled={false}>
+      <UiSurfaceContext.Provider value="admin">{children}</UiSurfaceContext.Provider>
+    </LocalizedTextScope>
+  );
 }
 
 const useAdminSurface = () => useContext(UiSurfaceContext) === 'admin';
@@ -109,6 +115,12 @@ export function Btn({
   scaleOnPress?: boolean;
 }) {
   const adminSurface = useAdminSurface();
+  const localizationEnabled = useLocalizedTextEnabled();
+  const { t } = useTranslation();
+  const label = localizationEnabled ? t(accessibilityLabel || title, { defaultValue: accessibilityLabel || title }) : accessibilityLabel || title;
+  const hint = localizationEnabled && accessibilityHint
+    ? t(accessibilityHint, { defaultValue: accessibilityHint })
+    : accessibilityHint;
   const pressScale = useRef(new Animated.Value(1)).current;
   const [pressed, setPressed] = useState(false);
   const map: Record<string, { bg: string; fg: string; border?: string; glowColor?: string }> = {
@@ -137,8 +149,8 @@ export function Btn({
       }}
       disabled={disabled || (loading && !preserveAccessibilityFocusWhileLoading)}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel || title}
-      accessibilityHint={accessibilityHint}
+      accessibilityLabel={label}
+      accessibilityHint={hint}
       accessibilityState={accessibilityState}
       testID={testID}
       style={[

@@ -27,6 +27,7 @@ import {
   nativeTextScaleTextProps,
   type NativeTextScaleLayoutObserver,
 } from '../lib/nativeTextScaleLayout';
+import { LanguageSelector } from '../i18n/LanguageSelector';
 
 export default function Profile({
   onTextScaleLayout,
@@ -428,6 +429,10 @@ export default function Profile({
         <KV k="Phone" v={user?.phone ?? '—'} />
         <KV k="Balance" v={'🪙 ' + (user?.coins ?? 0)} color={C.gold} />
         <KV k="Member since" v={String(user?.$createdAt ?? user?.createdAt ?? '—').slice(0, 10)} />
+      </Card>
+
+      <Card>
+        <LanguageSelector />
       </Card>
 
       <Card>

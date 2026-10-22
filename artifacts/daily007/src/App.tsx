@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { AppState, View, ActivityIndicator, StyleSheet, Alert, Pressable, useWindowDimensions } from 'react-native';
+import { AppState, View, ActivityIndicator, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import * as Network from 'expo-network';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl } from '@workspace/api-client-react';
@@ -62,6 +62,10 @@ import {
 } from './lib/roleNavigation';
 import { useClerk } from '@clerk/expo';
 import type { GoogleSSONativeTestHarness } from './components/GoogleSSOButton';
+import { useTranslation } from 'react-i18next';
+import { Daily007LanguageProvider, useDaily007Language } from './i18n/LanguageProvider';
+import { showLocalizedAlert } from './i18n/alerts';
+import { translateExactText } from './i18n';
 
 export type Ctx = {
   user: User;
@@ -141,6 +145,7 @@ const UI = colors.light;
 
 function Tabs() {
   const { width, fontScale } = useWindowDimensions();
+  const { t, i18n } = useTranslation();
   return (
     <Tab.Navigator screenOptions={{
       headerShown: false,
@@ -151,14 +156,15 @@ function Tabs() {
       tabBarActiveTintColor: UI.accent, tabBarInactiveTintColor: UI.mutedForeground,
       tabBarLabelStyle: {
         width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center',
-        fontSize: 12, fontWeight: '900', letterSpacing: 0.55, fontFamily: 'Rajdhani_700Bold',
+        fontSize: 12, fontWeight: '900', letterSpacing: 0.55,
+        fontFamily: i18n.language === 'en' ? 'Rajdhani_700Bold' : undefined,
       },
     }}>
-      <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: 'HOME', tabBarIcon: ({ focused }) => focused ? <HomeIconActive /> : <HomeIconInactive /> }} />
-      <Tab.Screen name="Video" component={Video} options={{ tabBarLabel: 'VIDEO', tabBarIcon: ({ focused }) => focused ? <VideoIconActive /> : <VideoIconInactive /> }} />
-      <Tab.Screen name="Earn" component={Earn} options={{ tabBarLabel: 'EARN', tabBarIcon: ({ focused }) => focused ? <EarnIconActive /> : <EarnIconInactive /> }} />
-      <Tab.Screen name="Wallet" component={Wallet} options={{ tabBarLabel: 'WALLET', tabBarIcon: ({ focused }) => focused ? <WalletIconActive /> : <WalletIconInactive /> }} />
-      <Tab.Screen name="Profile" component={Profile} options={{ tabBarLabel: 'PROFILE', tabBarIcon: ({ focused }) => focused ? <ProfileIconActive /> : <ProfileIconInactive /> }} />
+      <Tab.Screen name="Home" component={Home} options={{ tabBarLabel: t('HOME'), tabBarIcon: ({ focused }) => focused ? <HomeIconActive /> : <HomeIconInactive /> }} />
+      <Tab.Screen name="Video" component={Video} options={{ tabBarLabel: t('VIDEO'), tabBarIcon: ({ focused }) => focused ? <VideoIconActive /> : <VideoIconInactive /> }} />
+      <Tab.Screen name="Earn" component={Earn} options={{ tabBarLabel: t('EARN'), tabBarIcon: ({ focused }) => focused ? <EarnIconActive /> : <EarnIconInactive /> }} />
+      <Tab.Screen name="Wallet" component={Wallet} options={{ tabBarLabel: t('WALLET'), tabBarIcon: ({ focused }) => focused ? <WalletIconActive /> : <WalletIconInactive /> }} />
+      <Tab.Screen name="Profile" component={Profile} options={{ tabBarLabel: t('PROFILE'), tabBarIcon: ({ focused }) => focused ? <ProfileIconActive /> : <ProfileIconInactive /> }} />
     </Tab.Navigator>
   );
 }
@@ -196,7 +202,7 @@ function JoinFormRoute() {
           throw new Error(result?.error || result?.message || 'Team changes could not be saved.');
         }
         await refresh();
-        Alert.alert('Team updated', 'Your team details were saved. No additional coins were charged.');
+        showLocalizedAlert('Team updated', 'Your team details were saved. No additional coins were charged.');
         navigation.goBack();
         return;
       }
@@ -212,7 +218,7 @@ function JoinFormRoute() {
         }
         await refresh();
         const entryCoins = Number(result.entryCoinsPaid ?? tournament.entryCoins ?? 0);
-        Alert.alert(
+        showLocalizedAlert(
           'Registration confirmed',
           entryCoins > 0
             ? `Your player slot is confirmed and ${entryCoins} coins were deducted from your wallet. Check MY MATCHES for room details.`
@@ -239,9 +245,9 @@ function JoinFormRoute() {
         const message = entryCoins > 0
           ? `Your slot is confirmed and ${entryCoins} coins were deducted from your wallet. Check MY MATCHES for room details.`
           : 'Your slot is confirmed. Check MY MATCHES for room details.';
-        Alert.alert('Registration confirmed', message);
+        showLocalizedAlert('Registration confirmed', message);
       } else {
-        Alert.alert('Registration pending', 'This registration is still awaiting admin review. Check MY MATCHES for its status and room details.');
+        showLocalizedAlert('Registration pending', 'This registration is still awaiting admin review. Check MY MATCHES for its status and room details.');
       }
       navigation.goBack();
     }} />;
@@ -258,7 +264,7 @@ const navTheme = {
   },
 };
 
-function DailyApp({
+function DailyAppContent({
   signOutClerk,
   testInitialUser,
   logoutNativeTestControls,
@@ -271,6 +277,8 @@ function DailyApp({
 }) {
   const [booting, setBooting] = useState(!testInitialUser);
   const [user, setUser] = useState<User | null>(testInitialUser ?? null);
+  const { setAccountId } = useDaily007Language();
+  const { t } = useTranslation();
   const [logoutPending, setLogoutPending] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
   const [googleLinkError, setGoogleLinkError] = useState('');
@@ -283,6 +291,11 @@ function DailyApp({
   const resumeAccessRefreshRequest = useRef<Promise<User | null> | null>(null);
   const verificationRequest = useRef<Promise<void> | null>(null);
   const logoutInFlight = useRef(false);
+
+  useEffect(() => {
+    const accountId = user?.id ?? user?.$id ?? null;
+    void setAccountId(accountId);
+  }, [user?.id, user?.$id, setAccountId]);
 
   useEffect(() => {
     const handleExpiredSession = (reason?: 'blocked') => {
@@ -503,13 +516,13 @@ function DailyApp({
         }
       });
       if (clerkSignOutFailed) {
-        Alert.alert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
+        showLocalizedAlert('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed. Please reopen the app and try again.');
       }
       if (retryClearFailed) {
-        Alert.alert('Sign-out issue', 'Daily007 signed out, but the saved video coin retry could not be cleared from this device.');
+        showLocalizedAlert('Sign-out issue', 'Daily007 signed out, but the saved video coin retry could not be cleared from this device.');
       }
       if (sessionClearFailed) {
-        Alert.alert(
+        showLocalizedAlert(
           'Sign-out issue',
           'Daily007 signed out, but device storage could not save the sign-out. Free some storage and sign out again before reopening the app.',
         );
@@ -622,7 +635,12 @@ function DailyApp({
           <Stack.Navigator screenOptions={{
             headerStyle: { backgroundColor: UI.muted },
             headerTintColor: UI.tint,
-            headerTitleStyle: { color: UI.accent, fontSize: 18, fontWeight: '700', fontFamily: 'Rajdhani_700Bold' },
+            headerTitleStyle: {
+              color: UI.accent,
+              fontSize: 18,
+              fontWeight: '700',
+              fontFamily: i18n.language === 'en' ? 'Rajdhani_700Bold' : undefined,
+            },
             contentStyle: { backgroundColor: UI.background },
           }}>
             {rootNavigation === 'Admin' ? (
@@ -630,21 +648,34 @@ function DailyApp({
             ) : (
               <>
                 <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-                <Stack.Screen name="ModeSubmodes" component={ModeSubmodes} options={{ title: 'SELECT FORMAT' }} />
-                <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: 'MATCHES' }} />
-                <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: 'MY MATCHES' }} />
-                <Stack.Screen name="TDetail" component={TDetail} options={{ title: 'TOURNAMENT' }} />
-                <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: 'REGISTER', presentation: 'modal' }} />
-                <Stack.Screen name="LeaderboardDetails" component={LeaderboardDetails} options={{ title: 'Leaderboard' }} />
-                <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: 'LEADERBOARD' }} />
-                <Stack.Screen name="Notifications" component={Notifications} options={{ title: 'NOTIFICATIONS' }} />
-                <Stack.Screen name="EditProfile" component={EditProfile} options={{ title: 'EDIT PROFILE' }} />
+                <Stack.Screen name="ModeSubmodes" component={ModeSubmodes} options={{ title: t('SELECT FORMAT') }} />
+                <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: t('MATCHES') }} />
+                <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: t('MY MATCHES') }} />
+                <Stack.Screen name="TDetail" component={TDetail} options={{ title: t('TOURNAMENT') }} />
+                <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: t('REGISTER'), presentation: 'modal' }} />
+                <Stack.Screen name="LeaderboardDetails" component={LeaderboardDetails} options={{ title: t('Leaderboard') }} />
+                <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: t('LEADERBOARD') }} />
+                <Stack.Screen name="Notifications" component={Notifications} options={{ title: t('NOTIFICATIONS') }} />
+                <Stack.Screen name="EditProfile" component={EditProfile} options={{ title: t('EDIT PROFILE') }} />
               </>
             )}
           </Stack.Navigator>
         </NavigationContainer>
       </QueryClientProvider>
     </Ctx.Provider>
+  );
+}
+
+function DailyApp(props: {
+  signOutClerk?: () => Promise<void>;
+  testInitialUser?: User;
+  logoutNativeTestControls?: LogoutNativeTestControls;
+  googleSSONativeTestHarness?: GoogleSSONativeTestHarness;
+}) {
+  return (
+    <Daily007LanguageProvider>
+      <DailyAppContent {...props} />
+    </Daily007LanguageProvider>
   );
 }
 

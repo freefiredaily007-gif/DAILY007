@@ -39,6 +39,7 @@ import { Btn, Input, Msg } from '../components/ui';
 import GoogleSSOButton from '../components/GoogleSSOButton';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { referralSignupFromUrl } from '../lib/referral-invite';
+import { LanguageSelector } from '../i18n/LanguageSelector';
 
 const AUTH = colors.auth;
 
@@ -394,6 +395,7 @@ export default function Auth({
           </View>
 
           <View style={s.formCard}>
+        <LanguageSelector compact />
 
         <View style={[s.tabs, isSignup && s.signupTabs]}>
           <Pressable

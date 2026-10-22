@@ -5,6 +5,10 @@ import {
   StyleSheet,
 } from 'react-native';
 import type { TextInputProps, TextProps, TextStyle } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import { useLocalizedTextEnabled } from '../i18n/LanguageProvider';
+import '../i18n';
 
 const TYPE_SCALE = 1.24;
 const DEFAULT_TEXT_SIZE = 16.8;
@@ -129,8 +133,47 @@ function boldFontFamily(style: TextStyle) {
     : undefined;
 }
 
+function translateTextValue(value: string, t: TFunction) {
+  const leading = value.match(/^\s*/)?.[0] ?? '';
+  const trailing = value.match(/\s*$/)?.[0] ?? '';
+  const content = value.slice(leading.length, value.length - trailing.length);
+  if (!content) return value;
+  const direct = t(content, { defaultValue: content });
+  if (direct !== content) return `${leading}${direct}${trailing}`;
+
+  const uppercase = content.toUpperCase();
+  if (uppercase !== content) {
+    const translatedUppercase = t(uppercase, { defaultValue: uppercase });
+    if (translatedUppercase !== uppercase) return `${leading}${translatedUppercase}${trailing}`;
+  }
+
+  const normalizedMode = content.replace(/_/g, ' ').toUpperCase();
+  if (normalizedMode !== content && /^[A-Z0-9 ]+$/.test(normalizedMode)) {
+    const translatedMode = t(normalizedMode, { defaultValue: normalizedMode });
+    if (translatedMode !== normalizedMode) return `${leading}${translatedMode}${trailing}`;
+  }
+
+  return value;
+}
+
+function translateChildren(children: React.ReactNode, t: TFunction): React.ReactNode {
+  if (typeof children === 'string') return translateTextValue(children, t);
+  if (Array.isArray(children)) {
+    return children.map((child, index) => (
+      <React.Fragment key={index}>{translateChildren(child, t)}</React.Fragment>
+    ));
+  }
+  return children;
+}
+
+function translateProp(value: string | undefined, t: TFunction, enabled: boolean) {
+  return enabled && value ? translateTextValue(value, t) : value;
+}
+
 export function ReadableText({ children, style, ...props }: TextProps) {
   const inherited = useContext(InheritedTypography);
+  const localizationEnabled = useLocalizedTextEnabled();
+  const { t, i18n } = useTranslation();
   const flattenedStyle = StyleSheet.flatten(style);
   const ownFontSize = typeof flattenedStyle?.fontSize === 'number'
     ? scaleSize(flattenedStyle.fontSize)
@@ -144,10 +187,21 @@ export function ReadableText({ children, style, ...props }: TextProps) {
     ? paletteTextColor(flattenedStyle.color, flattenedStyle || {})
     : inherited.color ?? paletteTextColor(undefined, flattenedStyle || {});
   const fontFamily = boldFontFamily(flattenedStyle || {});
+  const translatedProps = localizationEnabled
+    ? {
+      accessibilityLabel: typeof props.accessibilityLabel === 'string'
+        ? translateTextValue(props.accessibilityLabel, t)
+        : props.accessibilityLabel,
+      accessibilityHint: typeof props.accessibilityHint === 'string'
+        ? translateTextValue(props.accessibilityHint, t)
+        : props.accessibilityHint,
+    }
+    : {};
 
   return (
     <NativeText
       {...props}
+      {...translatedProps}
       style={[
         style,
         {
@@ -155,12 +209,12 @@ export function ReadableText({ children, style, ...props }: TextProps) {
           lineHeight,
           color: textColor,
           fontWeight: '800',
-          ...(fontFamily ? { fontFamily } : {}),
+          fontFamily: i18n.language === 'en' ? fontFamily : undefined,
         },
       ]}
     >
       <InheritedTypography.Provider value={{ fontSize: effectiveSize, color: textColor }}>
-        {children}
+        {localizationEnabled ? translateChildren(children, t) : children}
       </InheritedTypography.Provider>
     </NativeText>
   );
@@ -170,6 +224,8 @@ export const ReadableTextInput = React.forwardRef<
   React.ComponentRef<typeof NativeTextInput>,
   TextInputProps
 >(function ReadableTextInput({ style, ...props }, ref) {
+  const localizationEnabled = useLocalizedTextEnabled();
+  const { t, i18n } = useTranslation();
   const flattenedStyle = StyleSheet.flatten(style);
   const fontSize = typeof flattenedStyle?.fontSize === 'number'
     ? scaleSize(flattenedStyle.fontSize)
@@ -202,6 +258,9 @@ export const ReadableTextInput = React.forwardRef<
     <NativeTextInput
       ref={ref}
       {...props}
+      placeholder={translateProp(props.placeholder, t, localizationEnabled)}
+      accessibilityLabel={translateProp(props.accessibilityLabel, t, localizationEnabled)}
+      accessibilityHint={translateProp(props.accessibilityHint, t, localizationEnabled)}
       placeholderTextColor={placeholderTextColor}
       style={[
         style,
@@ -211,7 +270,7 @@ export const ReadableTextInput = React.forwardRef<
           color: textColor,
           fontWeight: '700',
           ...paddingAdjustment,
-          ...(fontFamily ? { fontFamily } : {}),
+          fontFamily: i18n.language === 'en' ? fontFamily : undefined,
         },
       ]}
     />

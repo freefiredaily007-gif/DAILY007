@@ -255,7 +255,7 @@ export function ModeSeatSlotsPanel({
               </View>
               <View style={styles.joinedBadge}>
                 <Text style={styles.joinedText}>
-                  {joinedCount}/${layout.slotsPerGroup} JOINED
+                  {joinedCount}/{layout.slotsPerGroup} PLAYERS
                 </Text>
               </View>
             </View>

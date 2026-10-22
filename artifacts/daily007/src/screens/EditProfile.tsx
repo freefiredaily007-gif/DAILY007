@@ -1,10 +1,11 @@
 // EditProfile — update name, phone, game UID
 import React, { useState } from 'react';
-import { StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, ActivityIndicator } from 'react-native';
 import { ReadableText as Text, ReadableTextInput as TextInput } from '../components/typography';
 import { Api } from '../lib/api';
 import { useApp } from '../App';
 import { C, Card, Btn } from '../components/ui';
+import { showLocalizedAlert } from '../i18n/alerts';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 type EditProfileProps = {
@@ -37,7 +38,7 @@ export default function EditProfile({ updateProfile = Api.updateProfile }: EditP
   };
 
   const save = async () => {
-    if (!name.trim()) { Alert.alert('Missing', 'Name is required'); return; }
+    if (!name.trim()) { showLocalizedAlert('Missing', 'Name is required'); return; }
     setSaveError('');
     setRefreshError('');
     setSaving(true);
@@ -52,7 +53,7 @@ export default function EditProfile({ updateProfile = Api.updateProfile }: EditP
     try {
       const refreshedUser = await refresh();
       if (!refreshedUser) throw new Error('Profile refresh did not return a user.');
-      Alert.alert('Saved', 'Profile updated');
+      showLocalizedAlert('Saved', 'Profile updated');
     } catch {
       setRefreshError(
         'Your profile changes were saved, but the latest profile could not be loaded. Check your connection and retry loading your profile.',

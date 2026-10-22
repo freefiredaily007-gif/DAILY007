@@ -165,6 +165,8 @@
     "expo-network": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-sharing": "~57.0.22",
+    "i18next": "^26.5.3",
+    "react-i18next": "^17.1.0",
     "react-native-webview": "13.16.1"
   }
 }

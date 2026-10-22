@@ -22,6 +22,7 @@ import {
 } from '../lib/google-sso-flow';
 import { C, Input, Msg } from './ui';
 import colors from '../../constants/colors';
+import { translateExactText } from '../i18n';
 
 const AUTH = colors.auth;
 
@@ -59,13 +60,13 @@ export type GoogleRecoveryTestScenario =
 function reportGoogleError(onError: Props['onError'], message: string) {
   onError?.(message);
   if (Platform.OS !== 'web') {
-    AccessibilityInfo.announceForAccessibility(message);
+    AccessibilityInfo.announceForAccessibility(translateExactText(message));
   }
 }
 
 function announceGoogleStatus(message: string) {
   if (Platform.OS !== 'web') {
-    AccessibilityInfo.announceForAccessibility(message);
+    AccessibilityInfo.announceForAccessibility(translateExactText(message));
   }
 }
 
@@ -92,10 +93,12 @@ function GoogleButtonFrame({
   label: string;
   appearance?: 'default' | 'auth';
 }) {
+  const translatedLabel = translateExactText(label);
+  const waitingLabel = translateExactText('Connecting to Google. Please wait.');
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={loading ? `${label}. Connecting to Google. Please wait.` : label}
+      accessibilityLabel={loading ? `${translatedLabel}. ${waitingLabel}` : translatedLabel}
       accessibilityState={{ disabled: !!disabled || !!loading, busy: !!loading }}
       aria-busy={!!loading}
       testID="continue-with-google"
@@ -114,7 +117,7 @@ function GoogleButtonFrame({
         ? <Text style={[s.spinner, appearance === 'auth' && s.authSpinner]}>•••</Text>
         : <View style={s.googleMark}><FontAwesome accessible={false} name="google" size={18} color="#E4EAFF" /></View>}
       <Text style={[s.buttonText, appearance === 'auth' && s.authButtonText]}>
-        {loading ? 'CONNECTING TO GOOGLE…' : label}
+        {loading ? translateExactText('CONNECTING TO GOOGLE…') : translatedLabel}
       </Text>
     </Pressable>
   );

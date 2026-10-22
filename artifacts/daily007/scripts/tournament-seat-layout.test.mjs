@@ -94,6 +94,8 @@ test('returning from registration refreshes tournament seat availability immedia
 });
 
 test('mode seat cards preserve the Squad palette and show the Join action under the selected slot', () => {
+  assert.match(modeSeatSlotsSource, /\{joinedCount\}\/\{layout\.slotsPerGroup\} PLAYERS/);
+  assert.doesNotMatch(modeSeatSlotsSource, /\{joinedCount\}\/\{layout\.slotsPerGroup\} JOINED/);
   assert.match(modeSeatSlotsSource, /OPEN • SELECT/);
   assert.match(modeSeatSlotsSource, /borderColor: '#2ecc71'/);
   assert.match(modeSeatSlotsSource, /backgroundColor: 'rgba\(46, 204, 113, 0\.12\)'/);
